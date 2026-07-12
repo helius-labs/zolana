@@ -1,0 +1,189 @@
+use s3::request::tokio_backend::ReqwestRequest as RequestImpl;
+use s3::{
+    command::{Command, Multipart},
+    error::S3Error,
+    request::{Request, ResponseData},
+    serde_types::Part,
+    utils::PutStreamResponse,
+    Bucket,
+};
+use tokio::io::{AsyncRead, AsyncReadExt};
+
+// 100 MiB per part. S3/R2 allows max 10,000 parts, so this supports up to ~977 GB files.
+// The previous 8 MiB default (from rust-s3) only supported ~78 GB, which was exceeded by
+// merged snapshots causing "Part number must be an integer between 1 and 10000" errors.
+const MULTIPART_CHUNK_SIZE: usize = 100 * 1024 * 1024;
+const MULTIPART_CHUNK_SIZE_U64: u64 = MULTIPART_CHUNK_SIZE as u64;
+
+async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>, S3Error> {
+    let mut chunk = Vec::with_capacity(MULTIPART_CHUNK_SIZE);
+    let mut take = reader.take(MULTIPART_CHUNK_SIZE_U64);
+    take.read_to_end(&mut chunk).await?;
+    Ok(chunk)
+}
+
+// Slightly modified implementation of the multipart upload to avoid loading all chunks into
+// memory and limiting concurrency.
+pub async fn put_object_stream_custom<R: AsyncRead + Unpin>(
+    bucket: &Bucket,
+    reader: &mut R,
+    s3_path: impl AsRef<str>,
+) -> Result<PutStreamResponse, S3Error> {
+    put_object_stream_with_content_type_and_retries(
+        bucket,
+        reader,
+        s3_path.as_ref(),
+        "application/octet-stream",
+    )
+    .await
+}
+
+async fn put_object_stream_with_content_type_and_retries<R: AsyncRead + Unpin>(
+    bucket: &Bucket,
+    reader: &mut R,
+    s3_path: &str,
+    content_type: &str,
+) -> Result<PutStreamResponse, S3Error> {
+    // If the file is smaller than MULTIPART_CHUNK_SIZE, just do a regular upload.
+    // Otherwise perform a multi-part upload.
+    let first_chunk = read_chunk(reader).await?;
+    if first_chunk.len() < MULTIPART_CHUNK_SIZE {
+        let total_size = first_chunk.len();
+        let response_data = bucket
+            .put_object_with_content_type(s3_path, first_chunk.as_slice(), content_type)
+            .await?;
+        if response_data.status_code() >= 300 {
+            return Err(error_from_response_data(response_data)?);
+        }
+        return Ok(PutStreamResponse::new(
+            response_data.status_code(),
+            total_size,
+        ));
+    }
+
+    let msg = bucket
+        .initiate_multipart_upload(s3_path, content_type)
+        .await?;
+    let path = msg.key;
+    let upload_id = &msg.upload_id;
+
+    let mut part_number: u32 = 1;
+    let mut etags = Vec::new();
+
+    // Collect request handles
+    let mut total_size = first_chunk.len();
+
+    // Upload the first chunk
+    let response = make_multipart_request(
+        bucket,
+        &path,
+        first_chunk,
+        part_number,
+        upload_id,
+        content_type,
+    )
+    .await?;
+    if !(200..300).contains(&response.status_code()) {
+        // if chunk upload failed - abort the upload
+        bucket.abort_upload(&path, upload_id).await?;
+        return Err(error_from_response_data(response)?);
+    }
+    let etag = response.as_str()?;
+    etags.push(etag.to_string());
+
+    loop {
+        let mut handles = vec![];
+        let mut done = false;
+
+        for _ in 0..10 {
+            let chunk = read_chunk(reader).await?;
+            total_size += chunk.len();
+
+            done = chunk.len() < MULTIPART_CHUNK_SIZE;
+
+            // Start chunk upload
+            part_number += 1;
+            handles.push(make_multipart_request(
+                bucket,
+                &path,
+                chunk,
+                part_number,
+                upload_id,
+                content_type,
+            ));
+
+            if done {
+                break;
+            }
+        }
+
+        // Wait for all chunks to finish (or fail)
+        let responses = futures::future::join_all(handles).await;
+
+        for response in responses {
+            let response_data = response?;
+            if !(200..300).contains(&response_data.status_code()) {
+                // if chunk upload failed - abort the upload
+                match bucket.abort_upload(&path, upload_id).await {
+                    Ok(_) => {
+                        return Err(error_from_response_data(response_data)?);
+                    }
+                    Err(error) => {
+                        return Err(error);
+                    }
+                }
+            }
+
+            let etag = response_data.as_str()?;
+            etags.push(etag.to_string());
+        }
+
+        if done {
+            break;
+        }
+    }
+
+    // Finish the upload
+    let inner_data = etags
+        .into_iter()
+        .enumerate()
+        .map(|(i, x)| Part {
+            etag: x,
+            part_number: u32::try_from(i.saturating_add(1)).unwrap_or(u32::MAX),
+        })
+        .collect::<Vec<Part>>();
+    let response_data = bucket
+        .complete_multipart_upload(&path, &msg.upload_id, inner_data)
+        .await?;
+
+    Ok(PutStreamResponse::new(
+        response_data.status_code(),
+        total_size,
+    ))
+}
+
+async fn make_multipart_request(
+    bucket: &Bucket,
+    path: &str,
+    chunk: Vec<u8>,
+    part_number: u32,
+    upload_id: &str,
+    content_type: &str,
+) -> Result<ResponseData, S3Error> {
+    let command = Command::PutObject {
+        content: &chunk,
+        multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
+        content_type,
+        custom_headers: None,
+    };
+    let request = RequestImpl::new(bucket, path, command).await?;
+    request.response_data(true).await
+}
+
+fn error_from_response_data(response_data: ResponseData) -> Result<S3Error, S3Error> {
+    let utf8_content = String::from_utf8(response_data.as_slice().to_vec())?;
+    Err(S3Error::HttpFailWithBody(
+        response_data.status_code(),
+        utf8_content,
+    ))
+}

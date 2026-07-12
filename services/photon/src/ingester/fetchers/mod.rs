@@ -1,0 +1,70 @@
+use std::sync::Arc;
+
+use async_stream::stream;
+use futures::{pin_mut, Stream, StreamExt};
+use solana_client::nonblocking::rpc_client::RpcClient;
+
+use super::typedefs::block_info::BlockInfo;
+
+pub mod grpc;
+pub mod poller;
+
+use grpc::get_grpc_stream_with_rpc_fallback;
+use poller::get_block_poller_stream;
+
+pub struct BlockStreamConfig {
+    pub rpc_client: Arc<RpcClient>,
+    pub geyser_url: Option<String>,
+    pub max_concurrent_block_fetches: usize,
+    pub last_indexed_slot: u64,
+}
+
+impl BlockStreamConfig {
+    pub fn load_block_stream(&self) -> impl Stream<Item = Vec<BlockInfo>> {
+        let grpc_stream = self.geyser_url.as_ref().and_then(|geyser_url| {
+            let auth_header = match std::env::var("GRPC_X_TOKEN") {
+                Ok(auth_header) => auth_header,
+                Err(err) => {
+                    log::error!(
+                        "GRPC_X_TOKEN is required when grpc_url is configured; falling back to RPC polling: {}",
+                        err
+                    );
+                    return None;
+                }
+            };
+            Some(get_grpc_stream_with_rpc_fallback(
+                    geyser_url.clone(),
+                    auth_header,
+                    self.rpc_client.clone(),
+                    self.last_indexed_slot,
+                    self.max_concurrent_block_fetches,
+                ))
+        });
+
+        let poller_stream = if grpc_stream.is_none() {
+            Some(get_block_poller_stream(
+                self.rpc_client.clone(),
+                self.last_indexed_slot,
+                self.max_concurrent_block_fetches,
+            ))
+        } else {
+            None
+        };
+
+        stream! {
+            if let Some(grpc_stream) = grpc_stream {
+                pin_mut!(grpc_stream);
+                while let Some(blocks) = grpc_stream.next().await {
+                    yield blocks;
+                }
+            }
+
+            if let Some(poller_stream) = poller_stream {
+                pin_mut!(poller_stream);
+                while let Some(blocks) = poller_stream.next().await {
+                    yield blocks;
+                }
+            }
+        }
+    }
+}
