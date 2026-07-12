@@ -117,7 +117,8 @@ fn restart_localnet() {
     let status = Command::new(&cli)
         .current_dir(root)
         .args([
-            "test-validator",
+            "dev",
+            "start",
             "--no-use-surfpool",
             "--with-photon",
             "--skip-prover",
@@ -135,8 +136,8 @@ fn restart_localnet() {
             &user_registry_so,
         ])
         .status()
-        .expect("run zolana test-validator");
-    assert!(status.success(), "zolana test-validator restart failed");
+        .expect("run zolana dev start");
+    assert!(status.success(), "zolana dev start restart failed");
 }
 
 fn cli_bin() -> PathBuf {
@@ -249,7 +250,8 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     let create_tree_out = run_cli_with_env(
         &[
-            "wallet",
+            "dev",
+            "pool",
             "create-tree",
             "--keypair",
             &alice.display().to_string(),
@@ -268,7 +270,8 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     let test_mint_out = run_cli_with_env(
         &[
-            "wallet",
+            "dev",
+            "pool",
             "test-mint",
             "--keypair",
             &alice.display().to_string(),
@@ -309,7 +312,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         "unregistered ATA should start empty"
     );
 
-    let asset_registry_out = run_cli_with_env(&["config", "asset-registry"], &cli_env)?;
+    let asset_registry_out = run_cli_with_env(&["config", "asset", "list"], &cli_env)?;
     assert!(
         asset_registry_out.contains(&spl_mint),
         "asset registry missing SPL mint: {asset_registry_out}"
@@ -319,7 +322,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     for _ in 0..2 {
         run_cli_with_env(
             &[
-                "wallet",
                 "deposit",
                 "--keypair",
                 &alice.display().to_string(),
@@ -342,7 +344,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     let sync_out = run_cli_with_env(
         &[
-            "wallet",
             "sync",
             "--keypair",
             &bob.display().to_string(),
@@ -357,7 +358,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     let balance_out = run_cli_with_env(
         &[
-            "wallet",
             "balance",
             "--keypair",
             &bob.display().to_string(),
@@ -379,7 +379,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     run_cli_with_env(
         &[
-            "wallet",
             "deposit",
             "--keypair",
             &alice.display().to_string(),
@@ -401,7 +400,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     let spl_balance_out = run_cli_with_env(
         &[
-            "wallet",
             "balance",
             "--keypair",
             &bob.display().to_string(),
@@ -422,7 +420,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     let alice_funding = funding_pubkey(&alice)?;
     run_cli_with_env(
         &[
-            "wallet",
             "transfer",
             "--keypair",
             &bob.display().to_string(),
@@ -446,7 +443,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     run_cli_with_env(
         &[
-            "wallet",
             "transfer",
             "--keypair",
             &bob.display().to_string(),
@@ -473,7 +469,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         spl_token_account_amount(&rpc, &alice_token_account.parse()?)?;
     run_cli_with_env(
         &[
-            "wallet",
             "transfer",
             "--keypair",
             &bob.display().to_string(),
@@ -507,7 +502,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     run_cli_with_env(
         &[
-            "wallet",
             "sync",
             "--keypair",
             &alice.display().to_string(),
@@ -521,7 +515,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     run_cli_with_env(
         &[
-            "wallet",
             "withdraw",
             "--keypair",
             &alice.display().to_string(),
@@ -545,7 +538,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     let alice_spl_balance_out = run_cli_with_env(
         &[
-            "wallet",
             "balance",
             "--keypair",
             &alice.display().to_string(),
@@ -571,7 +563,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     );
     run_cli_with_env(
         &[
-            "wallet",
             "withdraw",
             "--keypair",
             &alice.display().to_string(),

@@ -358,7 +358,7 @@ pub fn spawn_prover() -> Result<(), ClientError> {
     let port = prover_port(&server_address());
     let spawn_result = Command::new("sh")
         .arg("-c")
-        .arg(format!("{cli} start-prover --prover-port {port}"))
+        .arg(format!("{cli} dev prover start --prover-port {port}"))
         .spawn();
 
     let result = match spawn_result {

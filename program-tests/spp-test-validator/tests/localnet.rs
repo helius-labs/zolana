@@ -87,7 +87,8 @@ pub(crate) fn restart_localnet() {
     let status = std::process::Command::new(&cli)
         .current_dir(root)
         .args([
-            "test-validator",
+            "dev",
+            "start",
             "--no-use-surfpool",
             "--with-photon",
             "--skip-prover",
@@ -110,8 +111,8 @@ pub(crate) fn restart_localnet() {
             account_dir,
         ])
         .status()
-        .expect("run zolana test-validator");
-    assert!(status.success(), "zolana test-validator restart failed");
+        .expect("run zolana dev start");
+    assert!(status.success(), "zolana dev start restart failed");
 }
 
 pub(crate) fn send_transaction(

@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    args::{ConfigAddAssetOptions, ConfigCommand, ConfigSetOptions},
+    args::{ConfigAddAssetOptions, ConfigAssetCommand, ConfigCommand, ConfigSetOptions},
     cli_config::{
         config_file_path, default_keypair_path, CliConfigFile, DEFAULT_INDEXER_URL,
         DEFAULT_PROVER_URL, DEFAULT_RPC_URL, DEFAULT_TREE,
@@ -13,9 +13,21 @@ pub(crate) fn run_config(command: ConfigCommand) -> Result<()> {
     match command {
         ConfigCommand::Get => run_config_get(),
         ConfigCommand::Set(opts) => run_config_set(opts),
-        ConfigCommand::AssetRegistry => run_asset_registry(),
-        ConfigCommand::AddAsset(opts) => run_add_asset(opts),
+        ConfigCommand::Asset { command } => run_config_asset(command),
     }
+}
+
+fn run_config_asset(command: ConfigAssetCommand) -> Result<()> {
+    match command {
+        ConfigAssetCommand::List => run_asset_list(),
+        ConfigAssetCommand::Add(opts) => run_add_asset(opts),
+        ConfigAssetCommand::Path => run_asset_path(),
+    }
+}
+
+fn run_asset_path() -> Result<()> {
+    println!("{}", config_file_path().display());
+    Ok(())
 }
 
 fn run_config_get() -> Result<()> {
@@ -83,7 +95,7 @@ fn run_config_set(opts: ConfigSetOptions) -> Result<()> {
     Ok(())
 }
 
-fn run_asset_registry() -> Result<()> {
+fn run_asset_list() -> Result<()> {
     let config = CliConfigFile::load()?;
     print_assets(&config);
     Ok(())

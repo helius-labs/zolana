@@ -26,12 +26,12 @@ Commands:
 zolana config get
 zolana config set --keypair ~/.config/zolana/pid.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
 zolana wallet init --airdrop-lamports 1000000000
-zolana wallet create-tree --tree-keypair /tmp/zolana-tree.json --airdrop-lamports 20000000000
-zolana wallet sync --indexer-url http://127.0.0.1:8784
-zolana wallet balance --indexer-url http://127.0.0.1:8784
-zolana wallet deposit --amount 1000000000 --mint SOL --airdrop-lamports 2000000000
-zolana wallet transfer --to <RECIPIENT_SOLANA_PUBKEY> --amount 300000000 --mint SOL
-zolana wallet withdraw --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
+zolana dev pool create-tree --tree-keypair /tmp/zolana-tree.json --airdrop-lamports 20000000000
+zolana sync --indexer-url http://127.0.0.1:8784
+zolana balance --indexer-url http://127.0.0.1:8784
+zolana deposit --amount 1000000000 --mint SOL --airdrop-lamports 2000000000
+zolana transfer --to <RECIPIENT_SOLANA_PUBKEY> --amount 300000000 --mint SOL
+zolana withdraw --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
 ```
 
 Wallet commands use the wallet file's Solana funding key for fees/public SOL
@@ -47,13 +47,13 @@ the transfer is built as a public SOL withdrawal to that pubkey. `withdraw --to
 
 CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The
-`keypair` config field is the path to the wallet file (`pid.json`). `create-tree`
-writes the created tree pubkey into this config file; `deposit`, `transfer`, and
-`withdraw` only require `--tree` when neither the flag nor config has a tree.
+`keypair` config field is the path to the wallet file (`pid.json`). `dev pool
+create-tree` writes the created tree pubkey into this config file; `deposit`,
+`transfer`, and `withdraw` only require `--tree` when neither the flag nor config
+has a tree.
 
 Optional wallet path:
 
 ```bash
 --keypair /path/to/pid.json
 ```
-

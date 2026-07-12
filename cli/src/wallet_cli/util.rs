@@ -43,7 +43,7 @@ pub(super) fn configured_spl_token_account(
     let mint = Pubkey::new_from_array(asset.to_bytes());
     config
         .token_account_for_mint(mint)?
-        .ok_or_else(|| anyhow::anyhow!("no token account configured for SPL mint {mint}; run `zolana wallet test-mint` or `zolana config add-asset --mint {mint} --asset-id <ID> --token-account <ACCOUNT>`"))
+        .ok_or_else(|| anyhow::anyhow!("no token account configured for SPL mint {mint}; run `zolana dev pool test-mint` or `zolana config asset add --mint {mint} --asset-id <ID> --token-account <ACCOUNT>`"))
         .map(Some)
 }
 
