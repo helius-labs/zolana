@@ -6,4 +6,5 @@ pub mod ingester;
 pub mod migration;
 pub mod monitor;
 pub mod openapi;
+pub mod rpc;
 pub mod snapshot;

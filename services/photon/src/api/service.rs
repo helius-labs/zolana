@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use crate::rpc::RpcClient;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use utoipa::openapi::{RefOr, Schema};
 use utoipa::PartialSchema;
 use zolana_indexer_api::{

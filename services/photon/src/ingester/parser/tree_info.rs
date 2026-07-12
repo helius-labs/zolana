@@ -2,9 +2,9 @@ use crate::api::error::PhotonApiError;
 use crate::dao::generated::{prelude::*, tree_metadata};
 use crate::ingester::error::IngesterError;
 use crate::monitor::tree_metadata_sync;
+use crate::rpc::RpcClient;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, TransactionTrait};
 use solana_pubkey::Pubkey;
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]

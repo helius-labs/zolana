@@ -334,7 +334,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8140a40827bdfd74720f1f3084778fa081262f2f43bd4bdbc350f98ce1b341c6"
 dependencies = [
  "anchor-syn",
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "syn 1.0.109",
@@ -369,7 +369,7 @@ dependencies = [
  "anchor-lang-idl",
  "base64 0.21.7",
  "bincode 1.3.3",
- "borsh 1.7.0",
+ "borsh",
  "bytemuck",
  "const-crypto",
  "solana-account-info 3.1.1",
@@ -518,15 +518,6 @@ name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
-
-[[package]]
-name = "arc-swap"
-version = "1.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
-dependencies = [
- "rustversion",
-]
 
 [[package]]
 name = "ark-bn254"
@@ -949,7 +940,7 @@ dependencies = [
  "pin-project-lite",
  "serde_core",
  "sync_wrapper",
- "tower 0.5.3",
+ "tower",
  "tower-layer",
  "tower-service",
 ]
@@ -1113,7 +1104,7 @@ dependencies = [
 name = "bloom-filter-bench"
 version = "0.1.0"
 dependencies = [
- "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
+ "light-program-profiler",
  "mollusk-svm",
  "pinocchio 0.11.2",
  "solana-account 2.2.1",
@@ -1124,36 +1115,13 @@ dependencies = [
 
 [[package]]
 name = "borsh"
-version = "0.10.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "115e54d64eb62cdebad391c19efc9dce4981c690c85a33a12199d99bb9546fee"
-dependencies = [
- "borsh-derive 0.10.4",
- "hashbrown 0.13.2",
-]
-
-[[package]]
-name = "borsh"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3f6da4992df95bbcd9af42a6c7dcb994498fc9048230405f3b36ff7cd3f145"
 dependencies = [
- "borsh-derive 1.7.0",
+ "borsh-derive",
  "bytes",
  "cfg_aliases",
-]
-
-[[package]]
-name = "borsh-derive"
-version = "0.10.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "831213f80d9423998dd696e2c5345aba6be7a0bd8cd19e31c5243e13df1cef89"
-dependencies = [
- "borsh-derive-internal",
- "borsh-schema-derive-internal",
- "proc-macro-crate 0.1.5",
- "proc-macro2",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -1163,32 +1131,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ae8fb4fb5740e4b2c4884ff95f5f32f5e8479db1e8fd8eb49ddbe09eb09bb7c"
 dependencies = [
  "once_cell",
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "borsh-derive-internal"
-version = "0.10.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65d6ba50644c98714aa2a70d13d7df3cd75cd2b523a2b452bf010443800976b3"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "borsh-schema-derive-internal"
-version = "0.10.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "276691d96f063427be83e6692b86148e488ebba9f48f77788724ca027ba3b6d4"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -1333,7 +1279,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a98356df42a2eb1bd8f1793ae4ee4de48e384dd974ce5eac8eee802edb7492be"
 dependencies = [
  "serde",
- "toml 0.8.23",
+ "toml",
 ]
 
 [[package]]
@@ -2711,21 +2657,6 @@ dependencies = [
 [[package]]
 name = "groth16-solana"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a6d1ffb18dbf5cfc60b11bd7da88474c672870247c1e5b498619bcb6ba3d8f5"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "num-bigint 0.4.6",
- "solana-bn254 2.2.2",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "groth16-solana"
-version = "0.2.0"
 source = "git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5#3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5"
 dependencies = [
  "ark-bn254 0.5.0",
@@ -3425,7 +3356,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
- "tower 0.5.3",
+ "tower",
  "tracing",
 ]
 
@@ -3436,7 +3367,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2da3f8ab5ce1bb124b6d082e62dffe997578ceaf0aeb9f3174a214589dc00f07"
 dependencies = [
  "heck 0.5.0",
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -3465,7 +3396,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
- "tower 0.5.3",
+ "tower",
  "tracing",
 ]
 
@@ -3626,106 +3557,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "light-account-checks"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34d74dd13535c6014abb4cac694e14083b206a7f6cf1bbbc9611aa5c2e11cdd1"
-dependencies = [
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "light-batched-merkle-tree"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3702b96798a1cc93c9d4b0d9eb6ee980481beb147ab663cfd260c71ec258c5f0"
-dependencies = [
- "aligned-sized",
- "borsh 0.10.4",
- "light-account-checks",
- "light-bloom-filter",
- "light-compressed-account",
- "light-hasher",
- "light-macros",
- "light-merkle-tree-metadata",
- "light-verifier",
- "light-zero-copy",
- "thiserror 2.0.18",
- "zerocopy",
-]
-
-[[package]]
-name = "light-bloom-filter"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "380b8cf734ccf5fbc1f5fed8e5308b57ebde6774d9304c167bcb0de2854412d8"
-dependencies = [
- "bitvec",
- "num-bigint 0.4.6",
- "solana-nostd-keccak",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "light-compressed-account"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2ce168f42dab1a4c01ad83993d68b17cd2dc1bb31ced8ab4edecaf5b666a8ad"
-dependencies = [
- "borsh 0.10.4",
- "bytemuck",
- "light-hasher",
- "light-macros",
- "light-program-profiler 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "light-zero-copy",
- "thiserror 2.0.18",
- "tinyvec",
- "zerocopy",
-]
-
-[[package]]
-name = "light-hasher"
-version = "5.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c822662e6e109bac0e132a43fd52a4ef684811245a794e048cf9cda001e934c8"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "borsh 0.10.4",
- "light-poseidon 0.3.0",
- "num-bigint 0.4.6",
- "sha3",
- "thiserror 2.0.18",
- "tinyvec",
-]
-
-[[package]]
-name = "light-macros"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "179ac51cadc1d0ca047b4d6265a7cc245ca3affc16a20a2749585aa6464d39c2"
-dependencies = [
- "bs58",
- "proc-macro2",
- "quote",
- "solana-pubkey 2.4.0",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "light-merkle-tree-metadata"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee2ef127f8b968a22203515fca1822cb54bb8f0bd84de392fcb9fb0b77855393"
-dependencies = [
- "borsh 0.10.4",
- "bytemuck",
- "light-compressed-account",
- "thiserror 2.0.18",
- "zerocopy",
-]
-
-[[package]]
 name = "light-poseidon"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3733,18 +3564,6 @@ checksum = "3c9a85a9752c549ceb7578064b4ed891179d20acd85f27318573b64d2d7ee7ee"
 dependencies = [
  "ark-bn254 0.4.0",
  "ark-ff 0.4.2",
- "num-bigint 0.4.6",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "light-poseidon"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39e3d87542063daaccbfecd78b60f988079b6ec4e089249658b9455075c78d42"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
  "num-bigint 0.4.6",
  "thiserror 1.0.69",
 ]
@@ -3764,17 +3583,6 @@ dependencies = [
 [[package]]
 name = "light-profiler-macro"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a8be18fe4de58a6f754caa74a3fbc6d8a758a26f1f3c24d5b0f5b55df5f5408"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "light-profiler-macro"
-version = "0.1.1"
 source = "git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f#b3155b505ce7c8a5718cb155326baef27d311d8f"
 dependencies = [
  "proc-macro2",
@@ -3785,53 +3593,11 @@ dependencies = [
 [[package]]
 name = "light-program-profiler"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1d345871581aebd8825868a3f08410290aa1cdddcb189ca7f7e588f61d79fcf"
-dependencies = [
- "light-profiler-macro 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "light-program-profiler"
-version = "0.1.1"
 source = "git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f#b3155b505ce7c8a5718cb155326baef27d311d8f"
 dependencies = [
- "light-profiler-macro 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
+ "light-profiler-macro",
  "mollusk-svm",
  "solana-program-runtime 2.3.13",
-]
-
-[[package]]
-name = "light-verifier"
-version = "10.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d829f997b17c7c65198bb93f0d645a4b2818aed2bd14bf2716e36171d4a9f3f"
-dependencies = [
- "groth16-solana 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "light-compressed-account",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "light-zero-copy"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5621fb515e14af46148699c0b65334aabe230a1d2cbd06736ccc7a408c8a4af"
-dependencies = [
- "light-zero-copy-derive",
- "zerocopy",
-]
-
-[[package]]
-name = "light-zero-copy-derive"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41c46425e5c7ab5203ff5c86ae2615b169cca55f9283f5f60f5dd74143be6934"
-dependencies = [
- "lazy_static",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -4290,7 +4056,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -4577,8 +4343,9 @@ dependencies = [
  "ark-bn254 0.5.0",
  "async-stream",
  "async-trait",
+ "base64 0.22.1",
  "bincode 2.0.1",
- "borsh 1.7.0",
+ "borsh",
  "bs58",
  "bytes",
  "cadence",
@@ -4604,9 +4371,7 @@ dependencies = [
  "serde_json",
  "solana-account 3.4.0",
  "solana-clock 3.1.0",
- "solana-commitment-config",
  "solana-pubkey 4.2.0",
- "solana-rpc-client",
  "solana-signature 3.4.1",
  "solana-transaction",
  "solana-transaction-error 3.2.1",
@@ -4614,11 +4379,12 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
- "tower 0.5.3",
+ "tokio-stream",
+ "tonic",
+ "tower",
  "tower-http 0.7.0",
  "tracing-subscriber",
  "utoipa",
- "yellowstone-grpc-client",
  "yellowstone-grpc-proto",
  "zolana-event",
  "zolana-indexer-api",
@@ -4808,15 +4574,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
 dependencies = [
  "elliptic-curve",
-]
-
-[[package]]
-name = "proc-macro-crate"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d6ea3c4595b96363c13943497db34af4460fb474a95c43f4446ad341b8c9785"
-dependencies = [
- "toml 0.5.11",
 ]
 
 [[package]]
@@ -5402,7 +5159,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-util",
- "tower 0.5.3",
+ "tower",
  "tower-http 0.6.11",
  "tower-service",
  "url",
@@ -5559,7 +5316,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be2a24f50780bc85f09cc6ac299bdf1424302742d77221106859c9d8b102126a"
 dependencies = [
  "arrayvec",
- "borsh 1.7.0",
+ "borsh",
  "bytes",
  "num-traits",
  "rand 0.8.6",
@@ -6141,10 +5898,10 @@ version = "0.1.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
- "borsh 1.7.0",
+ "borsh",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
- "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
+ "groth16-solana",
+ "light-program-profiler",
  "pinocchio 0.11.2",
  "pinocchio-system",
  "tinyvec",
@@ -6162,9 +5919,9 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "cucumber",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
+ "groth16-solana",
  "hex",
- "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
+ "light-program-profiler",
  "mollusk-svm",
  "num-bigint 0.4.6",
  "serde",
@@ -6476,7 +6233,7 @@ version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39c93e262f671bf402e1040e4a7e40b05d81da5956c7681948c975a0997517bb"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
  "bytemuck",
  "bytemuck_derive",
  "curve25519-dalek 4.1.3",
@@ -6633,7 +6390,7 @@ version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c04abbae16f57178a163125805637b8a076175bb5c0002fb04f4792bea901cf7"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
 ]
 
 [[package]]
@@ -6842,7 +6599,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8292c436b269ad23cecc8b24f7da3ab07ca111661e25e00ce0e1d22771951ab9"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
  "solana-instruction 3.4.0",
  "solana-sdk-ids 3.1.0",
 ]
@@ -7744,7 +7501,7 @@ version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f04fa578707b3612b095f0c8e19b66a1233f7c42ca8082fcb3b745afcc0add6"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
 ]
 
 [[package]]
@@ -8982,7 +8739,7 @@ version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea15126ebdc7e270c50d43884369af9f51d2308156d46a18e351522a164844d"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
  "bytemuck",
  "bytemuck_derive",
 ]
@@ -9163,7 +8920,7 @@ version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f9c6e142cdf1e7e77f480053ec9f0ce989890768ddf91f619b50f39d1b456f5"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
  "bytemuck",
  "bytemuck_derive",
  "num-derive",
@@ -9281,7 +9038,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c467c7c3bd056f8fe60119e7ec34ddd6f23052c2fa8f1f51999098063b72676"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
  "num-derive",
  "num-traits",
  "solana-borsh",
@@ -9901,15 +9658,6 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "toml"
 version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
@@ -10005,7 +9753,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-stream",
- "tower 0.5.3",
+ "tower",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -10022,19 +9770,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "tonic-health"
-version = "0.14.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcfab99db777fba2802f0dfa861d1628d1ae916fb199d29819941f139ae85082"
-dependencies = [
- "prost",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-prost",
 ]
 
 [[package]]
@@ -10062,21 +9797,6 @@ dependencies = [
  "syn 2.0.117",
  "tempfile",
  "tonic-build",
-]
-
-[[package]]
-name = "tower"
-version = "0.4.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
-dependencies = [
- "futures-core",
- "futures-util",
- "pin-project",
- "pin-project-lite",
- "tower-layer",
- "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -10115,7 +9835,7 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-util",
- "tower 0.5.3",
+ "tower",
  "tower-layer",
  "tower-service",
  "url",
@@ -10229,9 +9949,9 @@ version = "0.1.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
- "borsh 1.7.0",
+ "borsh",
  "bytemuck",
- "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
+ "light-program-profiler",
  "mollusk-svm",
  "num-bigint 0.4.6",
  "pinocchio 0.11.2",
@@ -10413,7 +10133,7 @@ dependencies = [
 name = "user-registry-tests"
 version = "0.1.0"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
  "cucumber",
  "litesvm",
  "solana-instruction 3.4.0",
@@ -11276,7 +10996,7 @@ dependencies = [
  "anyhow",
  "bincode 1.3.3",
  "bs58",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
+ "groth16-solana",
  "sha2 0.10.9",
  "solana-account 3.4.0",
  "solana-address 2.6.1",
@@ -11300,27 +11020,6 @@ name = "yansi"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
-
-[[package]]
-name = "yellowstone-grpc-client"
-version = "13.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "665537dc14c6f2d379f61de21a66052603ebe71f27f4df5fa5250992e08bde38"
-dependencies = [
- "arc-swap",
- "bytes",
- "futures",
- "hyper",
- "hyper-util",
- "log",
- "pin-project",
- "thiserror 2.0.18",
- "tokio",
- "tonic",
- "tonic-health",
- "tower 0.4.13",
- "yellowstone-grpc-proto",
-]
 
 [[package]]
 name = "yellowstone-grpc-proto"
@@ -11493,10 +11192,10 @@ dependencies = [
  "aligned-sized",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
- "borsh 1.7.0",
+ "borsh",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
- "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
+ "groth16-solana",
+ "light-program-profiler",
  "num-bigint 0.4.6",
  "num-traits",
  "rand 0.8.6",
@@ -11530,17 +11229,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zolana-byte-compat"
-version = "0.1.0"
-dependencies = [
- "light-batched-merkle-tree",
- "light-compressed-account",
- "solana-address 2.6.1",
- "zolana-batched-merkle-tree",
- "zolana-merkle-tree-metadata",
-]
-
-[[package]]
 name = "zolana-cli"
 version = "0.1.0"
 dependencies = [
@@ -11567,11 +11255,11 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
- "borsh 1.7.0",
+ "borsh",
  "bs58",
  "cucumber",
  "futures",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
+ "groth16-solana",
  "hex",
  "num-bigint 0.4.6",
  "num-traits",
@@ -11612,7 +11300,7 @@ dependencies = [
 name = "zolana-event"
 version = "0.1.0"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
  "solana-pubkey 4.2.0",
  "wincode",
 ]
@@ -11623,7 +11311,7 @@ version = "5.0.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
- "borsh 1.7.0",
+ "borsh",
  "light-poseidon 0.4.0",
  "num-bigint 0.4.6",
  "rand 0.8.6",
@@ -11664,9 +11352,9 @@ dependencies = [
 name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
+ "groth16-solana",
  "solana-address 2.6.1",
  "solana-instruction 3.4.0",
  "solana-program-error 3.0.1",
@@ -11716,7 +11404,7 @@ name = "zolana-merkle-tree-metadata"
 version = "0.11.0"
 dependencies = [
  "anchor-lang",
- "borsh 1.7.0",
+ "borsh",
  "bytemuck",
  "solana-address 2.6.1",
  "solana-msg 3.1.0",
@@ -11756,7 +11444,7 @@ name = "zolana-test-utils"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
- "borsh 1.7.0",
+ "borsh",
  "bytemuck",
  "solana-account 3.4.0",
  "solana-address 2.6.1",
@@ -11777,7 +11465,7 @@ name = "zolana-transaction"
 version = "0.1.0"
 dependencies = [
  "ark-bn254 0.5.0",
- "borsh 1.7.0",
+ "borsh",
  "criterion",
  "cucumber",
  "light-poseidon 0.4.0",
@@ -11809,7 +11497,7 @@ dependencies = [
 name = "zolana-user-registry"
 version = "0.1.0"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
  "pinocchio 0.11.2",
  "solana-address 2.6.1",
  "solana-msg 3.1.0",
@@ -11821,7 +11509,7 @@ dependencies = [
 name = "zolana-user-registry-interface"
 version = "0.1.0"
 dependencies = [
- "borsh 1.7.0",
+ "borsh",
  "solana-instruction 3.4.0",
  "solana-pubkey 4.2.0",
 ]

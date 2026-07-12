@@ -10,11 +10,11 @@ use sea_orm::ConnectionTrait;
 use sea_orm::DatabaseConnection;
 use sea_orm::DatabaseTransaction;
 
+use crate::rpc::RpcClient;
 use sea_orm::EntityTrait;
 use sea_orm::QueryTrait;
 use sea_orm::Set;
 use sea_orm::TransactionTrait;
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 
 use self::parser::state_update::StateUpdate;
 use self::persist::MAX_SQL_INSERTS;

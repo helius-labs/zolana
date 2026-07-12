@@ -4,6 +4,7 @@ use std::{
     str::FromStr,
 };
 
+use photon_indexer::rpc::RpcClient;
 use photon_indexer::{
     api::{
         error::PhotonApiError,
@@ -34,7 +35,6 @@ use sea_orm_migration::MigratorTrait;
 use serde::Deserialize;
 use serde_json::Value;
 use solana_pubkey::Pubkey;
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_signature::Signature;
 use zolana_indexer_api::{
     Base64String, GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest,

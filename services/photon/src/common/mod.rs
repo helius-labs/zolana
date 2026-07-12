@@ -5,9 +5,7 @@ use cadence::{BufferedUdpMetricSink, QueuingMetricSink, StatsdClient};
 use cadence_macros::set_global_default;
 use clap::{Parser, ValueEnum};
 use sea_orm::{DatabaseBackend, Value};
-use solana_commitment_config::CommitmentConfig;
-use solana_rpc_client::{api::config::RpcBlockConfig, nonblocking::rpc_client::RpcClient};
-use solana_transaction_status_client_types::{TransactionDetails, UiTransactionEncoding};
+use solana_transaction_status_client_types::TransactionDetails;
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool,
@@ -15,6 +13,8 @@ use sqlx::{
 pub mod bn254;
 pub mod indexer_context;
 pub mod rings_tree;
+
+use crate::rpc::RpcClient;
 
 pub fn relative_project_path(path: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path)
@@ -69,16 +69,7 @@ pub async fn get_genesis_hash_with_infinite_retry(rpc_client: &RpcClient) -> Str
 
 pub async fn fetch_block_parent_slot(rpc_client: &RpcClient, slot: u64) -> Result<u64> {
     Ok(rpc_client
-        .get_block_with_config(
-            slot,
-            RpcBlockConfig {
-                encoding: Some(UiTransactionEncoding::Base64),
-                transaction_details: Some(TransactionDetails::None),
-                rewards: None,
-                commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
-            },
-        )
+        .get_block(slot, TransactionDetails::None)
         .await
         .with_context(|| format!("Failed to fetch block {}", slot))?
         .parent_slot)
@@ -150,11 +141,7 @@ pub async fn fetch_current_slot_with_infinite_retry(client: &RpcClient) -> u64 {
 }
 
 pub fn get_rpc_client(rpc_url: &str) -> Arc<RpcClient> {
-    Arc::new(RpcClient::new_with_timeout_and_commitment(
-        rpc_url.to_string(),
-        Duration::from_secs(90),
-        CommitmentConfig::confirmed(),
-    ))
+    Arc::new(RpcClient::new(rpc_url.to_string()))
 }
 
 pub fn bind_sql_value(

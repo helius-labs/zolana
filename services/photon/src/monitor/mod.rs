@@ -8,11 +8,11 @@ use std::{
     time::Duration,
 };
 
+use crate::rpc::RpcClient;
 use cadence_macros::{statsd_count, statsd_gauge};
 use log::{error, info, warn};
 use once_cell::sync::Lazy;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use tokio::{
     task::JoinHandle,
     time::{interval, sleep},

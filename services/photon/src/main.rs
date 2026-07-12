@@ -23,10 +23,10 @@ use photon_indexer::migration::{
 };
 
 use photon_indexer::monitor::continuously_monitor_photon;
+use photon_indexer::rpc::RpcClient;
 use photon_indexer::snapshot::{
     get_snapshot_files_with_metadata, load_block_stream_from_directory_adapter, DirectoryAdapter,
 };
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
     SqlitePool,

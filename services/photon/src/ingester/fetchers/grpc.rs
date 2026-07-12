@@ -3,10 +3,10 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
 
+use crate::rpc::RpcClient;
 use async_stream::stream;
 use cadence_macros::statsd_count;
 use futures::future::{select, Either};
-use futures::sink::SinkExt;
 use futures::{pin_mut, Stream, StreamExt};
 use log::{error, info};
 use rand::{
@@ -14,13 +14,19 @@ use rand::{
     thread_rng,
 };
 use solana_pubkey::Pubkey;
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
+use tokio::sync::mpsc;
 use tokio::time::sleep;
-use yellowstone_grpc_client::{ClientTlsConfig, GeyserGrpcBuilderResult, GeyserGrpcClient};
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::{
+    metadata::MetadataValue,
+    transport::{ClientTlsConfig, Endpoint},
+    Request,
+};
 use yellowstone_grpc_proto::geyser::{
-    subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest, SubscribeRequestPing,
+    geyser_client::GeyserClient, subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest,
+    SubscribeRequestPing, SubscribeUpdate,
 };
 use yellowstone_grpc_proto::geyser::{
     SubscribeRequestFilterBlocks, SubscribeUpdateBlock, SubscribeUpdateTransactionInfo,
@@ -243,29 +249,21 @@ fn get_grpc_block_stream(
 ) -> impl Stream<Item = BlockInfo> {
     stream! {
         loop {
-            let mut grpc_tx;
+            let grpc_tx;
             let mut grpc_rx;
             {
-                let mut grpc_client = match build_geyser_client(endpoint.clone(), auth_header.clone()).await {
-                    Ok(grpc_client) => grpc_client,
+                let request = get_block_subscribe_request(last_indexed_slot.map(|slot| slot + 1));
+                let subscription = subscribe_to_geyser(
+                    endpoint.clone(),
+                    auth_header.clone(),
+                    request,
+                ).await;
+                match subscription {
+                    Ok(subscription) => (grpc_tx, grpc_rx) = subscription,
                     Err(e) => {
                         error!("Error connecting to gRPC, waiting one second then retrying connect: {}", e);
                         metric! {
                             statsd_count!("grpc_connect_error", 1);
-                        }
-                        sleep(Duration::from_secs(1)).await;
-                        continue;
-                    }
-                };
-                let subscription = grpc_client
-                    .subscribe_with_request(Some(get_block_subscribe_request(last_indexed_slot.map(|slot| slot + 1))))
-                    .await;
-                match subscription {
-                    Ok(subscription) => (grpc_tx, grpc_rx) = subscription,
-                    Err(e) => {
-                        error!("Error subscribing to gRPC stream, waiting one second then retrying connect: {}", e);
-                        metric! {
-                            statsd_count!("grpc_subscribe_error", 1);
                         }
                         sleep(Duration::from_secs(1)).await;
                         continue;
@@ -325,18 +323,34 @@ fn get_grpc_block_stream(
     }
 }
 
-async fn build_geyser_client(
+async fn subscribe_to_geyser(
     endpoint: String,
     auth_header: String,
-) -> GeyserGrpcBuilderResult<GeyserGrpcClient> {
-    GeyserGrpcClient::build_from_shared(endpoint)?
-        .x_token(Some(auth_header))?
+    request: SubscribeRequest,
+) -> anyhow::Result<(
+    mpsc::Sender<SubscribeRequest>,
+    tonic::codec::Streaming<SubscribeUpdate>,
+)> {
+    let channel = Endpoint::from_shared(endpoint)?
         .connect_timeout(Duration::from_secs(10))
-        .max_decoding_message_size(100 * 8388608)
         .tls_config(ClientTlsConfig::new().with_native_roots())?
         .timeout(Duration::from_secs(10))
         .connect()
-        .await
+        .await?;
+    let x_token = auth_header.parse::<MetadataValue<_>>()?;
+    let interceptor = move |mut request: Request<()>| {
+        request.metadata_mut().insert("x-token", x_token.clone());
+        Ok(request)
+    };
+    let mut client = GeyserClient::with_interceptor(channel, interceptor)
+        .max_decoding_message_size(100 * 8_388_608);
+    let (sender, receiver) = mpsc::channel(8);
+    sender.send(request).await?;
+    let stream = client
+        .subscribe(ReceiverStream::new(receiver))
+        .await?
+        .into_inner();
+    Ok((sender, stream))
 }
 
 fn generate_random_string(len: usize) -> String {

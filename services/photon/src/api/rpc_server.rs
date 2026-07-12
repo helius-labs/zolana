@@ -148,8 +148,8 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rpc::RpcClient;
     use sea_orm::Database;
-    use solana_rpc_client::nonblocking::rpc_client::RpcClient;
     use std::sync::Arc;
 
     #[tokio::test]

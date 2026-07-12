@@ -11,7 +11,6 @@ members = [
     "program-libs/user-registry-interface",
     "program-libs/merkle-tree-metadata",
     "program-libs/tree",
-    "program-tests/byte-compat",
     "program-tests/shielded-pool",
     "program-tests/spp-test-validator",
     "program-tests/test-utils",
@@ -192,8 +191,9 @@ tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 utoipa = { version = "5.5.0", features = ["yaml", "non_strict_integers"] }
-yellowstone-grpc-client = "13.1.1"
 yellowstone-grpc-proto = "12.5.0"
+tonic = { version = "0.14.6", default-features = false, features = ["transport", "tls-native-roots"] }
+tokio-stream = "0.1.18"
 zerocopy = "0.8.25"
 
 # Prover math/crypto.
