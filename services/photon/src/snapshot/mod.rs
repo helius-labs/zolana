@@ -259,16 +259,11 @@ impl GCSDirectoryAdapter {
             .await
             .context("Failed to list files in GCS")?;
 
-        let prefix_len = if self.gcs_prefix.is_empty() {
-            0
-        } else {
-            self.gcs_prefix.len() + 1
-        };
         let mut files = Vec::new();
 
         for object in objects {
-            if object.len() > prefix_len {
-                files.push(object[prefix_len..].to_string());
+            if let Some(relative) = relative_gcs_path(&self.gcs_prefix, &object) {
+                files.push(relative.to_string());
             }
         }
         Ok(files)
@@ -299,22 +294,21 @@ impl GCSDirectoryAdapter {
             format!("{}/{}", self.gcs_prefix, path)
         };
 
-        // Use resumable upload for reliable large file uploads
-        let access_token = gcs_utils::get_access_token()
+        gcs_utils::resumable_upload::resumable_upload(&self.gcs_bucket, &full_path, byte_stream)
             .await
-            .with_context(|| "Failed to get GCS access token")?;
-
-        gcs_utils::resumable_upload::resumable_upload(
-            &self.gcs_bucket,
-            &full_path,
-            byte_stream,
-            &access_token,
-        )
-        .await
-        .with_context(|| format!("Failed to write file to GCS: {:?}", full_path))?;
+            .with_context(|| format!("Failed to write file to GCS: {:?}", full_path))?;
 
         Ok(())
     }
+}
+
+fn relative_gcs_path<'a>(prefix: &str, object: &'a str) -> Option<&'a str> {
+    let relative = if prefix.is_empty() {
+        object
+    } else {
+        object.strip_prefix(prefix)?.strip_prefix('/')?
+    };
+    (!relative.is_empty()).then_some(relative)
 }
 
 pub struct FileSystemDirectoryAdapter {
@@ -902,6 +896,17 @@ pub async fn create_snapshot_from_byte_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gcs_paths_strip_only_a_complete_utf8_prefix() {
+        assert_eq!(
+            relative_gcs_path("snapshots", "snapshots/1.bin"),
+            Some("1.bin")
+        );
+        assert_eq!(relative_gcs_path("é", "é/1.bin"), Some("1.bin"));
+        assert_eq!(relative_gcs_path("é", "éclair.bin"), None);
+        assert_eq!(relative_gcs_path("", "1.bin"), Some("1.bin"));
+    }
 
     #[test]
     fn snapshot_header_codec_round_trips_with_body_prefix() {

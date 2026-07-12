@@ -24,7 +24,7 @@ pub struct RpcClient {
 #[derive(Debug, Error)]
 pub enum RpcError {
     #[error("RPC transport failed: {0}")]
-    Transport(#[from] reqwest::Error),
+    Transport(reqwest::Error),
     #[error("RPC method {method} failed with code {code}: {message}")]
     Response {
         method: &'static str,
@@ -38,6 +38,10 @@ pub enum RpcError {
 }
 
 impl RpcError {
+    fn transport(error: reqwest::Error) -> Self {
+        Self::Transport(error.without_url())
+    }
+
     pub fn response_code(&self) -> Option<i64> {
         match self {
             Self::Response { code, .. } => Some(*code),
@@ -82,10 +86,7 @@ struct ProgramAccount {
 impl RpcClient {
     pub fn new(url: String) -> Self {
         Self {
-            http: Client::builder()
-                .timeout(DEFAULT_TIMEOUT)
-                .build()
-                .expect("static RPC client configuration must be valid"),
+            http: Client::new(),
             url,
         }
     }
@@ -166,6 +167,7 @@ impl RpcClient {
         let response = self
             .http
             .post(&self.url)
+            .timeout(DEFAULT_TIMEOUT)
             .json(&json!({
                 "jsonrpc": "2.0",
                 "id": REQUEST_ID.fetch_add(1, Ordering::Relaxed),
@@ -173,10 +175,15 @@ impl RpcClient {
                 "params": params,
             }))
             .send()
-            .await?
-            .error_for_status()?
-            .json::<JsonRpcResponse<T>>()
-            .await?;
+            .await
+            .map_err(RpcError::transport)?;
+        let status_error = response.error_for_status_ref().err();
+        let response = match response.json::<JsonRpcResponse<T>>().await {
+            Ok(response) => response,
+            Err(error) => {
+                return Err(RpcError::transport(status_error.unwrap_or(error)));
+            }
+        };
         if let Some(error) = response.error {
             return Err(RpcError::Response {
                 method,
@@ -231,7 +238,29 @@ fn block_params(slot: u64, transaction_details: TransactionDetails) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread::JoinHandle,
+    };
+
     use super::*;
+
+    fn serve_once(status: &str, body: &str) -> (String, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            let _ = stream.read(&mut request).unwrap();
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        (format!("http://{address}"), handle)
+    }
 
     #[test]
     fn decodes_base64_accounts_without_account_decoder_crate() {
@@ -260,6 +289,47 @@ mod tests {
             message: "skipped".to_string(),
         };
         assert_eq!(error.response_code(), Some(-32007));
+    }
+
+    #[tokio::test]
+    async fn preserves_json_rpc_error_from_non_success_http_response() {
+        let (url, server) = serve_once(
+            "503 Service Unavailable",
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32007,"message":"skipped"}}"#,
+        );
+        let error = RpcClient::new(url)
+            .get_block(42, TransactionDetails::Full)
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+
+        assert_eq!(error.response_code(), Some(-32007));
+    }
+
+    #[tokio::test]
+    async fn transport_errors_do_not_expose_rpc_url_query() {
+        let (url, server) = serve_once("502 Bad Gateway", "not JSON");
+        let error = RpcClient::new(format!("{url}?api-key=super-secret"))
+            .get_slot()
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+
+        let message = error.to_string();
+        assert!(!message.contains("api-key"));
+        assert!(!message.contains("super-secret"));
+    }
+
+    #[tokio::test]
+    async fn preserves_null_result_from_non_success_http_response() {
+        let (url, server) = serve_once(
+            "503 Service Unavailable",
+            r#"{"jsonrpc":"2.0","id":1,"result":null}"#,
+        );
+        let error = RpcClient::new(url).get_slot().await.unwrap_err();
+        server.join().unwrap();
+
+        assert!(matches!(error, RpcError::MissingResult("getSlot")));
     }
 
     #[test]

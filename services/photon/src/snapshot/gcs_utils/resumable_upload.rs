@@ -3,9 +3,11 @@ use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
 use log::{debug, info, warn};
 use reqwest::header::{CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE};
-use reqwest::Client;
+use reqwest::{Client, Url};
 use std::time::Duration;
 use tokio::time::sleep;
+
+use super::auth::get_access_token;
 
 // 8 MB chunk size (GCS recommends multiples of 256KB, minimum 256KB for resumable)
 const CHUNK_SIZE: usize = 8 * 1024 * 1024;
@@ -18,17 +20,16 @@ pub async fn resumable_upload(
     bucket: &str,
     object_name: &str,
     byte_stream: impl Stream<Item = Result<Bytes>> + Send + 'static,
-    access_token: &str,
 ) -> Result<()> {
     // Step 1: Initiate the resumable upload session
-    let upload_uri = initiate_resumable_upload(bucket, object_name, access_token).await?;
+    let upload_uri = initiate_resumable_upload(bucket, object_name).await?;
     info!(
         "Initiated resumable upload for {}/{}, upload URI obtained",
         bucket, object_name
     );
 
     // Step 2: Upload chunks
-    upload_chunks(&upload_uri, byte_stream, access_token).await?;
+    upload_chunks(&upload_uri, byte_stream).await?;
 
     info!(
         "Successfully completed resumable upload for {}/{}",
@@ -38,21 +39,15 @@ pub async fn resumable_upload(
 }
 
 /// Initiates a resumable upload session and returns the upload URI
-async fn initiate_resumable_upload(
-    bucket: &str,
-    object_name: &str,
-    access_token: &str,
-) -> Result<String> {
+async fn initiate_resumable_upload(bucket: &str, object_name: &str) -> Result<String> {
     let client = Client::new();
-    let url = format!(
-        "https://storage.googleapis.com/upload/storage/v1/b/{}/o?uploadType=resumable&name={}",
-        bucket, object_name
-    );
+    let url = upload_url(bucket, object_name)?;
 
     for attempt in 0..MAX_RETRIES {
+        let access_token = get_access_token().await?;
         let response = client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", access_token))
+            .post(url.clone())
+            .bearer_auth(access_token)
             .header(CONTENT_TYPE, "application/json")
             .header("X-Upload-Content-Type", "application/octet-stream")
             .body("{}")
@@ -112,7 +107,6 @@ async fn initiate_resumable_upload(
 async fn upload_chunks(
     upload_uri: &str,
     byte_stream: impl Stream<Item = Result<Bytes>> + Send + 'static,
-    _access_token: &str,
 ) -> Result<()> {
     let client = Client::builder()
         .timeout(Duration::from_secs(300)) // 5 minute timeout per chunk
@@ -281,6 +275,19 @@ async fn upload_chunks(
     Ok(())
 }
 
+fn upload_url(bucket: &str, object_name: &str) -> Result<Url> {
+    let mut url = Url::parse("https://storage.googleapis.com/upload/storage/v1/b/")?;
+    url.path_segments_mut()
+        .map_err(|_| anyhow!("GCS upload API URL cannot contain path segments"))?
+        .pop_if_empty()
+        .push(bucket)
+        .push("o");
+    url.query_pairs_mut()
+        .append_pair("uploadType", "resumable")
+        .append_pair("name", object_name);
+    Ok(url)
+}
+
 /// Query the current upload status to determine how many bytes have been received
 async fn query_upload_status(
     client: &Client,
@@ -318,5 +325,19 @@ async fn query_upload_status(
             Ok(None)
         }
         Err(_) => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upload_url_encodes_bucket_and_object_name() {
+        let url = upload_url("test bucket", "snapshots/a&b.bin").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://storage.googleapis.com/upload/storage/v1/b/test%20bucket/o?uploadType=resumable&name=snapshots%2Fa%26b.bin"
+        );
     }
 }

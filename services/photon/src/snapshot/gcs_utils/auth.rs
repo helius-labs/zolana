@@ -27,22 +27,31 @@ struct TokenResponse {
 }
 
 pub(crate) async fn get_access_token() -> Result<String> {
-    let mut cache = TOKEN_CACHE.lock().await;
-    if let Some(token) = cache
-        .as_ref()
-        .filter(|token| token.refresh_at > Instant::now())
     {
-        return Ok(token.value.clone());
+        let cache = TOKEN_CACHE.lock().await;
+        if let Some(token) = cache
+            .as_ref()
+            .filter(|token| token.refresh_at > Instant::now())
+        {
+            return Ok(token.value.clone());
+        }
     }
 
     let token = fetch_access_token().await?;
+    let mut cache = TOKEN_CACHE.lock().await;
+    if let Some(current) = cache
+        .as_ref()
+        .filter(|current| current.refresh_at > Instant::now())
+    {
+        return Ok(current.value.clone());
+    }
     let value = token.value.clone();
     *cache = Some(token);
     Ok(value)
 }
 
 async fn fetch_access_token() -> Result<AccessToken> {
-    if let Some(credentials_json) = service_account_credentials()? {
+    if let Some(credentials_json) = service_account_credentials().await? {
         get_token_from_service_account(&credentials_json).await
     } else {
         get_token_from_metadata_service()
@@ -51,11 +60,12 @@ async fn fetch_access_token() -> Result<AccessToken> {
     }
 }
 
-fn service_account_credentials() -> Result<Option<String>> {
+async fn service_account_credentials() -> Result<Option<String>> {
     for name in ["SERVICE_ACCOUNT", "GOOGLE_APPLICATION_CREDENTIALS"] {
         if let Some(path) = env::var_os(name) {
             let path = PathBuf::from(path);
-            return std::fs::read_to_string(&path)
+            return tokio::fs::read_to_string(&path)
+                .await
                 .with_context(|| format!("Failed to read {name} file {}", path.display()))
                 .map(Some);
         }

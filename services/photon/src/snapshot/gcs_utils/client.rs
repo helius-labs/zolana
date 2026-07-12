@@ -52,12 +52,12 @@ impl GcsClient {
     }
 
     pub(crate) async fn list(&self, bucket: &str, prefix: &str) -> Result<Vec<String>> {
-        let token = get_access_token().await?;
         let url = collection_url(bucket)?;
         let mut page_token: Option<String> = None;
         let mut objects = Vec::new();
 
         loop {
+            let token = get_access_token().await?;
             let mut request = self.http.get(url.clone()).bearer_auth(&token);
             if !prefix.is_empty() {
                 request = request.query(&[("prefix", prefix)]);
@@ -143,7 +143,10 @@ mod tests {
             r#"{"items":[{"name":"snapshots/1.bin"}],"nextPageToken":"next"}"#,
         )
         .unwrap();
-        assert_eq!(page.items[0].name, "snapshots/1.bin");
+        assert_eq!(
+            page.items.first().map(|item| item.name.as_str()),
+            Some("snapshots/1.bin")
+        );
         assert_eq!(page.next_page_token.as_deref(), Some("next"));
     }
 }
