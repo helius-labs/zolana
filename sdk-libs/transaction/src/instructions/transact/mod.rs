@@ -8,7 +8,8 @@ pub mod signed_transaction;
 pub mod types;
 
 pub use builder::{
-    PreparedRecipient, PreparedTransaction, Shape, Transaction, WithdrawalTarget, SENDER_SLOT_COUNT,
+    canonical_shape, resolve_shape, PreparedRecipient, PreparedTransaction, Shape, Transaction,
+    WithdrawalTarget, SENDER_SLOT_COUNT, SUPPORTED_SHAPES,
 };
 pub use external_data::ExternalData;
 pub use signed_transaction::{PublicAmounts, SignedTransaction};

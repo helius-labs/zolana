@@ -377,6 +377,11 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
             tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
                 .unwrap();
         }
+        // Pin the (2,3) shape so the change-only and one-recipient builds share
+        // one shape: indistinguishability is a within-shape property, and with
+        // the full supported set a change-only transfer would otherwise resolve
+        // to the smaller (1,2) shape.
+        let tx = tx.with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
         let signed = sign(tx, &sender).unwrap();
         let commitments = signed.input_commitments().unwrap();
         let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
@@ -535,6 +540,10 @@ fn withdrawal_sets_external_data_and_change() {
         },
     )
     .unwrap();
+    // Pin (2,3): with the full supported set this lone-input, no-recipient
+    // withdrawal would resolve to (1,2); the test exercises the dummy padding
+    // slot the larger shape produces.
+    let tx = tx.with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
 
     let signed = sign(tx, &sender).unwrap();
     let first_nullifier = signed
