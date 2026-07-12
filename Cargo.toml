@@ -59,7 +59,7 @@ zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
-groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "16bfde3335ed9332a07276a05f2f0f7c68f4c638", features = ["bsb22"] }
+groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "43fee1a67e91c0df7bb4edad5ba87ae4602aa208", features = ["bsb22"] }
 
 # Published Light Protocol crates.
 aligned-sized = "1.1.0"

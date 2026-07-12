@@ -2306,7 +2306,7 @@ dependencies = [
 [[package]]
 name = "groth16-solana"
 version = "0.2.0"
-source = "git+https://github.com/Lightprotocol/groth16-solana?rev=16bfde3335ed9332a07276a05f2f0f7c68f4c638#16bfde3335ed9332a07276a05f2f0f7c68f4c638"
+source = "git+https://github.com/Lightprotocol/groth16-solana?rev=43fee1a67e91c0df7bb4edad5ba87ae4602aa208#43fee1a67e91c0df7bb4edad5ba87ae4602aa208"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -4932,7 +4932,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "borsh 1.6.1",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=16bfde3335ed9332a07276a05f2f0f7c68f4c638)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=43fee1a67e91c0df7bb4edad5ba87ae4602aa208)",
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "pinocchio 0.11.2",
  "pinocchio-system",
@@ -4951,7 +4951,7 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "cucumber",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=16bfde3335ed9332a07276a05f2f0f7c68f4c638)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=43fee1a67e91c0df7bb4edad5ba87ae4602aa208)",
  "hex",
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "mollusk-svm",
@@ -9383,7 +9383,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "bs58",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=16bfde3335ed9332a07276a05f2f0f7c68f4c638)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=43fee1a67e91c0df7bb4edad5ba87ae4602aa208)",
  "sha2 0.10.9",
  "solana-account 3.4.0",
  "solana-address 2.6.1",
@@ -9562,7 +9562,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "borsh 1.6.1",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=16bfde3335ed9332a07276a05f2f0f7c68f4c638)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=43fee1a67e91c0df7bb4edad5ba87ae4602aa208)",
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "num-bigint 0.4.6",
  "num-traits",
@@ -9639,7 +9639,7 @@ dependencies = [
  "bs58",
  "cucumber",
  "futures",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=16bfde3335ed9332a07276a05f2f0f7c68f4c638)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=43fee1a67e91c0df7bb4edad5ba87ae4602aa208)",
  "num-bigint 0.4.6",
  "num-traits",
  "p256",
@@ -9718,7 +9718,7 @@ version = "0.1.0"
 dependencies = [
  "borsh 1.6.1",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=16bfde3335ed9332a07276a05f2f0f7c68f4c638)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=43fee1a67e91c0df7bb4edad5ba87ae4602aa208)",
  "solana-address 2.6.1",
  "solana-instruction 3.4.0",
  "solana-program-error 3.0.1",
