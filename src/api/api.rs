@@ -12,10 +12,11 @@ use super::{
         get_indexer_slot::get_indexer_slot,
         rings::{
             get_encrypted_utxos_by_tags, get_merkle_proofs, get_non_inclusion_proofs,
-            get_shielded_transactions_by_tags, GetEncryptedUtxosByTagsResponse,
-            GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
-            GetNonInclusionProofsResponse, GetRingsByTagsRequest,
-            GetShieldedTransactionsByTagsResponse,
+            get_nullifier_queue_elements, get_shielded_transactions_by_tags,
+            GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest, GetMerkleProofsResponse,
+            GetNonInclusionProofsRequest, GetNonInclusionProofsResponse,
+            GetNullifierQueueElementsRequest, GetNullifierQueueElementsResponse,
+            GetRingsByTagsRequest, GetShieldedTransactionsByTagsResponse,
         },
     },
 };
@@ -91,6 +92,13 @@ impl PhotonApi {
         get_non_inclusion_proofs(self.db_conn.as_ref(), request).await
     }
 
+    pub async fn get_nullifier_queue_elements(
+        &self,
+        request: GetNullifierQueueElementsRequest,
+    ) -> Result<GetNullifierQueueElementsResponse, PhotonApiError> {
+        get_nullifier_queue_elements(self.db_conn.as_ref(), request).await
+    }
+
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {
         vec![
             OpenApiSpec {
@@ -112,6 +120,11 @@ impl PhotonApi {
                 name: "get_non_inclusion_proofs".to_string(),
                 request: Some(GetNonInclusionProofsRequest::schema()),
                 response: GetNonInclusionProofsResponse::schema(),
+            },
+            OpenApiSpec {
+                name: "get_nullifier_queue_elements".to_string(),
+                request: Some(GetNullifierQueueElementsRequest::schema()),
+                response: GetNullifierQueueElementsResponse::schema(),
             },
         ]
     }

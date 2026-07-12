@@ -478,6 +478,27 @@ async fn assert_encrypted_utxo_pagination(
         .iter()
         .map(|output| Hash::try_from(output.view_tag.clone()).unwrap())
         .collect::<Vec<_>>();
+    // The three sampled view tags can be shared by many outputs across the
+    // twenty batches, so the total match count is data-dependent. Fetch the full
+    // set first (1000 is the max page limit), then assert pagination walks it:
+    // page one returns a single match plus a cursor, and the cursor page returns
+    // the remainder and terminates.
+    let all_matches = get_encrypted_utxos_by_tags(
+        db,
+        GetRingsByTagsRequest {
+            tags: tags.clone(),
+            cursor: None,
+            limit: Some(Limit::new(1000).unwrap()),
+        },
+    )
+    .await
+    .expect("full encrypted UTXO query should succeed");
+    let total_matches = all_matches.matches.len();
+    assert!(
+        total_matches >= 2,
+        "fixture should yield at least two encrypted UTXO matches to paginate"
+    );
+
     let first_page = get_encrypted_utxos_by_tags(
         db,
         GetRingsByTagsRequest {
@@ -500,13 +521,13 @@ async fn assert_encrypted_utxo_pagination(
         GetRingsByTagsRequest {
             tags,
             cursor: Some(cursor),
-            limit: Some(Limit::new(10).unwrap()),
+            limit: Some(Limit::new(1000).unwrap()),
         },
     )
     .await
     .expect("second encrypted UTXO API page should succeed");
     assert_eq!(second_page.context.slot, context_slot);
-    assert_eq!(second_page.matches.len(), 2);
+    assert_eq!(second_page.matches.len(), total_matches - 1);
     assert!(second_page.next_cursor.is_none());
     let first_hash = first_page.matches[0]
         .output_slot

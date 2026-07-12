@@ -58,17 +58,17 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 
 const PROOFLESS_SHIELD_SIGNATURE: &str =
-    "3eQe8mWgmvAp97qvskayjLKSY1RoKZxzpAHKPRhEf9PKNC4QajZ7Vc9xQLJTxUuRZruCsYhdmwbNKQ7UgSquEGq1";
+    "3JAHH578NVLSh6Z3x2tXnNV4U9digpQb5CsFLrfac6fRNRCNQaRVsWNNrdQUT8PzUEw2MH78MkuKCZxqDoLKqNcX";
 const SHIELDED_TRANSFER_SIGNATURE: &str =
-    "2foK9oJdLPixqG2y15qrGi8Z1Sp68VZeWpL36aqRbdhsssvELo9opQXixs82U8M2H74KBEzy2in8DF7bRHFj9gJE";
+    "qjZhjGetrXJi74X726iYy773k4F5mZn4LymuywQi16FrqmZnRLcDNG7QyMgKps5jQwUUtk3JUsU5krji8iQX5oG";
 const UNSHIELD_SIGNATURE: &str =
-    "4eyZUsNuqQdVgVfvHiMMbPRmFz22oZvVNth5ZvRrJHhkTNJikSeMit9GhYzi5LmRqhVDeeVm7CofxVbcdbVTJckL";
+    "5irBHErycm6bDSSa8pi3HBJLYBBScsAkvYBq6UZNH2U5eGCFb4vVqnNDKPdWkEWRwWSXC5jvoNrQSca1ckJipriB";
 const ENCRYPTED_TRANSFER_SIGNATURE: &str =
-    "4o5j7i9Cy3FMFDBWoQZDL3WFRAuKADRH51jRLexte2GTSGAmQq5i34J9RmPqwXBAbWwLWGjQJuswadFjrbLALe2n";
-const PROOFLESS_SHIELD_SLOT: u64 = 17;
-const SHIELDED_TRANSFER_SLOT: u64 = 19;
-const UNSHIELD_SLOT: u64 = 21;
-const ENCRYPTED_TRANSFER_SLOT: u64 = 24;
+    "4FyvNoXWBkJp7Paf63aWpQRWR4jeEZAHYW86akuTxzSxcdA15DJTtJsAbHeRm821b73cd1zQvmiwxueeQPZn3GHd";
+const PROOFLESS_SHIELD_SLOT: u64 = 23;
+const SHIELDED_TRANSFER_SLOT: u64 = 25;
+const UNSHIELD_SLOT: u64 = 28;
+const ENCRYPTED_TRANSFER_SLOT: u64 = 19;
 
 #[test]
 fn parses_dumped_proofless_shield_event_with_photon_parser() {
@@ -1343,6 +1343,8 @@ fn parse_dumped_ingestion_update(signature: &str, slot: u64) -> StateUpdate {
 fn batch_update_transaction_info(tree: Pubkey) -> TransactionInfo {
     let data = BatchUpdateNullifierTreeData {
         new_root: [9; 32],
+        old_root: [8; 32],
+        zkp_batch_index: 0,
         compressed_proof: CompressedProof {
             a: [1; 32],
             b: [2; 64],

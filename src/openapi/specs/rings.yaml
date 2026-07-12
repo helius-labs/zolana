@@ -379,6 +379,132 @@ paths:
                     type: string
                   jsonrpc:
                     type: string
+  /get_nullifier_queue_elements:
+    summary: get_nullifier_queue_elements
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - get_nullifier_queue_elements
+                params:
+                  type: object
+                  required:
+                  - tree_account
+                  - limit
+                  properties:
+                    limit:
+                      type: integer
+                      format: u-int64
+                      description: Maximum number of elements to return.
+                      minimum: 0
+                    start_seq:
+                      type: integer
+                      format: u-int64
+                      description: Return elements with `input_queue_seq >= start_seq` (default 0).
+                      minimum: 0
+                    tree_account:
+                      $ref: '#/components/schemas/SerializablePubkey'
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    required:
+                    - context
+                    - elements
+                    properties:
+                      context:
+                        $ref: '#/components/schemas/Context'
+                      elements:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/NullifierQueueElement'
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
   /get_shielded_transactions_by_tags:
     summary: get_shielded_transactions_by_tags
     post:
@@ -657,6 +783,20 @@ components:
           format: u-int64
           minimum: 0
       additionalProperties: false
+    NullifierQueueElement:
+      type: object
+      description: One queued nullifier, in on-chain input-queue order.
+      required:
+      - seq
+      - value
+      properties:
+        seq:
+          type: integer
+          format: u-int64
+          minimum: 0
+        value:
+          $ref: '#/components/schemas/Hash'
+      additionalProperties: false
     RingsOutputContext:
       type: object
       required:
@@ -690,9 +830,9 @@ components:
     SerializablePubkey:
       type: string
       description: A Solana public key represented as a base58 string.
-      default: 111fcLTw6cc4kfAF9UhCriFQVbAMbL5WGR2Fn9G5eR
+      default: 111gbUgQk1ZFzZAQ2u4VePsUmmbjvubFCb4fwnFfhB
       examples:
-      - 111fcLTw6cc4kfAF9UhCriFQVbAMbL5WGR2Fn9G5eR
+      - 111gbUgQk1ZFzZAQ2u4VePsUmmbjvubFCb4fwnFfhB
     SerializableSignature:
       type: string
       description: A Solana transaction signature.

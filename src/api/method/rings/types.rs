@@ -93,6 +93,32 @@ pub struct GetMerkleProofsResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct GetNullifierQueueElementsRequest {
+    pub tree_account: SerializablePubkey,
+    /// Return elements with `input_queue_seq >= start_seq` (default 0).
+    #[serde(default)]
+    pub start_seq: u64,
+    /// Maximum number of elements to return.
+    pub limit: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct GetNullifierQueueElementsResponse {
+    pub context: Context,
+    pub elements: Vec<NullifierQueueElement>,
+}
+
+/// One queued nullifier, in on-chain input-queue order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct NullifierQueueElement {
+    pub seq: u64,
+    pub value: Hash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct MerkleContext {
     pub tree_type: u16,
     pub tree: SerializablePubkey,

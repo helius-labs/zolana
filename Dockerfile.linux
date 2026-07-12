@@ -1,0 +1,34 @@
+# Builds the linux-x86_64 `photon` binary for the photon-zolana-<sha> release.
+# On an arm64 host this runs under QEMU (slow). The private zolana git dep is
+# fetched over HTTPS using a build secret; pass it with:
+#   GH_TOKEN=$(gh auth token) docker buildx build --platform linux/amd64 \
+#     --secret id=gh_token,env=GH_TOKEN -f Dockerfile.linux \
+#     --target export --output type=local,dest=out .
+# The base must be rust >= photon-indexer's rust-version (1.95).
+FROM rust:1.95-slim-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    git \
+    ca-certificates \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+
+# Rewrite the private zolana git dep from SSH to token-authenticated HTTPS
+# directly in the manifests (cargo's git-CLI fetch does not reliably honor
+# `insteadOf` here, and the container has no SSH key), then build with the git
+# CLI. The token only lives in this intermediate builder layer, which is not
+# part of the exported `scratch` image.
+RUN --mount=type=secret,id=gh_token \
+    TOKEN="$(cat /run/secrets/gh_token)" && \
+    sed -i "s|ssh://git@github.com/|https://x-access-token:${TOKEN}@github.com/|g" Cargo.toml Cargo.lock && \
+    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --bin photon
+
+FROM scratch AS export
+COPY --from=builder /app/target/release/photon /photon

@@ -2,18 +2,21 @@ mod common;
 mod get_encrypted_utxos_by_tags;
 mod get_merkle_proofs;
 mod get_non_inclusion_proofs;
+mod get_nullifier_queue_elements;
 mod get_shielded_transactions_by_tags;
 mod types;
 
 pub use get_encrypted_utxos_by_tags::get_encrypted_utxos_by_tags;
 pub use get_merkle_proofs::get_merkle_proofs;
 pub use get_non_inclusion_proofs::get_non_inclusion_proofs;
+pub use get_nullifier_queue_elements::get_nullifier_queue_elements;
 pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_tags;
 pub use types::{
     EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest,
     GetMerkleProofsResponse, GetNonInclusionProofsRequest, GetNonInclusionProofsResponse,
-    GetRingsByTagsRequest, GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof,
-    NonInclusionProof, RingsOutputContext, RingsOutputSlot, ShieldedTransaction,
+    GetNullifierQueueElementsRequest, GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
+    GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof, NonInclusionProof,
+    NullifierQueueElement, RingsOutputContext, RingsOutputSlot, ShieldedTransaction,
 };
 
 #[cfg(test)]

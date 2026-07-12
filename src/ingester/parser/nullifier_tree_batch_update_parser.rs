@@ -83,6 +83,8 @@ mod tests {
         let new_root = [9; 32];
         let data = BatchUpdateNullifierTreeData {
             new_root,
+            old_root: [8; 32],
+            zkp_batch_index: 0,
             compressed_proof: CompressedProof {
                 a: [1; 32],
                 b: [2; 64],

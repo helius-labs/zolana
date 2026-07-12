@@ -9195,7 +9195,7 @@ checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 [[package]]
 name = "zolana-account-checks"
 version = "0.8.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#2e1d7c815691054f79ac2cbfb372190e61747696"
 dependencies = [
  "solana-account-view 2.0.0",
  "solana-address 2.6.1",
@@ -9206,7 +9206,7 @@ dependencies = [
 [[package]]
 name = "zolana-batched-merkle-tree"
 version = "0.11.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#2e1d7c815691054f79ac2cbfb372190e61747696"
 dependencies = [
  "aligned-sized",
  "borsh 1.7.0",
@@ -9227,7 +9227,7 @@ dependencies = [
 [[package]]
 name = "zolana-bloom-filter"
 version = "0.6.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#2e1d7c815691054f79ac2cbfb372190e61747696"
 dependencies = [
  "bytemuck",
  "num-bigint 0.4.6",
@@ -9239,7 +9239,7 @@ dependencies = [
 [[package]]
 name = "zolana-event"
 version = "0.1.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#2e1d7c815691054f79ac2cbfb372190e61747696"
 dependencies = [
  "borsh 1.7.0",
  "solana-pubkey 4.2.0",
@@ -9249,7 +9249,7 @@ dependencies = [
 [[package]]
 name = "zolana-hasher"
 version = "5.0.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#2e1d7c815691054f79ac2cbfb372190e61747696"
 dependencies = [
  "ark-bn254",
  "ark-ff",
@@ -9265,7 +9265,7 @@ dependencies = [
 [[package]]
 name = "zolana-interface"
 version = "0.1.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#2e1d7c815691054f79ac2cbfb372190e61747696"
 dependencies = [
  "borsh 1.7.0",
  "bytemuck",
@@ -9283,7 +9283,7 @@ dependencies = [
 [[package]]
 name = "zolana-merkle-tree-metadata"
 version = "0.11.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#2e1d7c815691054f79ac2cbfb372190e61747696"
 dependencies = [
  "borsh 1.7.0",
  "bytemuck",
@@ -9297,7 +9297,7 @@ dependencies = [
 [[package]]
 name = "zolana-tree"
 version = "0.1.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#2e1d7c815691054f79ac2cbfb372190e61747696"
 dependencies = [
  "pinocchio 0.11.2",
  "wincode",

@@ -233,11 +233,24 @@ fn event_parent(
 
 fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bool {
     // Keep this in sync with shielded-pool processors that call
-    // `emit_general_event`; TRANSACT and MERGE_TRANSACT intentionally self-emit.
+    // `emit_general_event`, directly or via process_transact_core /
+    // process_merge_core. Self-emitting instructions: TRANSACT, ZONE_TRANSACT,
+    // ZONE_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, ZONE_MERGE_TRANSACT
+    // (merge core); DEPOSIT, ZONE_DEPOSIT (deposit). Missing a tag here silently
+    // drops those transactions from the index (they never get a rings_transactions
+    // row).
     instruction.program_id == rings_program_id
         && matches!(
             instruction.data.first().copied(),
-            Some(tag::TRANSACT | tag::DEPOSIT | tag::ZONE_DEPOSIT | tag::MERGE_TRANSACT)
+            Some(
+                tag::TRANSACT
+                    | tag::ZONE_TRANSACT
+                    | tag::ZONE_AUTHORITY_TRANSACT
+                    | tag::MERGE_TRANSACT
+                    | tag::ZONE_MERGE_TRANSACT
+                    | tag::DEPOSIT
+                    | tag::ZONE_DEPOSIT
+            )
         )
 }
 

@@ -6,8 +6,9 @@ use crate::api::api::{OpenApiSpec, PhotonApi};
 use crate::api::method::rings::{
     EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest,
     GetMerkleProofsResponse, GetNonInclusionProofsRequest, GetNonInclusionProofsResponse,
-    GetRingsByTagsRequest, GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof,
-    NonInclusionProof, RingsOutputContext, RingsOutputSlot, ShieldedTransaction,
+    GetNullifierQueueElementsRequest, GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
+    GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof, NonInclusionProof,
+    NullifierQueueElement, RingsOutputContext, RingsOutputSlot, ShieldedTransaction,
 };
 use crate::common::typedefs::bs64_string::Base64String;
 use crate::common::typedefs::context::Context;
@@ -64,6 +65,9 @@ const RINGS_API_TEST_SPEC_FILE: &str = "rings.test.yaml";
     GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse,
     NonInclusionProof,
+    GetNullifierQueueElementsRequest,
+    GetNullifierQueueElementsResponse,
+    NullifierQueueElement,
 )))]
 struct ApiDoc;
 
