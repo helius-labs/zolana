@@ -11,12 +11,12 @@ use crate::ingester::persist::indexed_merkle_tree::{
 use crate::ingester::persist::leaf_node::{i64_from_u64, u64_from_i64, usize_from_i64};
 use crate::ingester::persist::persisted_indexed_merkle_tree::persist_indexed_tree_updates;
 use num_bigint::BigUint;
-use rings_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
 use sea_orm::{
     ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 use solana_pubkey::Pubkey;
 use std::collections::HashMap;
+use zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
 
 struct ReconstructedBatch {
     updates: HashMap<(Pubkey, u64), IndexedTreeLeafUpdate>,

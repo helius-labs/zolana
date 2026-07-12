@@ -8,12 +8,12 @@ use crate::ingester::{
         TransactionInfo,
     },
 };
-use rings_event::{
+use solana_pubkey::Pubkey;
+use zolana_event::{
     decode_event_payload, decode_output_data, tag, InstructionGroup as RingsInstructionGroup,
     ParsedInstruction as RingsInstruction,
 };
-use rings_interface::pda;
-use solana_pubkey::Pubkey;
+use zolana_interface::pda;
 
 const RINGS_PARSE_VERSION: i16 = 1;
 

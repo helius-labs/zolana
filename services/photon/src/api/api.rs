@@ -4,6 +4,16 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use utoipa::openapi::{RefOr, Schema};
 use utoipa::PartialSchema;
+use zolana_indexer_api::{
+    method::{
+        GetEncryptedUtxosByTags as GetEncryptedUtxosByTagsMethod,
+        GetMerkleProofs as GetMerkleProofsMethod,
+        GetNonInclusionProofs as GetNonInclusionProofsMethod,
+        GetNullifierQueueElements as GetNullifierQueueElementsMethod,
+        GetShieldedTransactionsByTags as GetShieldedTransactionsByTagsMethod,
+    },
+    RpcMethod,
+};
 
 use super::{
     error::PhotonApiError,
@@ -102,27 +112,27 @@ impl PhotonApi {
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {
         vec![
             OpenApiSpec {
-                name: "get_encrypted_utxos_by_tags".to_string(),
+                name: GetEncryptedUtxosByTagsMethod::NAME.to_string(),
                 request: Some(GetRingsByTagsRequest::schema()),
                 response: GetEncryptedUtxosByTagsResponse::schema(),
             },
             OpenApiSpec {
-                name: "get_shielded_transactions_by_tags".to_string(),
+                name: GetShieldedTransactionsByTagsMethod::NAME.to_string(),
                 request: Some(GetRingsByTagsRequest::schema()),
                 response: GetShieldedTransactionsByTagsResponse::schema(),
             },
             OpenApiSpec {
-                name: "get_merkle_proofs".to_string(),
+                name: GetMerkleProofsMethod::NAME.to_string(),
                 request: Some(GetMerkleProofsRequest::schema()),
                 response: GetMerkleProofsResponse::schema(),
             },
             OpenApiSpec {
-                name: "get_non_inclusion_proofs".to_string(),
+                name: GetNonInclusionProofsMethod::NAME.to_string(),
                 request: Some(GetNonInclusionProofsRequest::schema()),
                 response: GetNonInclusionProofsResponse::schema(),
             },
             OpenApiSpec {
-                name: "get_nullifier_queue_elements".to_string(),
+                name: GetNullifierQueueElementsMethod::NAME.to_string(),
                 request: Some(GetNullifierQueueElementsRequest::schema()),
                 response: GetNullifierQueueElementsResponse::schema(),
             },

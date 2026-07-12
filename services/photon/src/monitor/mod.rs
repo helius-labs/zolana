@@ -29,7 +29,7 @@ use crate::common::typedefs::hash::Hash;
 
 use solana_account::Account as SolanaAccount;
 
-use crate::common::typedefs::context::Context;
+use crate::common::typedefs::context::extract as extract_context;
 
 use solana_pubkey::Pubkey;
 
@@ -48,7 +48,7 @@ impl Drop for TreeValidationGuard {
 
 async fn fetch_last_indexed_slot_with_infinite_retry(db: &DatabaseConnection) -> u64 {
     loop {
-        if let Ok(context) = Context::extract(db).await {
+        if let Ok(context) = extract_context(db).await {
             return context.slot;
         }
         sleep(Duration::from_millis(100)).await;

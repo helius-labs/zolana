@@ -1,0 +1,225 @@
+name: photon-image
+
+on:
+  push:
+    branches: [main]
+    tags: ["photon-v*"]
+    paths:
+      - "services/photon/**"
+      - "program-libs/**"
+      - "sdk-libs/indexer-api/**"
+      - ".cargo/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "LICENSE"
+      - "THIRD_PARTY_NOTICES"
+      - ".github/workflows/photon-image.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "services/photon/**"
+      - "program-libs/**"
+      - "sdk-libs/indexer-api/**"
+      - ".cargo/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "LICENSE"
+      - "THIRD_PARTY_NOTICES"
+      - ".github/workflows/photon-image.yml"
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Immutable image tag, for example 0.52.0-rc.1
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/photon-v') || github.event_name == 'workflow_dispatch') && 'production' || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: public.ecr.aws/f7o9l7p1/photon
+
+jobs:
+  validate:
+    name: container / photon
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate release source
+        if: startsWith(github.ref, 'refs/tags/photon-v') || github.event_name == 'workflow_dispatch'
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Photon production images must be built from a commit on main" >&2
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF" == refs/tags/photon-v* ]]; then
+            version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' services/photon/Cargo.toml | head -1)"
+            expected_ref="refs/tags/photon-v${version}"
+            if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
+              echo "Release tag $GITHUB_REF does not match Photon version $version" >&2
+              exit 1
+            fi
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/photon/Dockerfile
+          load: true
+          push: false
+          tags: zolana-photon:ci
+          cache-from: type=gha,scope=photon-image
+          cache-to: type=gha,mode=max,scope=photon-image
+      - name: Smoke-test packaged binaries
+        run: |
+          docker run --rm --entrypoint photon zolana-photon:ci --version
+          docker run --rm --entrypoint photon-migration zolana-photon:ci --version
+          docker run --rm --entrypoint photon-snapshotter zolana-photon:ci --version
+          docker run --rm --entrypoint photon-snapshot-loader zolana-photon:ci --version
+
+  publish:
+    name: publish / photon
+    runs-on: ubuntu-24.04
+    needs: validate
+    if: >-
+      startsWith(github.ref, 'refs/tags/photon-v') ||
+      github.event_name == 'workflow_dispatch'
+    environment: photon-production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate manual image tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          if [[ ! "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] ||
+             [[ "$IMAGE_TAG" == latest || "$IMAGE_TAG" == sha-* ]]; then
+            echo "Invalid OCI image tag: $IMAGE_TAG" >&2
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.ECR_HELIUS_PROD_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ECR_HELIUS_PROD_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+      - id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          flavor: latest=false
+          tags: |
+            type=match,pattern=photon-v(.*),group=1,enable=${{ startsWith(github.ref, 'refs/tags/photon-v') }}
+            type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=sha,format=long,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=Zolana Photon
+            org.opencontainers.image.description=Zolana shielded-pool indexer
+            org.opencontainers.image.licenses=Apache-2.0
+      - name: Refuse to overwrite published tags
+        env:
+          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+        run: |
+          while IFS= read -r image; do
+            [[ -n "$image" ]] || continue
+            tag="${image##*:}"
+            [[ "$tag" != sha-* ]] || continue
+            set +e
+            error="$(aws ecr-public describe-images \
+              --region us-east-1 \
+              --repository-name photon \
+              --image-ids "imageTag=$tag" 2>&1)"
+            status=$?
+            set -e
+            if [[ $status -eq 0 ]]; then
+              echo "Refusing to overwrite published Photon tag: $tag" >&2
+              exit 1
+            fi
+            if [[ "$error" != *ImageNotFoundException* ]]; then
+              echo "$error" >&2
+              exit "$status"
+            fi
+          done <<< "$IMAGE_TAGS"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/photon/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha,scope=photon-image
+          cache-to: type=gha,mode=max,scope=photon-image
+      - name: Smoke-test release image
+        env:
+          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+        run: |
+          image="$(printf '%s\n' "$IMAGE_TAGS" | head -1)"
+          docker run --rm --entrypoint photon "$image" --version
+          docker run --rm --entrypoint photon-migration "$image" --version
+          docker run --rm --entrypoint photon-snapshotter "$image" --version
+          docker run --rm --entrypoint photon-snapshot-loader "$image" --version
+      - name: Publish immutable tags
+        env:
+          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+        run: |
+          # Publish the content-addressed alias first. A retry may find it from a
+          # partial earlier run; the requested release tag is published last.
+          while IFS= read -r image; do
+            [[ -n "$image" ]] || continue
+            tag="${image##*:}"
+            [[ "$tag" == sha-* ]] || continue
+            set +e
+            error="$(aws ecr-public describe-images \
+              --region us-east-1 \
+              --repository-name photon \
+              --image-ids "imageTag=$tag" 2>&1)"
+            status=$?
+            set -e
+            if [[ $status -eq 0 ]]; then
+              echo "Keeping existing Photon commit tag: $tag"
+              continue
+            fi
+            if [[ "$error" != *ImageNotFoundException* ]]; then
+              echo "$error" >&2
+              exit "$status"
+            fi
+            docker push "$image"
+          done <<< "$IMAGE_TAGS"
+          while IFS= read -r image; do
+            [[ -n "$image" ]] || continue
+            tag="${image##*:}"
+            [[ "$tag" != sha-* ]] || continue
+            set +e
+            error="$(aws ecr-public describe-images \
+              --region us-east-1 \
+              --repository-name photon \
+              --image-ids "imageTag=$tag" 2>&1)"
+            status=$?
+            set -e
+            if [[ $status -eq 0 ]]; then
+              echo "Refusing to overwrite published Photon tag: $tag" >&2
+              exit 1
+            fi
+            if [[ "$error" != *ImageNotFoundException* ]]; then
+              echo "$error" >&2
+              exit "$status"
+            fi
+            docker push "$image"
+          done <<< "$IMAGE_TAGS"

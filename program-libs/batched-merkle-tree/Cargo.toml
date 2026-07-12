@@ -3,8 +3,8 @@ name = "zolana-batched-merkle-tree"
 version = "0.11.0"
 description = "Batch Merkle tree implementation."
 readme = "README.md"
-repository = "https://github.com/helius-labs/privacy-program-libs"
-license = "Apache-2.0"
+repository.workspace = true
+license.workspace = true
 edition = "2021"
 
 [package.metadata.cargo-machete]

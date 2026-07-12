@@ -6,7 +6,7 @@ use super::common::{
 use super::types::{GetNonInclusionProofsRequest, GetNonInclusionProofsResponse};
 use crate::api::error::PhotonApiError;
 use crate::common::rings_tree::RingsTreeKind;
-use crate::common::typedefs::context::Context;
+use crate::common::typedefs::context::extract as extract_context;
 use crate::common::typedefs::hash::Hash;
 use crate::common::typedefs::serializable_pubkey::SerializablePubkey;
 use crate::dao::generated::rings_tx_nullifiers;
@@ -25,7 +25,7 @@ pub async fn get_non_inclusion_proofs(
 ) -> Result<GetNonInclusionProofsResponse, PhotonApiError> {
     validate_proof_leaves(&request.leaves)?;
 
-    let context = Context::extract(conn).await?;
+    let context = extract_context(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 

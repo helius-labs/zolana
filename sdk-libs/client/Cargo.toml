@@ -2,8 +2,9 @@
 name = "zolana-client"
 version = "0.1.0"
 description = "Host-side Groth16 witness builder for SPP transaction circuits (transfer / transfer-eddsa)."
-license = "Apache-2.0"
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 autotests = false
 
 [features]

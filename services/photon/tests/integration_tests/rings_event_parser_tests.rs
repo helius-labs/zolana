@@ -41,12 +41,6 @@ use photon_indexer::{
     monitor::tree_metadata_sync,
     snapshot::{is_rings_snapshot_transaction, is_rings_transaction},
 };
-use rings_interface::{
-    instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
-    pda,
-    state::{address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_account_size},
-};
-use rings_tree::TreeAccount;
 use sea_orm::{
     sea_query::OnConflict, ColumnTrait, Database, DatabaseConnection, EntityTrait, PaginatorTrait,
     QueryFilter, QueryOrder, Set, TransactionTrait,
@@ -56,6 +50,12 @@ use serde_json::Value;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use zolana_interface::{
+    instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
+    pda,
+    state::{address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_account_size},
+};
+use zolana_tree::TreeAccount;
 
 const PROOFLESS_SHIELD_SIGNATURE: &str =
     "3JAHH578NVLSh6Z3x2tXnNV4U9digpQb5CsFLrfac6fRNRCNQaRVsWNNrdQUT8PzUEw2MH78MkuKCZxqDoLKqNcX";
@@ -1297,7 +1297,7 @@ fn known_rings_tree_account_metadata(tree: [u8; 32]) -> tree_metadata::ActiveMod
         height: Set(RingsTreeKind::Nullifier.tree_height() as i32),
         root_history_capacity: Set(RingsTreeKind::Nullifier.root_history_capacity() as i64),
         input_queue_zkp_batch_size: Set(i64::try_from(
-            rings_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+            zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
         )
         .unwrap()),
         sequence_number: Set(0),
@@ -1315,7 +1315,7 @@ fn test_tree_info_cache(tree: Pubkey) -> HashMap<Pubkey, TreeInfo> {
             height: RingsTreeKind::Nullifier.tree_height(),
             root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),
             input_queue_zkp_batch_size:
-                rings_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+                zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
         },
     )])
 }
@@ -1397,7 +1397,10 @@ fn transaction_info(signature: &str) -> TransactionInfo {
 }
 
 fn load_transaction(signature: &str) -> Value {
-    let path = format!("tests/data/transactions/rings_e2e/{signature}");
+    let path = format!(
+        "{}/tests/data/transactions/rings_e2e/{signature}",
+        env!("CARGO_MANIFEST_DIR")
+    );
     let data = std::fs::read_to_string(&path).unwrap_or_else(|err| {
         panic!("failed to read {path}: {err}");
     });

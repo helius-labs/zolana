@@ -8,6 +8,13 @@ use jsonrpsee::{
 };
 use log::debug;
 use tower_http::cors::{Any, CorsLayer};
+use zolana_indexer_api::{
+    method::{
+        GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
+        GetShieldedTransactionsByTags,
+    },
+    RpcMethod,
+};
 
 use super::api::PhotonApi;
 
@@ -81,7 +88,7 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
     )?;
 
     module.register_async_method(
-        "get_encrypted_utxos_by_tags",
+        GetEncryptedUtxosByTags::NAME,
         |rpc_params, rpc_context, _extensions| async move {
             let api = rpc_context.as_ref();
             let payload = rpc_params.parse()?;
@@ -92,7 +99,7 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
     )?;
 
     module.register_async_method(
-        "get_shielded_transactions_by_tags",
+        GetShieldedTransactionsByTags::NAME,
         |rpc_params, rpc_context, _extensions| async move {
             let api = rpc_context.as_ref();
             let payload = rpc_params.parse()?;
@@ -103,7 +110,7 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
     )?;
 
     module.register_async_method(
-        "get_merkle_proofs",
+        GetMerkleProofs::NAME,
         |rpc_params, rpc_context, _extensions| async move {
             let api = rpc_context.as_ref();
             let payload = rpc_params.parse()?;
@@ -114,7 +121,7 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
     )?;
 
     module.register_async_method(
-        "get_non_inclusion_proofs",
+        GetNonInclusionProofs::NAME,
         |rpc_params, rpc_context, _extensions| async move {
             let api = rpc_context.as_ref();
             let payload = rpc_params.parse()?;
@@ -125,7 +132,7 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
     )?;
 
     module.register_async_method(
-        "get_nullifier_queue_elements",
+        GetNullifierQueueElements::NAME,
         |rpc_params, rpc_context, _extensions| async move {
             let api = rpc_context.as_ref();
             let payload = rpc_params.parse()?;

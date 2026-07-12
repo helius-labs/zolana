@@ -1,7 +1,7 @@
-use rings_interface::state::{
+use zolana_interface::state::{
     ADDRESS_TREE_HEIGHT, ADDRESS_TREE_ROOT_HISTORY_CAPACITY, STATE_HEIGHT,
 };
-use rings_tree::smt::ROOT_HISTORY_CAPACITY;
+use zolana_tree::smt::ROOT_HISTORY_CAPACITY;
 
 const _: () = assert!(STATE_HEIGHT <= u32::MAX as usize);
 const _: () = assert!(ROOT_HISTORY_CAPACITY <= u64::MAX as usize);

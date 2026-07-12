@@ -1,7 +1,7 @@
 use sea_orm::DatabaseConnection;
 
 use super::super::error::PhotonApiError;
-use crate::common::typedefs::context::Context;
+use crate::common::typedefs::context::extract as extract_context;
 use solana_client::nonblocking::rpc_client::RpcClient;
 
 pub const HEALTH_CHECK_SLOT_DISTANCE: u64 = 20;
@@ -10,7 +10,7 @@ pub async fn get_indexer_health(
     conn: &DatabaseConnection,
     rpc: &RpcClient,
 ) -> Result<String, PhotonApiError> {
-    let context = Context::extract(conn).await?;
+    let context = extract_context(conn).await?;
     let slot = rpc
         .get_slot()
         .await

@@ -16,7 +16,7 @@ localnet-prover-port := env_var_or_default("ZOLANA_LOCALNET_PROVER_PORT", shell(
 localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:" + localnet-rpc-port)
 localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:" + localnet-photon-port)
 localnet-prover-url := env_var_or_default("ZOLANA_PROVER_URL", "http://127.0.0.1:" + localnet-prover-port)
-photon-bin := env_var_or_default("ZOLANA_PHOTON_BIN", "target/bin/photon")
+photon-bin := env_var_or_default("ZOLANA_PHOTON_BIN", "target/debug/photon")
 spp-keys-dir := env_var_or_default("ZOLANA_SPP_KEYS_DIR", "prover/server/proving-keys")
 
 # Exported so every `cargo test` recipe (and the prover the tests spawn) picks up
@@ -49,7 +49,7 @@ check-all:
     cargo check --workspace --all-targets
 
 # Default test target.
-test: test-shielded-pool test-sdk-libs
+test: test-shielded-pool test-sdk-libs test-photon
 
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually
@@ -72,6 +72,11 @@ test-sdk-libs:
     cargo test -p zolana-transaction
     cargo test -p zolana-client --lib actions::transaction
     cargo test -p zolana-client --test transaction
+
+# Photon unit and SQLite-backed integration tests. The Postgres migration smoke
+# test runs in CI where a database service is available.
+test-photon:
+    cargo test -p photon-indexer
 
 # All zolana-client tests (lib unit tests, the `transaction` integration test,
 # and the `transfer_2_3` BDD suite). The BDD scenario spawns the prover server
@@ -175,14 +180,10 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
 # Regenerate the photon-indexer rings_e2e parser fixtures from the localnet
 # Photon e2e flow against the CURRENT event serialization. The
 # `localnet_photon_e2e` test shields, transfers, unshields and runs an
-# encrypted transfer; when `RINGS_FIXTURE_DIR` is set it writes each
-# transaction's `getTransaction` JSON to `<RINGS_FIXTURE_DIR>/<signature>` and
+# encrypted transfer and writes each transaction's `getTransaction` JSON to
+# `services/photon/tests/data/transactions/rings_e2e/<signature>` and
 # prints the new `signature` + `slot` for each (proofless_shield,
 # shielded_transfer, unshield, encrypted_transfer).
-#
-# Usage:
-#   RINGS_FIXTURE_DIR=/path/to/photon/tests/data/transactions/rings_e2e \
-#     just regenerate-photon-fixtures
 #
 # After the run: delete the four stale fixture files and copy the printed
 # signature/slot values into photon's
@@ -191,7 +192,7 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
 regenerate-photon-fixtures: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
-    : "${RINGS_FIXTURE_DIR:?set RINGS_FIXTURE_DIR to <photon>/tests/data/transactions/rings_e2e}"
+    RINGS_FIXTURE_DIR="${RINGS_FIXTURE_DIR:-services/photon/tests/data/transactions/rings_e2e}"
     eval "$(cargo run -q -p xtask -- program-ids)"
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
@@ -425,25 +426,18 @@ publish-spp-keys-release:
     prover/server/scripts/publish_keys_release.sh transfer-keys-v10 "$(pwd)/{{spp-keys-dir}}"
 
 build-photon:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cargo build --manifest-path ../photon/Cargo.toml --target-dir target/photon-build --bin photon
-    mkdir -p "$(dirname "{{photon-bin}}")"
-    cp target/photon-build/debug/photon "{{photon-bin}}"
-
-install-photon:
-    ./tools/install-photon.sh
+    cargo build --locked -p photon-indexer --bin photon
 
 ensure-photon:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ -x "{{photon-bin}}" ]]; then
-      echo "Using Photon binary at {{photon-bin}}"
-      exit 0
-    fi
     if [[ -n "${ZOLANA_PHOTON_BIN:-}" ]]; then
-      echo "ZOLANA_PHOTON_BIN is set to ${ZOLANA_PHOTON_BIN}, but it is not executable" >&2
-      exit 1
+      if [[ ! -x "$ZOLANA_PHOTON_BIN" ]]; then
+        echo "ZOLANA_PHOTON_BIN is not executable: $ZOLANA_PHOTON_BIN" >&2
+        exit 1
+      fi
+      echo "Using Photon binary at $ZOLANA_PHOTON_BIN"
+      exit 0
     fi
     just build-photon
 

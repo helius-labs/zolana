@@ -1,11 +1,12 @@
-use std::{path::Path, process::Command, thread, time::Duration};
+use std::{thread, time::Duration};
 
 use anyhow::{bail, Context, Result};
+use zolana_indexer_api::GET_ENCRYPTED_UTXOS_BY_TAGS;
 
 use crate::{
     args::TestValidatorOptions,
     config::{READINESS_STABLE_CHECKS, READINESS_TIMEOUT},
-    http::{wait_for_rpc_with_child, wait_for_tcp_with_child},
+    http::{wait_for_rpc_method_with_child, wait_for_rpc_with_child},
     process::{find_binary, remove_launchd_validators, spawn_service, stop_name, stop_port},
     prover::start_prover_service,
 };
@@ -174,26 +175,18 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
 
     let photon = find_binary(
         &["PHOTON_BIN", "ZOLANA_PHOTON_BIN"],
-        &[
-            "../photon/target/debug/photon",
-            "../photon/target/release/photon",
-        ],
+        &["target/debug/photon", "target/release/photon"],
         &["photon"],
     )?;
     let rpc_url = format!("http://127.0.0.1:{}", opts.rpc_port);
-    let mut args = Vec::new();
-    if photon_supports_mode(&photon) {
-        args.push("--mode".to_string());
-        args.push("zolana".to_string());
-    }
-    args.extend([
+    let mut args = vec![
         "--rpc-url".to_string(),
         rpc_url,
         "--port".to_string(),
         opts.photon_port.to_string(),
         "--start-slot".to_string(),
         opts.photon_start_slot.clone(),
-    ]);
+    ];
     if let Some(db_url) = &opts.photon_db_url {
         args.push("--db-url".to_string());
         args.push(db_url.clone());
@@ -201,8 +194,9 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
 
     println!("Starting Photon: {} {}", photon.display(), args.join(" "));
     let mut child = spawn_service(&photon, &args, "photon", &opts.log_dir)?;
-    wait_for_tcp_with_child(
+    wait_for_rpc_method_with_child(
         opts.photon_port,
+        GET_ENCRYPTED_UTXOS_BY_TAGS,
         READINESS_TIMEOUT,
         READINESS_STABLE_CHECKS,
         &mut child,
@@ -215,15 +209,6 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
     );
     std::mem::forget(child);
     Ok(())
-}
-
-fn photon_supports_mode(photon: &Path) -> bool {
-    let Ok(output) = Command::new(photon).arg("--help").output() else {
-        return false;
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    stdout.contains("--mode") || stderr.contains("--mode")
 }
 
 #[cfg(test)]
@@ -275,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn finds_photon_binary_from_env_or_sibling_checkout() {
+    fn parses_photon_options() {
         let opts = parse_validator(&["--with-photon", "--photon-port", "8785"]);
         assert!(opts.with_photon);
         assert_eq!(opts.photon_port, 8785);

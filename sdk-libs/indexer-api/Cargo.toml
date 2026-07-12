@@ -1,0 +1,23 @@
+[package]
+name = "zolana-indexer-api"
+version = "0.1.0"
+description = "Shared JSON-RPC contract for the Zolana indexer."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+openapi = ["dep:utoipa"]
+
+[dependencies]
+base64 = "0.22.1"
+bs58 = { workspace = true }
+serde = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
+thiserror = { workspace = true }
+utoipa = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

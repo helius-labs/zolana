@@ -6,7 +6,7 @@ use super::common::{
 use super::types::{GetMerkleProofsRequest, GetMerkleProofsResponse};
 use crate::api::error::PhotonApiError;
 use crate::common::rings_tree::RingsTreeKind;
-use crate::common::typedefs::context::Context;
+use crate::common::typedefs::context::extract as extract_context;
 use crate::ingester::persist::get_multiple_compressed_leaf_proofs_by_indices_with_height;
 use sea_orm::{DatabaseConnection, TransactionTrait};
 
@@ -16,7 +16,7 @@ pub async fn get_merkle_proofs(
 ) -> Result<GetMerkleProofsResponse, PhotonApiError> {
     validate_proof_leaves(&request.leaves)?;
 
-    let context = Context::extract(conn).await?;
+    let context = extract_context(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 

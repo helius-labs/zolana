@@ -1,12 +1,12 @@
 [package]
 default-run = "photon"
 description = "Solana indexer for Rings"
-edition = "2021"
-license = "Apache-2.0"
+edition.workspace = true
+license.workspace = true
 name = "photon-indexer"
-publish = true
+publish = false
 readme = "README.md"
-repository = "https://github.com/helius-labs/photon-privacy"
+repository.workspace = true
 rust-version = "1.95.0"
 version = "0.51.2"
 
@@ -31,95 +31,60 @@ name = "photon-snapshot-loader"
 path = "src/snapshot/loader/main.rs"
 
 [dependencies]
-ark-bn254 = "0.5"
+ark-bn254 = { workspace = true }
 
-anyhow = "1.0.102"
-async-trait = "0.1.89"
-base64 = "0.22.1"
+anyhow = { workspace = true }
+async-trait = { workspace = true }
 borsh = "0.10.4"
 borsh1 = { package = "borsh", version = "1.7.0" }
-bs58 = "0.5.1"
-cadence-macros = "1.8.0"
-clap = { "version" = "4.6.1", features = ["derive"] }
-futures = "0.3.32"
-hyper = "1.10.1"
-hyper-util = { version = "0.1.20", features = ["server-auto", "tokio"] }
-http-body-util = "0.1.3"
-itertools = "0.15.0"
-jsonrpsee = { version = "0.26.0", features = ["server", "macros"] }
-log = "0.4.33"
-once_cell = "1.21.4"
-sea-orm = { version = "1.1.20", default-features = false, features = [
-    "macros",
-    "runtime-tokio-rustls",
-    "sqlx-postgres",
-    "sqlx-sqlite",
-] }
-bytes = "1.12.0"
-sea-orm-migration = { version = "1.1.20", default-features = false, features = [
-    "runtime-tokio-rustls",
-    "sqlx-postgres",
-] }
-sea-orm-cli = { version = "1.1.20", default-features = false }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+bs58 = { workspace = true }
+cadence-macros = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http-body-util = { workspace = true }
+itertools = { workspace = true }
+jsonrpsee = { workspace = true }
+log = { workspace = true }
+once_cell = { workspace = true }
+sea-orm = { workspace = true }
+bytes = { workspace = true }
+sea-orm-migration = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
-solana-client = "4.1.0-rc.1"
-solana-pubkey = { version = "4.2.0", features = ["serde", "borsh"] }
-solana-signature = "3.4.1"
-solana-account = "4.3.1"
-solana-clock = "3.1.0"
-solana-transaction = "4.1.3"
-solana-transaction-error = { version = "3.2.1", features = ["serde"] }
-solana-commitment-config = "3.1.1"
-solana-transaction-status-client-types = { version = "4.1.0-rc.1", features = ["agave-unstable-api"] }
+solana-client = { workspace = true }
+solana-pubkey = { workspace = true, features = ["serde", "borsh"] }
+solana-signature = { workspace = true }
+solana-account = { workspace = true }
+solana-clock = { workspace = true }
+solana-transaction = { workspace = true }
+solana-transaction-error = { workspace = true, features = ["serde"] }
+solana-commitment-config = { workspace = true }
+solana-transaction-status-client-types = { workspace = true, features = ["agave-unstable-api"] }
 
-light-poseidon = "0.4.0"
-num-bigint = "0.4.6"
+light-poseidon = { workspace = true }
+num-bigint = { workspace = true }
 
-sqlx = { version = "0.8.6", features = [
-    "runtime-tokio",
-    "tls-rustls-ring-webpki",
-    "postgres",
-    "sqlite",
-    "rust_decimal",
-] }
-thiserror = "2.0.18"
+sqlx = { workspace = true }
+thiserror = { workspace = true }
 reqwest = { version = "0.13.4", features = ["form", "json", "stream"] }
-tokio = { version = "1.52.3", features = [
-    "macros",
-    "rt-multi-thread",
-    "time",
-    "net",
-    "signal",
-] }
-tower = { version = "0.5.3", features = ["util"] }
-tower-http = { version = "0.7.0", default-features = false, features = ["cors"] }
-tracing-subscriber = { version = "0.3.23", features = [
-    "json",
-    "env-filter",
-    "ansi",
-] }
-utoipa = { version = "5.5.0", features = [
-    "yaml",
-    "non_strict_integers",
-] }
-yellowstone-grpc-client = "13.1.1"
-yellowstone-grpc-proto = "12.5.0"
-cadence = "1.8.0"
-async-stream = "0.3.6"
+tokio = { workspace = true, features = ["time", "net", "signal"] }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["ansi"] }
+utoipa = { workspace = true }
+yellowstone-grpc-client = { workspace = true }
+yellowstone-grpc-proto = { workspace = true }
+cadence = { workspace = true }
+async-stream = { workspace = true }
 rand = "0.10.1"
-bincode = { version = "2.0.1", features = ["serde"] }
-s3 = { package = "rust-s3", version = "0.37.2" }
-cloud-storage = "0.11.1"
-jsonwebtoken = "10.4.0"
-rings-event = { git = "ssh://git@github.com/helius-labs/zolana.git", branch = "main", package = "zolana-event", features = ["program-test"] }
-rings-interface = { git = "ssh://git@github.com/helius-labs/zolana.git", branch = "main", package = "zolana-interface", default-features = false, features = ["tree"] }
-rings-tree = { git = "ssh://git@github.com/helius-labs/zolana.git", branch = "main", package = "zolana-tree" }
-
-[profile.dev]
-# Do not produce debug info for ~40% faster incremental compilation.
-debug = 0
-# Some standard library files already come precompiled with debuginfo. We strip it for faster linking
-# and smaller binaries.
-strip = "debuginfo"
+bincode = { workspace = true }
+s3 = { workspace = true }
+cloud-storage = { workspace = true }
+jsonwebtoken = { workspace = true }
+zolana-event = { workspace = true, features = ["program-test"] }
+zolana-indexer-api = { workspace = true, features = ["openapi"] }
+zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["tree"] }
+zolana-tree = { workspace = true }

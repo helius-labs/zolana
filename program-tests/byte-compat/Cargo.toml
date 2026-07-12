@@ -2,6 +2,8 @@
 name = "zolana-byte-compat"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
+repository.workspace = true
 publish = false
 
 # Proves that accounts written by our `light-batched-merkle-tree` fork are

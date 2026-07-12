@@ -2,32 +2,13 @@
 name = "zolana-api"
 version = "0.1.0"
 description = "Typed client for the Zolana indexer API."
-license = "Apache-2.0"
 edition.workspace = true
-
-[features]
-default = []
-# Regenerate src/codegen.rs from Photon's Zolana-only OpenAPI spec.
-# Usage:
-#   ZOLANA_OPENAPI_SPEC=/path/to/zolana.yaml cargo build -p zolana-api --features generate
-generate = [
-    "dep:progenitor",
-    "dep:openapiv3",
-    "dep:serde_yaml",
-    "dep:syn",
-    "dep:prettyplease",
-]
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-progenitor-client = "0.12"
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "stream", "rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-[build-dependencies]
-progenitor = { version = "0.12", optional = true }
-openapiv3 = { version = "2.0", optional = true }
-serde_yaml = { version = "0.9", optional = true }
-syn = { workspace = true, optional = true }
-prettyplease = { version = "0.2", optional = true }
+zolana-indexer-api = { workspace = true }

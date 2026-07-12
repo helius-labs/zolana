@@ -6,7 +6,7 @@ use super::common::{
 use super::types::{EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetRingsByTagsRequest};
 use crate::api::error::PhotonApiError;
 use crate::common::typedefs::bs64_string::Base64String;
-use crate::common::typedefs::context::Context;
+use crate::common::typedefs::context::extract as extract_context;
 use crate::common::typedefs::hash::Hash;
 use bincode::{Decode, Encode};
 use sea_orm::{
@@ -50,7 +50,7 @@ pub async fn get_encrypted_utxos_by_tags(
         .map(decode_cursor::<EncryptedUtxoCursor>)
         .transpose()?;
 
-    let context = Context::extract(conn).await?;
+    let context = extract_context(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 

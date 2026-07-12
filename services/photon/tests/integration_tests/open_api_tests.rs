@@ -11,5 +11,6 @@ pub fn test_documentation_generation() -> anyhow::Result<()> {
     assert!(rings_spec.contains("/get_shielded_transactions_by_tags"));
     assert!(rings_spec.contains("/get_merkle_proofs"));
     assert!(rings_spec.contains("/get_non_inclusion_proofs"));
+    assert!(rings_spec.contains("/get_nullifier_queue_elements"));
     Ok(())
 }

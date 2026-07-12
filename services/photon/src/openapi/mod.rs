@@ -394,22 +394,24 @@ fn write_docs_file(
     std::fs::write(&path, yaml)
         .with_context(|| format!("Failed to write OpenAPI schema to {}", path.display()))?;
 
-    let path_str = path
-        .to_str()
-        .with_context(|| format!("OpenAPI schema path is not valid UTF-8: {}", path.display()))?;
-    let validate_result = std::process::Command::new("swagger-cli")
-        .arg("validate")
-        .arg(path_str)
-        .output()
-        .context("Failed to run swagger-cli validate")?;
+    if !is_test {
+        let path_str = path.to_str().with_context(|| {
+            format!("OpenAPI schema path is not valid UTF-8: {}", path.display())
+        })?;
+        let validate_result = std::process::Command::new("swagger-cli")
+            .arg("validate")
+            .arg(path_str)
+            .output()
+            .context("Failed to run swagger-cli validate")?;
 
-    if !validate_result.status.success() {
-        let stderr = String::from_utf8_lossy(&validate_result.stderr);
-        bail!(
-            "Failed to validate OpenAPI schema for {}. {}",
-            spec_file_name,
-            stderr
-        );
+        if !validate_result.status.success() {
+            let stderr = String::from_utf8_lossy(&validate_result.stderr);
+            bail!(
+                "Failed to validate OpenAPI schema for {}. {}",
+                spec_file_name,
+                stderr
+            );
+        }
     }
 
     Ok(())

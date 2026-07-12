@@ -2,7 +2,7 @@ use super::types::{
     GetNullifierQueueElementsRequest, GetNullifierQueueElementsResponse, NullifierQueueElement,
 };
 use crate::api::error::PhotonApiError;
-use crate::common::typedefs::context::Context;
+use crate::common::typedefs::context::extract as extract_context;
 use crate::common::typedefs::hash::Hash;
 use crate::dao::generated::rings_tx_nullifiers;
 use sea_orm::{
@@ -20,7 +20,7 @@ pub async fn get_nullifier_queue_elements(
     conn: &DatabaseConnection,
     request: GetNullifierQueueElementsRequest,
 ) -> Result<GetNullifierQueueElementsResponse, PhotonApiError> {
-    let context = Context::extract(conn).await?;
+    let context = extract_context(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
@@ -47,10 +47,7 @@ pub async fn get_nullifier_queue_elements(
                 ))
             })?;
             let value: [u8; 32] = row.nullifier.try_into().map_err(|bytes: Vec<u8>| {
-                PhotonApiError::UnexpectedError(format!(
-                    "nullifier length {} != 32",
-                    bytes.len()
-                ))
+                PhotonApiError::UnexpectedError(format!("nullifier length {} != 32", bytes.len()))
             })?;
             Ok(NullifierQueueElement {
                 seq,

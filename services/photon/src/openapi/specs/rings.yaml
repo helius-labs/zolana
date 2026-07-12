@@ -641,10 +641,7 @@ components:
   schemas:
     Base64String:
       type: string
-      description: A base 64 encoded string.
-      default: SGVsbG8sIFdvcmxkIQ==
-      examples:
-      - SGVsbG8sIFdvcmxkIQ==
+      description: A base64-encoded byte string on the JSON wire.
     Context:
       type: object
       required:
@@ -653,9 +650,8 @@ components:
         slot:
           type: integer
           format: u-int64
-          default: 100
-          examples:
-          - 100
+          minimum: 0
+      additionalProperties: false
     EncryptedUtxoMatch:
       type: object
       required:
@@ -684,8 +680,6 @@ components:
     Hash:
       type: string
       description: A 32-byte hash represented as a base58 string.
-      examples:
-      - 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi
     Limit:
       type: integer
       format: u-int64
@@ -830,15 +824,9 @@ components:
     SerializablePubkey:
       type: string
       description: A Solana public key represented as a base58 string.
-      default: 111gbUgQk1ZFzZAQ2u4VePsUmmbjvubFCb4fwnFfhB
-      examples:
-      - 111gbUgQk1ZFzZAQ2u4VePsUmmbjvubFCb4fwnFfhB
     SerializableSignature:
       type: string
-      description: A Solana transaction signature.
-      default: 5J8H5sTvEhnGcB4R8K1n7mfoiWUD9RzPVGES7e3WxC7c
-      examples:
-      - 5J8H5sTvEhnGcB4R8K1n7mfoiWUD9RzPVGES7e3WxC7c
+      description: A Solana transaction signature represented as a base58 string.
     ShieldedTransaction:
       type: object
       required:

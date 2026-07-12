@@ -1,9 +1,6 @@
 use clap::{Parser, Subcommand};
 use photon_indexer::migration::{MigratorTrait, RingsMigrator};
-use sea_orm_cli::{run_migrate_generate, run_migrate_init};
 use sea_orm_migration::sea_orm::{ConnectOptions, Database, DbConn};
-
-const MIGRATION_DIR: &str = "./";
 
 #[derive(Parser, Debug)]
 #[command(version)]
@@ -35,30 +32,12 @@ enum Command {
     Refresh,
     Reset,
     Status,
-    Init,
-    Generate {
-        migration_name: String,
-        #[arg(long)]
-        universal_time: bool,
-    },
 }
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
     init_logging(args.verbose);
-
-    if let Err(err) = run_file_command(&args.command) {
-        eprintln!("{err}");
-        std::process::exit(1);
-    }
-
-    if matches!(
-        &args.command,
-        Some(Command::Init | Command::Generate { .. })
-    ) {
-        return;
-    }
 
     let Some(url) = args
         .database_url
@@ -101,22 +80,7 @@ where
         Some(Command::Status) => M::status(db).await?,
         Some(Command::Up { num }) => M::up(db, num).await?,
         Some(Command::Down { num }) => M::down(db, Some(num)).await?,
-        Some(Command::Init | Command::Generate { .. }) => {
-            unreachable!("file commands are handled before database commands")
-        }
         None => M::up(db, None).await?,
-    }
-    Ok(())
-}
-
-fn run_file_command(command: &Option<Command>) -> Result<(), Box<dyn std::error::Error>> {
-    match command {
-        Some(Command::Init) => run_migrate_init(MIGRATION_DIR)?,
-        Some(Command::Generate {
-            migration_name,
-            universal_time,
-        }) => run_migrate_generate(MIGRATION_DIR, migration_name, *universal_time)?,
-        _ => {}
     }
     Ok(())
 }

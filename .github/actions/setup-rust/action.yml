@@ -1,5 +1,5 @@
 name: Setup Rust
-description: Install the stable Rust toolchain, warm the Cargo cache, and (optionally) install `just`. Run after actions/checkout.
+description: Install Rust 1.95.0, warm the Cargo cache, and optionally install `just`. Run after actions/checkout.
 
 inputs:
   components:
@@ -9,7 +9,7 @@ inputs:
   shared-key:
     description: Swatinem rust-cache shared-key for cross-workflow cache reuse.
     required: false
-    default: rust-stable
+    default: rust-1.95.0
   install-just:
     description: Install the `just` task runner via taiki-e/install-action.
     required: false
@@ -33,7 +33,7 @@ runs:
         TOKEN: ${{ inputs.private-libs-token }}
       run: |
         git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@1.95.0
       with:
         components: ${{ inputs.components }}
     - uses: Swatinem/rust-cache@v2

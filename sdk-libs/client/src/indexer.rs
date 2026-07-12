@@ -1,6 +1,7 @@
 //! Blocking RPC adapter for the Zolana indexer API.
 
 use solana_address::Address;
+#[cfg(test)]
 use solana_signature::Signature;
 use zolana_api::{
     types::{Base64String, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot, SerializablePubkey},
@@ -67,7 +68,7 @@ impl Rpc for ZolanaIndexer {
                 .enumerate()
                 .map(|(index, item)| convert_encrypted_utxo_match(index, item))
                 .collect::<Result<Vec<_>, _>>()?,
-            next_cursor: decode_optional_cursor(response.next_cursor)?,
+            next_cursor: response.next_cursor.map(Into::into),
         })
     }
 
@@ -94,7 +95,7 @@ impl Rpc for ZolanaIndexer {
                 .enumerate()
                 .map(|(index, item)| convert_shielded_transaction(index, item))
                 .collect::<Result<Vec<_>, _>>()?,
-            next_cursor: decode_optional_cursor(response.next_cursor)?,
+            next_cursor: response.next_cursor.map(Into::into),
         })
     }
 
@@ -116,9 +117,8 @@ impl Rpc for ZolanaIndexer {
             proofs: response
                 .proofs
                 .into_iter()
-                .enumerate()
-                .map(|(index, proof)| convert_merkle_proof(index, proof))
-                .collect::<Result<Vec<_>, _>>()?,
+                .map(convert_merkle_proof)
+                .collect(),
         })
     }
 
@@ -140,9 +140,8 @@ impl Rpc for ZolanaIndexer {
             proofs: response
                 .proofs
                 .into_iter()
-                .enumerate()
-                .map(|(index, proof)| convert_non_inclusion_proof(index, proof))
-                .collect::<Result<Vec<_>, _>>()?,
+                .map(convert_non_inclusion_proof)
+                .collect(),
         })
     }
 }
@@ -153,7 +152,7 @@ fn indexer_error(error: zolana_api::ApiError) -> ClientError {
 
 fn convert_context(context: zolana_api::Context) -> Context {
     Context {
-        slot: context.slot as u64,
+        slot: context.slot,
     }
 }
 
@@ -163,14 +162,8 @@ fn convert_encrypted_utxo_match(
 ) -> Result<EncryptedUtxoMatch, ClientError> {
     Ok(EncryptedUtxoMatch {
         slot: item.slot,
-        tx_signature: decode_signature(
-            &item.tx_signature,
-            &format!("matches[{index}].tx_signature"),
-        )?,
-        output_slot: convert_output_slot(
-            item.output_slot,
-            &format!("matches[{index}].output_slot"),
-        )?,
+        tx_signature: item.tx_signature.0,
+        output_slot: convert_output_slot(item.output_slot),
         tx_viewing_pk: decode_optional_p256(
             item.tx_viewing_pk,
             &format!("matches[{index}].tx_viewing_pk"),
@@ -185,10 +178,7 @@ fn convert_shielded_transaction(
 ) -> Result<ShieldedTransaction, ClientError> {
     Ok(ShieldedTransaction {
         slot: item.slot,
-        tx_signature: decode_signature(
-            &item.tx_signature,
-            &format!("transactions[{index}].tx_signature"),
-        )?,
+        tx_signature: item.tx_signature.0,
         tx_viewing_pk: decode_optional_p256(
             item.tx_viewing_pk,
             &format!("transactions[{index}].tx_viewing_pk"),
@@ -197,165 +187,73 @@ fn convert_shielded_transaction(
         output_slots: item
             .output_slots
             .into_iter()
-            .enumerate()
-            .map(|(slot_index, slot)| {
-                convert_output_slot(
-                    slot,
-                    &format!("transactions[{index}].output_slots[{slot_index}]"),
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-        nullifiers: item
-            .nullifiers
-            .iter()
-            .enumerate()
-            .map(|(nullifier_index, nullifier)| {
-                decode_hash(
-                    nullifier,
-                    &format!("transactions[{index}].nullifiers[{nullifier_index}]"),
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?,
+            .map(convert_output_slot)
+            .collect(),
+        nullifiers: item.nullifiers.into_iter().map(Into::into).collect(),
         proofless: item.proofless,
     })
 }
 
-fn convert_output_slot(slot: ApiOutputSlot, field: &str) -> Result<OutputSlot, ClientError> {
-    Ok(OutputSlot {
-        view_tag: decode_hash(&slot.view_tag, &format!("{field}.view_tag"))?,
-        output_context: convert_output_context(
-            slot.output_context,
-            &format!("{field}.output_context"),
-        )?,
-        payload: decode_base64(&slot.payload, &format!("{field}.payload"))?,
-    })
+fn convert_output_slot(slot: ApiOutputSlot) -> OutputSlot {
+    OutputSlot {
+        view_tag: slot.view_tag.into(),
+        output_context: convert_output_context(slot.output_context),
+        payload: slot.payload.into(),
+    }
 }
 
-fn convert_output_context(
-    context: zolana_api::RingsOutputContext,
-    field: &str,
-) -> Result<OutputContext, ClientError> {
-    Ok(OutputContext {
-        hash: decode_hash(&context.hash, &format!("{field}.hash"))?,
-        tree: decode_pubkey(&context.tree, &format!("{field}.tree"))?,
+fn convert_output_context(context: zolana_api::RingsOutputContext) -> OutputContext {
+    OutputContext {
+        hash: context.hash.into(),
+        tree: Address::new_from_array(context.tree.0.to_bytes()),
         leaf_index: context.leaf_index,
-    })
+    }
 }
 
-fn convert_merkle_proof(
-    index: usize,
-    proof: zolana_api::MerkleProof,
-) -> Result<MerkleProof, ClientError> {
-    Ok(MerkleProof {
-        leaf: decode_hash(&proof.leaf, &format!("proofs[{index}].leaf"))?,
-        merkle_context: convert_merkle_context(
-            proof.merkle_context,
-            &format!("proofs[{index}].merkle_context"),
-        )?,
-        path: proof
-            .path
-            .iter()
-            .enumerate()
-            .map(|(path_index, hash)| {
-                decode_hash(hash, &format!("proofs[{index}].path[{path_index}]"))
-            })
-            .collect::<Result<Vec<_>, _>>()?,
+fn convert_merkle_proof(proof: zolana_api::MerkleProof) -> MerkleProof {
+    MerkleProof {
+        leaf: proof.leaf.into(),
+        merkle_context: convert_merkle_context(proof.merkle_context),
+        path: proof.path.into_iter().map(Into::into).collect(),
         leaf_index: proof.leaf_index,
-        root: decode_hash(&proof.root, &format!("proofs[{index}].root"))?,
+        root: proof.root.into(),
         root_seq: proof.root_seq,
-        root_index: proof.root_index as u16,
-    })
+        root_index: proof.root_index,
+    }
 }
 
-fn convert_non_inclusion_proof(
-    index: usize,
-    proof: zolana_api::NonInclusionProof,
-) -> Result<NonInclusionProof, ClientError> {
-    Ok(NonInclusionProof {
-        leaf: decode_hash(&proof.leaf, &format!("proofs[{index}].leaf"))?,
-        merkle_context: convert_merkle_context(
-            proof.merkle_context,
-            &format!("proofs[{index}].merkle_context"),
-        )?,
-        path: proof
-            .path
-            .iter()
-            .enumerate()
-            .map(|(path_index, hash)| {
-                decode_hash(hash, &format!("proofs[{index}].path[{path_index}]"))
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-        low_element: decode_hash(&proof.low_element, &format!("proofs[{index}].low_element"))?,
+fn convert_non_inclusion_proof(proof: zolana_api::NonInclusionProof) -> NonInclusionProof {
+    NonInclusionProof {
+        leaf: proof.leaf.into(),
+        merkle_context: convert_merkle_context(proof.merkle_context),
+        path: proof.path.into_iter().map(Into::into).collect(),
+        low_element: proof.low_element.into(),
         low_element_index: proof.low_element_index,
-        high_element: decode_hash(
-            &proof.high_element,
-            &format!("proofs[{index}].high_element"),
-        )?,
+        high_element: proof.high_element.into(),
         high_element_index: proof.high_element_index,
-        root: decode_hash(&proof.root, &format!("proofs[{index}].root"))?,
+        root: proof.root.into(),
         root_seq: proof.root_seq,
-        root_index: proof.root_index as u16,
-    })
+        root_index: proof.root_index,
+    }
 }
 
-fn convert_merkle_context(
-    context: zolana_api::MerkleContext,
-    field: &str,
-) -> Result<MerkleContext, ClientError> {
-    Ok(MerkleContext {
-        tree_type: context.tree_type as u16,
-        tree: decode_pubkey(&context.tree, &format!("{field}.tree"))?,
-    })
+fn convert_merkle_context(context: zolana_api::MerkleContext) -> MerkleContext {
+    MerkleContext {
+        tree_type: context.tree_type,
+        tree: Address::new_from_array(context.tree.0.to_bytes()),
+    }
 }
 
 fn encode_hash(hash: [u8; 32]) -> ApiHash {
-    ApiHash(bs58::encode(hash).into_string())
+    ApiHash::from(hash)
 }
 
 fn encode_pubkey(address: Address) -> SerializablePubkey {
-    SerializablePubkey(bs58::encode(address.to_bytes()).into_string())
+    SerializablePubkey::from(address.to_bytes())
 }
 
 fn encode_cursor(cursor: Option<Vec<u8>>) -> Option<Base64String> {
-    cursor.map(|cursor| Base64String(base64::encode(cursor)))
-}
-
-fn decode_optional_cursor(cursor: Option<Base64String>) -> Result<Option<Vec<u8>>, ClientError> {
-    cursor
-        .map(|cursor| decode_base64(&cursor, "next_cursor"))
-        .transpose()
-}
-
-fn decode_signature(
-    signature: &zolana_api::SerializableSignature,
-    field: &str,
-) -> Result<Signature, ClientError> {
-    signature
-        .0
-        .parse::<Signature>()
-        .map_err(|error| decode_error(field, error))
-}
-
-fn decode_pubkey(
-    pubkey: &zolana_api::SerializablePubkey,
-    field: &str,
-) -> Result<Address, ClientError> {
-    Ok(Address::new_from_array(decode_base58_32(&pubkey.0, field)?))
-}
-
-fn decode_hash(hash: &ApiHash, field: &str) -> Result<[u8; 32], ClientError> {
-    decode_base58_32(&hash.0, field)
-}
-
-fn decode_base58_32(value: &str, field: &str) -> Result<[u8; 32], ClientError> {
-    let bytes = bs58::decode(value)
-        .into_vec()
-        .map_err(|error| decode_error(field, error))?;
-    fixed_bytes(bytes, 32, field)
-}
-
-fn decode_base64(value: &Base64String, field: &str) -> Result<Vec<u8>, ClientError> {
-    base64::decode(&value.0).map_err(|error| decode_error(field, error))
+    cursor.map(Base64String::from)
 }
 
 fn decode_optional_p256(
@@ -364,7 +262,7 @@ fn decode_optional_p256(
 ) -> Result<Option<P256Pubkey>, ClientError> {
     value
         .map(|value| {
-            let bytes = fixed_bytes(decode_base64(&value, field)?, P256_PUBKEY_LEN, field)?;
+            let bytes = fixed_bytes(value.0, P256_PUBKEY_LEN, field)?;
             P256Pubkey::from_bytes(bytes).map_err(|error| decode_error(field, error))
         })
         .transpose()
@@ -375,7 +273,7 @@ fn decode_optional_salt(
     field: &str,
 ) -> Result<Option<[u8; 16]>, ClientError> {
     value
-        .map(|value| fixed_bytes(decode_base64(&value, field)?, 16, field))
+        .map(|value| fixed_bytes(value.0, 16, field))
         .transpose()
 }
 
@@ -415,11 +313,11 @@ mod tests {
     fn round_trips_hashes_and_cursors() {
         let hash = [7u8; 32];
         let encoded = encode_hash(hash);
-        assert_eq!(decode_hash(&encoded, "hash").unwrap(), hash);
+        assert_eq!(encoded.0, hash);
 
         let cursor = Some(vec![1, 2, 3, 4]);
         let encoded = encode_cursor(cursor.clone());
-        assert_eq!(decode_optional_cursor(encoded).unwrap(), cursor);
+        assert_eq!(encoded.map(Into::into), cursor);
     }
 
     #[test]
@@ -428,7 +326,7 @@ mod tests {
         let public = secret.public_key();
         let point = public.to_encoded_point(true);
         let key = decode_optional_p256(
-            Some(Base64String(base64::encode(point.as_bytes()))),
+            Some(Base64String(point.as_bytes().to_vec())),
             "tx_viewing_pk",
         )
         .unwrap()
@@ -439,9 +337,10 @@ mod tests {
 
     #[test]
     fn rejects_bad_hash_length() {
-        let err = decode_hash(&ApiHash(bs58::encode([1u8; 31]).into_string()), "root")
-            .expect_err("short hash must fail");
-        assert!(err.to_string().contains("expected 32 bytes"));
+        let encoded = bs58::encode([1u8; 31]).into_string();
+        let err =
+            serde_json::from_value::<ApiHash>(json!(encoded)).expect_err("short hash must fail");
+        assert!(err.to_string().contains("wrong size"));
     }
 
     #[test]
@@ -754,10 +653,7 @@ mod tests {
             .expect_err("short output hash must fail");
         let _ = server.request();
 
-        assert!(err
-            .to_string()
-            .contains("transactions[0].output_slots[0].output_context.hash"));
-        assert!(err.to_string().contains("expected 32 bytes"));
+        assert!(err.to_string().contains("wrong size"));
     }
 
     fn assert_json_rpc_request(body: &Value, method: &str) {

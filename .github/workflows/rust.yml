@@ -38,7 +38,7 @@ jobs:
           TOKEN: ${{ secrets.PRIVATE_LIBS_TOKEN }}
         run: |
           git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
@@ -165,9 +165,29 @@ jobs:
           key: proving-keys-transfer-keys-v10
       - run: just test-programs
 
+  build-photon:
+    name: build / photon
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          install-just: "false"
+          shared-key: localnet-photon
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: cargo build --locked --release -p photon-indexer --bin photon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: photon-linux-x86_64-${{ github.sha }}
+          path: target/release/photon
+          if-no-files-found: error
+          retention-days: 1
+
   test-localnet-photon:
     name: tests / localnet photon / ${{ matrix.name }}
     runs-on: ubuntu-latest
+    needs: build-photon
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
@@ -186,8 +206,6 @@ jobs:
     env:
       AGAVE_VERSION: v4.0.2
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      PHOTON_ZOLANA_RELEASE_TAG: photon-zolana-313fadb92be0
-      PHOTON_ZOLANA_SHA256: f922fd14cf59381fca3212c6f31952607a25d2eb276226524e0aff91c9cc8969
       ZOLANA_PHOTON_BIN: target/bin/photon
     steps:
       - uses: actions/checkout@v4
@@ -209,8 +227,12 @@ jobs:
         with:
           path: prover/server/proving-keys
           key: proving-keys-transfer-keys-v10
-      - name: Install pinned Photon
-        run: ./tools/install-photon.sh
+      - name: Download workspace Photon
+        uses: actions/download-artifact@v4
+        with:
+          name: photon-linux-x86_64-${{ github.sha }}
+          path: target/bin
+      - run: chmod 0755 "$ZOLANA_PHOTON_BIN"
       - name: Cache Squads smart account binary
         uses: actions/cache@v4
         id: squads-cache

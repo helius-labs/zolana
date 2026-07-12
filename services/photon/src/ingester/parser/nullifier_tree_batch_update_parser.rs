@@ -2,7 +2,7 @@ use crate::ingester::error::IngesterError;
 use crate::ingester::parser::state_update::{NullifierTreeBatchUpdate, StateUpdate};
 use crate::ingester::typedefs::block_info::{Instruction, TransactionInfo};
 use borsh1::BorshDeserialize;
-use rings_interface::{
+use zolana_interface::{
     instruction::{tag, BatchUpdateNullifierTreeData},
     pda,
 };
@@ -73,9 +73,9 @@ fn is_nullifier_tree_batch_update(instruction: &Instruction) -> bool {
 mod tests {
     use super::*;
     use crate::ingester::typedefs::block_info::InstructionGroup;
-    use rings_interface::instruction::{encode_instruction, CompressedProof};
     use solana_pubkey::Pubkey;
     use solana_signature::Signature;
+    use zolana_interface::instruction::{encode_instruction, CompressedProof};
 
     #[test]
     fn parses_batch_update_instruction() {

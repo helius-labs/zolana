@@ -6,33 +6,39 @@ Photon indexes Rings shielded-pool transactions and exposes the Rings JSON-RPC A
 - `get_shielded_transactions_by_tags`
 - `get_merkle_proofs`
 - `get_non_inclusion_proofs`
+- `get_nullifier_queue_elements`
+
+Photon is built from the Zolana Cargo workspace so its event parser, tree
+layout, SDK contract, and localnet tests always use the same source revision.
 
 ## Quick Start
 
 Run against a local validator:
 
 ```bash
-photon
+cargo run -p photon-indexer --bin photon
 ```
 
 Run against a specific RPC URL:
 
 ```bash
-photon --rpc-url=http://127.0.0.1:8899
+cargo run -p photon-indexer --bin photon -- --rpc-url=http://127.0.0.1:8899
 ```
 
 Use Postgres instead of the default temporary SQLite database:
 
 ```bash
 export DATABASE_URL="postgres://postgres@localhost/postgres"
-photon-migration up
-photon --db-url="$DATABASE_URL"
+cargo run -p photon-indexer --bin photon-migration -- up
+cargo run -p photon-indexer --bin photon -- --db-url="$DATABASE_URL"
 ```
 
 Use Yellowstone gRPC for block streaming:
 
 ```bash
-photon --rpc-url=https://api.devnet.solana.com --grpc-url=<grpc_url>
+cargo run -p photon-indexer --bin photon -- \
+  --rpc-url=https://api.devnet.solana.com \
+  --grpc-url=<grpc_url>
 ```
 
 ## Rings BlockInfo Snapshots
@@ -45,7 +51,7 @@ changes.
 Write snapshots to a local directory:
 
 ```bash
-photon-snapshotter \
+cargo run -p photon-indexer --bin photon-snapshotter -- \
   --rpc-url=https://api.mainnet-beta.solana.com \
   --snapshot-dir=./rings-snapshots \
   --start-slot=<slot>
@@ -54,13 +60,15 @@ photon-snapshotter \
 Serve existing snapshots without generating new ones:
 
 ```bash
-photon-snapshotter --snapshot-dir=./rings-snapshots --disable-snapshot-generation
+cargo run -p photon-indexer --bin photon-snapshotter -- \
+  --snapshot-dir=./rings-snapshots \
+  --disable-snapshot-generation
 ```
 
 Download snapshots from a snapshotter:
 
 ```bash
-photon-snapshot-loader \
+cargo run -p photon-indexer --bin photon-snapshot-loader -- \
   --snapshot-server-url=http://127.0.0.1:8825 \
   --snapshot-dir=./rings-snapshots
 ```
@@ -68,7 +76,7 @@ photon-snapshot-loader \
 Bootstrap Photon from snapshots, then continue live indexing from the restored slot:
 
 ```bash
-photon \
+cargo run -p photon-indexer --bin photon -- \
   --db-url="$DATABASE_URL" \
   --rpc-url=https://api.mainnet-beta.solana.com \
   --snapshot-dir=./rings-snapshots
@@ -90,17 +98,18 @@ block batch until the underlying data or code is fixed. Alert on stale `getIndex
 Run the Rings integration tests:
 
 ```bash
-cargo test --test integration_tests
+cargo test -p photon-indexer
 ```
 
 Check the main binary:
 
 ```bash
-cargo check --bin photon
+cargo check -p photon-indexer --bin photon
 ```
 
 Generate the Rings OpenAPI spec:
 
 ```bash
-cargo run --bin photon-openapi
+npm install --global @apidevtools/swagger-cli@4.0.4
+cargo run -p photon-indexer --bin photon-openapi
 ```
