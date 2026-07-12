@@ -6,8 +6,9 @@ use std::{
 use async_stream::stream;
 use cadence_macros::statsd_count;
 use futures::{pin_mut, Stream, StreamExt};
-use solana_client::{
-    nonblocking::rpc_client::RpcClient, rpc_config::RpcBlockConfig, rpc_request::RpcError,
+use solana_rpc_client::{
+    api::{client_error::ErrorKind as ClientErrorKind, config::RpcBlockConfig, request::RpcError},
+    nonblocking::rpc_client::RpcClient,
 };
 
 use solana_commitment_config::CommitmentConfig;
@@ -131,9 +132,7 @@ pub async fn fetch_block_with_infinite_retries(
                 }
             }
             Err(e) => {
-                if let solana_client::client_error::ClientErrorKind::RpcError(
-                    RpcError::RpcResponseError { code, .. },
-                ) = *e.kind
+                if let ClientErrorKind::RpcError(RpcError::RpcResponseError { code, .. }) = *e.kind
                 {
                     if SKIPPED_BLOCK_ERRORS.contains(&code) {
                         metric! {

@@ -323,10 +323,9 @@ pub const ZERO_BYTES: ZeroBytes = [
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::typedefs::hash::Hash;
-    use crate::common::typedefs::serializable_pubkey::SerializablePubkey;
     use crate::ingester::persist::leaf_node::leaf_index_to_node_index;
     use crate::ingester::persist::{compute_parent_hash, MerkleProofWithContext};
+    use zolana_indexer_api::{Hash, SerializablePubkey};
 
     fn node_index_to_leaf_index(index: i64, tree_height: u32) -> Option<i64> {
         let first_leaf_index = 1_i64.checked_shl(tree_height.checked_sub(1)?)?;

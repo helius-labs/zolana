@@ -9,18 +9,10 @@ use photon_indexer::{
         error::PhotonApiError,
         method::rings::{
             get_encrypted_utxos_by_tags, get_merkle_proofs, get_non_inclusion_proofs,
-            get_shielded_transactions_by_tags, GetMerkleProofsRequest,
-            GetNonInclusionProofsRequest, GetRingsByTagsRequest, RingsOutputContext,
-            RingsOutputSlot, ShieldedTransaction,
+            get_shielded_transactions_by_tags,
         },
     },
-    common::{
-        rings_tree::RingsTreeKind,
-        typedefs::{
-            bs64_string::Base64String, hash::Hash, limit::Limit,
-            serializable_pubkey::SerializablePubkey, serializable_signature::SerializableSignature,
-        },
-    },
+    common::rings_tree::RingsTreeKind,
     dao::generated::{
         blocks, indexed_trees, rings_output_payloads, rings_outputs, rings_transactions,
         rings_tx_nullifiers, state_trees, tree_metadata,
@@ -41,9 +33,14 @@ use sea_orm::{
 use sea_orm_migration::MigratorTrait;
 use serde::Deserialize;
 use serde_json::Value;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_pubkey::Pubkey;
+use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_signature::Signature;
+use zolana_indexer_api::{
+    Base64String, GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest,
+    Hash, Limit, RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
+    ShieldedTransaction,
+};
 
 const NULLIFIER_FORESTER_FIXTURE: &str = "nullifier_forester_20_batches";
 
@@ -697,7 +694,7 @@ async fn payloads_by_output_id(
 }
 
 fn assert_output_slot_matches_row(
-    slot: &photon_indexer::api::method::rings::RingsOutputSlot,
+    slot: &RingsOutputSlot,
     output: &rings_outputs::Model,
     payloads: &BTreeMap<i64, Vec<u8>>,
 ) {

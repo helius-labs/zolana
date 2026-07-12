@@ -1,7 +1,6 @@
 use sea_orm_migration::MigrationTrait;
 
-use super::standard::m20260616_000001_add_rings_tables;
-
+pub mod m20260616_000001_add_rings_tables;
 pub mod r20260617_000001_init;
 pub mod r20260624_000001_nullifier_queue_metadata;
 

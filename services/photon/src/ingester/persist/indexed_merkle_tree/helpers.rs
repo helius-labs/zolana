@@ -1,10 +1,10 @@
 use crate::common::bn254::BN254_FIELD_SIZE_MINUS_ONE_BYTES;
 use crate::common::rings_tree::RingsTreeKind;
-use crate::common::typedefs::hash::Hash;
 use crate::dao::generated::indexed_trees;
 use crate::ingester::error::IngesterError;
 use ark_bn254::Fr;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
+use zolana_indexer_api::Hash;
 
 /// Computes range node hash based on tree type
 pub fn compute_hash_by_tree_kind(

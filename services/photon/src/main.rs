@@ -6,7 +6,7 @@ use clap::Parser;
 use futures::{pin_mut, StreamExt};
 use jsonrpsee::server::ServerHandle;
 use log::{error, info, warn};
-use photon_indexer::api::{self, api::PhotonApi};
+use photon_indexer::api::{self, service::PhotonApi};
 
 use photon_indexer::common::{
     fetch_block_parent_slot, fetch_current_slot_with_infinite_retry, get_network_start_slot,
@@ -26,7 +26,7 @@ use photon_indexer::monitor::continuously_monitor_photon;
 use photon_indexer::snapshot::{
     get_snapshot_files_with_metadata, load_block_stream_from_directory_adapter, DirectoryAdapter,
 };
-use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
     SqlitePool,

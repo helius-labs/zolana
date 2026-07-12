@@ -5,16 +5,16 @@ use cadence::{BufferedUdpMetricSink, QueuingMetricSink, StatsdClient};
 use cadence_macros::set_global_default;
 use clap::{Parser, ValueEnum};
 use sea_orm::{DatabaseBackend, Value};
-use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcBlockConfig};
 use solana_commitment_config::CommitmentConfig;
+use solana_rpc_client::{api::config::RpcBlockConfig, nonblocking::rpc_client::RpcClient};
 use solana_transaction_status_client_types::{TransactionDetails, UiTransactionEncoding};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool,
 };
 pub mod bn254;
+pub mod indexer_context;
 pub mod rings_tree;
-pub mod typedefs;
 
 pub fn relative_project_path(path: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path)

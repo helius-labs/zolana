@@ -1,8 +1,7 @@
-#[allow(clippy::module_inception)]
-pub mod api;
 pub mod error;
 pub mod method;
 pub mod rpc_server;
+pub mod service;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseTransaction, Statement};
 

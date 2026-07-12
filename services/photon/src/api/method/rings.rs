@@ -4,37 +4,36 @@ mod get_merkle_proofs;
 mod get_non_inclusion_proofs;
 mod get_nullifier_queue_elements;
 mod get_shielded_transactions_by_tags;
-mod types;
 
 pub use get_encrypted_utxos_by_tags::get_encrypted_utxos_by_tags;
 pub use get_merkle_proofs::get_merkle_proofs;
 pub use get_non_inclusion_proofs::get_non_inclusion_proofs;
 pub use get_nullifier_queue_elements::get_nullifier_queue_elements;
 pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_tags;
-pub use types::{
-    EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest,
-    GetMerkleProofsResponse, GetNonInclusionProofsRequest, GetNonInclusionProofsResponse,
-    GetNullifierQueueElementsRequest, GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
-    GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof, NonInclusionProof,
-    NullifierQueueElement, RingsOutputContext, RingsOutputSlot, ShieldedTransaction,
-};
 
 #[cfg(test)]
 mod tests {
     use super::common::{decode_cursor, encode_cursor, validate_proof_leaves};
     use super::get_encrypted_utxos_by_tags::EncryptedUtxoCursor;
     use super::get_shielded_transactions_by_tags::ShieldedTxCursor;
-    use super::*;
     use crate::api::error::PhotonApiError;
     use crate::common::bn254::BN254_FIELD_SIZE_MINUS_ONE_BYTES;
     use crate::common::rings_tree::RingsTreeKind;
-    use crate::common::typedefs::bs64_string::Base64String;
-    use crate::common::typedefs::context::Context;
-    use crate::common::typedefs::hash::Hash;
-    use crate::common::typedefs::serializable_pubkey::SerializablePubkey;
-    use crate::common::typedefs::serializable_signature::SerializableSignature;
     use serde_json::Value;
     use solana_signature::SIGNATURE_BYTES;
+    use zolana_indexer_api::{
+        Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+        GetMerkleProofsRequest, Hash, MerkleContext, NonInclusionProof, RingsOutputContext,
+        RingsOutputSlot, SerializablePubkey, SerializableSignature, ShieldedTransaction,
+    };
+
+    fn hash(value: u8) -> Hash {
+        Hash::from([value; 32])
+    }
+
+    fn pubkey(value: u8) -> SerializablePubkey {
+        SerializablePubkey::from([value; 32])
+    }
 
     #[test]
     fn cursor_codecs_round_trip_typed_values() {
@@ -88,10 +87,10 @@ mod tests {
             slot: 1,
             tx_signature: SerializableSignature::default(),
             output_slot: RingsOutputSlot {
-                view_tag: Hash::new_unique(),
+                view_tag: hash(1),
                 output_context: RingsOutputContext {
-                    hash: Hash::new_unique(),
-                    tree: SerializablePubkey::new_unique(),
+                    hash: hash(2),
+                    tree: pubkey(3),
                     leaf_index: 2,
                 },
                 payload: Base64String(vec![4, 5, 6]),
@@ -125,15 +124,15 @@ mod tests {
             tx_viewing_pk: None,
             salt: None,
             output_slots: vec![RingsOutputSlot {
-                view_tag: Hash::new_unique(),
+                view_tag: hash(4),
                 output_context: RingsOutputContext {
-                    hash: Hash::new_unique(),
-                    tree: SerializablePubkey::new_unique(),
+                    hash: hash(5),
+                    tree: pubkey(6),
                     leaf_index: 3,
                 },
                 payload: Base64String(vec![7, 8, 9]),
             }],
-            nullifiers: vec![Hash::new_unique()],
+            nullifiers: vec![hash(7)],
             proofless: true,
         })
         .unwrap();
@@ -153,25 +152,25 @@ mod tests {
     #[test]
     fn serializes_proof_api_fields_like_rings_spec() {
         let request = serde_json::to_value(GetMerkleProofsRequest {
-            tree_account: SerializablePubkey::new_unique(),
-            leaves: vec![Hash::new_unique()],
+            tree_account: pubkey(8),
+            leaves: vec![hash(9)],
         })
         .unwrap();
         assert!(request.get("tree_account").is_some());
         assert!(request.get("treeAccount").is_none());
 
         let proof = serde_json::to_value(NonInclusionProof {
-            leaf: Hash::new_unique(),
+            leaf: hash(10),
             merkle_context: MerkleContext {
                 tree_type: u16::from(RingsTreeKind::Nullifier),
-                tree: SerializablePubkey::new_unique(),
+                tree: pubkey(11),
             },
-            path: vec![Hash::new_unique()],
-            low_element: Hash::new_unique(),
+            path: vec![hash(12)],
+            low_element: hash(13),
             low_element_index: 2,
-            high_element: Hash::new_unique(),
+            high_element: hash(14),
             high_element_index: 3,
-            root: Hash::new_unique(),
+            root: hash(15),
             root_seq: 4,
             root_index: 5,
         })

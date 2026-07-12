@@ -1,17 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::types::{
-    MerkleContext, MerkleProof, NonInclusionProof, RingsOutputContext, RingsOutputSlot,
-};
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
 use crate::common::bn254::is_bn254_field_element;
 use crate::common::rings_tree::RingsTreeKind;
-use crate::common::typedefs::bs64_string::Base64String;
-use crate::common::typedefs::hash::Hash;
-use crate::common::typedefs::limit::PAGE_LIMIT;
-use crate::common::typedefs::serializable_pubkey::SerializablePubkey;
-use crate::common::typedefs::serializable_signature::SerializableSignature;
 use crate::dao::generated::{indexed_trees, rings_outputs};
 use crate::ingester::parser::tree_info::TreeInfo;
 use crate::ingester::persist::MerkleProofWithContext;
@@ -20,6 +12,10 @@ use sea_orm::{
     ColumnTrait, DatabaseBackend, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder, Value,
 };
 use solana_signature::{Signature, SIGNATURE_BYTES};
+use zolana_indexer_api::{
+    Base64String, Hash, MerkleContext, MerkleProof, NonInclusionProof, RingsOutputContext,
+    RingsOutputSlot, SerializablePubkey, SerializableSignature, PAGE_LIMIT,
+};
 
 pub(super) fn validate_tags(tags: &[Hash]) -> Result<(), PhotonApiError> {
     if tags.is_empty() {

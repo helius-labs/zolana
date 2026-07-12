@@ -1,8 +1,5 @@
 use crate::api::error::PhotonApiError;
-use crate::common::{
-    rings_tree::RingsTreeKind,
-    typedefs::{hash::Hash, serializable_pubkey::SerializablePubkey},
-};
+use crate::common::rings_tree::RingsTreeKind;
 use crate::dao::generated::state_trees;
 use crate::ingester::persist::leaf_node::{u64_from_i64, LeafNode};
 use crate::ingester::persist::persisted_state_tree::{
@@ -12,6 +9,7 @@ use crate::ingester::persist::MerkleProofWithContext;
 use sea_orm::QueryFilter;
 use sea_orm::{ColumnTrait, DatabaseTransaction, EntityTrait};
 use std::collections::HashMap;
+use zolana_indexer_api::{Hash, SerializablePubkey};
 
 pub async fn get_multiple_compressed_leaf_proofs_by_indices_with_height(
     txn: &DatabaseTransaction,

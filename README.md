@@ -7,7 +7,7 @@
 | `programs/` | On-chain SPP programs, including `shielded-pool` |
 | `program-libs/` | Shared Rust interface crate |
 | `program-tests/` | Internal test crates and test-only SBF programs |
-| `sdk-libs/` | Rust SDK crates (`keypair`, `program-test`, `transaction`) |
+| `sdk-libs/` | Rust SDK, client, and indexer API crates |
 | `cli/` | Zolana developer and operator CLI |
 | `services/photon/` | Photon indexer, migrations, snapshots, and JSON-RPC service |
 | `forester/` | Off-chain nullifier-tree maintenance skeleton |

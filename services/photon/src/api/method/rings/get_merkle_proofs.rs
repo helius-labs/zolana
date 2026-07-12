@@ -3,12 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::common::{
     get_tree_info, merkle_proof_from_context, rings_output_leaf_indices, validate_proof_leaves,
 };
-use super::types::{GetMerkleProofsRequest, GetMerkleProofsResponse};
 use crate::api::error::PhotonApiError;
+use crate::common::indexer_context::extract as extract_context;
 use crate::common::rings_tree::RingsTreeKind;
-use crate::common::typedefs::context::extract as extract_context;
 use crate::ingester::persist::get_multiple_compressed_leaf_proofs_by_indices_with_height;
 use sea_orm::{DatabaseConnection, TransactionTrait};
+use zolana_indexer_api::{GetMerkleProofsRequest, GetMerkleProofsResponse};
 
 pub async fn get_merkle_proofs(
     conn: &DatabaseConnection,

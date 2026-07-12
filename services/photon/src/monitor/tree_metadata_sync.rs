@@ -1,8 +1,8 @@
 use log::{debug, info, warn};
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Set};
 use solana_account::Account;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_pubkey::Pubkey;
+use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 
 use crate::api::error::PhotonApiError;
 use crate::common::rings_tree::RingsTreeKind;

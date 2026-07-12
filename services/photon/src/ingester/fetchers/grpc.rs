@@ -13,8 +13,8 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     thread_rng,
 };
-use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_pubkey::Pubkey;
+use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use tokio::time::sleep;
@@ -28,7 +28,6 @@ use yellowstone_grpc_proto::geyser::{
 use yellowstone_grpc_proto::solana::storage::confirmed_block::InnerInstructions;
 
 use crate::api::method::get_indexer_health::HEALTH_CHECK_SLOT_DISTANCE;
-use crate::common::typedefs::hash::Hash;
 use crate::ingester::error::IngesterError;
 use crate::ingester::fetchers::poller::get_block_poller_stream;
 use crate::ingester::typedefs::block_info::{
@@ -37,6 +36,7 @@ use crate::ingester::typedefs::block_info::{
 
 use crate::metric;
 use crate::monitor::{start_latest_slot_updater, LATEST_SLOT};
+use zolana_indexer_api::Hash;
 
 pub fn get_grpc_stream_with_rpc_fallback(
     endpoint: String,

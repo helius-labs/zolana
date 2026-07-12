@@ -1,8 +1,8 @@
 use sea_orm::DatabaseConnection;
 
 use super::super::error::PhotonApiError;
-use crate::common::typedefs::context::extract as extract_context;
-use solana_client::nonblocking::rpc_client::RpcClient;
+use crate::common::indexer_context::extract as extract_context;
+use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 
 pub const HEALTH_CHECK_SLOT_DISTANCE: u64 = 20;
 

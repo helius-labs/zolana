@@ -1,7 +1,7 @@
 use crate::{api::error::PhotonApiError, dao::generated::blocks, migration::Expr};
 use sea_orm::{DatabaseConnection, EntityTrait, FromQueryResult, QuerySelect};
 
-pub use zolana_indexer_api::Context;
+use zolana_indexer_api::Context;
 
 #[derive(FromQueryResult)]
 struct ContextModel {

@@ -3,17 +3,17 @@ use super::common::{
     rings_output_slot_from_parts, signature_from_bytes, tags_sql, tx_cursor_sql_condition,
     u16_from_i16, u64_from_i64, validate_tags,
 };
-use super::types::{EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetRingsByTagsRequest};
 use crate::api::error::PhotonApiError;
-use crate::common::typedefs::bs64_string::Base64String;
-use crate::common::typedefs::context::extract as extract_context;
-use crate::common::typedefs::hash::Hash;
+use crate::common::indexer_context::extract as extract_context;
 use bincode::{Decode, Encode};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, FromQueryResult,
     Statement, TransactionTrait, Value,
 };
 use solana_signature::SIGNATURE_BYTES;
+use zolana_indexer_api::{
+    Base64String, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetRingsByTagsRequest, Hash,
+};
 
 #[derive(FromQueryResult, Debug)]
 struct EncryptedUtxoRow {

@@ -137,10 +137,6 @@ impl Hash {
     pub fn to_base58(&self) -> String {
         bs58::encode(self.0).into_string()
     }
-
-    pub fn new_unique() -> Self {
-        Self(Pubkey::new_unique().to_bytes())
-    }
 }
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -257,10 +253,6 @@ pub struct SerializablePubkey(pub Pubkey);
 impl SerializablePubkey {
     pub fn to_bytes_vec(self) -> Vec<u8> {
         self.0.to_bytes().to_vec()
-    }
-
-    pub fn new_unique() -> Self {
-        Self(Pubkey::new_unique())
     }
 }
 
@@ -588,7 +580,7 @@ pub struct GetNullifierQueueElementsRequest {
     #[serde(default)]
     pub start_seq: u64,
     /// Maximum number of elements to return.
-    pub limit: u64,
+    pub limit: Limit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -704,5 +696,22 @@ mod tests {
         .unwrap();
         assert!(value.get("next_cursor").is_some());
         assert!(value.get("nextCursor").is_none());
+    }
+
+    #[test]
+    fn every_page_limit_uses_the_shared_bounds() {
+        let tree = SerializablePubkey::from([3; 32]);
+        let request = serde_json::json!({
+            "tree_account": tree.to_string(),
+            "limit": PAGE_LIMIT,
+        });
+        let parsed = serde_json::from_value::<GetNullifierQueueElementsRequest>(request).unwrap();
+        assert_eq!(parsed.limit.value(), PAGE_LIMIT);
+
+        let invalid = serde_json::json!({
+            "tree_account": tree.to_string(),
+            "limit": PAGE_LIMIT + 1,
+        });
+        assert!(serde_json::from_value::<GetNullifierQueueElementsRequest>(invalid).is_err());
     }
 }

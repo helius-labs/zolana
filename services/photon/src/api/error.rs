@@ -1,10 +1,10 @@
-use crate::common::typedefs::hash::ParseHashError;
 use crate::metric;
 use cadence_macros::statsd_count;
 use jsonrpsee::types::{ErrorCode, ErrorObjectOwned};
 use log::error;
 use solana_pubkey::ParsePubkeyError;
 use thiserror::Error;
+use zolana_indexer_api::ParseHashError;
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum PhotonApiError {

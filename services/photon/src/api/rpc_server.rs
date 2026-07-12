@@ -16,7 +16,7 @@ use zolana_indexer_api::{
     RpcMethod,
 };
 
-use super::api::PhotonApi;
+use super::service::PhotonApi;
 
 pub async fn run_server(
     api: PhotonApi,
@@ -149,7 +149,7 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
 mod tests {
     use super::*;
     use sea_orm::Database;
-    use solana_client::nonblocking::rpc_client::RpcClient;
+    use solana_rpc_client::nonblocking::rpc_client::RpcClient;
     use std::sync::Arc;
 
     #[tokio::test]

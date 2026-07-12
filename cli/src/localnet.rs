@@ -173,7 +173,7 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
     stop_port(opts.photon_port);
 
     let photon = find_binary(
-        &["PHOTON_BIN", "ZOLANA_PHOTON_BIN"],
+        &["ZOLANA_PHOTON_BIN"],
         &["target/release/photon", "target/debug/photon"],
         &["photon"],
     )?;

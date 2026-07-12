@@ -1,1 +1,0 @@
-pub mod m20260616_000001_add_rings_tables;

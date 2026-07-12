@@ -225,7 +225,7 @@ impl ZolanaApi {
         self.call::<GetNullifierQueueElements>(GetNullifierQueueElementsRequest {
             tree_account,
             start_seq: start_seq.unwrap_or_default(),
-            limit,
+            limit: required_limit(limit)?,
         })
         .await
     }
@@ -359,7 +359,7 @@ impl BlockingZolanaApi {
         self.call::<GetNullifierQueueElements>(GetNullifierQueueElementsRequest {
             tree_account,
             start_seq: start_seq.unwrap_or_default(),
-            limit,
+            limit: required_limit(limit)?,
         })
     }
 
@@ -410,6 +410,13 @@ fn optional_limit(value: Option<u64>) -> Result<Option<Limit>, ApiError> {
             })
         })
         .transpose()
+}
+
+fn required_limit(value: u64) -> Result<Limit, ApiError> {
+    Limit::new(value).map_err(|message| ApiError::InvalidRequest {
+        field: "limit",
+        message,
+    })
 }
 
 fn unwrap_response<M>(response: JsonRpcResponse<M::Response>) -> Result<M::Response, ApiError>
@@ -543,5 +550,10 @@ mod tests {
             Err(ApiError::InvalidRequest { field: "limit", .. })
         ));
         assert!(optional_limit(Some(1)).is_ok());
+        assert!(matches!(
+            required_limit(zolana_indexer_api::PAGE_LIMIT + 1),
+            Err(ApiError::InvalidRequest { field: "limit", .. })
+        ));
+        assert!(required_limit(zolana_indexer_api::PAGE_LIMIT).is_ok());
     }
 }

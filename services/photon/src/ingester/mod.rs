@@ -14,7 +14,7 @@ use sea_orm::EntityTrait;
 use sea_orm::QueryTrait;
 use sea_orm::Set;
 use sea_orm::TransactionTrait;
-use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 
 use self::parser::state_update::StateUpdate;
 use self::persist::MAX_SQL_INSERTS;

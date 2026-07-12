@@ -12,7 +12,7 @@ use cadence_macros::{statsd_count, statsd_gauge};
 use log::{error, info, warn};
 use once_cell::sync::Lazy;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
-use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use tokio::{
     task::JoinHandle,
     time::{interval, sleep},
@@ -25,13 +25,12 @@ use crate::{
     metric,
 };
 
-use crate::common::typedefs::hash::Hash;
-
 use solana_account::Account as SolanaAccount;
 
-use crate::common::typedefs::context::extract as extract_context;
+use crate::common::indexer_context::extract as extract_context;
 
 use solana_pubkey::Pubkey;
+use zolana_indexer_api::Hash;
 
 const CHUNK_SIZE: usize = 100;
 

@@ -92,7 +92,6 @@ solana-address = { version = "2.6", features = ["atomic", "borsh", "bytemuck", "
 solana-address-lookup-table-interface = { version = "3.0", features = ["bytemuck", "bincode"] }
 solana-banks-client = { version = "=4.0.0-rc.0", features = ["agave-unstable-api"] }
 solana-bn254 = "3.2.1"
-solana-client = "=4.0.0-rc.0"
 solana-clock = "3.0"
 solana-commitment-config = "3.1"
 solana-compute-budget = "3.1"
@@ -148,7 +147,6 @@ cadence = "1.8.0"
 cadence-macros = "1.8.0"
 chrono = "0.4"
 clap = { version = "4.5.53", features = ["derive", "env"] }
-cloud-storage = { version = "0.11.1", default-features = false, features = ["rustls-tls"] }
 dashmap = "6.1.0"
 darling = "0.21"
 env_logger = "0.11"

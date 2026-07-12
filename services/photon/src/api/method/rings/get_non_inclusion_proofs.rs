@@ -3,12 +3,9 @@ use std::collections::BTreeSet;
 use super::common::{
     get_tree_info, hash_from_vec, non_inclusion_proof_from_context, validate_proof_leaves,
 };
-use super::types::{GetNonInclusionProofsRequest, GetNonInclusionProofsResponse};
 use crate::api::error::PhotonApiError;
+use crate::common::indexer_context::extract as extract_context;
 use crate::common::rings_tree::RingsTreeKind;
-use crate::common::typedefs::context::extract as extract_context;
-use crate::common::typedefs::hash::Hash;
-use crate::common::typedefs::serializable_pubkey::SerializablePubkey;
 use crate::dao::generated::rings_tx_nullifiers;
 use crate::ingester::persist::indexed_merkle_tree::{
     get_multiple_indexed_exclusion_ranges_with_custom_empty_proofs,
@@ -17,6 +14,9 @@ use crate::ingester::persist::indexed_merkle_tree::{
 use sea_orm::{
     ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait, QueryFilter,
     TransactionTrait,
+};
+use zolana_indexer_api::{
+    GetNonInclusionProofsRequest, GetNonInclusionProofsResponse, Hash, SerializablePubkey,
 };
 
 pub async fn get_non_inclusion_proofs(

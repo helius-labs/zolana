@@ -23,7 +23,6 @@ use anyhow::{anyhow, Context as AnyhowContext, Result};
 use async_stream::stream;
 use bincode::{Decode, Encode};
 use bytes::{BufMut, Bytes};
-use cloud_storage::Client as GcsClient;
 use futures::stream::StreamExt;
 use futures::{pin_mut, stream, Stream};
 use log::{error, info};
@@ -32,6 +31,8 @@ use s3::region::Region;
 use s3::{bucket::Bucket, BucketConfiguration};
 use s3_utils::multipart_upload::put_object_stream_custom;
 use tokio::io::{AsyncRead, ReadBuf};
+
+use self::gcs_utils::GcsClient;
 
 pub mod gcs_utils;
 pub mod s3_utils;
@@ -218,9 +219,9 @@ impl R2DirectoryAdapter {
 }
 
 pub struct GCSDirectoryAdapter {
-    pub gcs_client: GcsClient,
-    pub gcs_bucket: String,
-    pub gcs_prefix: String,
+    gcs_client: GcsClient,
+    gcs_bucket: String,
+    gcs_prefix: String,
 }
 
 impl GCSDirectoryAdapter {
@@ -237,7 +238,6 @@ impl GCSDirectoryAdapter {
             };
 
             let object_data = gcs_adapter.gcs_client
-                .object()
                 .download(&gcs_adapter.gcs_bucket, &full_path)
                 .await
                 .with_context(|| format!("Failed to read file from GCS: {:?}", full_path))?;
@@ -253,17 +253,11 @@ impl GCSDirectoryAdapter {
     }
 
     async fn list_files(&self) -> Result<Vec<String>> {
-        let mut list_request = cloud_storage::ListRequest::default();
-        if !self.gcs_prefix.is_empty() {
-            list_request.prefix = Some(self.gcs_prefix.clone());
-        }
-
-        let objects_stream = self
+        let objects = self
             .gcs_client
-            .object()
-            .list(&self.gcs_bucket, list_request)
+            .list(&self.gcs_bucket, &self.gcs_prefix)
             .await
-            .with_context(|| "Failed to create list stream for GCS")?;
+            .context("Failed to list files in GCS")?;
 
         let prefix_len = if self.gcs_prefix.is_empty() {
             0
@@ -272,14 +266,9 @@ impl GCSDirectoryAdapter {
         };
         let mut files = Vec::new();
 
-        pin_mut!(objects_stream);
-        while let Some(object_list_result) = objects_stream.next().await {
-            let object_list =
-                object_list_result.with_context(|| "Failed to list files from GCS")?;
-            for object in object_list.items {
-                if object.name.len() > prefix_len {
-                    files.push(object.name[prefix_len..].to_string());
-                }
+        for object in objects {
+            if object.len() > prefix_len {
+                files.push(object[prefix_len..].to_string());
             }
         }
         Ok(files)
@@ -293,7 +282,6 @@ impl GCSDirectoryAdapter {
         };
 
         self.gcs_client
-            .object()
             .delete(&self.gcs_bucket, &full_path)
             .await
             .with_context(|| format!("Failed to delete file from GCS: {:?}", full_path))?;
@@ -312,7 +300,7 @@ impl GCSDirectoryAdapter {
         };
 
         // Use resumable upload for reliable large file uploads
-        let access_token = gcs_utils::resumable_upload::get_access_token()
+        let access_token = gcs_utils::get_access_token()
             .await
             .with_context(|| "Failed to get GCS access token")?;
 

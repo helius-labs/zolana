@@ -53,7 +53,7 @@ sea-orm-migration = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-solana-client = { workspace = true }
+solana-rpc-client = { workspace = true }
 solana-pubkey = { workspace = true, features = ["serde", "borsh"] }
 solana-signature = { workspace = true }
 solana-account = { workspace = true }
@@ -81,7 +81,6 @@ async-stream = { workspace = true }
 rand = { workspace = true }
 bincode = { workspace = true }
 s3 = { workspace = true }
-cloud-storage = { workspace = true }
 jsonwebtoken = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-indexer-api = { workspace = true, features = ["openapi"] }

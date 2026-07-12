@@ -8,14 +8,10 @@ use photon_indexer::{
         error::PhotonApiError,
         method::rings::{
             get_encrypted_utxos_by_tags, get_merkle_proofs, get_non_inclusion_proofs,
-            get_shielded_transactions_by_tags, GetMerkleProofsRequest,
-            GetNonInclusionProofsRequest, GetRingsByTagsRequest,
+            get_shielded_transactions_by_tags,
         },
     },
-    common::{
-        rings_tree::RingsTreeKind,
-        typedefs::{hash::Hash, serializable_pubkey::SerializablePubkey},
-    },
+    common::rings_tree::RingsTreeKind,
     dao::generated::{
         blocks, indexed_trees, rings_output_payloads, rings_outputs, rings_transaction_payloads,
         rings_transactions, rings_tx_nullifiers, state_trees, transactions, tree_metadata,
@@ -50,6 +46,10 @@ use serde_json::Value;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use zolana_indexer_api::{
+    GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest, Hash,
+    SerializablePubkey,
+};
 use zolana_interface::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
     pda,

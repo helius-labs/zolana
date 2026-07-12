@@ -10,7 +10,6 @@ use crate::ingester::persist::leaf_node::{
     LeafNode,
 };
 use crate::{
-    common::typedefs::hash::Hash,
     dao::generated::indexed_trees,
     ingester::{
         error::IngesterError,
@@ -23,6 +22,7 @@ use sea_orm::{
 };
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use zolana_indexer_api::Hash;
 
 /// Ensures the zeroeth element (leaf_index 0) exists if not already present
 fn ensure_zeroeth_element_exists(

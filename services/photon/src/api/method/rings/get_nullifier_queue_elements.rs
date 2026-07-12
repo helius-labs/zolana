@@ -1,13 +1,13 @@
-use super::types::{
-    GetNullifierQueueElementsRequest, GetNullifierQueueElementsResponse, NullifierQueueElement,
-};
 use crate::api::error::PhotonApiError;
-use crate::common::typedefs::context::extract as extract_context;
-use crate::common::typedefs::hash::Hash;
+use crate::common::indexer_context::extract as extract_context;
 use crate::dao::generated::rings_tx_nullifiers;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
     TransactionTrait,
+};
+use zolana_indexer_api::{
+    GetNullifierQueueElementsRequest, GetNullifierQueueElementsResponse, Hash,
+    NullifierQueueElement,
 };
 
 /// Return queued nullifier values for `tree_account` with `input_queue_seq >=
@@ -33,7 +33,7 @@ pub async fn get_nullifier_queue_elements(
         .filter(rings_tx_nullifiers::Column::NullifierTree.eq(tree_bytes))
         .filter(rings_tx_nullifiers::Column::InputQueueSeq.gte(start_seq))
         .order_by_asc(rings_tx_nullifiers::Column::InputQueueSeq)
-        .limit(request.limit)
+        .limit(request.limit.value())
         .all(&tx)
         .await?;
 
@@ -64,11 +64,19 @@ pub async fn get_nullifier_queue_elements(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::typedefs::serializable_pubkey::SerializablePubkey;
     use crate::dao::generated::{blocks, rings_transactions, transactions};
     use crate::migration::RingsMigrator;
     use sea_orm::{Database, DatabaseConnection, EntityTrait, Set};
     use sea_orm_migration::MigratorTrait;
+    use zolana_indexer_api::{Limit, SerializablePubkey};
+
+    fn limit(value: u64) -> Limit {
+        Limit::new(value).unwrap()
+    }
+
+    fn pubkey(value: u8) -> SerializablePubkey {
+        SerializablePubkey::from([value; 32])
+    }
 
     fn nullifier(byte: u8) -> [u8; 32] {
         let mut value = [0u8; 32];
@@ -135,7 +143,7 @@ mod tests {
 
     #[tokio::test]
     async fn returns_ordered_queued_values() {
-        let tree = SerializablePubkey::new_unique();
+        let tree = pubkey(1);
         let db = setup(tree, 3).await;
 
         let response = get_nullifier_queue_elements(
@@ -143,7 +151,7 @@ mod tests {
             GetNullifierQueueElementsRequest {
                 tree_account: tree,
                 start_seq: 0,
-                limit: 10,
+                limit: limit(10),
             },
         )
         .await
@@ -157,7 +165,7 @@ mod tests {
 
     #[tokio::test]
     async fn honors_start_seq_and_limit() {
-        let tree = SerializablePubkey::new_unique();
+        let tree = pubkey(2);
         let db = setup(tree, 5).await;
 
         let from_two = get_nullifier_queue_elements(
@@ -165,7 +173,7 @@ mod tests {
             GetNullifierQueueElementsRequest {
                 tree_account: tree,
                 start_seq: 2,
-                limit: 10,
+                limit: limit(10),
             },
         )
         .await
@@ -180,7 +188,7 @@ mod tests {
             GetNullifierQueueElementsRequest {
                 tree_account: tree,
                 start_seq: 0,
-                limit: 2,
+                limit: limit(2),
             },
         )
         .await
@@ -193,15 +201,15 @@ mod tests {
 
     #[tokio::test]
     async fn filters_by_tree() {
-        let tree = SerializablePubkey::new_unique();
+        let tree = pubkey(3);
         let db = setup(tree, 3).await;
 
         let other = get_nullifier_queue_elements(
             &db,
             GetNullifierQueueElementsRequest {
-                tree_account: SerializablePubkey::new_unique(),
+                tree_account: pubkey(4),
                 start_seq: 0,
-                limit: 10,
+                limit: limit(10),
             },
         )
         .await

@@ -2,22 +2,18 @@ use std::collections::HashSet;
 
 use anyhow::{bail, Context as AnyhowContext, Result};
 
-use crate::api::api::{OpenApiSpec, PhotonApi};
-use crate::api::method::rings::{
-    EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest,
-    GetMerkleProofsResponse, GetNonInclusionProofsRequest, GetNonInclusionProofsResponse,
-    GetNullifierQueueElementsRequest, GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
-    GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof, NonInclusionProof,
-    NullifierQueueElement, RingsOutputContext, RingsOutputSlot, ShieldedTransaction,
-};
-use crate::common::typedefs::bs64_string::Base64String;
-use crate::common::typedefs::context::Context;
-use crate::common::typedefs::hash::Hash;
-use crate::common::typedefs::limit::Limit;
-use crate::common::typedefs::serializable_pubkey::SerializablePubkey;
-use crate::common::typedefs::serializable_signature::SerializableSignature;
+use crate::api::service::{OpenApiSpec, PhotonApi};
 use utoipa::openapi::Components;
 use utoipa::openapi::Response;
+use zolana_indexer_api::{
+    Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+    GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
+    GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
+    GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
+    GetShieldedTransactionsByTagsResponse, Hash, Limit, MerkleContext, MerkleProof,
+    NonInclusionProof, NullifierQueueElement, RingsOutputContext, RingsOutputSlot,
+    SerializablePubkey, SerializableSignature, ShieldedTransaction,
+};
 
 use crate::common::relative_project_path;
 
@@ -130,7 +126,7 @@ fn build_error_response(description: &str) -> Response {
         .build()
 }
 
-fn request_schema(name: &str, params: Option<RefOr<Schema>>) -> RefOr<Schema> {
+fn request_schema(name: &str, params: RefOr<Schema>) -> RefOr<Schema> {
     let mut builder = ObjectBuilder::new();
 
     builder = add_string_property(
@@ -151,10 +147,7 @@ fn request_schema(name: &str, params: Option<RefOr<Schema>>) -> RefOr<Schema> {
         .required("id")
         .required("method");
 
-    if let Some(params) = params {
-        builder = builder.property("params", params);
-        builder = builder.required("params");
-    }
+    builder = builder.property("params", params).required("params");
 
     RefOr::T(Schema::Object(builder.build()))
 }
@@ -272,9 +265,7 @@ fn filter_unused_components_for_specs(
 ) -> Result<()> {
     let mut used_components = HashSet::new();
     for spec in specs {
-        if let Some(request) = spec.request.clone() {
-            used_components.extend(find_all_components(request));
-        }
+        used_components.extend(find_all_components(spec.request.clone()));
         used_components.extend(find_all_components(spec.response.clone()));
     }
 
@@ -311,7 +302,6 @@ pub fn update_docs(is_test: bool) -> Result<()> {
         RINGS_API_TEST_SPEC_FILE,
         RINGS_API_SPEC_FILE,
         PhotonApi::rings_method_api_specs(),
-        true,
     )
 }
 
@@ -320,13 +310,10 @@ fn write_docs_file(
     test_file_name: &str,
     spec_file_name: &str,
     method_api_specs: Vec<OpenApiSpec>,
-    filter_components: bool,
 ) -> Result<()> {
     let mut doc = ApiDoc::openapi();
     if let Some(mut components) = doc.components.take() {
-        if filter_components {
-            filter_unused_components_for_specs(&method_api_specs, &mut components)?;
-        }
+        filter_unused_components_for_specs(&method_api_specs, &mut components)?;
         components.schemas = components
             .schemas
             .iter()
@@ -337,7 +324,7 @@ fn write_docs_file(
 
     for spec in method_api_specs {
         let content = ContentBuilder::new()
-            .schema(Some(request_schema(&spec.name, spec.request)))
+            .schema(Some(request_schema(spec.name, spec.request)))
             .build();
         let request_body = RequestBodyBuilder::new()
             .content(JSON_CONTENT_TYPE, content)
@@ -363,7 +350,7 @@ fn write_docs_file(
             .build();
         let mut path_item = PathItem::new(HttpMethod::Post, operation);
 
-        path_item.summary = Some(spec.name.clone());
+        path_item.summary = Some(spec.name.to_string());
         doc.paths
             .paths
             .insert(format!("/{method}", method = spec.name), path_item);

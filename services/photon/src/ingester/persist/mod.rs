@@ -1,5 +1,5 @@
 use crate::{
-    common::{rings_tree::RingsTreeKind, typedefs::hash::Hash},
+    common::rings_tree::RingsTreeKind,
     dao::generated::transactions,
     ingester::parser::{
         state_update::{RingsTransactionUpdate, StateUpdate, Transaction},
@@ -18,6 +18,7 @@ use sea_orm::{
 };
 use solana_pubkey::Pubkey;
 use std::collections::HashMap;
+use zolana_indexer_api::Hash;
 
 use super::error;
 use ark_bn254::Fr;

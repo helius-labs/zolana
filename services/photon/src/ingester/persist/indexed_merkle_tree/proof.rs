@@ -1,8 +1,6 @@
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
 use crate::common::rings_tree::RingsTreeKind;
-use crate::common::typedefs::hash::Hash;
-use crate::common::typedefs::serializable_pubkey::SerializablePubkey;
 use crate::dao::generated::indexed_trees;
 use crate::ingester::error::IngesterError;
 use crate::ingester::persist::indexed_merkle_tree::{
@@ -15,6 +13,7 @@ use crate::ingester::persist::{
 };
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseTransaction, Statement, TransactionTrait};
 use std::collections::HashMap;
+use zolana_indexer_api::{Hash, SerializablePubkey};
 
 fn zeroeth_exclusion_range(
     tree: Vec<u8>,

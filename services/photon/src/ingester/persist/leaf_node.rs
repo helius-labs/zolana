@@ -1,4 +1,4 @@
-use crate::common::{rings_tree::RingsTreeKind, typedefs::hash::Hash};
+use crate::common::rings_tree::RingsTreeKind;
 use crate::dao::generated::state_trees;
 use crate::ingester::error::IngesterError;
 use crate::ingester::persist::persisted_state_tree::{get_proof_nodes, zero_hash_for_level};
@@ -7,6 +7,7 @@ use crate::migration::OnConflict;
 use sea_orm::{ConnectionTrait, DatabaseTransaction, EntityTrait, QueryTrait, Set};
 use std::cmp::max;
 use std::collections::HashMap;
+use zolana_indexer_api::Hash;
 
 #[derive(Clone, Debug)]
 pub struct LeafNode {
