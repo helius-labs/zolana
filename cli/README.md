@@ -25,10 +25,12 @@ Commands:
 ```bash
 zolana config get
 zolana config set --keypair ~/.config/zolana/id.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
+zolana config unset tree
 zolana wallet new
 zolana wallet address
 zolana wallet address --funding
-zolana wallet create-tree --tree-keypair /tmp/zolana-tree.json --airdrop-lamports 20000000000
+zolana create-tree --tree-keypair /tmp/zolana-tree.json --airdrop-lamports 20000000000
+zolana test-mint --amount 1000000 --airdrop-lamports 2000000000
 zolana wallet balance --indexer-url http://127.0.0.1:8784
 zolana wallet utxos --mint SOL
 zolana wallet set-merging on
@@ -62,14 +64,23 @@ it chooses the largest note unless `--input <HASH>` is supplied.
 `wallet consolidate` manually merges 2–8 notes into one, choosing the smallest
 notes first unless repeated `--input <HASH>` flags are supplied. The owner must
 first opt in once with `wallet set-merging on`; no automatic consolidation runs.
+If a reused funding key already has a registry record for different shielded
+keys, `wallet set-merging on` refuses to rotate it implicitly; use
+`--update-keys` only when intentionally replacing that published identity.
 
 CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The
 wallet path precedence is `-k/--keypair`, then `config.keypair`, then
 `~/.config/zolana/id.json`. Use `-C/--config <PATH>` to select another config
 file; it takes precedence over `ZOLANA_CONFIG`. `create-tree` writes the created
-tree pubkey into the selected config file; `deposit`, `transfer`, and `withdraw`
-only require `--tree` when neither the flag nor config has a tree.
+tree pubkey into the selected config file. Write commands resolve `--tree`, then
+`config.tree`, then the protocol's deployed default tree. `create-tree` and
+`test-mint` are operator commands; both still accept `--keypair` and `--rpc-url`
+overrides. New tree key files use the standard Solana JSON byte-array format.
+
+For SPL assets, new flows derive the selected owner's associated token account.
+An existing `token_account` in a local asset entry remains an explicit source
+account override for compatibility.
 
 Optional wallet path:
 

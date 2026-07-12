@@ -9,7 +9,10 @@ use super::{
     resolve::get_network,
     sync::sync_context,
     transaction::{maybe_airdrop, submit_private_transaction, SubmitPrivateTx},
-    util::{ensure_positive, format_address, parse_address, parse_pubkey},
+    util::{
+        ensure_owner_spl_token_account, ensure_positive, format_address, parse_address,
+        parse_pubkey,
+    },
 };
 use crate::args::WithdrawOptions;
 
@@ -34,6 +37,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         selection: InputSelection::Auto,
     })?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
+    ensure_owner_spl_token_account(&rpc, &ctx.material.funding, recipient, asset)?;
     let (signature, outcome) = submit_private_transaction(
         SubmitPrivateTx {
             rpc: &rpc,

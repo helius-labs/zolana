@@ -38,6 +38,18 @@ pub(crate) enum CliCommand {
         command: ConfigCommand,
     },
 
+    #[command(
+        name = "create-tree",
+        about = "Initialize protocol config and a pool tree on the configured RPC"
+    )]
+    CreateTree(CreateTreeOptions),
+
+    #[command(
+        name = "test-mint",
+        about = "Create a local SPL test mint, fund the wallet, and store its asset mapping"
+    )]
+    TestMint(TestMintOptions),
+
     #[command(name = "wallet", about = "Private wallet commands")]
     Wallet {
         #[command(subcommand)]
@@ -53,11 +65,26 @@ pub(crate) enum ConfigCommand {
     #[command(name = "set", about = "Update the CLI configuration file")]
     Set(ConfigSetOptions),
 
+    #[command(name = "unset", about = "Clear a configured value and use its default")]
+    Unset {
+        #[arg(value_enum)]
+        field: ConfigField,
+    },
+
     #[command(name = "asset-registry", about = "Show locally configured assets")]
     AssetRegistry,
 
     #[command(name = "add-asset", about = "Add or update a local SPL asset mapping")]
     AddAsset(ConfigAddAssetOptions),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub(crate) enum ConfigField {
+    Keypair,
+    RpcUrl,
+    IndexerUrl,
+    ProverUrl,
+    Tree,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -107,18 +134,6 @@ pub(crate) enum WalletCommand {
         about = "Print the selected wallet's shielded address"
     )]
     Address(AddressOptions),
-
-    #[command(
-        name = "create-tree",
-        about = "Initialize protocol config and a pool tree on the configured RPC"
-    )]
-    CreateTree(CreateTreeOptions),
-
-    #[command(
-        name = "test-mint",
-        about = "Create a local SPL test mint, fund the wallet, and store its asset mapping"
-    )]
-    TestMint(TestMintOptions),
 
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
@@ -431,23 +446,22 @@ pub(crate) struct NetworkWalletOptions {
 #[derive(Args, Debug, Clone)]
 pub(crate) struct CreateTreeOptions {
     #[command(flatten)]
-    pub(crate) sync: SyncOptions,
+    pub(crate) wallet: RpcWalletOptions,
 
-    #[arg(long, help = "Tree keypair path to create or reuse")]
+    #[arg(long, help = "Standard Solana tree keypair file to create or reuse")]
     pub(crate) tree_keypair: String,
 
     #[arg(
         long = "airdrop-lamports",
-        default_value_t = 20_000_000_000,
-        help = "Localnet airdrop amount for the wallet funding key"
+        help = "Request a localnet airdrop for the wallet funding key when creation is required"
     )]
-    pub(crate) airdrop_lamports: u64,
+    pub(crate) airdrop_lamports: Option<u64>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub(crate) struct TestMintOptions {
     #[command(flatten)]
-    pub(crate) sync: SyncOptions,
+    pub(crate) wallet: RpcWalletOptions,
 
     #[arg(long, help = "Raw token units to mint to the wallet owner")]
     pub(crate) amount: u64,
@@ -704,13 +718,14 @@ mod tests {
             ["zolana", "--help"].as_slice(),
             ["zolana", "test-validator", "--help"].as_slice(),
             ["zolana", "start-prover", "--help"].as_slice(),
+            ["zolana", "create-tree", "--help"].as_slice(),
+            ["zolana", "test-mint", "--help"].as_slice(),
+            ["zolana", "config", "unset", "--help"].as_slice(),
             ["zolana", "config", "asset-registry", "--help"].as_slice(),
             ["zolana", "config", "add-asset", "--help"].as_slice(),
             ["zolana", "wallet", "--help"].as_slice(),
             ["zolana", "wallet", "new", "--help"].as_slice(),
             ["zolana", "wallet", "address", "--help"].as_slice(),
-            ["zolana", "wallet", "create-tree", "--help"].as_slice(),
-            ["zolana", "wallet", "test-mint", "--help"].as_slice(),
             ["zolana", "wallet", "balance", "--help"].as_slice(),
             ["zolana", "wallet", "utxos", "--help"].as_slice(),
             ["zolana", "wallet", "set-merging", "--help"].as_slice(),
@@ -862,8 +877,8 @@ mod tests {
     }
 
     #[test]
-    fn parses_wallet_create_tree_options() {
-        let WalletCommand::CreateTree(opts) = parse_wallet(&[
+    fn parses_create_tree_options() {
+        let Some(CliCommand::CreateTree(opts)) = parse_cli(&[
             "create-tree",
             "--keypair",
             "/tmp/alice.pid.json",
@@ -871,24 +886,30 @@ mod tests {
             "/tmp/tree.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
-            "--indexer-url",
-            "http://127.0.0.1:8785",
             "--airdrop-lamports",
             "1000000000",
-        ]) else {
-            panic!("expected wallet create-tree command");
+        ])
+        .command
+        else {
+            panic!("expected create-tree command");
         };
         assert_eq!(
-            opts.sync.keypair.keypair.as_deref(),
+            opts.wallet.keypair.keypair.as_deref(),
             Some("/tmp/alice.pid.json")
         );
         assert_eq!(opts.tree_keypair, "/tmp/tree.json");
-        assert_eq!(opts.sync.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
         assert_eq!(
-            opts.sync.indexer_url.as_deref(),
-            Some("http://127.0.0.1:8785")
+            opts.wallet.rpc_url.as_deref(),
+            Some("http://127.0.0.1:8900")
         );
-        assert_eq!(opts.airdrop_lamports, 1_000_000_000);
+        assert_eq!(opts.airdrop_lamports, Some(1_000_000_000));
+
+        let Some(CliCommand::CreateTree(opts)) =
+            parse_cli(&["create-tree", "--tree-keypair", "/tmp/tree.json"]).command
+        else {
+            panic!("expected create-tree command");
+        };
+        assert_eq!(opts.airdrop_lamports, None);
     }
 
     #[test]
@@ -916,11 +937,19 @@ mod tests {
             opts.token_account.as_deref(),
             Some("Token11111111111111111111111111111111111111")
         );
+
+        let Some(CliCommand::Config {
+            command: ConfigCommand::Unset { field },
+        }) = parse_cli(&["config", "unset", "tree"]).command
+        else {
+            panic!("expected config unset command");
+        };
+        assert_eq!(field, ConfigField::Tree);
     }
 
     #[test]
-    fn parses_wallet_test_mint_options() {
-        let WalletCommand::TestMint(opts) = parse_wallet(&[
+    fn parses_test_mint_options() {
+        let Some(CliCommand::TestMint(opts)) = parse_cli(&[
             "test-mint",
             "--keypair",
             "/tmp/alice.pid.json",
@@ -930,11 +959,13 @@ mod tests {
             "/tmp/admin.pid.json",
             "--airdrop-lamports",
             "1000000000",
-        ]) else {
-            panic!("expected wallet test-mint command");
+        ])
+        .command
+        else {
+            panic!("expected test-mint command");
         };
         assert_eq!(
-            opts.sync.keypair.keypair.as_deref(),
+            opts.wallet.keypair.keypair.as_deref(),
             Some("/tmp/alice.pid.json")
         );
         assert_eq!(opts.amount, 1_000_000);

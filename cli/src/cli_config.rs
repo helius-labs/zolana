@@ -9,12 +9,12 @@ use std::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
+use zolana_interface::DEFAULT_TREE_ADDRESS;
 use zolana_transaction::{Address, AssetRegistry};
 
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub(crate) const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
-pub(crate) const DEFAULT_TREE: &str = "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8";
 const CONFIG_VERSION: u8 = 1;
 static CONFIG_FILE_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 
@@ -91,22 +91,26 @@ impl CliConfigFile {
         asset_id: u64,
         token_account: Option<Pubkey>,
     ) -> Result<()> {
+        let mut candidate = self.clone();
         let mint = mint.to_string();
         let token_account = token_account.map(|account| account.to_string());
-        if let Some(asset) = self.assets.iter_mut().find(|asset| asset.mint == mint) {
+        if let Some(asset) = candidate.assets.iter_mut().find(|asset| asset.mint == mint) {
             asset.asset_id = asset_id;
             if token_account.is_some() {
                 asset.token_account = token_account;
             }
         } else {
-            self.assets.push(LocalAssetConfig {
+            candidate.assets.push(LocalAssetConfig {
                 mint,
                 asset_id,
                 token_account,
             });
         }
-        self.assets.sort_by_key(|asset| asset.asset_id);
-        self.save()
+        candidate.assets.sort_by_key(|asset| asset.asset_id);
+        candidate.local_asset_registry()?;
+        candidate.save()?;
+        *self = candidate;
+        Ok(())
     }
 
     pub(crate) fn local_asset_registry(&self) -> Result<AssetRegistry> {
@@ -202,7 +206,7 @@ pub(crate) fn resolve_tree<'a>(
 ) -> &'a str {
     cli_override
         .or(config.tree.as_deref())
-        .unwrap_or(DEFAULT_TREE)
+        .unwrap_or(DEFAULT_TREE_ADDRESS)
 }
 
 #[cfg(test)]
@@ -295,5 +299,30 @@ mod tests {
                 .and_then(|name| name.to_str()),
             Some("id.json")
         );
+    }
+
+    #[test]
+    fn invalid_asset_update_does_not_replace_saved_config() {
+        let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
+        let (path, path_str) = temp_config();
+        unsafe { env::set_var("ZOLANA_CONFIG", &path_str) };
+        let first_mint = Pubkey::new_unique();
+        let mut config = CliConfigFile {
+            version: CONFIG_VERSION,
+            assets: vec![LocalAssetConfig {
+                mint: first_mint.to_string(),
+                asset_id: 2,
+                token_account: Some(Pubkey::new_unique().to_string()),
+            }],
+            ..CliConfigFile::default()
+        };
+        config.save().expect("save initial config");
+        let before = fs::read(&path).expect("read initial config");
+
+        assert!(config.upsert_asset(Pubkey::new_unique(), 1, None).is_err());
+        assert_eq!(fs::read(&path).expect("read config after error"), before);
+        assert_eq!(config.assets.len(), 1);
+        assert_eq!(config.assets[0].mint, first_mint.to_string());
+        let _ = fs::remove_file(path);
     }
 }

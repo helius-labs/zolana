@@ -9,24 +9,29 @@ use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateSplInterface},
     pda,
-    state::SplAssetRegistry,
-    PROGRAM_ID_PUBKEY, SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR,
-    SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,
+    state::{ProtocolConfig, SplAssetRegistry},
+    PROGRAM_ID_PUBKEY, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,
     SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_transaction::Address;
 
 use super::{
-    material::{load_existing_wallet, load_sender_from_resolved_sync},
-    resolve::resolve_sync,
-    util::{ensure_positive, system_create_account_ix},
+    material::load_existing_wallet,
+    util::{
+        ensure_owner_spl_token_account, ensure_positive, fetch_protocol_config,
+        system_create_account_ix,
+    },
 };
-use crate::{args::TestMintOptions, cli_config::CliConfigFile};
+use crate::{
+    args::TestMintOptions,
+    cli_config::{resolve_keypair_path, resolve_rpc_url, CliConfigFile},
+};
 
-pub(super) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
+pub(crate) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
-    let sync = resolve_sync(&opts.sync)?;
-    let material = load_sender_from_resolved_sync(&sync)?;
+    let config = CliConfigFile::load()?;
+    let keypair_path = resolve_keypair_path(opts.wallet.keypair.keypair.as_deref(), &config);
+    let material = load_existing_wallet(&keypair_path)?;
     let authority_material = opts
         .authority_path
         .as_deref()
@@ -34,7 +39,9 @@ pub(super) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
         .transpose()?;
     let authority_material = authority_material.as_ref().unwrap_or(&material);
     let authority = &authority_material.funding;
-    let mut rpc = SolanaRpc::new(sync.rpc_url);
+    let mut rpc = SolanaRpc::new(resolve_rpc_url(opts.wallet.rpc_url.as_deref(), &config));
+
+    preflight_protocol_config(&rpc, authority.pubkey())?;
 
     if let Some(lamports) = opts.airdrop_lamports {
         let signature = rpc.airdrop(&authority.pubkey(), lamports)?;
@@ -45,14 +52,21 @@ pub(super) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
     }
 
     let mint = create_mint(&rpc, authority)?;
-    let token_account = create_token_account(&rpc, authority, &mint, &material.funding.pubkey())?;
+    let token_account = ensure_owner_spl_token_account(
+        &rpc,
+        authority,
+        material.funding.pubkey(),
+        Address::new_from_array(mint.to_bytes()),
+    )?
+    .ok_or_else(|| anyhow::anyhow!("SPL mint unexpectedly resolved to the SOL asset"))?;
     mint_to(&rpc, authority, &mint, &token_account, opts.amount)?;
     ensure_asset_counter(&rpc, authority)?;
     ensure_spl_interface(&rpc, authority, &mint)?;
     let asset_id = fetch_asset_id(&rpc, &mint)?;
 
+    // Network work may take time; merge into the latest on-disk config.
     let mut config = CliConfigFile::load()?;
-    config.upsert_asset(mint, asset_id, Some(token_account))?;
+    config.upsert_asset(mint, asset_id, None)?;
 
     println!(
         "ok test_mint mint={} asset_id={} token_account={} owner={} amount={}",
@@ -62,6 +76,39 @@ pub(super) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
         material.funding.pubkey(),
         opts.amount
     );
+    Ok(())
+}
+
+fn preflight_protocol_config<R: Rpc + ?Sized>(rpc: &R, authority: Pubkey) -> Result<()> {
+    let protocol_config = pda::protocol_config();
+    let config = fetch_protocol_config(rpc)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "protocol config not found at {protocol_config}; run `zolana create-tree` first"
+        )
+    })?;
+    let asset_counter_exists = rpc
+        .get_account(Address::new_from_array(pda::spl_asset_counter().to_bytes()))?
+        .is_some();
+    validate_spl_creation_policy(&config, authority, asset_counter_exists)
+}
+
+fn validate_spl_creation_policy(
+    config: &ProtocolConfig,
+    authority: Pubkey,
+    asset_counter_exists: bool,
+) -> Result<()> {
+    let authority_address = Address::new_from_array(authority.to_bytes());
+    let is_protocol_authority = config.check_protocol_authority(&authority_address).is_ok();
+    if !asset_counter_exists && !is_protocol_authority {
+        bail!(
+            "SPL asset counter is not initialized and wallet {authority} is not the protocol authority"
+        );
+    }
+    if !is_protocol_authority && !config.allows_permissionless_spl_interface_creation() {
+        bail!(
+            "wallet {authority} is not the protocol authority and SPL interface creation is not permissionless"
+        );
+    }
     Ok(())
 }
 
@@ -95,45 +142,6 @@ fn create_mint(rpc: &SolanaRpc, authority: &Keypair) -> Result<Pubkey> {
         mint.pubkey()
     );
     Ok(mint.pubkey())
-}
-
-fn create_token_account(
-    rpc: &SolanaRpc,
-    payer: &Keypair,
-    mint: &Pubkey,
-    owner: &Pubkey,
-) -> Result<Pubkey> {
-    let token_account = Keypair::new();
-    let rent = rpc.get_minimum_balance_for_rent_exemption(SPL_TOKEN_ACCOUNT_LEN)?;
-    let create_ix = system_create_account_ix(
-        &payer.pubkey(),
-        &token_account.pubkey(),
-        rent,
-        SPL_TOKEN_ACCOUNT_LEN as u64,
-        &token_program_id(),
-    );
-    let mut data = vec![SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR];
-    data.extend_from_slice(&owner.to_bytes());
-    let init_ix = Instruction {
-        program_id: token_program_id(),
-        accounts: vec![
-            AccountMeta::new(token_account.pubkey(), false),
-            AccountMeta::new_readonly(*mint, false),
-        ],
-        data,
-    };
-    let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let signature = rpc.create_and_send_transaction(
-        &[create_ix, init_ix],
-        payer_address,
-        &[payer, &token_account],
-    )?;
-    println!(
-        "ok create_token_account account={} owner={} signature={signature}",
-        token_account.pubkey(),
-        owner
-    );
-    Ok(token_account.pubkey())
 }
 
 fn mint_to(
@@ -226,4 +234,38 @@ fn fetch_asset_id(rpc: &SolanaRpc, mint: &Pubkey) -> Result<u64> {
     let mut bytes = [0u8; 8];
     bytes.copy_from_slice(&account.data[40..48]);
     Ok(u64::from_le_bytes(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_interface::state::discriminator::PROTOCOL_CONFIG;
+
+    fn protocol_config(authority: Pubkey, permissionless: bool) -> ProtocolConfig {
+        let authority = Address::new_from_array(authority.to_bytes());
+        ProtocolConfig {
+            discriminator: PROTOCOL_CONFIG,
+            protocol_authority: authority,
+            tree_creation_authority: authority,
+            forester_authority: authority,
+            zone_creation_authority: authority,
+            tree_creation_is_permissionless: 0,
+            zone_creation_is_permissionless: 0,
+            spl_interface_creation_is_permissionless: u8::from(permissionless),
+        }
+    }
+
+    #[test]
+    fn spl_creation_policy_requires_the_right_authority_state() {
+        let authority = Pubkey::new_unique();
+        let other = Pubkey::new_unique();
+        validate_spl_creation_policy(&protocol_config(authority, false), authority, false).unwrap();
+        assert!(
+            validate_spl_creation_policy(&protocol_config(authority, true), other, false).is_err()
+        );
+        validate_spl_creation_policy(&protocol_config(authority, true), other, true).unwrap();
+        assert!(
+            validate_spl_creation_policy(&protocol_config(authority, false), other, true).is_err()
+        );
+    }
 }

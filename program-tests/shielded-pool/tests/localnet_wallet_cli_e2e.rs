@@ -10,7 +10,6 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use serde::Deserialize;
 use serial_test::serial;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -33,36 +32,6 @@ const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
 
-#[derive(Deserialize)]
-struct WalletFundingKey {
-    funding_secret_hex: String,
-    funding_pubkey: String,
-}
-
-fn load_funding_keypair(path: &Path) -> Result<Keypair> {
-    let bytes = std::fs::read(path).with_context(|| path.display().to_string())?;
-    let file: WalletFundingKey = serde_json::from_slice(&bytes)
-        .with_context(|| format!("parse wallet {}", path.display()))?;
-    let secret = hex::decode(&file.funding_secret_hex).context("decode funding secret")?;
-    if secret.len() != 32 {
-        bail!(
-            "wallet {} funding secret has invalid length {}",
-            path.display(),
-            secret.len()
-        );
-    }
-    let mut seed = [0u8; 32];
-    seed.copy_from_slice(&secret);
-    let keypair = Keypair::new_from_array(seed);
-    if keypair.pubkey().to_string() != file.funding_pubkey {
-        bail!(
-            "wallet {} funding pubkey does not match secret",
-            path.display()
-        );
-    }
-    Ok(keypair)
-}
-
 fn spl_token_account_amount(rpc: &SolanaRpc, token_account: &Pubkey) -> Result<u64> {
     let account = rpc
         .get_account(Address::new_from_array(token_account.to_bytes()))?
@@ -80,18 +49,6 @@ fn spl_token_account_amount(rpc: &SolanaRpc, token_account: &Pubkey) -> Result<u
     Ok(u64::from_le_bytes(amount_bytes))
 }
 
-fn ensure_associated_token_account(
-    rpc_url: &str,
-    payer: &Keypair,
-    owner: &Pubkey,
-    mint: &Pubkey,
-) -> Result<Pubkey> {
-    let rpc = SolanaRpc::new(rpc_url);
-    let (_signature, account) =
-        zolana_client::create_associated_token_account(&rpc, payer, owner, mint)?;
-    Ok(account)
-}
-
 /// Restart a fresh local validator + Photon through the `zolana` CLI (the same
 /// launcher the other photon e2e tests use; it owns the validator/photon
 /// orchestration and readiness checks). `--skip-prover` leaves the persistent
@@ -102,10 +59,13 @@ fn restart_localnet() {
         std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/zolana"));
     let program_id =
         std::env::var("SHIELDED_POOL_PROGRAM_ID").expect("SHIELDED_POOL_PROGRAM_ID must be set");
+    let user_registry_program_id =
+        std::env::var("USER_REGISTRY_PROGRAM_ID").expect("USER_REGISTRY_PROGRAM_ID must be set");
     let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
     let photon_port =
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
     let program_so = format!("{root}/target/deploy/shielded_pool_program.so");
+    let user_registry_program_so = format!("{root}/target/deploy/zolana_user_registry.so");
 
     let status = Command::new(&cli)
         .current_dir(root)
@@ -123,6 +83,9 @@ fn restart_localnet() {
             "--sbf-program",
             &program_id,
             &program_so,
+            "--sbf-program",
+            &user_registry_program_id,
+            &user_registry_program_so,
         ])
         .status()
         .expect("run zolana test-validator");
@@ -281,64 +244,81 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     wallet_new(&alice, &config_path, &cli_env)?;
     wallet_new(&bob, &config_path, &cli_env)?;
-    let alice_address = wallet_address(&alice, &config_path, &cli_env)?;
-    let bob_address = wallet_address(&bob, &config_path, &cli_env)?;
-
-    let create_tree_out = run_cli_with_env(
+    run_cli_with_env(
         &[
-            "wallet",
-            "create-tree",
+            "config",
+            "set",
             "--keypair",
             &alice.display().to_string(),
-            "--tree-keypair",
-            &tree_keypair.display().to_string(),
             "--rpc-url",
             &rpc_url,
             "--indexer-url",
             &indexer_url,
+            "--prover-url",
+            &prover_url,
+        ],
+        &cli_env,
+    )?;
+    let alice_address = wallet_address(&alice, &config_path, &cli_env)?;
+    let bob_address = wallet_address(&bob, &config_path, &cli_env)?;
+    let selected_address = run_cli_with_env(&["wallet", "address"], &cli_env)?;
+    assert_eq!(selected_address.trim(), alice_address.to_string());
+    let config_out = run_cli_with_env(&["config", "get"], &cli_env)?;
+    assert!(
+        config_out.contains(&alice.display().to_string())
+            && config_out.contains(&rpc_url)
+            && config_out.contains(&indexer_url)
+            && config_out.contains(&prover_url),
+        "persisted config is incomplete: {config_out}"
+    );
+
+    let create_tree_out = run_cli_with_env(
+        &[
+            "create-tree",
+            "--tree-keypair",
+            &tree_keypair.display().to_string(),
             "--airdrop-lamports",
             "20000000000",
         ],
         &cli_env,
     )?;
-    let _tree = parse_tree_pubkey(&create_tree_out)?;
+    let tree = parse_tree_pubkey(&create_tree_out)?;
+    let config_out = run_cli_with_env(&["config", "get"], &cli_env)?;
+    assert!(
+        config_out.contains(&tree),
+        "create-tree did not persist the selected tree: {config_out}"
+    );
 
     let test_mint_out = run_cli_with_env(
         &[
-            "wallet",
             "test-mint",
-            "--keypair",
-            &alice.display().to_string(),
             "--amount",
             "1000000",
-            "--rpc-url",
-            &rpc_url,
-            "--indexer-url",
-            &indexer_url,
             "--airdrop-lamports",
             "2000000000",
         ],
         &cli_env,
     )?;
     let spl_mint = parse_field(&test_mint_out, "mint")?;
-    let alice_token_account = parse_field(&test_mint_out, "token_account")?;
+    let alice_token_account = parse_field(&test_mint_out, "token_account")?.parse::<Pubkey>()?;
     let spl_mint_pubkey = spl_mint.parse::<Pubkey>()?;
+    let alice_owner = funding_pubkey(&alice, &config_path, &cli_env)?.parse::<Pubkey>()?;
+    assert_eq!(
+        alice_token_account,
+        pda::associated_token_address(&alice_owner, &spl_mint_pubkey),
+        "test-mint must fund the selected owner's associated token account"
+    );
     let public_recipient = Keypair::new();
     let bob_funding = funding_pubkey(&bob, &config_path, &cli_env)?;
     let bob_owner = bob_funding.parse::<Pubkey>()?;
-    let bob_funding_keypair = load_funding_keypair(&bob)?;
     let bob_ata = pda::associated_token_address(&bob_owner, &spl_mint_pubkey);
     let public_ata = pda::associated_token_address(&public_recipient.pubkey(), &spl_mint_pubkey);
     let mut rpc = SolanaRpc::new(&rpc_url);
     rpc.airdrop(&bob_owner, 2_000_000_000)?;
-    assert_eq!(
-        ensure_associated_token_account(
-            &rpc_url,
-            &bob_funding_keypair,
-            &bob_owner,
-            &spl_mint_pubkey,
-        )?,
-        bob_ata
+    assert!(
+        rpc.get_account(Address::new_from_array(bob_ata.to_bytes()))?
+            .is_none(),
+        "bob ATA should not exist before a public withdrawal"
     );
     assert!(
         rpc.get_account(Address::new_from_array(public_ata.to_bytes()))?
@@ -397,6 +377,95 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     assert!(
         balance_out.contains("1000000000"),
         "expected 1B lamports balance, got: {balance_out}"
+    );
+
+    let merge_before_opt_in = run_cli_expect_failure(
+        &[
+            "wallet",
+            "consolidate",
+            "--keypair",
+            &bob.display().to_string(),
+        ],
+        &cli_env,
+    )?;
+    assert!(
+        merge_before_opt_in.contains("user registry record not found"),
+        "consolidation should require explicit opt-in: {merge_before_opt_in}"
+    );
+
+    let set_merging_out = run_cli_with_env(
+        &[
+            "wallet",
+            "set-merging",
+            "on",
+            "--keypair",
+            &bob.display().to_string(),
+        ],
+        &cli_env,
+    )?;
+    assert!(
+        set_merging_out.contains("enabled=true"),
+        "set-merging did not enable consent: {set_merging_out}"
+    );
+
+    let consolidate_out = run_cli_with_env(
+        &[
+            "wallet",
+            "consolidate",
+            "--keypair",
+            &bob.display().to_string(),
+        ],
+        &cli_env,
+    )?;
+    assert!(
+        consolidate_out.contains("ok consolidate") && consolidate_out.contains("inputs=2"),
+        "two-note consolidation failed: {consolidate_out}"
+    );
+
+    let split_out = run_cli_with_env(
+        &[
+            "wallet",
+            "split",
+            "4",
+            "--keypair",
+            &bob.display().to_string(),
+        ],
+        &cli_env,
+    )?;
+    assert!(
+        split_out.contains("ok split parts=4"),
+        "four-way split failed: {split_out}"
+    );
+    let split_utxos = run_cli_with_env(
+        &["wallet", "utxos", "--keypair", &bob.display().to_string()],
+        &cli_env,
+    )?;
+    assert!(
+        split_utxos.contains("count=4"),
+        "split did not create four spendable notes: {split_utxos}"
+    );
+
+    let consolidate_split_out = run_cli_with_env(
+        &[
+            "wallet",
+            "consolidate",
+            "--keypair",
+            &bob.display().to_string(),
+        ],
+        &cli_env,
+    )?;
+    assert!(
+        consolidate_split_out.contains("ok consolidate")
+            && consolidate_split_out.contains("inputs=4"),
+        "four-note consolidation failed: {consolidate_split_out}"
+    );
+    let consolidated_utxos = run_cli_with_env(
+        &["wallet", "utxos", "--keypair", &bob.display().to_string()],
+        &cli_env,
+    )?;
+    assert!(
+        consolidated_utxos.contains("count=1"),
+        "consolidation did not restore one spendable note: {consolidated_utxos}"
     );
 
     run_cli_with_env(
@@ -505,8 +574,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     )?;
 
     let public_withdraw_amount = 50_000u64;
-    let alice_token_before_public_attempt =
-        spl_token_account_amount(&rpc, &alice_token_account.parse()?)?;
+    let alice_token_before_public_attempt = spl_token_account_amount(&rpc, &alice_token_account)?;
     let failure = run_cli_expect_failure(
         &[
             "wallet",
@@ -538,21 +606,10 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         "failed private transfer must not create the recipient ATA"
     );
     assert_eq!(
-        spl_token_account_amount(&rpc, &alice_token_account.parse()?)?,
+        spl_token_account_amount(&rpc, &alice_token_account)?,
         alice_token_before_public_attempt,
         "failed private transfer must not move public tokens"
     );
-    assert_eq!(
-        ensure_associated_token_account(
-            &rpc_url,
-            &bob_funding_keypair,
-            &public_recipient.pubkey(),
-            &spl_mint_pubkey,
-        )?,
-        public_ata
-    );
-    assert_eq!(spl_token_account_amount(&rpc, &public_ata)?, 0);
-
     run_cli_with_env(
         &[
             "wallet",
@@ -625,7 +682,11 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     );
 
     let spl_withdraw_amount = 100_000u64;
-    assert_eq!(spl_token_account_amount(&rpc, &bob_ata)?, 0);
+    assert!(
+        rpc.get_account(Address::new_from_array(bob_ata.to_bytes()))?
+            .is_none(),
+        "bob ATA should still be absent before withdrawal"
+    );
     run_cli_with_env(
         &[
             "wallet",

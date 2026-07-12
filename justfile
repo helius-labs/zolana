@@ -150,7 +150,8 @@ test-localnet-e2e: build-programs build-prover-server build-cli
 
 # Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
 # `#[serial]` test restarts a fresh validator + Photon via the `zolana` CLI,
-# so the protocol-config singleton never collides across tests.
+# so the protocol-config singleton never collides across tests. The wallet CLI
+# cycle also loads the user registry to exercise explicit merge consent.
 test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
@@ -162,6 +163,7 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"

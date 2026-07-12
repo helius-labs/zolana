@@ -1,5 +1,7 @@
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
 
+pub use zolana_tree::{INITIALIZED as TREE_STATE_INITIALIZED, PAUSED as TREE_STATE_PAUSED};
+
 pub const STATE_HEIGHT: usize = 32;
 
 // Production batched-address-tree parameters. The bloom filter size and hash

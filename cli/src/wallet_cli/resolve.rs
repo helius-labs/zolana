@@ -27,11 +27,6 @@ pub(crate) struct ResolvedNetworkOptions {
     pub(crate) airdrop_lamports: Option<u64>,
 }
 
-pub(crate) fn resolve_sync(opts: &SyncOptions) -> Result<ResolvedSyncOptions> {
-    let config = CliConfigFile::load()?;
-    resolve_sync_with_config(opts, &config)
-}
-
 pub(crate) fn resolve_sync_with_config(
     opts: &SyncOptions,
     config: &CliConfigFile,
@@ -109,10 +104,7 @@ mod tests {
             airdrop_lamports: None,
         })
         .expect("resolve network");
-        assert_eq!(
-            resolved.tree.to_string(),
-            "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
-        );
+        assert_eq!(resolved.tree, zolana_interface::DEFAULT_TREE_PUBKEY);
     }
 
     #[test]

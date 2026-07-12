@@ -256,6 +256,10 @@ pub(super) fn load_solana_cli_keypair(path: &Path) -> Result<Keypair> {
             path.display()
         )
     })?;
+    keypair_from_solana_bytes(&values, path)
+}
+
+fn keypair_from_solana_bytes(values: &[u8], path: &Path) -> Result<Keypair> {
     let mut secret = [0u8; 32];
     match values.len() {
         32 | 64 => secret.copy_from_slice(&values[..32]),
@@ -318,47 +322,41 @@ fn harden_secret_permissions(file: &File, path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn load_or_create_solana_keypair(path: &Path) -> Result<Keypair> {
+/// Load an existing standard or legacy tree keypair, or generate one in memory.
+/// The returned boolean is true when the caller must persist the new key after
+/// completing RPC and policy preflight.
+pub(super) fn load_or_generate_solana_keypair(path: &Path) -> Result<(Keypair, bool)> {
     if path.exists() {
         let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-        let file: SolanaKeypairFile = serde_json::from_slice(&bytes)
-            .with_context(|| format!("failed to parse {}", path.display()))?;
+        if let Ok(values) = serde_json::from_slice::<Vec<u8>>(&bytes) {
+            return Ok((keypair_from_solana_bytes(&values, path)?, false));
+        }
+        let file: SolanaKeypairFile = serde_json::from_slice(&bytes).with_context(|| {
+            format!(
+                "failed to parse {} as a Solana or legacy tree keypair",
+                path.display()
+            )
+        })?;
+        if file.version != 1 {
+            bail!(
+                "legacy tree keypair {} has unsupported version {}",
+                path.display(),
+                file.version
+            );
+        }
         let secret = parse_hex_array::<32>(&file.secret_hex)?;
         let keypair = Keypair::new_from_array(secret);
         if keypair.pubkey().to_string() != file.pubkey {
             bail!("keypair {} pubkey does not match secret", path.display());
         }
-        return Ok(keypair);
+        return Ok((keypair, false));
     }
 
-    let keypair = Keypair::new();
-    let file = SolanaKeypairFile {
-        version: 1,
-        secret_hex: hex::encode(keypair.secret_bytes()),
-        pubkey: keypair.pubkey().to_string(),
-    };
-    write_json_secret(path, &file)?;
-    Ok(keypair)
+    Ok((Keypair::new(), true))
 }
 
-pub(super) fn write_json_secret<T: Serialize>(path: &Path, value: &T) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(path)
-        .with_context(|| format!("failed to write {}", path.display()))?;
-    file.write_all(&serde_json::to_vec_pretty(value)?)?;
-    #[cfg(unix)]
-    {
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("failed to set permissions on {}", path.display()))?;
-    }
-    Ok(())
+pub(super) fn persist_solana_keypair(path: &Path, keypair: &Keypair) -> Result<()> {
+    write_json_secret_exclusive(path, &keypair.to_bytes().to_vec())
 }
 
 pub(super) fn clone_keypair(keypair: &ShieldedKeypair) -> Result<ShieldedKeypair> {
@@ -489,6 +487,50 @@ mod tests {
         let invalid = root.join("invalid.json");
         fs::write(&invalid, b"not json").unwrap();
         assert!(load_solana_cli_keypair(&invalid).is_err());
+    }
+
+    #[test]
+    fn tree_keypair_generation_is_deferred_and_uses_standard_format() {
+        let root = temp_root("zolana-cli-tree-keypair");
+        let path = root.join("tree.json");
+        let (generated, must_persist) =
+            load_or_generate_solana_keypair(&path).expect("generate tree keypair");
+        assert!(must_persist);
+        assert!(
+            !path.exists(),
+            "preflight generation must not write the key"
+        );
+
+        persist_solana_keypair(&path, &generated).expect("persist tree keypair");
+        let bytes: Vec<u8> = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(bytes, generated.to_bytes());
+        let (loaded, must_persist) =
+            load_or_generate_solana_keypair(&path).expect("reload tree keypair");
+        assert!(!must_persist);
+        assert_eq!(loaded.pubkey(), generated.pubkey());
+    }
+
+    #[test]
+    fn tree_keypair_loader_accepts_legacy_object_format() {
+        let root = temp_root("zolana-cli-tree-keypair-legacy");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("tree.json");
+        let keypair = Keypair::new();
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&SolanaKeypairFile {
+                version: 1,
+                secret_hex: hex::encode(keypair.secret_bytes()),
+                pubkey: keypair.pubkey().to_string(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let (loaded, must_persist) =
+            load_or_generate_solana_keypair(&path).expect("legacy tree keypair");
+        assert!(!must_persist);
+        assert_eq!(loaded.pubkey(), keypair.pubkey());
     }
 
     #[test]

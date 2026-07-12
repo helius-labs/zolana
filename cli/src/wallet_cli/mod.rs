@@ -16,6 +16,9 @@ use anyhow::Result;
 
 use crate::args::WalletCommand;
 
+pub(crate) use test_mint::run_test_mint;
+pub(crate) use tree::run_create_tree;
+
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const INDEXER_POLL: Duration = Duration::from_millis(500);
 
@@ -23,8 +26,6 @@ pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
     match command {
         WalletCommand::New(opts) => material::run_new(opts),
         WalletCommand::Address(opts) => material::run_address(opts),
-        WalletCommand::CreateTree(opts) => tree::run_create_tree(opts),
-        WalletCommand::TestMint(opts) => test_mint::run_test_mint(opts),
         WalletCommand::Balance(opts) => balance::run_balance(opts),
         WalletCommand::Utxos(opts) => transaction::run_utxos(opts),
         WalletCommand::SetMerging(opts) => registry::run_set_merging(opts),

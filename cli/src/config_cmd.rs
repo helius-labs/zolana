@@ -1,11 +1,12 @@
 use anyhow::{bail, Result};
 use solana_pubkey::Pubkey;
+use zolana_interface::DEFAULT_TREE_ADDRESS;
 
 use crate::{
-    args::{ConfigAddAssetOptions, ConfigCommand, ConfigSetOptions},
+    args::{ConfigAddAssetOptions, ConfigCommand, ConfigField, ConfigSetOptions},
     cli_config::{
         config_file_path, default_keypair_path, CliConfigFile, DEFAULT_INDEXER_URL,
-        DEFAULT_PROVER_URL, DEFAULT_RPC_URL, DEFAULT_TREE,
+        DEFAULT_PROVER_URL, DEFAULT_RPC_URL,
     },
 };
 
@@ -13,9 +14,39 @@ pub(crate) fn run_config(command: ConfigCommand) -> Result<()> {
     match command {
         ConfigCommand::Get => run_config_get(),
         ConfigCommand::Set(opts) => run_config_set(opts),
+        ConfigCommand::Unset { field } => run_config_unset(field),
         ConfigCommand::AssetRegistry => run_asset_registry(),
         ConfigCommand::AddAsset(opts) => run_add_asset(opts),
     }
+}
+
+fn run_config_unset(field: ConfigField) -> Result<()> {
+    let mut config = CliConfigFile::load()?;
+    let name = match field {
+        ConfigField::Keypair => {
+            config.keypair = None;
+            "keypair"
+        }
+        ConfigField::RpcUrl => {
+            config.rpc_url = None;
+            "rpc-url"
+        }
+        ConfigField::IndexerUrl => {
+            config.indexer_url = None;
+            "indexer-url"
+        }
+        ConfigField::ProverUrl => {
+            config.prover_url = None;
+            "prover-url"
+        }
+        ConfigField::Tree => {
+            config.tree = None;
+            "tree"
+        }
+    };
+    config.save()?;
+    println!("ok unset {name}");
+    Ok(())
 }
 
 fn run_config_get() -> Result<()> {
@@ -38,7 +69,7 @@ fn run_config_get() -> Result<()> {
         config.prover_url.as_deref(),
         Some(DEFAULT_PROVER_URL),
     );
-    print_field("Tree", config.tree.as_deref(), Some(DEFAULT_TREE));
+    print_field("Tree", config.tree.as_deref(), Some(DEFAULT_TREE_ADDRESS));
     print_assets(&config);
     Ok(())
 }
@@ -76,7 +107,7 @@ fn run_config_set(opts: ConfigSetOptions) -> Result<()> {
         config.prover_url = Some(prover_url);
     }
     if let Some(tree) = opts.tree {
-        config.tree = Some(tree);
+        config.tree = Some(tree.parse::<Pubkey>()?.to_string());
     }
     config.save()?;
     println!("ok config {}", config_file_path().display());
@@ -125,4 +156,43 @@ fn run_add_asset(opts: ConfigAddAssetOptions) -> Result<()> {
             .unwrap_or_default()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        env, fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::*;
+    use crate::cli_config::CONFIG_ENV_LOCK;
+
+    #[test]
+    fn unset_tree_removes_only_the_override() {
+        let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let path = env::temp_dir().join(format!(
+            "zolana-cli-unset-{}-{stamp}.json",
+            std::process::id()
+        ));
+        unsafe { env::set_var("ZOLANA_CONFIG", &path) };
+        CliConfigFile {
+            rpc_url: Some("http://127.0.0.1:9999".to_string()),
+            tree: Some(Pubkey::new_unique().to_string()),
+            ..CliConfigFile::default()
+        }
+        .save()
+        .expect("save config");
+
+        run_config_unset(ConfigField::Tree).expect("unset tree");
+
+        let config = CliConfigFile::load().expect("load config");
+        assert_eq!(config.tree, None);
+        assert_eq!(config.rpc_url.as_deref(), Some("http://127.0.0.1:9999"));
+        let _ = fs::remove_file(path);
+    }
 }
