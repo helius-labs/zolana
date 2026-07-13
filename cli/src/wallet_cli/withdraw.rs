@@ -11,7 +11,7 @@ use super::{
 };
 use crate::args::WithdrawOptions;
 
-pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
+pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;

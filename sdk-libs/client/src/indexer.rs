@@ -512,17 +512,28 @@ mod tests {
                 "limit": 7,
             })
         );
-        assert_eq!(got.context.slot, 42);
-        assert_eq!(got.next_cursor, Some(vec![5, 6]));
-        assert_eq!(got.matches.len(), 1);
-        assert_eq!(got.matches[0].slot, 7);
-        assert_eq!(got.matches[0].tx_signature, signature);
-        assert_eq!(got.matches[0].output_slot.view_tag, tag_a);
-        assert_eq!(got.matches[0].output_slot.output_context.hash, utxo_hash);
-        assert_eq!(got.matches[0].output_slot.output_context.tree, output_tree);
-        assert_eq!(got.matches[0].output_slot.output_context.leaf_index, 11);
-        assert_eq!(got.matches[0].tx_viewing_pk, Some(tx_viewing_pk));
-        assert_eq!(got.matches[0].output_slot.payload, vec![8, 9, 10]);
+        assert_eq!(
+            got,
+            GetEncryptedUtxosByTagsResponse {
+                context: Context { slot: 42 },
+                matches: vec![EncryptedUtxoMatch {
+                    slot: 7,
+                    tx_signature: signature,
+                    output_slot: OutputSlot {
+                        view_tag: tag_a,
+                        output_context: OutputContext {
+                            hash: utxo_hash,
+                            tree: output_tree,
+                            leaf_index: 11,
+                        },
+                        payload: vec![8, 9, 10],
+                    },
+                    tx_viewing_pk: Some(tx_viewing_pk),
+                    salt: None,
+                }],
+                next_cursor: Some(vec![5, 6]),
+            }
+        );
     }
 
     #[test]
@@ -569,21 +580,30 @@ mod tests {
                 "limit": 1,
             })
         );
-        assert_eq!(got.context.slot, 51);
-        assert_eq!(got.next_cursor, Some(vec![23]));
-        assert_eq!(got.transactions.len(), 1);
-        let tx = &got.transactions[0];
-        assert_eq!(tx.slot, 50);
-        assert_eq!(tx.tx_signature, signature);
-        assert_eq!(tx.tx_viewing_pk, None);
-        assert!(tx.proofless);
-        assert_eq!(tx.nullifiers, vec![nullifier]);
-        assert_eq!(tx.output_slots.len(), 1);
-        assert_eq!(tx.output_slots[0].view_tag, tag);
-        assert_eq!(tx.output_slots[0].output_context.hash, output_hash);
-        assert_eq!(tx.output_slots[0].output_context.tree, output_tree);
-        assert_eq!(tx.output_slots[0].output_context.leaf_index, 16);
-        assert_eq!(tx.output_slots[0].payload, vec![21, 22]);
+        assert_eq!(
+            got,
+            GetShieldedTransactionsByTagsResponse {
+                context: Context { slot: 51 },
+                transactions: vec![ShieldedTransaction {
+                    slot: 50,
+                    tx_signature: signature,
+                    tx_viewing_pk: None,
+                    salt: None,
+                    output_slots: vec![OutputSlot {
+                        view_tag: tag,
+                        output_context: OutputContext {
+                            hash: output_hash,
+                            tree: output_tree,
+                            leaf_index: 16,
+                        },
+                        payload: vec![21, 22],
+                    }],
+                    nullifiers: vec![nullifier],
+                    proofless: true,
+                }],
+                next_cursor: Some(vec![23]),
+            }
+        );
     }
 
     #[test]
@@ -625,16 +645,21 @@ mod tests {
                 "leaves": [encode_hash_string(leaf_a), encode_hash_string(leaf_b)],
             })
         );
-        assert_eq!(got.context.slot, 80);
-        assert_eq!(got.proofs.len(), 1);
-        assert_eq!(got.proofs[0].leaf, leaf_a);
-        assert_eq!(got.proofs[0].merkle_context.tree_type, 1);
-        assert_eq!(got.proofs[0].merkle_context.tree, tree);
-        assert_eq!(got.proofs[0].path, path);
-        assert_eq!(got.proofs[0].leaf_index, 9);
-        assert_eq!(got.proofs[0].root, root);
-        assert_eq!(got.proofs[0].root_seq, 10);
-        assert_eq!(got.proofs[0].root_index, 11);
+        assert_eq!(
+            got,
+            GetMerkleProofsResponse {
+                context: Context { slot: 80 },
+                proofs: vec![MerkleProof {
+                    leaf: leaf_a,
+                    merkle_context: MerkleContext { tree_type: 1, tree },
+                    path,
+                    leaf_index: 9,
+                    root,
+                    root_seq: 10,
+                    root_index: 11,
+                }],
+            }
+        );
     }
 
     #[test]
@@ -680,19 +705,24 @@ mod tests {
                 "leaves": [encode_hash_string(leaf)],
             })
         );
-        assert_eq!(got.context.slot, 90);
-        assert_eq!(got.proofs.len(), 1);
-        assert_eq!(got.proofs[0].leaf, leaf);
-        assert_eq!(got.proofs[0].merkle_context.tree_type, 2);
-        assert_eq!(got.proofs[0].merkle_context.tree, tree);
-        assert_eq!(got.proofs[0].path, path);
-        assert_eq!(got.proofs[0].low_element, low);
-        assert_eq!(got.proofs[0].low_element_index, 3);
-        assert_eq!(got.proofs[0].high_element, high);
-        assert_eq!(got.proofs[0].high_element_index, 4);
-        assert_eq!(got.proofs[0].root, root);
-        assert_eq!(got.proofs[0].root_seq, 12);
-        assert_eq!(got.proofs[0].root_index, 13);
+        assert_eq!(
+            got,
+            GetNonInclusionProofsResponse {
+                context: Context { slot: 90 },
+                proofs: vec![NonInclusionProof {
+                    leaf,
+                    merkle_context: MerkleContext { tree_type: 2, tree },
+                    path,
+                    low_element: low,
+                    low_element_index: 3,
+                    high_element: high,
+                    high_element_index: 4,
+                    root,
+                    root_seq: 12,
+                    root_index: 13,
+                }],
+            }
+        );
     }
 
     #[test]

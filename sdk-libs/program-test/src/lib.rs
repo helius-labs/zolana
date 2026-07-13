@@ -35,7 +35,10 @@ pub use events::{
     DepositOutput, IndexedEvent, InstructionGroup, ParsedInstruction,
 };
 pub mod indexer;
-pub use indexer::{IndexedPayload, IndexedUtxo, IndexerError, ProoflessOutput, TestIndexer};
+pub use indexer::{
+    shielded_transaction_from_general_event, IndexedPayload, IndexedUtxo, IndexerError,
+    ProoflessOutput, TestIndexer,
+};
 pub mod instructions;
 pub use instructions::{
     create_tree_instructions, rpc_state_root, system_create_account_ix, ZONE_TEST_PROGRAM_ID,

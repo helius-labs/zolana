@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 borsh = { workspace = true }
 solana-instruction = { workspace = true }
-solana-pubkey = { workspace = true }
+solana-pubkey = { workspace = true, features = ["borsh"] }

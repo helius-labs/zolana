@@ -18,7 +18,7 @@ use super::{
 };
 use crate::args::TransferOptions;
 
-pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
+pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;

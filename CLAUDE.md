@@ -350,23 +350,23 @@ cd prover/server && go build -o light-prover .
 
 ### Distribute proving keys via GitHub release
 
-Gitignored keys are published as assets on a private-repo GitHub release
-(`transfer-keys-v7` on `helius-labs/zolana`). The unauthenticated asset URL
-404s, so keys are fetched with `gh` (local `gh auth login`, or CI's same-repo
-`GITHUB_TOKEN` -- no PAT). Repo/tag are hardcoded as `TransferKeysRepo` /
-`TransferKeysReleaseTag` in `key_downloader.go` and must match
-`publish_keys_release.sh`; bump both (and the `proving-keys-transfer-keys-<tag>`
-cache key in `.github/workflows/rust.yml`) when rotating.
+All gitignored proving keys (merkle, batch, transfer, and merge) are published
+as assets on the single private-repo GitHub release `transfer-keys-v10` on
+`helius-labs/zolana`. The downloader fetches release metadata and assets through
+the GitHub REST API with a bearer token from `GITHUB_TOKEN` or `GH_TOKEN`. The
+tag is pinned as `ProvingKeysReleaseTag` in `key_downloader.go` and can be
+overridden with `PROVING_KEYS_RELEASE_TAG`; keep it aligned with
+`publish_keys_release.sh` and the `proving-keys-transfer-keys-<tag>` cache key in
+`.github/workflows/rust.yml` when rotating.
 
 ```bash
 prover/server/scripts/publish_keys_release.sh        # publish/refresh the release
 ```
 
-`loadTransferSystem` -> `EnsureTransferKeyFromRelease` verifies against the local
-`CHECKSUM` (offline, no network), else runs `gh release download` and re-checks
-the SHA256. Merkle/batch keys still use the GCS `DownloadKey` path. CI's
-`tests / client integration` job (`just test-client-integration`) sets
-`GH_TOKEN` and caches `prover/server/proving-keys` by tag.
+`EnsureProvingKeyFromRelease` verifies an existing key against the local
+`CHECKSUM` first (offline, no network). Missing or mismatched keys are downloaded
+from the release via the REST API, then verified against the merged release
+`CHECKSUM`. CI jobs set `GH_TOKEN` and cache `prover/server/proving-keys` by tag.
 
 ### Regenerate Rust verifying keys (`program-libs/interface/src/verifying_keys/`)
 

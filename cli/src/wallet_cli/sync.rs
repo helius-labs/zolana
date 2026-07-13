@@ -22,7 +22,7 @@ pub(super) struct SyncContext {
     pub(super) report: zolana_transaction::SyncReport,
 }
 
-pub(super) fn run_sync(opts: SyncOptions) -> Result<()> {
+pub(crate) fn run_sync(opts: SyncOptions) -> Result<()> {
     let ctx = sync_context(&opts)?;
     println!(
         "ok sync stored={} unparsed={} undecryptable={}",

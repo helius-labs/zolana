@@ -57,7 +57,12 @@ pub(crate) fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
     })?;
 
     if !opts.skip_prover {
-        start_prover_service(opts.prover_port, None, &opts.log_dir)?;
+        start_prover_service(
+            opts.prover_port,
+            None,
+            opts.prover_auto_download,
+            &opts.log_dir,
+        )?;
     }
 
     if opts.with_photon {

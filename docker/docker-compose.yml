@@ -1,0 +1,305 @@
+name: zolana
+
+# Zolana / SPP stack: Photon (Rings indexer) + Postgres + Redis + Prover.
+# See docker/README.md for how to run, publish, and opt into photon/forester.
+# `up` pulls the published images (server-safe, no source tree); `up --build`
+# builds from source. Infra services bind 127.0.0.1; only photon is off-box.
+
+# Shared image for the two photon binaries; PULLed by default. Building photon
+# from source is opt-in via the `build-photon` profile (photon-build service).
+x-photon-image: &photon-image
+  image: ${PHOTON_IMAGE:-sergeytimoshin/zolana-photon:devnet}
+
+services:
+  # Opt-in photon-from-source build (profile: build-photon), the only place a
+  # local photon checkout is referenced. Its rings-event/rings-interface/rings-tree
+  # deps point at an unpushed pinned commit, so they are patched to this repo's
+  # program-libs/{event,interface,tree}, supplied as the `zolana` build context
+  # (`..`) -- which is why no GitHub token is needed. See README for commands.
+  photon-build:
+    image: ${PHOTON_IMAGE:-zolana-photon:local}
+    profiles:
+      - build-photon
+    build:
+      context: ${PHOTON_BUILD_CONTEXT:-../../photon}
+      additional_contexts:
+        # program-libs/{event,interface,tree} for the [patch] below.
+        zolana: ..
+      # Inlined to bump the stale builder and inject the [patch] without editing
+      # the photon checkout.
+      dockerfile_inline: |
+        FROM rust:1.95-slim-bookworm AS builder
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+              build-essential pkg-config libssl-dev git ca-certificates protobuf-compiler \
+            && rm -rf /var/lib/apt/lists/*
+        # Local zolana workspace = patched source for the rings-* crates.
+        COPY --from=zolana . /zolana
+        WORKDIR /app
+        COPY . .
+        # Redirect the private git deps to the local workspace crates. Cargo then
+        # builds them from /zolana and never contacts github for the pinned commit.
+        RUN { \
+              echo ''; \
+              echo '[patch."ssh://git@github.com/helius-labs/zolana.git"]'; \
+              echo 'zolana-event = { path = "/zolana/program-libs/event" }'; \
+              echo 'zolana-interface = { path = "/zolana/program-libs/interface" }'; \
+              echo 'zolana-tree = { path = "/zolana/program-libs/tree" }'; \
+            } >> Cargo.toml
+        RUN cargo build --release --bin photon --bin photon-migration
+        FROM debian:bookworm-slim
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+              ca-certificates libssl3 \
+            && rm -rf /var/lib/apt/lists/*
+        COPY --from=builder /app/target/release/photon /usr/local/bin/photon
+        COPY --from=builder /app/target/release/photon-migration /usr/local/bin/photon-migration
+        ENTRYPOINT []
+    command: ["true"]
+    restart: "no"
+
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-photon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-photon}
+      POSTGRES_DB: ${POSTGRES_DB:-photon}
+    ports:
+      - "${COMPOSE_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # To move the DB to another host, use pg_dump/restore: raw-copying this dir
+      # is only safe across the same PG major version + CPU endianness.
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-photon} -d ${POSTGRES_DB:-photon}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.4.4-alpine3.21}
+    restart: unless-stopped
+    ports:
+      - "${COMPOSE_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+  # SPP `light-prover`, built inline from ../prover/server (the committed
+  # Dockerfile is stale). KEY_PROFILE (build arg) scopes which proving keys get
+  # baked: spp -> client transfer + merge keys; forester -> batch/inclusion
+  # tree-maintenance keys; all -> everything. Keys must be staged in
+  # ../prover/server/proving-keys/ before building (--auto-download is a runtime
+  # fallback, but the distroless image has no `gh`).
+  prover:
+    image: ${PROVER_IMAGE:-sergeytimoshin/zolana-prover:devnet}
+    build:
+      context: ../prover/server
+      dockerfile_inline: |
+        FROM golang:1.25-alpine AS builder
+        WORKDIR /app
+        COPY go.mod go.sum ./
+        RUN go mod download && go mod verify
+        COPY . .
+        ENV CGO_ENABLED=0
+        RUN go build -v -o /usr/local/bin/light-prover .
+        # Assemble only this role's key subset, so the image stays scoped even if
+        # the source tree carries more keys than the role needs.
+        ARG KEY_PROFILE=spp
+        # $$ escapes compose interpolation so these reach the build as shell vars.
+        RUN mkdir -p /keys-out && cd proving-keys && \
+            case "$$KEY_PROFILE" in \
+              spp)      set -- 'transfer_*.key' 'merge_*.key' ;; \
+              forester) set -- 'batch_*.key' '*inclusion*.key' '*combined*.key' ;; \
+              all)      set -- '*.key' ;; \
+              *)        echo "unknown KEY_PROFILE: $$KEY_PROFILE" >&2; exit 1 ;; \
+            esac; \
+            for pat in "$$@"; do cp $$pat /keys-out/ 2>/dev/null || true; done; \
+            cp CHECKSUM /keys-out/ 2>/dev/null || true
+        FROM gcr.io/distroless/base-debian11:nonroot
+        COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
+        COPY --from=builder --chown=nonroot:nonroot /keys-out/ /proving-keys/
+        WORKDIR /
+        ENTRYPOINT ["light-prover"]
+        CMD ["start"]
+    restart: unless-stopped
+    environment:
+      PROVER_MAX_CONCURRENCY: ${PROVER_MAX_CONCURRENCY:-}
+      PROVER_TOTAL_MEMORY_GB: ${PROVER_TOTAL_MEMORY_GB:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Same flags the zolana CLI spawns the prover with.
+    command:
+      - start
+      - --keys-dir
+      - /proving-keys/
+      - --prover-address
+      - 0.0.0.0:3001
+      - --metrics-address
+      - 0.0.0.0:9998
+      - --auto-download
+      - "true"
+      - --redis-url
+      - redis://redis:6379
+    ports:
+      # 127.0.0.1 by default; 3001 matches ZOLANA_PROVER_URL so host CLI/tests can
+      # reuse it. PROVER_BIND_ADDRESS=0.0.0.0 exposes it off-box, but clients then
+      # send UNENCRYPTED witnesses -- only for a trusted/temporary firewalled setup.
+      - "${PROVER_BIND_ADDRESS:-${COMPOSE_BIND_ADDRESS:-127.0.0.1}}:${PROVER_PORT:-3001}:3001"
+      - "${COMPOSE_BIND_ADDRESS:-127.0.0.1}:${PROVER_METRICS_PORT:-9998}:9998"
+
+  # Dedicated Redis for the forester's async batch-proof queue, isolated from the
+  # client prover's redis.
+  forester-redis:
+    image: ${REDIS_IMAGE:-redis:7.4.4-alpine3.21}
+    profiles:
+      - forester
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+  # Same light-prover binary as `prover`, built with KEY_PROFILE=forester so it
+  # bakes the batched tree-maintenance keys instead of the client transfer keys.
+  # Proves via its own forester-redis async queue. Gated behind the forester
+  # profile (GB-scale key image). See README for staging its keys before --build.
+  forester-prover:
+    image: ${FORESTER_PROVER_IMAGE:-sergeytimoshin/zolana-prover-forester:devnet}
+    profiles:
+      - forester
+    build:
+      context: ../prover/server
+      args:
+        KEY_PROFILE: forester
+      dockerfile_inline: |
+        FROM golang:1.25-alpine AS builder
+        WORKDIR /app
+        COPY go.mod go.sum ./
+        RUN go mod download && go mod verify
+        COPY . .
+        ENV CGO_ENABLED=0
+        RUN go build -v -o /usr/local/bin/light-prover .
+        # Assemble only this role's key subset, so the image stays scoped even if
+        # the source tree carries more keys than the role needs.
+        ARG KEY_PROFILE=forester
+        # $$ escapes compose interpolation so these reach the build as shell vars.
+        RUN mkdir -p /keys-out && cd proving-keys && \
+            case "$$KEY_PROFILE" in \
+              spp)      set -- 'transfer_*.key' 'merge_*.key' ;; \
+              forester) set -- 'batch_*.key' '*inclusion*.key' '*combined*.key' ;; \
+              all)      set -- '*.key' ;; \
+              *)        echo "unknown KEY_PROFILE: $$KEY_PROFILE" >&2; exit 1 ;; \
+            esac; \
+            for pat in "$$@"; do cp $$pat /keys-out/ 2>/dev/null || true; done; \
+            cp CHECKSUM /keys-out/ 2>/dev/null || true
+        FROM gcr.io/distroless/base-debian11:nonroot
+        COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
+        COPY --from=builder --chown=nonroot:nonroot /keys-out/ /proving-keys/
+        WORKDIR /
+        ENTRYPOINT ["light-prover"]
+        CMD ["start"]
+    restart: unless-stopped
+    depends_on:
+      forester-redis:
+        condition: service_healthy
+    command:
+      - start
+      - --keys-dir
+      - /proving-keys/
+      - --prover-address
+      - 0.0.0.0:3001
+      - --metrics-address
+      - 0.0.0.0:9998
+      - --circuit
+      - address-append
+      - --redis-url
+      - redis://forester-redis:6379
+    ports:
+      # Internal (reached as forester-prover:3001), bound to 127.0.0.1; own host
+      # port so it never clashes with the client prover on 3001.
+      - "${FORESTER_PROVER_BIND_ADDRESS:-${COMPOSE_BIND_ADDRESS:-127.0.0.1}}:${FORESTER_PROVER_PORT:-3002}:3001"
+
+  # One-shot: create/upgrade the Rings schema before photon connects (photon
+  # never auto-migrates a provided Postgres URL).
+  photon-migration:
+    <<: *photon-image
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-photon}:${POSTGRES_PASSWORD:-photon}@postgres:5432/${POSTGRES_DB:-photon}
+    command:
+      - photon-migration
+      - up
+
+  photon:
+    <<: *photon-image
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      photon-migration:
+        condition: service_completed_successfully
+    environment:
+      RUST_LOG: ${PHOTON_RUST_LOG:-info}
+      PHOTON_RPC_URL: ${PHOTON_RPC_URL:-http://host.docker.internal:8899}
+      DATABASE_URL: postgres://${POSTGRES_USER:-photon}:${POSTGRES_PASSWORD:-photon}@postgres:5432/${POSTGRES_DB:-photon}
+      # Slot for the initial backfill; blank resumes from the DB's last-indexed
+      # slot (or the network tip on a fresh DB).
+      PHOTON_START_SLOT: ${PHOTON_START_SLOT:-}
+    # Wrapper so --start-slot is only passed when PHOTON_START_SLOT is non-empty.
+    command:
+      - sh
+      - -c
+      - |
+        set -- photon --port 8784 --rpc-url "$$PHOTON_RPC_URL" --db-url "$$DATABASE_URL"
+        if [ -n "$$PHOTON_START_SLOT" ]; then set -- "$$@" --start-slot "$$PHOTON_START_SLOT"; fi
+        echo "exec: $$*"
+        exec "$$@"
+    ports:
+      # Only photon is meant to be off-box: PHOTON_BIND_ADDRESS=0.0.0.0 to reach
+      # it from outside (postgres/redis/prover stay on 127.0.0.1).
+      - "${PHOTON_BIND_ADDRESS:-127.0.0.1}:${PHOTON_PORT:-8784}:8784"
+    # Reach a validator on the host (needed on native Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # SPP forester (Rust binary). Gated behind `profiles: [forester]`, so a plain
+  # `up` never starts it and never requires FORESTER_SETTINGS.
+  #
+  # WIP: the binary only has the `start` subcommand today; the continuous
+  # nullifier-tree worker is not wired yet. The FORESTER_* env below is
+  # forward-looking scaffolding (the binary reads none of it yet) and stays
+  # optional (no `:?`), documented in .env.example.
+  forester:
+    image: ${FORESTER_IMAGE:-sergeytimoshin/zolana-forester:devnet}
+    build:
+      context: ..
+      dockerfile: forester/Dockerfile
+    profiles:
+      - forester
+    restart: unless-stopped
+    depends_on:
+      - forester-prover
+      - photon
+    environment:
+      # Same host RPC photon indexes. PHOTON_URL/PROVER_URL are for the future worker.
+      RPC_URL: ${PHOTON_RPC_URL:-http://host.docker.internal:8899}
+      PHOTON_URL: http://photon:8784
+      PROVER_URL: http://forester-prover:3001
+      PAYER: ${FORESTER_PAYER:-}
+      FORESTER_SETTINGS: ${FORESTER_SETTINGS:-}
+      FORESTER_TREE: ${FORESTER_TREE:-treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8}
+      FORESTER_ACCOUNT_INDEX: ${FORESTER_ACCOUNT_INDEX:-0}
+    command:
+      - start
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

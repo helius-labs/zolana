@@ -1,0 +1,8 @@
+# Local secrets + runtime data for the docker/ stack. Never commit these.
+# Only .env.example is checked in; copy it to .env and fill in.
+/.env
+# Postgres bind-mount data dir (created by `docker compose up`). Move the index
+# with pg_dump/restore, not by committing this dir.
+/pgdata/
+# Staged photon build deps, if any.
+/photon-deps-*
