@@ -387,7 +387,14 @@ func (rq *RedisQueue) dequeueLowestBatchIndex(queueName string) (*ProofJob, erro
 func (rq *RedisQueue) GetQueueStats() (map[string]int64, error) {
 	stats := make(map[string]int64)
 
-	queues := []string{"zk_address_append_queue", "zk_address_append_processing_queue", "zk_failed_queue", "zk_results_queue"}
+	queues := []string{
+		"zk_address_append_queue",
+		"zk_address_append_processing_queue",
+		"zk_transfer_queue",
+		"zk_transfer_processing_queue",
+		"zk_failed_queue",
+		"zk_results_queue",
+	}
 
 	for _, queue := range queues {
 		length, err := rq.Client.LLen(rq.Ctx, queue).Result()
@@ -427,8 +434,8 @@ func (rq *RedisQueue) GetQueueHealth() (map[string]interface{}, error) {
 	health["queue_lengths"] = stats
 	health["timestamp"] = time.Now().Unix()
 
-	health["total_pending"] = stats["zk_address_append_queue"]
-	health["total_processing"] = stats["zk_address_append_processing_queue"]
+	health["total_pending"] = stats["zk_address_append_queue"] + stats["zk_transfer_queue"]
+	health["total_processing"] = stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"]
 	health["total_failed"] = stats["zk_failed_queue"]
 	health["total_results"] = stats["zk_results_queue"]
 
@@ -451,6 +458,7 @@ func (rq *RedisQueue) countStuckJobs() int64 {
 	stuckTimeout := time.Now().Add(-2 * time.Minute)
 	processingQueues := []string{
 		"zk_address_append_processing_queue",
+		"zk_transfer_processing_queue",
 	}
 
 	var totalStuck int64
@@ -614,6 +622,7 @@ func (rq *RedisQueue) CleanupOldRequests() error {
 	// Queues to clean up old requests from
 	queuesToClean := []string{
 		"zk_address_append_queue",
+		"zk_transfer_queue",
 	}
 
 	totalRemoved := int64(0)
@@ -716,6 +725,7 @@ func (rq *RedisQueue) CleanupStuckProcessingJobs() error {
 
 	processingQueues := []string{
 		"zk_address_append_processing_queue",
+		"zk_transfer_processing_queue",
 	}
 
 	totalRecovered := int64(0)
@@ -882,6 +892,8 @@ func getOriginalQueueFromProcessing(processingQueueName string) string {
 	switch processingQueueName {
 	case "zk_address_append_processing_queue":
 		return "zk_address_append_queue"
+	case "zk_transfer_processing_queue":
+		return "zk_transfer_queue"
 	default:
 		return ""
 	}

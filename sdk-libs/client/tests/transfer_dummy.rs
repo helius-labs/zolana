@@ -20,6 +20,7 @@ mod test_indexer;
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use rand::RngCore;
 use solana_address::Address;
+use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
     spawn_prover, InputCommitment, ProverClient, PublicAmounts, Rpc, Shape, TransferProver,
     TransferSpendInput,
@@ -41,15 +42,57 @@ use crate::test_indexer::TestIndexer;
 fn start_prover() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
-        std::env::set_var(
-            "ZOLANA_PROVER_KEYS_DIR",
-            concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../prover/server/proving-keys"
-            ),
-        );
+        if std::env::var_os("ZOLANA_PROVER_KEYS_DIR").is_none() {
+            std::env::set_var(
+                "ZOLANA_PROVER_KEYS_DIR",
+                concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../prover/server/proving-keys"
+                ),
+            );
+        }
     });
     spawn_prover().expect("start prover");
+}
+
+fn async_queue_result_count() -> Option<u64> {
+    if std::env::var("ZOLANA_EXPECT_ASYNC_PROVER").as_deref() != Ok("true") {
+        return None;
+    }
+
+    let server = std::env::var("ZOLANA_PROVER_URL")
+        .ok()
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or_else(|| SERVER_ADDRESS.to_string());
+    let response = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("build queue stats client")
+        .get(format!("{server}/queue/stats"))
+        .send()
+        .expect("request Redis queue stats")
+        .error_for_status()
+        .expect("Redis queue stats endpoint is available")
+        .json::<serde_json::Value>()
+        .expect("parse Redis queue stats");
+    let queues = response
+        .get("queues")
+        .and_then(serde_json::Value::as_object)
+        .expect("queue stats contain queues");
+    assert!(
+        queues.contains_key("zk_transfer_queue"),
+        "transfer queue is registered"
+    );
+    assert!(
+        queues.contains_key("zk_transfer_processing_queue"),
+        "transfer processing queue is registered"
+    );
+    Some(
+        queues
+            .get("zk_results_queue")
+            .and_then(serde_json::Value::as_u64)
+            .expect("queue stats contain the results queue"),
+    )
 }
 
 fn dummy_external_data() -> ExternalData {
@@ -245,6 +288,7 @@ fn eddsa_transfer_all_shapes_proofs_verify() {
 #[test]
 fn dummy_transfer_2_3_proof_verifies() {
     start_prover();
+    let queued_results_before = async_queue_result_count();
 
     let prover = TransferProver {
         inputs: vec![real_input(), dummy_input()],
@@ -275,4 +319,13 @@ fn dummy_transfer_2_3_proof_verifies() {
     )
     .expect("construct verifier");
     verifier.verify().expect("groth16 proof verifies");
+
+    if let Some(before) = queued_results_before {
+        let after = async_queue_result_count().expect("async queue stats remain available");
+        assert_eq!(
+            after,
+            before + 1,
+            "the transfer proof must complete through TransferQueueWorker"
+        );
+    }
 }

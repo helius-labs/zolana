@@ -64,7 +64,7 @@ const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// Polling cadence and ceiling for async (queued) proofs. Redis-backed provers
-/// queue heavy batch proofs (address-append) and return a job handle immediately
+/// queue batch, transfer, and merge proofs and return a job handle immediately
 /// instead of blocking; the client then polls the status endpoint until the
 /// proof completes or `max_wait_secs` elapses. The first batch job loads a
 /// multi-GB proving key before proving, so the default ceiling is generous.
@@ -222,7 +222,7 @@ impl ProverClient {
         let value: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| ClientError::ProofParse(format!("invalid response JSON: {e}")))?;
 
-        // A Redis-backed prover queues heavy batch proofs and returns a job
+        // A Redis-backed prover queues supported proofs and returns a job
         // handle (`{ job_id, status, status_url }`) instead of a proof; poll the
         // status endpoint until it completes. A synchronous prover returns the
         // proof directly (plain gnark JSON or a `{ proof, .. }` envelope).
@@ -356,9 +356,10 @@ pub fn spawn_prover() -> Result<(), ClientError> {
     })?;
 
     let port = prover_port(&server_address());
+    let redis_url = env::var("ZOLANA_PROVER_REDIS_URL").ok();
     let spawn_result = Command::new("sh")
         .arg("-c")
-        .arg(format!("{cli} dev prover start --prover-port {port}"))
+        .arg(prover_start_command(&cli, port, redis_url.as_deref()))
         .spawn();
 
     let result = match spawn_result {
@@ -460,6 +461,15 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+fn prover_start_command(cli: &str, port: u16, redis_url: Option<&str>) -> String {
+    let mut command = format!("{cli} dev prover start --prover-port {port}");
+    if let Some(redis_url) = redis_url.filter(|url| !url.trim().is_empty()) {
+        command.push_str(" --redis-url ");
+        command.push_str(&shell_quote(redis_url.trim()));
+    }
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -472,6 +482,26 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
+
+    #[test]
+    fn prover_start_command_forwards_redis_url() {
+        assert_eq!(
+            prover_start_command(
+                "'/tmp/zolana cli'",
+                3002,
+                Some("redis://localhost:6379/15")
+            ),
+            "'/tmp/zolana cli' dev prover start --prover-port 3002 --redis-url 'redis://localhost:6379/15'"
+        );
+    }
+
+    #[test]
+    fn prover_start_command_omits_empty_redis_url() {
+        assert_eq!(
+            prover_start_command("zolana", 3001, Some("  ")),
+            "zolana dev prover start --prover-port 3001"
+        );
+    }
 
     #[test]
     fn poll_async_returns_completed_nested_proof() {
