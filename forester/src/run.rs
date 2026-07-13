@@ -343,10 +343,10 @@ fn drain_once(
     let needed = applied + snapshot.ready * snapshot.zkp_batch_size;
     let (mut reference, values) = match reconstruct_and_verify(photon, tree, &snapshot, needed) {
         Ok(reconstructed) => reconstructed,
-        Err(err) => match err.downcast::<PhotonIndexNotReady>() {
-            Ok(not_ready) => return Ok(DrainOutcome::NotReady(not_ready)),
-            Err(err) => return Err(err),
-        },
+        Err(err) => {
+            let not_ready = err.downcast::<PhotonIndexNotReady>()?;
+            return Ok(DrainOutcome::NotReady(not_ready));
+        }
     };
     if let Some(not_ready) = indexed_value_shortage(
         values.len(),
