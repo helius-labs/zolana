@@ -22,36 +22,36 @@ Regenerate with `just bench-swap`.
 | ---------------------------------------------- | ---------- | ---------- |
 | `cancel_public_input_hash`                     |      1,175 |      1,175 |
 | `verify_cancel_zk_proof`                       |     93,367 |     93,367 |
-| `cpi_spp_transact_signed`                      |    154,454 |    154,454 |
-| `process_cancel`                               |    250,854 |      1,858 |
+| `cpi_spp_transact_signed`                      |    154,589 |    154,589 |
+| `process_cancel`                               |    250,989 |      1,858 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total |
 | ------------------ | ------------------ | ----- |
-|              55 ms |              15 ms | 70 ms |
+|              56 ms |              15 ms | 72 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx | v0 + ALT Tx |
 | ---------------- | -------- | --------- | ----------- |
-|        524 bytes |        6 | 836 bytes |   779 bytes |
+|        557 bytes |        6 | 869 bytes |   812 bytes |
 
 ## 2. Create swap
 
 | Function                                       |   Total CU |     Net CU |
 | ---------------------------------------------- | ---------- | ---------- |
 | `verify_create_zk_proof`                       |     93,367 |     93,367 |
-| `cpi_spp_transact`                             |    164,869 |    164,869 |
-| `process_create_swap`                          |    260,586 |      2,350 |
+| `cpi_spp_transact`                             |    164,862 |    164,862 |
+| `process_create_swap`                          |    260,579 |      2,350 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             106 ms |              23 ms | 130 ms |
+|             105 ms |              20 ms | 126 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
 | ---------------- | -------- | ---------- | ----------- |
-|        884 bytes |        4 | 1162 bytes |  1136 bytes |
+|        874 bytes |        4 | 1152 bytes |  1126 bytes |
 
 ## 3. Fill
 
@@ -59,35 +59,35 @@ Regenerate with `just bench-swap`.
 | ---------------------------------------------- | ---------- | ---------- |
 | `fill_public_input_hash`                       |        864 |        864 |
 | `verify_fill_zk_proof`                         |     93,367 |     93,367 |
-| `cpi_spp_transact_signed`                      |    163,939 |    163,939 |
-| `process_fill`                                 |    259,161 |        991 |
+| `cpi_spp_transact_signed`                      |    163,934 |    163,934 |
+| `process_fill`                                 |    259,156 |        991 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             101 ms |              23 ms | 125 ms |
+|              99 ms |              23 ms | 122 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
 | ---------------- | -------- | ---------- | ----------- |
-|        751 bytes |        5 | 1062 bytes |  1005 bytes |
+|        741 bytes |        5 | 1052 bytes |   995 bytes |
 
 ## 4. Fill Verifiable Encryption
 
 | Function                                       |   Total CU |     Net CU |
 | ---------------------------------------------- | ---------- | ---------- |
 | `fill_verifiable_encryption_public_input_hash` |      3,721 |      3,721 |
-| `verify_fill_verifiable_encryption_zk_proof`   |    224,939 |    224,939 |
-| `cpi_spp_transact_signed`                      |    164,059 |    164,059 |
-| `process_fill_verifiable_encryption`           |    393,815 |      1,096 |
+| `verify_fill_verifiable_encryption_zk_proof`   |    224,961 |    224,961 |
+| `cpi_spp_transact_signed`                      |    163,926 |    163,926 |
+| `process_fill_verifiable_encryption`           |    393,704 |      1,096 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             101 ms |             119 ms | 221 ms |
+|             103 ms |             116 ms | 220 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
 | ---------------- | -------- | ---------- | ----------- |
-|        831 bytes |        5 | 1142 bytes |  1085 bytes |
+|        788 bytes |        5 | 1099 bytes |  1042 bytes |
 
