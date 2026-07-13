@@ -101,7 +101,10 @@ the protected `photon-production` environment. Configure
 role that trusts GitHub's OIDC provider only for
 `repo:helius-labs/zolana:environment:photon-production`, and restrict that role
 to the Photon ECR Public repository. Restrict the environment's deployment tags
-to `photon-v*` and require approval for manual releases.
+to `photon-zolana-*` and require approval for manual releases. Fork releases are
+identified by the Zolana commit that contains the Photon source, using
+`photon-zolana-<12-character-zolana-commit>`; the imported crate's upstream
+version is not used as a Zolana release version.
 
 ECR Public does not provide server-side immutable tags. The workflow serializes
 production releases, refuses tags that already exist, publishes a commit tag

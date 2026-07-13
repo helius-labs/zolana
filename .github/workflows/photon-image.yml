@@ -3,7 +3,7 @@ name: photon-image
 on:
   push:
     branches: [main]
-    tags: ["photon-v*"]
+    tags: ["photon-zolana-*"]
     paths:
       - "services/photon/**"
       - "program-libs/**"
@@ -31,12 +31,12 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: Immutable image tag, for example 0.52.0-rc.1
+        description: Immutable fork tag, photon-zolana-<12-character Zolana commit>
         required: true
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/photon-v') || github.event_name == 'workflow_dispatch') && 'production' || github.ref }}
+  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/photon-zolana-') || github.event_name == 'workflow_dispatch') && 'production' || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -55,7 +55,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Validate release source
-        if: startsWith(github.ref, 'refs/tags/photon-v') || github.event_name == 'workflow_dispatch'
+        if: startsWith(github.ref, 'refs/tags/photon-zolana-') || github.event_name == 'workflow_dispatch'
         run: |
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
@@ -63,11 +63,10 @@ jobs:
             exit 1
           fi
 
-          if [[ "$GITHUB_REF" == refs/tags/photon-v* ]]; then
-            version="$(python3 -c 'import tomllib; print(tomllib.load(open("services/photon/Cargo.toml", "rb"))["package"]["version"])')"
-            expected_ref="refs/tags/photon-v${version}"
+          if [[ "$GITHUB_REF" == refs/tags/photon-zolana-* ]]; then
+            expected_ref="refs/tags/photon-zolana-${GITHUB_SHA:0:12}"
             if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
-              echo "Release tag $GITHUB_REF does not match Photon version $version" >&2
+              echo "Fork release tag $GITHUB_REF must identify Zolana commit ${GITHUB_SHA:0:12}" >&2
               exit 1
             fi
           fi
@@ -94,7 +93,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: validate
     if: >-
-      startsWith(github.ref, 'refs/tags/photon-v') ||
+      startsWith(github.ref, 'refs/tags/photon-zolana-') ||
       github.event_name == 'workflow_dispatch'
     environment: photon-production
     permissions:
@@ -109,9 +108,9 @@ jobs:
         env:
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          if [[ ! "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] ||
-             [[ "$IMAGE_TAG" == latest || "$IMAGE_TAG" == sha-* ]]; then
-            echo "Invalid OCI image tag: $IMAGE_TAG" >&2
+          expected_tag="photon-zolana-${GITHUB_SHA:0:12}"
+          if [[ "$IMAGE_TAG" != "$expected_tag" ]]; then
+            echo "Fork image tag $IMAGE_TAG must identify Zolana commit ${GITHUB_SHA:0:12}" >&2
             exit 1
           fi
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -129,7 +128,7 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           flavor: latest=false
           tags: |
-            type=match,pattern=photon-v(.*),group=1,enable=${{ startsWith(github.ref, 'refs/tags/photon-v') }}
+            type=match,pattern=(photon-zolana-.*),group=1,enable=${{ startsWith(github.ref, 'refs/tags/photon-zolana-') }}
             type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
             type=sha,format=long,prefix=sha-
           labels: |
