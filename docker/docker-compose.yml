@@ -8,7 +8,7 @@ name: zolana
 # Shared image for the two photon binaries; PULLed by default. Building photon
 # from source is opt-in via the `build-photon` profile (photon-build service).
 x-photon-image: &photon-image
-  image: ${PHOTON_IMAGE:-public.ecr.aws/f7o9l7p1/photon:0.51.2}
+  image: ${PHOTON_IMAGE:-sergeytimoshin/zolana-photon:devnet}
 
 services:
   # Opt-in Photon build from the same workspace and lockfile as the rest of
