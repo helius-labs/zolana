@@ -3,6 +3,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::PathBuf,
+    sync::OnceLock,
 };
 
 use anyhow::{Context, Result};
@@ -15,6 +16,7 @@ pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub(crate) const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
 pub(crate) const DEFAULT_TREE: &str = "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8";
 const CONFIG_VERSION: u8 = 1;
+static CONFIG_FILE_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 
 #[cfg(test)]
 pub(crate) static CONFIG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -143,14 +145,23 @@ pub(crate) fn config_dir() -> PathBuf {
 }
 
 pub(crate) fn config_file_path() -> PathBuf {
+    if let Some(path) = CONFIG_FILE_OVERRIDE.get() {
+        return path.clone();
+    }
     if let Ok(path) = env::var("ZOLANA_CONFIG") {
         return PathBuf::from(path);
     }
     config_dir().join("config.json")
 }
 
+pub(crate) fn set_config_file_override(path: impl Into<PathBuf>) -> Result<()> {
+    CONFIG_FILE_OVERRIDE
+        .set(path.into())
+        .map_err(|_| anyhow::anyhow!("CLI config file override was already set"))
+}
+
 pub(crate) fn default_keypair_path() -> PathBuf {
-    config_dir().join("pid.json")
+    config_dir().join("id.json")
 }
 
 pub(crate) fn resolve_keypair_path(cli_override: Option<&str>, config: &CliConfigFile) -> PathBuf {
@@ -252,6 +263,37 @@ mod tests {
         assert_eq!(
             resolve_tree(Some("So11111111111111111111111111111111111111112"), &config),
             "So11111111111111111111111111111111111111112"
+        );
+    }
+
+    #[test]
+    fn resolve_keypair_path_follows_precedence() {
+        let config = CliConfigFile {
+            keypair: Some("/tmp/config.json".to_string()),
+            ..CliConfigFile::default()
+        };
+
+        assert_eq!(
+            resolve_keypair_path(Some("/tmp/flag.json"), &config),
+            PathBuf::from("/tmp/flag.json")
+        );
+        assert_eq!(
+            resolve_keypair_path(None, &config),
+            PathBuf::from("/tmp/config.json")
+        );
+        assert_eq!(
+            resolve_keypair_path(None, &CliConfigFile::default()),
+            default_keypair_path()
+        );
+    }
+
+    #[test]
+    fn built_in_keypair_path_is_id_json() {
+        assert_eq!(
+            default_keypair_path()
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("id.json")
         );
     }
 }

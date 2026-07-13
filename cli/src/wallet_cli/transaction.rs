@@ -3,20 +3,45 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    create_transfer_sync, prover::transact::assemble, CreateTransfer, InputCommitment,
+    create_transfer_sync, create_withdrawal_sync, prover::transact::assemble,
+    try_resolve_registered_address, CreateTransfer, CreateWithdrawal, InputCommitment,
     ProofCompressed, ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof,
     ZolanaIndexer,
 };
 use zolana_interface::instruction::{Transact, TransactWithdrawal};
+use zolana_keypair::ShieldedAddress;
 use zolana_transaction::Address;
 
 use super::{
     material::WalletMaterial,
     resolve::get_network,
     sync::{sync_context, wait_for_indexed_transaction},
-    util::{ensure_positive, format_address, parse_address, parse_pubkey},
+    util::{ensure_positive, format_address, parse_address, parse_recipient, RecipientInput},
 };
 use crate::args::TransferOptions;
+
+/// A `transfer --to` recipient after resolution.
+enum TransferTarget {
+    /// A self-contained shielded address (shared directly), or a Solana pubkey
+    /// with a user-registry record. Sent as a confidential shielded transfer.
+    Shielded(ShieldedAddress),
+    /// A Solana pubkey with no registry record. The transfer degrades to a
+    /// public withdrawal to that pubkey (spec Single Player, lookup-negative).
+    Public(Pubkey),
+}
+
+/// Resolve `--to`: a shielded address is used directly; a Solana pubkey is
+/// looked up in the user registry, silently falling back to a public withdrawal
+/// when the recipient has no registry record.
+fn resolve_transfer_recipient(rpc: &SolanaRpc, to: &str) -> Result<TransferTarget> {
+    match parse_recipient(to)? {
+        RecipientInput::Shielded(address) => Ok(TransferTarget::Shielded(address)),
+        RecipientInput::Pubkey(owner) => match try_resolve_registered_address(rpc, owner)? {
+            Some(address) => Ok(TransferTarget::Shielded(address)),
+            None => Ok(TransferTarget::Public(owner)),
+        },
+    }
+}
 
 pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
@@ -26,44 +51,72 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
-    let recipient_owner = parse_pubkey(&opts.to)?;
     let tree = network.tree;
+    let owner_pubkey = ctx.material.owner_pubkey();
+    let payer = Address::new_from_array(ctx.material.funding.pubkey().to_bytes());
 
-    let transfer = create_transfer_sync(CreateTransfer {
-        rpc: &rpc,
-        wallet: &ctx.wallet,
-        authority: &ctx.material,
-        owner_pubkey: ctx.material.owner_pubkey(),
-        payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-        recipient_owner,
-        asset,
-        amount: opts.amount,
-    })?;
-    let signature = submit_private_transaction(
-        SubmitPrivateTx {
-            rpc: &rpc,
-            indexer: &indexer,
-            material: &ctx.material,
-            tree,
-            prover_url: &network.prover_url,
-            withdrawal: transfer.recipient.withdrawal().cloned(),
-            wait_tag: transfer.wait_tag,
-        },
-        transfer.signed,
-    )?;
-    let mode = if transfer.recipient.is_public_withdrawal() {
-        "withdraw"
-    } else {
-        "shielded"
-    };
-    println!(
-        "ok transfer amount={} mint={} to={} mode={} signature={}",
-        opts.amount,
-        format_address(asset),
-        transfer.recipient.pubkey(),
-        mode,
-        signature
-    );
+    match resolve_transfer_recipient(&rpc, &opts.to)? {
+        TransferTarget::Shielded(recipient) => {
+            let transfer = create_transfer_sync(CreateTransfer {
+                wallet: &ctx.wallet,
+                authority: &ctx.material,
+                owner_pubkey,
+                payer,
+                recipient,
+                asset,
+                amount: opts.amount,
+            })?;
+            let signature = submit_private_transaction(
+                SubmitPrivateTx {
+                    rpc: &rpc,
+                    indexer: &indexer,
+                    material: &ctx.material,
+                    tree,
+                    prover_url: &network.prover_url,
+                    withdrawal: None,
+                    wait_tag: transfer.wait_tag,
+                },
+                transfer.signed,
+            )?;
+            println!(
+                "ok transfer amount={} mint={} to={} mode=shielded signature={}",
+                opts.amount,
+                format_address(asset),
+                transfer.recipient,
+                signature
+            );
+        }
+        TransferTarget::Public(recipient) => {
+            let withdrawal = create_withdrawal_sync(CreateWithdrawal {
+                wallet: &ctx.wallet,
+                authority: &ctx.material,
+                owner_pubkey,
+                payer,
+                recipient,
+                asset,
+                amount: opts.amount,
+            })?;
+            let signature = submit_private_transaction(
+                SubmitPrivateTx {
+                    rpc: &rpc,
+                    indexer: &indexer,
+                    material: &ctx.material,
+                    tree,
+                    prover_url: &network.prover_url,
+                    withdrawal: Some(withdrawal.withdrawal),
+                    wait_tag: withdrawal.wait_tag,
+                },
+                withdrawal.signed,
+            )?;
+            println!(
+                "ok transfer amount={} mint={} to={} mode=withdraw signature={}",
+                opts.amount,
+                format_address(asset),
+                recipient,
+                signature
+            );
+        }
+    }
     Ok(())
 }
 
@@ -158,4 +211,41 @@ pub(super) fn maybe_airdrop(
     let signature = rpc.airdrop(&material.funding.pubkey(), lamports)?;
     println!("ok airdrop signature={signature}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::ShieldedKeypair;
+
+    use super::*;
+
+    // The registry is never queried for a shielded-address string or invalid
+    // input, so these branches resolve without touching the RPC.
+    fn unused_rpc() -> SolanaRpc {
+        SolanaRpc::new("http://127.0.0.1:0".to_string())
+    }
+
+    #[test]
+    fn resolves_shielded_address_string_directly() {
+        let address = ShieldedKeypair::new()
+            .expect("keypair")
+            .shielded_address()
+            .expect("address");
+        match resolve_transfer_recipient(&unused_rpc(), &address.to_string()).expect("resolve") {
+            TransferTarget::Shielded(resolved) => assert_eq!(resolved, address),
+            TransferTarget::Public(_) => {
+                panic!("a shielded address must resolve to a shielded target")
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_input_that_is_neither_address_nor_pubkey() {
+        let err = match resolve_transfer_recipient(&unused_rpc(), "definitely-not-valid") {
+            Ok(_) => panic!("must reject an input that is neither an address nor a pubkey"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("shielded address"));
+        assert!(err.to_string().contains("Solana pubkey"));
+    }
 }

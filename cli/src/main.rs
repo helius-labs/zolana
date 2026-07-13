@@ -13,6 +13,7 @@ use clap::{CommandFactory, Parser};
 
 use crate::{
     args::{Cli, CliCommand},
+    cli_config::set_config_file_override,
     config_cmd::run_config,
     localnet::run_test_validator,
     prover::run_start_prover,
@@ -27,6 +28,9 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<()> {
+    if let Some(path) = cli.config_file {
+        set_config_file_override(path)?;
+    }
     match cli.command {
         Some(CliCommand::TestValidator(opts)) => run_test_validator(*opts),
         Some(CliCommand::StartProver(opts)) => run_start_prover(opts),

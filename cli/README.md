@@ -24,36 +24,45 @@ Commands:
 
 ```bash
 zolana config get
-zolana config set --keypair ~/.config/zolana/pid.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
-zolana wallet init --airdrop-lamports 1000000000
+zolana config set --keypair ~/.config/zolana/id.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
+zolana wallet new
+zolana wallet address
+zolana wallet address --funding
 zolana wallet create-tree --tree-keypair /tmp/zolana-tree.json --airdrop-lamports 20000000000
-zolana wallet sync --indexer-url http://127.0.0.1:8784
 zolana wallet balance --indexer-url http://127.0.0.1:8784
 zolana wallet deposit --amount 1000000000 --mint SOL --airdrop-lamports 2000000000
-zolana wallet transfer --to <RECIPIENT_SOLANA_PUBKEY> --amount 300000000 --mint SOL
+zolana wallet transfer --to <RECIPIENT_SHIELDED_ADDRESS> --amount 300000000 --mint SOL
 zolana wallet withdraw --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
 ```
 
 Wallet commands use the wallet file's Solana funding key for fees/public SOL
-deposits and its shielded keypair for private ownership. `wallet init` creates
-or loads the wallet file and registers its shielded keys in the on-chain
-user-registry program. `deposit` shields public SOL into the local wallet by
-default and requires that wallet to be registered; `deposit --to <PUBKEY>`
-resolves the recipient from the on-chain user registry and never reads the
-recipient's wallet secrets. `transfer --to <PUBKEY>` resolves registered
-recipients from the on-chain user registry; if the registry record is absent,
-the transfer is built as a public SOL withdrawal to that pubkey. `withdraw --to
-<PUBKEY>` always uses a regular public Solana destination.
+deposits and its shielded keypair for private ownership. `wallet new` is an
+offline operation: it creates a fresh shielded identity and a funding key
+without sending a transaction. Pass `--funding-keypair
+~/.config/solana/id.json` to reuse an existing standard Solana keypair as the
+funding/fee-payer key. `wallet address` prints the self-contained shielded
+recipient address; `wallet address --funding` prints the public funding key.
+
+`deposit` shields public assets into the local wallet by default. `deposit --to`
+and `transfer --to` accept either the self-contained shielded address printed by
+`wallet address` (used directly, no registry lookup) or a Solana pubkey (resolved
+through the on-chain user registry). A `transfer` to a Solana pubkey that has no
+registry record silently falls back to a public withdrawal to that pubkey
+(reported as `mode=withdraw`); a `deposit` to an unregistered pubkey errors,
+since a deposit has no public destination. Use `withdraw --to <PUBKEY>` for an
+explicit public Solana destination. Balance and transaction commands synchronize
+wallet state automatically.
 
 CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The
-`keypair` config field is the path to the wallet file (`pid.json`). `create-tree`
-writes the created tree pubkey into this config file; `deposit`, `transfer`, and
-`withdraw` only require `--tree` when neither the flag nor config has a tree.
+wallet path precedence is `-k/--keypair`, then `config.keypair`, then
+`~/.config/zolana/id.json`. Use `-C/--config <PATH>` to select another config
+file; it takes precedence over `ZOLANA_CONFIG`. `create-tree` writes the created
+tree pubkey into the selected config file; `deposit`, `transfer`, and `withdraw`
+only require `--tree` when neither the flag nor config has a tree.
 
 Optional wallet path:
 
 ```bash
---keypair /path/to/pid.json
+-k /path/to/id.json
 ```
-

@@ -9,7 +9,7 @@ use zolana_user_registry_interface::{
     user_record_pda, user_registry_program_id, UserRecord,
 };
 
-use crate::{actions::ResolvedAddress, error::ClientError, rpc::Rpc};
+use crate::{error::ClientError, rpc::Rpc};
 
 /// Derive the on-chain registry record fields from a shielded keypair: the
 /// P256 owner key (only for P256-owned wallets), nullifier pubkey, and viewing
@@ -27,10 +27,10 @@ fn register_fields(keypair: &ShieldedKeypair) -> Result<RegisterData, ClientErro
 }
 
 /// Publish `keypair`'s shielded keys to the on-chain user-registry directory
-/// under `funding`'s pubkey, so senders who know only that Solana address route
-/// transfers to the shielded path (rather than falling back to a public
-/// withdrawal). Registration is optional for receiving a confidential transfer
-/// to a known shielded address; it is the pubkey-addressability directory.
+/// under `funding`'s pubkey, so senders who know only that Solana address can
+/// resolve its shielded address. Registration is optional for receiving a
+/// confidential transfer to a known shielded address; it is the
+/// pubkey-addressability directory.
 ///
 /// Idempotent: registers if no record exists, updates the record on a key
 /// change, and returns `Ok(None)` if the record already matches (no transaction
@@ -167,7 +167,7 @@ pub fn validate_registered_keypair<R: Rpc>(
 pub fn resolve_registered_address<R: Rpc>(
     rpc: &R,
     owner: Pubkey,
-) -> Result<ResolvedAddress, ClientError> {
+) -> Result<ShieldedAddress, ClientError> {
     let record = fetch_user_record_checked(rpc, owner)
         .map_err(|err| ClientError::AddressResolution(err.to_string()))?;
     resolved_address_from_record(owner, &record)
@@ -177,7 +177,7 @@ pub fn resolve_registered_address<R: Rpc>(
 pub fn try_resolve_registered_address<R: Rpc>(
     rpc: &R,
     owner: Pubkey,
-) -> Result<Option<ResolvedAddress>, ClientError> {
+) -> Result<Option<ShieldedAddress>, ClientError> {
     let Some(record) = fetch_user_record_optional_checked(rpc, owner)? else {
         return Ok(None);
     };
@@ -186,23 +186,19 @@ pub fn try_resolve_registered_address<R: Rpc>(
     )?))
 }
 
-pub fn resolved_address_from_record(
+pub(crate) fn resolved_address_from_record(
     owner: Pubkey,
     record: &UserRecord,
-) -> Result<ResolvedAddress, ClientError> {
+) -> Result<ShieldedAddress, ClientError> {
     let signing_pubkey = match record.owner_p256 {
         Some(owner_p256) => PublicKey::from_p256(&P256Pubkey::from_bytes(owner_p256)?),
         None => PublicKey::from_ed25519(&owner.to_bytes()),
     };
     let viewing_pubkey = P256Pubkey::from_bytes(record.sender_viewing_pubkey())?;
-    Ok(ResolvedAddress {
-        owner,
-        address: ShieldedAddress {
-            signing_pubkey,
-            nullifier_pubkey: record.nullifier_pubkey,
-            viewing_pubkey,
-        },
-        view_tag: viewing_pubkey.x(),
+    Ok(ShieldedAddress {
+        signing_pubkey,
+        nullifier_pubkey: record.nullifier_pubkey,
+        viewing_pubkey,
     })
 }
 
@@ -321,19 +317,17 @@ mod tests {
         let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let record = registered_record(owner, bump, &keypair);
 
-        let resolved = resolved_address_from_record(owner, &record).expect("resolved address");
+        let address = resolved_address_from_record(owner, &record).expect("resolved address");
 
-        assert_eq!(resolved.owner, owner);
-        assert_eq!(resolved.address.signing_pubkey, keypair.signing_pubkey());
+        assert_eq!(address.signing_pubkey, keypair.signing_pubkey());
         assert_eq!(
-            resolved.address.nullifier_pubkey,
+            address.nullifier_pubkey,
             keypair.nullifier_key.pubkey().unwrap()
         );
         assert_eq!(
-            resolved.address.viewing_pubkey.as_bytes(),
+            address.viewing_pubkey.as_bytes(),
             keypair.viewing_pubkey().as_bytes()
         );
-        assert_eq!(resolved.view_tag, keypair.recipient_bootstrap_view_tag());
     }
 
     #[test]
@@ -349,11 +343,31 @@ mod tests {
             )),
         };
 
-        let resolved = resolve_registered_address(&rpc, owner).expect("resolved address");
+        let address = resolve_registered_address(&rpc, owner).expect("resolved address");
 
-        assert_eq!(resolved.owner, owner);
-        assert_eq!(resolved.address.signing_pubkey, keypair.signing_pubkey());
-        assert_eq!(resolved.view_tag, keypair.recipient_bootstrap_view_tag());
+        assert_eq!(address.signing_pubkey, keypair.signing_pubkey());
+        assert_eq!(address.viewing_pubkey, keypair.viewing_pubkey());
+    }
+
+    #[test]
+    fn try_resolve_registered_address_returns_registered_address() {
+        let owner = Pubkey::new_unique();
+        let (pda, bump) = user_record_pda(&owner);
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let record = registered_record(owner, bump, &keypair);
+        let rpc = MockRpc {
+            account: Some((
+                Address::new_from_array(pda.to_bytes()),
+                account_for(&record),
+            )),
+        };
+
+        let address = try_resolve_registered_address(&rpc, owner)
+            .expect("resolve")
+            .expect("a registered record resolves to Some");
+
+        assert_eq!(address.signing_pubkey, keypair.signing_pubkey());
+        assert_eq!(address.viewing_pubkey, keypair.viewing_pubkey());
     }
 
     #[test]

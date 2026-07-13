@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
+use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Address, SOL_MINT};
 
 use crate::cli_config::CliConfigFile;
@@ -23,6 +24,28 @@ pub(super) fn parse_pubkey(value: &str) -> Result<Pubkey> {
     value
         .parse::<Pubkey>()
         .with_context(|| format!("invalid pubkey `{value}`"))
+}
+
+/// A `--to` recipient: either a self-contained shielded address (shared
+/// directly) or a Solana pubkey (resolved through the user registry).
+pub(super) enum RecipientInput {
+    Shielded(ShieldedAddress),
+    Pubkey(Pubkey),
+}
+
+/// Disambiguate a `--to` value. A versioned Base58Check shielded address parses
+/// as `Shielded`; anything else must be a Solana pubkey. The caller decides how
+/// to resolve a pubkey (registry lookup, public fallback, etc.).
+pub(super) fn parse_recipient(value: &str) -> Result<RecipientInput> {
+    if let Ok(address) = value.parse::<ShieldedAddress>() {
+        return Ok(RecipientInput::Shielded(address));
+    }
+    let owner = value.parse::<Pubkey>().map_err(|_| {
+        anyhow::anyhow!(
+            "invalid recipient `{value}`: expected a shielded address (from `zolana wallet address`) or a Solana pubkey"
+        )
+    })?;
+    Ok(RecipientInput::Pubkey(owner))
 }
 
 pub(super) fn format_address(address: Address) -> String {
@@ -78,5 +101,45 @@ pub(super) fn system_create_account_ix(
             AccountMeta::new(*new_account, true),
         ],
         data,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::ShieldedKeypair;
+
+    use super::*;
+
+    #[test]
+    fn parse_recipient_accepts_shielded_address() {
+        let address = ShieldedKeypair::new()
+            .expect("keypair")
+            .shielded_address()
+            .expect("address");
+
+        match parse_recipient(&address.to_string()).expect("parse recipient") {
+            RecipientInput::Shielded(parsed) => assert_eq!(parsed, address),
+            RecipientInput::Pubkey(_) => panic!("a shielded address must parse as Shielded"),
+        }
+    }
+
+    #[test]
+    fn parse_recipient_accepts_solana_pubkey() {
+        let pubkey = Pubkey::new_unique();
+
+        match parse_recipient(&pubkey.to_string()).expect("parse recipient") {
+            RecipientInput::Pubkey(parsed) => assert_eq!(parsed, pubkey),
+            RecipientInput::Shielded(_) => panic!("a Solana pubkey must parse as Pubkey"),
+        }
+    }
+
+    #[test]
+    fn parse_recipient_rejects_invalid_input() {
+        let err = match parse_recipient("definitely-not-valid") {
+            Ok(_) => panic!("must reject an input that is neither an address nor a pubkey"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("shielded address"));
+        assert!(err.to_string().contains("Solana pubkey"));
     }
 }

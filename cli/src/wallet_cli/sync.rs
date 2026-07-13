@@ -19,18 +19,6 @@ pub(super) struct SyncContext {
     pub(super) material: WalletMaterial,
     pub(super) wallet: Wallet,
     pub(super) local_assets: Vec<LocalAssetConfig>,
-    pub(super) report: zolana_transaction::SyncReport,
-}
-
-pub(super) fn run_sync(opts: SyncOptions) -> Result<()> {
-    let ctx = sync_context(&opts)?;
-    println!(
-        "ok sync stored={} unparsed={} undecryptable={}",
-        ctx.report.stored_utxos,
-        ctx.report.unparsed_transactions,
-        ctx.report.undecryptable_candidates
-    );
-    Ok(())
 }
 
 pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
@@ -40,12 +28,11 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
     let mut wallet = Wallet::new(clone_keypair(&material.keypair)?, assets)?;
-    let report = client_sync_wallet(&mut wallet, &indexer)?;
+    client_sync_wallet(&mut wallet, &indexer)?;
     Ok(SyncContext {
         material,
         wallet,
         local_assets: config.assets,
-        report,
     })
 }
 

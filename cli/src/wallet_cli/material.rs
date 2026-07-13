@@ -1,7 +1,7 @@
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::{
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::Write,
     path::Path,
 };
@@ -13,7 +13,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     AnonymousRecipientSlot, ApprovalRequest, ClientError, ConfidentialRecipientSlot,
-    EncryptedTransfer, P256Signature, SolanaRpc, SyncWalletAuthority,
+    EncryptedTransfer, P256Signature, SyncWalletAuthority,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
@@ -23,12 +23,10 @@ use zolana_transaction::serialization::{
     anonymous::AnonymousTransferSenderPlaintext, confidential::TransferSenderPlaintext,
 };
 
-use super::{
-    registry::register_wallet_on_chain, resolve::ResolvedSyncOptions, util::parse_hex_array,
-};
+use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};
 use crate::{
-    args::InitOptions,
-    cli_config::{resolve_keypair_path as config_keypair_path, resolve_rpc_url, CliConfigFile},
+    args::{AddressOptions, NewWalletOptions},
+    cli_config::{resolve_keypair_path, CliConfigFile},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -142,39 +140,54 @@ impl SyncWalletAuthority for WalletMaterial {
     }
 }
 
-pub(super) fn run_init(opts: InitOptions) -> Result<()> {
-    let config = CliConfigFile::load()?;
-    let keypair_path = config_keypair_path(opts.path.as_deref(), &config);
-    let material = if keypair_path.exists() {
-        load_existing_wallet(&keypair_path)?
-    } else {
-        let keypair = ShieldedKeypair::new()?;
-        let funding = Keypair::new();
-        save_wallet(&keypair_path, &keypair, &funding)?;
-        WalletMaterial { keypair, funding }
+pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
+    let path = match opts.outfile.as_deref() {
+        Some(path) => Path::new(path).to_path_buf(),
+        None => resolve_keypair_path(None, &CliConfigFile::load()?),
     };
+    if path.exists() {
+        bail!("wallet already exists at {}", path.display());
+    }
 
-    let mut rpc = SolanaRpc::new(resolve_rpc_url(opts.rpc_url.as_deref(), &config));
-    if let Some(lamports) = opts.airdrop_lamports {
-        let signature = rpc.airdrop(&material.funding.pubkey(), lamports)?;
-        println!("ok airdrop signature={signature}");
-    }
-    if let Some(signature) = register_wallet_on_chain(&rpc, &material)? {
-        println!("ok user_registry signature={signature}");
-    }
+    let keypair = ShieldedKeypair::new()?;
+    let funding = match opts.funding_keypair.as_deref() {
+        Some(path) => load_solana_cli_keypair(Path::new(path))?,
+        None => Keypair::new(),
+    };
+    save_wallet(&path, &keypair, &funding)?;
+    let material = WalletMaterial { keypair, funding };
     println!(
-        "ok keypair {} owner_hash={} funding={}",
-        keypair_path.display(),
-        hex::encode(material.keypair.owner_hash()?),
+        "ok wallet {} address={} funding={}",
+        path.display(),
+        material.keypair.shielded_address()?,
         material.funding.pubkey()
     );
+    Ok(())
+}
+
+pub(super) fn run_address(opts: AddressOptions) -> Result<()> {
+    let path = resolve_keypair_path(opts.keypair.keypair.as_deref(), &CliConfigFile::load()?);
+    if !path.exists() {
+        bail!(
+            "wallet not found at {}; create it with `zolana wallet new --outfile {}`",
+            path.display(),
+            path.display()
+        );
+    }
+    let material = load_existing_wallet(&path)?;
+    if opts.funding {
+        println!("{}", material.owner_pubkey());
+    } else {
+        println!("{}", material.keypair.shielded_address()?);
+    }
     Ok(())
 }
 
 pub(super) fn load_sender_from_resolved_sync(sync: &ResolvedSyncOptions) -> Result<WalletMaterial> {
     if !sync.keypair_path.exists() {
         bail!(
-            "keypair not found at {}; run `zolana wallet init` first",
+            "wallet not found at {}; create it with `zolana wallet new --outfile {}`",
+            sync.keypair_path.display(),
             sync.keypair_path.display()
         );
     }
@@ -186,6 +199,13 @@ pub(super) fn load_existing_wallet(path: &Path) -> Result<WalletMaterial> {
         fs::read(path).with_context(|| format!("failed to read wallet {}", path.display()))?;
     let file: KeypairFile = serde_json::from_slice(&bytes)
         .with_context(|| format!("failed to parse wallet {}", path.display()))?;
+    if file.version != 2 {
+        bail!(
+            "wallet {} has unsupported version {}",
+            path.display(),
+            file.version
+        );
+    }
     let signing_bytes = parse_hex_array::<32>(&file.signing_key_hex)?;
     let viewing_bytes = parse_hex_array::<32>(&file.viewing_key_hex)?;
     let funding_bytes = parse_hex_array::<32>(&file.funding_secret_hex)?;
@@ -207,6 +227,35 @@ pub(super) fn load_existing_wallet(path: &Path) -> Result<WalletMaterial> {
     Ok(WalletMaterial { keypair, funding })
 }
 
+/// Load the JSON byte array written by `solana-keygen`. Both the standard
+/// 64-byte `[secret || pubkey]` form and a bare 32-byte secret are accepted.
+pub(super) fn load_solana_cli_keypair(path: &Path) -> Result<Keypair> {
+    let bytes =
+        fs::read(path).with_context(|| format!("failed to read keypair {}", path.display()))?;
+    let values: Vec<u8> = serde_json::from_slice(&bytes).with_context(|| {
+        format!(
+            "{} is not a Solana keypair file (expected a JSON byte array)",
+            path.display()
+        )
+    })?;
+    let mut secret = [0u8; 32];
+    match values.len() {
+        32 | 64 => secret.copy_from_slice(&values[..32]),
+        length => bail!(
+            "unexpected Solana keypair length {length} in {} (expected 32 or 64 bytes)",
+            path.display()
+        ),
+    }
+    let keypair = Keypair::new_from_array(secret);
+    if values.len() == 64 && keypair.pubkey().to_bytes() != values[32..] {
+        bail!(
+            "keypair {} secret does not match its public key",
+            path.display()
+        );
+    }
+    Ok(keypair)
+}
+
 fn save_wallet(path: &Path, keypair: &ShieldedKeypair, funding: &Keypair) -> Result<()> {
     let file = KeypairFile {
         version: 2,
@@ -216,7 +265,39 @@ fn save_wallet(path: &Path, keypair: &ShieldedKeypair, funding: &Keypair) -> Res
         funding_secret_hex: hex::encode(funding.secret_bytes()),
         funding_pubkey: funding.pubkey().to_string(),
     };
-    write_json_secret(path, &file)
+    write_json_secret_exclusive(path, &file)
+}
+
+fn write_json_secret_exclusive<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if parent != Path::new(".") {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let bytes = serde_json::to_vec_pretty(value)?;
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options
+        .open(path)
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    harden_secret_permissions(&file, path)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn harden_secret_permissions(file: &File, path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    file.set_permissions(fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("failed to set permissions on {}", path.display()))?;
+    #[cfg(not(unix))]
+    let _ = (file, path);
+    Ok(())
 }
 
 pub(super) fn load_or_create_solana_keypair(path: &Path) -> Result<Keypair> {
@@ -311,6 +392,85 @@ mod tests {
         );
         assert_ne!(loaded.funding.pubkey(), Pubkey::default());
         assert_eq!(loaded.funding.pubkey(), funding.pubkey());
+    }
+
+    #[test]
+    fn wallet_file_creation_never_overwrites() {
+        let root = temp_root("zolana-cli-wallet-exclusive");
+        let wallet = root.join("id.json");
+        let first = ShieldedKeypair::new().expect("first shielded keypair");
+        let first_funding = Keypair::new();
+        save_wallet(&wallet, &first, &first_funding).expect("create wallet");
+        let before = fs::read(&wallet).expect("read first wallet");
+
+        assert!(save_wallet(&wallet, &ShieldedKeypair::new().unwrap(), &Keypair::new()).is_err());
+        assert_eq!(fs::read(&wallet).expect("read unchanged wallet"), before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wallet_file_is_private_when_created() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let wallet = temp_root("zolana-cli-wallet-mode").join("id.json");
+        save_wallet(
+            &wallet,
+            &ShieldedKeypair::new().expect("shielded keypair"),
+            &Keypair::new(),
+        )
+        .expect("create wallet");
+
+        assert_eq!(
+            fs::metadata(wallet)
+                .expect("wallet metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn load_solana_cli_keypair_reads_standard_and_bare_forms() {
+        let root = temp_root("zolana-cli-solana-key");
+        fs::create_dir_all(&root).unwrap();
+        let keypair = Keypair::new();
+
+        let full = root.join("id.json");
+        fs::write(
+            &full,
+            serde_json::to_vec(&keypair.to_bytes().to_vec()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            load_solana_cli_keypair(&full).expect("64-byte").pubkey(),
+            keypair.pubkey()
+        );
+
+        let bare = root.join("id32.json");
+        fs::write(
+            &bare,
+            serde_json::to_vec(&keypair.secret_bytes().to_vec()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            load_solana_cli_keypair(&bare).expect("32-byte").pubkey(),
+            keypair.pubkey()
+        );
+
+        let mut bad = keypair.to_bytes().to_vec();
+        bad[63] ^= 0xff;
+        let bad_path = root.join("bad.json");
+        fs::write(&bad_path, serde_json::to_vec(&bad).unwrap()).unwrap();
+        assert!(load_solana_cli_keypair(&bad_path).is_err());
+
+        let short = root.join("short.json");
+        fs::write(&short, serde_json::to_vec(&vec![0u8; 16]).unwrap()).unwrap();
+        assert!(load_solana_cli_keypair(&short).is_err());
+
+        let invalid = root.join("invalid.json");
+        fs::write(&invalid, b"not json").unwrap();
+        assert!(load_solana_cli_keypair(&invalid).is_err());
     }
 
     #[test]
