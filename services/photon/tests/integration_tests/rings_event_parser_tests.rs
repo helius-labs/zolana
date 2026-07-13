@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    str::FromStr,
-};
+use std::collections::HashMap;
 
 use photon_indexer::{
     api::{
@@ -42,10 +39,13 @@ use sea_orm::{
     QueryFilter, QueryOrder, Set, TransactionTrait,
 };
 use sea_orm_migration::MigratorTrait;
-use serde_json::Value;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use zolana_event::{
+    encode_event_instruction, encode_output_data, encode_verifiably_encrypted, DepositWithdraw,
+    EventKind, GeneralEvent, Input, OutputUtxo, ProoflessOutput,
+};
 use zolana_indexer_api::{
     GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest, Hash,
     SerializablePubkey,
@@ -57,22 +57,16 @@ use zolana_interface::{
 };
 use zolana_tree::TreeAccount;
 
-const PROOFLESS_SHIELD_SIGNATURE: &str =
-    "3JAHH578NVLSh6Z3x2tXnNV4U9digpQb5CsFLrfac6fRNRCNQaRVsWNNrdQUT8PzUEw2MH78MkuKCZxqDoLKqNcX";
-const SHIELDED_TRANSFER_SIGNATURE: &str =
-    "qjZhjGetrXJi74X726iYy773k4F5mZn4LymuywQi16FrqmZnRLcDNG7QyMgKps5jQwUUtk3JUsU5krji8iQX5oG";
-const UNSHIELD_SIGNATURE: &str =
-    "5irBHErycm6bDSSa8pi3HBJLYBBScsAkvYBq6UZNH2U5eGCFb4vVqnNDKPdWkEWRwWSXC5jvoNrQSca1ckJipriB";
-const ENCRYPTED_TRANSFER_SIGNATURE: &str =
-    "4FyvNoXWBkJp7Paf63aWpQRWR4jeEZAHYW86akuTxzSxcdA15DJTtJsAbHeRm821b73cd1zQvmiwxueeQPZn3GHd";
 const PROOFLESS_SHIELD_SLOT: u64 = 23;
 const SHIELDED_TRANSFER_SLOT: u64 = 25;
 const UNSHIELD_SLOT: u64 = 28;
 const ENCRYPTED_TRANSFER_SLOT: u64 = 19;
+const TEST_TREE: [u8; 32] = [41; 32];
 
 #[test]
-fn parses_dumped_proofless_shield_event_with_photon_parser() {
-    let state_update = parse_dumped_rings_update(PROOFLESS_SHIELD_SIGNATURE, PROOFLESS_SHIELD_SLOT);
+fn parses_proofless_shield_event_with_photon_parser() {
+    let state_update =
+        parse_rings_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
 
     assert_eq!(state_update.rings_transactions.len(), 1);
     let rings_tx = &state_update.rings_transactions[0];
@@ -90,9 +84,9 @@ fn parses_dumped_proofless_shield_event_with_photon_parser() {
 }
 
 #[test]
-fn parses_dumped_shielded_transfer_event_with_photon_parser() {
+fn parses_shielded_transfer_event_with_photon_parser() {
     let state_update =
-        parse_dumped_rings_update(SHIELDED_TRANSFER_SIGNATURE, SHIELDED_TRANSFER_SLOT);
+        parse_rings_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
 
     assert_eq!(state_update.rings_transactions.len(), 1);
     let rings_tx = &state_update.rings_transactions[0];
@@ -122,9 +116,11 @@ fn parses_dumped_shielded_transfer_event_with_photon_parser() {
 }
 
 #[test]
-fn parses_dumped_encrypted_transfer_event_with_photon_parser() {
-    let state_update =
-        parse_dumped_rings_update(ENCRYPTED_TRANSFER_SIGNATURE, ENCRYPTED_TRANSFER_SLOT);
+fn parses_encrypted_transfer_event_with_photon_parser() {
+    let state_update = parse_rings_update(
+        encrypted_transfer_transaction_info(),
+        ENCRYPTED_TRANSFER_SLOT,
+    );
 
     assert_eq!(state_update.rings_transactions.len(), 1);
     let rings_tx = &state_update.rings_transactions[0];
@@ -160,8 +156,8 @@ fn parses_dumped_encrypted_transfer_event_with_photon_parser() {
 }
 
 #[test]
-fn parses_dumped_unshield_event_with_photon_parser() {
-    let state_update = parse_dumped_rings_update(UNSHIELD_SIGNATURE, UNSHIELD_SLOT);
+fn parses_unshield_event_with_photon_parser() {
+    let state_update = parse_rings_update(unshield_transaction_info(), UNSHIELD_SLOT);
 
     assert_eq!(state_update.rings_transactions.len(), 1);
     let rings_tx = &state_update.rings_transactions[0];
@@ -183,21 +179,21 @@ fn parses_dumped_unshield_event_with_photon_parser() {
 }
 
 #[test]
-fn rings_snapshot_filter_keeps_dumped_rings_transactions() {
+fn rings_snapshot_filter_keeps_rings_transactions() {
     assert!(is_rings_transaction(
-        &transaction_info(PROOFLESS_SHIELD_SIGNATURE),
+        &proofless_shield_transaction_info(),
         PROOFLESS_SHIELD_SLOT
     ));
     assert!(is_rings_transaction(
-        &transaction_info(SHIELDED_TRANSFER_SIGNATURE),
+        &shielded_transfer_transaction_info(),
         SHIELDED_TRANSFER_SLOT
     ));
     assert!(is_rings_transaction(
-        &transaction_info(UNSHIELD_SIGNATURE),
+        &unshield_transaction_info(),
         UNSHIELD_SLOT
     ));
     assert!(is_rings_transaction(
-        &transaction_info(ENCRYPTED_TRANSFER_SIGNATURE),
+        &encrypted_transfer_transaction_info(),
         ENCRYPTED_TRANSFER_SLOT
     ));
 }
@@ -211,7 +207,7 @@ fn rings_snapshot_filter_keeps_nullifier_tree_batch_updates() {
 }
 
 #[tokio::test]
-async fn persists_dumped_rings_events() {
+async fn persists_rings_events() {
     let db = Database::connect("sqlite::memory:").await.unwrap();
     RingsMigrator::up(&db, None).await.unwrap();
     insert_test_blocks(
@@ -221,9 +217,9 @@ async fn persists_dumped_rings_events() {
     .await;
 
     let state_update = StateUpdate::merge_updates(vec![
-        parse_dumped_ingestion_update(PROOFLESS_SHIELD_SIGNATURE, PROOFLESS_SHIELD_SLOT),
-        parse_dumped_ingestion_update(SHIELDED_TRANSFER_SIGNATURE, SHIELDED_TRANSFER_SLOT),
-        parse_dumped_ingestion_update(UNSHIELD_SIGNATURE, UNSHIELD_SLOT),
+        parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT),
+        parse_ingestion_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT),
+        parse_ingestion_update(unshield_transaction_info(), UNSHIELD_SLOT),
     ]);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
 
@@ -332,7 +328,7 @@ async fn rings_payloads_update_on_reprocess() {
     insert_test_blocks(&db, &[PROOFLESS_SHIELD_SLOT]).await;
 
     let state_update =
-        parse_dumped_ingestion_update(PROOFLESS_SHIELD_SIGNATURE, PROOFLESS_SHIELD_SLOT);
+        parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
 
     let txn = db.begin().await.unwrap();
@@ -340,11 +336,11 @@ async fn rings_payloads_update_on_reprocess() {
     txn.commit().await.unwrap();
 
     let mut reprocessed =
-        parse_dumped_ingestion_update(PROOFLESS_SHIELD_SIGNATURE, PROOFLESS_SHIELD_SLOT);
+        parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     let rings_tx = reprocessed
         .rings_transactions
         .first_mut()
-        .expect("dumped transaction should have a Rings update");
+        .expect("transaction should have a Rings update");
     rings_tx.encrypted_utxos = Some(vec![1, 2, 3]);
     rings_tx.raw_event = Some(vec![4, 5, 6]);
     rings_tx.parse_version = 2;
@@ -486,7 +482,7 @@ async fn rings_mode_persists_output_leaf_nodes_without_zk_tables() {
     insert_test_blocks(&db, &[PROOFLESS_SHIELD_SLOT]).await;
 
     let state_update =
-        parse_dumped_ingestion_update(PROOFLESS_SHIELD_SIGNATURE, PROOFLESS_SHIELD_SLOT);
+        parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
     let output = state_update.rings_transactions[0].outputs[0].clone();
 
@@ -550,7 +546,7 @@ async fn rings_merkle_proofs_reject_duplicate_output_hashes() {
     insert_test_blocks(&db, &[PROOFLESS_SHIELD_SLOT]).await;
 
     let state_update =
-        parse_dumped_ingestion_update(PROOFLESS_SHIELD_SIGNATURE, PROOFLESS_SHIELD_SLOT);
+        parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
     let output = state_update.rings_transactions[0].outputs[0].clone();
 
@@ -601,7 +597,7 @@ async fn rings_merkle_proofs_error_when_output_leaf_node_is_missing() {
     insert_test_blocks(&db, &[PROOFLESS_SHIELD_SLOT]).await;
 
     let state_update =
-        parse_dumped_ingestion_update(PROOFLESS_SHIELD_SIGNATURE, PROOFLESS_SHIELD_SLOT);
+        parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
     let output = state_update.rings_transactions[0].outputs[0].clone();
 
@@ -642,7 +638,7 @@ async fn rings_merkle_proofs_error_when_state_leaf_hash_diverges_from_output_has
     insert_test_blocks(&db, &[PROOFLESS_SHIELD_SLOT]).await;
 
     let state_update =
-        parse_dumped_ingestion_update(PROOFLESS_SHIELD_SIGNATURE, PROOFLESS_SHIELD_SLOT);
+        parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
     let output = state_update.rings_transactions[0].outputs[0].clone();
 
@@ -690,7 +686,7 @@ async fn rings_non_inclusion_accepts_known_tree_account_from_outputs() {
     insert_test_blocks(&db, &[PROOFLESS_SHIELD_SLOT]).await;
 
     let state_update =
-        parse_dumped_ingestion_update(PROOFLESS_SHIELD_SIGNATURE, PROOFLESS_SHIELD_SLOT);
+        parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
     let output_tree = state_update.rings_transactions[0].outputs[0].output_tree;
 
@@ -735,7 +731,7 @@ async fn rings_state_and_nullifier_nodes_do_not_collide_for_same_tree_account() 
     insert_test_blocks(&db, &[SHIELDED_TRANSFER_SLOT]).await;
 
     let state_update =
-        parse_dumped_ingestion_update(SHIELDED_TRANSFER_SIGNATURE, SHIELDED_TRANSFER_SLOT);
+        parse_ingestion_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
     let tx = &state_update.rings_transactions[0];
     let tree = Pubkey::from(tx.output_tree);
     assert!(tx
@@ -936,7 +932,7 @@ async fn rings_api_returns_empty_non_inclusion_proofs_for_known_nullifier_tree()
     insert_test_blocks(&db, &[SHIELDED_TRANSFER_SLOT]).await;
 
     let state_update =
-        parse_dumped_ingestion_update(SHIELDED_TRANSFER_SIGNATURE, SHIELDED_TRANSFER_SLOT);
+        parse_ingestion_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
     let nullifier_tree = state_update.rings_transactions[0].nullifiers[0].nullifier_tree;
     let queued_nullifier = state_update.rings_transactions[0].nullifiers[0].nullifier;
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
@@ -1320,24 +1316,169 @@ fn test_tree_info_cache(tree: Pubkey) -> HashMap<Pubkey, TreeInfo> {
     )])
 }
 
-fn parse_dumped_rings_update(signature: &str, slot: u64) -> StateUpdate {
-    let tx_info = transaction_info(signature);
+fn parse_rings_update(tx_info: TransactionInfo, slot: u64) -> StateUpdate {
     parse_rings_events(&tx_info, slot)
         .expect("rings parser should not fail")
-        .expect("dumped transaction should contain a rings event")
+        .expect("transaction should contain a rings event")
 }
 
-fn parse_dumped_ingestion_update(signature: &str, slot: u64) -> StateUpdate {
-    let tx_info = transaction_info(signature);
+fn parse_ingestion_update(tx_info: TransactionInfo, slot: u64) -> StateUpdate {
     let mut state_update = parse_rings_events(&tx_info, slot)
         .expect("rings parser should not fail")
-        .expect("dumped transaction should contain a rings event");
+        .expect("transaction should contain a rings event");
     state_update.transactions.insert(Transaction {
         signature: tx_info.signature,
         slot,
         error: tx_info.error,
     });
     state_update
+}
+
+fn proofless_shield_transaction_info() -> TransactionInfo {
+    let proofless_payload = encode_output_data(ProoflessOutput {
+        owner: [1; 32],
+        blinding: [2; 31],
+        asset: [0; 32],
+        amount: 100,
+        data_hash: None,
+        utxo_data: None,
+        zone_program_id: None,
+        zone_data_hash: None,
+        zone_data: None,
+        memo: None,
+    });
+    rings_transaction_info(
+        1,
+        tag::DEPOSIT,
+        EventKind::Deposit,
+        GeneralEvent {
+            inputs: Vec::new(),
+            outputs: vec![test_output(1, 11, proofless_payload)],
+            tx_viewing_pk: [0; 33],
+            salt: [0; 16],
+            first_output_leaf_index: 0,
+            output_tree: TEST_TREE,
+            relay_fee: None,
+            deposit_withdraw: Some(DepositWithdraw {
+                is_deposit: true,
+                amount: 100,
+                asset: None,
+            }),
+        },
+    )
+}
+
+fn shielded_transfer_transaction_info() -> TransactionInfo {
+    rings_transaction_info(
+        2,
+        tag::TRANSACT,
+        EventKind::Transact,
+        GeneralEvent {
+            inputs: vec![test_input(0, 21), test_input(1, 22)],
+            outputs: vec![
+                test_output(2, 12, Vec::new()),
+                test_output(3, 13, Vec::new()),
+                test_output(4, 14, Vec::new()),
+            ],
+            tx_viewing_pk: [0; 33],
+            salt: [0; 16],
+            first_output_leaf_index: 1,
+            output_tree: TEST_TREE,
+            relay_fee: None,
+            deposit_withdraw: None,
+        },
+    )
+}
+
+fn unshield_transaction_info() -> TransactionInfo {
+    rings_transaction_info(
+        3,
+        tag::TRANSACT,
+        EventKind::Transact,
+        GeneralEvent {
+            inputs: vec![test_input(2, 23), test_input(3, 24)],
+            outputs: vec![
+                test_output(5, 15, Vec::new()),
+                test_output(6, 16, Vec::new()),
+                test_output(7, 17, Vec::new()),
+            ],
+            tx_viewing_pk: [0; 33],
+            salt: [0; 16],
+            first_output_leaf_index: 4,
+            output_tree: TEST_TREE,
+            relay_fee: None,
+            deposit_withdraw: Some(DepositWithdraw {
+                is_deposit: false,
+                amount: 40,
+                asset: None,
+            }),
+        },
+    )
+}
+
+fn encrypted_transfer_transaction_info() -> TransactionInfo {
+    rings_transaction_info(
+        4,
+        tag::TRANSACT,
+        EventKind::Transact,
+        GeneralEvent {
+            inputs: vec![test_input(4, 25), test_input(5, 26)],
+            outputs: vec![
+                test_output(8, 18, encode_verifiably_encrypted(vec![1, 2, 3])),
+                test_output(9, 19, encode_verifiably_encrypted(vec![4, 5, 6])),
+                test_output(10, 20, encode_verifiably_encrypted(vec![7, 8, 9])),
+            ],
+            tx_viewing_pk: [5; 33],
+            salt: [6; 16],
+            first_output_leaf_index: 2,
+            output_tree: TEST_TREE,
+            relay_fee: None,
+            deposit_withdraw: None,
+        },
+    )
+}
+
+fn rings_transaction_info(
+    signature_byte: u8,
+    source_instruction_tag: u8,
+    event_kind: EventKind,
+    event: GeneralEvent,
+) -> TransactionInfo {
+    let program_id = pda::shielded_pool_program_id();
+    TransactionInfo {
+        instruction_groups: vec![InstructionGroup {
+            outer_instruction: Instruction {
+                program_id,
+                accounts: Vec::new(),
+                data: vec![source_instruction_tag],
+                stack_height: Some(1),
+            },
+            inner_instructions: vec![Instruction {
+                program_id,
+                accounts: Vec::new(),
+                data: encode_event_instruction(event_kind, event),
+                stack_height: Some(2),
+            }],
+        }],
+        signature: Signature::from([signature_byte; 64]),
+        error: None,
+    }
+}
+
+fn test_input(input_queue_seq: u64, nullifier_byte: u8) -> Input {
+    Input {
+        tree: TEST_TREE,
+        input_queue_seq,
+        nullifier: [nullifier_byte; 32],
+    }
+}
+
+fn test_output(view_tag_byte: u8, utxo_hash_byte: u8, data: Vec<u8>) -> OutputUtxo {
+    OutputUtxo {
+        view_tag: [view_tag_byte; 32],
+        utxo_hash: [utxo_hash_byte; 32],
+        data,
+    }
 }
 
 fn batch_update_transaction_info(tree: Pubkey) -> TransactionInfo {
@@ -1365,109 +1506,5 @@ fn batch_update_transaction_info(tree: Pubkey) -> TransactionInfo {
         }],
         signature: Signature::from([7; 64]),
         error: None,
-    }
-}
-
-fn transaction_info(signature: &str) -> TransactionInfo {
-    let tx = load_transaction(signature);
-    let account_keys = account_keys(&tx);
-    let inner_by_outer = inner_instructions_by_outer_index(&tx, &account_keys);
-    let outer_instructions = tx["transaction"]["message"]["instructions"]
-        .as_array()
-        .expect("outer instructions");
-
-    let instruction_groups = outer_instructions
-        .iter()
-        .enumerate()
-        .map(|(index, instruction)| InstructionGroup {
-            outer_instruction: parsed_instruction(instruction, &account_keys),
-            inner_instructions: inner_by_outer.get(&index).cloned().unwrap_or_default(),
-        })
-        .collect();
-
-    TransactionInfo {
-        instruction_groups,
-        signature: Signature::from_str(signature).expect("valid signature"),
-        error: if tx["meta"]["err"].is_null() {
-            None
-        } else {
-            Some(tx["meta"]["err"].to_string())
-        },
-    }
-}
-
-fn load_transaction(signature: &str) -> Value {
-    let path = format!(
-        "{}/tests/data/transactions/rings_e2e/{signature}",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    let data = std::fs::read_to_string(&path).unwrap_or_else(|err| {
-        panic!("failed to read {path}: {err}");
-    });
-    serde_json::from_str(&data).unwrap_or_else(|err| {
-        panic!("failed to parse {path}: {err}");
-    })
-}
-
-fn account_keys(tx: &Value) -> Vec<Pubkey> {
-    tx["transaction"]["message"]["accountKeys"]
-        .as_array()
-        .expect("account keys")
-        .iter()
-        .map(|value| {
-            Pubkey::from_str(value.as_str().expect("account key string"))
-                .expect("valid account key")
-        })
-        .collect()
-}
-
-fn inner_instructions_by_outer_index(
-    tx: &Value,
-    account_keys: &[Pubkey],
-) -> BTreeMap<usize, Vec<Instruction>> {
-    let Some(groups) = tx["meta"]["innerInstructions"].as_array() else {
-        return BTreeMap::new();
-    };
-
-    groups
-        .iter()
-        .map(|group| {
-            let outer_index = group["index"].as_u64().expect("inner group index") as usize;
-            let instructions = group["instructions"]
-                .as_array()
-                .expect("inner instructions")
-                .iter()
-                .map(|instruction| parsed_instruction(instruction, account_keys))
-                .collect::<Vec<_>>();
-            (outer_index, instructions)
-        })
-        .collect()
-}
-
-fn parsed_instruction(instruction: &Value, account_keys: &[Pubkey]) -> Instruction {
-    let program_id_index = instruction["programIdIndex"]
-        .as_u64()
-        .expect("program id index") as usize;
-    let accounts = instruction["accounts"]
-        .as_array()
-        .expect("instruction accounts")
-        .iter()
-        .map(|value| {
-            let index = value.as_u64().expect("account index") as usize;
-            account_keys[index]
-        })
-        .collect::<Vec<_>>();
-    let data = bs58::decode(instruction["data"].as_str().expect("instruction data"))
-        .into_vec()
-        .expect("base58 instruction data");
-    let stack_height = instruction["stackHeight"]
-        .as_u64()
-        .map(|height| height as u32);
-
-    Instruction {
-        program_id: account_keys[program_id_index],
-        data,
-        accounts,
-        stack_height,
     }
 }

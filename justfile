@@ -177,37 +177,6 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p shielded-pool-tests --features localnet --test localnet_wallet_cli_e2e -- --nocapture
 
-# Regenerate the photon-indexer rings_e2e parser fixtures from the localnet
-# Photon e2e flow against the CURRENT event serialization. The
-# `localnet_photon_e2e` test shields, transfers, unshields and runs an
-# encrypted transfer and writes each transaction's `getTransaction` JSON to
-# `services/photon/tests/data/transactions/rings_e2e/<signature>` and
-# prints the new `signature` + `slot` for each (proofless_shield,
-# shielded_transfer, unshield, encrypted_transfer).
-#
-# After the run: delete the four stale fixture files and copy the printed
-# signature/slot values into photon's
-# `tests/integration_tests/rings_event_parser_tests.rs` constants
-# (`*_SIGNATURE` / `*_SLOT`), then run that crate's `rings_event_parser_tests`.
-regenerate-photon-fixtures: build-programs build-prover-server build-cli ensure-photon
-    #!/usr/bin/env bash
-    set -euo pipefail
-    RINGS_FIXTURE_DIR="${RINGS_FIXTURE_DIR:-services/photon/tests/data/transactions/rings_e2e}"
-    eval "$(cargo run -q -p xtask -- program-ids)"
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
-    }
-    trap cleanup EXIT
-    export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    export RINGS_FIXTURE_DIR
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e -- --nocapture
-
 # BDD decrypt-and-spend lifecycle scenarios over a fresh validator + Photon per
 # scenario (program-tests/spp-test-validator). The prover server persists; each
 # cucumber scenario restarts the validator + Photon via the `zolana` CLI.
