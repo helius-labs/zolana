@@ -72,8 +72,6 @@ impl CreateSwapProofInputParams {
     }
 }
 
-pub const CHANGE_POSITION: u8 = 1;
-
 pub fn input_sum(inputs: &[SpendUtxo], asset: &Address) -> i128 {
     inputs
         .iter()
@@ -154,14 +152,10 @@ impl CreateSwap {
 mod tests {
     use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedKeypair};
     use zolana_transaction::{
-        derive_blinding,
         instructions::{
-            transact::{
-                no_address_hashes, private_tx_hash, RecipientSlot, SenderSlot, Shape, Transaction,
-            },
+            transact::{no_address_hashes, private_tx_hash, ConfidentialSlot, Shape, Transaction},
             types::SpendUtxo,
         },
-        serialization::confidential::TransferSenderPlaintext,
         utxo::Utxo,
         AssetRegistry, Data, SOL_MINT,
     };
@@ -222,30 +216,21 @@ mod tests {
             Address::default(),
         );
 
-        let escrow_address = escrow.owner_address.expect("escrow address");
         let escrow_utxo_hash = escrow.hash().expect("escrow hash");
         let marker_hash = marker.hash().expect("marker hash");
         let change_amount = input_amount - escrow_amount;
-        let sender_slot = SenderSlot {
-            plaintext: TransferSenderPlaintext {
-                owner_pubkey: tx.owner.signing_pubkey,
-                spl_asset_id: 0,
-                spl_amount: 0,
-                sol_amount: change_amount,
-                blinding_seed: tx.blinding_seed,
-                recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
-                spl_data: Data::default(),
-                sol_data: Data::default(),
-            },
-            output: OutputUtxo {
+        let change_slot = ConfidentialSlot::new(
+            OutputUtxo {
                 owner_address: Some(tx.owner),
                 asset: SOL_MINT,
                 amount: change_amount,
-                blinding: derive_blinding(&tx.blinding_seed, CHANGE_POSITION),
+                blinding: [21u8; BLINDING_LEN],
                 ..Default::default()
             },
-        };
-        let escrow_slot = RecipientSlot::new(escrow, &assets).expect("escrow slot");
+            &assets,
+        )
+        .expect("change slot");
+        let escrow_slot = ConfidentialSlot::new(escrow, &assets).expect("escrow slot");
         let marker_slot = MarkerEncrypt {
             marker,
             escrow_utxo_hash,
@@ -255,7 +240,7 @@ mod tests {
         .expect("marker slot");
         tx.inputs.push(SpendUtxo::new_dummy());
         let signed = tx
-            .sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], &owner_keypair)
+            .sign_with_slots(&[&change_slot, &escrow_slot, &marker_slot], &owner_keypair)
             .expect("escrow create");
 
         assert_eq!(signed.shape, Shape::new(2, 3));
@@ -306,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn sign_escrow_create_zero_change_dummy() {
+    fn sign_escrow_create_zero_change_note() {
         let owner_keypair = ShieldedKeypair::from_seed_ed25519(&[3u8; 32]).expect("owner keypair");
         let order_keypair = ShieldedKeypair::from_seed_ed25519(&[4u8; 32]).expect("order keypair");
         let taker_keypair =
@@ -351,31 +336,19 @@ mod tests {
             Address::default(),
         );
 
-        let escrow_address = escrow.owner_address.expect("escrow address");
         let escrow_utxo_hash = escrow.hash().expect("escrow hash");
-        let sender_slot = SenderSlot {
-            plaintext: TransferSenderPlaintext {
-                owner_pubkey: tx.owner.signing_pubkey,
-                spl_asset_id: 0,
-                spl_amount: 0,
-                sol_amount: 0,
-                blinding_seed: tx.blinding_seed,
-                recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
-                spl_data: Data::default(),
-                sol_data: Data::default(),
-            },
-            output: OutputUtxo {
-                blinding: derive_blinding(&tx.blinding_seed, CHANGE_POSITION),
-                owner_tag: Some(
-                    tx.owner
-                        .signing_pubkey
-                        .confidential_view_tag()
-                        .expect("owner view tag"),
-                ),
+        let change_slot = ConfidentialSlot::new(
+            OutputUtxo {
+                owner_address: Some(tx.owner),
+                asset: SOL_MINT,
+                amount: 0,
+                blinding: [22u8; BLINDING_LEN],
                 ..Default::default()
             },
-        };
-        let escrow_slot = RecipientSlot::new(escrow, &assets).expect("escrow slot");
+            &assets,
+        )
+        .expect("change slot");
+        let escrow_slot = ConfidentialSlot::new(escrow, &assets).expect("escrow slot");
         let marker_slot = MarkerEncrypt {
             marker,
             escrow_utxo_hash,
@@ -385,11 +358,11 @@ mod tests {
         .expect("marker slot");
         tx.inputs.push(SpendUtxo::new_dummy());
         let signed = tx
-            .sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], &owner_keypair)
+            .sign_with_slots(&[&change_slot, &escrow_slot, &marker_slot], &owner_keypair)
             .expect("escrow create");
 
         let change = signed.outputs.first().expect("change output");
-        assert!(change.is_dummy());
+        assert!(!change.is_dummy());
         assert_eq!(change.amount, 0);
 
         let escrow_out = signed.outputs.get(1).expect("escrow output");
@@ -404,7 +377,7 @@ mod tests {
         let expected = private_tx_hash(
             &[source_input_hash, [0u8; 32]],
             &[
-                [0u8; 32],
+                change.hash().expect("change hash"),
                 escrow_out.hash().expect("escrow hash"),
                 marker_out.hash().expect("marker hash"),
             ],

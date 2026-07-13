@@ -5,7 +5,7 @@ use swap_prover::CancelProofInputs;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
 use zolana_transaction::{
-    instructions::transact::{OutputUtxo, RecipientSlot, SignedTransaction, Transaction},
+    instructions::transact::{ConfidentialSlot, OutputUtxo, SignedTransaction, Transaction},
     utxo::Blinding,
     AssetRegistry, TransactionError,
 };
@@ -107,7 +107,7 @@ impl EscrowCancel {
                 max: 1,
             });
         }
-        let slot = RecipientSlot::new(source_output, assets)?;
+        let slot = ConfidentialSlot::new(source_output, assets)?;
         tx.sign_with_slots(&[&slot], keypair)
     }
 }

@@ -1,17 +1,13 @@
 use anyhow::Result;
-use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::FillProofInputs;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypairTrait, ViewingKeyTrait};
 use zolana_transaction::{
-    instructions::transact::{
-        OutputUtxo, RecipientSlot, SenderSlot, SignedTransaction, Transaction,
-    },
-    serialization::confidential::TransferSenderPlaintext,
+    instructions::transact::{ConfidentialSlot, OutputUtxo, SignedTransaction, Transaction},
     utxo::Blinding,
-    AssetRegistry, Data, TransactionError, SOL_MINT,
+    AssetRegistry, TransactionError,
 };
 
 use crate::{
@@ -127,40 +123,10 @@ impl EscrowFill {
             });
         }
 
-        let destination_address = destination_output
-            .owner_address
-            .ok_or(TransactionError::MissingOutput)?;
+        let source_slot = ConfidentialSlot::new(source_output, assets)?;
+        let destination_slot = ConfidentialSlot::new(destination_output, assets)?;
 
-        let source_asset_id = asset_id(assets, &source_output.asset)?;
-        let (sol_amount, spl_asset_id, spl_amount) = if source_output.asset == SOL_MINT {
-            (source_output.amount, 0, 0)
-        } else {
-            (0, source_asset_id, source_output.amount)
-        };
-        let sender_slot = SenderSlot {
-            plaintext: TransferSenderPlaintext {
-                owner_pubkey: tx.owner.signing_pubkey,
-                spl_asset_id,
-                spl_amount,
-                sol_amount,
-                blinding_seed: tx.blinding_seed,
-                recipient_viewing_pks: vec![destination_address.viewing_pubkey],
-                spl_data: Data::default(),
-                sol_data: Data::default(),
-            },
-            output: source_output,
-        };
-        let destination_slot = RecipientSlot::new(destination_output, assets)?;
-
-        tx.sign_with_slots(&[&sender_slot, &destination_slot], keypair)
-    }
-}
-
-fn asset_id(assets: &AssetRegistry, asset: &Address) -> Result<u64, TransactionError> {
-    if asset == &SOL_MINT {
-        Ok(zolana_transaction::SOL_ASSET_ID)
-    } else {
-        Ok(assets.asset_id(asset)?)
+        tx.sign_with_slots(&[&source_slot, &destination_slot], keypair)
     }
 }
 

@@ -23,9 +23,7 @@ use swap_prover::{preload, CircuitId};
 use swap_sdk::{
     instructions::{
         cancel::{Cancel, CancelProofInputParams, EscrowCancel},
-        create_swap::{
-            input_sum, CreateSwap, CreateSwapProofInputParams, MarkerEncrypt, CHANGE_POSITION,
-        },
+        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, MarkerEncrypt},
         fill::{EscrowFill, Fill, FillProofInputParams},
         fill_verifiable_encryption::{
             EscrowFillVerifiableEncryption, FillVerifiableEncryption,
@@ -48,18 +46,16 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
-    derive_blinding,
     instructions::{
         transact::{
-            signed_transaction::BN254_MODULUS_DEC, OutputUtxo, RecipientSlot, SenderSlot,
-            SignedTransaction, Transaction as SppProofInputs,
+            signed_transaction::BN254_MODULUS_DEC, ConfidentialSlot, OutputUtxo, SignedTransaction,
+            Transaction as SppProofInputs,
         },
         types::SpendUtxo,
     },
-    serialization::confidential::TransferSenderPlaintext,
     utxo::Blinding,
     AssetRegistry, Data, Utxo, SOL_MINT,
 };
@@ -467,56 +463,21 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     );
     let assets = AssetRegistry::default();
 
-    let escrow_address = escrow.owner_address.expect("escrow owner address");
     let escrow_asset = escrow.asset;
     let leftover = input_sum(&tx.inputs, &escrow_asset) - i128::from(escrow.amount);
     let change_amount = u64::try_from(leftover).expect("insufficient escrow balance");
-    let (sol_change, spl_change, spl_asset_id) = if escrow_asset == SOL_MINT {
-        (change_amount, 0, 0)
-    } else {
-        (
-            0,
-            change_amount,
-            assets.asset_id(&escrow_asset).expect("asset id"),
-        )
-    };
-    let change_blinding = derive_blinding(&tx.blinding_seed, CHANGE_POSITION);
-    let change = if change_amount > 0 {
-        OutputUtxo {
-            owner_address: Some(tx.owner),
-            asset: escrow_asset,
-            amount: change_amount,
-            blinding: change_blinding,
-            ..Default::default()
-        }
-    } else {
-        OutputUtxo {
-            blinding: change_blinding,
-            owner_tag: Some(
-                tx.owner
-                    .signing_pubkey
-                    .confidential_view_tag()
-                    .expect("owner view tag"),
-            ),
-            ..Default::default()
-        }
+    let change_blinding = random_blinding();
+    let change = OutputUtxo {
+        owner_address: Some(maker.shielded_address().expect("maker address")),
+        asset: escrow_asset,
+        amount: change_amount,
+        blinding: change_blinding,
+        ..Default::default()
     };
 
     let escrow_output_hash = escrow.hash().expect("escrow output hash");
-    let sender_slot = SenderSlot {
-        plaintext: TransferSenderPlaintext {
-            owner_pubkey: tx.owner.signing_pubkey,
-            spl_asset_id,
-            spl_amount: spl_change,
-            sol_amount: sol_change,
-            blinding_seed: tx.blinding_seed,
-            recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
-            spl_data: Data::default(),
-            sol_data: Data::default(),
-        },
-        output: change,
-    };
-    let escrow_slot = RecipientSlot::new(escrow, &assets).expect("escrow slot");
+    let change_slot = ConfidentialSlot::new(change, &assets).expect("change slot");
+    let escrow_slot = ConfidentialSlot::new(escrow, &assets).expect("escrow slot");
     let marker_slot = MarkerEncrypt {
         marker,
         escrow_utxo_hash: escrow_output_hash,
@@ -527,7 +488,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
 
     tx.inputs.push(SpendUtxo::new_dummy());
     let signed = tx
-        .sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], &maker)
+        .sign_with_slots(&[&change_slot, &escrow_slot, &marker_slot], &maker)
         .expect("escrow create sign");
 
     let commitments = signed.input_utxo_hashes().expect("input commitments");
@@ -822,7 +783,6 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
             .signing_pubkey
             .confidential_view_tag()
             .expect("maker view tag"),
-        destination_recipient_viewing_pk: maker_recipient.viewing_pubkey,
     }
     .sign(&taker, &assets)
     .expect("escrow fill sign");

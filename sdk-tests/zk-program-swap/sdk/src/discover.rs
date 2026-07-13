@@ -8,9 +8,8 @@ use zolana_client::{resolve_registered_address, sync_wallet, Rpc};
 use zolana_interface::event::OutputData;
 use zolana_keypair::{P256Pubkey, ShieldedAddress};
 use zolana_transaction::{
-    serialization::confidential::{
-        ConfidentialRecipient, ConfidentialSenderBundle, TransferRecipientPlaintext,
-        TransferSenderPlaintext,
+    serialization::{
+        confidential::TransferRecipientPlaintext, confidential_unified::ConfidentialUnified,
     },
     utxo::Blinding,
     AssetRegistry, DataRecord, DecodeCx, EncryptedScheme, ShieldedTransaction, UtxoSerialization,
@@ -84,16 +83,16 @@ pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Or
         .split_first()
         .ok_or_else(|| anyhow!("empty escrow slot payload"))?;
     if EncryptedScheme::from_byte(*scheme_byte).map_err(err)?
-        != EncryptedScheme::ConfidentialRecipient
+        != EncryptedScheme::ConfidentialUnified
     {
-        bail!("escrow slot is not a recipient ciphertext");
+        bail!("escrow slot is not a unified confidential ciphertext");
     }
     let cx = DecodeCx::for_slot(
         &wallet.keypair.viewing_key,
         tx,
         encrypted_slot_index(tx, escrow_position),
     );
-    let escrow_plaintext = ConfidentialRecipient::decode(body, &cx).map_err(err)?;
+    let escrow_plaintext = ConfidentialUnified::decode(body, &cx).map_err(err)?;
     let order_bytes = escrow_plaintext
         .data
         .records
@@ -210,13 +209,12 @@ pub struct OwnOrder {
     pub taker_viewing_pk: P256Pubkey,
 }
 
-/// Maker-side order rediscovery, anchored at the maker's own change: the create
-/// transaction carries her sender bundle, and the per-transaction viewing key
-/// re-derives from her viewing key and the first input's nullifier (a match
-/// against `tx_viewing_pk` proves she authored the transaction). That key
-/// decrypts the taker-addressed escrow slot from the sender side, using the
-/// taker viewing pubkey stored in the sender bundle; the opening is accepted
-/// only if the reconstructed escrow utxo hash matches the slot's committed leaf.
+/// Maker-side order rediscovery: the per-transaction viewing key re-derives
+/// from her viewing key and the first input's nullifier (a match against
+/// `tx_viewing_pk` proves she authored the transaction). Each unified slot
+/// embeds its recipient viewing pubkey, so that key decrypts every slot from
+/// the sender side directly; the opening is accepted only if the reconstructed
+/// escrow utxo hash matches the slot's committed leaf.
 pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<OwnOrder>> {
     let (Some(tx_viewing_pk), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
         return Ok(None);
@@ -230,9 +228,6 @@ pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Optio
     }) else {
         return Ok(None);
     };
-    let Some(sender_plaintext) = decode_sender_bundle(tx, wallet) else {
-        return Ok(None);
-    };
     let maker_address = wallet.keypair.shielded_address().map_err(err)?;
     for (position, slot) in tx.output_slots.iter().enumerate() {
         let Some(OutputData::Encrypted(blob)) = slot.output_data() else {
@@ -242,69 +237,37 @@ pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Optio
             continue;
         };
         if EncryptedScheme::from_byte(*scheme_byte).ok()
-            != Some(EncryptedScheme::ConfidentialRecipient)
+            != Some(EncryptedScheme::ConfidentialUnified)
         {
             continue;
         }
+        let Ok(taker_viewing_pk) = ConfidentialUnified::embedded_viewing_pk(body) else {
+            continue;
+        };
         let slot_index = encrypted_slot_index(tx, position);
-        for taker_viewing_pk in &sender_plaintext.recipient_viewing_pks {
-            let Ok(bytes) = tx_key.decrypt_slot_ephemeral(taker_viewing_pk, body, salt, slot_index)
-            else {
-                continue;
-            };
-            let Ok(plaintext) = TransferRecipientPlaintext::deserialize(&bytes) else {
-                continue;
-            };
-            let Some(order) = own_order_candidate(
-                &wallet.registry,
-                maker_address,
-                plaintext,
-                *taker_viewing_pk,
-            ) else {
-                continue;
-            };
-            let Ok(escrow_utxo_hash) = order
-                .escrow
-                .output_utxo(*taker_viewing_pk)
-                .and_then(|output| output.hash().map_err(err))
-            else {
-                continue;
-            };
-            if escrow_utxo_hash != slot.output_context.hash {
-                continue;
-            }
-            return Ok(Some(order));
+        let Ok(plaintext) =
+            ConfidentialUnified::decrypt_with_tx_key(&tx_key, body, salt, slot_index)
+        else {
+            continue;
+        };
+        let Some(order) =
+            own_order_candidate(&wallet.registry, maker_address, plaintext, taker_viewing_pk)
+        else {
+            continue;
+        };
+        let Ok(escrow_utxo_hash) = order
+            .escrow
+            .output_utxo(taker_viewing_pk)
+            .and_then(|output| output.hash().map_err(err))
+        else {
+            continue;
+        };
+        if escrow_utxo_hash != slot.output_context.hash {
+            continue;
         }
+        return Ok(Some(order));
     }
     Ok(None)
-}
-
-fn decode_sender_bundle(
-    tx: &ShieldedTransaction,
-    wallet: &Wallet,
-) -> Option<TransferSenderPlaintext> {
-    for (position, slot) in tx.output_slots.iter().enumerate() {
-        let Some(OutputData::Encrypted(blob)) = slot.output_data() else {
-            continue;
-        };
-        let Some((scheme_byte, body)) = blob.split_first() else {
-            continue;
-        };
-        if EncryptedScheme::from_byte(*scheme_byte).ok()
-            != Some(EncryptedScheme::ConfidentialSender)
-        {
-            continue;
-        }
-        let cx = DecodeCx::for_slot(
-            &wallet.keypair.viewing_key,
-            tx,
-            encrypted_slot_index(tx, position),
-        );
-        if let Ok(plaintext) = ConfidentialSenderBundle::decode(body, &cx) {
-            return Some(plaintext);
-        }
-    }
-    None
 }
 
 fn own_order_candidate(
@@ -392,21 +355,19 @@ mod tests {
     use swap_prover::FILL_MODE_DERIVED;
     use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
     use zolana_transaction::{
-        derive_blinding,
         instructions::{
             transact::{
-                OutputContext, OutputSlot, OutputUtxo, RecipientSlot, SenderSlot,
-                SignedTransaction, Transaction,
+                ConfidentialSlot, OutputContext, OutputSlot, OutputUtxo, SignedTransaction,
+                Transaction,
             },
             types::SpendUtxo,
         },
-        serialization::confidential::TransferSenderPlaintext,
         utxo::Utxo,
         Data,
     };
 
     use super::*;
-    use crate::instructions::create_swap::{input_sum, MarkerEncrypt, CHANGE_POSITION};
+    use crate::instructions::create_swap::{input_sum, MarkerEncrypt};
 
     struct OrderFixture {
         tx: ShieldedTransaction,
@@ -499,31 +460,22 @@ mod tests {
         let spend = SpendUtxo::from_keypair(input_utxo, &maker_keypair);
         let mut tx = Transaction::new(maker_address, vec![spend], Address::default());
 
-        let escrow_address = escrow_output.owner_address.expect("escrow address");
         let escrow_utxo_hash = escrow_output.hash().expect("escrow output hash");
         let change_amount =
             u64::try_from(input_sum(&tx.inputs, &source_mint) - i128::from(escrow_output.amount))
                 .expect("change amount");
-        let sender_slot = SenderSlot {
-            plaintext: TransferSenderPlaintext {
-                owner_pubkey: tx.owner.signing_pubkey,
-                spl_asset_id: registry.asset_id(&source_mint).expect("asset id"),
-                spl_amount: change_amount,
-                sol_amount: 0,
-                blinding_seed: tx.blinding_seed,
-                recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
-                spl_data: Data::default(),
-                sol_data: Data::default(),
-            },
-            output: OutputUtxo {
+        let change_slot = ConfidentialSlot::new(
+            OutputUtxo {
                 owner_address: Some(tx.owner),
                 asset: source_mint,
                 amount: change_amount,
-                blinding: derive_blinding(&tx.blinding_seed, CHANGE_POSITION),
+                blinding: [21u8; BLINDING_LEN],
                 ..Default::default()
             },
-        };
-        let escrow_slot = RecipientSlot::new(escrow_output, &registry).expect("escrow slot");
+            &registry,
+        )
+        .expect("change slot");
+        let escrow_slot = ConfidentialSlot::new(escrow_output, &registry).expect("escrow slot");
         let marker_slot = MarkerEncrypt {
             marker,
             escrow_utxo_hash,
@@ -533,7 +485,7 @@ mod tests {
         .expect("marker slot");
         tx.inputs.push(SpendUtxo::new_dummy());
         let signed = tx
-            .sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], &maker_keypair)
+            .sign_with_slots(&[&change_slot, &escrow_slot, &marker_slot], &maker_keypair)
             .expect("escrow create sign");
 
         OrderFixture {

@@ -20,8 +20,8 @@ use zolana_keypair::{hash::sha256_be, random_blinding, random_salt};
 use zolana_transaction::{
     instructions::{
         transact::{
-            signed_to_field, EncodeOutputSlot, ExternalData, OutputUtxo, PublicAmounts,
-            RecipientSlot, Shape, SignedTransaction as SppProofInputs, SlotCx,
+            signed_to_field, ConfidentialSlot, EncodeOutputSlot, ExternalData, OutputUtxo,
+            PublicAmounts, Shape, SignedTransaction as SppProofInputs, SlotCx,
         },
         types::SpendUtxo,
     },
@@ -141,8 +141,8 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("escrow output hash: {e:?}"))?;
 
         // 4. Encrypt output utxos.
-        let change_slot = RecipientSlot::new(change, &maker.registry)?;
-        let escrow_slot = RecipientSlot::new(escrow_output_utxo, &maker.registry)?;
+        let change_slot = ConfidentialSlot::new(change, &maker.registry)?;
+        let escrow_slot = ConfidentialSlot::new(escrow_output_utxo, &maker.registry)?;
         let marker_slot = MarkerEncrypt {
             marker: marker_output_utxo,
             escrow_utxo_hash,
@@ -288,8 +288,8 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let inputs = vec![escrow_input, taker_spend];
         let payer_pubkey_hash = sha256_be(taker_address.solana_address()?.as_array());
 
-        let source_slot = RecipientSlot::new(source_output, &taker.registry)?;
-        let destination_slot = RecipientSlot::new(destination_output, &taker.registry)?;
+        let source_slot = ConfidentialSlot::new(source_output, &taker.registry)?;
+        let destination_slot = ConfidentialSlot::new(destination_output, &taker.registry)?;
 
         let tx_viewing_key = taker
             .keypair

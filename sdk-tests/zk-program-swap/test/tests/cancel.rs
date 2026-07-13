@@ -10,9 +10,7 @@ use swap_sdk::{
     discover::discover_own_orders,
     instructions::{
         cancel::{Cancel, CancelProofInputParams, EscrowCancel},
-        create_swap::{
-            input_sum, CreateSwap, CreateSwapProofInputParams, MarkerEncrypt, CHANGE_POSITION,
-        },
+        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, MarkerEncrypt},
     },
     order::{marker_output_utxo, OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,
@@ -20,13 +18,11 @@ use swap_sdk::{
 use zolana_client::{ensure_registered, Rpc};
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
-    derive_blinding,
     instructions::{
-        transact::{OutputUtxo, RecipientSlot, SenderSlot, Transaction as SppProofInputs},
+        transact::{ConfidentialSlot, OutputUtxo, Transaction as SppProofInputs},
         types::SpendUtxo,
     },
-    serialization::confidential::TransferSenderPlaintext,
-    Data, SOL_MINT,
+    SOL_MINT,
 };
 
 // The committed order expiry is already in the past, so the maker can cancel
@@ -98,58 +94,25 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             maker_address.solana_address()?,
         );
 
-        let escrow_address = escrow_output_utxo
-            .owner_address
-            .ok_or_else(|| anyhow!("escrow output missing owner address"))?;
         let escrow_asset = escrow_output_utxo.asset;
         let leftover = input_sum(&spp_proof_inputs.inputs, &escrow_asset)
             - i128::from(escrow_output_utxo.amount);
         let change_amount = u64::try_from(leftover)
             .map_err(|_| anyhow!("insufficient escrow balance: {leftover}"))?;
-        let (sol_change, spl_change, spl_asset_id) = if escrow_asset == SOL_MINT {
-            (change_amount, 0, 0)
-        } else {
-            (0, change_amount, maker.registry.asset_id(&escrow_asset)?)
-        };
-        let change_blinding = derive_blinding(&spp_proof_inputs.blinding_seed, CHANGE_POSITION);
-        let change = if change_amount > 0 {
-            OutputUtxo {
-                owner_address: Some(spp_proof_inputs.owner),
-                asset: escrow_asset,
-                amount: change_amount,
-                blinding: change_blinding,
-                ..Default::default()
-            }
-        } else {
-            OutputUtxo {
-                blinding: change_blinding,
-                owner_tag: Some(
-                    spp_proof_inputs
-                        .owner
-                        .signing_pubkey
-                        .confidential_view_tag()?,
-                ),
-                ..Default::default()
-            }
+        let change_blinding = random_blinding();
+        let change = OutputUtxo {
+            owner_address: Some(maker_address),
+            asset: escrow_asset,
+            amount: change_amount,
+            blinding: change_blinding,
+            ..Default::default()
         };
 
         let escrow_utxo_hash = escrow_output_utxo
             .hash()
             .map_err(|e| anyhow!("escrow output hash: {e:?}"))?;
-        let sender_slot = SenderSlot {
-            plaintext: TransferSenderPlaintext {
-                owner_pubkey: spp_proof_inputs.owner.signing_pubkey,
-                spl_asset_id,
-                spl_amount: spl_change,
-                sol_amount: sol_change,
-                blinding_seed: spp_proof_inputs.blinding_seed,
-                recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
-                spl_data: Data::default(),
-                sol_data: Data::default(),
-            },
-            output: change,
-        };
-        let escrow_slot = RecipientSlot::new(escrow_output_utxo, &maker.registry)?;
+        let change_slot = ConfidentialSlot::new(change, &maker.registry)?;
+        let escrow_slot = ConfidentialSlot::new(escrow_output_utxo, &maker.registry)?;
         let marker_slot = MarkerEncrypt {
             marker: marker_output_utxo,
             escrow_utxo_hash,
@@ -159,7 +122,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
 
         spp_proof_inputs.inputs.push(SpendUtxo::new_dummy());
         let signed_spp_proof_inputs = spp_proof_inputs
-            .sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], &maker.keypair)
+            .sign_with_slots(&[&change_slot, &escrow_slot, &marker_slot], &maker.keypair)
             .map_err(|e| anyhow!("escrow create sign: {e:?}"))?;
 
         let spp_proof = indexer

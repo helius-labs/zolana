@@ -1,17 +1,15 @@
 use anyhow::Result;
-use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::FillVerifiableEncryptionProofInputs;
 use zolana_interface::instruction::instruction_data::transact::{OutputCiphertext, TransactIxData};
-use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
+use zolana_keypair::{ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
 use zolana_transaction::{
     instructions::transact::{
-        OutputCiphertextSlot, OutputUtxo, SenderSlot, SignedTransaction, Transaction,
+        ConfidentialSlot, OutputCiphertextSlot, OutputUtxo, SignedTransaction, Transaction,
     },
-    serialization::confidential::TransferSenderPlaintext,
     utxo::Blinding,
-    AssetRegistry, Data, TransactionError, SOL_MINT, VIEW_TAG_LEN,
+    AssetRegistry, TransactionError, VIEW_TAG_LEN,
 };
 
 use crate::{
@@ -99,7 +97,6 @@ pub struct EscrowFillVerifiableEncryption {
     pub destination_output: OutputUtxo,
     pub destination_ciphertext: Vec<u8>,
     pub destination_view_tag: [u8; VIEW_TAG_LEN],
-    pub destination_recipient_viewing_pk: P256Pubkey,
 }
 
 impl EscrowFillVerifiableEncryption {
@@ -114,7 +111,6 @@ impl EscrowFillVerifiableEncryption {
             destination_output,
             destination_ciphertext,
             destination_view_tag,
-            destination_recipient_viewing_pk,
         } = self;
         if tx.inputs.len() != 2 {
             return Err(TransactionError::TooManyInputs {
@@ -123,25 +119,7 @@ impl EscrowFillVerifiableEncryption {
             });
         }
 
-        let source_asset_id = asset_id(assets, &source_output.asset)?;
-        let (sol_amount, spl_asset_id, spl_amount) = if source_output.asset == SOL_MINT {
-            (source_output.amount, 0, 0)
-        } else {
-            (0, source_asset_id, source_output.amount)
-        };
-        let sender_slot = SenderSlot {
-            plaintext: TransferSenderPlaintext {
-                owner_pubkey: tx.owner.signing_pubkey,
-                spl_asset_id,
-                spl_amount,
-                sol_amount,
-                blinding_seed: tx.blinding_seed,
-                recipient_viewing_pks: vec![destination_recipient_viewing_pk],
-                spl_data: Data::default(),
-                sol_data: Data::default(),
-            },
-            output: source_output,
-        };
+        let source_slot = ConfidentialSlot::new(source_output, assets)?;
         let destination_slot = OutputCiphertextSlot {
             output: destination_output,
             ciphertext: OutputCiphertext {
@@ -150,15 +128,7 @@ impl EscrowFillVerifiableEncryption {
             },
         };
 
-        tx.sign_with_slots(&[&sender_slot, &destination_slot], keypair)
-    }
-}
-
-fn asset_id(assets: &AssetRegistry, asset: &Address) -> Result<u64, TransactionError> {
-    if asset == &SOL_MINT {
-        Ok(zolana_transaction::SOL_ASSET_ID)
-    } else {
-        Ok(assets.asset_id(asset)?)
+        tx.sign_with_slots(&[&source_slot, &destination_slot], keypair)
     }
 }
 
