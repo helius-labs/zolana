@@ -82,6 +82,15 @@ test-sdk-libs:
 test-client-integration: build-prover-server build-cli
     cargo test -p zolana-client
 
+# One real transfer proof through Redis, TransferQueueWorker, and the Rust
+# client's async /prove status polling. Requires a reachable Redis URL.
+test-client-async-transfer-queue: build-prover-server build-cli
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL to a reachable Redis instance}"
+    ZOLANA_EXPECT_ASYNC_PROVER=true \
+        cargo test -p zolana-client --test transfer_dummy dummy_transfer_2_3_proof_verifies -- --exact
+
 # Program integration tests backed by LiteSVM. Transact tests spawn the prover
 # through the zolana CLI.
 test-programs: build-programs build-prover-server build-cli

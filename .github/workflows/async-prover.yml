@@ -1,0 +1,55 @@
+name: async prover
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  transfer-queue:
+    name: async prover / transfer queue
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    timeout-minutes: 30
+    services:
+      redis:
+        image: redis:7.4.4-alpine3.21
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ZOLANA_PROVER_REDIS_URL: redis://127.0.0.1:6379/15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: async-prover
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Cache proving keys
+        uses: actions/cache@v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-transfer-keys-v10
+      - run: just test-client-async-transfer-queue
+      - name: Dump prover log on failure
+        if: failure()
+        run: |
+          find . -name prover-server.log -exec sh -c 'echo "--- {} ---"; tail -200 "{}"' \; 2>/dev/null \
+            || echo "(no prover log)"

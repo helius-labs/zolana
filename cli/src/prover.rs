@@ -85,8 +85,7 @@ fn prover_start_args(
         format!("0.0.0.0:{prover_port}"),
         "--metrics-address".into(),
         format!("0.0.0.0:{metrics_port}"),
-        "--auto-download".into(),
-        auto_download.to_string(),
+        format!("--auto-download={auto_download}"),
     ];
 
     if let Some(redis_url) = redis_url {
@@ -132,8 +131,7 @@ mod tests {
                 "0.0.0.0:3002",
                 "--metrics-address",
                 "0.0.0.0:9999",
-                "--auto-download",
-                "false",
+                "--auto-download=false",
                 "--redis-url",
                 "redis://localhost:6379/15",
             ]
