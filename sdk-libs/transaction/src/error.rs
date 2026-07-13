@@ -67,6 +67,15 @@ pub enum TransactionError {
     #[error("withdrawal already set")]
     WithdrawalAlreadySet,
 
+    #[error("public sol leg already set")]
+    PublicSolAlreadySet,
+
+    #[error("public spl leg already set")]
+    PublicSplAlreadySet,
+
+    #[error("zone hashes already set")]
+    ZoneHashesAlreadySet,
+
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
 

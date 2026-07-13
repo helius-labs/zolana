@@ -1,6 +1,7 @@
 use solana_address::Address;
-use zolana_interface::instruction::instruction_data::transact::{
-    ExternalDataHash, OutputCiphertext,
+use zolana_interface::instruction::{
+    instruction_data::transact::{ExternalDataHash, OutputCiphertext},
+    tag,
 };
 
 use crate::error::TransactionError;
@@ -37,6 +38,72 @@ pub struct ExternalData {
 }
 
 impl ExternalData {
+    pub fn new(
+        tx_viewing_pk: [u8; 33],
+        salt: [u8; 16],
+        output_utxo_hashes: Vec<[u8; 32]>,
+        output_ciphertexts: Vec<OutputCiphertext>,
+        expiry_unix_ts: u64,
+    ) -> Self {
+        Self {
+            instruction_discriminator: tag::TRANSACT,
+            expiry_unix_ts,
+            relayer_fee: 0,
+            public_sol_amount: None,
+            public_spl_amount: None,
+            user_sol_account: Address::default(),
+            user_spl_token: Address::default(),
+            spl_token_interface: Address::default(),
+            data_hash: None,
+            zone_data_hash: None,
+            tx_viewing_pk,
+            salt,
+            output_utxo_hashes,
+            output_ciphertexts,
+        }
+    }
+
+    pub fn with_public_sol(
+        mut self,
+        amount: i64,
+        user_sol_account: Address,
+    ) -> Result<Self, TransactionError> {
+        if self.public_sol_amount.is_some() {
+            return Err(TransactionError::PublicSolAlreadySet);
+        }
+        self.public_sol_amount = Some(amount);
+        self.user_sol_account = user_sol_account;
+        Ok(self)
+    }
+
+    pub fn with_public_spl(
+        mut self,
+        amount: i64,
+        user_spl_token: Address,
+        spl_token_interface: Address,
+    ) -> Result<Self, TransactionError> {
+        if self.public_spl_amount.is_some() {
+            return Err(TransactionError::PublicSplAlreadySet);
+        }
+        self.public_spl_amount = Some(amount);
+        self.user_spl_token = user_spl_token;
+        self.spl_token_interface = spl_token_interface;
+        Ok(self)
+    }
+
+    pub fn with_zone_hashes(
+        mut self,
+        data_hash: [u8; 32],
+        zone_data_hash: [u8; 32],
+    ) -> Result<Self, TransactionError> {
+        if self.data_hash.is_some() || self.zone_data_hash.is_some() {
+            return Err(TransactionError::ZoneHashesAlreadySet);
+        }
+        self.data_hash = Some(data_hash);
+        self.zone_data_hash = Some(zone_data_hash);
+        Ok(self)
+    }
+
     /// `external_data_hash` via the canonical interface [`ExternalDataHash`].
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         ExternalDataHash {

@@ -47,7 +47,7 @@ pub struct TestEnv {
     pub taker: Wallet,
     pub spl_mint: Address,
 }
-
+// TODO: add balance() method to Wallet that takes a mint as input and an optional filter an enum the first enum variant is amount.
 pub fn spendable_utxo(wallet: &Wallet, mint: Address, min_amount: u64) -> Result<Utxo> {
     wallet
         .balances(false)

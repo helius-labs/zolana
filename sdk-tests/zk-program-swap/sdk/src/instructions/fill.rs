@@ -16,7 +16,7 @@ use zolana_transaction::{
 
 use crate::{
     err, escrow_authority_pda,
-    order::{BlindingField, DataHash, Escrow, Recipient},
+    order::{BlindingField, DataHash, OrderUtxo, Recipient},
     program_id_pubkey, spp_program_meta, tag, FillProof,
 };
 
@@ -40,7 +40,7 @@ impl FillIxData {
 }
 
 pub struct FillProofInputParams {
-    pub escrow: Escrow,
+    pub escrow: OrderUtxo,
     pub taker_in: OutputUtxo,
     pub source_output_blinding: Blinding,
     pub external_data_hash: [u8; 32],

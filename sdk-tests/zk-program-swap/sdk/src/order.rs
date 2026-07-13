@@ -114,7 +114,7 @@ impl PlainTextData {
 /// shielded address that the swap program signs for via `invoke_signed` -- so
 /// their utxo hashes are byte-identical.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Escrow {
+pub struct OrderUtxo {
     pub terms: OrderTerms,
     pub blinding: Blinding,
     pub source_mint: Address,
@@ -122,7 +122,7 @@ pub struct Escrow {
     pub destination_asset_id: u64,
 }
 
-impl Escrow {
+impl OrderUtxo {
     fn pda_owner() -> PublicKey {
         PublicKey::from_ed25519(crate::escrow_authority_pda().as_array())
     }

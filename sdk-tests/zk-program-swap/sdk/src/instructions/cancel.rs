@@ -12,7 +12,7 @@ use zolana_transaction::{
 
 use crate::{
     err, escrow_authority_pda,
-    order::{BlindingField, DataHash, Escrow, Recipient},
+    order::{BlindingField, DataHash, OrderUtxo, Recipient},
     program_id_pubkey, spp_program_meta, tag, CancelProof,
 };
 
@@ -45,7 +45,7 @@ impl CancelIxData {
 }
 
 pub struct CancelProofInputParams {
-    pub escrow: Escrow,
+    pub escrow: OrderUtxo,
     pub taker_viewing_pk: P256Pubkey,
     pub source_output_blinding: Blinding,
     pub external_data_hash: [u8; 32],

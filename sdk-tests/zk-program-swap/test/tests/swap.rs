@@ -9,15 +9,24 @@ use shared::{
 use swap_sdk::{
     discover::discover_orders,
     instructions::{
-        create_swap::{CreateSwap, CreateSwapProofInputParams, EscrowCreate},
-        fill::{EscrowFill, Fill, FillProofInputParams},
+        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, MarkerEncrypt},
+        fill::{Fill, FillProofInputParams},
     },
-    order::{marker_output_utxo, Escrow, OrderTerms, Recipient, SOL_ASSET_ID},
+    order::{marker_output_utxo, OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
-use zolana_client::{ensure_registered, Rpc, Transaction as TxBuilder};
-use zolana_keypair::random_blinding;
-use zolana_transaction::{instructions::types::SpendUtxo, SOL_MINT};
+use zolana_client::{ensure_registered, Rpc};
+use zolana_keypair::{hash::sha256_be, random_blinding, random_salt};
+use zolana_transaction::{
+    instructions::{
+        transact::{
+            signed_to_field, EncodeOutputSlot, ExternalData, OutputUtxo, PublicAmounts,
+            RecipientSlot, Shape, SignedTransaction as SppProofInputs, SlotCx,
+        },
+        types::SpendUtxo,
+    },
+    SOL_MINT,
+};
 
 const EXPIRY: u64 = 2_000_000_000;
 
@@ -28,8 +37,8 @@ const EXPIRY: u64 = 2_000_000_000;
 // The maker escrows an SPL token and wants SOL; the taker pays SOL and receives the
 // SPL -- i.e. the taker swaps SOL for the SPL token. Destination is SOL, so the
 // derived fill rail applies; the SPL source rides the shielded UTXOs (the SPP
-// transact is asset-generic for a purely-shielded spend, and EscrowCreate/EscrowFill
-// denominate change in the escrow asset).
+// transact is asset-generic for a purely-shielded spend, and the create/fill
+// flows denominate change in the escrow asset).
 //
 // Flow:
 //   1. Fund (in setup): maker shields 1.0 SPL, taker shields 0.25 SOL; each wallet
@@ -58,13 +67,14 @@ fn create_and_fill_swap_inline() -> Result<()> {
         ensure_registered(&rpc, &maker.keypair.to_solana_keypair()?, &maker.keypair)
             .map_err(|e| anyhow!("register maker: {e:?}"))?;
 
+        // 1. Set order terms.
         let taker_address = taker.keypair.shielded_address()?;
         // The taker's ed25519 authorization identity: the fill's taker input UTXO
         // owner must match the order-committed taker.
         let taker_authorization_address = taker_address
             .solana_address()
             .map_err(|e| anyhow!("taker solana address: {e:?}"))?;
-        // The order opening (terms + escrow blinding) both parties hold off-chain.
+
         let terms = OrderTerms {
             destination_mint: SOL_MINT,
             destination_amount: DESTINATION_AMOUNT,
@@ -76,8 +86,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
         };
 
         let maker_address = maker.keypair.shielded_address()?;
-        let escrow = Escrow {
-            // TODO: rename to OrderUtxo
+        let escrow = OrderUtxo {
             terms,
             blinding: random_blinding(),
             source_mint: spl_mint,
@@ -88,58 +97,118 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let marker_output_utxo = marker_output_utxo(taker_address);
 
         let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
+
+        // 2. Select input utxos.
         let create_spend = SpendUtxo::from_keypair(maker_input_utxo, &maker.keypair);
-        let create_tx = TxBuilder::new(
-            maker_address,
-            vec![create_spend],
-            maker_address.solana_address()?,
-        );
 
-        let signed_private_transaction = EscrowCreate {
-            tx: create_tx,
-            escrow: escrow_output_utxo,
-            marker: marker_output_utxo,
-            payer: maker_address.solana_address()?,
-        }
-        .sign(&maker.keypair, &maker.registry)
-        .map_err(|e| anyhow!("escrow create sign: {e:?}"))?;
-
-        let spp_proof = indexer
-            .prove_transact(tree, signed_private_transaction.clone())
-            .map_err(|e| anyhow!("create transact proof: {e:?}"))?;
-
-        // Custom proof
-        let first_input_utxo = signed_private_transaction
-            .inputs
-            .first()
-            .ok_or_else(|| anyhow!("no create input"))?;
-        let create_nullifier_pubkey = first_input_utxo
+        let create_nullifier_pubkey = create_spend
             .nullifier_key
             .pubkey()
             .map_err(|e| anyhow!("create nullifier pubkey: {e:?}"))?;
-        let source_input_hash = first_input_utxo
+        let source_input_hash = create_spend
             .utxo
             .hash(
                 &create_nullifier_pubkey,
-                &first_input_utxo.data_hash.unwrap_or([0u8; 32]),
-                &first_input_utxo.zone_data_hash.unwrap_or([0u8; 32]),
+                &create_spend.data_hash.unwrap_or([0u8; 32]),
+                &create_spend.zone_data_hash.unwrap_or([0u8; 32]),
             )
             .map_err(|e| anyhow!("source input hash: {e:?}"))?;
-        let change_output_utxo = signed_private_transaction
-            .outputs
-            .first()
-            .cloned()
-            .ok_or_else(|| anyhow!("no create change output"))?;
-        let external_data_hash = signed_private_transaction
-            .external_data
+        let first_nullifier = create_spend
+            .nullifier_key
+            .nullifier(&source_input_hash, &create_spend.utxo.blinding)
+            .map_err(|e| anyhow!("first nullifier: {e:?}"))?;
+        let inputs = vec![create_spend, SpendUtxo::new_dummy()]; // TODO: rename to input utxos
+
+        // 3. create output utxos.
+        let payer_pubkey_hash = sha256_be(maker_address.solana_address()?.as_array());
+
+        let escrow_asset = escrow_output_utxo.asset;
+
+        let leftover = input_sum(&inputs, &escrow_asset) - i128::from(escrow_output_utxo.amount);
+        let change_amount = u64::try_from(leftover)
+            .map_err(|_| anyhow!("insufficient escrow balance: {leftover}"))?;
+        let change_blinding = random_blinding();
+        let change = OutputUtxo {
+            owner_address: Some(maker_address),
+            asset: escrow_asset,
+            amount: change_amount,
+            blinding: change_blinding,
+            ..Default::default()
+        };
+
+        let escrow_utxo_hash = escrow_output_utxo // Do we hash this twice?
+            .hash()
+            .map_err(|e| anyhow!("escrow output hash: {e:?}"))?;
+
+        // 4. Encrypt output utxos.
+        let change_slot = RecipientSlot::new(change, &maker.registry)?;
+        let escrow_slot = RecipientSlot::new(escrow_output_utxo, &maker.registry)?;
+        let marker_slot = MarkerEncrypt {
+            marker: marker_output_utxo,
+            escrow_utxo_hash,
+            payer: maker_address.solana_address()?,
+        }
+        .encrypt()?;
+
+        let tx_viewing_key = maker
+            .keypair
+            .get_transaction_viewing_key(&first_nullifier)?;
+
+        let salt = random_salt();
+        let self_pubkey = maker.keypair.viewing_pubkey();
+
+        let slots: [&dyn EncodeOutputSlot; 3] = [&change_slot, &escrow_slot, &marker_slot];
+        let mut outputs = Vec::with_capacity(slots.len());
+        let mut output_utxo_hashes = Vec::with_capacity(slots.len());
+        let mut output_ciphertexts = Vec::with_capacity(slots.len());
+        for (slot_index, slot) in slots.iter().enumerate() {
+            output_ciphertexts.push(slot.encode_slot(&SlotCx {
+                tx: &tx_viewing_key,
+                self_pubkey,
+                salt,
+                slot_index: slot_index as u32,
+            })?);
+            let output = slot.output().clone();
+            output_utxo_hashes.push(output.hash()?);
+            outputs.push(output);
+        }
+        // 5. create external data hash
+        let external_data = ExternalData::new(
+            *tx_viewing_key.pubkey().as_bytes(),
+            salt,
+            output_utxo_hashes,
+            output_ciphertexts,
+            u64::MAX,
+        );
+        let external_data_hash = external_data
             .hash()
             .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
+
+        // 6. Assemble Spp proof inputs.
+        let signed_spp_proof_inputs = SppProofInputs {
+            inputs,
+            outputs,
+            public_amounts: PublicAmounts {
+                sol: signed_to_field(0),
+                spl: signed_to_field(0),
+                asset: [0u8; 32],
+            },
+            external_data,
+            payer_pubkey_hash,
+            shape: Shape::new(2, 3),
+            p256_owner: None,
+        };
+        // 7. create spp proof.
+        let spp_proof = indexer
+            .prove_transact(tree, signed_spp_proof_inputs)
+            .map_err(|e| anyhow!("create transact proof: {e:?}"))?;
 
         let create_swap_proof_inputs = CreateSwapProofInputParams {
             escrow,
             taker_address,
             source_input_hash,
-            change_output_utxo,
+            change_amount,
+            change_blinding,
             external_data_hash,
         };
 
@@ -200,25 +269,74 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
         let taker_spend = SpendUtxo::from_keypair(taker_input_utxo, &taker.keypair);
 
-        let fill_tx = TxBuilder::new(
-            taker_address,
-            vec![escrow_input, taker_spend],
-            taker_address.solana_address()?,
-        )
-        .with_expiry(terms.expiry);
+        let escrow_nullifier_pubkey = escrow_input
+            .nullifier_key
+            .pubkey()
+            .map_err(|e| anyhow!("escrow nullifier pubkey: {e:?}"))?;
+        let escrow_input_hash = escrow_input
+            .utxo
+            .hash(
+                &escrow_nullifier_pubkey,
+                &escrow_input.data_hash.unwrap_or([0u8; 32]),
+                &escrow_input.zone_data_hash.unwrap_or([0u8; 32]),
+            )
+            .map_err(|e| anyhow!("escrow input hash: {e:?}"))?;
+        let fill_first_nullifier = escrow_input
+            .nullifier_key
+            .nullifier(&escrow_input_hash, &escrow_input.utxo.blinding)
+            .map_err(|e| anyhow!("fill first nullifier: {e:?}"))?;
+        let inputs = vec![escrow_input, taker_spend];
+        let payer_pubkey_hash = sha256_be(taker_address.solana_address()?.as_array());
 
-        let fill_signed = EscrowFill {
-            tx: fill_tx,
-            source_output,
-            destination_output,
+        let source_slot = RecipientSlot::new(source_output, &taker.registry)?;
+        let destination_slot = RecipientSlot::new(destination_output, &taker.registry)?;
+
+        let tx_viewing_key = taker
+            .keypair
+            .get_transaction_viewing_key(&fill_first_nullifier)?;
+        let salt = random_salt();
+        let self_pubkey = taker.keypair.viewing_pubkey();
+
+        let slots: [&dyn EncodeOutputSlot; 2] = [&source_slot, &destination_slot];
+        let mut outputs = Vec::with_capacity(slots.len());
+        let mut output_utxo_hashes = Vec::with_capacity(slots.len());
+        let mut output_ciphertexts = Vec::with_capacity(slots.len());
+        for (slot_index, slot) in slots.iter().enumerate() {
+            output_ciphertexts.push(slot.encode_slot(&SlotCx {
+                tx: &tx_viewing_key,
+                self_pubkey,
+                salt,
+                slot_index: slot_index as u32,
+            })?);
+            let output = slot.output().clone();
+            output_utxo_hashes.push(output.hash()?);
+            outputs.push(output);
         }
-        .sign(&taker.keypair, &taker.registry)
-        .map_err(|e| anyhow!("escrow fill sign: {e:?}"))?;
 
-        let fill_external_data_hash = fill_signed
-            .external_data
+        let external_data = ExternalData::new(
+            *tx_viewing_key.pubkey().as_bytes(),
+            salt,
+            output_utxo_hashes,
+            output_ciphertexts,
+            terms.expiry,
+        );
+        let fill_external_data_hash = external_data
             .hash()
             .map_err(|e| anyhow!("fill external data hash: {e:?}"))?;
+
+        let fill_signed = SppProofInputs {
+            inputs,
+            outputs,
+            public_amounts: PublicAmounts {
+                sol: signed_to_field(0),
+                spl: signed_to_field(0),
+                asset: [0u8; 32],
+            },
+            external_data,
+            payer_pubkey_hash,
+            shape: Shape::new(2, 2),
+            p256_owner: None,
+        };
 
         let fill_inputs = FillProofInputParams {
             external_data_hash: fill_external_data_hash,

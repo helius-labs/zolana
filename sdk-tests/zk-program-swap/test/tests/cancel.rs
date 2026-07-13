@@ -10,14 +10,24 @@ use swap_sdk::{
     discover::discover_own_orders,
     instructions::{
         cancel::{Cancel, CancelProofInputParams, EscrowCancel},
-        create_swap::{CreateSwap, CreateSwapProofInputParams, EscrowCreate},
+        create_swap::{
+            input_sum, CreateSwap, CreateSwapProofInputParams, MarkerEncrypt, CHANGE_POSITION,
+        },
     },
-    order::{marker_output_utxo, Escrow, OrderTerms, SOL_ASSET_ID},
+    order::{marker_output_utxo, OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
-use zolana_client::{ensure_registered, Rpc, Transaction as TxBuilder};
+use zolana_client::{ensure_registered, Rpc};
 use zolana_keypair::random_blinding;
-use zolana_transaction::{instructions::types::SpendUtxo, SOL_MINT};
+use zolana_transaction::{
+    derive_blinding,
+    instructions::{
+        transact::{OutputUtxo, RecipientSlot, SenderSlot, Transaction as SppProofInputs},
+        types::SpendUtxo,
+    },
+    serialization::confidential::TransferSenderPlaintext,
+    Data, SOL_MINT,
+};
 
 // The committed order expiry is already in the past, so the maker can cancel
 // immediately: the swap program requires `now > order_expiry`. The SPP relayer
@@ -70,7 +80,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         };
 
         let maker_address = maker.keypair.shielded_address()?;
-        let escrow = Escrow {
+        let escrow = OrderUtxo {
             terms,
             blinding: random_blinding(),
             source_mint: spl_mint,
@@ -82,27 +92,82 @@ fn create_and_cancel_swap_inline() -> Result<()> {
 
         let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
         let create_spend = SpendUtxo::from_keypair(maker_input_utxo, &maker.keypair);
-        let create_tx = TxBuilder::new(
+        let mut spp_proof_inputs = SppProofInputs::new(
             maker_address,
             vec![create_spend],
             maker_address.solana_address()?,
         );
 
-        let signed_private_transaction = EscrowCreate {
-            tx: create_tx,
-            escrow: escrow_output_utxo,
+        let escrow_address = escrow_output_utxo
+            .owner_address
+            .ok_or_else(|| anyhow!("escrow output missing owner address"))?;
+        let escrow_asset = escrow_output_utxo.asset;
+        let leftover = input_sum(&spp_proof_inputs.inputs, &escrow_asset)
+            - i128::from(escrow_output_utxo.amount);
+        let change_amount = u64::try_from(leftover)
+            .map_err(|_| anyhow!("insufficient escrow balance: {leftover}"))?;
+        let (sol_change, spl_change, spl_asset_id) = if escrow_asset == SOL_MINT {
+            (change_amount, 0, 0)
+        } else {
+            (0, change_amount, maker.registry.asset_id(&escrow_asset)?)
+        };
+        let change_blinding = derive_blinding(&spp_proof_inputs.blinding_seed, CHANGE_POSITION);
+        let change = if change_amount > 0 {
+            OutputUtxo {
+                owner_address: Some(spp_proof_inputs.owner),
+                asset: escrow_asset,
+                amount: change_amount,
+                blinding: change_blinding,
+                ..Default::default()
+            }
+        } else {
+            OutputUtxo {
+                blinding: change_blinding,
+                owner_tag: Some(
+                    spp_proof_inputs
+                        .owner
+                        .signing_pubkey
+                        .confidential_view_tag()?,
+                ),
+                ..Default::default()
+            }
+        };
+
+        let escrow_utxo_hash = escrow_output_utxo
+            .hash()
+            .map_err(|e| anyhow!("escrow output hash: {e:?}"))?;
+        let sender_slot = SenderSlot {
+            plaintext: TransferSenderPlaintext {
+                owner_pubkey: spp_proof_inputs.owner.signing_pubkey,
+                spl_asset_id,
+                spl_amount: spl_change,
+                sol_amount: sol_change,
+                blinding_seed: spp_proof_inputs.blinding_seed,
+                recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
+                spl_data: Data::default(),
+                sol_data: Data::default(),
+            },
+            output: change,
+        };
+        let escrow_slot = RecipientSlot::new(escrow_output_utxo, &maker.registry)?;
+        let marker_slot = MarkerEncrypt {
             marker: marker_output_utxo,
+            escrow_utxo_hash,
             payer: maker_address.solana_address()?,
         }
-        .sign(&maker.keypair, &maker.registry)
-        .map_err(|e| anyhow!("escrow create sign: {e:?}"))?;
+        .encrypt()?;
+
+        spp_proof_inputs.inputs.push(SpendUtxo::new_dummy());
+        let signed_spp_proof_inputs = spp_proof_inputs
+            .sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], &maker.keypair)
+            .map_err(|e| anyhow!("escrow create sign: {e:?}"))?;
 
         let spp_proof = indexer
-            .prove_transact(tree, signed_private_transaction.clone())
+            .prove_transact(tree, signed_spp_proof_inputs.clone())
             .map_err(|e| anyhow!("create transact proof: {e:?}"))?;
 
         // Custom proof
-        let first_input_utxo = signed_private_transaction
+        let first_input_utxo = signed_spp_proof_inputs
             .inputs
             .first()
             .ok_or_else(|| anyhow!("no create input"))?;
@@ -118,12 +183,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
                 &first_input_utxo.zone_data_hash.unwrap_or([0u8; 32]),
             )
             .map_err(|e| anyhow!("source input hash: {e:?}"))?;
-        let change_output_utxo = signed_private_transaction
-            .outputs
-            .first()
-            .cloned()
-            .ok_or_else(|| anyhow!("no create change output"))?;
-        let external_data_hash = signed_private_transaction
+        let external_data_hash = signed_spp_proof_inputs
             .external_data
             .hash()
             .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
@@ -132,7 +192,8 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             escrow,
             taker_address,
             source_input_hash,
-            change_output_utxo,
+            change_amount,
+            change_blinding,
             external_data_hash,
         };
 
@@ -181,7 +242,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .into_input_utxo()
             .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
 
-        let cancel_tx = TxBuilder::new(
+        let cancel_tx = SppProofInputs::new(
             maker_address,
             vec![escrow_input],
             maker_address.solana_address()?,

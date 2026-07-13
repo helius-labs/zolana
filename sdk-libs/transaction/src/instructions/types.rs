@@ -8,6 +8,7 @@ use crate::{data::Data, utxo::Utxo};
 
 #[derive(Clone)]
 pub struct SpendUtxo {
+    // TODO: rename to WalletUtxo, ::new(nullifier_key), methods add_data_hash , add zone_data_hash
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
     pub data_hash: Option<[u8; 32]>,
@@ -37,10 +38,12 @@ impl SpendUtxo {
     }
 
     pub fn from_keypair(utxo: Utxo, keypair: &ShieldedKeypair) -> Self {
+        // TODO: remove
         Self::from_nullifier_key(utxo, &keypair.nullifier_key)
     }
 
     pub fn from_nullifier_key(utxo: Utxo, nullifier_key: &NullifierKey) -> Self {
+        // TODO: rename to new
         Self {
             utxo,
             nullifier_key: nullifier_key.clone(),

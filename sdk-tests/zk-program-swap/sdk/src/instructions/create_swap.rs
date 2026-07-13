@@ -4,23 +4,19 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::CreateProofInputs;
 use zolana_interface::instruction::instruction_data::transact::{OutputCiphertext, TransactIxData};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
+use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{
-    derive_blinding,
     instructions::{
-        transact::{
-            OutputCiphertextSlot, OutputUtxo, RecipientSlot, SenderSlot, SignedTransaction,
-            Transaction,
-        },
+        transact::{OutputCiphertextSlot, OutputUtxo},
         types::SpendUtxo,
     },
-    serialization::confidential::TransferSenderPlaintext,
-    AssetRegistry, Data, TransactionError, SOL_MINT,
+    utxo::Blinding,
+    TransactionError,
 };
 
 use crate::{
     err, escrow_authority_pda,
-    order::{BlindingField, DataHash, Escrow},
+    order::{BlindingField, DataHash, OrderUtxo},
     program_id_pubkey, spp_program_meta, tag, CreateProof, MarkerData,
 };
 
@@ -29,7 +25,7 @@ pub struct CreateSwapIxData {
     pub proof: CreateProof,
     pub transact: TransactIxData,
 }
-
+// TODO: check why we need manual serialization at all.
 impl CreateSwapIxData {
     pub fn serialize(&self) -> Vec<u8> {
         let mut data = borsh::to_vec(&self.proof).expect("CreateProof serialization is infallible");
@@ -44,10 +40,11 @@ impl CreateSwapIxData {
 }
 
 pub struct CreateSwapProofInputParams {
-    pub escrow: Escrow,
+    pub escrow: OrderUtxo,
     pub taker_address: ShieldedAddress,
     pub source_input_hash: [u8; 32],
-    pub change_output_utxo: OutputUtxo,
+    pub change_amount: u64,
+    pub change_blinding: Blinding,
     pub external_data_hash: [u8; 32],
 }
 
@@ -68,126 +65,47 @@ impl CreateSwapProofInputParams {
             fill_mode: terms.fill_mode,
             external_data_hash: self.external_data_hash,
             source_input_hash: self.source_input_hash,
-            change_amount: self.change_output_utxo.amount,
-            change_blinding: self.change_output_utxo.blinding.to_field(),
+            change_amount: self.change_amount,
+            change_blinding: self.change_blinding.to_field(),
             marker_owner_hash: self.taker_address.owner_hash().map_err(err)?,
         })
     }
 }
 
-const CHANGE_POSITION: u8 = 1;
+pub const CHANGE_POSITION: u8 = 1;
 
-pub struct EscrowCreate {
-    pub tx: Transaction,
-    pub escrow: OutputUtxo,
-    pub marker: OutputUtxo,
-    /// The maker's 32-byte owner pubkey (the create tx fee payer / user-registry
-    /// key). Written into the marker so the taker can look the maker up; the
-    /// on-chain program reconstructs the same value from the payer signer.
-    pub payer: Pubkey,
-}
-
-impl EscrowCreate {
-    pub fn sign<K: ShieldedKeypairTrait + ViewingKeyTrait>(
-        self,
-        keypair: &K,
-        assets: &AssetRegistry,
-    ) -> Result<SignedTransaction, TransactionError> {
-        let Self {
-            mut tx,
-            escrow,
-            marker,
-            payer,
-        } = self;
-        if tx.inputs.len() != 1 {
-            return Err(TransactionError::TooManyInputs {
-                got: tx.inputs.len(),
-                max: 1,
-            });
-        }
-        let escrow_address = escrow
-            .owner_address
-            .ok_or(TransactionError::MissingOutput)?;
-        let marker_address = marker
-            .owner_address
-            .ok_or(TransactionError::MissingOutput)?;
-        // Change is denominated in the escrow (source) asset: the single real input
-        // spends `source_amount` into the escrow and returns the remainder to the
-        // maker. SOL rides `sol_amount`; any other asset rides `spl_amount` with its
-        // registered `spl_asset_id`.
-        let escrow_asset = escrow.asset;
-        let leftover = input_sum(&tx, &escrow_asset)
-            .checked_sub(i128::from(escrow.amount))
-            .ok_or(TransactionError::SelectedBalanceOverflow)?;
-        if leftover < 0 {
-            return Err(TransactionError::InsufficientBalance {
-                requested: (-leftover) as u64,
-                available: 0,
-            });
-        }
-        let change_amount = leftover as u64;
-        let (sol_change, spl_change, spl_asset_id) = if escrow_asset == SOL_MINT {
-            (change_amount, 0, 0)
-        } else {
-            (0, change_amount, assets.asset_id(&escrow_asset)?)
-        };
-
-        let change = if change_amount > 0 {
-            OutputUtxo {
-                owner_address: Some(tx.owner),
-                asset: escrow_asset,
-                amount: change_amount,
-                blinding: derive_blinding(&tx.blinding_seed, CHANGE_POSITION),
-                ..Default::default()
-            }
-        } else {
-            OutputUtxo {
-                blinding: derive_blinding(&tx.blinding_seed, CHANGE_POSITION),
-                owner_tag: Some(tx.owner.signing_pubkey.confidential_view_tag()?),
-                ..Default::default()
-            }
-        };
-
-        let sender_slot = SenderSlot {
-            plaintext: TransferSenderPlaintext {
-                owner_pubkey: tx.owner.signing_pubkey,
-                spl_asset_id,
-                spl_amount: spl_change,
-                sol_amount: sol_change,
-                blinding_seed: tx.blinding_seed,
-                recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
-                spl_data: Data::default(),
-                sol_data: Data::default(),
-            },
-            output: change,
-        };
-        let escrow_utxo_hash = escrow.hash()?;
-        let escrow_slot = RecipientSlot::new(escrow, assets)?;
-
-        let marker_slot = OutputCiphertextSlot {
-            output: marker,
-            ciphertext: OutputCiphertext {
-                view_tag: marker_address.signing_pubkey.confidential_view_tag()?,
-                data: borsh::to_vec(&MarkerData {
-                    escrow_utxo_hash,
-                    maker_pubkey: payer.to_bytes(),
-                })
-                .expect("MarkerData serialization is infallible"),
-            },
-        };
-
-        // Pad to the 2x3 shape: 1 real input + 1 dummy, outputs [change, escrow, marker].
-        tx.inputs.push(SpendUtxo::new_dummy());
-        tx.sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], keypair)
-    }
-}
-
-fn input_sum(tx: &Transaction, asset: &Address) -> i128 {
-    tx.inputs
+pub fn input_sum(inputs: &[SpendUtxo], asset: &Address) -> i128 {
+    inputs
         .iter()
         .filter(|spend| &spend.utxo.asset == asset)
         .map(|spend| i128::from(spend.utxo.amount))
         .sum()
+}
+
+pub struct MarkerEncrypt {
+    pub marker: OutputUtxo,
+    pub escrow_utxo_hash: [u8; 32],
+    pub payer: Pubkey,
+}
+
+impl MarkerEncrypt {
+    pub fn encrypt(self) -> Result<OutputCiphertextSlot, TransactionError> {
+        let marker_address = self
+            .marker
+            .owner_address
+            .ok_or(TransactionError::MissingOutput)?;
+        Ok(OutputCiphertextSlot {
+            ciphertext: OutputCiphertext {
+                view_tag: marker_address.signing_pubkey.confidential_view_tag()?,
+                data: borsh::to_vec(&MarkerData {
+                    escrow_utxo_hash: self.escrow_utxo_hash,
+                    maker_pubkey: self.payer.to_bytes(),
+                })
+                .expect("MarkerData serialization is infallible"),
+            },
+            output: self.marker,
+        })
+    }
 }
 
 pub struct CreateSwap {
@@ -236,11 +154,16 @@ impl CreateSwap {
 mod tests {
     use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedKeypair};
     use zolana_transaction::{
+        derive_blinding,
         instructions::{
-            transact::{no_address_hashes, private_tx_hash, Shape},
+            transact::{
+                no_address_hashes, private_tx_hash, RecipientSlot, SenderSlot, Shape, Transaction,
+            },
             types::SpendUtxo,
         },
+        serialization::confidential::TransferSenderPlaintext,
         utxo::Utxo,
+        AssetRegistry, Data, SOL_MINT,
     };
 
     use super::*;
@@ -293,22 +216,47 @@ mod tests {
             ..Default::default()
         };
 
-        let tx = Transaction::new(
+        let mut tx = Transaction::new(
             owner_keypair.shielded_address().expect("owner address"),
             vec![spend],
             Address::default(),
         );
 
+        let escrow_address = escrow.owner_address.expect("escrow address");
         let escrow_utxo_hash = escrow.hash().expect("escrow hash");
         let marker_hash = marker.hash().expect("marker hash");
-        let signed = EscrowCreate {
-            tx,
-            escrow,
+        let change_amount = input_amount - escrow_amount;
+        let sender_slot = SenderSlot {
+            plaintext: TransferSenderPlaintext {
+                owner_pubkey: tx.owner.signing_pubkey,
+                spl_asset_id: 0,
+                spl_amount: 0,
+                sol_amount: change_amount,
+                blinding_seed: tx.blinding_seed,
+                recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
+                spl_data: Data::default(),
+                sol_data: Data::default(),
+            },
+            output: OutputUtxo {
+                owner_address: Some(tx.owner),
+                asset: SOL_MINT,
+                amount: change_amount,
+                blinding: derive_blinding(&tx.blinding_seed, CHANGE_POSITION),
+                ..Default::default()
+            },
+        };
+        let escrow_slot = RecipientSlot::new(escrow, &assets).expect("escrow slot");
+        let marker_slot = MarkerEncrypt {
             marker,
+            escrow_utxo_hash,
             payer: Pubkey::default(),
         }
-        .sign(&owner_keypair, &assets)
-        .expect("escrow create");
+        .encrypt()
+        .expect("marker slot");
+        tx.inputs.push(SpendUtxo::new_dummy());
+        let signed = tx
+            .sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], &owner_keypair)
+            .expect("escrow create");
 
         assert_eq!(signed.shape, Shape::new(2, 3));
         assert_eq!(signed.outputs.len(), 3);
@@ -397,20 +345,48 @@ mod tests {
             ..Default::default()
         };
 
-        let tx = Transaction::new(
+        let mut tx = Transaction::new(
             owner_keypair.shielded_address().expect("owner address"),
             vec![spend],
             Address::default(),
         );
 
-        let signed = EscrowCreate {
-            tx,
-            escrow,
+        let escrow_address = escrow.owner_address.expect("escrow address");
+        let escrow_utxo_hash = escrow.hash().expect("escrow hash");
+        let sender_slot = SenderSlot {
+            plaintext: TransferSenderPlaintext {
+                owner_pubkey: tx.owner.signing_pubkey,
+                spl_asset_id: 0,
+                spl_amount: 0,
+                sol_amount: 0,
+                blinding_seed: tx.blinding_seed,
+                recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
+                spl_data: Data::default(),
+                sol_data: Data::default(),
+            },
+            output: OutputUtxo {
+                blinding: derive_blinding(&tx.blinding_seed, CHANGE_POSITION),
+                owner_tag: Some(
+                    tx.owner
+                        .signing_pubkey
+                        .confidential_view_tag()
+                        .expect("owner view tag"),
+                ),
+                ..Default::default()
+            },
+        };
+        let escrow_slot = RecipientSlot::new(escrow, &assets).expect("escrow slot");
+        let marker_slot = MarkerEncrypt {
             marker,
+            escrow_utxo_hash,
             payer: Pubkey::default(),
         }
-        .sign(&owner_keypair, &assets)
-        .expect("escrow create");
+        .encrypt()
+        .expect("marker slot");
+        tx.inputs.push(SpendUtxo::new_dummy());
+        let signed = tx
+            .sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], &owner_keypair)
+            .expect("escrow create");
 
         let change = signed.outputs.first().expect("change output");
         assert!(change.is_dummy());

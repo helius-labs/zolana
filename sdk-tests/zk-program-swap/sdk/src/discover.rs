@@ -19,13 +19,13 @@ use zolana_transaction::{
 
 use crate::{
     err,
-    order::{marker_output_utxo, Escrow, OrderTerms, PlainTextData},
+    order::{marker_output_utxo, OrderTerms, OrderUtxo, PlainTextData},
     MarkerData,
 };
 
 #[derive(Debug)]
 pub struct DiscoveredOrder {
-    pub escrow: Escrow,
+    pub escrow: OrderUtxo,
     pub maker_pubkey: Pubkey,
 }
 
@@ -129,7 +129,7 @@ impl OrderCandidate {
             expiry: self.order_data.expiry,
             fill_mode: self.order_data.fill_mode,
         };
-        let escrow = Escrow {
+        let escrow = OrderUtxo {
             terms,
             blinding: self.escrow_blinding,
             source_mint: self.source_mint,
@@ -206,7 +206,7 @@ fn collect_orders<I: Rpc, R: Rpc>(
 /// An order rediscovered by its maker from her own create transaction.
 #[derive(Debug)]
 pub struct OwnOrder {
-    pub escrow: Escrow,
+    pub escrow: OrderUtxo,
     pub taker_viewing_pk: P256Pubkey,
 }
 
@@ -325,7 +325,7 @@ fn own_order_candidate(
     let source_mint = resolve_mint(registry, plaintext.asset_id).ok()?;
     let destination_mint = resolve_mint(registry, order_data.destination_asset_id).ok()?;
     Some(OwnOrder {
-        escrow: Escrow {
+        escrow: OrderUtxo {
             terms: OrderTerms {
                 destination_mint,
                 destination_amount: order_data.destination_amount,
@@ -392,22 +392,27 @@ mod tests {
     use swap_prover::FILL_MODE_DERIVED;
     use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
     use zolana_transaction::{
+        derive_blinding,
         instructions::{
-            transact::{OutputContext, OutputSlot, SignedTransaction, Transaction},
+            transact::{
+                OutputContext, OutputSlot, OutputUtxo, RecipientSlot, SenderSlot,
+                SignedTransaction, Transaction,
+            },
             types::SpendUtxo,
         },
+        serialization::confidential::TransferSenderPlaintext,
         utxo::Utxo,
         Data,
     };
 
     use super::*;
-    use crate::instructions::create_swap::EscrowCreate;
+    use crate::instructions::create_swap::{input_sum, MarkerEncrypt, CHANGE_POSITION};
 
     struct OrderFixture {
         tx: ShieldedTransaction,
         wallet: Wallet,
         maker_wallet: Wallet,
-        escrow: Escrow,
+        escrow: OrderUtxo,
         maker_address: ShieldedAddress,
         maker_pubkey: Pubkey,
     }
@@ -465,7 +470,7 @@ mod tests {
             expiry: 2_000_000_000,
             fill_mode: FILL_MODE_DERIVED,
         };
-        let escrow = Escrow {
+        let escrow = OrderUtxo {
             terms,
             blinding: [11u8; BLINDING_LEN],
             source_mint,
@@ -492,14 +497,44 @@ mod tests {
             data: Data::default(),
         };
         let spend = SpendUtxo::from_keypair(input_utxo, &maker_keypair);
-        let signed = EscrowCreate {
-            tx: Transaction::new(maker_address, vec![spend], Address::default()),
-            escrow: escrow_output,
+        let mut tx = Transaction::new(maker_address, vec![spend], Address::default());
+
+        let escrow_address = escrow_output.owner_address.expect("escrow address");
+        let escrow_utxo_hash = escrow_output.hash().expect("escrow output hash");
+        let change_amount =
+            u64::try_from(input_sum(&tx.inputs, &source_mint) - i128::from(escrow_output.amount))
+                .expect("change amount");
+        let sender_slot = SenderSlot {
+            plaintext: TransferSenderPlaintext {
+                owner_pubkey: tx.owner.signing_pubkey,
+                spl_asset_id: registry.asset_id(&source_mint).expect("asset id"),
+                spl_amount: change_amount,
+                sol_amount: 0,
+                blinding_seed: tx.blinding_seed,
+                recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
+                spl_data: Data::default(),
+                sol_data: Data::default(),
+            },
+            output: OutputUtxo {
+                owner_address: Some(tx.owner),
+                asset: source_mint,
+                amount: change_amount,
+                blinding: derive_blinding(&tx.blinding_seed, CHANGE_POSITION),
+                ..Default::default()
+            },
+        };
+        let escrow_slot = RecipientSlot::new(escrow_output, &registry).expect("escrow slot");
+        let marker_slot = MarkerEncrypt {
             marker,
+            escrow_utxo_hash,
             payer: maker_pubkey,
         }
-        .sign(&maker_keypair, &registry)
-        .expect("escrow create sign");
+        .encrypt()
+        .expect("marker slot");
+        tx.inputs.push(SpendUtxo::new_dummy());
+        let signed = tx
+            .sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], &maker_keypair)
+            .expect("escrow create sign");
 
         OrderFixture {
             tx: shielded_transaction(&signed),

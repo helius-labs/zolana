@@ -27,7 +27,6 @@ use crate::{
     AssetRegistry, SOL_MINT,
 };
 
-const TRANSACT_DISCRIMINATOR: u8 = 0;
 const SPL_CHANGE_POSITION: u8 = 0;
 const SOL_CHANGE_POSITION: u8 = 1;
 const RECIPIENT_POSITION_BASE: u8 = 2;
@@ -273,7 +272,7 @@ impl EncodeOutputSlot for OutputCiphertextSlot {
         Ok(self.ciphertext.clone())
     }
 }
-
+// TODO: we should separate this abstraction into a lowlevel ProofInputs and higher level Transfer that is specialized to perform transfers and is not intended to be used with custom utxos.
 pub struct Transaction {
     pub owner: ShieldedAddress,
     pub inputs: Vec<SpendUtxo>,
@@ -413,22 +412,13 @@ impl Transaction {
             output_utxos.push(output);
         }
 
-        let external_data = ExternalData {
-            instruction_discriminator: TRANSACT_DISCRIMINATOR,
-            expiry_unix_ts: self.expiry_unix_ts,
-            relayer_fee: 0,
-            public_sol_amount: None,
-            public_spl_amount: None,
-            user_sol_account: Address::default(),
-            user_spl_token: Address::default(),
-            spl_token_interface: Address::default(),
-            data_hash: None,
-            zone_data_hash: None,
-            tx_viewing_pk: *tx_viewing_pk.as_bytes(),
+        let external_data = ExternalData::new(
+            *tx_viewing_pk.as_bytes(),
             salt,
             output_utxo_hashes,
             output_ciphertexts,
-        };
+            self.expiry_unix_ts,
+        );
 
         let mut signed = SignedTransaction {
             inputs: self.inputs,
@@ -441,7 +431,7 @@ impl Transaction {
             external_data,
             payer_pubkey_hash: self.payer_pubkey_hash,
             shape,
-            p256_owner: None,
+            p256_owner: None, // TODO: rename to p256 signature
         };
         if keypair.curve()? == SignatureType::P256 {
             let message_hash = signed.message_hash()?;
@@ -813,22 +803,20 @@ impl PreparedTransaction {
             }
         }
 
-        let external_data = ExternalData {
-            instruction_discriminator: TRANSACT_DISCRIMINATOR,
-            expiry_unix_ts,
-            relayer_fee: 0,
-            public_sol_amount,
-            public_spl_amount,
-            user_sol_account,
-            user_spl_token,
-            spl_token_interface,
-            data_hash: None,
-            zone_data_hash: None,
-            tx_viewing_pk: *tx_viewing_pk.as_bytes(),
+        let mut external_data = ExternalData::new(
+            *tx_viewing_pk.as_bytes(),
             salt,
             output_utxo_hashes,
             output_ciphertexts,
-        };
+            expiry_unix_ts,
+        );
+        if let Some(amount) = public_sol_amount {
+            external_data = external_data.with_public_sol(amount, user_sol_account)?;
+        }
+        if let Some(amount) = public_spl_amount {
+            external_data =
+                external_data.with_public_spl(amount, user_spl_token, spl_token_interface)?;
+        }
 
         Ok(SignedTransaction {
             inputs,

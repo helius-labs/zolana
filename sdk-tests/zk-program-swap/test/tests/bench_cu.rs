@@ -23,19 +23,21 @@ use swap_prover::{preload, CircuitId};
 use swap_sdk::{
     instructions::{
         cancel::{Cancel, CancelProofInputParams, EscrowCancel},
-        create_swap::{CreateSwap, CreateSwapProofInputParams, EscrowCreate},
+        create_swap::{
+            input_sum, CreateSwap, CreateSwapProofInputParams, MarkerEncrypt, CHANGE_POSITION,
+        },
         fill::{EscrowFill, Fill, FillProofInputParams},
         fill_verifiable_encryption::{
             EscrowFillVerifiableEncryption, FillVerifiableEncryption,
             FillVerifiableEncryptionProofInputParams,
         },
     },
-    order::{marker_output_utxo, Escrow, OrderTerms, Recipient, SOL_ASSET_ID},
+    order::{marker_output_utxo, OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
     prover::{prove_transact, SwapProverClient},
 };
 use zolana_client::{
-    MerkleContext, MerkleProof, NonInclusionProof, ProverClient, SpendProof,
-    Transaction as TxBuilder, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    MerkleContext, MerkleProof, NonInclusionProof, ProverClient, SpendProof, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::{
@@ -49,10 +51,15 @@ use zolana_interface::{
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
+    derive_blinding,
     instructions::{
-        transact::{signed_transaction::BN254_MODULUS_DEC, SignedTransaction},
+        transact::{
+            signed_transaction::BN254_MODULUS_DEC, OutputUtxo, RecipientSlot, SenderSlot,
+            SignedTransaction, Transaction as SppProofInputs,
+        },
         types::SpendUtxo,
     },
+    serialization::confidential::TransferSenderPlaintext,
     utxo::Blinding,
     AssetRegistry, Data, Utxo, SOL_MINT,
 };
@@ -439,7 +446,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         expiry: EXPIRY,
         fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
     };
-    let escrow_utxo_hash = Escrow {
+    let escrow_utxo_hash = OrderUtxo {
         terms,
         blinding: [7u8; 31],
         source_mint: SOL_MINT,
@@ -453,20 +460,75 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
     let spend = SpendUtxo::from_keypair(input_utxo, &maker);
-    let tx = TxBuilder::new(
+    let mut tx = SppProofInputs::new(
         maker.shielded_address().expect("maker address"),
         vec![spend],
         payer_address,
     );
     let assets = AssetRegistry::default();
-    let signed = EscrowCreate {
-        tx,
-        escrow,
+
+    let escrow_address = escrow.owner_address.expect("escrow owner address");
+    let escrow_asset = escrow.asset;
+    let leftover = input_sum(&tx.inputs, &escrow_asset) - i128::from(escrow.amount);
+    let change_amount = u64::try_from(leftover).expect("insufficient escrow balance");
+    let (sol_change, spl_change, spl_asset_id) = if escrow_asset == SOL_MINT {
+        (change_amount, 0, 0)
+    } else {
+        (
+            0,
+            change_amount,
+            assets.asset_id(&escrow_asset).expect("asset id"),
+        )
+    };
+    let change_blinding = derive_blinding(&tx.blinding_seed, CHANGE_POSITION);
+    let change = if change_amount > 0 {
+        OutputUtxo {
+            owner_address: Some(tx.owner),
+            asset: escrow_asset,
+            amount: change_amount,
+            blinding: change_blinding,
+            ..Default::default()
+        }
+    } else {
+        OutputUtxo {
+            blinding: change_blinding,
+            owner_tag: Some(
+                tx.owner
+                    .signing_pubkey
+                    .confidential_view_tag()
+                    .expect("owner view tag"),
+            ),
+            ..Default::default()
+        }
+    };
+
+    let escrow_output_hash = escrow.hash().expect("escrow output hash");
+    let sender_slot = SenderSlot {
+        plaintext: TransferSenderPlaintext {
+            owner_pubkey: tx.owner.signing_pubkey,
+            spl_asset_id,
+            spl_amount: spl_change,
+            sol_amount: sol_change,
+            blinding_seed: tx.blinding_seed,
+            recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
+            spl_data: Data::default(),
+            sol_data: Data::default(),
+        },
+        output: change,
+    };
+    let escrow_slot = RecipientSlot::new(escrow, &assets).expect("escrow slot");
+    let marker_slot = MarkerEncrypt {
         marker,
+        escrow_utxo_hash: escrow_output_hash,
         payer: payer.pubkey(),
     }
-    .sign(&maker, &assets)
-    .expect("escrow create sign");
+    .encrypt()
+    .expect("marker slot");
+
+    tx.inputs.push(SpendUtxo::new_dummy());
+    let signed = tx
+        .sign_with_slots(&[&sender_slot, &escrow_slot, &marker_slot], &maker)
+        .expect("escrow create sign");
 
     let commitments = signed.input_utxo_hashes().expect("input commitments");
     let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
@@ -495,14 +557,14 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
             &spend.zone_data_hash.unwrap_or([0u8; 32]),
         )
         .expect("source input hash");
-    let change_output_utxo = signed.outputs.first().cloned().expect("change output");
     let external_data_hash = signed.external_data.hash().expect("external data hash");
 
     let create_inputs = CreateSwapProofInputParams {
         escrow: escrow_utxo_hash,
         taker_address,
         source_input_hash,
-        change_output_utxo,
+        change_amount,
+        change_blinding,
         external_data_hash,
     };
 
@@ -566,7 +628,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         expiry: EXPIRY,
         fill_mode: swap_prover::FILL_MODE_DERIVED,
     };
-    let escrow = Escrow {
+    let escrow = OrderUtxo {
         terms,
         blinding: [7u8; 31],
         source_mint: SOL_MINT,
@@ -609,7 +671,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let taker_spend = SpendUtxo::from_keypair(taker_utxo, &taker);
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
-    let tx = TxBuilder::new(
+    let tx = SppProofInputs::new(
         taker_recipient,
         vec![escrow_input, taker_spend],
         payer_address,
@@ -703,7 +765,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         expiry: EXPIRY,
         fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
     };
-    let escrow = Escrow {
+    let escrow = OrderUtxo {
         terms,
         blinding: [7u8; 31],
         source_mint: SOL_MINT,
@@ -744,7 +806,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let taker_spend = SpendUtxo::from_keypair(taker_utxo, &taker);
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
-    let tx = TxBuilder::new(
+    let tx = SppProofInputs::new(
         taker_recipient,
         vec![escrow_input, taker_spend],
         payer_address,
@@ -855,7 +917,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         expiry: ORDER_EXPIRY,
         fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
     };
-    let escrow = Escrow {
+    let escrow = OrderUtxo {
         terms,
         blinding: [7u8; 31],
         source_mint: SOL_MINT,
@@ -876,7 +938,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let escrow_input = escrow.into_input_utxo().expect("escrow spend");
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
-    let tx = TxBuilder::new(maker_recipient, vec![escrow_input], payer_address)
+    let tx = SppProofInputs::new(maker_recipient, vec![escrow_input], payer_address)
         .with_expiry(SPP_RELAYER_DEADLINE);
     let assets = AssetRegistry::default();
     let signed = EscrowCancel { tx, source_output }

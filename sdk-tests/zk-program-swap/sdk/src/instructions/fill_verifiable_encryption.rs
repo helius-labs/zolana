@@ -16,7 +16,7 @@ use zolana_transaction::{
 
 use crate::{
     err, escrow_authority_pda,
-    order::{BlindingField, DataHash, Escrow, Recipient},
+    order::{BlindingField, DataHash, OrderUtxo, Recipient},
     program_id_pubkey, spp_program_meta, tag, FillVerifiableEncryptionProof,
 };
 
@@ -41,7 +41,7 @@ impl FillVerifiableEncryptionIxData {
 }
 
 pub struct FillVerifiableEncryptionProofInputParams {
-    pub escrow: Escrow,
+    pub escrow: OrderUtxo,
     pub taker_in_blinding: Blinding,
     pub destination_output_blinding: Blinding,
     pub source_output_blinding: Blinding,
