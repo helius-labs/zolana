@@ -21,6 +21,7 @@ use crate::{
             ConfidentialRecipient, ConfidentialRecipientEncode, ConfidentialSenderBundle,
             ConfidentialSenderEncode, TransferRecipientPlaintext, TransferSenderPlaintext,
         },
+        confidential_unified::{ConfidentialUnified, ConfidentialUnifiedEncode},
         OwnerCx, UtxoSerialization,
     },
     utxo::{derive_blinding, Utxo},
@@ -249,6 +250,54 @@ impl EncodeOutputSlot for RecipientSlot {
             },
             address.signing_pubkey.confidential_view_tag()?,
             &ConfidentialRecipientEncode {
+                tx: cx.tx.clone(),
+                recipient_pubkey: address.viewing_pubkey,
+                salt: cx.salt,
+                slot_index: cx.slot_index,
+            },
+        )
+    }
+}
+
+pub struct ConfidentialSlot {
+    output: OutputUtxo,
+    asset_id: u64,
+}
+
+impl ConfidentialSlot {
+    pub fn new(output: OutputUtxo, assets: &AssetRegistry) -> Result<Self, TransactionError> {
+        if output.owner_address.is_none() {
+            return Err(TransactionError::MissingOutput);
+        }
+        let asset_id = if output.asset == SOL_MINT {
+            crate::SOL_ASSET_ID
+        } else {
+            assets.asset_id(&output.asset)?
+        };
+        Ok(Self { output, asset_id })
+    }
+}
+
+impl EncodeOutputSlot for ConfidentialSlot {
+    fn output(&self) -> &OutputUtxo {
+        &self.output
+    }
+
+    fn encode_slot(&self, cx: &SlotCx) -> Result<OutputCiphertext, TransactionError> {
+        let address = self
+            .output
+            .owner_address
+            .ok_or(TransactionError::MissingOutput)?;
+        ConfidentialUnified::encode_plaintext(
+            &TransferRecipientPlaintext {
+                asset_id: self.asset_id,
+                amount: self.output.amount,
+                blinding: self.output.blinding,
+                zone_program_id: self.output.zone_program_id,
+                data: self.output.data.clone(),
+            },
+            address.signing_pubkey.confidential_view_tag()?,
+            &ConfidentialUnifiedEncode {
                 tx: cx.tx.clone(),
                 recipient_pubkey: address.viewing_pubkey,
                 salt: cx.salt,

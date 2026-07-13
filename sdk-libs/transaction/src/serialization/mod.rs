@@ -10,6 +10,7 @@ use crate::{
 
 pub mod anonymous;
 pub mod confidential;
+pub mod confidential_unified;
 pub mod merge;
 pub mod plaintext;
 pub mod proofless;

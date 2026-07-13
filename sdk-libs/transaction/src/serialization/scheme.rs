@@ -11,6 +11,7 @@ pub enum EncryptedScheme {
     Split = 5,
     Merge = 6,
     PlaintextTransfer = 7,
+    ConfidentialUnified = 8,
 }
 
 impl EncryptedScheme {
@@ -24,6 +25,7 @@ impl EncryptedScheme {
             5 => Ok(Self::Split),
             6 => Ok(Self::Merge),
             7 => Ok(Self::PlaintextTransfer),
+            8 => Ok(Self::ConfidentialUnified),
             other => Err(TransactionError::BadDiscriminator(other)),
         }
     }

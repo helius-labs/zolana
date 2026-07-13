@@ -17,6 +17,7 @@ use crate::{
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle},
         confidential::{ConfidentialRecipient, ConfidentialSenderBundle},
+        confidential_unified::ConfidentialUnified,
         merge::Merge,
         plaintext::PlaintextTransfer,
         proofless::Proofless,
@@ -56,6 +57,7 @@ impl TxIndex {
                 match scheme {
                     EncryptedScheme::AnonymousRecipient
                     | EncryptedScheme::ConfidentialRecipient
+                    | EncryptedScheme::ConfidentialUnified
                     | EncryptedScheme::Proofless
                     | EncryptedScheme::PlaintextTransfer
                     | EncryptedScheme::Merge => {
@@ -270,9 +272,14 @@ impl SyncCtx<'_> {
                     | OutputData::VerifiablyEncrypted(blob)
                     | OutputData::Plaintext(blob) => blob,
                 };
-                blob.first()
-                    .and_then(|b| EncryptedScheme::from_byte(*b).ok())
-                    == Some(EncryptedScheme::ConfidentialRecipient)
+                matches!(
+                    blob.first()
+                        .and_then(|b| EncryptedScheme::from_byte(*b).ok()),
+                    Some(
+                        EncryptedScheme::ConfidentialRecipient
+                            | EncryptedScheme::ConfidentialUnified
+                    )
+                )
             })
             .count()
     }
@@ -494,6 +501,30 @@ impl SyncCtx<'_> {
                             return Ok(outcome);
                         };
                         let utxos = match ConfidentialRecipient::into_utxos(plaintext, &owner_cx) {
+                            Ok(utxos) => utxos,
+                            Err(err) => {
+                                self.note_undecryptable(&err);
+                                return Ok(outcome);
+                            }
+                        };
+                        if self.store_recipient_utxos(
+                            utxos.clone(),
+                            &output_context,
+                            &[0u8; 32],
+                            &[0u8; 32],
+                        )? {
+                            self.processed_slots.insert(site);
+                            if let Some(utxo) = utxos.first() {
+                                self.record_received(tx, site.1, None, utxo);
+                            }
+                        }
+                    }
+                    EncryptedScheme::ConfidentialUnified => {
+                        let Ok(plaintext) = ConfidentialUnified::decode(body, &cx) else {
+                            self.report.undecryptable_candidates += 1;
+                            return Ok(outcome);
+                        };
+                        let utxos = match ConfidentialUnified::into_utxos(plaintext, &owner_cx) {
                             Ok(utxos) => utxos,
                             Err(err) => {
                                 self.note_undecryptable(&err);

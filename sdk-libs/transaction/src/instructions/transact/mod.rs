@@ -8,8 +8,9 @@ pub mod signed_transaction;
 pub mod types;
 
 pub use builder::{
-    EncodeOutputSlot, OutputCiphertextSlot, PreparedRecipient, PreparedTransaction, RecipientSlot,
-    SenderSlot, Shape, SlotCx, Transaction, WithdrawalTarget, SENDER_SLOT_COUNT,
+    ConfidentialSlot, EncodeOutputSlot, OutputCiphertextSlot, PreparedRecipient,
+    PreparedTransaction, RecipientSlot, SenderSlot, Shape, SlotCx, Transaction, WithdrawalTarget,
+    SENDER_SLOT_COUNT,
 };
 pub use external_data::ExternalData;
 pub use signed_transaction::{signed_to_field, PublicAmounts, SignedTransaction};
