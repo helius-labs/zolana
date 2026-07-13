@@ -13,6 +13,7 @@ use solana_transaction::Transaction;
 use zolana_client::{spawn_prover, Proof, ProofCompressed, Rpc, SolanaRpc};
 use zolana_interface::instruction::instruction_data::transact::TransactProof;
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
+use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_test_utils::smart_account;
 use zolana_user_registry_interface::user_registry_program_id;
 
@@ -79,7 +80,7 @@ pub(crate) fn restart_localnet() {
     let user_registry_id = user_registry_program_id().to_string();
     let user_registry_so = format!("{root}/target/deploy/zolana_user_registry.so");
 
-    let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
+    let smart_account_id = SMART_ACCOUNT_PROGRAM_ID.to_string();
     let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
 
     // The policy-zone fixture program signs the `zone_auth` PDA when forwarding

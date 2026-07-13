@@ -24,11 +24,9 @@ use zolana_interface::instruction::{
     instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact,
 };
 use zolana_keypair::{random_blinding, SignatureType};
-use zolana_test_utils::{
-    smart_account,
-    test_validator_asserts::{
-        wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
-    },
+use zolana_smart_account_client::execute_sync_ix;
+use zolana_test_utils::test_validator_asserts::{
+    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
 use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_user_registry_interface::{
@@ -222,7 +220,7 @@ impl LifecycleWorld {
             data,
         }
         .instruction();
-        let sync_ix = smart_account::execute_sync_ix(
+        let sync_ix = execute_sync_ix(
             &self.merge_settings,
             0,
             &[self.merge_key.pubkey()],

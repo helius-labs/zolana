@@ -1,0 +1,12 @@
+# Keep the Docker build context small. Images that build from this repository
+# root as context (e.g. forester/Dockerfile) don't need build output, VCS
+# history, proving keys, or local runtime state. A crate-local
+# forester/.dockerignore is NOT honored when the context is the repo root, so the
+# exclusions must live here.
+target/
+**/target/
+.git/
+prover/server/proving-keys/
+prover/server/formal-verification/
+test-ledger/
+.env

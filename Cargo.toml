@@ -25,6 +25,7 @@ members = [
     "sdk-libs/client",
     "sdk-libs/keypair",
     "sdk-libs/merkle-tree",
+    "sdk-libs/smart-account-client",
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
@@ -56,6 +57,7 @@ zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
 zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
+zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }
 zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }

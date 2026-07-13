@@ -10,8 +10,8 @@ use zolana_interface::{
     instruction::{CreateAssetCounter, CreateSplInterface},
     pda,
 };
+use zolana_smart_account_client::execute_sync_ix;
 use zolana_test_utils::{
-    smart_account::execute_sync_ix,
     spl::{create_mint, create_token_account},
     test_validator_asserts::assert_create_spl_interface,
 };

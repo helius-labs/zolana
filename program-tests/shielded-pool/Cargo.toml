@@ -38,6 +38,7 @@ zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 num-bigint = { workspace = true }
 tokio = { workspace = true }
+zolana-smart-account-client = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-tree = { workspace = true }
 mollusk-svm = "0.3.0"

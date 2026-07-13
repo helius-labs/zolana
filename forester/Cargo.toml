@@ -8,15 +8,18 @@ publish = false
 default = []
 
 [dependencies]
+anyhow = { workspace = true }
 clap = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 dotenvy = "0.15"
 
 # Solana client + transaction building.
 solana-commitment-config = { workspace = true }
+solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
@@ -27,3 +30,18 @@ solana-transaction = { workspace = true }
 
 # Shielded-pool interface for instruction-data shapes and builders.
 zolana-interface = { workspace = true, features = ["solana"] }
+
+# Tree + nullifier-queue state for the read-only `info` report.
+zolana-tree = { workspace = true }
+zolana-batched-merkle-tree = { workspace = true }
+
+# `run`: reconstruct the reference nullifier tree, build address-append
+# witnesses, and prove them on the forester prover.
+zolana-client = { workspace = true }
+zolana-api = { workspace = true }
+zolana-merkle-tree = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-smart-account-client = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+bs58 = { workspace = true }

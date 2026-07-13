@@ -17,7 +17,8 @@ use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
     instruction::CreateProtocolConfig, pda, state::tree_account_size, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
+use zolana_smart_account_client::execute_sync_ix;
+use zolana_test_utils::smart_account::{self, StandardSigners};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{

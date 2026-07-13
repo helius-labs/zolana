@@ -26,8 +26,9 @@ use zolana_interface::{
 };
 use zolana_keypair::PublicKey;
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
+use zolana_smart_account_client::execute_sync_ix;
 use zolana_test_utils::{
-    smart_account::{self, execute_sync_ix, StandardSigners},
+    smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account},
     test_validator_asserts::assert_create_spl_interface,
 };

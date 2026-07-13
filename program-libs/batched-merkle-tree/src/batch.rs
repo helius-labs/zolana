@@ -122,6 +122,18 @@ impl Batch {
         self.state.into()
     }
 
+    /// Non-panicking counterpart to [`get_state`](Self::get_state): returns
+    /// `None` for an out-of-range raw state (e.g. a corrupt account whose layout
+    /// still parses) instead of panicking in `From<u64>`.
+    pub fn try_get_state(&self) -> Option<BatchState> {
+        match self.state {
+            0 => Some(BatchState::Fill),
+            1 => Some(BatchState::Inserted),
+            2 => Some(BatchState::Full),
+            _ => None,
+        }
+    }
+
     pub fn bloom_filter_is_zeroed(&self) -> bool {
         self.bloom_filter_is_zeroed == 1
     }
@@ -690,6 +702,22 @@ mod tests {
         }
         batch.advance_state_to_inserted().unwrap();
         assert_eq!(batch.get_state(), BatchState::Inserted);
+    }
+
+    #[test]
+    fn try_get_state_maps_known_states_and_returns_none_for_invalid() {
+        let mut batch = get_test_batch();
+        for (raw, state) in [
+            (0, BatchState::Fill),
+            (1, BatchState::Inserted),
+            (2, BatchState::Full),
+        ] {
+            batch.state = raw;
+            assert_eq!(batch.try_get_state(), Some(state));
+        }
+
+        batch.state = 3;
+        assert_eq!(batch.try_get_state(), None);
     }
 
     #[test]

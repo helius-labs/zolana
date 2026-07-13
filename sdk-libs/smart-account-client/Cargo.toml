@@ -1,0 +1,11 @@
+[package]
+name = "zolana-smart-account-client"
+version = "0.1.0"
+description = "Client (PDAs + instruction builders) for the Squads smart-account program used to gate Zolana protocol authorities"
+license = "Apache-2.0"
+edition = "2021"
+
+[dependencies]
+borsh = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true, features = ["borsh"] }

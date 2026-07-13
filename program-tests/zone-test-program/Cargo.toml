@@ -47,6 +47,7 @@ zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
+zolana-smart-account-client = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }

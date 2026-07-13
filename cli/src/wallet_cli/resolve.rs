@@ -111,7 +111,7 @@ mod tests {
         .expect("resolve network");
         assert_eq!(
             resolved.tree.to_string(),
-            "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+            zolana_interface::DEFAULT_POOL_TREE_ADDRESS
         );
     }
 
