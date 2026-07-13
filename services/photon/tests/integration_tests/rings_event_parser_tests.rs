@@ -16,7 +16,10 @@ use photon_indexer::{
     ingester::{
         parser::{
             rings_event_parser::parse_rings_events,
-            state_update::{IndexedTreeLeafUpdate, RawIndexedElement, StateUpdate, Transaction},
+            state_update::{
+                IndexedTreeLeafUpdate, RawIndexedElement, RingsNullifierUpdate, RingsOutputUpdate,
+                StateUpdate, Transaction,
+            },
             tree_info::TreeInfo,
         },
         persist::{
@@ -76,11 +79,11 @@ fn parses_proofless_shield_event_with_photon_parser() {
     assert!(rings_tx.salt.is_none());
     assert!(rings_tx.proofless);
     assert!(rings_tx.nullifiers.is_empty());
-    assert_eq!(rings_tx.outputs.len(), 1);
-    assert_eq!(rings_tx.outputs[0].leaf_index, 0);
-    assert_eq!(rings_tx.outputs[0].view_tag.len(), 32);
-    assert_eq!(rings_tx.outputs[0].utxo_hash.len(), 32);
-    assert!(!rings_tx.outputs[0].payload.is_empty());
+    assert_eq!(rings_tx.output_tree, TEST_TREE);
+    assert_eq!(
+        rings_tx.outputs,
+        vec![expected_output(0, 0, 1, 11, proofless_output_payload())]
+    );
 }
 
 #[test]
@@ -95,24 +98,19 @@ fn parses_shielded_transfer_event_with_photon_parser() {
     assert!(rings_tx.tx_viewing_pk.is_none());
     assert!(rings_tx.salt.is_none());
     assert!(!rings_tx.proofless);
-    assert_eq!(rings_tx.nullifiers.len(), 2);
-    assert_eq!(rings_tx.outputs.len(), 3);
     assert_eq!(
-        rings_tx
-            .outputs
-            .iter()
-            .map(|output| output.leaf_index)
-            .collect::<Vec<_>>(),
-        vec![1, 2, 3]
+        rings_tx.nullifiers,
+        vec![expected_nullifier(0, 0, 21), expected_nullifier(1, 1, 22),]
     );
-    assert!(rings_tx
-        .outputs
-        .iter()
-        .all(|output| output.view_tag.len() == 32));
-    assert!(rings_tx
-        .outputs
-        .iter()
-        .all(|output| output.utxo_hash.len() == 32));
+    assert_eq!(rings_tx.output_tree, TEST_TREE);
+    assert_eq!(
+        rings_tx.outputs,
+        vec![
+            expected_output(0, 1, 2, 12, Vec::new()),
+            expected_output(1, 2, 3, 13, Vec::new()),
+            expected_output(2, 3, 4, 14, Vec::new()),
+        ]
+    );
 }
 
 #[test]
@@ -130,29 +128,26 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
         .tx_viewing_pk
         .as_ref()
         .expect("encrypted transfer should include a tx viewing key");
-    assert_eq!(tx_viewing_pk.len(), 33);
-    assert!(tx_viewing_pk.iter().any(|byte| *byte != 0));
+    assert_eq!(tx_viewing_pk, &[5; 33]);
     let salt = rings_tx
         .salt
         .as_ref()
         .expect("encrypted transfer should include a salt");
-    assert_eq!(salt.len(), 16);
-    assert!(salt.iter().any(|byte| *byte != 0));
+    assert_eq!(salt, &[6; 16]);
     assert!(!rings_tx.proofless);
-    assert_eq!(rings_tx.nullifiers.len(), 2);
-    assert_eq!(rings_tx.outputs.len(), 3);
     assert_eq!(
-        rings_tx
-            .outputs
-            .iter()
-            .map(|output| output.leaf_index)
-            .collect::<Vec<_>>(),
-        vec![2, 3, 4]
+        rings_tx.nullifiers,
+        vec![expected_nullifier(0, 4, 25), expected_nullifier(1, 5, 26),]
     );
-    assert!(rings_tx
-        .outputs
-        .iter()
-        .any(|output| !output.payload.is_empty()));
+    assert_eq!(rings_tx.output_tree, TEST_TREE);
+    assert_eq!(
+        rings_tx.outputs,
+        vec![
+            expected_output(0, 2, 8, 18, encode_verifiably_encrypted(vec![1, 2, 3]),),
+            expected_output(1, 3, 9, 19, encode_verifiably_encrypted(vec![4, 5, 6]),),
+            expected_output(2, 4, 10, 20, encode_verifiably_encrypted(vec![7, 8, 9]),),
+        ]
+    );
 }
 
 #[test]
@@ -166,15 +161,18 @@ fn parses_unshield_event_with_photon_parser() {
     assert!(rings_tx.tx_viewing_pk.is_none());
     assert!(rings_tx.salt.is_none());
     assert!(!rings_tx.proofless);
-    assert_eq!(rings_tx.nullifiers.len(), 2);
-    assert_eq!(rings_tx.outputs.len(), 3);
     assert_eq!(
-        rings_tx
-            .outputs
-            .iter()
-            .map(|output| output.leaf_index)
-            .collect::<Vec<_>>(),
-        vec![4, 5, 6]
+        rings_tx.nullifiers,
+        vec![expected_nullifier(0, 2, 23), expected_nullifier(1, 3, 24),]
+    );
+    assert_eq!(rings_tx.output_tree, TEST_TREE);
+    assert_eq!(
+        rings_tx.outputs,
+        vec![
+            expected_output(0, 4, 5, 15, Vec::new()),
+            expected_output(1, 5, 6, 16, Vec::new()),
+            expected_output(2, 6, 7, 17, Vec::new()),
+        ]
     );
 }
 
@@ -1335,25 +1333,13 @@ fn parse_ingestion_update(tx_info: TransactionInfo, slot: u64) -> StateUpdate {
 }
 
 fn proofless_shield_transaction_info() -> TransactionInfo {
-    let proofless_payload = encode_output_data(ProoflessOutput {
-        owner: [1; 32],
-        blinding: [2; 31],
-        asset: [0; 32],
-        amount: 100,
-        data_hash: None,
-        utxo_data: None,
-        zone_program_id: None,
-        zone_data_hash: None,
-        zone_data: None,
-        memo: None,
-    });
     rings_transaction_info(
         1,
         tag::DEPOSIT,
         EventKind::Deposit,
         GeneralEvent {
             inputs: Vec::new(),
-            outputs: vec![test_output(1, 11, proofless_payload)],
+            outputs: vec![test_output(1, 11, proofless_output_payload())],
             tx_viewing_pk: [0; 33],
             salt: [0; 16],
             first_output_leaf_index: 0,
@@ -1366,6 +1352,21 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
             }),
         },
     )
+}
+
+fn proofless_output_payload() -> Vec<u8> {
+    encode_output_data(ProoflessOutput {
+        owner: [1; 32],
+        blinding: [2; 31],
+        asset: [0; 32],
+        amount: 100,
+        data_hash: None,
+        utxo_data: None,
+        zone_program_id: None,
+        zone_data_hash: None,
+        zone_data: None,
+        memo: None,
+    })
 }
 
 fn shielded_transfer_transaction_info() -> TransactionInfo {
@@ -1478,6 +1479,36 @@ fn test_output(view_tag_byte: u8, utxo_hash_byte: u8, data: Vec<u8>) -> OutputUt
         view_tag: [view_tag_byte; 32],
         utxo_hash: [utxo_hash_byte; 32],
         data,
+    }
+}
+
+fn expected_output(
+    output_index: i16,
+    leaf_index: u64,
+    view_tag_byte: u8,
+    utxo_hash_byte: u8,
+    payload: Vec<u8>,
+) -> RingsOutputUpdate {
+    RingsOutputUpdate {
+        output_index,
+        output_tree: TEST_TREE,
+        leaf_index,
+        view_tag: [view_tag_byte; 32],
+        utxo_hash: [utxo_hash_byte; 32],
+        payload,
+    }
+}
+
+fn expected_nullifier(
+    input_index: i16,
+    input_queue_seq: u64,
+    nullifier_byte: u8,
+) -> RingsNullifierUpdate {
+    RingsNullifierUpdate {
+        input_index,
+        nullifier_tree: TEST_TREE,
+        input_queue_seq,
+        nullifier: [nullifier_byte; 32],
     }
 }
 
