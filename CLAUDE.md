@@ -421,21 +421,32 @@ workspace path dependencies:
 docker build -f services/photon/Dockerfile .
 ```
 
-Photon keeps its own versioned release train and deployment approval even
-though it shares source and a lockfile with the protocol. Release images must
-be immutable, identify the repository commit, and include the root license and
-third-party notices. Localnet tests never consume those production images.
+Photon keeps its own deployment approval even though it shares source and a
+lockfile with the protocol. Release images must be immutable, identify the
+Zolana repository commit, and include the root license and third-party notices.
+Localnet tests never consume those production images.
 
-Push `photon-v<version>` from a commit on `main`, where `<version>` matches
-`services/photon/Cargo.toml`, or dispatch `photon-image.yml` with an explicit
-immutable tag. The protected `photon-production` environment gates publication.
-The workflow refuses to overwrite an existing version or `sha-*` tag and does
-not publish `latest`.
+From the commit on `main` to release, create and push its fork tag:
+
+```bash
+tag="photon-zolana-$(git rev-parse --short=12 HEAD)"
+git tag "$tag"
+git push origin "$tag"
+```
+
+A manual `photon-image.yml` dispatch must use that same commit-derived value
+for its `image_tag`. The protected `photon-production` environment gates
+publication. The workflow publishes the
+`photon-zolana-<12-character-commit>` tag and a full `sha-<commit>` alias,
+refuses to overwrite either, and does not publish `latest`. The imported crate
+version in `services/photon/Cargo.toml` is upstream source provenance, not the
+Zolana fork's release identifier.
 
 Before archiving the standalone Photon repository, update external deployment
 configuration that consumes its old `<run>-<sha>` or `latest` tags to use a new
-immutable version or `sha-*` tag from this repository. Keep the base-image
-digests in `services/photon/Dockerfile` updated through reviewed changes.
+immutable `photon-zolana-*` or `sha-*` tag from this repository. Keep the
+base-image digests in `services/photon/Dockerfile` updated through reviewed
+changes.
 
 ## Git Hygiene
 
