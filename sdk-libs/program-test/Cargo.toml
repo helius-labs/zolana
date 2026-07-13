@@ -2,8 +2,9 @@
 name = "zolana-program-test"
 version = "0.23.0"
 description = "Reusable LiteSVM program-test environment for Zolana development."
-license = "Apache-2.0"
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [features]
 default = []
