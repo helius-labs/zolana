@@ -10,8 +10,6 @@ mod transact_common;
 
 use std::{
     collections::VecDeque,
-    fs,
-    path::Path,
     thread::sleep,
     time::{Duration, Instant},
 };
@@ -74,7 +72,6 @@ const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
 const INDEXER_URL_ENV: &str = "ZOLANA_INDEXER_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
-const PHOTON_SNAPSHOT_FIXTURE_DIR_ENV: &str = "ZOLANA_PHOTON_SNAPSHOT_FIXTURE_DIR";
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const AMOUNT: u64 = 1_000_000_000;
 const TRANSFER_AMOUNT: u64 = 400_000_000;
@@ -84,34 +81,6 @@ const LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT: u64 = 20;
 const LOCALNET_NULLIFIERS_PER_QUEUE_TX: u64 = 2;
 
 type TestResult<T = ()> = anyhow::Result<T>;
-
-#[derive(Clone)]
-struct PhotonSnapshotFixtureTx {
-    signature: Signature,
-    slot: u64,
-    kind: &'static str,
-    order: u64,
-}
-
-#[derive(serde::Serialize)]
-struct PhotonSnapshotFixtureManifest {
-    version: u8,
-    tree: String,
-    seed_deposit_count: u64,
-    queue_tx_count: u64,
-    batch_update_count: u64,
-    nullifier_zkp_batch_size: u64,
-    nullifiers: Vec<String>,
-    transactions: Vec<PhotonSnapshotFixtureManifestTx>,
-}
-
-#[derive(serde::Serialize)]
-struct PhotonSnapshotFixtureManifestTx {
-    signature: String,
-    slot: u64,
-    kind: &'static str,
-    order: u64,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SpendRail {
@@ -234,7 +203,6 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     .instruction();
     let shield_sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
     print_signature("deposit", &shield_sig);
-    capture_fixture(&rpc, "proofless_shield", &shield_sig);
 
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
     let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, shield_sig)?;
@@ -404,7 +372,6 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     .instruction();
     let transfer_sig = send_transaction(&mut rpc, &[transfer_ix], &payer.pubkey(), &[&payer])?;
     print_signature("shielded_transfer", &transfer_sig);
-    capture_fixture(&rpc, "shielded_transfer", &transfer_sig);
 
     let indexed_transfer =
         wait_for_indexed_transaction(&indexer, recipient_view_tag, transfer_sig)?;
@@ -576,7 +543,6 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &[&payer, &recipient_owner],
     )?;
     print_signature("unshield", &withdraw_sig);
-    capture_fixture(&rpc, "unshield", &withdraw_sig);
     let indexed_withdraw = wait_for_indexed_transaction(&indexer, [0u8; 32], withdraw_sig)?;
     assert_eq!(indexed_withdraw.nullifiers.len(), 2);
     let first_page = wait_for("paginated indexed transactions", || {
@@ -873,8 +839,6 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         / LOCALNET_NULLIFIERS_PER_QUEUE_TX;
     let mut queued_nullifiers =
         Vec::with_capacity((queue_tx_count * LOCALNET_NULLIFIERS_PER_QUEUE_TX) as usize);
-    let mut fixture_transactions =
-        Vec::with_capacity((2 + queue_tx_count + LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT) as usize);
     let mut spendable_notes = VecDeque::new();
 
     for deposit_index in 0..2 {
@@ -902,13 +866,6 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         .instruction();
         let sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         print_signature(&format!("seed_deposit_{deposit_index}"), &sig);
-        let raw_tx = rpc.fetch_confirmed_transaction(&sig)?;
-        fixture_transactions.push(PhotonSnapshotFixtureTx {
-            signature: sig,
-            slot: raw_tx.slot,
-            kind: "deposit",
-            order: deposit_index,
-        });
 
         let note = RealSpendNote::new(utxo, &payer_nullifier_key, &payer_nullifier_pk, &zero)?;
         let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, sig)?;
@@ -1014,13 +971,6 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         .instruction();
         let sig = send_transaction(&mut rpc, &[tx_ix], &payer.pubkey(), &[&payer])?;
         print_signature(&format!("queue_nullifiers_{i}"), &sig);
-        let raw_tx = rpc.fetch_confirmed_transaction(&sig)?;
-        fixture_transactions.push(PhotonSnapshotFixtureTx {
-            signature: sig,
-            slot: raw_tx.slot,
-            kind: "queue",
-            order: i,
-        });
 
         let indexed = wait_for_indexed_transaction(&indexer, wait_tag, sig)?;
         assert_eq!(
@@ -1130,9 +1080,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
     // Default path drives the in-test forester. Set `FORESTER_BIN` to drain via
     // the real `forester` binary instead (a full end-to-end drain through the
     // smart-account vault: photon RPC -> reconstruct -> prove -> execute_sync
-    // submit). Gated because the binary needs the locally built Photon with the
-    // `get_nullifier_queue_elements` RPC, while the standard recipe runs the
-    // released Photon.
+    // submit).
     if let Ok(forester_bin) = std::env::var("FORESTER_BIN") {
         let prover_url = std::env::var("ZOLANA_PROVER_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
@@ -1186,13 +1134,6 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
                 &format!("batch_update_nullifier_tree_{batch_index}"),
                 &forester_sig,
             );
-            let raw_tx = rpc.fetch_confirmed_transaction(&forester_sig)?;
-            fixture_transactions.push(PhotonSnapshotFixtureTx {
-                signature: forester_sig,
-                slot: raw_tx.slot,
-                kind: "batch_update",
-                order: batch_index,
-            });
 
             let after_forester = latest_tree_roots(&rpc, &tree_pubkey)?;
             assert_ne!(
@@ -1234,14 +1175,6 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             },
         )?;
     }
-    export_photon_snapshot_fixture(
-        &rpc,
-        tree_pubkey,
-        queue_tx_count,
-        &queued_nullifiers,
-        &fixture_transactions,
-    )?;
-
     println!(
         "localnet Photon nullifier forester test passed via rpc={rpc_url} indexer={indexer_url}"
     );
@@ -1405,60 +1338,6 @@ fn stress_blinding(index: u64) -> [u8; 31] {
     blinding
 }
 
-fn export_photon_snapshot_fixture(
-    rpc: &SolanaRpc,
-    tree: Pubkey,
-    queue_tx_count: u64,
-    queued_nullifiers: &[[u8; 32]],
-    transactions: &[PhotonSnapshotFixtureTx],
-) -> TestResult {
-    let Ok(dir) = std::env::var(PHOTON_SNAPSHOT_FIXTURE_DIR_ENV) else {
-        return Ok(());
-    };
-
-    let dir = Path::new(&dir);
-    let tx_dir = dir.join("transactions");
-    if tx_dir.exists() {
-        fs::remove_dir_all(&tx_dir)?;
-    }
-    fs::create_dir_all(&tx_dir)?;
-
-    for tx in transactions {
-        let raw_tx = rpc.fetch_confirmed_transaction(&tx.signature)?;
-        let path = tx_dir.join(tx.signature.to_string());
-        fs::write(path, serde_json::to_string_pretty(&raw_tx)?)?;
-    }
-
-    let manifest = PhotonSnapshotFixtureManifest {
-        version: 1,
-        tree: tree.to_string(),
-        seed_deposit_count: 2,
-        queue_tx_count,
-        batch_update_count: LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT,
-        nullifier_zkp_batch_size: LOCALNET_NULLIFIER_ZKP_BATCH_SIZE,
-        nullifiers: queued_nullifiers.iter().map(hex::encode).collect(),
-        transactions: transactions
-            .iter()
-            .map(|tx| PhotonSnapshotFixtureManifestTx {
-                signature: tx.signature.to_string(),
-                slot: tx.slot,
-                kind: tx.kind,
-                order: tx.order,
-            })
-            .collect(),
-    };
-    fs::write(
-        dir.join("manifest.json"),
-        serde_json::to_string_pretty(&manifest)?,
-    )?;
-    println!(
-        "exported Photon snapshot fixture with {} txs to {}",
-        transactions.len(),
-        dir.display()
-    );
-    Ok(())
-}
-
 fn account_lamports(rpc: &SolanaRpc, pubkey: &Pubkey) -> TestResult<u64> {
     let address = Address::new_from_array(pubkey.to_bytes());
     Ok(rpc
@@ -1552,27 +1431,6 @@ fn wait_for<T>(
 
 fn print_signature(label: &str, signature: &Signature) {
     println!("{label}: {signature}");
-}
-
-/// When `RINGS_FIXTURE_DIR` is set, write the confirmed transaction's
-/// `getTransaction` JSON to `<dir>/<signature>` and print its slot. This
-/// regenerates the photon-indexer parser fixtures in
-/// `tests/data/transactions/rings_e2e/` against the current event
-/// serialization. No-op when the env var is unset, so normal runs are
-/// unaffected.
-fn capture_fixture(rpc: &SolanaRpc, label: &str, signature: &Signature) {
-    let Ok(dir) = std::env::var("RINGS_FIXTURE_DIR") else {
-        return;
-    };
-    let json = rpc
-        .fetch_confirmed_transaction_json(signature)
-        .expect("fetch transaction json for fixture");
-    let slot = rpc
-        .fetch_confirmed_transaction_slot(signature)
-        .expect("fetch transaction slot for fixture");
-    let path = format!("{dir}/{signature}");
-    std::fs::write(&path, json).expect("write rings fixture");
-    println!("captured fixture {label}: slot={slot} path={path}");
 }
 
 fn shielded_ed25519_from_solana(signer: &Keypair) -> TestResult<ShieldedKeypair> {
@@ -1811,7 +1669,6 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         &[&payer],
     )?;
     print_signature("encrypted_transfer", &transfer_sig);
-    capture_fixture(&rpc, "encrypted_transfer", &transfer_sig);
 
     let indexed = wait_for_indexed_transaction(&indexer, recipient_view_tag, transfer_sig)?;
     assert!(

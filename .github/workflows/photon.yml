@@ -1,0 +1,116 @@
+name: photon
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/photon/**"
+      - "program-libs/**"
+      - "programs/shielded-pool/**"
+      - "program-tests/zone-test-program/**"
+      - "sdk-libs/indexer-api/**"
+      - "sdk-libs/zolana-api/**"
+      - ".cargo/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/photon.yml"
+      - ".github/actions/setup-rust/**"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "services/photon/**"
+      - "program-libs/**"
+      - "programs/shielded-pool/**"
+      - "program-tests/zone-test-program/**"
+      - "sdk-libs/indexer-api/**"
+      - "sdk-libs/zolana-api/**"
+      - ".cargo/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/photon.yml"
+      - ".github/actions/setup-rust/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+jobs:
+  test:
+    name: tests / photon
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          install-just: "false"
+          shared-key: photon
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Install schema and database clients
+        run: |
+          npm install --global @apidevtools/swagger-cli@4.0.4
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-client
+      - name: Verify PostgreSQL migrations
+        run: |
+          cargo run --locked -p photon-indexer --bin photon-migration -- up
+          cargo run --locked -p photon-indexer --bin photon-migration -- status
+
+          schema_ready="$(psql "$DATABASE_URL" --tuples-only --no-align --command "
+            WITH required(name) AS (
+              VALUES
+                ('state_trees'),
+                ('indexed_trees'),
+                ('blocks'),
+                ('transactions'),
+                ('tree_metadata'),
+                ('rings_transactions'),
+                ('rings_transaction_payloads'),
+                ('rings_outputs'),
+                ('rings_output_payloads'),
+                ('rings_tx_nullifiers')
+            )
+            SELECT bool_and(to_regclass('public.' || name) IS NOT NULL)
+            FROM required;
+          ")"
+          test "$schema_ready" = "t"
+
+          cargo run --locked -p photon-indexer --bin photon-migration -- down --num 1
+          cargo run --locked -p photon-indexer --bin photon-migration -- up
+      - name: Verify committed OpenAPI schema
+        run: |
+          cargo run --locked -p photon-indexer --bin photon-openapi
+          git diff --exit-code -- services/photon/src/openapi/specs/rings.yaml
+      - name: Run contract and Photon tests
+        run: |
+          cargo test --locked -p zolana-indexer-api
+          cargo test --locked -p photon-indexer --all-targets

@@ -1,0 +1,19 @@
+.env*
+.idea
+
+test-ledger/
+
+# Added by cargo
+
+/target
+/.cargo
+
+.DS_Store
+
+minio
+test.db
+docker-compose.yml
+
+.cursor
+**/photon.log
+proto/**/*.bin

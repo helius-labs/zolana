@@ -33,7 +33,7 @@ use zolana_tree::TreeAccount;
 type ReferenceNullifierTree = IndexedMerkleTree<Poseidon, usize>;
 
 use crate::forest::{batch_update_nullifier_tree_once, ForestParams};
-use zolana_api::{types::SerializablePubkey, BlockingZolanaApi};
+use zolana_api::{BlockingZolanaApi, SerializablePubkey};
 
 /// BN254 scalar field modulus minus one: the nullifier tree's initial
 /// `next_value` sentinel. Pinned by `reference_tree_matches_on_chain_init`
@@ -264,7 +264,7 @@ fn reconstruct_and_verify(
     fetch_total: u64,
 ) -> Result<(ReferenceNullifierTree, Vec<[u8; 32]>)> {
     let applied = applied_count(snapshot)?;
-    let tree_account = SerializablePubkey(bs58::encode(tree.to_bytes()).into_string());
+    let tree_account = SerializablePubkey(tree);
     let elements = photon
         .get_nullifier_queue_elements(tree_account, Some(0), fetch_total)
         .map_err(|err| anyhow!("fetch queued nullifiers from photon: {err}"))?
@@ -284,13 +284,7 @@ fn reconstruct_and_verify(
                 element.seq
             );
         }
-        let decoded = bs58::decode(&element.value.0)
-            .into_vec()
-            .map_err(|err| anyhow!("decode nullifier {}: {err}", element.value.0))?;
-        let value: [u8; 32] = decoded.try_into().map_err(|bytes: Vec<u8>| {
-            anyhow!("nullifier decoded to {} bytes, expected 32", bytes.len())
-        })?;
-        values.push(value);
+        values.push(element.value.0);
     }
 
     let applied_len = usize::try_from(applied)
