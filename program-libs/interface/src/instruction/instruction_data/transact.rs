@@ -71,6 +71,19 @@ pub struct TransactIxData {
     /// (`owner_pk_field` of the P256 owner), exposed as a public input so the
     /// circuit routes P256-owned inputs by equality. `None` on the eddsa rail
     /// (folded as `0` into the public-input hash).
+    // TODO: explore lifting the one-shared-P256-key-per-tx limit. P256 ownership
+    // stays in-circuit (never program-native/precompile), so the circuit shape
+    // gains a dimension K = max distinct P256 signing keys, each costing one more
+    // emulated ECDSA gadget (the dominant constraint component; proving time and
+    // key count scale with K). This field becomes a K-element key list, inputs
+    // route to a key via a generalized signer index (`eddsa_signer_index` ->
+    // Solana account or P256 key-list index), and the output `OwnerTag` variant
+    // generalizes from `P256SigningKey` to `P256Key(u8)`. The zone rail is
+    // equally affected in-circuit (its P256 variants carry the same single
+    // gadget, so K applies to zone keys too); only its instruction-data surface
+    // is unchanged, since zone keys stay private witnesses. Consumer is
+    // multi-party transactions (e.g. two P256 owners co-spending in a swap),
+    // not single wallets.
     pub p256_signing_pk_field: Option<[u8; 32]>,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext in
     /// this transaction; copied verbatim into the logged `GeneralEvent` so an
@@ -97,8 +110,23 @@ pub struct TransactIxData {
     /// change, then recipients / dummies). Appended to the UTXO tree and folded
     /// into the proof's output hash chain. Dummy outputs carry real-looking
     /// hashes, so the vector does not reveal the recipient count.
+    // TODO: regroup into `outputs: Vec<OutputUtxo { utxo_hash, owner_tag, data:
+    // Option<Vec<u8>> }>` with `owner_tag` an enum: `Inline([u8; 32])` (recipients,
+    // zone HKDF tags), `Account(u8)` (eddsa owners already in the account list, ALT
+    // compressible), `P256SigningKey` (the tx-level shared key). Per-output tags
+    // become 1-2 bytes for self-owned outputs, so split no longer needs a coverage
+    // convention for the OWNER mapping; only ciphertext placement keeps the
+    // "bundle covers following positions" rule (wallet/indexer concern, not a proof
+    // input). Requires `p256_signing_pk_field` to carry the raw x-coordinate
+    // instead of the pre-hashed pk_field (program hashes on-chain; same public
+    // input value, no key regen) so `P256SigningKey` can resolve the event tag.
+    // The tx-level field stays: P256-owned inputs need it for
+    // `input_owner_pk_hashes` regardless of output shape. Separately, add a
+    // messages vec for ciphertexts bound to no utxo hash that the event still
+    // publishes (today extra ciphertexts are hashed into `external_data_hash` but
+    // silently dropped from the event).
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
-    pub output_utxo_hashes: Vec<[u8; 32]>, // TODO: unify with output_ciphertexts into a single struct, add another vec for additional msgs
+    pub output_utxo_hashes: Vec<[u8; 32]>,
     /// Fixed length `1 + (M - SENDER_SLOT_COUNT)`. `[0]` is the sender bundle
     /// (covers the change positions); `[1..]` are recipient slots, each a real
     /// ciphertext or a same-length dummy, so the real recipient count is hidden.
