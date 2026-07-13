@@ -31,9 +31,6 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-hex = { workspace = true }
 cucumber = { workspace = true }
 groth16-solana = { workspace = true }
 zolana-hasher = { workspace = true }
