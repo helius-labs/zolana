@@ -588,10 +588,10 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
 /// reference nullifier tree from Photon and matches the on-chain root — no
 /// proving or submitting, so no prover is needed.
 ///
-/// Requires the LOCALLY built Photon (with the `get_nullifier_queue_elements`
-/// RPC — `cargo build -p photon-indexer --bin photon` under ../photon) and
-/// `cargo build -p forester`. It is `#[ignore]`d out of the standard recipe
-/// (which runs the released Photon, without the new RPC) and run explicitly:
+/// Uses the workspace Photon started by the localnet recipe and requires a
+/// separately built forester binary (`cargo build -p forester`). It is
+/// `#[ignore]`d because Cargo does not build another package's binary for this
+/// test target, and is run explicitly:
 ///   cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e \
 ///     forester_dry_run_reconstructs_from_photon -- --ignored --nocapture
 #[test]
