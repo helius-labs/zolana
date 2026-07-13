@@ -37,6 +37,15 @@ type ProofJSON struct {
 	ProofCommitmentPok []string     `json:"proof_commitment_pok,omitempty"`
 }
 
+type TransactProofJSON struct {
+	Kind          string `json:"kind"`
+	A             string `json:"a"`
+	B             string `json:"b"`
+	C             string `json:"c"`
+	Commitment    string `json:"commitment,omitempty"`
+	CommitmentPok string `json:"commitment_pok,omitempty"`
+}
+
 func (p *Proof) MarshalJSON() ([]byte, error) {
 	const fpSize = 32
 	var buf bytes.Buffer
@@ -76,6 +85,38 @@ func (p *Proof) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(proofJson)
+}
+
+func (p *Proof) TransactProofJSON() (*TransactProofJSON, error) {
+	proofBN, ok := p.Proof.(*groth16bn254.Proof)
+	if !ok {
+		return nil, fmt.Errorf("expected bn254 Groth16 proof")
+	}
+	if len(proofBN.Commitments) > 1 {
+		return nil, fmt.Errorf("expected at most one BSB22 commitment, got %d", len(proofBN.Commitments))
+	}
+
+	// Solana verifies proofs with proof_a negated. Keep that formatting on the
+	// prover server so JS clients do not need BN254 point arithmetic.
+	negA := proofBN.Ar
+	negA.Neg(&proofBN.Ar)
+	a := negA.Bytes()
+	b := proofBN.Bs.Bytes()
+	c := proofBN.Krs.Bytes()
+	out := &TransactProofJSON{
+		Kind: "eddsa",
+		A:    fmt.Sprintf("0x%x", a[:]),
+		B:    fmt.Sprintf("0x%x", b[:]),
+		C:    fmt.Sprintf("0x%x", c[:]),
+	}
+	if len(proofBN.Commitments) == 1 {
+		commitment := proofBN.Commitments[0].Bytes()
+		pok := proofBN.CommitmentPok.Bytes()
+		out.Kind = "p256"
+		out.Commitment = fmt.Sprintf("0x%x", commitment[:])
+		out.CommitmentPok = fmt.Sprintf("0x%x", pok[:])
+	}
+	return out, nil
 }
 
 func (p *Proof) UnmarshalJSON(data []byte) error {

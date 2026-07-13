@@ -1048,7 +1048,17 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		responseBytes, err := json.Marshal(result.proof)
+		responsePayload := any(result.proof)
+		if r.Header.Get("X-Zolana-Proof-Format") == "transact" {
+			formatted, err := result.proof.TransactProofJSON()
+			if err != nil {
+				unexpectedError(err).send(w)
+				return
+			}
+			responsePayload = formatted
+		}
+
+		responseBytes, err := json.Marshal(responsePayload)
 		if err != nil {
 			unexpectedError(err).send(w)
 			return

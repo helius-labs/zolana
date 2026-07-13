@@ -134,6 +134,47 @@ jobs:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-sdk-libs
 
+  test-ts-client:
+    name: tests / ts client
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run ts-client:check
+      - run: npm run ts-client:test
+
+  test-ts-client-integration:
+    name: tests / ts client integration
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: npm ci
+      - name: Cache proving keys
+        uses: actions/cache@v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-transfer-keys-v10
+      - run: just test-ts-client-integration
+
   test-programs:
     name: tests / programs
     runs-on: ubuntu-latest
