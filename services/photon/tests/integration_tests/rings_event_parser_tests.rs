@@ -66,13 +66,22 @@ const UNSHIELD_SLOT: u64 = 28;
 const ENCRYPTED_TRANSFER_SLOT: u64 = 19;
 const TEST_TREE: [u8; 32] = [41; 32];
 
+fn only<'a, T>(items: &'a [T], description: &str) -> &'a T {
+    assert_eq!(items.len(), 1, "expected exactly one {description}");
+    items.first().expect("length checked above")
+}
+
+fn only_mut<'a, T>(items: &'a mut [T], description: &str) -> &'a mut T {
+    assert_eq!(items.len(), 1, "expected exactly one {description}");
+    items.first_mut().expect("length checked above")
+}
+
 #[test]
 fn parses_proofless_shield_event_with_photon_parser() {
     let state_update =
         parse_rings_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
 
-    assert_eq!(state_update.rings_transactions.len(), 1);
-    let rings_tx = &state_update.rings_transactions[0];
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
     assert_eq!(rings_tx.source_instruction_tag, tag::DEPOSIT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 0);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -91,8 +100,7 @@ fn parses_shielded_transfer_event_with_photon_parser() {
     let state_update =
         parse_rings_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
 
-    assert_eq!(state_update.rings_transactions.len(), 1);
-    let rings_tx = &state_update.rings_transactions[0];
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 1);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -120,8 +128,7 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
         ENCRYPTED_TRANSFER_SLOT,
     );
 
-    assert_eq!(state_update.rings_transactions.len(), 1);
-    let rings_tx = &state_update.rings_transactions[0];
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 2);
     let tx_viewing_pk = rings_tx
@@ -154,8 +161,7 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
 fn parses_unshield_event_with_photon_parser() {
     let state_update = parse_rings_update(unshield_transaction_info(), UNSHIELD_SLOT);
 
-    assert_eq!(state_update.rings_transactions.len(), 1);
-    let rings_tx = &state_update.rings_transactions[0];
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 4);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -316,7 +322,10 @@ async fn persists_rings_events() {
         6
     );
 
-    assert_rings_api_exposes_output_hashes(&db, &outputs[0]).await;
+    let output = outputs
+        .first()
+        .expect("persisted Rings outputs should not be empty");
+    assert_rings_api_exposes_output_hashes(&db, output).await;
 }
 
 #[tokio::test]
@@ -342,7 +351,7 @@ async fn rings_payloads_update_on_reprocess() {
     rings_tx.encrypted_utxos = Some(vec![1, 2, 3]);
     rings_tx.raw_event = Some(vec![4, 5, 6]);
     rings_tx.parse_version = 2;
-    rings_tx.outputs[0].payload = vec![7, 8, 9];
+    only_mut(&mut rings_tx.outputs, "Rings output").payload = vec![7, 8, 9];
 
     let txn = db.begin().await.unwrap();
     persist_state_update(&txn, reprocessed).await.unwrap();
@@ -482,7 +491,8 @@ async fn rings_mode_persists_output_leaf_nodes_without_zk_tables() {
     let state_update =
         parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
-    let output = state_update.rings_transactions[0].outputs[0].clone();
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    let output = only(&rings_tx.outputs, "Rings output").clone();
 
     let txn = db.begin().await.unwrap();
     persist_state_update(&txn, state_update).await.unwrap();
@@ -524,15 +534,15 @@ async fn rings_mode_persists_output_leaf_nodes_without_zk_tables() {
     .await
     .expect("Rings output should return an inclusion proof");
     assert_eq!(response.context.slot, PROOFLESS_SHIELD_SLOT);
-    assert_eq!(response.proofs.len(), 1);
-    assert_eq!(response.proofs[0].leaf, Hash::from(output.utxo_hash));
-    assert_eq!(response.proofs[0].leaf_index, output.leaf_index);
+    let proof = only(&response.proofs, "inclusion proof");
+    assert_eq!(proof.leaf, Hash::from(output.utxo_hash));
+    assert_eq!(proof.leaf_index, output.leaf_index);
     assert_eq!(
-        response.proofs[0].merkle_context.tree,
+        proof.merkle_context.tree,
         SerializablePubkey::from(output.output_tree)
     );
     assert_eq!(
-        response.proofs[0].merkle_context.tree_type,
+        proof.merkle_context.tree_type,
         u16::from(RingsTreeKind::State)
     );
 }
@@ -546,7 +556,8 @@ async fn rings_merkle_proofs_reject_duplicate_output_hashes() {
     let state_update =
         parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
-    let output = state_update.rings_transactions[0].outputs[0].clone();
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    let output = only(&rings_tx.outputs, "Rings output").clone();
 
     let txn = db.begin().await.unwrap();
     persist_state_update(&txn, state_update).await.unwrap();
@@ -597,7 +608,8 @@ async fn rings_merkle_proofs_error_when_output_leaf_node_is_missing() {
     let state_update =
         parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
-    let output = state_update.rings_transactions[0].outputs[0].clone();
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    let output = only(&rings_tx.outputs, "Rings output").clone();
 
     let txn = db.begin().await.unwrap();
     persist_state_update(&txn, state_update).await.unwrap();
@@ -638,7 +650,8 @@ async fn rings_merkle_proofs_error_when_state_leaf_hash_diverges_from_output_has
     let state_update =
         parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
-    let output = state_update.rings_transactions[0].outputs[0].clone();
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    let output = only(&rings_tx.outputs, "Rings output").clone();
 
     let txn = db.begin().await.unwrap();
     persist_state_update(&txn, state_update).await.unwrap();
@@ -686,7 +699,8 @@ async fn rings_non_inclusion_accepts_known_tree_account_from_outputs() {
     let state_update =
         parse_ingestion_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
-    let output_tree = state_update.rings_transactions[0].outputs[0].output_tree;
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    let output_tree = only(&rings_tx.outputs, "Rings output").output_tree;
 
     let txn = db.begin().await.unwrap();
     persist_state_update(&txn, state_update).await.unwrap();
@@ -703,23 +717,23 @@ async fn rings_non_inclusion_accepts_known_tree_account_from_outputs() {
     .expect("known Rings TreeAccount should support nullifier empty-tree proofs");
 
     assert_eq!(response.context.slot, PROOFLESS_SHIELD_SLOT);
-    assert_eq!(response.proofs.len(), 1);
+    let proof = only(&response.proofs, "non-inclusion proof");
     assert_eq!(
-        response.proofs[0].merkle_context.tree,
+        proof.merkle_context.tree,
         SerializablePubkey::from(output_tree)
     );
     assert_eq!(
-        response.proofs[0].merkle_context.tree_type,
+        proof.merkle_context.tree_type,
         u16::from(RingsTreeKind::Nullifier)
     );
     assert_eq!(
-        response.proofs[0].path.len(),
+        proof.path.len(),
         RingsTreeKind::Nullifier.tree_height() as usize
     );
-    assert_eq!(response.proofs[0].low_element_index, 0);
-    assert_eq!(response.proofs[0].high_element_index, 0);
-    assert_eq!(response.proofs[0].root_seq, 0);
-    assert_eq!(response.proofs[0].root_index, 0);
+    assert_eq!(proof.low_element_index, 0);
+    assert_eq!(proof.high_element_index, 0);
+    assert_eq!(proof.root_seq, 0);
+    assert_eq!(proof.root_index, 0);
 }
 
 #[tokio::test]
@@ -730,7 +744,7 @@ async fn rings_state_and_nullifier_nodes_do_not_collide_for_same_tree_account() 
 
     let state_update =
         parse_ingestion_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
-    let tx = &state_update.rings_transactions[0];
+    let tx = only(&state_update.rings_transactions, "Rings transaction");
     let tree = Pubkey::from(tx.output_tree);
     assert!(tx
         .outputs
@@ -741,7 +755,11 @@ async fn rings_state_and_nullifier_nodes_do_not_collide_for_same_tree_account() 
         .iter()
         .all(|nullifier| nullifier.nullifier_tree == tree.to_bytes()));
 
-    let nullifier = tx.nullifiers[0].nullifier;
+    let nullifier = tx
+        .nullifiers
+        .first()
+        .expect("Rings transaction should have a queued nullifier")
+        .nullifier;
     let expected_zeroeth = get_zeroeth_nullifier_exclusion_range(tree.to_bytes().to_vec());
     let zeroeth_leaf = RawIndexedElement {
         value: expected_zeroeth.value.clone().try_into().unwrap(),
@@ -799,7 +817,11 @@ async fn rings_state_and_nullifier_nodes_do_not_collide_for_same_tree_account() 
     );
 
     insert_known_rings_tree_account(&db, tree.to_bytes()).await;
-    let output = state_update.rings_transactions[0].outputs[0].clone();
+    let output = tx
+        .outputs
+        .first()
+        .expect("Rings transaction should have an output")
+        .clone();
 
     let txn = db.begin().await.unwrap();
     persist_state_update(&txn, state_update).await.unwrap();
@@ -871,13 +893,13 @@ async fn rings_state_and_nullifier_nodes_do_not_collide_for_same_tree_account() 
     )
     .await
     .expect("state inclusion proof should use state storage key");
-    assert_eq!(inclusion_response.proofs.len(), 1);
+    let inclusion_proof = only(&inclusion_response.proofs, "inclusion proof");
     assert_eq!(
-        inclusion_response.proofs[0].merkle_context.tree,
+        inclusion_proof.merkle_context.tree,
         SerializablePubkey::from(tree)
     );
     assert_eq!(
-        inclusion_response.proofs[0].merkle_context.tree_type,
+        inclusion_proof.merkle_context.tree_type,
         u16::from(RingsTreeKind::State)
     );
 
@@ -897,13 +919,13 @@ async fn rings_state_and_nullifier_nodes_do_not_collide_for_same_tree_account() 
     )
     .await
     .expect("nullifier non-inclusion proof should use nullifier storage key");
-    assert_eq!(non_inclusion_response.proofs.len(), 1);
+    let non_inclusion_proof = only(&non_inclusion_response.proofs, "non-inclusion proof");
     assert_eq!(
-        non_inclusion_response.proofs[0].merkle_context.tree,
+        non_inclusion_proof.merkle_context.tree,
         SerializablePubkey::from(tree)
     );
     assert_eq!(
-        non_inclusion_response.proofs[0].merkle_context.tree_type,
+        non_inclusion_proof.merkle_context.tree_type,
         u16::from(RingsTreeKind::Nullifier)
     );
 
@@ -931,8 +953,13 @@ async fn rings_api_returns_empty_non_inclusion_proofs_for_known_nullifier_tree()
 
     let state_update =
         parse_ingestion_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
-    let nullifier_tree = state_update.rings_transactions[0].nullifiers[0].nullifier_tree;
-    let queued_nullifier = state_update.rings_transactions[0].nullifiers[0].nullifier;
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    let nullifier = rings_tx
+        .nullifiers
+        .first()
+        .expect("Rings transaction should have a queued nullifier");
+    let nullifier_tree = nullifier.nullifier_tree;
+    let queued_nullifier = nullifier.nullifier;
     insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
 
     let txn = db.begin().await.unwrap();

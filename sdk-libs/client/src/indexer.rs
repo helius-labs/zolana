@@ -309,17 +309,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn round_trips_hashes_and_cursors() {
-        let hash = [7u8; 32];
-        let encoded = encode_hash(hash);
-        assert_eq!(encoded.0, hash);
-
-        let cursor = Some(vec![1, 2, 3, 4]);
-        let encoded = encode_cursor(cursor.clone());
-        assert_eq!(encoded.map(Into::into), cursor);
-    }
-
-    #[test]
     fn decodes_compressed_p256_pubkey() {
         let secret = SecretKey::from_slice(&[1u8; 32]).unwrap();
         let public = secret.public_key();

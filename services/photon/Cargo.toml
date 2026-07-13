@@ -86,3 +86,6 @@ zolana-event = { workspace = true, features = ["program-test"] }
 zolana-indexer-api = { workspace = true, features = ["openapi"] }
 zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["tree"] }
 zolana-tree = { workspace = true }
+
+[dev-dependencies]
+serde_norway = { workspace = true }
