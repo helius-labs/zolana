@@ -18,7 +18,7 @@ pub use zolana_indexer_api::{
     GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
     GetShieldedTransactionsByTagsResponse, Hash, Limit, MerkleContext, MerkleProof,
     NonInclusionProof, NullifierQueueElement, RingsOutputContext, RingsOutputSlot,
-    SerializablePubkey, SerializableSignature, ShieldedTransaction,
+    SerializablePubkey, SerializableSignature, ShieldedTransaction, PAGE_LIMIT,
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
