@@ -12,6 +12,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/extractor"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
 	"zolana/prover/prover/transfer"
@@ -364,6 +365,33 @@ func runCli() {
 						Int("bytes", len(dataToWrite)).
 						Msg("Verification key exported successfully")
 
+					return nil
+				},
+			},
+			{
+				Name:  "extract-circuit",
+				Usage: "Transpile the inclusion and non-inclusion circuits to Lean for formal verification",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
+					&cli.UintFlag{Name: "state-tree-height", Usage: "State (UTXO) merkle tree height", Required: true},
+					&cli.UintFlag{Name: "nullifier-tree-height", Usage: "Nullifier indexed merkle tree height", Required: true},
+					&cli.UintFlag{Name: "batch-size", Usage: "Number of UTXOs / nullifiers per circuit", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					path := context.String("output")
+					stateTreeHeight := uint32(context.Uint("state-tree-height"))
+					nullifierTreeHeight := uint32(context.Uint("nullifier-tree-height"))
+					batchSize := uint32(context.Uint("batch-size"))
+
+					logging.Logger().Info().Msg("Extracting gnark circuits to Lean")
+					circuitString, err := extractor.ExtractLean(stateTreeHeight, nullifierTreeHeight, batchSize)
+					if err != nil {
+						return err
+					}
+					if err := os.WriteFile(path, []byte(circuitString), 0644); err != nil {
+						return err
+					}
+					logging.Logger().Info().Int("bytesWritten", len(circuitString)).Str("output", path).Msg("Lean circuits written to file")
 					return nil
 				},
 			},
