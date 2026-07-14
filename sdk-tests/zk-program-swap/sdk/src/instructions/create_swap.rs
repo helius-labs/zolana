@@ -142,7 +142,7 @@ mod tests {
         instructions::{
             transact::{
                 encode_slots, get_transaction_viewing_key, no_address_hashes, private_tx_hash,
-                ConfidentialSlot, ExternalData, OutputUtxo, PublicAmounts, Shape, SppProofInputs,
+                ExternalData, OutputUtxo, PublicAmounts, Shape, SppProofInputs,
             },
             types::SppProofInputUtxo,
         },
@@ -195,18 +195,8 @@ mod tests {
 
         let escrow_utxo_hash = escrow.hash().expect("escrow hash");
         let change_amount = input_amount - escrow_amount;
-        let change_slot = ConfidentialSlot::new(
-            OutputUtxo {
-                owner_address: Some(owner_address),
-                asset: SOL_MINT,
-                amount: change_amount,
-                blinding: [21u8; BLINDING_LEN],
-                ..Default::default()
-            },
-            &assets,
-        )
-        .expect("change slot");
-        let escrow_slot = ConfidentialSlot::new(escrow, &assets).expect("escrow slot");
+        let change =
+            OutputUtxo::new(SOL_MINT, change_amount, owner_address).expect("change output");
         let marker_message = OrderMarker {
             escrow_utxo_hash,
             maker_pubkey: Pubkey::default(),
@@ -220,18 +210,18 @@ mod tests {
         })
         .expect("marker bytes");
         let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
-        let tx = get_transaction_viewing_key(&owner_keypair, &input_utxos)
+        let transaction_viewing_key = get_transaction_viewing_key(&owner_keypair, &input_utxos)
             .expect("transaction viewing key");
 
-        let encoded = encode_slots(&[change_slot, escrow_slot], &tx).expect("encode slots");
+        let encoded = encode_slots(&[change, escrow], &assets, &transaction_viewing_key)
+            .expect("encode slots");
 
         let external_data = ExternalData::new(
-            *tx.pubkey().as_bytes(),
+            *transaction_viewing_key.pubkey().as_bytes(),
             encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![marker_message],
-            u64::MAX,
         );
         let spp_proof_inputs = SppProofInputs {
             input_utxos,
@@ -280,15 +270,7 @@ mod tests {
             .get(1)
             .expect("dummy input")
             .is_dummy());
-        let nullifier_pubkey = spend.nullifier_key.pubkey().expect("nullifier pubkey");
-        let source_input_hash = spend
-            .utxo
-            .hash(
-                &nullifier_pubkey,
-                &spend.data_hash.unwrap_or([0u8; 32]),
-                &spend.zone_data_hash.unwrap_or([0u8; 32]),
-            )
-            .expect("source input hash");
+        let source_input_hash = spend.hash().expect("source input hash");
 
         let external_data_hash = spp_proof_inputs
             .external_data
@@ -342,18 +324,7 @@ mod tests {
         let owner_address = owner_keypair.shielded_address().expect("owner address");
 
         let escrow_utxo_hash = escrow.hash().expect("escrow hash");
-        let change_slot = ConfidentialSlot::new(
-            OutputUtxo {
-                owner_address: Some(owner_address),
-                asset: SOL_MINT,
-                amount: 0,
-                blinding: [22u8; BLINDING_LEN],
-                ..Default::default()
-            },
-            &assets,
-        )
-        .expect("change slot");
-        let escrow_slot = ConfidentialSlot::new(escrow, &assets).expect("escrow slot");
+        let change = OutputUtxo::new(SOL_MINT, 0, owner_address).expect("change output");
         let marker_message = OrderMarker {
             escrow_utxo_hash,
             maker_pubkey: Pubkey::default(),
@@ -362,18 +333,18 @@ mod tests {
         .message()
         .expect("marker message");
         let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
-        let tx = get_transaction_viewing_key(&owner_keypair, &input_utxos)
+        let transaction_viewing_key = get_transaction_viewing_key(&owner_keypair, &input_utxos)
             .expect("transaction viewing key");
 
-        let encoded = encode_slots(&[change_slot, escrow_slot], &tx).expect("encode slots");
+        let encoded = encode_slots(&[change, escrow], &assets, &transaction_viewing_key)
+            .expect("encode slots");
 
         let external_data = ExternalData::new(
-            *tx.pubkey().as_bytes(),
+            *transaction_viewing_key.pubkey().as_bytes(),
             encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![marker_message],
-            u64::MAX,
         );
         let spp_proof_inputs = SppProofInputs {
             input_utxos,
@@ -398,11 +369,7 @@ mod tests {
             .hash()
             .expect("external data hash");
         let spend = spp_proof_inputs.input_utxos.first().expect("input");
-        let nullifier_pubkey = spend.nullifier_key.pubkey().expect("nullifier pubkey");
-        let source_input_hash = spend
-            .utxo
-            .hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])
-            .expect("source input hash");
+        let source_input_hash = spend.hash().expect("source input hash");
         let expected = private_tx_hash(
             &[source_input_hash, [0u8; 32]],
             &[

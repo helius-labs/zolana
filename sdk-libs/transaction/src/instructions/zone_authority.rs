@@ -41,19 +41,10 @@ impl PreparedZoneAuthority {
             .filter(|spend| !spend.is_dummy())
             .enumerate()
             .map(|(index, spend)| {
-                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-                let utxo_hash = spend.utxo.hash(
-                    &nullifier_pubkey,
-                    &spend.data_hash.unwrap_or([0u8; 32]),
-                    &spend.zone_data_hash.unwrap_or([0u8; 32]),
-                )?;
-                let nullifier = spend
-                    .nullifier_key
-                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
                 Ok(InputUtxoContext {
                     index,
-                    utxo_hash,
-                    nullifier,
+                    utxo_hash: spend.hash()?,
+                    nullifier: spend.nullifier()?,
                 })
             })
             .collect()

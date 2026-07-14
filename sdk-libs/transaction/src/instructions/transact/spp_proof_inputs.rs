@@ -55,16 +55,10 @@ pub fn inputs_require_p256(inputs: &[SppProofInputUtxo]) -> Result<bool, Transac
 }
 
 pub fn first_nullifier(input_utxos: &[SppProofInputUtxo]) -> Result<[u8; 32], TransactionError> {
-    let spend = input_utxos.first().ok_or(TransactionError::NoInputs)?;
-    let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-    let utxo_hash = spend.utxo.hash(
-        &nullifier_pubkey,
-        &spend.data_hash.unwrap_or([0u8; 32]),
-        &spend.zone_data_hash.unwrap_or([0u8; 32]),
-    )?;
-    Ok(spend
-        .nullifier_key
-        .nullifier(&utxo_hash, &spend.utxo.blinding)?)
+    input_utxos
+        .first()
+        .ok_or(TransactionError::NoInputs)?
+        .nullifier()
 }
 
 pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
@@ -108,19 +102,10 @@ impl SppProofInputs {
             .filter(|spend| !spend.is_dummy())
             .enumerate()
             .map(|(index, spend)| {
-                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-                let utxo_hash = spend.utxo.hash(
-                    &nullifier_pubkey,
-                    &spend.data_hash.unwrap_or([0u8; 32]),
-                    &spend.zone_data_hash.unwrap_or([0u8; 32]),
-                )?;
-                let nullifier = spend
-                    .nullifier_key
-                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
                 Ok(InputUtxoContext {
                     index,
-                    utxo_hash,
-                    nullifier,
+                    utxo_hash: spend.hash()?,
+                    nullifier: spend.nullifier()?,
                 })
             })
             .collect()
@@ -133,12 +118,7 @@ impl SppProofInputs {
             if spend.is_dummy() {
                 input_hashes.push([0u8; 32]);
             } else {
-                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-                input_hashes.push(spend.utxo.hash(
-                    &nullifier_pubkey,
-                    &spend.data_hash.unwrap_or([0u8; 32]),
-                    &spend.zone_data_hash.unwrap_or([0u8; 32]),
-                )?);
+                input_hashes.push(spend.hash()?);
             }
         }
 

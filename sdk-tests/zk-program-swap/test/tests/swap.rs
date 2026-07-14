@@ -20,7 +20,7 @@ use zolana_keypair::{hash::sha256_be, random_blinding};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encode_slots, get_transaction_viewing_key, ConfidentialSlot, ExternalData, OutputUtxo,
+            encode_slots, get_transaction_viewing_key, ExternalData, OutputUtxo,
             PublicAmounts, Shape, SppProofInputs,
         },
         types::SppProofInputUtxo,
@@ -100,17 +100,8 @@ fn create_and_fill_swap_inline() -> Result<()> {
         // 2. Select input utxos.
         let create_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
 
-        let create_nullifier_pubkey = create_spend
-            .nullifier_key
-            .pubkey()
-            .map_err(|e| anyhow!("create nullifier pubkey: {e:?}"))?;
         let source_input_hash = create_spend
-            .utxo
-            .hash(
-                &create_nullifier_pubkey,
-                &create_spend.data_hash.unwrap_or([0u8; 32]),
-                &create_spend.zone_data_hash.unwrap_or([0u8; 32]),
-            )
+            .hash()
             .map_err(|e| anyhow!("source input hash: {e:?}"))?;
         let inputs = vec![create_spend, SppProofInputUtxo::new_dummy()];
 
@@ -120,22 +111,14 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let leftover = input_sum(&inputs, &escrow_asset) - i128::from(escrow_output_utxo.amount);
         let change_amount = u64::try_from(leftover)
             .map_err(|_| anyhow!("insufficient escrow balance: {leftover}"))?;
-        let change_blinding = random_blinding();
-        let change = OutputUtxo {
-            owner_address: Some(maker_address),
-            asset: escrow_asset,
-            amount: change_amount,
-            blinding: change_blinding,
-            ..Default::default()
-        };
+        let change = OutputUtxo::new(escrow_asset, change_amount, maker_address)?;
+        let change_blinding = change.blinding;
 
         let escrow_utxo_hash = escrow_output_utxo
             .hash()
             .map_err(|e| anyhow!("escrow output hash: {e:?}"))?;
 
         // 4. Encrypt output utxos.
-        let change_slot = ConfidentialSlot::new(change, &maker.registry)?;
-        let escrow_slot = ConfidentialSlot::new(escrow_output_utxo, &maker.registry)?;
         let marker_message = OrderMarker {
             escrow_utxo_hash,
             maker_pubkey: maker_address.solana_address()?,
@@ -143,18 +126,21 @@ fn create_and_fill_swap_inline() -> Result<()> {
         }
         .message()?;
 
-        let tx = get_transaction_viewing_key(&maker.keypair, &inputs)
+        let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &inputs)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
 
-        let encoded = encode_slots(&[change_slot, escrow_slot], &tx)?;
+        let encoded = encode_slots(
+            &[change, escrow_output_utxo],
+            &maker.registry,
+            &transaction_viewing_key,
+        )?;
 
         let external_data = ExternalData::new(
-            *tx.pubkey().as_bytes(),
+            *transaction_viewing_key.pubkey().as_bytes(),
             encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![marker_message],
-            u64::MAX,
         );
         let spp_proof_inputs = SppProofInputs {
             input_utxos: inputs,
@@ -243,22 +229,23 @@ fn create_and_fill_swap_inline() -> Result<()> {
 
         let inputs = vec![escrow_input, taker_spend];
 
-        let source_slot = ConfidentialSlot::new(source_output, &taker.registry)?;
-        let destination_slot = ConfidentialSlot::new(destination_output, &taker.registry)?;
-
-        let tx = get_transaction_viewing_key(&taker.keypair, &inputs)
+        let transaction_viewing_key = get_transaction_viewing_key(&taker.keypair, &inputs)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
 
-        let encoded = encode_slots(&[source_slot, destination_slot], &tx)?;
+        let encoded = encode_slots(
+            &[source_output, destination_output],
+            &taker.registry,
+            &transaction_viewing_key,
+        )?;
 
-        let external_data = ExternalData::new(
-            *tx.pubkey().as_bytes(),
+        let mut external_data = ExternalData::new(
+            *transaction_viewing_key.pubkey().as_bytes(),
             encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![],
-            terms.expiry,
         );
+        external_data.expiry_unix_ts = terms.expiry;
         let fill_spp_proof_inputs = SppProofInputs {
             input_utxos: inputs,
             output_utxos: encoded.output_utxos,

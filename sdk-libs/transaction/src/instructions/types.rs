@@ -3,7 +3,7 @@ use zolana_keypair::{
     constants::BLINDING_LEN, viewing_key::random_blinding, NullifierKey, PublicKey,
 };
 
-use crate::{data::Data, utxo::Utxo};
+use crate::{data::Data, error::TransactionError, utxo::Utxo};
 
 #[derive(Clone)]
 pub struct SppProofInputUtxo {
@@ -52,6 +52,22 @@ impl SppProofInputUtxo {
 
     pub fn is_dummy(&self) -> bool {
         self.utxo.owner.is_zero()
+    }
+
+    pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
+        let nullifier_pubkey = self.nullifier_key.pubkey()?;
+        self.utxo.hash(
+            &nullifier_pubkey,
+            &self.data_hash.unwrap_or_default(),
+            &self.zone_data_hash.unwrap_or_default(),
+        )
+    }
+
+    pub fn nullifier(&self) -> Result<[u8; 32], TransactionError> {
+        let utxo_hash = self.hash()?;
+        Ok(self
+            .nullifier_key
+            .nullifier(&utxo_hash, &self.utxo.blinding)?)
     }
 }
 

@@ -62,13 +62,7 @@ impl Merge {
                 .ok_or(TransactionError::SelectedBalanceOverflow)?;
         }
 
-        let output = OutputUtxo {
-            owner_address: Some(keypair.shielded_address()?),
-            asset,
-            amount: total,
-            blinding: random_blinding(),
-            ..Default::default()
-        };
+        let output = OutputUtxo::new(asset, total, keypair.shielded_address()?)?;
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the
         // value is both a valid P-256 scalar and a valid circuit witness.
@@ -146,15 +140,10 @@ impl PreparedMerge {
                 {
                     return Err(TransactionError::MergeInputHasData { index });
                 }
-                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-                let utxo_hash = spend.utxo.hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
-                let nullifier = spend
-                    .nullifier_key
-                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
                 Ok(InputUtxoContext {
                     index,
-                    utxo_hash,
-                    nullifier,
+                    utxo_hash: spend.hash()?,
+                    nullifier: spend.nullifier()?,
                 })
             })
             .collect()

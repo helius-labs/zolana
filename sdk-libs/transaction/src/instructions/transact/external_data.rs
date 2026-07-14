@@ -48,11 +48,10 @@ impl ExternalData {
         outputs: Vec<TransactOutput>,
         resolved_owner_tags: Vec<[u8; 32]>,
         messages: Vec<OutputData>,
-        expiry_unix_ts: u64,
     ) -> Self {
         Self {
             instruction_discriminator: tag::TRANSACT,
-            expiry_unix_ts,
+            expiry_unix_ts: u64::MAX, // default no expiry, not necessary for confidential transfers
             relayer_fee: 0,
             public_sol_amount: None,
             public_spl_amount: None,

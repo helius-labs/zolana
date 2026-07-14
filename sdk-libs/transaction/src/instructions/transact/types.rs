@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{OutputData, OutputDataEncoding};
-use zolana_keypair::{hash::poseidon, P256Pubkey, ShieldedAddress};
+use zolana_keypair::{hash::poseidon, random_blinding, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;
 use crate::{
@@ -52,6 +52,21 @@ pub struct OutputUtxo {
 }
 
 impl OutputUtxo {
+    pub fn new(
+        asset: Address,
+        amount: u64,
+        owner_address: ShieldedAddress,
+    ) -> Result<Self, TransactionError> {
+        Ok(Self {
+            asset,
+            amount,
+            blinding: random_blinding(),
+            owner_tag: Some(owner_address.signing_pubkey.confidential_view_tag()?),
+            owner_address: Some(owner_address),
+            ..Default::default()
+        })
+    }
+
     pub fn with_zone_data(
         mut self,
         zone_program_id: Address,
@@ -61,6 +76,11 @@ impl OutputUtxo {
         self.zone_data_hash = Some(zone_data_hash);
         self.zone_program_id = Some(zone_program_id);
         self.set_data_record(DataRecord::ZoneData(zone_data));
+        self
+    }
+
+    pub fn with_zone_program_id(mut self, zone_program_id: Address) -> Self {
+        self.zone_program_id = Some(zone_program_id);
         self
     }
 

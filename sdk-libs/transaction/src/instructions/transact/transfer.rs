@@ -57,7 +57,6 @@ pub struct PreparedTransfer {
     pub shape: Shape,
     pub max_recipients: usize,
     pub payer_pubkey_hash: [u8; 32],
-    pub expiry_unix_ts: u64,
     pub public_sol_amount: Option<i64>,
     pub public_spl_amount: Option<i64>,
     pub user_sol_account: Address,
@@ -139,7 +138,6 @@ pub struct Transfer {
     pub payer_pubkey_hash: [u8; 32],
     pub blinding_seed: [u8; BLINDING_LEN],
     pub shape: Option<Shape>,
-    pub expiry_unix_ts: u64,
 }
 
 impl Transfer {
@@ -152,19 +150,11 @@ impl Transfer {
             payer_pubkey_hash: sha256_be(payer.as_array()),
             blinding_seed: random_blinding(),
             shape: None,
-            // Never expires by default; the program rejects `current_ts > expiry`,
-            // so callers that want a relayer deadline set it explicitly.
-            expiry_unix_ts: u64::MAX,
         }
     }
 
     pub fn with_shape(mut self, shape: Shape) -> Self {
         self.shape = Some(shape);
-        self
-    }
-
-    pub fn with_expiry(mut self, expiry_unix_ts: u64) -> Self {
-        self.expiry_unix_ts = expiry_unix_ts;
         self
     }
 
@@ -226,9 +216,10 @@ impl Transfer {
         assets: &AssetRegistry,
     ) -> Result<SppProofInputs, TransactionError> {
         let prepared = self.prepare(assets)?;
-        let tx = keypair.get_transaction_viewing_key(&prepared.first_nullifier)?;
+        let transaction_viewing_key =
+            keypair.get_transaction_viewing_key(&prepared.first_nullifier)?;
         let salt = zolana_keypair::random_salt();
-        let tx_viewing_pk = tx.pubkey();
+        let tx_viewing_pk = transaction_viewing_key.pubkey();
 
         let sender_view_tag = prepared
             .sender_plaintext
@@ -239,7 +230,7 @@ impl Transfer {
             &prepared.sender_plaintext,
             sender_view_tag,
             &ConfidentialSenderEncode {
-                tx: tx.clone(),
+                tx: transaction_viewing_key.clone(),
                 self_pubkey: keypair.viewing_pubkey(),
                 salt,
                 slot_index: 0,
@@ -252,7 +243,7 @@ impl Transfer {
                 &recipient.plaintext,
                 recipient.view_tag,
                 &ConfidentialRecipientEncode {
-                    tx: tx.clone(),
+                    tx: transaction_viewing_key.clone(),
                     recipient_pubkey: recipient.recipient_pubkey,
                     salt,
                     slot_index: (i + 1) as u32,
@@ -376,7 +367,6 @@ impl Transfer {
             shape,
             max_recipients,
             payer_pubkey_hash: self.payer_pubkey_hash,
-            expiry_unix_ts: self.expiry_unix_ts,
             public_sol_amount: (public_sol != 0).then_some(public_sol as i64),
             public_spl_amount: (public_spl != 0).then_some(public_spl as i64),
             user_sol_account,
@@ -486,7 +476,6 @@ impl PreparedTransfer {
             public_amounts,
             shape,
             payer_pubkey_hash,
-            expiry_unix_ts,
             public_sol_amount,
             public_spl_amount,
             user_sol_account,
@@ -582,7 +571,6 @@ impl PreparedTransfer {
             transact_outputs,
             resolved_owner_tags,
             vec![],
-            expiry_unix_ts,
         );
         if let Some(amount) = public_sol_amount {
             external_data = external_data.with_public_sol(amount, user_sol_account)?;

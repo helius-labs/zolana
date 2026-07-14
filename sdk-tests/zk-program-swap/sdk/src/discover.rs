@@ -360,8 +360,8 @@ mod tests {
     use zolana_transaction::{
         instructions::{
             transact::{
-                encode_slots, get_transaction_viewing_key, ConfidentialSlot, ExternalData,
-                OutputContext, OutputSlot, OutputUtxo, PublicAmounts, Shape, SppProofInputs,
+                encode_slots, get_transaction_viewing_key, ExternalData, OutputContext,
+                OutputSlot, OutputUtxo, PublicAmounts, Shape, SppProofInputs,
             },
             types::SppProofInputUtxo,
         },
@@ -467,18 +467,8 @@ mod tests {
         let change_amount =
             u64::try_from(input_sum(&input_utxos, &source_mint) - i128::from(escrow_output.amount))
                 .expect("change amount");
-        let change_slot = ConfidentialSlot::new(
-            OutputUtxo {
-                owner_address: Some(maker_address),
-                asset: source_mint,
-                amount: change_amount,
-                blinding: [21u8; BLINDING_LEN],
-                ..Default::default()
-            },
-            &registry,
-        )
-        .expect("change slot");
-        let escrow_slot = ConfidentialSlot::new(escrow_output, &registry).expect("escrow slot");
+        let change =
+            OutputUtxo::new(source_mint, change_amount, maker_address).expect("change output");
         let marker_message = OrderMarker {
             escrow_utxo_hash,
             maker_pubkey,
@@ -486,18 +476,18 @@ mod tests {
         }
         .message()
         .expect("marker message");
-        let tx = get_transaction_viewing_key(&maker_keypair, &input_utxos)
+        let transaction_viewing_key = get_transaction_viewing_key(&maker_keypair, &input_utxos)
             .expect("transaction viewing key");
 
-        let encoded = encode_slots(&[change_slot, escrow_slot], &tx).expect("encode slots");
+        let encoded = encode_slots(&[change, escrow_output], &registry, &transaction_viewing_key)
+            .expect("encode slots");
 
         let external_data = ExternalData::new(
-            *tx.pubkey().as_bytes(),
+            *transaction_viewing_key.pubkey().as_bytes(),
             encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![marker_message],
-            u64::MAX,
         );
         let spp_proof_inputs = SppProofInputs {
             input_utxos,
