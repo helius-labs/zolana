@@ -1,15 +1,12 @@
 use num_bigint::{BigInt, BigUint, Sign};
 use solana_address::Address;
-use zolana_event::OutputData;
-use zolana_interface::instruction::instruction_data::transact::TransactOutput;
 use zolana_keypair::{
-    hash::{hash_field, sha256, sha256_be},
-    ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
+    hash::{hash_field, sha256},
+    SignatureType,
 };
 
 use super::{
-    shape::{Shape, SPP_SUPPORTED_SHAPES},
-    slots::{EncodeOutputSlot, SlotCx},
+    shape::Shape,
     types::{no_address_hashes, private_tx_hash},
 };
 use crate::{
@@ -70,14 +67,21 @@ pub fn first_nullifier(input_utxos: &[SppProofInputUtxo]) -> Result<[u8; 32], Tr
         .nullifier(&utxo_hash, &spend.utxo.blinding)?)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PublicAmounts {
     pub sol: [u8; 32],
     pub spl: [u8; 32],
     pub asset: [u8; 32],
 }
-// TODO: implement constructor and builder pattern for deposit and withdraw
-// Sent to the ProverServer
+
+impl PublicAmounts {
+    pub const ZERO: Self = Self {
+        sol: [0u8; 32],
+        spl: [0u8; 32],
+        asset: [0u8; 32],
+    };
+}
+
 #[derive(Clone)]
 pub struct SppProofInputs {
     pub input_utxos: Vec<SppProofInputUtxo>,
@@ -150,87 +154,14 @@ impl SppProofInputs {
     }
 }
 
-pub struct SlotTransact {
-    pub input_utxos: Vec<SppProofInputUtxo>,
-    pub payer: Address,
-    pub expiry_unix_ts: u64,
-    pub messages: Vec<OutputData>,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl SlotTransact {
-    pub fn sign<K: ShieldedKeypairTrait + ViewingKeyTrait>(
-        self,
-        slots: &[&dyn EncodeOutputSlot],
-        keypair: &K,
-    ) -> Result<SppProofInputs, TransactionError> {
-        let shape = Shape::new(self.input_utxos.len(), slots.len());
-        if !SPP_SUPPORTED_SHAPES.contains(&shape) {
-            return Err(TransactionError::UnsupportedShape {
-                n_in: shape.n_inputs,
-                n_out: shape.n_outputs,
-            });
-        }
-
-        let first_nullifier = first_nullifier(&self.input_utxos)?;
-        let tx = keypair.get_transaction_viewing_key(&first_nullifier)?;
-        let salt = zolana_keypair::random_salt();
-        let tx_viewing_pk = tx.pubkey();
-        let self_pubkey = keypair.viewing_pubkey();
-
-        let mut output_utxos = Vec::with_capacity(slots.len());
-        let mut transact_outputs = Vec::with_capacity(slots.len());
-        let mut resolved_owner_tags = Vec::with_capacity(slots.len());
-        // AES ordinal: only data-bearing slots consume an index. Every
-        // slot signed here is data-bearing, so the ordinal equals the slot
-        // position, matching the historical `i as u32`.
-        let mut ordinal = 0u32;
-        for slot in slots.iter() {
-            let encoded = slot.encode_slot(&SlotCx {
-                tx: &tx,
-                self_pubkey,
-                salt,
-                slot_index: ordinal,
-            })?;
-            let output = slot.output().clone();
-            let utxo_hash = output.hash()?;
-            if encoded.data.is_some() {
-                ordinal += 1;
-            }
-            transact_outputs.push(TransactOutput {
-                utxo_hash,
-                owner_tag: encoded.owner_tag,
-                data: encoded.data,
-            });
-            resolved_owner_tags.push(encoded.resolved_owner_tag);
-            output_utxos.push(output);
-        }
-
-        let external_data = ExternalData::new(
-            *tx_viewing_pk.as_bytes(),
-            salt,
-            transact_outputs,
-            resolved_owner_tags,
-            self.messages,
-            self.expiry_unix_ts,
-        );
-
-        let mut signed = SppProofInputs {
-            input_utxos: self.input_utxos,
-            output_utxos,
-            public_amounts: PublicAmounts {
-                sol: signed_to_field(0),
-                spl: signed_to_field(0),
-                asset: [0u8; 32],
-            },
-            external_data,
-            payer_pubkey_hash: sha256_be(self.payer.as_array()),
-            shape,
-            p256_signature: None,
-        };
-        if keypair.curve()? == SignatureType::P256 {
-            let message_hash = signed.message_hash()?;
-            signed.p256_signature = Some(keypair.sign(&message_hash));
-        }
-        Ok(signed)
+    #[test]
+    fn zero_public_amounts_match_the_field_encoding_of_zero() {
+        assert_eq!(PublicAmounts::ZERO.sol, signed_to_field(0));
+        assert_eq!(PublicAmounts::ZERO.spl, signed_to_field(0));
+        assert_eq!(PublicAmounts::default(), PublicAmounts::ZERO);
     }
 }

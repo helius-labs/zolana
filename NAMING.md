@@ -72,9 +72,10 @@ Canonical struct fields (`sdk-libs/transaction/src/utxo.rs`): `owner`,
   `p256_signature` holds a `[u8; 64]` signature, not an owner — never
   `p256_owner`. Local bindings are `proof_inputs`, never `signed`.
 - The high-level padded-transfer builder is `Transfer` / `PreparedTransfer`,
-  never `TxBuilder`; local bindings are `transfer`, not `tx`. The operation
-  struct that seals slots into `SppProofInputs` is `SlotTransact` with a
-  consuming `sign`. The first-nullifier accessor is `first_nullifier`.
+  never `TxBuilder`; local bindings are `transfer`, not `tx`. Slot-based flows
+  have no operation struct: they encode their output slots inline and write
+  the `SppProofInputs` struct literal; the result binding is `proof_inputs`.
+  The first-nullifier accessor is `first_nullifier`.
 - The note commitment is `utxo_hash`, not "commitment". The spend marker is
   `nullifier` (note method), `nullifier_hash` (instruction field),
   `nullifier_pk` / `nullifier_pubkey` (the key).

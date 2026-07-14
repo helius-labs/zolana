@@ -2,15 +2,9 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::FillVerifiableEncryptionProofInputs;
-use zolana_interface::instruction::instruction_data::transact::{OutputData, TransactIxData};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
-use zolana_transaction::{
-    instructions::transact::{
-        ConfidentialSlot, OutputUtxo, PrebuiltSlot, SlotTransact, SppProofInputs,
-    },
-    utxo::Blinding,
-    AssetRegistry, TransactionError, VIEW_TAG_LEN,
-};
+use zolana_interface::instruction::instruction_data::transact::TransactIxData;
+use zolana_keypair::ShieldedAddress;
+use zolana_transaction::{instructions::transact::OutputUtxo, utxo::Blinding};
 
 use crate::{
     err, escrow_authority_pda,
@@ -88,47 +82,6 @@ impl FillVerifiableEncryptionProofInputParams {
             mint: self.escrow.source_mint,
         }
         .output()
-    }
-}
-
-pub struct EscrowFillVerifiableEncryption {
-    pub transact: SlotTransact,
-    pub source_output: OutputUtxo,
-    pub destination_output: OutputUtxo,
-    pub destination_ciphertext: Vec<u8>,
-    pub destination_view_tag: [u8; VIEW_TAG_LEN],
-}
-
-impl EscrowFillVerifiableEncryption {
-    pub fn sign<K: ShieldedKeypairTrait + ViewingKeyTrait>(
-        self,
-        keypair: &K,
-        assets: &AssetRegistry,
-    ) -> Result<SppProofInputs, TransactionError> {
-        let Self {
-            transact,
-            source_output,
-            destination_output,
-            destination_ciphertext,
-            destination_view_tag,
-        } = self;
-        if transact.input_utxos.len() != 2 {
-            return Err(TransactionError::TooManyInputs {
-                got: transact.input_utxos.len(),
-                max: 2,
-            });
-        }
-
-        let source_slot = ConfidentialSlot::new(source_output, assets)?;
-        let destination_slot = PrebuiltSlot {
-            output: destination_output,
-            ciphertext: OutputData {
-                view_tag: destination_view_tag,
-                data: destination_ciphertext,
-            },
-        };
-
-        transact.sign(&[&source_slot, &destination_slot], keypair)
     }
 }
 

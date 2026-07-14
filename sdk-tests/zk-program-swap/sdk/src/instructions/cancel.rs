@@ -3,12 +3,8 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::CancelProofInputs;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
-use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
-use zolana_transaction::{
-    instructions::transact::{ConfidentialSlot, OutputUtxo, SlotTransact, SppProofInputs},
-    utxo::Blinding,
-    AssetRegistry, TransactionError,
-};
+use zolana_keypair::{P256Pubkey, ShieldedAddress};
+use zolana_transaction::{instructions::transact::OutputUtxo, utxo::Blinding};
 
 use crate::{
     err, escrow_authority_pda,
@@ -86,32 +82,6 @@ impl CancelProofInputParams {
             mint: self.escrow.source_mint,
         }
         .output()
-    }
-}
-
-pub struct EscrowCancel {
-    pub transact: SlotTransact,
-    pub source_output: OutputUtxo,
-}
-
-impl EscrowCancel {
-    pub fn sign<K: ShieldedKeypairTrait + ViewingKeyTrait>(
-        self,
-        keypair: &K,
-        assets: &AssetRegistry,
-    ) -> Result<SppProofInputs, TransactionError> {
-        let Self {
-            transact,
-            source_output,
-        } = self;
-        if transact.input_utxos.len() != 1 {
-            return Err(TransactionError::TooManyInputs {
-                got: transact.input_utxos.len(),
-                max: 1,
-            });
-        }
-        let slot = ConfidentialSlot::new(source_output, assets)?;
-        transact.sign(&[&slot], keypair)
     }
 }
 

@@ -353,12 +353,13 @@ fn collect_own_orders<I: Rpc>(wallet: &Wallet, indexer: &I) -> Result<Vec<OwnOrd
 mod tests {
     use solana_signature::Signature;
     use swap_prover::FILL_MODE_DERIVED;
-    use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+    use zolana_interface::instruction::instruction_data::transact::TransactOutput;
+    use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, random_salt, ShieldedKeypair};
     use zolana_transaction::{
         instructions::{
             transact::{
-                ConfidentialSlot, OutputContext, OutputSlot, OutputUtxo, SlotTransact,
-                SppProofInputs,
+                first_nullifier, ConfidentialSlot, EncodeOutputSlot, ExternalData, OutputContext,
+                OutputSlot, OutputUtxo, PublicAmounts, Shape, SlotCx, SppProofInputs,
             },
             types::SppProofInputUtxo,
         },
@@ -483,14 +484,58 @@ mod tests {
         }
         .message()
         .expect("marker message");
-        let spp_proof_inputs = SlotTransact {
-            input_utxos,
-            payer: Address::default(),
-            expiry_unix_ts: u64::MAX,
-            messages: vec![marker_message],
+        let first_nullifier = first_nullifier(&input_utxos).expect("first nullifier");
+        let tx = maker_keypair
+            .get_transaction_viewing_key(&first_nullifier)
+            .expect("transaction viewing key");
+        let salt = random_salt();
+        let self_pubkey = maker_keypair.viewing_pubkey();
+
+        let slots: [&dyn EncodeOutputSlot; 2] = [&change_slot, &escrow_slot];
+        let mut outputs = Vec::with_capacity(slots.len());
+        let mut transact_outputs = Vec::with_capacity(slots.len());
+        let mut resolved_owner_tags = Vec::with_capacity(slots.len());
+        let mut ordinal = 0u32;
+        for slot in slots.iter() {
+            let encoded = slot
+                .encode_slot(&SlotCx {
+                    tx: &tx,
+                    self_pubkey,
+                    salt,
+                    slot_index: ordinal,
+                })
+                .expect("encode slot");
+            let output = slot.output().clone();
+            let utxo_hash = output.hash().expect("output hash");
+            if encoded.data.is_some() {
+                ordinal += 1;
+            }
+            transact_outputs.push(TransactOutput {
+                utxo_hash,
+                owner_tag: encoded.owner_tag,
+                data: encoded.data,
+            });
+            resolved_owner_tags.push(encoded.resolved_owner_tag);
+            outputs.push(output);
         }
-        .sign(&[&change_slot, &escrow_slot], &maker_keypair)
-        .expect("escrow create sign");
+
+        let external_data = ExternalData::new(
+            *tx.pubkey().as_bytes(),
+            salt,
+            transact_outputs,
+            resolved_owner_tags,
+            vec![marker_message],
+            u64::MAX,
+        );
+        let spp_proof_inputs = SppProofInputs {
+            input_utxos,
+            output_utxos: outputs,
+            public_amounts: PublicAmounts::ZERO,
+            external_data,
+            payer_pubkey_hash: sha256_be(Address::default().as_array()),
+            shape: Shape::new(2, 2),
+            p256_signature: None,
+        };
 
         OrderFixture {
             tx: shielded_transaction(&spp_proof_inputs),

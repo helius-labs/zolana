@@ -1,7 +1,7 @@
 //! Client-side transact assembly in two layers. The low level is
-//! [`SppProofInputs`] (the assembled transaction sent to the prover) built from
-//! explicit output slots via [`SlotTransact`] and the [`slots`] encoders; it
-//! serves custom UTXOs (zone/swap flows). The high level is [`Transfer`], a
+//! [`SppProofInputs`] (the assembled transaction sent to the prover), written
+//! as a struct literal after encoding explicit output slots with the [`slots`]
+//! encoders; it serves custom UTXOs (zone/swap flows). The high level is [`Transfer`], a
 //! padded transfer (fixed [`transfer::SUPPORTED_SHAPES`] shape, derived change
 //! outputs, dummy slots) not intended for custom UTXOs.
 //! [`EncryptedTransaction::hash`] produces the `private_tx_hash` shared as a
@@ -18,8 +18,7 @@ pub use external_data::ExternalData;
 pub use shape::{Shape, SPP_SUPPORTED_SHAPES};
 pub use slots::{ConfidentialSlot, EncodeOutputSlot, EncodedSlot, PrebuiltSlot, SlotCx};
 pub use spp_proof_inputs::{
-    first_nullifier, inputs_require_p256, signed_to_field, PublicAmounts, SlotTransact,
-    SppProofInputs,
+    first_nullifier, inputs_require_p256, signed_to_field, PublicAmounts, SppProofInputs,
 };
 pub use transfer::{
     canonical_shape, resolve_shape, PreparedRecipient, PreparedTransfer, Recipient, Transfer,

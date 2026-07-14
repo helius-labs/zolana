@@ -169,7 +169,7 @@ impl OrderUtxo {
             zone_program_id: None,
             data: Data::default(),
         };
-        Ok(SppProofInputUtxo::new(utxo, &Self::nullifier_key())
+        Ok(SppProofInputUtxo::new(utxo, Self::nullifier_key())
             .with_data_hash(self.terms.data_hash()?))
     }
 }

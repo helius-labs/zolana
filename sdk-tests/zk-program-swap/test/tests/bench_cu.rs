@@ -22,12 +22,11 @@ use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use swap_prover::{preload, CircuitId};
 use swap_sdk::{
     instructions::{
-        cancel::{Cancel, CancelProofInputParams, EscrowCancel},
+        cancel::{Cancel, CancelProofInputParams},
         create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker},
-        fill::{EscrowFill, Fill, FillProofInputParams},
+        fill::{Fill, FillProofInputParams},
         fill_verifiable_encryption::{
-            EscrowFillVerifiableEncryption, FillVerifiableEncryption,
-            FillVerifiableEncryptionProofInputParams,
+            FillVerifiableEncryption, FillVerifiableEncryptionProofInputParams,
         },
     },
     order::{OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
@@ -39,19 +38,20 @@ use zolana_client::{
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData,
+    instruction::instruction_data::transact::{OutputData, TransactIxData, TransactOutput},
     state::{
         address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_account_size,
         STATE_HEIGHT,
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{hash::sha256_be, random_blinding, random_salt, ShieldedKeypair, ViewingKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
         transact::{
-            spp_proof_inputs::BN254_MODULUS_DEC, ConfidentialSlot, OutputUtxo, SlotTransact,
+            first_nullifier, spp_proof_inputs::BN254_MODULUS_DEC, ConfidentialSlot,
+            EncodeOutputSlot, ExternalData, OutputUtxo, PrebuiltSlot, PublicAmounts, Shape, SlotCx,
             SppProofInputs,
         },
         types::SppProofInputUtxo,
@@ -481,14 +481,58 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     .message()
     .expect("marker message");
 
-    let spp_proof_inputs = SlotTransact {
-        input_utxos,
-        payer: payer_address,
-        expiry_unix_ts: u64::MAX,
-        messages: vec![marker_message],
+    let first_nullifier = first_nullifier(&input_utxos).expect("create first nullifier");
+    let tx = maker
+        .get_transaction_viewing_key(&first_nullifier)
+        .expect("create transaction viewing key");
+    let salt = random_salt();
+    let self_pubkey = maker.viewing_pubkey();
+
+    let slots: [&dyn EncodeOutputSlot; 2] = [&change_slot, &escrow_slot];
+    let mut outputs = Vec::with_capacity(slots.len());
+    let mut transact_outputs = Vec::with_capacity(slots.len());
+    let mut resolved_owner_tags = Vec::with_capacity(slots.len());
+    let mut ordinal = 0u32;
+    for slot in slots.iter() {
+        let encoded = slot
+            .encode_slot(&SlotCx {
+                tx: &tx,
+                self_pubkey,
+                salt,
+                slot_index: ordinal,
+            })
+            .expect("encode create slot");
+        let output = slot.output().clone();
+        let utxo_hash = output.hash().expect("create output hash");
+        if encoded.data.is_some() {
+            ordinal += 1;
+        }
+        transact_outputs.push(TransactOutput {
+            utxo_hash,
+            owner_tag: encoded.owner_tag,
+            data: encoded.data,
+        });
+        resolved_owner_tags.push(encoded.resolved_owner_tag);
+        outputs.push(output);
     }
-    .sign(&[&change_slot, &escrow_slot], &maker)
-    .expect("escrow create sign");
+
+    let external_data = ExternalData::new(
+        *tx.pubkey().as_bytes(),
+        salt,
+        transact_outputs,
+        resolved_owner_tags,
+        vec![marker_message],
+        u64::MAX,
+    );
+    let spp_proof_inputs = SppProofInputs {
+        input_utxos,
+        output_utxos: outputs,
+        public_amounts: PublicAmounts::ZERO,
+        external_data,
+        payer_pubkey_hash: sha256_be(payer_address.as_array()),
+        shape: Shape::new(2, 2),
+        p256_signature: None,
+    };
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -636,20 +680,63 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker);
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
-    let transact = SlotTransact {
-        input_utxos: vec![escrow_input, taker_spend],
-        payer: payer_address,
-        expiry_unix_ts: escrow.terms.expiry,
-        messages: vec![],
-    };
     let assets = AssetRegistry::default();
-    let spp_proof_inputs = EscrowFill {
-        transact,
-        source_output,
-        destination_output,
+    let source_slot = ConfidentialSlot::new(source_output, &assets).expect("fill source slot");
+    let destination_slot =
+        ConfidentialSlot::new(destination_output, &assets).expect("fill destination slot");
+    let input_utxos = vec![escrow_input, taker_spend];
+    let first_nullifier = first_nullifier(&input_utxos).expect("fill first nullifier");
+    let tx = taker
+        .get_transaction_viewing_key(&first_nullifier)
+        .expect("fill transaction viewing key");
+    let salt = random_salt();
+    let self_pubkey = taker.viewing_pubkey();
+
+    let slots: [&dyn EncodeOutputSlot; 2] = [&source_slot, &destination_slot];
+    let mut outputs = Vec::with_capacity(slots.len());
+    let mut transact_outputs = Vec::with_capacity(slots.len());
+    let mut resolved_owner_tags = Vec::with_capacity(slots.len());
+    let mut ordinal = 0u32;
+    for slot in slots.iter() {
+        let encoded = slot
+            .encode_slot(&SlotCx {
+                tx: &tx,
+                self_pubkey,
+                salt,
+                slot_index: ordinal,
+            })
+            .expect("encode fill slot");
+        let output = slot.output().clone();
+        let utxo_hash = output.hash().expect("fill output hash");
+        if encoded.data.is_some() {
+            ordinal += 1;
+        }
+        transact_outputs.push(TransactOutput {
+            utxo_hash,
+            owner_tag: encoded.owner_tag,
+            data: encoded.data,
+        });
+        resolved_owner_tags.push(encoded.resolved_owner_tag);
+        outputs.push(output);
     }
-    .sign(&taker, &assets)
-    .expect("escrow fill sign");
+
+    let external_data = ExternalData::new(
+        *tx.pubkey().as_bytes(),
+        salt,
+        transact_outputs,
+        resolved_owner_tags,
+        vec![],
+        escrow.terms.expiry,
+    );
+    let spp_proof_inputs = SppProofInputs {
+        input_utxos,
+        output_utxos: outputs,
+        public_amounts: PublicAmounts::ZERO,
+        external_data,
+        payer_pubkey_hash: sha256_be(payer_address.as_array()),
+        shape: Shape::new(2, 2),
+        p256_signature: None,
+    };
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -776,25 +863,72 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker);
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
-    let transact = SlotTransact {
-        input_utxos: vec![escrow_input, taker_spend],
-        payer: payer_address,
-        expiry_unix_ts: escrow.terms.expiry,
-        messages: vec![],
-    };
     let assets = AssetRegistry::default();
-    let spp_proof_inputs = EscrowFillVerifiableEncryption {
-        transact,
-        source_output,
-        destination_output,
-        destination_ciphertext,
-        destination_view_tag: maker_recipient
-            .signing_pubkey
-            .confidential_view_tag()
-            .expect("maker view tag"),
+    let source_slot = ConfidentialSlot::new(source_output, &assets).expect("fill source slot");
+    let destination_view_tag = maker_recipient
+        .signing_pubkey
+        .confidential_view_tag()
+        .expect("maker view tag");
+    let destination_slot = PrebuiltSlot {
+        output: destination_output,
+        ciphertext: OutputData {
+            view_tag: destination_view_tag,
+            data: destination_ciphertext,
+        },
+    };
+    let input_utxos = vec![escrow_input, taker_spend];
+    let first_nullifier = first_nullifier(&input_utxos).expect("fill first nullifier");
+    let tx = taker
+        .get_transaction_viewing_key(&first_nullifier)
+        .expect("fill transaction viewing key");
+    let salt = random_salt();
+    let self_pubkey = taker.viewing_pubkey();
+
+    let slots: [&dyn EncodeOutputSlot; 2] = [&source_slot, &destination_slot];
+    let mut outputs = Vec::with_capacity(slots.len());
+    let mut transact_outputs = Vec::with_capacity(slots.len());
+    let mut resolved_owner_tags = Vec::with_capacity(slots.len());
+    let mut ordinal = 0u32;
+    for slot in slots.iter() {
+        let encoded = slot
+            .encode_slot(&SlotCx {
+                tx: &tx,
+                self_pubkey,
+                salt,
+                slot_index: ordinal,
+            })
+            .expect("encode fill slot");
+        let output = slot.output().clone();
+        let utxo_hash = output.hash().expect("fill output hash");
+        if encoded.data.is_some() {
+            ordinal += 1;
+        }
+        transact_outputs.push(TransactOutput {
+            utxo_hash,
+            owner_tag: encoded.owner_tag,
+            data: encoded.data,
+        });
+        resolved_owner_tags.push(encoded.resolved_owner_tag);
+        outputs.push(output);
     }
-    .sign(&taker, &assets)
-    .expect("escrow fill sign");
+
+    let external_data = ExternalData::new(
+        *tx.pubkey().as_bytes(),
+        salt,
+        transact_outputs,
+        resolved_owner_tags,
+        vec![],
+        escrow.terms.expiry,
+    );
+    let spp_proof_inputs = SppProofInputs {
+        input_utxos,
+        output_utxos: outputs,
+        public_amounts: PublicAmounts::ZERO,
+        external_data,
+        payer_pubkey_hash: sha256_be(payer_address.as_array()),
+        shape: Shape::new(2, 2),
+        p256_signature: None,
+    };
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -912,19 +1046,61 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let escrow_input = escrow.into_input_utxo().expect("escrow spend");
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
-    let transact = SlotTransact {
-        input_utxos: vec![escrow_input],
-        payer: payer_address,
-        expiry_unix_ts: SPP_RELAYER_DEADLINE,
-        messages: vec![],
-    };
     let assets = AssetRegistry::default();
-    let spp_proof_inputs = EscrowCancel {
-        transact,
-        source_output,
+    let source_slot = ConfidentialSlot::new(source_output, &assets).expect("cancel source slot");
+    let input_utxos = vec![escrow_input];
+    let first_nullifier = first_nullifier(&input_utxos).expect("cancel first nullifier");
+    let tx = maker
+        .get_transaction_viewing_key(&first_nullifier)
+        .expect("cancel transaction viewing key");
+    let salt = random_salt();
+    let self_pubkey = maker.viewing_pubkey();
+
+    let slots: [&dyn EncodeOutputSlot; 1] = [&source_slot];
+    let mut outputs = Vec::with_capacity(slots.len());
+    let mut transact_outputs = Vec::with_capacity(slots.len());
+    let mut resolved_owner_tags = Vec::with_capacity(slots.len());
+    let mut ordinal = 0u32;
+    for slot in slots.iter() {
+        let encoded = slot
+            .encode_slot(&SlotCx {
+                tx: &tx,
+                self_pubkey,
+                salt,
+                slot_index: ordinal,
+            })
+            .expect("encode cancel slot");
+        let output = slot.output().clone();
+        let utxo_hash = output.hash().expect("cancel output hash");
+        if encoded.data.is_some() {
+            ordinal += 1;
+        }
+        transact_outputs.push(TransactOutput {
+            utxo_hash,
+            owner_tag: encoded.owner_tag,
+            data: encoded.data,
+        });
+        resolved_owner_tags.push(encoded.resolved_owner_tag);
+        outputs.push(output);
     }
-    .sign(&maker, &assets)
-    .expect("escrow cancel sign");
+
+    let external_data = ExternalData::new(
+        *tx.pubkey().as_bytes(),
+        salt,
+        transact_outputs,
+        resolved_owner_tags,
+        vec![],
+        SPP_RELAYER_DEADLINE,
+    );
+    let spp_proof_inputs = SppProofInputs {
+        input_utxos,
+        output_utxos: outputs,
+        public_amounts: PublicAmounts::ZERO,
+        external_data,
+        payer_pubkey_hash: sha256_be(payer_address.as_array()),
+        shape: Shape::new(1, 1),
+        p256_signature: None,
+    };
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
