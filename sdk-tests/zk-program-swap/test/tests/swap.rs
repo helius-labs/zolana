@@ -9,7 +9,9 @@ use shared::{
 use swap_sdk::{
     discover::discover_orders,
     instructions::{
-        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker},
+        create_swap::{
+            input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes,
+        },
         fill::{Fill, FillProofInputParams},
     },
     order::{OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
@@ -98,21 +100,17 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
 
         // 2. Select input utxos.
-        let create_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
-
-        let source_input_hash = create_spend
-            .hash()
-            .map_err(|e| anyhow!("source input hash: {e:?}"))?;
-        let inputs = vec![create_spend, SppProofInputUtxo::new_dummy()];
+        let input_utxo = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
+        let input_utxos = vec![input_utxo, SppProofInputUtxo::new_dummy()];
 
         // 3. create output utxos.
         let escrow_asset = escrow_output_utxo.asset;
 
-        let leftover = input_sum(&inputs, &escrow_asset) - i128::from(escrow_output_utxo.amount);
+        let leftover =
+            input_sum(&input_utxos, &escrow_asset) - i128::from(escrow_output_utxo.amount);
         let change_amount = u64::try_from(leftover)
             .map_err(|_| anyhow!("insufficient escrow balance: {leftover}"))?;
         let change = OutputUtxo::new(escrow_asset, change_amount, maker_address)?;
-        let change_blinding = change.blinding;
 
         let escrow_utxo_hash = escrow_output_utxo
             .hash()
@@ -120,11 +118,11 @@ fn create_and_fill_swap_inline() -> Result<()> {
 
         // 4. Encrypt output utxos.
 
-        let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &inputs)
+        let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &input_utxos)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
 
         let encoded_transaction_data = encrypt_transaction_data(
-            &[change, escrow_output_utxo],
+            &[change.clone(), escrow_output_utxo],
             &maker.registry,
             &transaction_viewing_key,
         )?;
@@ -143,16 +141,13 @@ fn create_and_fill_swap_inline() -> Result<()> {
             vec![marker_message],
         );
         let spp_proof_inputs = SppProofInputs::new(
-            inputs,
+            input_utxos,
             encoded_transaction_data.output_utxos,
             external_data,
             maker_address.solana_address()?,
         );
 
-        let external_data_hash = spp_proof_inputs
-            .external_data
-            .hash()
-            .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
+        let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
         // 7. create spp proof.
         let spp_proof = indexer
             .prove_transact(tree, spp_proof_inputs)
@@ -160,11 +155,8 @@ fn create_and_fill_swap_inline() -> Result<()> {
 
         let create_swap_proof_inputs = CreateSwapProofInputParams {
             escrow,
-            taker_address,
-            source_input_hash,
-            change_amount,
-            change_blinding,
-            external_data_hash,
+            change,
+            spp_tx_hashes,
         };
 
         let create_swap_proof = swap_prover_client

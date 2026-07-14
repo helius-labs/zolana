@@ -23,7 +23,7 @@ use swap_prover::{preload, CircuitId};
 use swap_sdk::{
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
-        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker},
+        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
         fill::{Fill, FillProofInputParams},
         fill_verifiable_encryption::{
             FillVerifiableEncryption, FillVerifiableEncryptionProofInputParams,
@@ -441,14 +441,14 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         expiry: EXPIRY,
         fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
     };
-    let escrow_utxo_hash = OrderUtxo {
+    let escrow = OrderUtxo {
         terms,
         blinding: [7u8; 31],
         source_mint: SOL_MINT,
         source_amount: SOURCE_AMOUNT,
         destination_asset_id: 2,
     };
-    let escrow = escrow_utxo_hash
+    let escrow_output_utxo = escrow
         .output_utxo(taker_address.viewing_pubkey)
         .expect("escrow output");
 
@@ -457,8 +457,8 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
     let assets = AssetRegistry::default();
 
-    let escrow_asset = escrow.asset;
-    let leftover = input_sum(&input_utxos, &escrow_asset) - i128::from(escrow.amount);
+    let escrow_asset = escrow_output_utxo.asset;
+    let leftover = input_sum(&input_utxos, &escrow_asset) - i128::from(escrow_output_utxo.amount);
     let change_amount = u64::try_from(leftover).expect("insufficient escrow balance");
     let change = OutputUtxo::new(
         escrow_asset,
@@ -466,9 +466,8 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         maker.shielded_address().expect("maker address"),
     )
     .expect("change output");
-    let change_blinding = change.blinding;
 
-    let escrow_output_hash = escrow.hash().expect("escrow output hash");
+    let escrow_output_hash = escrow_output_utxo.hash().expect("escrow output hash");
     let marker_message = OrderMarker {
         escrow_utxo_hash: escrow_output_hash,
         maker_pubkey: payer.pubkey(),
@@ -480,8 +479,12 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let transaction_viewing_key =
         get_transaction_viewing_key(&maker, &input_utxos).expect("create transaction viewing key");
 
-    let encoded = encrypt_transaction_data(&[change, escrow], &assets, &transaction_viewing_key)
-        .expect("encode create slots");
+    let encoded = encrypt_transaction_data(
+        &[change.clone(), escrow_output_utxo],
+        &assets,
+        &transaction_viewing_key,
+    )
+    .expect("encode create slots");
 
     let external_data = ExternalData::new(
         *transaction_viewing_key.pubkey().as_bytes(),
@@ -516,20 +519,10 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         root_index,
     );
 
-    let spend = spp_proof_inputs.input_utxos.first().expect("input");
-    let source_input_hash = spend.hash().expect("source input hash");
-    let external_data_hash = spp_proof_inputs
-        .external_data
-        .hash()
-        .expect("external data hash");
-
     let create_inputs = CreateSwapProofInputParams {
-        escrow: escrow_utxo_hash,
-        taker_address,
-        source_input_hash,
-        change_amount,
-        change_blinding,
-        external_data_hash,
+        escrow,
+        change,
+        spp_tx_hashes: SppTxHashes::new(&spp_proof_inputs).expect("spp tx hashes"),
     };
 
     let prover = ProverClient::local();

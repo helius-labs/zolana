@@ -10,7 +10,7 @@ use swap_sdk::{
     discover::discover_own_orders,
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
-        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker},
+        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
     },
     order::{OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,
@@ -98,7 +98,6 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let change_amount = u64::try_from(leftover)
             .map_err(|_| anyhow!("insufficient escrow balance: {leftover}"))?;
         let change = OutputUtxo::new(escrow_asset, change_amount, maker_address)?;
-        let change_blinding = change.blinding;
 
         let escrow_utxo_hash = escrow_output_utxo
             .hash()
@@ -114,7 +113,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("create transaction viewing key: {e:?}"))?;
 
         let encoded = encrypt_transaction_data(
-            &[change, escrow_output_utxo],
+            &[change.clone(), escrow_output_utxo],
             &maker.registry,
             &transaction_viewing_key,
         )
@@ -139,25 +138,10 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("create transact proof: {e:?}"))?;
 
         // Custom proof
-        let first_input_utxo = spp_proof_inputs
-            .input_utxos
-            .first()
-            .ok_or_else(|| anyhow!("no create input"))?;
-        let source_input_hash = first_input_utxo
-            .hash()
-            .map_err(|e| anyhow!("source input hash: {e:?}"))?;
-        let external_data_hash = spp_proof_inputs
-            .external_data
-            .hash()
-            .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
-
         let create_swap_proof_inputs = CreateSwapProofInputParams {
             escrow,
-            taker_address,
-            source_input_hash,
-            change_amount,
-            change_blinding,
-            external_data_hash,
+            change,
+            spp_tx_hashes: SppTxHashes::new(&spp_proof_inputs)?,
         };
 
         let create_swap_proof = swap_prover_client

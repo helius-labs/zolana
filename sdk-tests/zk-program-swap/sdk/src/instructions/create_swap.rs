@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
@@ -6,7 +6,11 @@ use swap_prover::CreateProofInputs;
 use zolana_interface::instruction::instruction_data::transact::{OutputData, TransactIxData};
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{
-    instructions::types::SppProofInputUtxo, utxo::Blinding, TransactionError,
+    instructions::{
+        transact::{OutputUtxo, SppProofInputs},
+        types::SppProofInputUtxo,
+    },
+    TransactionError,
 };
 
 use crate::{
@@ -34,18 +38,45 @@ impl CreateSwapIxData {
     }
 }
 
+pub struct SppTxHashes {
+    pub source_input_hash: [u8; 32],
+    pub external_data_hash: [u8; 32],
+}
+
+impl SppTxHashes {
+    pub fn new(spp_proof_inputs: &SppProofInputs) -> Result<Self> {
+        let source_input = spp_proof_inputs
+            .input_utxos
+            .first()
+            .ok_or_else(|| err("missing source input"))?;
+        Ok(Self {
+            source_input_hash: source_input.hash().map_err(err)?,
+            external_data_hash: spp_proof_inputs.external_data.hash().map_err(err)?,
+        })
+    }
+}
+
 pub struct CreateSwapProofInputParams {
     pub escrow: OrderUtxo,
-    pub taker_address: ShieldedAddress,
-    pub source_input_hash: [u8; 32],
-    pub change_amount: u64,
-    pub change_blinding: Blinding,
-    pub external_data_hash: [u8; 32],
+    pub change: OutputUtxo,
+    pub spp_tx_hashes: SppTxHashes,
 }
 
 impl CreateSwapProofInputParams {
     pub fn into_proof_inputs(&self) -> Result<CreateProofInputs> {
         let terms = &self.escrow.terms;
+        if self.change.owner_address != Some(terms.destination) {
+            bail!("change owner does not match order destination");
+        }
+        if self.change.asset != self.escrow.source_mint {
+            bail!("change asset does not match order source mint");
+        }
+        if self.change.data_hash.is_some()
+            || self.change.zone_data_hash.is_some()
+            || self.change.zone_program_id.is_some()
+        {
+            bail!("change output must not carry data or zone commitments");
+        }
         Ok(CreateProofInputs {
             source_mint: *self.escrow.source_mint.as_array(),
             source_amount: self.escrow.source_amount,
@@ -58,10 +89,10 @@ impl CreateSwapProofInputParams {
             expiry: terms.expiry,
             taker_pk_fe: terms.taker.data_hash()?,
             fill_mode: terms.fill_mode,
-            external_data_hash: self.external_data_hash,
-            source_input_hash: self.source_input_hash,
-            change_amount: self.change_amount,
-            change_blinding: self.change_blinding.to_field(),
+            external_data_hash: self.spp_tx_hashes.external_data_hash,
+            source_input_hash: self.spp_tx_hashes.source_input_hash,
+            change_amount: self.change.amount,
+            change_blinding: self.change.blinding.to_field(),
         })
     }
 }
