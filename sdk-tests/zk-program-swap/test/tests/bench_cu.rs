@@ -23,14 +23,14 @@ use swap_prover::{preload, CircuitId};
 use swap_sdk::{
     instructions::{
         cancel::{Cancel, CancelProofInputParams, EscrowCancel},
-        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, MarkerEncrypt},
+        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker},
         fill::{EscrowFill, Fill, FillProofInputParams},
         fill_verifiable_encryption::{
             EscrowFillVerifiableEncryption, FillVerifiableEncryption,
             FillVerifiableEncryptionProofInputParams,
         },
     },
-    order::{marker_output_utxo, OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
+    order::{OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
     prover::{prove_transact, SwapProverClient},
 };
 use zolana_client::{
@@ -452,7 +452,6 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let escrow = escrow_utxo_hash
         .output_utxo(taker_address.viewing_pubkey)
         .expect("escrow output");
-    let marker = marker_output_utxo(taker_address);
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
     let spend = SppProofInputUtxo::new(input_utxo, &maker);
@@ -474,20 +473,21 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let escrow_output_hash = escrow.hash().expect("escrow output hash");
     let change_slot = ConfidentialSlot::new(change, &assets).expect("change slot");
     let escrow_slot = ConfidentialSlot::new(escrow, &assets).expect("escrow slot");
-    let marker_slot = MarkerEncrypt {
-        marker,
+    let marker_message = OrderMarker {
         escrow_utxo_hash: escrow_output_hash,
-        payer: payer.pubkey(),
+        maker_pubkey: payer.pubkey(),
+        taker_address,
     }
-    .encrypt()
-    .expect("marker slot");
+    .message()
+    .expect("marker message");
 
     let spp_proof_inputs = SlotTransact {
         input_utxos,
         payer: payer_address,
         expiry_unix_ts: u64::MAX,
+        messages: vec![marker_message],
     }
-    .sign(&[&change_slot, &escrow_slot, &marker_slot], &maker)
+    .sign(&[&change_slot, &escrow_slot], &maker)
     .expect("escrow create sign");
 
     let commitments = spp_proof_inputs
@@ -640,6 +640,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         input_utxos: vec![escrow_input, taker_spend],
         payer: payer_address,
         expiry_unix_ts: escrow.terms.expiry,
+        messages: vec![],
     };
     let assets = AssetRegistry::default();
     let spp_proof_inputs = EscrowFill {
@@ -779,6 +780,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         input_utxos: vec![escrow_input, taker_spend],
         payer: payer_address,
         expiry_unix_ts: escrow.terms.expiry,
+        messages: vec![],
     };
     let assets = AssetRegistry::default();
     let spp_proof_inputs = EscrowFillVerifiableEncryption {
@@ -914,6 +916,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         input_utxos: vec![escrow_input],
         payer: payer_address,
         expiry_unix_ts: SPP_RELAYER_DEADLINE,
+        messages: vec![],
     };
     let assets = AssetRegistry::default();
     let spp_proof_inputs = EscrowCancel {

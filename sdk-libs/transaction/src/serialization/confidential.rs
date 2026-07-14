@@ -12,7 +12,7 @@ use crate::{
     utxo::{derive_blinding, resolve_zone_program_id, Utxo},
     AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SOL_MINT,
 };
-
+// TODO: remove this file and use confidential_unified.rs instead.
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferRecipientPlaintext {
     pub asset_id: u64,

@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::OutputDataEncoding;
+use zolana_event::{OutputData, OutputDataEncoding};
 use zolana_keypair::{hash::poseidon, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;
@@ -198,6 +198,7 @@ pub struct ShieldedTransaction {
     pub tx_viewing_pk: Option<P256Pubkey>,
     pub salt: Option<[u8; 16]>,
     pub output_slots: Vec<OutputSlot>,
+    pub messages: Vec<OutputData>,
     pub nullifiers: Vec<[u8; 32]>,
     pub proofless: bool,
 }

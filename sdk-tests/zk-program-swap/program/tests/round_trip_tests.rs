@@ -95,8 +95,6 @@ fn create_inputs() -> CreateProofInputs {
     source_input_hash[31] = 5;
     let mut change_blinding = [0u8; 32];
     change_blinding[31] = 6;
-    let mut marker_owner_hash = [0u8; 32];
-    marker_owner_hash[31] = 9;
     let mut external_data_hash = [0u8; 32];
     external_data_hash[31] = 8;
 
@@ -116,7 +114,6 @@ fn create_inputs() -> CreateProofInputs {
         source_input_hash,
         change_amount: 750,
         change_blinding,
-        marker_owner_hash,
     }
 }
 

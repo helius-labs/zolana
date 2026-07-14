@@ -188,6 +188,7 @@ pub fn build_transfer(
         tx_viewing_pk: Some(tx_viewing_pk),
         salt: Some(salt),
         output_slots,
+        messages: Vec::new(),
         nullifiers: vec![spec.first_nullifier],
         proofless: false,
     };
@@ -310,6 +311,7 @@ pub fn build_unified_transfer(
         tx_viewing_pk: Some(tx_viewing_pk),
         salt: Some(salt),
         output_slots,
+        messages: Vec::new(),
         nullifiers: vec![spec.first_nullifier],
         proofless: false,
     };

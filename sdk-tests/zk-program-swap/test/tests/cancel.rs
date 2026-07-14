@@ -10,9 +10,9 @@ use swap_sdk::{
     discover::discover_own_orders,
     instructions::{
         cancel::{Cancel, CancelProofInputParams, EscrowCancel},
-        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, MarkerEncrypt},
+        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker},
     },
-    order::{marker_output_utxo, OrderTerms, OrderUtxo, SOL_ASSET_ID},
+    order::{OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};
@@ -84,7 +84,6 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             destination_asset_id: SOL_ASSET_ID,
         };
         let escrow_output_utxo = escrow.output_utxo(taker_address.viewing_pubkey)?;
-        let marker_output_utxo = marker_output_utxo(taker_address);
 
         let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
         let create_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
@@ -109,19 +108,20 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("escrow output hash: {e:?}"))?;
         let change_slot = ConfidentialSlot::new(change, &maker.registry)?;
         let escrow_slot = ConfidentialSlot::new(escrow_output_utxo, &maker.registry)?;
-        let marker_slot = MarkerEncrypt {
-            marker: marker_output_utxo,
+        let marker_message = OrderMarker {
             escrow_utxo_hash,
-            payer: maker_address.solana_address()?,
+            maker_pubkey: maker_address.solana_address()?,
+            taker_address,
         }
-        .encrypt()?;
+        .message()?;
 
         let spp_proof_inputs = SlotTransact {
             input_utxos,
             payer: maker_address.solana_address()?,
             expiry_unix_ts: u64::MAX,
+            messages: vec![marker_message],
         }
-        .sign(&[&change_slot, &escrow_slot, &marker_slot], &maker.keypair)
+        .sign(&[&change_slot, &escrow_slot], &maker.keypair)
         .map_err(|e| anyhow!("escrow create sign: {e:?}"))?;
 
         let spp_proof = indexer
@@ -208,6 +208,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             input_utxos: vec![escrow_input],
             payer: maker_address.solana_address()?,
             expiry_unix_ts: SPP_RELAYER_DEADLINE,
+            messages: vec![],
         };
 
         let cancel_spp_proof_inputs = EscrowCancel {

@@ -523,7 +523,7 @@ publish-spp-keys-release:
 build-photon:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo build --manifest-path ../photon/Cargo.toml --target-dir target/photon-build --bin photon
+    cargo build --manifest-path ../photon-privacy/Cargo.toml --target-dir target/photon-build --bin photon
     mkdir -p "$(dirname "{{photon-bin}}")"
     cp target/photon-build/debug/photon "{{photon-bin}}"
 

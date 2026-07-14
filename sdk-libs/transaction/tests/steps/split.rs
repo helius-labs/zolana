@@ -68,6 +68,7 @@ fn build_split_tx(
             },
             payload: ciphertext.data,
         }],
+        messages: Vec::new(),
         nullifiers: vec![first_nullifier],
         proofless: false,
     }

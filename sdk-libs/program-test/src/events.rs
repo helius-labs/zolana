@@ -40,6 +40,7 @@ impl DepositOutput {
                 },
                 payload: zolana_event::encode_output_data(self.output.clone()),
             }],
+            messages: Vec::new(),
             nullifiers: Vec::new(),
             proofless: true,
         }

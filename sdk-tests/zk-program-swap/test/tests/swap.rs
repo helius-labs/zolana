@@ -9,21 +9,17 @@ use shared::{
 use swap_sdk::{
     discover::discover_orders,
     instructions::{
-        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, MarkerEncrypt},
+        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker},
         fill::{Fill, FillProofInputParams},
     },
-    order::{marker_output_utxo, OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
+    order::{OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};
-use zolana_interface::instruction::instruction_data::transact::TransactOutput;
-use zolana_keypair::{hash::sha256_be, random_blinding, random_salt};
+use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::{
-        transact::{
-            first_nullifier, signed_to_field, ConfidentialSlot, EncodeOutputSlot, ExternalData,
-            OutputUtxo, PublicAmounts, Shape, SlotCx, SppProofInputs,
-        },
+        transact::{ConfidentialSlot, OutputUtxo, Shape, SlotTransact},
         types::SppProofInputUtxo,
     },
     SOL_MINT,
@@ -95,7 +91,6 @@ fn create_and_fill_swap_inline() -> Result<()> {
             destination_asset_id: SOL_ASSET_ID,
         };
         let escrow_output_utxo = escrow.output_utxo(taker_address.viewing_pubkey)?;
-        let marker_output_utxo = marker_output_utxo(taker_address);
 
         let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
 
@@ -114,15 +109,9 @@ fn create_and_fill_swap_inline() -> Result<()> {
                 &create_spend.zone_data_hash.unwrap_or([0u8; 32]),
             )
             .map_err(|e| anyhow!("source input hash: {e:?}"))?;
-        let first_nullifier = create_spend
-            .nullifier_key
-            .nullifier(&source_input_hash, &create_spend.utxo.blinding)
-            .map_err(|e| anyhow!("first nullifier: {e:?}"))?;
         let inputs = vec![create_spend, SppProofInputUtxo::new_dummy()];
 
         // 3. create output utxos.
-        let payer_pubkey_hash = sha256_be(maker_address.solana_address()?.as_array());
-
         let escrow_asset = escrow_output_utxo.asset;
 
         let leftover = input_sum(&inputs, &escrow_asset) - i128::from(escrow_output_utxo.amount);
@@ -137,80 +126,34 @@ fn create_and_fill_swap_inline() -> Result<()> {
             ..Default::default()
         };
 
-        let escrow_utxo_hash = escrow_output_utxo // Do we hash this twice?
+        let escrow_utxo_hash = escrow_output_utxo
             .hash()
             .map_err(|e| anyhow!("escrow output hash: {e:?}"))?;
 
         // 4. Encrypt output utxos.
         let change_slot = ConfidentialSlot::new(change, &maker.registry)?;
         let escrow_slot = ConfidentialSlot::new(escrow_output_utxo, &maker.registry)?;
-        let marker_slot = MarkerEncrypt {
-            marker: marker_output_utxo,
+        let marker_message = OrderMarker {
             escrow_utxo_hash,
+            maker_pubkey: maker_address.solana_address()?,
+            taker_address,
+        }
+        .message()?;
+
+        let spp_proof_inputs = SlotTransact {
+            input_utxos: inputs,
             payer: maker_address.solana_address()?,
+            expiry_unix_ts: u64::MAX,
+            messages: vec![marker_message],
         }
-        .encrypt()?;
+        .sign(&[&change_slot, &escrow_slot], &maker.keypair)
+        .map_err(|e| anyhow!("create sign: {e:?}"))?;
+        assert_eq!(spp_proof_inputs.shape, Shape::new(2, 2));
 
-        let tx_viewing_key = maker
-            .keypair
-            .get_transaction_viewing_key(&first_nullifier)?;
-
-        let salt = random_salt();
-        let self_pubkey = maker.keypair.viewing_pubkey();
-        // TODO: marker_slot should be in the msg and not a have a utxo hash at all we refactored the instruction data to allow for that
-        // TODO: can we write a helper function that encodes outputs and wraps the loop below after implementing the todo above?
-        let slots: [&dyn EncodeOutputSlot; 3] = [&change_slot, &escrow_slot, &marker_slot];
-        let mut outputs = Vec::with_capacity(slots.len());
-        let mut transact_outputs = Vec::with_capacity(slots.len());
-        let mut resolved_owner_tags = Vec::with_capacity(slots.len());
-        let mut ordinal = 0u32;
-        for slot in slots.iter() {
-            let encoded = slot.encode_slot(&SlotCx {
-                tx: &tx_viewing_key,
-                self_pubkey,
-                salt,
-                slot_index: ordinal,
-            })?;
-            let output = slot.output().clone();
-            let utxo_hash = output.hash()?;
-            if encoded.data.is_some() {
-                ordinal += 1;
-            }
-            transact_outputs.push(TransactOutput {
-                utxo_hash,
-                owner_tag: encoded.owner_tag,
-                data: encoded.data,
-            });
-            resolved_owner_tags.push(encoded.resolved_owner_tag);
-            outputs.push(output);
-        }
-        // 5. create external data hash
-        let external_data = ExternalData::new(
-            *tx_viewing_key.pubkey().as_bytes(),
-            salt,
-            transact_outputs,
-            resolved_owner_tags,
-            vec![],
-            u64::MAX,
-        );
-        let external_data_hash = external_data
+        let external_data_hash = spp_proof_inputs
+            .external_data
             .hash()
             .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
-
-        // 6. Assemble Spp proof inputs.
-        let spp_proof_inputs = SppProofInputs {
-            input_utxos: inputs,
-            output_utxos: outputs,
-            public_amounts: PublicAmounts {
-                sol: signed_to_field(0),
-                spl: signed_to_field(0),
-                asset: [0u8; 32],
-            },
-            external_data,
-            payer_pubkey_hash,
-            shape: Shape::new(2, 3),
-            p256_signature: None,
-        };
         // 7. create spp proof.
         let spp_proof = indexer
             .prove_transact(tree, spp_proof_inputs)
@@ -283,70 +226,24 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair);
 
         let inputs = vec![escrow_input, taker_spend];
-        let fill_first_nullifier =
-            first_nullifier(&inputs).map_err(|e| anyhow!("fill first nullifier: {e:?}"))?;
-        let payer_pubkey_hash = sha256_be(taker_address.solana_address()?.as_array());
 
         let source_slot = ConfidentialSlot::new(source_output, &taker.registry)?;
         let destination_slot = ConfidentialSlot::new(destination_output, &taker.registry)?;
 
-        let tx_viewing_key = taker
-            .keypair
-            .get_transaction_viewing_key(&fill_first_nullifier)?;
-        let salt = random_salt();
-        let self_pubkey = taker.keypair.viewing_pubkey();
-
-        let slots: [&dyn EncodeOutputSlot; 2] = [&source_slot, &destination_slot];
-        let mut outputs = Vec::with_capacity(slots.len());
-        let mut transact_outputs = Vec::with_capacity(slots.len());
-        let mut resolved_owner_tags = Vec::with_capacity(slots.len());
-        let mut ordinal = 0u32;
-        for slot in slots.iter() {
-            let encoded = slot.encode_slot(&SlotCx {
-                tx: &tx_viewing_key,
-                self_pubkey,
-                salt,
-                slot_index: ordinal,
-            })?;
-            let output = slot.output().clone();
-            let utxo_hash = output.hash()?;
-            if encoded.data.is_some() {
-                ordinal += 1;
-            }
-            transact_outputs.push(TransactOutput {
-                utxo_hash,
-                owner_tag: encoded.owner_tag,
-                data: encoded.data,
-            });
-            resolved_owner_tags.push(encoded.resolved_owner_tag);
-            outputs.push(output);
+        let fill_spp_proof_inputs = SlotTransact {
+            input_utxos: inputs,
+            payer: taker_address.solana_address()?,
+            expiry_unix_ts: terms.expiry,
+            messages: vec![],
         }
+        .sign(&[&source_slot, &destination_slot], &taker.keypair)
+        .map_err(|e| anyhow!("fill sign: {e:?}"))?;
+        assert_eq!(fill_spp_proof_inputs.shape, Shape::new(2, 2));
 
-        let external_data = ExternalData::new(
-            *tx_viewing_key.pubkey().as_bytes(),
-            salt,
-            transact_outputs,
-            resolved_owner_tags,
-            vec![],
-            terms.expiry,
-        );
-        let fill_external_data_hash = external_data
+        let fill_external_data_hash = fill_spp_proof_inputs
+            .external_data
             .hash()
             .map_err(|e| anyhow!("fill external data hash: {e:?}"))?;
-
-        let fill_spp_proof_inputs = SppProofInputs {
-            input_utxos: inputs,
-            output_utxos: outputs,
-            public_amounts: PublicAmounts {
-                sol: signed_to_field(0), // TODO: impl default with signed_to_field(0) as constant values
-                spl: signed_to_field(0),
-                asset: [0u8; 32],
-            },
-            external_data,
-            payer_pubkey_hash,
-            shape: Shape::new(2, 2),
-            p256_signature: None,
-        };
 
         let fill_inputs = FillProofInputParams {
             external_data_hash: fill_external_data_hash,

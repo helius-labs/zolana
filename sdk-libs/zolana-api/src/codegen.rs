@@ -45,9 +45,6 @@ pub mod types {
     ///{
     ///  "description": "A base 64 encoded string.",
     ///  "default": "SGVsbG8sIFdvcmxkIQ==",
-    ///  "examples": [
-    ///    "SGVsbG8sIFdvcmxkIQ=="
-    ///  ],
     ///  "type": "string"
     ///}
     /// ```
@@ -105,9 +102,6 @@ pub mod types {
     ///  "properties": {
     ///    "slot": {
     ///      "default": 100,
-    ///      "examples": [
-    ///        100
-    ///      ],
     ///      "type": "integer",
     ///      "format": "uint64"
     ///    }
@@ -138,7 +132,7 @@ pub mod types {
     ///  ],
     ///  "properties": {
     ///    "output_slot": {
-    ///      "$ref": "#/components/schemas/ZolanaOutputSlot"
+    ///      "$ref": "#/components/schemas/RingsOutputSlot"
     ///    },
     ///    "salt": {
     ///      "$ref": "#/components/schemas/Base64String"
@@ -162,7 +156,7 @@ pub mod types {
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(deny_unknown_fields)]
     pub struct EncryptedUtxoMatch {
-        pub output_slot: ZolanaOutputSlot,
+        pub output_slot: RingsOutputSlot,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub salt: ::std::option::Option<Base64String>,
         pub slot: u64,
@@ -182,9 +176,6 @@ pub mod types {
     /// ```json
     ///{
     ///  "description": "A 32-byte hash represented as a base58 string.",
-    ///  "examples": [
-    ///    "11111112cMQwSC9qirWGjZM6gLGwW69X22mqwLLGP"
-    ///  ],
     ///  "type": "string"
     ///}
     /// ```
@@ -237,43 +228,44 @@ pub mod types {
     ///{
     ///  "type": "integer",
     ///  "format": "uint64",
-    ///  "minimum": 0.0
+    ///  "maximum": 1000.0,
+    ///  "minimum": 1.0
     ///}
     /// ```
     /// </details>
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
-    pub struct Limit(pub u64);
+    pub struct Limit(pub ::std::num::NonZeroU64);
     impl ::std::ops::Deref for Limit {
-        type Target = u64;
-        fn deref(&self) -> &u64 {
+        type Target = ::std::num::NonZeroU64;
+        fn deref(&self) -> &::std::num::NonZeroU64 {
             &self.0
         }
     }
-    impl ::std::convert::From<Limit> for u64 {
+    impl ::std::convert::From<Limit> for ::std::num::NonZeroU64 {
         fn from(value: Limit) -> Self {
             value.0
         }
     }
-    impl ::std::convert::From<u64> for Limit {
-        fn from(value: u64) -> Self {
+    impl ::std::convert::From<::std::num::NonZeroU64> for Limit {
+        fn from(value: ::std::num::NonZeroU64) -> Self {
             Self(value)
         }
     }
     impl ::std::str::FromStr for Limit {
-        type Err = <u64 as ::std::str::FromStr>::Err;
+        type Err = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
         fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
             Ok(Self(value.parse()?))
         }
     }
     impl ::std::convert::TryFrom<&str> for Limit {
-        type Error = <u64 as ::std::str::FromStr>::Err;
+        type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
         fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
             value.parse()
         }
     }
     impl ::std::convert::TryFrom<String> for Limit {
-        type Error = <u64 as ::std::str::FromStr>::Err;
+        type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
         fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
             value.parse()
         }
@@ -514,32 +506,10 @@ pub mod types {
     ///      ],
     ///      "properties": {
     ///        "cursor": {
-    ///          "oneOf": [
-    ///            {
-    ///              "type": "null"
-    ///            },
-    ///            {
-    ///              "allOf": [
-    ///                {
-    ///                  "$ref": "#/components/schemas/Base64String"
-    ///                }
-    ///              ]
-    ///            }
-    ///          ]
+    ///          "$ref": "#/components/schemas/Base64String"
     ///        },
     ///        "limit": {
-    ///          "oneOf": [
-    ///            {
-    ///              "type": "null"
-    ///            },
-    ///            {
-    ///              "allOf": [
-    ///                {
-    ///                  "$ref": "#/components/schemas/Limit"
-    ///                }
-    ///              ]
-    ///            }
-    ///          ]
+    ///          "$ref": "#/components/schemas/Limit"
     ///        },
     ///        "tags": {
     ///          "type": "array",
@@ -805,32 +775,10 @@ pub mod types {
     ///  ],
     ///  "properties": {
     ///    "cursor": {
-    ///      "oneOf": [
-    ///        {
-    ///          "type": "null"
-    ///        },
-    ///        {
-    ///          "allOf": [
-    ///            {
-    ///              "$ref": "#/components/schemas/Base64String"
-    ///            }
-    ///          ]
-    ///        }
-    ///      ]
+    ///      "$ref": "#/components/schemas/Base64String"
     ///    },
     ///    "limit": {
-    ///      "oneOf": [
-    ///        {
-    ///          "type": "null"
-    ///        },
-    ///        {
-    ///          "allOf": [
-    ///            {
-    ///              "$ref": "#/components/schemas/Limit"
-    ///            }
-    ///          ]
-    ///        }
-    ///      ]
+    ///      "$ref": "#/components/schemas/Limit"
     ///    },
     ///    "tags": {
     ///      "type": "array",
@@ -905,6 +853,7 @@ pub mod types {
     ///          "$ref": "#/components/schemas/Context"
     ///        },
     ///        "matches": {
+    ///          "description": "Output-level matches; every returned output slot has a view tag from the request.",
     ///          "type": "array",
     ///          "items": {
     ///            "$ref": "#/components/schemas/EncryptedUtxoMatch"
@@ -1138,6 +1087,7 @@ pub mod types {
     ///      "$ref": "#/components/schemas/Context"
     ///    },
     ///    "matches": {
+    ///      "description": "Output-level matches; every returned output slot has a view tag from the request.",
     ///      "type": "array",
     ///      "items": {
     ///        "$ref": "#/components/schemas/EncryptedUtxoMatch"
@@ -1155,6 +1105,7 @@ pub mod types {
     #[serde(deny_unknown_fields)]
     pub struct PostGetEncryptedUtxosByTagsResponseResult {
         pub context: Context,
+        ///Output-level matches; every returned output slot has a view tag from the request.
         pub matches: ::std::vec::Vec<EncryptedUtxoMatch>,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub next_cursor: ::std::option::Option<Base64String>,
@@ -2466,32 +2417,10 @@ pub mod types {
     ///      ],
     ///      "properties": {
     ///        "cursor": {
-    ///          "oneOf": [
-    ///            {
-    ///              "type": "null"
-    ///            },
-    ///            {
-    ///              "allOf": [
-    ///                {
-    ///                  "$ref": "#/components/schemas/Base64String"
-    ///                }
-    ///              ]
-    ///            }
-    ///          ]
+    ///          "$ref": "#/components/schemas/Base64String"
     ///        },
     ///        "limit": {
-    ///          "oneOf": [
-    ///            {
-    ///              "type": "null"
-    ///            },
-    ///            {
-    ///              "allOf": [
-    ///                {
-    ///                  "$ref": "#/components/schemas/Limit"
-    ///                }
-    ///              ]
-    ///            }
-    ///          ]
+    ///          "$ref": "#/components/schemas/Limit"
     ///        },
     ///        "tags": {
     ///          "type": "array",
@@ -2759,32 +2688,10 @@ pub mod types {
     ///  ],
     ///  "properties": {
     ///    "cursor": {
-    ///      "oneOf": [
-    ///        {
-    ///          "type": "null"
-    ///        },
-    ///        {
-    ///          "allOf": [
-    ///            {
-    ///              "$ref": "#/components/schemas/Base64String"
-    ///            }
-    ///          ]
-    ///        }
-    ///      ]
+    ///      "$ref": "#/components/schemas/Base64String"
     ///    },
     ///    "limit": {
-    ///      "oneOf": [
-    ///        {
-    ///          "type": "null"
-    ///        },
-    ///        {
-    ///          "allOf": [
-    ///            {
-    ///              "$ref": "#/components/schemas/Limit"
-    ///            }
-    ///          ]
-    ///        }
-    ///      ]
+    ///      "$ref": "#/components/schemas/Limit"
     ///    },
     ///    "tags": {
     ///      "type": "array",
@@ -2862,6 +2769,7 @@ pub mod types {
     ///          "$ref": "#/components/schemas/Base64String"
     ///        },
     ///        "transactions": {
+    ///          "description": "Transaction-level matches; each returned transaction has at least one requested\noutput view tag and includes all of its output slots.",
     ///          "type": "array",
     ///          "items": {
     ///            "$ref": "#/components/schemas/ShieldedTransaction"
@@ -3098,6 +3006,7 @@ pub mod types {
     ///      "$ref": "#/components/schemas/Base64String"
     ///    },
     ///    "transactions": {
+    ///      "description": "Transaction-level matches; each returned transaction has at least one requested\noutput view tag and includes all of its output slots.",
     ///      "type": "array",
     ///      "items": {
     ///        "$ref": "#/components/schemas/ShieldedTransaction"
@@ -3114,10 +3023,126 @@ pub mod types {
         pub context: Context,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub next_cursor: ::std::option::Option<Base64String>,
+        /**Transaction-level matches; each returned transaction has at least one requested
+output view tag and includes all of its output slots.*/
         pub transactions: ::std::vec::Vec<ShieldedTransaction>,
     }
     impl PostGetShieldedTransactionsByTagsResponseResult {
         pub fn builder() -> builder::PostGetShieldedTransactionsByTagsResponseResult {
+            Default::default()
+        }
+    }
+    ///`RingsMessage`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "required": [
+    ///    "payload",
+    ///    "view_tag"
+    ///  ],
+    ///  "properties": {
+    ///    "payload": {
+    ///      "$ref": "#/components/schemas/Base64String"
+    ///    },
+    ///    "view_tag": {
+    ///      "$ref": "#/components/schemas/Hash"
+    ///    }
+    ///  },
+    ///  "additionalProperties": false
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(deny_unknown_fields)]
+    pub struct RingsMessage {
+        pub payload: Base64String,
+        pub view_tag: Hash,
+    }
+    impl RingsMessage {
+        pub fn builder() -> builder::RingsMessage {
+            Default::default()
+        }
+    }
+    ///`RingsOutputContext`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "required": [
+    ///    "hash",
+    ///    "leaf_index",
+    ///    "tree"
+    ///  ],
+    ///  "properties": {
+    ///    "hash": {
+    ///      "$ref": "#/components/schemas/Hash"
+    ///    },
+    ///    "leaf_index": {
+    ///      "type": "integer",
+    ///      "format": "uint64",
+    ///      "minimum": 0.0
+    ///    },
+    ///    "tree": {
+    ///      "$ref": "#/components/schemas/SerializablePubkey"
+    ///    }
+    ///  },
+    ///  "additionalProperties": false
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(deny_unknown_fields)]
+    pub struct RingsOutputContext {
+        pub hash: Hash,
+        pub leaf_index: u64,
+        pub tree: SerializablePubkey,
+    }
+    impl RingsOutputContext {
+        pub fn builder() -> builder::RingsOutputContext {
+            Default::default()
+        }
+    }
+    ///`RingsOutputSlot`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "required": [
+    ///    "output_context",
+    ///    "payload",
+    ///    "view_tag"
+    ///  ],
+    ///  "properties": {
+    ///    "output_context": {
+    ///      "$ref": "#/components/schemas/RingsOutputContext"
+    ///    },
+    ///    "payload": {
+    ///      "$ref": "#/components/schemas/Base64String"
+    ///    },
+    ///    "view_tag": {
+    ///      "$ref": "#/components/schemas/Hash"
+    ///    }
+    ///  },
+    ///  "additionalProperties": false
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(deny_unknown_fields)]
+    pub struct RingsOutputSlot {
+        pub output_context: RingsOutputContext,
+        pub payload: Base64String,
+        pub view_tag: Hash,
+    }
+    impl RingsOutputSlot {
+        pub fn builder() -> builder::RingsOutputSlot {
             Default::default()
         }
     }
@@ -3128,10 +3153,7 @@ pub mod types {
     /// ```json
     ///{
     ///  "description": "A Solana public key represented as a base58 string.",
-    ///  "default": "11157t3sqMV725NVRLrVQbAu98Jjfk1uCKehJnXXQs",
-    ///  "examples": [
-    ///    "11157t3sqMV725NVRLrVQbAu98Jjfk1uCKehJnXXQs"
-    ///  ],
+    ///  "default": "111fcLTw6cc4kfAF9UhCriFQVbAMbL5WGR2Fn9G5eR",
     ///  "type": "string"
     ///}
     /// ```
@@ -3184,9 +3206,6 @@ pub mod types {
     ///{
     ///  "description": "A Solana transaction signature.",
     ///  "default": "5J8H5sTvEhnGcB4R8K1n7mfoiWUD9RzPVGES7e3WxC7c",
-    ///  "examples": [
-    ///    "5J8H5sTvEhnGcB4R8K1n7mfoiWUD9RzPVGES7e3WxC7c"
-    ///  ],
     ///  "type": "string"
     ///}
     /// ```
@@ -3239,6 +3258,7 @@ pub mod types {
     ///{
     ///  "type": "object",
     ///  "required": [
+    ///    "messages",
     ///    "nullifiers",
     ///    "output_slots",
     ///    "proofless",
@@ -3246,6 +3266,13 @@ pub mod types {
     ///    "tx_signature"
     ///  ],
     ///  "properties": {
+    ///    "messages": {
+    ///      "description": "Published data slots bound to no output commitment, republished verbatim.",
+    ///      "type": "array",
+    ///      "items": {
+    ///        "$ref": "#/components/schemas/RingsMessage"
+    ///      }
+    ///    },
     ///    "nullifiers": {
     ///      "type": "array",
     ///      "items": {
@@ -3255,10 +3282,11 @@ pub mod types {
     ///    "output_slots": {
     ///      "type": "array",
     ///      "items": {
-    ///        "$ref": "#/components/schemas/ZolanaOutputSlot"
+    ///        "$ref": "#/components/schemas/RingsOutputSlot"
     ///      }
     ///    },
     ///    "proofless": {
+    ///      "description": "True when at least one output in this transaction is proofless.",
     ///      "type": "boolean"
     ///    },
     ///    "salt": {
@@ -3283,8 +3311,11 @@ pub mod types {
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(deny_unknown_fields)]
     pub struct ShieldedTransaction {
+        ///Published data slots bound to no output commitment, republished verbatim.
+        pub messages: ::std::vec::Vec<RingsMessage>,
         pub nullifiers: ::std::vec::Vec<Hash>,
-        pub output_slots: ::std::vec::Vec<ZolanaOutputSlot>,
+        pub output_slots: ::std::vec::Vec<RingsOutputSlot>,
+        ///True when at least one output in this transaction is proofless.
         pub proofless: bool,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub salt: ::std::option::Option<Base64String>,
@@ -3295,86 +3326,6 @@ pub mod types {
     }
     impl ShieldedTransaction {
         pub fn builder() -> builder::ShieldedTransaction {
-            Default::default()
-        }
-    }
-    ///`ZolanaOutputContext`
-    ///
-    /// <details><summary>JSON schema</summary>
-    ///
-    /// ```json
-    ///{
-    ///  "type": "object",
-    ///  "required": [
-    ///    "hash",
-    ///    "leaf_index",
-    ///    "tree"
-    ///  ],
-    ///  "properties": {
-    ///    "hash": {
-    ///      "$ref": "#/components/schemas/Hash"
-    ///    },
-    ///    "leaf_index": {
-    ///      "type": "integer",
-    ///      "format": "uint64",
-    ///      "minimum": 0.0
-    ///    },
-    ///    "tree": {
-    ///      "$ref": "#/components/schemas/SerializablePubkey"
-    ///    }
-    ///  },
-    ///  "additionalProperties": false
-    ///}
-    /// ```
-    /// </details>
-    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-    #[serde(deny_unknown_fields)]
-    pub struct ZolanaOutputContext {
-        pub hash: Hash,
-        pub leaf_index: u64,
-        pub tree: SerializablePubkey,
-    }
-    impl ZolanaOutputContext {
-        pub fn builder() -> builder::ZolanaOutputContext {
-            Default::default()
-        }
-    }
-    ///`ZolanaOutputSlot`
-    ///
-    /// <details><summary>JSON schema</summary>
-    ///
-    /// ```json
-    ///{
-    ///  "type": "object",
-    ///  "required": [
-    ///    "output_context",
-    ///    "payload",
-    ///    "view_tag"
-    ///  ],
-    ///  "properties": {
-    ///    "output_context": {
-    ///      "$ref": "#/components/schemas/ZolanaOutputContext"
-    ///    },
-    ///    "payload": {
-    ///      "$ref": "#/components/schemas/Base64String"
-    ///    },
-    ///    "view_tag": {
-    ///      "$ref": "#/components/schemas/Hash"
-    ///    }
-    ///  },
-    ///  "additionalProperties": false
-    ///}
-    /// ```
-    /// </details>
-    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-    #[serde(deny_unknown_fields)]
-    pub struct ZolanaOutputSlot {
-        pub output_context: ZolanaOutputContext,
-        pub payload: Base64String,
-        pub view_tag: Hash,
-    }
-    impl ZolanaOutputSlot {
-        pub fn builder() -> builder::ZolanaOutputSlot {
             Default::default()
         }
     }
@@ -3421,7 +3372,7 @@ pub mod types {
         #[derive(Clone, Debug)]
         pub struct EncryptedUtxoMatch {
             output_slot: ::std::result::Result<
-                super::ZolanaOutputSlot,
+                super::RingsOutputSlot,
                 ::std::string::String,
             >,
             salt: ::std::result::Result<
@@ -3452,7 +3403,7 @@ pub mod types {
         impl EncryptedUtxoMatch {
             pub fn output_slot<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<super::ZolanaOutputSlot>,
+                T: ::std::convert::TryInto<super::RingsOutputSlot>,
                 T::Error: ::std::fmt::Display,
             {
                 self.output_slot = value
@@ -5673,13 +5624,233 @@ pub mod types {
             }
         }
         #[derive(Clone, Debug)]
+        pub struct RingsMessage {
+            payload: ::std::result::Result<super::Base64String, ::std::string::String>,
+            view_tag: ::std::result::Result<super::Hash, ::std::string::String>,
+        }
+        impl ::std::default::Default for RingsMessage {
+            fn default() -> Self {
+                Self {
+                    payload: Err("no value supplied for payload".to_string()),
+                    view_tag: Err("no value supplied for view_tag".to_string()),
+                }
+            }
+        }
+        impl RingsMessage {
+            pub fn payload<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Base64String>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.payload = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for payload: {e}")
+                    });
+                self
+            }
+            pub fn view_tag<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Hash>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.view_tag = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for view_tag: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<RingsMessage> for super::RingsMessage {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: RingsMessage,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    payload: value.payload?,
+                    view_tag: value.view_tag?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::RingsMessage> for RingsMessage {
+            fn from(value: super::RingsMessage) -> Self {
+                Self {
+                    payload: Ok(value.payload),
+                    view_tag: Ok(value.view_tag),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
+        pub struct RingsOutputContext {
+            hash: ::std::result::Result<super::Hash, ::std::string::String>,
+            leaf_index: ::std::result::Result<u64, ::std::string::String>,
+            tree: ::std::result::Result<
+                super::SerializablePubkey,
+                ::std::string::String,
+            >,
+        }
+        impl ::std::default::Default for RingsOutputContext {
+            fn default() -> Self {
+                Self {
+                    hash: Err("no value supplied for hash".to_string()),
+                    leaf_index: Err("no value supplied for leaf_index".to_string()),
+                    tree: Err("no value supplied for tree".to_string()),
+                }
+            }
+        }
+        impl RingsOutputContext {
+            pub fn hash<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Hash>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.hash = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for hash: {e}")
+                    });
+                self
+            }
+            pub fn leaf_index<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<u64>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.leaf_index = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for leaf_index: {e}")
+                    });
+                self
+            }
+            pub fn tree<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::SerializablePubkey>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.tree = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for tree: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<RingsOutputContext> for super::RingsOutputContext {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: RingsOutputContext,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    hash: value.hash?,
+                    leaf_index: value.leaf_index?,
+                    tree: value.tree?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::RingsOutputContext> for RingsOutputContext {
+            fn from(value: super::RingsOutputContext) -> Self {
+                Self {
+                    hash: Ok(value.hash),
+                    leaf_index: Ok(value.leaf_index),
+                    tree: Ok(value.tree),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
+        pub struct RingsOutputSlot {
+            output_context: ::std::result::Result<
+                super::RingsOutputContext,
+                ::std::string::String,
+            >,
+            payload: ::std::result::Result<super::Base64String, ::std::string::String>,
+            view_tag: ::std::result::Result<super::Hash, ::std::string::String>,
+        }
+        impl ::std::default::Default for RingsOutputSlot {
+            fn default() -> Self {
+                Self {
+                    output_context: Err(
+                        "no value supplied for output_context".to_string(),
+                    ),
+                    payload: Err("no value supplied for payload".to_string()),
+                    view_tag: Err("no value supplied for view_tag".to_string()),
+                }
+            }
+        }
+        impl RingsOutputSlot {
+            pub fn output_context<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::RingsOutputContext>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.output_context = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!(
+                            "error converting supplied value for output_context: {e}"
+                        )
+                    });
+                self
+            }
+            pub fn payload<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Base64String>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.payload = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for payload: {e}")
+                    });
+                self
+            }
+            pub fn view_tag<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Hash>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.view_tag = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for view_tag: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<RingsOutputSlot> for super::RingsOutputSlot {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: RingsOutputSlot,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    output_context: value.output_context?,
+                    payload: value.payload?,
+                    view_tag: value.view_tag?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::RingsOutputSlot> for RingsOutputSlot {
+            fn from(value: super::RingsOutputSlot) -> Self {
+                Self {
+                    output_context: Ok(value.output_context),
+                    payload: Ok(value.payload),
+                    view_tag: Ok(value.view_tag),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
         pub struct ShieldedTransaction {
+            messages: ::std::result::Result<
+                ::std::vec::Vec<super::RingsMessage>,
+                ::std::string::String,
+            >,
             nullifiers: ::std::result::Result<
                 ::std::vec::Vec<super::Hash>,
                 ::std::string::String,
             >,
             output_slots: ::std::result::Result<
-                ::std::vec::Vec<super::ZolanaOutputSlot>,
+                ::std::vec::Vec<super::RingsOutputSlot>,
                 ::std::string::String,
             >,
             proofless: ::std::result::Result<bool, ::std::string::String>,
@@ -5700,6 +5871,7 @@ pub mod types {
         impl ::std::default::Default for ShieldedTransaction {
             fn default() -> Self {
                 Self {
+                    messages: Err("no value supplied for messages".to_string()),
                     nullifiers: Err("no value supplied for nullifiers".to_string()),
                     output_slots: Err("no value supplied for output_slots".to_string()),
                     proofless: Err("no value supplied for proofless".to_string()),
@@ -5711,6 +5883,18 @@ pub mod types {
             }
         }
         impl ShieldedTransaction {
+            pub fn messages<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<::std::vec::Vec<super::RingsMessage>>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.messages = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for messages: {e}")
+                    });
+                self
+            }
             pub fn nullifiers<T>(mut self, value: T) -> Self
             where
                 T: ::std::convert::TryInto<::std::vec::Vec<super::Hash>>,
@@ -5725,7 +5909,7 @@ pub mod types {
             }
             pub fn output_slots<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<::std::vec::Vec<super::ZolanaOutputSlot>>,
+                T: ::std::convert::TryInto<::std::vec::Vec<super::RingsOutputSlot>>,
                 T::Error: ::std::fmt::Display,
             {
                 self.output_slots = value
@@ -5803,6 +5987,7 @@ pub mod types {
                 value: ShieldedTransaction,
             ) -> ::std::result::Result<Self, super::error::ConversionError> {
                 Ok(Self {
+                    messages: value.messages?,
                     nullifiers: value.nullifiers?,
                     output_slots: value.output_slots?,
                     proofless: value.proofless?,
@@ -5816,6 +6001,7 @@ pub mod types {
         impl ::std::convert::From<super::ShieldedTransaction> for ShieldedTransaction {
             fn from(value: super::ShieldedTransaction) -> Self {
                 Self {
+                    messages: Ok(value.messages),
                     nullifiers: Ok(value.nullifiers),
                     output_slots: Ok(value.output_slots),
                     proofless: Ok(value.proofless),
@@ -5823,165 +6009,6 @@ pub mod types {
                     slot: Ok(value.slot),
                     tx_signature: Ok(value.tx_signature),
                     tx_viewing_pk: Ok(value.tx_viewing_pk),
-                }
-            }
-        }
-        #[derive(Clone, Debug)]
-        pub struct ZolanaOutputContext {
-            hash: ::std::result::Result<super::Hash, ::std::string::String>,
-            leaf_index: ::std::result::Result<u64, ::std::string::String>,
-            tree: ::std::result::Result<
-                super::SerializablePubkey,
-                ::std::string::String,
-            >,
-        }
-        impl ::std::default::Default for ZolanaOutputContext {
-            fn default() -> Self {
-                Self {
-                    hash: Err("no value supplied for hash".to_string()),
-                    leaf_index: Err("no value supplied for leaf_index".to_string()),
-                    tree: Err("no value supplied for tree".to_string()),
-                }
-            }
-        }
-        impl ZolanaOutputContext {
-            pub fn hash<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::Hash>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.hash = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for hash: {e}")
-                    });
-                self
-            }
-            pub fn leaf_index<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<u64>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.leaf_index = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for leaf_index: {e}")
-                    });
-                self
-            }
-            pub fn tree<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::SerializablePubkey>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.tree = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for tree: {e}")
-                    });
-                self
-            }
-        }
-        impl ::std::convert::TryFrom<ZolanaOutputContext>
-        for super::ZolanaOutputContext {
-            type Error = super::error::ConversionError;
-            fn try_from(
-                value: ZolanaOutputContext,
-            ) -> ::std::result::Result<Self, super::error::ConversionError> {
-                Ok(Self {
-                    hash: value.hash?,
-                    leaf_index: value.leaf_index?,
-                    tree: value.tree?,
-                })
-            }
-        }
-        impl ::std::convert::From<super::ZolanaOutputContext> for ZolanaOutputContext {
-            fn from(value: super::ZolanaOutputContext) -> Self {
-                Self {
-                    hash: Ok(value.hash),
-                    leaf_index: Ok(value.leaf_index),
-                    tree: Ok(value.tree),
-                }
-            }
-        }
-        #[derive(Clone, Debug)]
-        pub struct ZolanaOutputSlot {
-            output_context: ::std::result::Result<
-                super::ZolanaOutputContext,
-                ::std::string::String,
-            >,
-            payload: ::std::result::Result<super::Base64String, ::std::string::String>,
-            view_tag: ::std::result::Result<super::Hash, ::std::string::String>,
-        }
-        impl ::std::default::Default for ZolanaOutputSlot {
-            fn default() -> Self {
-                Self {
-                    output_context: Err(
-                        "no value supplied for output_context".to_string(),
-                    ),
-                    payload: Err("no value supplied for payload".to_string()),
-                    view_tag: Err("no value supplied for view_tag".to_string()),
-                }
-            }
-        }
-        impl ZolanaOutputSlot {
-            pub fn output_context<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::ZolanaOutputContext>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.output_context = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!(
-                            "error converting supplied value for output_context: {e}"
-                        )
-                    });
-                self
-            }
-            pub fn payload<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::Base64String>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.payload = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for payload: {e}")
-                    });
-                self
-            }
-            pub fn view_tag<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::Hash>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.view_tag = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for view_tag: {e}")
-                    });
-                self
-            }
-        }
-        impl ::std::convert::TryFrom<ZolanaOutputSlot> for super::ZolanaOutputSlot {
-            type Error = super::error::ConversionError;
-            fn try_from(
-                value: ZolanaOutputSlot,
-            ) -> ::std::result::Result<Self, super::error::ConversionError> {
-                Ok(Self {
-                    output_context: value.output_context?,
-                    payload: value.payload?,
-                    view_tag: value.view_tag?,
-                })
-            }
-        }
-        impl ::std::convert::From<super::ZolanaOutputSlot> for ZolanaOutputSlot {
-            fn from(value: super::ZolanaOutputSlot) -> Self {
-                Self {
-                    output_context: Ok(value.output_context),
-                    payload: Ok(value.payload),
-                    view_tag: Ok(value.view_tag),
                 }
             }
         }

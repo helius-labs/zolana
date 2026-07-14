@@ -67,7 +67,6 @@ pub struct CreateProofInputs {
     pub source_input_hash: [u8; 32],
     pub change_amount: u64,
     pub change_blinding: [u8; 32],
-    pub marker_owner_hash: [u8; 32],
 }
 
 fn poseidon(inputs: &[&[u8; 32]]) -> Result<[u8; 32], CreateError> {
@@ -128,16 +127,6 @@ impl CreateProofInputs {
         ))
     }
 
-    fn marker(&self) -> Result<UtxoFieldElements, CreateError> {
-        Ok(UtxoFieldElements::plain(
-            self.marker_owner_hash,
-            crate::asset_field(&[0u8; 32])?,
-            0,
-            [0u8; 32],
-            [0u8; 32],
-        ))
-    }
-
     fn maker_address_fe(&self) -> Result<[u8; 32], CreateError> {
         crate::order_terms::maker_address_fe(&self.maker_owner_hash, &self.maker_viewing_pk)
             .map_err(|_| CreateError::Poseidon)
@@ -150,14 +139,9 @@ impl CreateProofInputs {
         Ok(self.change()?.hash()?)
     }
 
-    fn private_tx_hash(
-        &self,
-        escrow_utxo_hash: &[u8; 32],
-        marker_hash: &[u8; 32],
-    ) -> Result<[u8; 32], CreateError> {
+    fn private_tx_hash(&self, escrow_utxo_hash: &[u8; 32]) -> Result<[u8; 32], CreateError> {
         let input_chain = hash_chain(&[self.source_input_hash, [0u8; 32]])?;
-        let output_chain =
-            hash_chain(&[self.change_output_hash()?, *escrow_utxo_hash, *marker_hash])?;
+        let output_chain = hash_chain(&[self.change_output_hash()?, *escrow_utxo_hash])?;
         let address_chain = hash_chain(&[[0u8; 32], [0u8; 32]])?;
         poseidon(&[
             &input_chain,
@@ -169,18 +153,14 @@ impl CreateProofInputs {
 
     pub fn public_input_hash(&self) -> Result<[u8; 32], CreateError> {
         let escrow_utxo_hash = self.escrow()?.hash()?;
-        let marker_hash = self.marker()?.hash()?;
-        self.private_tx_hash(&escrow_utxo_hash, &marker_hash)
+        self.private_tx_hash(&escrow_utxo_hash)
     }
 
-    /// The create circuit's sole public input is the private_tx_hash itself.
     fn witness(&self) -> Result<(ffi::WitnessMap, [u8; 32]), CreateError> {
         let escrow = self.escrow()?;
         let change = self.change()?;
-        let marker = self.marker()?;
         let escrow_utxo_hash = escrow.hash()?;
-        let marker_hash = marker.hash()?;
-        let private_tx_hash = self.private_tx_hash(&escrow_utxo_hash, &marker_hash)?;
+        let private_tx_hash = self.private_tx_hash(&escrow_utxo_hash)?;
 
         let scalars: [(&str, [u8; 32]); 9] = [
             ("PrivateTxHash", private_tx_hash),
@@ -205,7 +185,6 @@ impl CreateProofInputs {
             .witness_entries("Escrow")
             .into_iter()
             .chain(change.witness_entries("Change"))
-            .chain(marker.witness_entries("Marker"))
         {
             map.insert(key, value);
         }

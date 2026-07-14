@@ -16,6 +16,8 @@ pub enum SwapError {
     InvalidInstructionData = 8011,
     #[error("escrow-authority account is missing from the transact account list")]
     MissingEscrowAuthority = 8013,
+    #[error("create-swap transact must carry exactly one marker message")]
+    InvalidMarkerMessage = 8014,
 }
 
 impl From<SwapError> for ProgramError {
@@ -37,6 +39,7 @@ mod tests {
             (InvalidPda as u32, 8010),
             (InvalidInstructionData as u32, 8011),
             (MissingEscrowAuthority as u32, 8013),
+            (InvalidMarkerMessage as u32, 8014),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

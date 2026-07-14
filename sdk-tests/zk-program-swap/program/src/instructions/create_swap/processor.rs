@@ -38,6 +38,9 @@ pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> Program
 
     verify_create_zk_proof(&proof, transact.private_tx_hash)?;
 
+    if transact.messages.len() != 1 {
+        return Err(SwapError::InvalidMarkerMessage.into());
+    }
     let escrow_utxo_hash = transact
         .outputs
         .get(ESCROW_OUTPUT_INDEX)
@@ -48,13 +51,11 @@ pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> Program
         maker_pubkey,
     };
     let marker_bytes = borsh::to_vec(&marker).map_err(|_| SwapError::InvalidInstructionData)?;
-    // The SDK blanks the last output's `data` to `None`; the program refills it
-    // with the marker bytes the signed `external_data_hash` already commits to.
     transact
-        .outputs
-        .last_mut()
-        .ok_or(SwapError::InvalidInstructionData)?
-        .data = Some(marker_bytes);
+        .messages
+        .first_mut()
+        .ok_or(SwapError::InvalidMarkerMessage)?
+        .data = marker_bytes;
     let transact_bytes = transact
         .serialize()
         .map_err(|_| SwapError::InvalidInstructionData)?;

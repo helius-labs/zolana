@@ -8,7 +8,7 @@ use std::{
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_api::{
-    types::{Base64String, Hash as ApiHash, SerializablePubkey, ZolanaOutputSlot as ApiOutputSlot},
+    types::{Base64String, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot, SerializablePubkey},
     BlockingZolanaApi,
 };
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
@@ -275,6 +275,17 @@ fn convert_shielded_transaction(
                 )
             })
             .collect::<Result<Vec<_>, _>>()?,
+        messages: item
+            .messages
+            .into_iter()
+            .enumerate()
+            .map(|(message_index, message)| {
+                convert_message(
+                    message,
+                    &format!("transactions[{index}].messages[{message_index}]"),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?,
         nullifiers: item
             .nullifiers
             .iter()
@@ -301,8 +312,18 @@ fn convert_output_slot(slot: ApiOutputSlot, field: &str) -> Result<OutputSlot, C
     })
 }
 
+fn convert_message(
+    message: zolana_api::RingsMessage,
+    field: &str,
+) -> Result<zolana_event::OutputData, ClientError> {
+    Ok(zolana_event::OutputData {
+        view_tag: decode_hash(&message.view_tag, &format!("{field}.view_tag"))?,
+        data: decode_base64(&message.payload, &format!("{field}.data"))?,
+    })
+}
+
 fn convert_output_context(
-    context: zolana_api::ZolanaOutputContext,
+    context: zolana_api::RingsOutputContext,
     field: &str,
 ) -> Result<OutputContext, ClientError> {
     Ok(OutputContext {

@@ -1,5 +1,6 @@
 use num_bigint::{BigInt, BigUint, Sign};
 use solana_address::Address;
+use zolana_event::OutputData;
 use zolana_interface::instruction::instruction_data::transact::TransactOutput;
 use zolana_keypair::{
     hash::{hash_field, sha256, sha256_be},
@@ -153,6 +154,7 @@ pub struct SlotTransact {
     pub input_utxos: Vec<SppProofInputUtxo>,
     pub payer: Address,
     pub expiry_unix_ts: u64,
+    pub messages: Vec<OutputData>,
 }
 
 impl SlotTransact {
@@ -208,7 +210,7 @@ impl SlotTransact {
             salt,
             transact_outputs,
             resolved_owner_tags,
-            vec![],
+            self.messages,
             self.expiry_unix_ts,
         );
 

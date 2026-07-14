@@ -1,6 +1,6 @@
 //! Typed client for Photon's Zolana-only indexer API.
 //!
-//! Types are generated from `src/openapi/specs/zolana.yaml` in the Photon
+//! Types are generated from `src/openapi/specs/rings.yaml` in the Photon
 //! checkout and checked in as `src/codegen.rs`.
 
 #![allow(clippy::large_enum_variant)]
@@ -31,11 +31,12 @@ pub type Limit = types::Limit;
 pub type MerkleContext = types::MerkleContext;
 pub type MerkleProof = types::MerkleProof;
 pub type NonInclusionProof = types::NonInclusionProof;
+pub type RingsMessage = types::RingsMessage;
+pub type RingsOutputContext = types::RingsOutputContext;
+pub type RingsOutputSlot = types::RingsOutputSlot;
 pub type SerializablePubkey = types::SerializablePubkey;
 pub type SerializableSignature = types::SerializableSignature;
 pub type ShieldedTransaction = types::ShieldedTransaction;
-pub type ZolanaOutputContext = types::ZolanaOutputContext;
-pub type ZolanaOutputSlot = types::ZolanaOutputSlot;
 
 #[derive(Clone, Debug)]
 pub struct ZolanaApi {
@@ -154,7 +155,7 @@ impl ZolanaApi {
             method: types::PostGetEncryptedUtxosByTagsBodyMethod::GetEncryptedUtxosByTags,
             params: types::PostGetEncryptedUtxosByTagsBodyParams {
                 cursor,
-                limit: limit.map(types::Limit),
+                limit: limit.and_then(std::num::NonZeroU64::new).map(types::Limit),
                 tags,
             },
         };
@@ -183,7 +184,7 @@ impl ZolanaApi {
                 types::PostGetShieldedTransactionsByTagsBodyMethod::GetShieldedTransactionsByTags,
             params: types::PostGetShieldedTransactionsByTagsBodyParams {
                 cursor,
-                limit: limit.map(types::Limit),
+                limit: limit.and_then(std::num::NonZeroU64::new).map(types::Limit),
                 tags,
             },
         };
@@ -329,7 +330,7 @@ impl BlockingZolanaApi {
             method: types::PostGetEncryptedUtxosByTagsBodyMethod::GetEncryptedUtxosByTags,
             params: types::PostGetEncryptedUtxosByTagsBodyParams {
                 cursor,
-                limit: limit.map(types::Limit),
+                limit: limit.and_then(std::num::NonZeroU64::new).map(types::Limit),
                 tags,
             },
         };
@@ -358,7 +359,7 @@ impl BlockingZolanaApi {
                 types::PostGetShieldedTransactionsByTagsBodyMethod::GetShieldedTransactionsByTags,
             params: types::PostGetShieldedTransactionsByTagsBodyParams {
                 cursor,
-                limit: limit.map(types::Limit),
+                limit: limit.and_then(std::num::NonZeroU64::new).map(types::Limit),
                 tags,
             },
         };

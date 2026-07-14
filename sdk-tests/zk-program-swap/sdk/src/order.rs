@@ -9,7 +9,7 @@ pub use zolana_transaction::SOL_ASSET_ID;
 use zolana_transaction::{
     instructions::{transact::OutputUtxo, types::SppProofInputUtxo},
     utxo::{Blinding, Utxo},
-    Data, SOL_MINT,
+    Data,
 };
 
 use crate::err;
@@ -171,29 +171,6 @@ impl OrderUtxo {
         };
         Ok(SppProofInputUtxo::new(utxo, &Self::nullifier_key())
             .with_data_hash(self.terms.data_hash()?))
-    }
-}
-
-/// Fixed blinding of the marker output. The marker is never spent and the state
-/// tree is append-only (output hashes, unlike nullifiers, need not be unique), so a
-/// deterministic zero blinding is safe and lets the market maker recognize the
-/// marker by value without decrypting it.
-pub const MARKER_BLINDING: Blinding = [0u8; BLINDING_LEN];
-
-/// The marker output: a 0-value UTXO owned by the taker, minted in the create
-/// transact as the taker's discovery identifier. Its ciphertext slot is
-/// tagged with the taker's view tag so ordinary wallet sync finds the order;
-/// the taker then decrypts the escrow slot for the opening. The asset is fixed
-/// to `SOL_MINT`: the marker is 0-value, so its asset never enters balance
-/// conservation, and a constant asset makes the marker fully deterministic from the
-/// taker's address alone (independent of the order's source asset).
-pub fn marker_output_utxo(taker_address: ShieldedAddress) -> OutputUtxo {
-    OutputUtxo {
-        asset: SOL_MINT,
-        amount: 0,
-        blinding: MARKER_BLINDING,
-        owner_address: Some(taker_address),
-        ..Default::default()
     }
 }
 

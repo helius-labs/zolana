@@ -46,6 +46,7 @@ fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ShieldedTransaction 
             },
             payload: encode_output_data(output),
         }],
+        messages: Vec::new(),
         nullifiers: Vec::new(),
         proofless: true,
     }
@@ -91,6 +92,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
         tx_viewing_pk: Some(wallet.keypair.viewing_pubkey()),
         salt: Some([0u8; 16]),
         output_slots: Vec::new(),
+        messages: Vec::new(),
         nullifiers: vec![nullifier],
         proofless: false,
     };

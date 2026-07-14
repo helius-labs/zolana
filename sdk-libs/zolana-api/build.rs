@@ -12,7 +12,7 @@ fn generate() {
     let spec_path = env::var("ZOLANA_OPENAPI_SPEC")
         .or_else(|_| env::var("PHOTON_ZOLANA_OPENAPI_SPEC"))
         .map(PathBuf::from)
-        .unwrap_or_else(|_| manifest_dir.join("../../../photon/src/openapi/specs/zolana.yaml"));
+        .unwrap_or_else(|_| manifest_dir.join("../../../photon-privacy/src/openapi/specs/rings.yaml"));
 
     println!("cargo::rerun-if-changed={}", spec_path.display());
 
@@ -31,6 +31,15 @@ fn generate() {
     };
     let mut spec: serde_yaml::Value =
         serde_yaml::from_str(&spec_content).expect("Failed to parse OpenAPI spec");
+
+    if let Some(spec_map) = spec.as_mapping_mut() {
+        spec_map.insert(
+            serde_yaml::Value::String("openapi".to_string()),
+            serde_yaml::Value::String("3.0.3".to_string()),
+        );
+    }
+
+    normalize_spec(&mut spec);
 
     if let Some(info) = spec.get_mut("info").and_then(|info| info.as_mapping_mut()) {
         info.insert(
@@ -86,6 +95,50 @@ fn generate() {
         .expect("Failed to write generated code");
 
     eprintln!("zolana-api: regenerated src/codegen.rs from OpenAPI spec");
+}
+
+#[cfg(feature = "generate")]
+fn normalize_spec(value: &mut serde_yaml::Value) {
+    match value {
+        serde_yaml::Value::Mapping(map) => {
+            let one_of = map
+                .get(serde_yaml::Value::String("oneOf".to_string()))
+                .or_else(|| map.get(serde_yaml::Value::String("anyOf".to_string())))
+                .cloned();
+            if let Some(serde_yaml::Value::Sequence(members)) = one_of {
+                let non_null: Vec<serde_yaml::Value> = members
+                    .into_iter()
+                    .filter(|member| {
+                        member
+                            .get("type")
+                            .and_then(|ty| ty.as_str())
+                            .map(|ty| ty != "null")
+                            .unwrap_or(true)
+                    })
+                    .collect();
+                if let Some(inner) = non_null.into_iter().next() {
+                    *value = inner;
+                    normalize_spec(value);
+                    return;
+                }
+            }
+            for (key, entry) in map.iter_mut() {
+                if key.as_str() == Some("format") {
+                    if let Some(format) = entry.as_str().and_then(|f| f.strip_prefix("u-int")) {
+                        *entry = serde_yaml::Value::String(format!("uint{format}"));
+                        continue;
+                    }
+                }
+                normalize_spec(entry);
+            }
+        }
+        serde_yaml::Value::Sequence(seq) => {
+            for entry in seq.iter_mut() {
+                normalize_spec(entry);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(feature = "generate")]

@@ -18,7 +18,7 @@ use zolana_transaction::{
 
 use crate::{
     err,
-    order::{marker_output_utxo, OrderTerms, OrderUtxo, PlainTextData},
+    order::{OrderTerms, OrderUtxo, PlainTextData},
     MarkerData,
 };
 
@@ -57,16 +57,16 @@ fn encrypted_slot_index(tx: &ShieldedTransaction, position: usize) -> u32 {
 }
 
 pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<OrderCandidate>> {
-    let taker_address = wallet.keypair.shielded_address().map_err(err)?;
-    let marker_utxo_hash = marker_output_utxo(taker_address).hash().map_err(err)?;
-    let Some(marker_slot) = tx
-        .output_slots
-        .iter()
-        .find(|slot| slot.output_context.hash == marker_utxo_hash)
+    let taker_tag = wallet
+        .keypair
+        .signing_pubkey()
+        .confidential_view_tag()
+        .map_err(err)?;
+    let Some(marker_message) = tx.messages.iter().find(|message| message.view_tag == taker_tag)
     else {
         return Ok(None);
     };
-    let marker = MarkerData::try_from_slice(&marker_slot.payload)
+    let marker = MarkerData::try_from_slice(&marker_message.data)
         .map_err(|e| anyhow!("marker payload: {e}"))?;
     let Some((escrow_position, escrow_slot)) = tx
         .output_slots
@@ -367,7 +367,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::instructions::create_swap::{input_sum, MarkerEncrypt};
+    use crate::instructions::create_swap::{input_sum, OrderMarker};
 
     struct OrderFixture {
         tx: ShieldedTransaction,
@@ -407,6 +407,7 @@ mod tests {
             tx_viewing_pk: P256Pubkey::from_bytes(external.tx_viewing_pk).ok(),
             salt: Some(external.salt),
             output_slots,
+            messages: external.messages.clone(),
             nullifiers,
             proofless: false,
         }
@@ -441,7 +442,6 @@ mod tests {
         let escrow_output = escrow
             .output_utxo(taker_address.viewing_pubkey)
             .expect("escrow output");
-        let marker = marker_output_utxo(taker_address);
         let maker_pubkey = Pubkey::new_from_array(
             *maker_address
                 .solana_address()
@@ -476,19 +476,20 @@ mod tests {
         )
         .expect("change slot");
         let escrow_slot = ConfidentialSlot::new(escrow_output, &registry).expect("escrow slot");
-        let marker_slot = MarkerEncrypt {
-            marker,
+        let marker_message = OrderMarker {
             escrow_utxo_hash,
-            payer: maker_pubkey,
+            maker_pubkey,
+            taker_address,
         }
-        .encrypt()
-        .expect("marker slot");
+        .message()
+        .expect("marker message");
         let spp_proof_inputs = SlotTransact {
             input_utxos,
             payer: Address::default(),
             expiry_unix_ts: u64::MAX,
+            messages: vec![marker_message],
         }
-        .sign(&[&change_slot, &escrow_slot, &marker_slot], &maker_keypair)
+        .sign(&[&change_slot, &escrow_slot], &maker_keypair)
         .expect("escrow create sign");
 
         OrderFixture {

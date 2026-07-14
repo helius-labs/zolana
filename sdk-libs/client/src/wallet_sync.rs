@@ -304,6 +304,7 @@ fn proofless_deposit_from_indexed_match(
             },
             payload: item.output_slot.payload,
         }],
+        messages: Vec::new(),
         nullifiers: Vec::new(),
         proofless: true,
     }))
@@ -331,6 +332,7 @@ fn convert_sync_transaction(
         tx_viewing_pk: tx.tx_viewing_pk,
         salt: tx.salt,
         output_slots,
+        messages: tx.messages,
         nullifiers: tx.nullifiers,
         proofless: false,
     })
@@ -586,6 +588,7 @@ mod tests {
                     },
                     payload: Vec::new(),
                 }],
+                messages: Vec::new(),
                 nullifiers: Vec::new(),
                 proofless: false,
             }],
@@ -852,6 +855,7 @@ mod tests {
             .map(|commitment| commitment.nullifier)
             .collect();
         let external = proof_inputs.external_data;
+        let messages = external.messages.clone();
         // Mirror the on-chain event 1:1: every output publishes its resolved owner
         // tag as the `view_tag` and its optional ciphertext as the payload; a
         // change slot covered by the sender bundle carries the sender tag with an
@@ -880,6 +884,7 @@ mod tests {
             ),
             salt: Some(external.salt),
             output_slots,
+            messages,
             nullifiers,
             proofless: false,
         }
@@ -941,6 +946,7 @@ mod tests {
                 },
                 payload: ciphertext.data,
             }],
+            messages: Vec::new(),
             nullifiers: commitments
                 .into_iter()
                 .map(|commitment| commitment.nullifier)
