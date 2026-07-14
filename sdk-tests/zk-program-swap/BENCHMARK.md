@@ -23,12 +23,12 @@ Regenerate with `just bench-swap`.
 | `cancel_public_input_hash`                     |      1,175 |      1,175 |
 | `verify_cancel_zk_proof`                       |     93,367 |     93,367 |
 | `cpi_spp_transact_signed`                      |    155,297 |    155,297 |
-| `process_cancel`                               |    251,681 |      1,842 |
+| `process_cancel`                               |    251,675 |      1,836 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total |
 | ------------------ | ------------------ | ----- |
-|              59 ms |              15 ms | 75 ms |
+|              57 ms |              15 ms | 73 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx | v0 + ALT Tx |
@@ -39,14 +39,14 @@ Regenerate with `just bench-swap`.
 
 | Function                                       |   Total CU |     Net CU |
 | ---------------------------------------------- | ---------- | ---------- |
-| `verify_create_zk_proof`                       |     93,367 |     93,367 |
+| `verify_create_zk_proof`                       |     93,368 |     93,368 |
 | `cpi_spp_transact`                             |    162,992 |    162,992 |
-| `process_create_swap`                          |    258,888 |      2,529 |
+| `process_create_swap`                          |    258,848 |      2,488 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             107 ms |              17 ms | 125 ms |
+|             114 ms |              17 ms | 132 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
@@ -60,12 +60,12 @@ Regenerate with `just bench-swap`.
 | `fill_public_input_hash`                       |        864 |        864 |
 | `verify_fill_zk_proof`                         |     93,367 |     93,367 |
 | `cpi_spp_transact_signed`                      |    164,710 |    164,710 |
-| `process_fill`                                 |    259,956 |      1,015 |
+| `process_fill`                                 |    259,954 |      1,013 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             107 ms |              24 ms | 131 ms |
+|             119 ms |              27 ms | 146 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
@@ -77,14 +77,14 @@ Regenerate with `just bench-swap`.
 | Function                                       |   Total CU |     Net CU |
 | ---------------------------------------------- | ---------- | ---------- |
 | `fill_verifiable_encryption_public_input_hash` |      3,721 |      3,721 |
-| `verify_fill_verifiable_encryption_zk_proof`   |    224,978 |    224,978 |
+| `verify_fill_verifiable_encryption_zk_proof`   |    224,958 |    224,958 |
 | `cpi_spp_transact_signed`                      |    164,702 |    164,702 |
-| `process_fill_verifiable_encryption`           |    394,522 |      1,121 |
+| `process_fill_verifiable_encryption`           |    394,459 |      1,078 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             108 ms |             124 ms | 232 ms |
+|             110 ms |             132 ms | 242 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
