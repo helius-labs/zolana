@@ -3,9 +3,7 @@ mod shared;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use shared::{
-    send_v0_with_lookup_table, setup, spendable_utxo, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT,
-};
+use shared::{send_v0_with_lookup_table, setup, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT};
 use swap_sdk::{
     discover::discover_orders,
     instructions::{
@@ -27,7 +25,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    SOL_MINT,
+    Filter, SOL_MINT,
 };
 
 const EXPIRY: u64 = 2_000_000_000;
@@ -97,7 +95,12 @@ fn create_and_fill_swap_inline() -> Result<()> {
         };
         let escrow_output_utxo = escrow.output_utxo(taker_address.viewing_pubkey)?;
 
-        let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
+        let maker_input_utxo = maker
+            .balance(spl_mint, Some(Filter::MinAmount(SOURCE_AMOUNT)))?
+            .utxos
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow!("no spendable utxo of {spl_mint} >= {SOURCE_AMOUNT}"))?;
 
         // 2. Select input utxos.
         let input_utxo = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
@@ -182,9 +185,21 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let escrow = order.escrow;
         let terms = escrow.terms.clone();
 
-        let taker_input_utxo =
-            spendable_utxo(&taker, terms.destination_mint, terms.destination_amount)?;
-        let source_output_blinding = random_blinding();
+        let taker_input_utxo = taker
+            .balance(
+                terms.destination_mint,
+                Some(Filter::MinAmount(terms.destination_amount)),
+            )?
+            .utxos
+            .first()
+            .cloned()
+            .ok_or_else(|| {
+                anyhow!(
+                    "no spendable utxo of {} >= {}",
+                    terms.destination_mint,
+                    terms.destination_amount
+                )
+            })?;
         let taker_in = Recipient {
             address: taker_address,
             amount: terms.destination_amount,
@@ -192,17 +207,9 @@ fn create_and_fill_swap_inline() -> Result<()> {
             mint: terms.destination_mint,
         }
         .output();
-        let fill_inputs = FillProofInputParams {
-            escrow: escrow.clone(),
-            taker_in,
-            source_output_blinding,
-            external_data_hash: [0u8; 32],
-            maker_recipient: terms.destination,
-            taker_recipient: taker_address,
-        };
-        let source_output = fill_inputs.source_output();
-        let destination_output = fill_inputs
-            .destination_output()
+        let source_output = escrow.source_output(taker_address, random_blinding());
+        let destination_output = escrow
+            .derived_destination_output(terms.destination)
             .map_err(|e| anyhow!("destination output: {e:?}"))?;
         let source_output_hash = source_output
             .hash()
@@ -222,7 +229,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
 
         let encoded = encrypt_transaction_data(
-            &[source_output, destination_output],
+            &[source_output.clone(), destination_output.clone()],
             &taker.registry,
             &transaction_viewing_key,
         )?;
@@ -242,14 +249,15 @@ fn create_and_fill_swap_inline() -> Result<()> {
             taker_address.solana_address()?,
         );
 
-        let fill_external_data_hash = fill_spp_proof_inputs
-            .external_data
-            .hash()
-            .map_err(|e| anyhow!("fill external data hash: {e:?}"))?;
-
         let fill_inputs = FillProofInputParams {
-            external_data_hash: fill_external_data_hash,
-            ..fill_inputs
+            escrow,
+            taker_in,
+            source_output,
+            destination_output,
+            external_data_hash: fill_spp_proof_inputs
+                .external_data
+                .hash()
+                .map_err(|e| anyhow!("fill external data hash: {e:?}"))?,
         };
 
         let spp_proof = indexer

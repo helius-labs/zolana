@@ -133,19 +133,46 @@ struct FillVerifiableEncryptionDerivation {
     public_input_hash: [u8; 32],
 }
 
-impl FillVerifiableEncryptionProofInputs {
-    fn destination_plaintext(&self) -> Result<Vec<u8>, FillVerifiableEncryptionError> {
-        let mut pt = Vec::with_capacity(8 + 32 + 31);
-        pt.extend_from_slice(&self.destination_amount.to_be_bytes());
-        pt.extend_from_slice(&self.destination_asset()?);
-        pt.extend_from_slice(
-            self.destination_output_blinding
-                .get(1..32)
-                .expect("32-byte blinding has a 31-byte tail"),
-        );
-        Ok(pt)
-    }
+pub fn destination_ciphertext(
+    escrow_blinding: &[u8; 32],
+    destination_mint: &[u8; 32],
+    destination_amount: u64,
+    destination_output_blinding: &[u8; 32],
+) -> Result<Vec<u8>, FillVerifiableEncryptionError> {
+    Ok(destination_ciphertext_with_hash(
+        escrow_blinding,
+        destination_mint,
+        destination_amount,
+        destination_output_blinding,
+    )?
+    .0)
+}
 
+fn destination_ciphertext_with_hash(
+    escrow_blinding: &[u8; 32],
+    destination_mint: &[u8; 32],
+    destination_amount: u64,
+    destination_output_blinding: &[u8; 32],
+) -> Result<(Vec<u8>, [u8; 32]), FillVerifiableEncryptionError> {
+    let mut pt = Vec::with_capacity(8 + 32 + 31);
+    pt.extend_from_slice(&destination_amount.to_be_bytes());
+    pt.extend_from_slice(&crate::asset_field(destination_mint)?);
+    pt.extend_from_slice(
+        destination_output_blinding
+            .get(1..32)
+            .expect("32-byte blinding has a 31-byte tail"),
+    );
+
+    let domain = u64_to_field(FILL_ENC_KDF_DOMAIN);
+    let shared_secret = poseidon(&[escrow_blinding, &domain])?;
+    symmetric_apply(&shared_secret, MERGE_INFO, &mut pt)
+        .map_err(|e| FillVerifiableEncryptionError::Keypair(format!("{e:?}")))?;
+    let ct_hash = merge_ciphertext_hash(&pt)
+        .map_err(|e| FillVerifiableEncryptionError::Keypair(format!("{e:?}")))?;
+    Ok((pt, ct_hash))
+}
+
+impl FillVerifiableEncryptionProofInputs {
     fn source_asset(&self) -> Result<[u8; 32], FillVerifiableEncryptionError> {
         Ok(crate::asset_field(&self.source_mint)?)
     }
@@ -163,14 +190,12 @@ impl FillVerifiableEncryptionProofInputs {
     }
 
     fn ciphertext(&self) -> Result<(Vec<u8>, [u8; 32]), FillVerifiableEncryptionError> {
-        let domain = u64_to_field(FILL_ENC_KDF_DOMAIN);
-        let shared_secret = poseidon(&[&self.escrow_blinding, &domain])?;
-        let mut buf = self.destination_plaintext()?;
-        symmetric_apply(&shared_secret, MERGE_INFO, &mut buf)
-            .map_err(|e| FillVerifiableEncryptionError::Keypair(format!("{e:?}")))?;
-        let ct_hash = merge_ciphertext_hash(&buf)
-            .map_err(|e| FillVerifiableEncryptionError::Keypair(format!("{e:?}")))?;
-        Ok((buf, ct_hash))
+        destination_ciphertext_with_hash(
+            &self.escrow_blinding,
+            &self.destination_mint,
+            self.destination_amount,
+            &self.destination_output_blinding,
+        )
     }
 
     fn utxos(
@@ -277,10 +302,6 @@ impl FillVerifiableEncryptionProofInputs {
         Ok(self
             .derive(&FillVerifiableEncryptionOverrides::default())?
             .public_input_hash)
-    }
-
-    pub fn destination_ciphertext(&self) -> Result<Vec<u8>, FillVerifiableEncryptionError> {
-        Ok(self.ciphertext()?.0)
     }
 
     fn witness_map(

@@ -1,14 +1,14 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::CancelProofInputs;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
-use zolana_keypair::{P256Pubkey, ShieldedAddress};
-use zolana_transaction::{instructions::transact::OutputUtxo, utxo::Blinding};
+use zolana_keypair::P256Pubkey;
+use zolana_transaction::instructions::transact::OutputUtxo;
 
 use crate::{
     err, escrow_authority_pda,
-    order::{BlindingField, DataHash, OrderUtxo, Recipient},
+    order::{ensure_payout, BlindingField, DataHash, OrderUtxo},
     program_id_pubkey, spp_program_meta, tag, CancelProof,
 };
 
@@ -43,14 +43,22 @@ impl CancelIxData {
 pub struct CancelProofInputParams {
     pub escrow: OrderUtxo,
     pub taker_viewing_pk: P256Pubkey,
-    pub source_output_blinding: Blinding,
+    pub source_output: OutputUtxo,
     pub external_data_hash: [u8; 32],
-    pub maker_recipient: ShieldedAddress,
 }
 
 impl CancelProofInputParams {
     pub fn into_proof_inputs(&self) -> Result<CancelProofInputs> {
         let terms = &self.escrow.terms;
+        let maker = ensure_payout(
+            "source_output",
+            &self.source_output,
+            &self.escrow.source_mint,
+            self.escrow.source_amount,
+        )?;
+        if maker != terms.destination {
+            bail!("source output owner does not match the order destination");
+        }
         Ok(CancelProofInputs {
             source_mint: *self.escrow.source_mint.as_array(),
             source_amount: self.escrow.source_amount,
@@ -59,29 +67,15 @@ impl CancelProofInputParams {
             destination_mint: *terms.destination_mint.as_array(),
             destination_amount: terms.destination_amount,
             maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
-            maker_owner_pk_field: self
-                .maker_recipient
-                .signing_pubkey
-                .owner_pk_field()
-                .map_err(err)?,
-            maker_nullifier_pk: self.maker_recipient.nullifier_pubkey,
+            maker_owner_pk_field: maker.signing_pubkey.owner_pk_field().map_err(err)?,
+            maker_nullifier_pk: maker.nullifier_pubkey,
             maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
             expiry: terms.expiry,
             taker_pk_fe: terms.taker.data_hash()?,
             fill_mode: terms.fill_mode,
-            source_output_blinding: self.source_output_blinding.to_field(),
+            source_output_blinding: self.source_output.blinding.to_field(),
             external_data_hash: self.external_data_hash,
         })
-    }
-
-    pub fn source_output(&self) -> OutputUtxo {
-        Recipient {
-            address: self.maker_recipient,
-            amount: self.escrow.source_amount,
-            blinding: self.source_output_blinding,
-            mint: self.escrow.source_mint,
-        }
-        .output()
     }
 }
 

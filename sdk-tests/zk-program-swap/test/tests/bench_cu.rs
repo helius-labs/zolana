@@ -603,17 +603,9 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         mint: SOL_MINT,
     }
     .output();
-    let fill_shared = FillProofInputParams {
-        escrow: escrow.clone(),
-        taker_in,
-        source_output_blinding,
-        external_data_hash: [0u8; 32],
-        maker_recipient,
-        taker_recipient,
-    };
-    let source_output = fill_shared.source_output();
-    let destination_output = fill_shared
-        .destination_output()
+    let source_output = escrow.source_output(taker_recipient, source_output_blinding);
+    let destination_output = escrow
+        .derived_destination_output(maker_recipient)
         .expect("destination output");
 
     let escrow_input = escrow.into_input_utxo().expect("escrow spend");
@@ -634,7 +626,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         get_transaction_viewing_key(&taker, &input_utxos).expect("fill transaction viewing key");
 
     let encoded = encrypt_transaction_data(
-        &[source_output, destination_output],
+        &[source_output.clone(), destination_output.clone()],
         &assets,
         &transaction_viewing_key,
     )
@@ -674,13 +666,15 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         root_index,
     );
 
-    let external_data_hash = spp_proof_inputs
-        .external_data
-        .hash()
-        .expect("external data hash");
     let fill_shared = FillProofInputParams {
-        external_data_hash,
-        ..fill_shared
+        escrow,
+        taker_in,
+        source_output,
+        destination_output,
+        external_data_hash: spp_proof_inputs
+            .external_data
+            .hash()
+            .expect("external data hash"),
     };
 
     let prover = ProverClient::local();
@@ -751,22 +745,18 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let destination_output_blinding: Blinding = [21u8; 31];
     let source_output_blinding: Blinding = [31u8; 31];
 
-    let fill_shared = FillVerifiableEncryptionProofInputParams {
-        escrow: escrow.clone(),
-        taker_in_blinding,
-        destination_output_blinding,
-        source_output_blinding,
-        external_data_hash: [0u8; 32],
-        maker_recipient,
-        taker_recipient,
-    };
-    let destination_ciphertext = fill_shared
-        .into_proof_inputs()
-        .expect("fill proof inputs")
-        .destination_ciphertext()
+    let taker_in = Recipient {
+        address: taker_recipient,
+        amount: DESTINATION_AMOUNT,
+        blinding: taker_in_blinding,
+        mint: SOL_MINT,
+    }
+    .output();
+    let source_output = escrow.source_output(taker_recipient, source_output_blinding);
+    let destination_output = escrow.destination_output(maker_recipient, destination_output_blinding);
+    let destination_ciphertext = escrow
+        .destination_ciphertext(&destination_output)
         .expect("destination ciphertext");
-    let source_output = fill_shared.source_output();
-    let destination_output = fill_shared.destination_output();
 
     let escrow_input = escrow.into_input_utxo().expect("escrow spend");
     let taker_utxo = Utxo {
@@ -789,8 +779,12 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let transaction_viewing_key =
         get_transaction_viewing_key(&taker, &input_utxos).expect("fill transaction viewing key");
 
-    let mut encoded = encrypt_transaction_data(&[source_output], &assets, &transaction_viewing_key)
-        .expect("encode fill source slot");
+    let mut encoded = encrypt_transaction_data(
+        std::slice::from_ref(&source_output),
+        &assets,
+        &transaction_viewing_key,
+    )
+    .expect("encode fill source slot");
     let destination_utxo_hash = destination_output.hash().expect("fill output hash");
     encoded.outputs.push(TransactOutput {
         utxo_hash: destination_utxo_hash,
@@ -798,7 +792,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         data: Some(destination_ciphertext),
     });
     encoded.resolved_owner_tags.push(destination_view_tag);
-    encoded.output_utxos.push(destination_output);
+    encoded.output_utxos.push(destination_output.clone());
 
     let mut external_data = ExternalData::new(
         *transaction_viewing_key.pubkey().as_bytes(),
@@ -834,13 +828,15 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         root_index,
     );
 
-    let external_data_hash = spp_proof_inputs
-        .external_data
-        .hash()
-        .expect("external data hash");
     let fill_shared = FillVerifiableEncryptionProofInputParams {
-        external_data_hash,
-        ..fill_shared
+        escrow,
+        taker_in,
+        source_output,
+        destination_output,
+        external_data_hash: spp_proof_inputs
+            .external_data
+            .hash()
+            .expect("external data hash"),
     };
 
     let prover = ProverClient::local();
@@ -919,14 +915,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     };
     let source_output_blinding: Blinding = [19u8; 31];
 
-    let cancel_inputs = CancelProofInputParams {
-        escrow: escrow.clone(),
-        taker_viewing_pk,
-        source_output_blinding,
-        external_data_hash: [0u8; 32],
-        maker_recipient,
-    };
-    let source_output = cancel_inputs.source_output();
+    let source_output = escrow.source_output(maker_recipient, source_output_blinding);
 
     let escrow_input = escrow.into_input_utxo().expect("escrow spend");
 
@@ -936,8 +925,12 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let transaction_viewing_key =
         get_transaction_viewing_key(&maker, &input_utxos).expect("cancel transaction viewing key");
 
-    let encoded = encrypt_transaction_data(&[source_output], &assets, &transaction_viewing_key)
-        .expect("encode cancel slots");
+    let encoded = encrypt_transaction_data(
+        std::slice::from_ref(&source_output),
+        &assets,
+        &transaction_viewing_key,
+    )
+    .expect("encode cancel slots");
 
     let mut external_data = ExternalData::new(
         *transaction_viewing_key.pubkey().as_bytes(),
@@ -973,13 +966,14 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         root_index,
     );
 
-    let external_data_hash = spp_proof_inputs
-        .external_data
-        .hash()
-        .expect("external data hash");
     let cancel_inputs = CancelProofInputParams {
-        external_data_hash,
-        ..cancel_inputs
+        escrow: escrow.clone(),
+        taker_viewing_pk,
+        source_output,
+        external_data_hash: spp_proof_inputs
+            .external_data
+            .hash()
+            .expect("external data hash"),
     };
 
     let prover = ProverClient::local();
@@ -992,8 +986,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let swap_dur = t1.elapsed();
 
     let maker_signer = Pubkey::new_from_array(
-        cancel_inputs
-            .maker_recipient
+        maker_recipient
             .signing_pubkey
             .as_ed25519()
             .expect("maker ed25519"),

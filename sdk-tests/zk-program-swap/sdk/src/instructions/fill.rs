@@ -1,14 +1,13 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::FillProofInputs;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_transaction::{instructions::transact::OutputUtxo, utxo::Blinding};
+use zolana_transaction::instructions::transact::OutputUtxo;
 
 use crate::{
     err, escrow_authority_pda,
-    order::{BlindingField, DataHash, OrderUtxo, Recipient},
+    order::{ensure_payout, BlindingField, DataHash, OrderUtxo},
     program_id_pubkey, spp_program_meta, tag, FillProof,
 };
 
@@ -34,23 +33,41 @@ impl FillIxData {
 pub struct FillProofInputParams {
     pub escrow: OrderUtxo,
     pub taker_in: OutputUtxo,
-    pub source_output_blinding: Blinding,
+    pub source_output: OutputUtxo,
+    pub destination_output: OutputUtxo,
     pub external_data_hash: [u8; 32],
-    pub maker_recipient: zolana_keypair::ShieldedAddress,
-    pub taker_recipient: zolana_keypair::ShieldedAddress,
 }
 
 impl FillProofInputParams {
-    pub fn destination_output_blinding(&self) -> Result<Blinding> {
-        let field = swap_prover::derive_destination_blinding(&self.escrow.blinding.to_field())
-            .map_err(err)?;
-        let mut blinding = [0u8; BLINDING_LEN];
-        blinding.copy_from_slice(field.get(1..32).ok_or_else(|| err("blinding tail"))?);
-        Ok(blinding)
-    }
-
     pub fn into_proof_inputs(&self) -> Result<FillProofInputs> {
         let terms = &self.escrow.terms;
+        let taker = ensure_payout(
+            "taker_in",
+            &self.taker_in,
+            &terms.destination_mint,
+            terms.destination_amount,
+        )?;
+        let source_owner = ensure_payout(
+            "source_output",
+            &self.source_output,
+            &self.escrow.source_mint,
+            self.escrow.source_amount,
+        )?;
+        if source_owner != taker {
+            bail!("source output owner does not match the taker input owner");
+        }
+        let destination_owner = ensure_payout(
+            "destination_output",
+            &self.destination_output,
+            &terms.destination_mint,
+            terms.destination_amount,
+        )?;
+        if destination_owner != terms.destination {
+            bail!("destination output owner does not match the order destination");
+        }
+        if self.destination_output.blinding != self.escrow.derived_destination_blinding()? {
+            bail!("destination output blinding does not match the derived blinding");
+        }
         Ok(FillProofInputs {
             source_mint: *self.escrow.source_mint.as_array(),
             source_amount: self.escrow.source_amount,
@@ -62,36 +79,11 @@ impl FillProofInputParams {
             maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
             expiry: terms.expiry,
             taker_pk_fe: terms.taker.data_hash()?,
-            taker_address: self
-                .taker_in
-                .owner_address
-                .ok_or_else(|| err("taker_in owner address"))?
-                .owner_hash()
-                .map_err(err)?,
+            taker_address: taker.owner_hash().map_err(err)?,
             taker_in_blinding: self.taker_in.blinding.to_field(),
-            source_output_blinding: self.source_output_blinding.to_field(),
+            source_output_blinding: self.source_output.blinding.to_field(),
             external_data_hash: self.external_data_hash,
         })
-    }
-
-    pub fn destination_output(&self) -> Result<OutputUtxo> {
-        Ok(Recipient {
-            address: self.maker_recipient,
-            amount: self.escrow.terms.destination_amount,
-            blinding: self.destination_output_blinding()?,
-            mint: self.escrow.terms.destination_mint,
-        }
-        .output())
-    }
-
-    pub fn source_output(&self) -> OutputUtxo {
-        Recipient {
-            address: self.taker_recipient,
-            amount: self.escrow.source_amount,
-            blinding: self.source_output_blinding,
-            mint: self.escrow.source_mint,
-        }
-        .output()
     }
 }
 

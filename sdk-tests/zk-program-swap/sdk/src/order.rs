@@ -172,6 +172,77 @@ impl OrderUtxo {
         Ok(SppProofInputUtxo::new(utxo, Self::nullifier_key())
             .with_data_hash(self.terms.data_hash()?))
     }
+
+    pub fn source_output(&self, recipient: ShieldedAddress, blinding: Blinding) -> OutputUtxo {
+        Recipient {
+            address: recipient,
+            amount: self.source_amount,
+            blinding,
+            mint: self.source_mint,
+        }
+        .output()
+    }
+
+    pub fn destination_output(&self, recipient: ShieldedAddress, blinding: Blinding) -> OutputUtxo {
+        Recipient {
+            address: recipient,
+            amount: self.terms.destination_amount,
+            blinding,
+            mint: self.terms.destination_mint,
+        }
+        .output()
+    }
+
+    /// The derived rail: the fill circuit derives the destination blinding from
+    /// the escrow blinding, so the maker recomputes it from the opening without
+    /// a ciphertext.
+    pub fn derived_destination_output(&self, recipient: ShieldedAddress) -> Result<OutputUtxo> {
+        Ok(self.destination_output(recipient, self.derived_destination_blinding()?))
+    }
+
+    pub fn derived_destination_blinding(&self) -> Result<Blinding> {
+        let field =
+            swap_prover::derive_destination_blinding(&self.blinding.to_field()).map_err(err)?;
+        let mut blinding = [0u8; BLINDING_LEN];
+        blinding.copy_from_slice(field.get(1..32).ok_or_else(|| err("blinding tail"))?);
+        Ok(blinding)
+    }
+
+    pub fn destination_ciphertext(&self, destination_output: &OutputUtxo) -> Result<Vec<u8>> {
+        swap_prover::destination_ciphertext(
+            &self.blinding.to_field(),
+            self.terms.destination_mint.as_array(),
+            self.terms.destination_amount,
+            &destination_output.blinding.to_field(),
+        )
+        .map_err(err)
+    }
+}
+
+pub(crate) fn ensure_payout(
+    label: &str,
+    output: &OutputUtxo,
+    mint: &Address,
+    amount: u64,
+) -> Result<ShieldedAddress> {
+    let owner = output
+        .owner_address
+        .ok_or_else(|| err(format!("{label} owner address missing")))?;
+    if &output.asset != mint {
+        return Err(err(format!("{label} asset mismatch")));
+    }
+    if output.amount != amount {
+        return Err(err(format!("{label} amount mismatch")));
+    }
+    if output.data_hash.is_some()
+        || output.zone_data_hash.is_some()
+        || output.zone_program_id.is_some()
+    {
+        return Err(err(format!(
+            "{label} must not carry data or zone commitments"
+        )));
+    }
+    Ok(owner)
 }
 
 /// A fill/cancel payout: a UTXO owned by the recipient's shielded address.

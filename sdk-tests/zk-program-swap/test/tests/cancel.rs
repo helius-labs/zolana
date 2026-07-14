@@ -3,9 +3,7 @@ mod shared;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use shared::{
-    send_v0_with_lookup_table, setup, spendable_utxo, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT,
-};
+use shared::{send_v0_with_lookup_table, setup, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT};
 use swap_sdk::{
     discover::discover_own_orders,
     instructions::{
@@ -25,7 +23,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    SOL_MINT,
+    Filter, SOL_MINT,
 };
 
 // The committed order expiry is already in the past, so the maker can cancel
@@ -88,7 +86,12 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         };
         let escrow_output_utxo = escrow.output_utxo(taker_address.viewing_pubkey)?;
 
-        let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
+        let maker_input_utxo = maker
+            .balance(spl_mint, Some(Filter::MinAmount(SOURCE_AMOUNT)))?
+            .utxos
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow!("no spendable utxo of {spl_mint} >= {SOURCE_AMOUNT}"))?;
         let create_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
         let input_utxos = vec![create_spend, SppProofInputUtxo::new_dummy()];
 
@@ -172,15 +175,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let escrow = order.escrow;
         let taker_viewing_pk = order.taker_viewing_pk;
 
-        let source_output_blinding = random_blinding();
-        let cancel_inputs = CancelProofInputParams {
-            escrow: escrow.clone(),
-            taker_viewing_pk,
-            source_output_blinding,
-            external_data_hash: [0u8; 32],
-            maker_recipient: maker_address,
-        };
-        let source_output = cancel_inputs.source_output();
+        let source_output = escrow.source_output(maker_address, random_blinding());
         let source_output_hash = source_output
             .hash()
             .map_err(|e| anyhow!("source output hash: {e:?}"))?;
@@ -193,9 +188,12 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &input_utxos)
             .map_err(|e| anyhow!("cancel transaction viewing key: {e:?}"))?;
 
-        let encoded =
-            encrypt_transaction_data(&[source_output], &maker.registry, &transaction_viewing_key)
-                .map_err(|e| anyhow!("encode cancel slots: {e:?}"))?;
+        let encoded = encrypt_transaction_data(
+            std::slice::from_ref(&source_output),
+            &maker.registry,
+            &transaction_viewing_key,
+        )
+        .map_err(|e| anyhow!("encode cancel slots: {e:?}"))?;
 
         let mut external_data = ExternalData::new(
             *transaction_viewing_key.pubkey().as_bytes(),
@@ -212,14 +210,14 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             maker_address.solana_address()?,
         );
 
-        let cancel_external_data_hash = cancel_spp_proof_inputs
-            .external_data
-            .hash()
-            .map_err(|e| anyhow!("cancel external data hash: {e:?}"))?;
-
         let cancel_inputs = CancelProofInputParams {
-            external_data_hash: cancel_external_data_hash,
-            ..cancel_inputs
+            escrow: escrow.clone(),
+            taker_viewing_pk,
+            source_output,
+            external_data_hash: cancel_spp_proof_inputs
+                .external_data
+                .hash()
+                .map_err(|e| anyhow!("cancel external data hash: {e:?}"))?,
         };
 
         let spp_proof = indexer

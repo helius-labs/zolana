@@ -28,7 +28,7 @@ use zolana_test_utils::{
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
 };
-use zolana_transaction::{AssetRegistry, Utxo, Wallet, SOL_MINT};
+use zolana_transaction::{AssetRegistry, Filter, Wallet, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
 
 // SPL the maker shields and escrows (source), and SOL the taker pays (destination).
@@ -47,17 +47,6 @@ pub struct TestEnv {
     pub taker: Wallet,
     pub spl_mint: Address,
 }
-// TODO: add balance() method to Wallet that takes a mint as input and an optional filter an enum the first enum variant is amount.
-pub fn spendable_utxo(wallet: &Wallet, mint: Address, min_amount: u64) -> Result<Utxo> {
-    wallet
-        .balances(false)
-        .map_err(|e| anyhow!("balances: {e:?}"))?
-        .into_iter()
-        .find(|b| b.mint == mint)
-        .and_then(|b| b.utxos.into_iter().find(|u| u.amount >= min_amount))
-        .ok_or_else(|| anyhow!("no spendable utxo of {mint} >= {min_amount}"))
-}
-
 pub fn setup() -> Result<TestEnv> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../..");
     let cli =
@@ -276,8 +265,14 @@ pub fn setup() -> Result<TestEnv> {
     loop {
         sync_wallet(&mut maker_wallet, &indexer)?;
         sync_wallet(&mut taker_wallet, &indexer)?;
-        if spendable_utxo(&maker_wallet, spl_mint, SOURCE_AMOUNT).is_ok()
-            && spendable_utxo(&taker_wallet, SOL_MINT, DESTINATION_AMOUNT).is_ok()
+        if !maker_wallet
+            .balance(spl_mint, Some(Filter::MinAmount(SOURCE_AMOUNT)))?
+            .utxos
+            .is_empty()
+            && !taker_wallet
+                .balance(SOL_MINT, Some(Filter::MinAmount(DESTINATION_AMOUNT)))?
+                .utxos
+                .is_empty()
         {
             break;
         }
