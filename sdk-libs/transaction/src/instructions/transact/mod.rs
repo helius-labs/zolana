@@ -21,7 +21,8 @@ pub use slots::{
     SlotCx,
 };
 pub use spp_proof_inputs::{
-    first_nullifier, inputs_require_p256, signed_to_field, PublicAmounts, SppProofInputs,
+    first_nullifier, get_transaction_viewing_key, inputs_require_p256, signed_to_field,
+    PublicAmounts, SppProofInputs,
 };
 pub use transfer::{
     canonical_shape, resolve_shape, PreparedRecipient, PreparedTransfer, Recipient, Transfer,

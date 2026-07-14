@@ -1,6 +1,6 @@
 use zolana_event::OutputData;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
-use zolana_keypair::{constants::SALT_LEN, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, random_salt, ViewingKey};
 
 use super::OutputUtxo;
 use crate::{
@@ -97,6 +97,7 @@ impl EncodeOutputSlot for ConfidentialSlot {
 }
 
 pub struct EncodedOutputs {
+    pub salt: [u8; SALT_LEN],
     pub output_utxos: Vec<OutputUtxo>,
     pub outputs: Vec<TransactOutput>,
     pub resolved_owner_tags: Vec<[u8; 32]>,
@@ -105,8 +106,8 @@ pub struct EncodedOutputs {
 pub fn encode_slots(
     slots: &[ConfidentialSlot],
     tx: &ViewingKey,
-    salt: [u8; SALT_LEN],
 ) -> Result<EncodedOutputs, TransactionError> {
+    let salt = random_salt();
     let mut output_utxos = Vec::with_capacity(slots.len());
     let mut outputs = Vec::with_capacity(slots.len());
     let mut resolved_owner_tags = Vec::with_capacity(slots.len());
@@ -131,6 +132,7 @@ pub fn encode_slots(
         output_utxos.push(output);
     }
     Ok(EncodedOutputs {
+        salt,
         output_utxos,
         outputs,
         resolved_owner_tags,

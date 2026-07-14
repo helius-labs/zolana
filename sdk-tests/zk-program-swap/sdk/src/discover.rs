@@ -356,12 +356,12 @@ fn collect_own_orders<I: Rpc>(wallet: &Wallet, indexer: &I) -> Result<Vec<OwnOrd
 mod tests {
     use solana_signature::Signature;
     use swap_prover::FILL_MODE_DERIVED;
-    use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, random_salt, ShieldedKeypair};
+    use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, ShieldedKeypair};
     use zolana_transaction::{
         instructions::{
             transact::{
-                encode_slots, first_nullifier, ConfidentialSlot, ExternalData, OutputContext,
-                OutputSlot, OutputUtxo, PublicAmounts, Shape, SppProofInputs,
+                encode_slots, get_transaction_viewing_key, ConfidentialSlot, ExternalData,
+                OutputContext, OutputSlot, OutputUtxo, PublicAmounts, Shape, SppProofInputs,
             },
             types::SppProofInputUtxo,
         },
@@ -486,17 +486,14 @@ mod tests {
         }
         .message()
         .expect("marker message");
-        let first_nullifier = first_nullifier(&input_utxos).expect("first nullifier");
-        let tx = maker_keypair
-            .get_transaction_viewing_key(&first_nullifier)
+        let tx = get_transaction_viewing_key(&maker_keypair, &input_utxos)
             .expect("transaction viewing key");
-        let salt = random_salt();
 
-        let encoded = encode_slots(&[change_slot, escrow_slot], &tx, salt).expect("encode slots");
+        let encoded = encode_slots(&[change_slot, escrow_slot], &tx).expect("encode slots");
 
         let external_data = ExternalData::new(
             *tx.pubkey().as_bytes(),
-            salt,
+            encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![marker_message],

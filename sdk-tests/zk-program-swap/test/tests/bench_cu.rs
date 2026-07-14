@@ -50,9 +50,9 @@ use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encode_slots, first_nullifier, spp_proof_inputs::BN254_MODULUS_DEC, ConfidentialSlot,
-            EncodeOutputSlot, ExternalData, OutputUtxo, PrebuiltSlot, PublicAmounts, Shape, SlotCx,
-            SppProofInputs,
+            encode_slots, get_transaction_viewing_key, spp_proof_inputs::BN254_MODULUS_DEC,
+            ConfidentialSlot, EncodeOutputSlot, ExternalData, OutputUtxo, PrebuiltSlot,
+            PublicAmounts, Shape, SlotCx, SppProofInputs,
         },
         types::SppProofInputUtxo,
     },
@@ -481,18 +481,14 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     .message()
     .expect("marker message");
 
-    let first_nullifier = first_nullifier(&input_utxos).expect("create first nullifier");
-    let tx = maker
-        .get_transaction_viewing_key(&first_nullifier)
+    let tx = get_transaction_viewing_key(&maker, &input_utxos)
         .expect("create transaction viewing key");
-    let salt = random_salt();
 
-    let encoded =
-        encode_slots(&[change_slot, escrow_slot], &tx, salt).expect("encode create slots");
+    let encoded = encode_slots(&[change_slot, escrow_slot], &tx).expect("encode create slots");
 
     let external_data = ExternalData::new(
         *tx.pubkey().as_bytes(),
-        salt,
+        encoded.salt,
         encoded.outputs,
         encoded.resolved_owner_tags,
         vec![marker_message],
@@ -659,18 +655,14 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let destination_slot =
         ConfidentialSlot::new(destination_output, &assets).expect("fill destination slot");
     let input_utxos = vec![escrow_input, taker_spend];
-    let first_nullifier = first_nullifier(&input_utxos).expect("fill first nullifier");
-    let tx = taker
-        .get_transaction_viewing_key(&first_nullifier)
+    let tx = get_transaction_viewing_key(&taker, &input_utxos)
         .expect("fill transaction viewing key");
-    let salt = random_salt();
 
-    let encoded =
-        encode_slots(&[source_slot, destination_slot], &tx, salt).expect("encode fill slots");
+    let encoded = encode_slots(&[source_slot, destination_slot], &tx).expect("encode fill slots");
 
     let external_data = ExternalData::new(
         *tx.pubkey().as_bytes(),
-        salt,
+        encoded.salt,
         encoded.outputs,
         encoded.resolved_owner_tags,
         vec![],
@@ -825,9 +817,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         },
     };
     let input_utxos = vec![escrow_input, taker_spend];
-    let first_nullifier = first_nullifier(&input_utxos).expect("fill first nullifier");
-    let tx = taker
-        .get_transaction_viewing_key(&first_nullifier)
+    let tx = get_transaction_viewing_key(&taker, &input_utxos)
         .expect("fill transaction viewing key");
     let salt = random_salt();
 
@@ -995,17 +985,14 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let assets = AssetRegistry::default();
     let source_slot = ConfidentialSlot::new(source_output, &assets).expect("cancel source slot");
     let input_utxos = vec![escrow_input];
-    let first_nullifier = first_nullifier(&input_utxos).expect("cancel first nullifier");
-    let tx = maker
-        .get_transaction_viewing_key(&first_nullifier)
+    let tx = get_transaction_viewing_key(&maker, &input_utxos)
         .expect("cancel transaction viewing key");
-    let salt = random_salt();
 
-    let encoded = encode_slots(&[source_slot], &tx, salt).expect("encode cancel slots");
+    let encoded = encode_slots(&[source_slot], &tx).expect("encode cancel slots");
 
     let external_data = ExternalData::new(
         *tx.pubkey().as_bytes(),
-        salt,
+        encoded.salt,
         encoded.outputs,
         encoded.resolved_owner_tags,
         vec![],

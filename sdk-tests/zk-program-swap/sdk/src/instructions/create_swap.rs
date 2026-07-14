@@ -137,13 +137,11 @@ impl CreateSwap {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::{
-        constants::BLINDING_LEN, hash::sha256_be, random_salt, shielded::ShieldedKeypair,
-    };
+    use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, shielded::ShieldedKeypair};
     use zolana_transaction::{
         instructions::{
             transact::{
-                encode_slots, first_nullifier, no_address_hashes, private_tx_hash,
+                encode_slots, get_transaction_viewing_key, no_address_hashes, private_tx_hash,
                 ConfidentialSlot, ExternalData, OutputUtxo, PublicAmounts, Shape, SppProofInputs,
             },
             types::SppProofInputUtxo,
@@ -222,17 +220,14 @@ mod tests {
         })
         .expect("marker bytes");
         let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
-        let first_nullifier = first_nullifier(&input_utxos).expect("first nullifier");
-        let tx = owner_keypair
-            .get_transaction_viewing_key(&first_nullifier)
+        let tx = get_transaction_viewing_key(&owner_keypair, &input_utxos)
             .expect("transaction viewing key");
-        let salt = random_salt();
 
-        let encoded = encode_slots(&[change_slot, escrow_slot], &tx, salt).expect("encode slots");
+        let encoded = encode_slots(&[change_slot, escrow_slot], &tx).expect("encode slots");
 
         let external_data = ExternalData::new(
             *tx.pubkey().as_bytes(),
-            salt,
+            encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![marker_message],
@@ -367,17 +362,14 @@ mod tests {
         .message()
         .expect("marker message");
         let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
-        let first_nullifier = first_nullifier(&input_utxos).expect("first nullifier");
-        let tx = owner_keypair
-            .get_transaction_viewing_key(&first_nullifier)
+        let tx = get_transaction_viewing_key(&owner_keypair, &input_utxos)
             .expect("transaction viewing key");
-        let salt = random_salt();
 
-        let encoded = encode_slots(&[change_slot, escrow_slot], &tx, salt).expect("encode slots");
+        let encoded = encode_slots(&[change_slot, escrow_slot], &tx).expect("encode slots");
 
         let external_data = ExternalData::new(
             *tx.pubkey().as_bytes(),
-            salt,
+            encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![marker_message],

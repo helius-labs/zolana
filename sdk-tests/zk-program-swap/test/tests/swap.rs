@@ -16,11 +16,11 @@ use swap_sdk::{
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};
-use zolana_keypair::{hash::sha256_be, random_blinding, random_salt};
+use zolana_keypair::{hash::sha256_be, random_blinding};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encode_slots, first_nullifier, ConfidentialSlot, ExternalData, OutputUtxo,
+            encode_slots, get_transaction_viewing_key, ConfidentialSlot, ExternalData, OutputUtxo,
             PublicAmounts, Shape, SppProofInputs,
         },
         types::SppProofInputUtxo,
@@ -143,19 +143,14 @@ fn create_and_fill_swap_inline() -> Result<()> {
         }
         .message()?;
 
-        let first_nullifier =
-            first_nullifier(&inputs).map_err(|e| anyhow!("first nullifier: {e:?}"))?;
-        let tx = maker
-            .keypair
-            .get_transaction_viewing_key(&first_nullifier)
+        let tx = get_transaction_viewing_key(&maker.keypair, &inputs)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-        let salt = random_salt();
 
-        let encoded = encode_slots(&[change_slot, escrow_slot], &tx, salt)?;
+        let encoded = encode_slots(&[change_slot, escrow_slot], &tx)?;
 
         let external_data = ExternalData::new(
             *tx.pubkey().as_bytes(),
-            salt,
+            encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![marker_message],
@@ -251,19 +246,14 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let source_slot = ConfidentialSlot::new(source_output, &taker.registry)?;
         let destination_slot = ConfidentialSlot::new(destination_output, &taker.registry)?;
 
-        let first_nullifier =
-            first_nullifier(&inputs).map_err(|e| anyhow!("first nullifier: {e:?}"))?;
-        let tx = taker
-            .keypair
-            .get_transaction_viewing_key(&first_nullifier)
+        let tx = get_transaction_viewing_key(&taker.keypair, &inputs)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-        let salt = random_salt();
 
-        let encoded = encode_slots(&[source_slot, destination_slot], &tx, salt)?;
+        let encoded = encode_slots(&[source_slot, destination_slot], &tx)?;
 
         let external_data = ExternalData::new(
             *tx.pubkey().as_bytes(),
-            salt,
+            encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![],

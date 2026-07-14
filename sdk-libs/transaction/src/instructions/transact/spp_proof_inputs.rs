@@ -2,7 +2,7 @@ use num_bigint::{BigInt, BigUint, Sign};
 use solana_address::Address;
 use zolana_keypair::{
     hash::{hash_field, sha256},
-    SignatureType,
+    SignatureType, ViewingKey, ViewingKeyTrait,
 };
 
 use super::{
@@ -65,6 +65,14 @@ pub fn first_nullifier(input_utxos: &[SppProofInputUtxo]) -> Result<[u8; 32], Tr
     Ok(spend
         .nullifier_key
         .nullifier(&utxo_hash, &spend.utxo.blinding)?)
+}
+
+pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
+    keypair: &K,
+    input_utxos: &[SppProofInputUtxo],
+) -> Result<ViewingKey, TransactionError> {
+    let first_nullifier = first_nullifier(input_utxos)?;
+    Ok(keypair.get_transaction_viewing_key(&first_nullifier)?)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -16,11 +16,11 @@ use swap_sdk::{
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};
-use zolana_keypair::{hash::sha256_be, random_blinding, random_salt};
+use zolana_keypair::{hash::sha256_be, random_blinding};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encode_slots, first_nullifier, ConfidentialSlot, ExternalData, OutputUtxo,
+            encode_slots, get_transaction_viewing_key, ConfidentialSlot, ExternalData, OutputUtxo,
             PublicAmounts, Shape, SppProofInputs,
         },
         types::SppProofInputUtxo,
@@ -118,20 +118,15 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         }
         .message()?;
 
-        let first_nullifier =
-            first_nullifier(&input_utxos).map_err(|e| anyhow!("create first nullifier: {e:?}"))?;
-        let tx = maker
-            .keypair
-            .get_transaction_viewing_key(&first_nullifier)
+        let tx = get_transaction_viewing_key(&maker.keypair, &input_utxos)
             .map_err(|e| anyhow!("create transaction viewing key: {e:?}"))?;
-        let salt = random_salt();
 
-        let encoded = encode_slots(&[change_slot, escrow_slot], &tx, salt)
+        let encoded = encode_slots(&[change_slot, escrow_slot], &tx)
             .map_err(|e| anyhow!("encode create slots: {e:?}"))?;
 
         let external_data = ExternalData::new(
             *tx.pubkey().as_bytes(),
-            salt,
+            encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![marker_message],
@@ -230,20 +225,15 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let source_slot = ConfidentialSlot::new(source_output, &maker.registry)
             .map_err(|e| anyhow!("cancel source slot: {e:?}"))?;
         let input_utxos = vec![escrow_input];
-        let first_nullifier =
-            first_nullifier(&input_utxos).map_err(|e| anyhow!("cancel first nullifier: {e:?}"))?;
-        let tx = maker
-            .keypair
-            .get_transaction_viewing_key(&first_nullifier)
+        let tx = get_transaction_viewing_key(&maker.keypair, &input_utxos)
             .map_err(|e| anyhow!("cancel transaction viewing key: {e:?}"))?;
-        let salt = random_salt();
 
-        let encoded = encode_slots(&[source_slot], &tx, salt)
+        let encoded = encode_slots(&[source_slot], &tx)
             .map_err(|e| anyhow!("encode cancel slots: {e:?}"))?;
 
         let external_data = ExternalData::new(
             *tx.pubkey().as_bytes(),
-            salt,
+            encoded.salt,
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![],
