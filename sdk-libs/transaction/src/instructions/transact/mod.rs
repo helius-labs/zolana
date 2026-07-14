@@ -16,7 +16,10 @@ pub mod types;
 
 pub use external_data::ExternalData;
 pub use shape::{Shape, SPP_SUPPORTED_SHAPES};
-pub use slots::{ConfidentialSlot, EncodeOutputSlot, EncodedSlot, PrebuiltSlot, SlotCx};
+pub use slots::{
+    encode_slots, ConfidentialSlot, EncodeOutputSlot, EncodedOutputs, EncodedSlot, PrebuiltSlot,
+    SlotCx,
+};
 pub use spp_proof_inputs::{
     first_nullifier, inputs_require_p256, signed_to_field, PublicAmounts, SppProofInputs,
 };

@@ -16,13 +16,12 @@ use swap_sdk::{
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};
-use zolana_interface::instruction::instruction_data::transact::TransactOutput;
 use zolana_keypair::{hash::sha256_be, random_blinding, random_salt};
 use zolana_transaction::{
     instructions::{
         transact::{
-            first_nullifier, ConfidentialSlot, EncodeOutputSlot, ExternalData, OutputUtxo,
-            PublicAmounts, Shape, SlotCx, SppProofInputs,
+            encode_slots, first_nullifier, ConfidentialSlot, ExternalData, OutputUtxo,
+            PublicAmounts, Shape, SppProofInputs,
         },
         types::SppProofInputUtxo,
     },
@@ -126,49 +125,21 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .get_transaction_viewing_key(&first_nullifier)
             .map_err(|e| anyhow!("create transaction viewing key: {e:?}"))?;
         let salt = random_salt();
-        let self_pubkey = maker.keypair.viewing_pubkey();
 
-        let slots: [&dyn EncodeOutputSlot; 2] = [&change_slot, &escrow_slot];
-        let mut outputs = Vec::with_capacity(slots.len());
-        let mut transact_outputs = Vec::with_capacity(slots.len());
-        let mut resolved_owner_tags = Vec::with_capacity(slots.len());
-        let mut ordinal = 0u32;
-        for slot in slots.iter() {
-            let encoded = slot
-                .encode_slot(&SlotCx {
-                    tx: &tx,
-                    self_pubkey,
-                    salt,
-                    slot_index: ordinal,
-                })
-                .map_err(|e| anyhow!("encode create slot: {e:?}"))?;
-            let output = slot.output().clone();
-            let utxo_hash = output
-                .hash()
-                .map_err(|e| anyhow!("create output hash: {e:?}"))?;
-            if encoded.data.is_some() {
-                ordinal += 1;
-            }
-            transact_outputs.push(TransactOutput {
-                utxo_hash,
-                owner_tag: encoded.owner_tag,
-                data: encoded.data,
-            });
-            resolved_owner_tags.push(encoded.resolved_owner_tag);
-            outputs.push(output);
-        }
+        let encoded = encode_slots(&[change_slot, escrow_slot], &tx, salt)
+            .map_err(|e| anyhow!("encode create slots: {e:?}"))?;
 
         let external_data = ExternalData::new(
             *tx.pubkey().as_bytes(),
             salt,
-            transact_outputs,
-            resolved_owner_tags,
+            encoded.outputs,
+            encoded.resolved_owner_tags,
             vec![marker_message],
             u64::MAX,
         );
         let spp_proof_inputs = SppProofInputs {
             input_utxos,
-            output_utxos: outputs,
+            output_utxos: encoded.output_utxos,
             public_amounts: PublicAmounts::ZERO,
             external_data,
             payer_pubkey_hash: sha256_be(maker_address.solana_address()?.as_array()),
@@ -266,49 +237,21 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .get_transaction_viewing_key(&first_nullifier)
             .map_err(|e| anyhow!("cancel transaction viewing key: {e:?}"))?;
         let salt = random_salt();
-        let self_pubkey = maker.keypair.viewing_pubkey();
 
-        let slots: [&dyn EncodeOutputSlot; 1] = [&source_slot];
-        let mut outputs = Vec::with_capacity(slots.len());
-        let mut transact_outputs = Vec::with_capacity(slots.len());
-        let mut resolved_owner_tags = Vec::with_capacity(slots.len());
-        let mut ordinal = 0u32;
-        for slot in slots.iter() {
-            let encoded = slot
-                .encode_slot(&SlotCx {
-                    tx: &tx,
-                    self_pubkey,
-                    salt,
-                    slot_index: ordinal,
-                })
-                .map_err(|e| anyhow!("encode cancel slot: {e:?}"))?;
-            let output = slot.output().clone();
-            let utxo_hash = output
-                .hash()
-                .map_err(|e| anyhow!("cancel output hash: {e:?}"))?;
-            if encoded.data.is_some() {
-                ordinal += 1;
-            }
-            transact_outputs.push(TransactOutput {
-                utxo_hash,
-                owner_tag: encoded.owner_tag,
-                data: encoded.data,
-            });
-            resolved_owner_tags.push(encoded.resolved_owner_tag);
-            outputs.push(output);
-        }
+        let encoded = encode_slots(&[source_slot], &tx, salt)
+            .map_err(|e| anyhow!("encode cancel slots: {e:?}"))?;
 
         let external_data = ExternalData::new(
             *tx.pubkey().as_bytes(),
             salt,
-            transact_outputs,
-            resolved_owner_tags,
+            encoded.outputs,
+            encoded.resolved_owner_tags,
             vec![],
             SPP_RELAYER_DEADLINE,
         );
         let cancel_spp_proof_inputs = SppProofInputs {
             input_utxos,
-            output_utxos: outputs,
+            output_utxos: encoded.output_utxos,
             public_amounts: PublicAmounts::ZERO,
             external_data,
             payer_pubkey_hash: sha256_be(maker_address.solana_address()?.as_array()),

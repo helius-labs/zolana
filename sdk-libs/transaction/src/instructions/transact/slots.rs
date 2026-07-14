@@ -1,6 +1,6 @@
 use zolana_event::OutputData;
-use zolana_interface::instruction::instruction_data::transact::OwnerTag;
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
+use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
+use zolana_keypair::{constants::SALT_LEN, ViewingKey};
 
 use super::OutputUtxo;
 use crate::{
@@ -15,7 +15,6 @@ use crate::{
 
 pub struct SlotCx<'a> {
     pub tx: &'a ViewingKey,
-    pub self_pubkey: P256Pubkey,
     pub salt: [u8; SALT_LEN],
     /// AES ciphertext ordinal for this slot: the count of data-bearing outputs
     /// preceding it. Fed into the per-slot key/nonce derivation.
@@ -95,6 +94,47 @@ impl EncodeOutputSlot for ConfidentialSlot {
             },
         )?))
     }
+}
+
+pub struct EncodedOutputs {
+    pub output_utxos: Vec<OutputUtxo>,
+    pub outputs: Vec<TransactOutput>,
+    pub resolved_owner_tags: Vec<[u8; 32]>,
+}
+
+pub fn encode_slots(
+    slots: &[ConfidentialSlot],
+    tx: &ViewingKey,
+    salt: [u8; SALT_LEN],
+) -> Result<EncodedOutputs, TransactionError> {
+    let mut output_utxos = Vec::with_capacity(slots.len());
+    let mut outputs = Vec::with_capacity(slots.len());
+    let mut resolved_owner_tags = Vec::with_capacity(slots.len());
+    let mut ordinal = 0u32;
+    for slot in slots {
+        let encoded = slot.encode_slot(&SlotCx {
+            tx,
+            salt,
+            slot_index: ordinal,
+        })?;
+        let output = slot.output().clone();
+        let utxo_hash = output.hash()?;
+        if encoded.data.is_some() {
+            ordinal += 1;
+        }
+        outputs.push(TransactOutput {
+            utxo_hash,
+            owner_tag: encoded.owner_tag,
+            data: encoded.data,
+        });
+        resolved_owner_tags.push(encoded.resolved_owner_tag);
+        output_utxos.push(output);
+    }
+    Ok(EncodedOutputs {
+        output_utxos,
+        outputs,
+        resolved_owner_tags,
+    })
 }
 
 /// A slot whose ciphertext is already sealed (e.g. by a zone/swap SDK), carried

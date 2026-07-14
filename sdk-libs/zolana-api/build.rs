@@ -12,7 +12,9 @@ fn generate() {
     let spec_path = env::var("ZOLANA_OPENAPI_SPEC")
         .or_else(|_| env::var("PHOTON_ZOLANA_OPENAPI_SPEC"))
         .map(PathBuf::from)
-        .unwrap_or_else(|_| manifest_dir.join("../../../photon-privacy/src/openapi/specs/rings.yaml"));
+        .unwrap_or_else(|_| {
+            manifest_dir.join("../../../photon-privacy/src/openapi/specs/rings.yaml")
+        });
 
     println!("cargo::rerun-if-changed={}", spec_path.display());
 

@@ -668,7 +668,7 @@ fn rail_follows_input_owner_type() {
         zone_program_id: None,
         data: Data::default(),
     };
-    let ed_input = SppProofInputUtxo::new(ed_utxo, &NullifierKey::from_secret(blinding(&mut rng)));
+    let ed_input = SppProofInputUtxo::new(ed_utxo, NullifierKey::from_secret(blinding(&mut rng)));
     let ed_transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![ed_input],
