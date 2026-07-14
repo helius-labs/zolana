@@ -1,0 +1,9 @@
+.git
+.idea
+.vscode
+**/.DS_Store
+**/.env
+**/.env.*
+**/target
+**/test-ledger
+services/photon/test.db

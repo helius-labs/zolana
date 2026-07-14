@@ -9,9 +9,6 @@ the repo root; build contexts in the compose file are relative to `docker/`.
 ```bash
 # Pull the published images (server-safe; no source tree needed):
 docker compose -f docker/docker-compose.yml up -d
-
-# Build from source instead (dev box):
-docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 Copy `docker/.env.example` to `docker/.env` and fill it in first (auto-loaded).
@@ -22,13 +19,12 @@ Photon indexes an external host Solana RPC (default `host.docker.internal:8899`)
 ## Build photon from source (opt-in)
 
 The default path pulls the published photon image. Building photon from source
-is opt-in via the `build-photon` profile; `PHOTON_BUILD_CONTEXT` must point at a
-local photon (Rust) checkout current with this repo. Because compose resolves
-build contexts relative to `docker/`, a checkout beside this repo is
-`../../photon`.
+is opt-in via the `build-photon` profile. The build uses
+`services/photon/Dockerfile` with the repository root as its context, so it
+shares the workspace dependencies and lockfile.
 
 ```bash
-PHOTON_BUILD_CONTEXT=../../photon PHOTON_IMAGE=zolana-photon:local \
+PHOTON_IMAGE=zolana-photon:local \
   docker compose -f docker/docker-compose.yml --profile build-photon build photon-build
 PHOTON_IMAGE=zolana-photon:local docker compose -f docker/docker-compose.yml up -d
 ```
@@ -53,10 +49,10 @@ cd prover/server && gh release download transfer-keys-v10 \
 
 ## Publish images (docker-bake.hcl)
 
-Bake reads the build config (contexts, inline Dockerfiles, the `..` patch
-context) from `docker-compose.yml`; the HCL only sets platforms, registry tags,
-and supplies photon's build context. Run from the repo root. Your local build is
-your Mac's arch (arm64); a typical x86 server needs `linux/amd64`.
+Bake reads the build config from `docker-compose.yml`; the HCL sets platforms,
+registry tags, and repo-root paths for Buildx. Run from the repo root. Your
+local build is your Mac's arch (arm64); a typical x86 server needs
+`linux/amd64`.
 
 ```bash
 # One-time: a builder that can cross-build + push multi-arch manifests.

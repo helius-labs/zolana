@@ -2,6 +2,8 @@
 name = "spp-test-validator"
 version = "0.1.0"
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 publish = false
 # Only the explicit `lifecycle` test target builds; tests/{actor,localnet,world}.rs
 # are its modules, not standalone integration-test binaries.

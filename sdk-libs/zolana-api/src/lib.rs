@@ -1,43 +1,28 @@
-//! Typed client for Photon's Zolana-only indexer API.
-//!
-//! Types are generated from `src/openapi/specs/zolana.yaml` in the Photon
-//! checkout and checked in as `src/codegen.rs`.
+//! Async and blocking transports for the Zolana indexer JSON-RPC contract.
 
-#![allow(clippy::large_enum_variant)]
+use std::{error::Error as StdError, fmt};
 
-use std::{error::Error as StdError, fmt, sync::Once};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use zolana_indexer_api::{
+    method::{
+        GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
+        GetShieldedTransactionsByTags,
+    },
+    RpcMethod,
+};
 
-use serde::{de::DeserializeOwned, Serialize};
+pub use zolana_indexer_api::{
+    Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+    GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
+    GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
+    GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
+    GetShieldedTransactionsByTagsResponse, Hash, Limit, MerkleContext, MerkleProof,
+    NonInclusionProof, NullifierQueueElement, RingsOutputContext, RingsOutputSlot,
+    SerializablePubkey, SerializableSignature, ShieldedTransaction, PAGE_LIMIT,
+};
 
-pub mod generated {
-    #![allow(unused_imports, clippy::all, dead_code)]
-    #![allow(mismatched_lifetime_syntaxes)]
-
-    include!("codegen.rs");
-}
-
-pub use generated::types;
-
-pub type Base64String = types::Base64String;
-pub type Context = types::Context;
-pub type EncryptedUtxoMatch = types::EncryptedUtxoMatch;
-pub type GetEncryptedUtxosByTagsResponse = types::PostGetEncryptedUtxosByTagsResponseResult;
-pub type GetMerkleProofsResponse = types::PostGetMerkleProofsResponseResult;
-pub type GetNonInclusionProofsResponse = types::PostGetNonInclusionProofsResponseResult;
-pub type GetShieldedTransactionsByTagsResponse =
-    types::PostGetShieldedTransactionsByTagsResponseResult;
-pub type Hash = types::Hash;
-pub type Limit = types::Limit;
-pub type MerkleContext = types::MerkleContext;
-pub type MerkleProof = types::MerkleProof;
-pub type NonInclusionProof = types::NonInclusionProof;
-pub type NullifierQueueElement = types::NullifierQueueElement;
-pub type GetNullifierQueueElementsResponse = types::PostGetNullifierQueueElementsResponseResult;
-pub type SerializablePubkey = types::SerializablePubkey;
-pub type SerializableSignature = types::SerializableSignature;
-pub type ShieldedTransaction = types::ShieldedTransaction;
-pub type RingsOutputContext = types::RingsOutputContext;
-pub type RingsOutputSlot = types::RingsOutputSlot;
+const JSON_RPC_VERSION: &str = "2.0";
+const REQUEST_ID: &str = "test-account";
 
 #[derive(Clone, Debug)]
 pub struct ZolanaApi {
@@ -67,26 +52,33 @@ pub enum ApiError {
         code: Option<i64>,
         message: Option<String>,
     },
+    InvalidRequest {
+        field: &'static str,
+        message: &'static str,
+    },
     MissingResult(&'static str),
 }
 
 impl fmt::Display for ApiError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Request(err) => write!(f, "request error: {err}"),
+            Self::Request(error) => write!(formatter, "request error: {error}"),
             Self::Response { status, body } => {
-                write!(f, "HTTP response error {status}: {body}")
+                write!(formatter, "HTTP response error {status}: {body}")
             }
             Self::JsonRpc {
                 method,
                 code,
                 message,
             } => write!(
-                f,
+                formatter,
                 "JSON-RPC error from {method}: code={code:?} message={message:?}"
             ),
+            Self::InvalidRequest { field, message } => {
+                write!(formatter, "invalid {field}: {message}")
+            }
             Self::MissingResult(method) => {
-                write!(f, "JSON-RPC response from {method} omitted result")
+                write!(formatter, "JSON-RPC response from {method} omitted result")
             }
         }
     }
@@ -95,21 +87,51 @@ impl fmt::Display for ApiError {
 impl StdError for ApiError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
-            Self::Request(err) => Some(err),
+            Self::Request(error) => Some(error),
             _ => None,
         }
     }
 }
 
 impl From<reqwest::Error> for ApiError {
-    fn from(err: reqwest::Error) -> Self {
-        Self::Request(err)
+    fn from(error: reqwest::Error) -> Self {
+        Self::Request(error)
     }
+}
+
+#[derive(Serialize)]
+struct JsonRpcRequest<'a, P> {
+    id: &'static str,
+    jsonrpc: &'static str,
+    method: &'static str,
+    params: &'a P,
+}
+
+impl<'a, P> JsonRpcRequest<'a, P> {
+    fn new(method: &'static str, params: &'a P) -> Self {
+        Self {
+            id: REQUEST_ID,
+            jsonrpc: JSON_RPC_VERSION,
+            method,
+            params,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct JsonRpcResponse<R> {
+    error: Option<JsonRpcError>,
+    result: Option<R>,
+}
+
+#[derive(Deserialize)]
+struct JsonRpcError {
+    code: Option<i64>,
+    message: Option<String>,
 }
 
 impl ZolanaApi {
     pub fn new(url: impl AsRef<str>) -> Self {
-        ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
         Self {
             base_path,
@@ -120,7 +142,6 @@ impl ZolanaApi {
     }
 
     pub fn with_client(url: impl AsRef<str>, client: reqwest::Client) -> Self {
-        ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
         Self {
             base_path,
@@ -149,26 +170,12 @@ impl ZolanaApi {
         cursor: Option<Base64String>,
         limit: Option<u64>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ApiError> {
-        let method = "get_encrypted_utxos_by_tags";
-        let body = types::PostGetEncryptedUtxosByTagsBody {
-            id: types::PostGetEncryptedUtxosByTagsBodyId::TestAccount,
-            jsonrpc: types::PostGetEncryptedUtxosByTagsBodyJsonrpc::X20,
-            method: types::PostGetEncryptedUtxosByTagsBodyMethod::GetEncryptedUtxosByTags,
-            params: types::PostGetEncryptedUtxosByTagsBodyParams {
-                cursor,
-                limit: limit.and_then(|value| ::std::num::NonZeroU64::new(value).map(types::Limit)),
-                tags,
-            },
-        };
-        let response: types::PostGetEncryptedUtxosByTagsResponse = self.post(method, &body).await?;
-        if let Some(error) = response.error {
-            return Err(ApiError::JsonRpc {
-                method,
-                code: error.code,
-                message: error.message,
-            });
-        }
-        response.result.ok_or(ApiError::MissingResult(method))
+        self.call::<GetEncryptedUtxosByTags>(GetRingsByTagsRequest {
+            tags,
+            cursor,
+            limit: optional_limit(limit)?,
+        })
+        .await
     }
 
     pub async fn get_shielded_transactions_by_tags(
@@ -177,28 +184,12 @@ impl ZolanaApi {
         cursor: Option<Base64String>,
         limit: Option<u64>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        let method = "get_shielded_transactions_by_tags";
-        let body = types::PostGetShieldedTransactionsByTagsBody {
-            id: types::PostGetShieldedTransactionsByTagsBodyId::TestAccount,
-            jsonrpc: types::PostGetShieldedTransactionsByTagsBodyJsonrpc::X20,
-            method:
-                types::PostGetShieldedTransactionsByTagsBodyMethod::GetShieldedTransactionsByTags,
-            params: types::PostGetShieldedTransactionsByTagsBodyParams {
-                cursor,
-                limit: limit.and_then(|value| ::std::num::NonZeroU64::new(value).map(types::Limit)),
-                tags,
-            },
-        };
-        let response: types::PostGetShieldedTransactionsByTagsResponse =
-            self.post(method, &body).await?;
-        if let Some(error) = response.error {
-            return Err(ApiError::JsonRpc {
-                method,
-                code: error.code,
-                message: error.message,
-            });
-        }
-        response.result.ok_or(ApiError::MissingResult(method))
+        self.call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
+            tags,
+            cursor,
+            limit: optional_limit(limit)?,
+        })
+        .await
     }
 
     pub async fn get_merkle_proofs(
@@ -206,25 +197,11 @@ impl ZolanaApi {
         tree_account: SerializablePubkey,
         leaves: Vec<Hash>,
     ) -> Result<GetMerkleProofsResponse, ApiError> {
-        let method = "get_merkle_proofs";
-        let body = types::PostGetMerkleProofsBody {
-            id: types::PostGetMerkleProofsBodyId::TestAccount,
-            jsonrpc: types::PostGetMerkleProofsBodyJsonrpc::X20,
-            method: types::PostGetMerkleProofsBodyMethod::GetMerkleProofs,
-            params: types::PostGetMerkleProofsBodyParams {
-                leaves,
-                tree_account,
-            },
-        };
-        let response: types::PostGetMerkleProofsResponse = self.post(method, &body).await?;
-        if let Some(error) = response.error {
-            return Err(ApiError::JsonRpc {
-                method,
-                code: error.code,
-                message: error.message,
-            });
-        }
-        response.result.ok_or(ApiError::MissingResult(method))
+        self.call::<GetMerkleProofs>(GetMerkleProofsRequest {
+            tree_account,
+            leaves,
+        })
+        .await
     }
 
     pub async fn get_non_inclusion_proofs(
@@ -232,25 +209,11 @@ impl ZolanaApi {
         tree_account: SerializablePubkey,
         leaves: Vec<Hash>,
     ) -> Result<GetNonInclusionProofsResponse, ApiError> {
-        let method = "get_non_inclusion_proofs";
-        let body = types::PostGetNonInclusionProofsBody {
-            id: types::PostGetNonInclusionProofsBodyId::TestAccount,
-            jsonrpc: types::PostGetNonInclusionProofsBodyJsonrpc::X20,
-            method: types::PostGetNonInclusionProofsBodyMethod::GetNonInclusionProofs,
-            params: types::PostGetNonInclusionProofsBodyParams {
-                leaves,
-                tree_account,
-            },
-        };
-        let response: types::PostGetNonInclusionProofsResponse = self.post(method, &body).await?;
-        if let Some(error) = response.error {
-            return Err(ApiError::JsonRpc {
-                method,
-                code: error.code,
-                message: error.message,
-            });
-        }
-        response.result.ok_or(ApiError::MissingResult(method))
+        self.call::<GetNonInclusionProofs>(GetNonInclusionProofsRequest {
+            tree_account,
+            leaves,
+        })
+        .await
     }
 
     pub async fn get_nullifier_queue_elements(
@@ -259,27 +222,21 @@ impl ZolanaApi {
         start_seq: Option<u64>,
         limit: u64,
     ) -> Result<GetNullifierQueueElementsResponse, ApiError> {
-        let method = "get_nullifier_queue_elements";
-        let body = types::PostGetNullifierQueueElementsBody {
-            id: types::PostGetNullifierQueueElementsBodyId::TestAccount,
-            jsonrpc: types::PostGetNullifierQueueElementsBodyJsonrpc::X20,
-            method: types::PostGetNullifierQueueElementsBodyMethod::GetNullifierQueueElements,
-            params: types::PostGetNullifierQueueElementsBodyParams {
-                limit,
-                start_seq,
-                tree_account,
-            },
-        };
-        let response: types::PostGetNullifierQueueElementsResponse =
-            self.post(method, &body).await?;
-        if let Some(error) = response.error {
-            return Err(ApiError::JsonRpc {
-                method,
-                code: error.code,
-                message: error.message,
-            });
-        }
-        response.result.ok_or(ApiError::MissingResult(method))
+        self.call::<GetNullifierQueueElements>(GetNullifierQueueElementsRequest {
+            tree_account,
+            start_seq: start_seq.unwrap_or_default(),
+            limit: required_limit(limit)?,
+        })
+        .await
+    }
+
+    async fn call<M>(&self, params: M::Request) -> Result<M::Response, ApiError>
+    where
+        M: RpcMethod,
+    {
+        let body = JsonRpcRequest::new(M::NAME, &params);
+        let response: JsonRpcResponse<M::Response> = self.post(M::NAME, &body).await?;
+        unwrap_response::<M>(response)
     }
 
     async fn post<B, R>(&self, method: &'static str, body: &B) -> Result<R, ApiError>
@@ -313,7 +270,6 @@ impl ZolanaApi {
 
 impl BlockingZolanaApi {
     pub fn new(url: impl AsRef<str>) -> Self {
-        ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
         Self {
             base_path,
@@ -324,7 +280,6 @@ impl BlockingZolanaApi {
     }
 
     pub fn with_client(url: impl AsRef<str>, client: reqwest::blocking::Client) -> Self {
-        ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
         Self {
             base_path,
@@ -353,26 +308,11 @@ impl BlockingZolanaApi {
         cursor: Option<Base64String>,
         limit: Option<u64>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ApiError> {
-        let method = "get_encrypted_utxos_by_tags";
-        let body = types::PostGetEncryptedUtxosByTagsBody {
-            id: types::PostGetEncryptedUtxosByTagsBodyId::TestAccount,
-            jsonrpc: types::PostGetEncryptedUtxosByTagsBodyJsonrpc::X20,
-            method: types::PostGetEncryptedUtxosByTagsBodyMethod::GetEncryptedUtxosByTags,
-            params: types::PostGetEncryptedUtxosByTagsBodyParams {
-                cursor,
-                limit: limit.and_then(|value| ::std::num::NonZeroU64::new(value).map(types::Limit)),
-                tags,
-            },
-        };
-        let response: types::PostGetEncryptedUtxosByTagsResponse = self.post(method, &body)?;
-        if let Some(error) = response.error {
-            return Err(ApiError::JsonRpc {
-                method,
-                code: error.code,
-                message: error.message,
-            });
-        }
-        response.result.ok_or(ApiError::MissingResult(method))
+        self.call::<GetEncryptedUtxosByTags>(GetRingsByTagsRequest {
+            tags,
+            cursor,
+            limit: optional_limit(limit)?,
+        })
     }
 
     pub fn get_shielded_transactions_by_tags(
@@ -381,28 +321,11 @@ impl BlockingZolanaApi {
         cursor: Option<Base64String>,
         limit: Option<u64>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        let method = "get_shielded_transactions_by_tags";
-        let body = types::PostGetShieldedTransactionsByTagsBody {
-            id: types::PostGetShieldedTransactionsByTagsBodyId::TestAccount,
-            jsonrpc: types::PostGetShieldedTransactionsByTagsBodyJsonrpc::X20,
-            method:
-                types::PostGetShieldedTransactionsByTagsBodyMethod::GetShieldedTransactionsByTags,
-            params: types::PostGetShieldedTransactionsByTagsBodyParams {
-                cursor,
-                limit: limit.and_then(|value| ::std::num::NonZeroU64::new(value).map(types::Limit)),
-                tags,
-            },
-        };
-        let response: types::PostGetShieldedTransactionsByTagsResponse =
-            self.post(method, &body)?;
-        if let Some(error) = response.error {
-            return Err(ApiError::JsonRpc {
-                method,
-                code: error.code,
-                message: error.message,
-            });
-        }
-        response.result.ok_or(ApiError::MissingResult(method))
+        self.call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
+            tags,
+            cursor,
+            limit: optional_limit(limit)?,
+        })
     }
 
     pub fn get_merkle_proofs(
@@ -410,25 +333,10 @@ impl BlockingZolanaApi {
         tree_account: SerializablePubkey,
         leaves: Vec<Hash>,
     ) -> Result<GetMerkleProofsResponse, ApiError> {
-        let method = "get_merkle_proofs";
-        let body = types::PostGetMerkleProofsBody {
-            id: types::PostGetMerkleProofsBodyId::TestAccount,
-            jsonrpc: types::PostGetMerkleProofsBodyJsonrpc::X20,
-            method: types::PostGetMerkleProofsBodyMethod::GetMerkleProofs,
-            params: types::PostGetMerkleProofsBodyParams {
-                leaves,
-                tree_account,
-            },
-        };
-        let response: types::PostGetMerkleProofsResponse = self.post(method, &body)?;
-        if let Some(error) = response.error {
-            return Err(ApiError::JsonRpc {
-                method,
-                code: error.code,
-                message: error.message,
-            });
-        }
-        response.result.ok_or(ApiError::MissingResult(method))
+        self.call::<GetMerkleProofs>(GetMerkleProofsRequest {
+            tree_account,
+            leaves,
+        })
     }
 
     pub fn get_non_inclusion_proofs(
@@ -436,25 +344,10 @@ impl BlockingZolanaApi {
         tree_account: SerializablePubkey,
         leaves: Vec<Hash>,
     ) -> Result<GetNonInclusionProofsResponse, ApiError> {
-        let method = "get_non_inclusion_proofs";
-        let body = types::PostGetNonInclusionProofsBody {
-            id: types::PostGetNonInclusionProofsBodyId::TestAccount,
-            jsonrpc: types::PostGetNonInclusionProofsBodyJsonrpc::X20,
-            method: types::PostGetNonInclusionProofsBodyMethod::GetNonInclusionProofs,
-            params: types::PostGetNonInclusionProofsBodyParams {
-                leaves,
-                tree_account,
-            },
-        };
-        let response: types::PostGetNonInclusionProofsResponse = self.post(method, &body)?;
-        if let Some(error) = response.error {
-            return Err(ApiError::JsonRpc {
-                method,
-                code: error.code,
-                message: error.message,
-            });
-        }
-        response.result.ok_or(ApiError::MissingResult(method))
+        self.call::<GetNonInclusionProofs>(GetNonInclusionProofsRequest {
+            tree_account,
+            leaves,
+        })
     }
 
     pub fn get_nullifier_queue_elements(
@@ -463,26 +356,20 @@ impl BlockingZolanaApi {
         start_seq: Option<u64>,
         limit: u64,
     ) -> Result<GetNullifierQueueElementsResponse, ApiError> {
-        let method = "get_nullifier_queue_elements";
-        let body = types::PostGetNullifierQueueElementsBody {
-            id: types::PostGetNullifierQueueElementsBodyId::TestAccount,
-            jsonrpc: types::PostGetNullifierQueueElementsBodyJsonrpc::X20,
-            method: types::PostGetNullifierQueueElementsBodyMethod::GetNullifierQueueElements,
-            params: types::PostGetNullifierQueueElementsBodyParams {
-                limit,
-                start_seq,
-                tree_account,
-            },
-        };
-        let response: types::PostGetNullifierQueueElementsResponse = self.post(method, &body)?;
-        if let Some(error) = response.error {
-            return Err(ApiError::JsonRpc {
-                method,
-                code: error.code,
-                message: error.message,
-            });
-        }
-        response.result.ok_or(ApiError::MissingResult(method))
+        self.call::<GetNullifierQueueElements>(GetNullifierQueueElementsRequest {
+            tree_account,
+            start_seq: start_seq.unwrap_or_default(),
+            limit: required_limit(limit)?,
+        })
+    }
+
+    fn call<M>(&self, params: M::Request) -> Result<M::Response, ApiError>
+    where
+        M: RpcMethod,
+    {
+        let body = JsonRpcRequest::new(M::NAME, &params);
+        let response: JsonRpcResponse<M::Response> = self.post(M::NAME, &body)?;
+        unwrap_response::<M>(response)
     }
 
     fn post<B, R>(&self, method: &'static str, body: &B) -> Result<R, ApiError>
@@ -514,14 +401,46 @@ impl BlockingZolanaApi {
     }
 }
 
+fn optional_limit(value: Option<u64>) -> Result<Option<Limit>, ApiError> {
+    value
+        .map(|value| {
+            Limit::new(value).map_err(|message| ApiError::InvalidRequest {
+                field: "limit",
+                message,
+            })
+        })
+        .transpose()
+}
+
+fn required_limit(value: u64) -> Result<Limit, ApiError> {
+    Limit::new(value).map_err(|message| ApiError::InvalidRequest {
+        field: "limit",
+        message,
+    })
+}
+
+fn unwrap_response<M>(response: JsonRpcResponse<M::Response>) -> Result<M::Response, ApiError>
+where
+    M: RpcMethod,
+{
+    if let Some(error) = response.error {
+        return Err(ApiError::JsonRpc {
+            method: M::NAME,
+            code: error.code,
+            message: error.message,
+        });
+    }
+    response.result.ok_or(ApiError::MissingResult(M::NAME))
+}
+
 fn parse_url(url: &str) -> (String, Option<String>) {
     let Some(query_start) = url.find('?') else {
         return (url.to_string(), None);
     };
     let base = &url[..query_start];
     let query = &url[query_start + 1..];
-    for param in query.split('&') {
-        if let Some(value) = param.strip_prefix("api-key=") {
+    for parameter in query.split('&') {
+        if let Some(value) = parameter.strip_prefix("api-key=") {
             return (base.to_string(), Some(value.to_string()));
         }
     }
@@ -575,22 +494,21 @@ fn parse_json_response<R>(status: reqwest::StatusCode, body: String) -> Result<R
 where
     R: DeserializeOwned,
 {
-    serde_json::from_str(&body).map_err(|error| ApiError::Response {
+    let mut deserializer = serde_json::Deserializer::from_str(&body);
+    serde_path_to_error::deserialize(&mut deserializer).map_err(|error| ApiError::Response {
         status,
-        body: format!("failed to decode JSON response: {error}; body: {body}"),
+        body: format!(
+            "failed to decode JSON response at {}: {}; body: {body}",
+            error.path(),
+            error.inner()
+        ),
     })
-}
-
-fn ensure_ring_provider() {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zolana_indexer_api::{GET_ENCRYPTED_UTXOS_BY_TAGS, GET_MERKLE_PROOFS};
 
     #[test]
     fn extracts_api_key_from_url() {
@@ -598,7 +516,7 @@ mod tests {
         assert_eq!(api.base_path(), "https://rpc.example.test");
         assert_eq!(api.api_key(), Some("secret"));
         assert_eq!(
-            api.url("get_merkle_proofs"),
+            api.url(GET_MERKLE_PROOFS),
             "https://rpc.example.test/get_merkle_proofs?api-key=secret"
         );
     }
@@ -609,7 +527,7 @@ mod tests {
         assert_eq!(api.base_path(), "http://127.0.0.1:8784");
         assert_eq!(api.api_key(), None);
         assert_eq!(
-            api.url("get_encrypted_utxos_by_tags"),
+            api.url(GET_ENCRYPTED_UTXOS_BY_TAGS),
             "http://127.0.0.1:8784/get_encrypted_utxos_by_tags"
         );
     }
@@ -620,8 +538,22 @@ mod tests {
         assert_eq!(api.base_path(), "https://rpc.example.test");
         assert_eq!(api.api_key(), Some("secret"));
         assert_eq!(
-            api.url("get_non_inclusion_proofs"),
+            api.url(GetNonInclusionProofs::NAME),
             "https://rpc.example.test/get_non_inclusion_proofs?api-key=secret"
         );
+    }
+
+    #[test]
+    fn rejects_out_of_range_page_limit_before_transport() {
+        assert!(matches!(
+            optional_limit(Some(0)),
+            Err(ApiError::InvalidRequest { field: "limit", .. })
+        ));
+        assert!(optional_limit(Some(1)).is_ok());
+        assert!(matches!(
+            required_limit(zolana_indexer_api::PAGE_LIMIT + 1),
+            Err(ApiError::InvalidRequest { field: "limit", .. })
+        ));
+        assert!(required_limit(zolana_indexer_api::PAGE_LIMIT).is_ok());
     }
 }

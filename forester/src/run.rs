@@ -33,7 +33,7 @@ use zolana_tree::TreeAccount;
 type ReferenceNullifierTree = IndexedMerkleTree<Poseidon, usize>;
 
 use crate::forest::{batch_update_nullifier_tree_once, ForestParams};
-use zolana_api::{types::SerializablePubkey, BlockingZolanaApi};
+use zolana_api::{BlockingZolanaApi, SerializablePubkey, PAGE_LIMIT};
 
 /// BN254 scalar field modulus minus one: the nullifier tree's initial
 /// `next_value` sentinel. Pinned by `reference_tree_matches_on_chain_init`
@@ -254,6 +254,62 @@ fn applied_count(snapshot: &TreeSnapshot) -> Result<u64> {
         .ok_or_else(|| anyhow!("nullifier tree next_index is 0 (uninitialized)"))
 }
 
+/// Fetch the requested queue prefix in API-sized pages. A short page returns
+/// the currently indexed prefix so callers can classify indexer lag.
+fn fetch_nullifier_values(
+    photon: &BlockingZolanaApi,
+    tree: Pubkey,
+    fetch_total: u64,
+) -> Result<Vec<[u8; 32]>> {
+    let tree_account = SerializablePubkey(tree);
+    collect_nullifier_pages(fetch_total, |start_seq, limit| {
+        let response = photon
+            .get_nullifier_queue_elements(tree_account, Some(start_seq), limit)
+            .map_err(|err| {
+                anyhow!("fetch queued nullifiers from photon at sequence {start_seq}: {err}")
+            })?;
+        Ok(response
+            .elements
+            .into_iter()
+            .map(|element| (element.seq, element.value.0))
+            .collect())
+    })
+}
+
+fn collect_nullifier_pages(
+    fetch_total: u64,
+    mut fetch_page: impl FnMut(u64, u64) -> Result<Vec<(u64, [u8; 32])>>,
+) -> Result<Vec<[u8; 32]>> {
+    let mut values = Vec::new();
+    let mut next_seq = 0u64;
+
+    while next_seq < fetch_total {
+        let page_limit = (fetch_total - next_seq).min(PAGE_LIMIT);
+        let page = fetch_page(next_seq, page_limit)?;
+        let returned =
+            u64::try_from(page.len()).map_err(|_| anyhow!("photon page length exceeds u64"))?;
+        if returned > page_limit {
+            bail!("photon returned {returned} nullifiers after sequence {next_seq}, requested at most {page_limit}");
+        }
+
+        for (seq, value) in page {
+            if seq != next_seq {
+                bail!("queued nullifier sequence gap: expected {next_seq}, photon returned {seq}");
+            }
+            values.push(value);
+            next_seq = next_seq
+                .checked_add(1)
+                .ok_or_else(|| anyhow!("queued nullifier sequence overflow"))?;
+        }
+
+        if returned < page_limit {
+            break;
+        }
+    }
+
+    Ok(values)
+}
+
 /// Fetch queued values from photon, replay the already-appended prefix into a
 /// fresh reference tree, and verify the reconstructed root matches on-chain.
 /// Returns the reference tree (at the on-chain state) and the fetched values.
@@ -264,33 +320,13 @@ fn reconstruct_and_verify(
     fetch_total: u64,
 ) -> Result<(ReferenceNullifierTree, Vec<[u8; 32]>)> {
     let applied = applied_count(snapshot)?;
-    let tree_account = SerializablePubkey(bs58::encode(tree.to_bytes()).into_string());
-    let elements = photon
-        .get_nullifier_queue_elements(tree_account, Some(0), fetch_total)
-        .map_err(|err| anyhow!("fetch queued nullifiers from photon: {err}"))?
-        .elements;
+    let values = fetch_nullifier_values(photon, tree, fetch_total)?;
     if let Some(not_ready) = indexed_value_shortage(
-        elements.len(),
+        values.len(),
         applied,
         format!("the {applied} already-applied nullifiers required to reconstruct"),
     ) {
         return Err(not_ready.into());
-    }
-    let mut values = Vec::with_capacity(elements.len());
-    for (index, element) in elements.into_iter().enumerate() {
-        if element.seq != index as u64 {
-            bail!(
-                "queued nullifier sequence gap at index {index}: photon returned seq {}",
-                element.seq
-            );
-        }
-        let decoded = bs58::decode(&element.value.0)
-            .into_vec()
-            .map_err(|err| anyhow!("decode nullifier {}: {err}", element.value.0))?;
-        let value: [u8; 32] = decoded.try_into().map_err(|bytes: Vec<u8>| {
-            anyhow!("nullifier decoded to {} bytes, expected 32", bytes.len())
-        })?;
-        values.push(value);
     }
 
     let applied_len = usize::try_from(applied)
@@ -589,6 +625,43 @@ mod tests {
 
         assert_eq!(not_ready, PhotonIndexNotReady::new(1, 2, "ready zkp-batch"));
         assert!(indexed_value_shortage(2, 2, "ready zkp-batch").is_none());
+    }
+
+    #[test]
+    fn nullifier_fetch_pages_past_the_api_limit() {
+        let total = PAGE_LIMIT * 2 + 7;
+        let mut requests = Vec::new();
+        let values = collect_nullifier_pages(total, |start_seq, limit| {
+            requests.push((start_seq, limit));
+            Ok((start_seq..start_seq + limit)
+                .map(|seq| {
+                    let mut value = [0u8; 32];
+                    value[24..].copy_from_slice(&seq.to_be_bytes());
+                    (seq, value)
+                })
+                .collect())
+        })
+        .unwrap();
+
+        assert_eq!(
+            requests,
+            vec![
+                (0, PAGE_LIMIT),
+                (PAGE_LIMIT, PAGE_LIMIT),
+                (PAGE_LIMIT * 2, 7)
+            ]
+        );
+        assert_eq!(values.len(), usize::try_from(total).unwrap());
+        assert_eq!(values.last().unwrap()[24..], (total - 1).to_be_bytes());
+    }
+
+    #[test]
+    fn empty_nullifier_fetch_skips_photon() {
+        let values = collect_nullifier_pages(0, |_, _| {
+            panic!("an empty prefix must not issue a Photon request")
+        })
+        .unwrap();
+        assert!(values.is_empty());
     }
 
     #[test]

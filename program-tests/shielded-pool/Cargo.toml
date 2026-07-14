@@ -2,6 +2,8 @@
 name = "shielded-pool-tests"
 version = "0.1.0"
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 publish = false
 
 [features]
@@ -29,14 +31,14 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-hex = { workspace = true }
 cucumber = { workspace = true }
 groth16-solana = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 num-bigint = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
 tokio = { workspace = true }
 zolana-smart-account-client = { workspace = true }
 zolana-test-utils = { workspace = true }

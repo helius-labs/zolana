@@ -1,7 +1,7 @@
 # PUBLISH path for the photon + prover images (the RUN path is
-# docker-compose.yml). Build config (contexts, inline Dockerfiles, the `..` patch
-# context) is read from docker-compose.yml; this file only sets platforms,
-# registry tags, and photon's build context. Run from the repo root.
+# docker-compose.yml). Build config is read from docker-compose.yml; local
+# contexts are normalized for Buildx's repo-root invocation. Run from the repo
+# root.
 # See docker/README.md for the buildx setup + publish commands.
 
 variable "REGISTRY" { default = "sergeytimoshin" }
@@ -17,12 +17,15 @@ group "default" {
 }
 
 target "photon-build" {
+  context = "."
+  dockerfile = "services/photon/Dockerfile"
   platforms = split(",", PLATFORMS)
   tags = ["${REGISTRY}/zolana-photon:${TAG}"]
 }
 
 # SPP prover: bakes the client transfer + merge keys (~0.5G).
 target "prover" {
+  context = "prover/server"
   platforms = split(",", PLATFORMS)
   args = { KEY_PROFILE = "spp" }
   tags = ["${REGISTRY}/zolana-prover:${TAG}"]
@@ -41,7 +44,7 @@ target "prover-forester" {
 # workspace as context. NOT in the default group (the continuous worker isn't
 # built yet).
 target "forester" {
-  context = ".."
+  context = "."
   dockerfile = "forester/Dockerfile"
   platforms = split(",", PLATFORMS)
   tags = ["${REGISTRY}/zolana-forester:${TAG}"]

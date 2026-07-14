@@ -1,0 +1,91 @@
+[package]
+default-run = "photon"
+description = "Solana indexer for Rings"
+edition.workspace = true
+license.workspace = true
+name = "photon-indexer"
+publish = false
+readme = "README.md"
+repository.workspace = true
+rust-version = "1.95.0"
+version = "0.51.2"
+
+[[bin]]
+name = "photon"
+path = "src/main.rs"
+
+[[bin]]
+name = "photon-migration"
+path = "src/migration/main.rs"
+
+[[bin]]
+name = "photon-openapi"
+path = "src/openapi/main.rs"
+
+[[bin]]
+name = "photon-snapshotter"
+path = "src/snapshot/snapshotter/main.rs"
+
+[[bin]]
+name = "photon-snapshot-loader"
+path = "src/snapshot/loader/main.rs"
+
+[dependencies]
+ark-bn254 = { workspace = true }
+
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+borsh = { workspace = true }
+bs58 = { workspace = true }
+cadence-macros = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http-body-util = { workspace = true }
+itertools = { workspace = true }
+jsonrpsee = { workspace = true }
+log = { workspace = true }
+once_cell = { workspace = true }
+sea-orm = { workspace = true }
+bytes = { workspace = true }
+base64 = { workspace = true }
+sea-orm-migration = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+solana-pubkey = { workspace = true, features = ["serde", "borsh"] }
+solana-signature = { workspace = true }
+solana-account = { workspace = true }
+solana-clock = { workspace = true }
+solana-transaction = { workspace = true }
+solana-transaction-error = { workspace = true, features = ["serde"] }
+solana-transaction-status-client-types = { workspace = true, features = ["agave-unstable-api"] }
+
+light-poseidon = { workspace = true }
+num-bigint = { workspace = true }
+
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
+tokio = { workspace = true, features = ["fs", "time", "net", "signal"] }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["ansi"] }
+utoipa = { workspace = true }
+yellowstone-grpc-proto = { workspace = true }
+tonic = { workspace = true }
+tokio-stream = { workspace = true }
+cadence = { workspace = true }
+async-stream = { workspace = true }
+rand = { workspace = true }
+bincode = { workspace = true }
+s3 = { workspace = true }
+jsonwebtoken = { workspace = true }
+zolana-event = { workspace = true, features = ["program-test"] }
+zolana-indexer-api = { workspace = true, features = ["openapi"] }
+zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["tree"] }
+zolana-tree = { workspace = true }
+
+[dev-dependencies]
+serde_norway = { workspace = true }

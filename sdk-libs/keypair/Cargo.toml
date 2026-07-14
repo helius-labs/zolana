@@ -2,8 +2,9 @@
 name = "zolana-keypair"
 version = "0.1.0"
 description = "TSPP client keypairs: signing, nullifier, and viewing keys with HPKE-style encryption and view-tag derivation."
-license = "Apache-2.0"
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 p256 = { workspace = true }

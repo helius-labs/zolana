@@ -2,8 +2,9 @@
 name = "zolana-merkle-tree"
 version = "4.0.0"
 description = "Non-sparse reference Merkle tree implementation"
-license = "Apache-2.0"
 edition = "2021"
+license.workspace = true
+repository.workspace = true
 
 
 [dependencies]

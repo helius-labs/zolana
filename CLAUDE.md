@@ -408,50 +408,45 @@ only (empty `committed_wires`). Committing a **public** input (e.g.
 
 ## Releasing Photon
 
-The Photon indexer binary is built from the `photon-privacy` repo (branch
-`fix/zolana-refactor-api`, which already contains its `main`) and published as
-`photon-zolana-<sha>` release assets on `helius-labs/zolana`. There is no
-publish workflow; releases are cut manually with `gh`. Two assets per release:
-`photon-zolana-linux-x86_64.tar.gz` (CI) and `photon-zolana-macos-aarch64.tar.gz`
-(local dev), each `tar -czf` of the single `photon` binary.
+Photon lives at `services/photon` and is a member of this Cargo workspace. Build
+the operational binary with `just build-photon`; localnet and CI must run that
+same-revision binary rather than a downloaded release artifact. Photon consumes
+the workspace `zolana-event`, `zolana-interface`, and `zolana-tree` crates, so
+program layouts and indexer parsing change atomically.
 
-Photon must be built against the zolana commit whose program id AND on-chain
-event/instruction layout (e.g. `BatchUpdateNullifierTreeData`) it parses. Pin its
-`rings-event`/`rings-interface`/`rings-tree` deps (package names `zolana-*`) to
-that commit. Two ways to point them at local zolana while building:
-- `[patch."ssh://git@github.com/helius-labs/zolana.git"]` to local paths -- works
-  for the macOS build (the patched crates resolve `workspace = true` deps via the
-  intact on-disk zolana workspace), but NOT inside Docker (the whole workspace
-  would need copying in).
-- HTTPS git dep + a `gh` token -- used for the Docker/Linux build below.
+Production containers are built from the repository root so Cargo can resolve
+workspace path dependencies:
 
-Build steps:
-- macOS-aarch64 (native): `cargo build --release --bin photon`.
-- linux-x86_64 (on an arm64 mac, via QEMU): `docker buildx build
-  --platform linux/amd64 --secret id=gh_token,env=GH_TOKEN -f Dockerfile.linux
-  --target export --output type=local,dest=out .`, where `Dockerfile.linux` does
-  `git config --global url."https://x-access-token:$(cat /run/secrets/gh_token)@github.com/".insteadOf
-  "https://github.com/"` + `CARGO_NET_GIT_FETCH_WITH_CLI=true` before
-  `cargo build --release --bin photon`, then exports the binary from a `scratch`
-  stage. The base image must be `rust:<v>` with `<v> >=` photon-indexer's
-  `rust-version` (currently 1.95); the committed `Dockerfile` (rust:1.91) is
-  stale. The emulated x86_64 build takes ~30-60 min. Do not pipe the build
-  through `tail` -- it masks docker's non-zero exit.
-
-Publish + wire up:
 ```bash
-gh release create photon-zolana-<sha> --repo helius-labs/zolana --target <zolana-sha> \
-    photon-zolana-linux-x86_64.tar.gz photon-zolana-macos-aarch64.tar.gz
+docker build -f services/photon/Dockerfile .
 ```
-Then update BOTH, with matching tag + checksums (they are independent and must
-agree, else CI silently keeps the old binary):
-- `tools/install-photon.sh`: `release_tag` + the linux and macos `default_sha256`.
-- `.github/workflows/rust.yml` `test-localnet-photon` env: `PHOTON_ZOLANA_RELEASE_TAG`
-  + `PHOTON_ZOLANA_SHA256` (the linux checksum, since CI runs x86_64).
 
-`install-photon.sh` fetches with `gh` (private repo; CI uses its `GITHUB_TOKEN`).
-Verify locally with `./tools/install-photon.sh` (downloads the macOS asset and
-checks the new checksum).
+Photon keeps its own deployment approval even though it shares source and a
+lockfile with the protocol. Release images must be immutable, identify the
+Zolana repository commit, and include the root license and third-party notices.
+Localnet tests never consume those production images.
+
+From the commit on `main` to release, create and push its fork tag:
+
+```bash
+tag="photon-zolana-$(git rev-parse --short=12 HEAD)"
+git tag "$tag"
+git push origin "$tag"
+```
+
+A manual `photon-image.yml` dispatch must use that same commit-derived value
+for its `image_tag`. The protected `photon-production` environment gates
+publication. The workflow publishes the
+`photon-zolana-<12-character-commit>` tag and a full `sha-<commit>` alias,
+refuses to overwrite either, and does not publish `latest`. The imported crate
+version in `services/photon/Cargo.toml` is upstream source provenance, not the
+Zolana fork's release identifier.
+
+Before archiving the standalone Photon repository, update external deployment
+configuration that consumes its old `<run>-<sha>` or `latest` tags to use a new
+immutable `photon-zolana-*` or `sha-*` tag from this repository. Keep the
+base-image digests in `services/photon/Dockerfile` updated through reviewed
+changes.
 
 ## Git Hygiene
 

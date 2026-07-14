@@ -2,8 +2,8 @@ name: zolana
 
 # Zolana / SPP stack: Photon (Rings indexer) + Postgres + Redis + Prover.
 # See docker/README.md for how to run, publish, and opt into photon/forester.
-# `up` pulls the published images (server-safe, no source tree); `up --build`
-# builds from source. Infra services bind 127.0.0.1; only photon is off-box.
+# `up` pulls the published images (server-safe, no source tree); source builds
+# are opt-in. Infra services bind 127.0.0.1; only photon is off-box.
 
 # Shared image for the two photon binaries; PULLed by default. Building photon
 # from source is opt-in via the `build-photon` profile (photon-build service).
@@ -11,48 +11,15 @@ x-photon-image: &photon-image
   image: ${PHOTON_IMAGE:-sergeytimoshin/zolana-photon:devnet}
 
 services:
-  # Opt-in photon-from-source build (profile: build-photon), the only place a
-  # local photon checkout is referenced. Its rings-event/rings-interface/rings-tree
-  # deps point at an unpushed pinned commit, so they are patched to this repo's
-  # program-libs/{event,interface,tree}, supplied as the `zolana` build context
-  # (`..`) -- which is why no GitHub token is needed. See README for commands.
+  # Opt-in Photon build from the same workspace and lockfile as the rest of
+  # Zolana. See README for commands.
   photon-build:
     image: ${PHOTON_IMAGE:-zolana-photon:local}
     profiles:
       - build-photon
     build:
-      context: ${PHOTON_BUILD_CONTEXT:-../../photon}
-      additional_contexts:
-        # program-libs/{event,interface,tree} for the [patch] below.
-        zolana: ..
-      # Inlined to bump the stale builder and inject the [patch] without editing
-      # the photon checkout.
-      dockerfile_inline: |
-        FROM rust:1.95-slim-bookworm AS builder
-        RUN apt-get update && apt-get install -y --no-install-recommends \
-              build-essential pkg-config libssl-dev git ca-certificates protobuf-compiler \
-            && rm -rf /var/lib/apt/lists/*
-        # Local zolana workspace = patched source for the rings-* crates.
-        COPY --from=zolana . /zolana
-        WORKDIR /app
-        COPY . .
-        # Redirect the private git deps to the local workspace crates. Cargo then
-        # builds them from /zolana and never contacts github for the pinned commit.
-        RUN { \
-              echo ''; \
-              echo '[patch."ssh://git@github.com/helius-labs/zolana.git"]'; \
-              echo 'zolana-event = { path = "/zolana/program-libs/event" }'; \
-              echo 'zolana-interface = { path = "/zolana/program-libs/interface" }'; \
-              echo 'zolana-tree = { path = "/zolana/program-libs/tree" }'; \
-            } >> Cargo.toml
-        RUN cargo build --release --bin photon --bin photon-migration
-        FROM debian:bookworm-slim
-        RUN apt-get update && apt-get install -y --no-install-recommends \
-              ca-certificates libssl3 \
-            && rm -rf /var/lib/apt/lists/*
-        COPY --from=builder /app/target/release/photon /usr/local/bin/photon
-        COPY --from=builder /app/target/release/photon-migration /usr/local/bin/photon-migration
-        ENTRYPOINT []
+      context: ..
+      dockerfile: services/photon/Dockerfile
     command: ["true"]
     restart: "no"
 

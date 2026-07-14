@@ -3,6 +3,8 @@ name = "zolana-user-registry"
 version = "0.1.0"
 description = "On-chain user registry: Solana pubkey to shielded payment keys and sync delegate"
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 publish = false
 
 [lib]

@@ -2,6 +2,8 @@
 name = "zone-test-program"
 version = "0.1.0"
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 publish = false
 # Only the explicit `zone_lifecycle` test target builds; tests/{actor,localnet,
 # world,...}.rs are its modules, not standalone integration-test binaries.
