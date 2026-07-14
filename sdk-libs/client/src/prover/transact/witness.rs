@@ -86,7 +86,7 @@ impl ProverClient {
 }
 
 fn client_shape(shape: zolana_transaction::instructions::transact::Shape) -> Shape {
-    Shape::new(shape.n_inputs, shape.n_outputs)
+    Shape::new(shape.n_inputs(), shape.n_outputs())
 }
 
 fn client_public_amounts(
@@ -272,10 +272,10 @@ pub fn assemble(
             }
         };
 
-    if nullifiers.len() != shape.n_inputs || root_indices.len() != shape.n_inputs {
+    if nullifiers.len() != shape.n_inputs() || root_indices.len() != shape.n_inputs() {
         return Err(ClientError::WitnessInputCountMismatch {
             got: nullifiers.len(),
-            expected: shape.n_inputs,
+            expected: shape.n_inputs(),
         });
     }
 
@@ -283,20 +283,20 @@ pub fn assemble(
         .first()
         .copied()
         .unwrap_or(DEFAULT_EDDSA_SIGNER_INDEX);
-    let mut inputs = Vec::with_capacity(shape.n_inputs);
-    for i in 0..shape.n_inputs {
+    let mut inputs = Vec::with_capacity(shape.n_inputs());
+    for i in 0..shape.n_inputs() {
         let nullifier_hash = *nullifiers
             .get(i)
             .ok_or(ClientError::WitnessInputCountMismatch {
                 got: nullifiers.len(),
-                expected: shape.n_inputs,
+                expected: shape.n_inputs(),
             })?;
         let &(utxo_tree_root_index, nullifier_tree_root_index) =
             root_indices
                 .get(i)
                 .ok_or(ClientError::WitnessInputCountMismatch {
                     got: root_indices.len(),
-                    expected: shape.n_inputs,
+                    expected: shape.n_inputs(),
                 })?;
         let eddsa_signer_index = match real_signer_indices.get(i) {
             Some(&signer) => signer,

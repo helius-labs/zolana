@@ -88,7 +88,7 @@ impl TransferWorld {
                     crate::world::Owner::P256 => SppProofInputUtxo::new(utxo, &sender),
                     crate::world::Owner::Solana => SppProofInputUtxo::new(
                         utxo,
-                        &NullifierKey::from_secret(random_blinding(&mut rng)),
+                        NullifierKey::from_secret(random_blinding(&mut rng)),
                     ),
                 }
             })
@@ -108,7 +108,7 @@ impl TransferWorld {
         );
         if plan.declared_shape {
             transfer =
-                transfer.with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
+                transfer.with_shape(zolana_transaction::instructions::transact::Shape::IN2_OUT3);
         }
         for (recipient, send) in recipients.iter().zip(&plan.sends) {
             transfer

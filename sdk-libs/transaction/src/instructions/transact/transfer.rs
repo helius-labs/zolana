@@ -41,12 +41,6 @@ const RECIPIENT_POSITION_BASE: u8 = 2;
 /// always start at slot 2.
 pub const SENDER_SLOT_COUNT: usize = 2;
 
-/// Transfers always pad to this single shape so every transfer has the same
-/// input/output count and its structure is not observable. The SPP prover
-/// supports more shapes ([`SPP_SUPPORTED_SHAPES`](super::shape::SPP_SUPPORTED_SHAPES)); this fixed shape is the
-/// privacy-preserving subset used for padded transfers.
-pub const SUPPORTED_SHAPES: [Shape; 1] = [Shape::new(2, 3)];
-
 pub struct PreparedRecipient {
     pub view_tag: ViewTag,
     pub recipient_pubkey: P256Pubkey,
@@ -93,12 +87,17 @@ pub struct Withdrawal {
     pub target: WithdrawalTarget,
 }
 
+/// Transfers always pad to [`Shape::IN2_OUT3`] so every transfer has the same
+/// input/output count and its structure is not observable. The SPP prover
+/// supports more shapes ([`SPP_SUPPORTED_SHAPES`](super::shape::SPP_SUPPORTED_SHAPES));
+/// this fixed shape is the privacy-preserving subset used for padded transfers.
 pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, TransactionError> {
-    SUPPORTED_SHAPES
-        .iter()
-        .copied()
-        .find(|s| n_in <= s.n_inputs && n_out <= s.n_outputs)
-        .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
+    let shape = Shape::IN2_OUT3;
+    if n_in <= shape.n_inputs() && n_out <= shape.n_outputs() {
+        Ok(shape)
+    } else {
+        Err(TransactionError::UnsupportedShape { n_in, n_out })
+    }
 }
 
 pub fn resolve_shape(
@@ -108,22 +107,22 @@ pub fn resolve_shape(
 ) -> Result<Shape, TransactionError> {
     match declared {
         Some(shape) => {
-            if !SUPPORTED_SHAPES.contains(&shape) {
+            if shape != Shape::IN2_OUT3 {
                 return Err(TransactionError::UnsupportedShape {
-                    n_in: shape.n_inputs,
-                    n_out: shape.n_outputs,
+                    n_in: shape.n_inputs(),
+                    n_out: shape.n_outputs(),
                 });
             }
-            if n_in > shape.n_inputs {
+            if n_in > shape.n_inputs() {
                 return Err(TransactionError::TooManyInputs {
                     got: n_in,
-                    max: shape.n_inputs,
+                    max: shape.n_inputs(),
                 });
             }
-            if n_out > shape.n_outputs {
+            if n_out > shape.n_outputs() {
                 return Err(TransactionError::TooManyOutputsForShape {
                     got: n_out,
-                    max: shape.n_outputs,
+                    max: shape.n_outputs(),
                 });
             }
             Ok(shape)
@@ -333,7 +332,7 @@ impl Transfer {
 
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
         let max_recipients = shape
-            .n_outputs
+            .n_outputs()
             .checked_sub(SENDER_SLOT_COUNT)
             .ok_or(TransactionError::MissingOutput)?;
         let sender_viewing_pubkey = self.owner.viewing_pubkey;
@@ -507,7 +506,7 @@ impl PreparedTransfer {
         // dummy output (folded into the confidential proof's owner-tag chain) and
         // its dummy ciphertext, so the dummy is indistinguishable from a real
         // recipient and the proof's tag equals the published tag.
-        let dummy_recipient_count = shape.n_outputs.saturating_sub(outputs.len());
+        let dummy_recipient_count = shape.n_outputs().saturating_sub(outputs.len());
         let dummy_tags = (0..dummy_recipient_count)
             .map(|_| random_view_tag())
             .collect::<Result<Vec<_>, _>>()?;
@@ -518,7 +517,7 @@ impl PreparedTransfer {
                 ..Default::default()
             });
         }
-        while inputs.len() < shape.n_inputs {
+        while inputs.len() < shape.n_inputs() {
             inputs.push(SppProofInputUtxo::new_dummy());
         }
 

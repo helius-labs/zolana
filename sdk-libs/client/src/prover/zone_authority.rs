@@ -184,7 +184,7 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
             },
             payer_pubkey_hash,
             zone_program_id,
-            shape: Some(Shape::new(shape.n_inputs, shape.n_outputs)),
+            shape: Some(Shape::new(shape.n_inputs(), shape.n_outputs())),
         })
     }
 }

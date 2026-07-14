@@ -120,7 +120,7 @@ impl SppProofInputs {
 
     pub fn message_hash(&self) -> Result<[u8; 32], TransactionError> {
         // Dummies contribute zero to match circuit private_tx hashing.
-        let mut input_hashes = Vec::with_capacity(self.shape.n_inputs);
+        let mut input_hashes = Vec::with_capacity(self.shape.n_inputs());
         for spend in &self.input_utxos {
             if spend.is_dummy() {
                 input_hashes.push([0u8; 32]);
@@ -134,7 +134,7 @@ impl SppProofInputs {
             }
         }
 
-        let mut output_hashes = Vec::with_capacity(self.shape.n_outputs);
+        let mut output_hashes = Vec::with_capacity(self.shape.n_outputs());
         for output in &self.output_utxos {
             if output.is_dummy() {
                 output_hashes.push([0u8; 32]);
@@ -147,7 +147,7 @@ impl SppProofInputs {
         let private_tx = private_tx_hash(
             &input_hashes,
             &output_hashes,
-            &no_address_hashes(self.shape.n_inputs),
+            &no_address_hashes(self.shape.n_inputs()),
             &external_data_hash,
         )?;
         Ok(sha256(&private_tx))

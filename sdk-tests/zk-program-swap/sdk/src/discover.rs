@@ -62,7 +62,10 @@ pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Or
         .signing_pubkey()
         .confidential_view_tag()
         .map_err(err)?;
-    let Some(marker_message) = tx.messages.iter().find(|message| message.view_tag == taker_tag)
+    let Some(marker_message) = tx
+        .messages
+        .iter()
+        .find(|message| message.view_tag == taker_tag)
     else {
         return Ok(None);
     };
@@ -533,7 +536,7 @@ mod tests {
             public_amounts: PublicAmounts::ZERO,
             external_data,
             payer_pubkey_hash: sha256_be(Address::default().as_array()),
-            shape: Shape::new(2, 2),
+            shape: Shape::IN2_OUT2,
             p256_signature: None,
         };
 

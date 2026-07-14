@@ -530,7 +530,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         public_amounts: PublicAmounts::ZERO,
         external_data,
         payer_pubkey_hash: sha256_be(payer_address.as_array()),
-        shape: Shape::new(2, 2),
+        shape: Shape::IN2_OUT2,
         p256_signature: None,
     };
 
@@ -734,7 +734,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         public_amounts: PublicAmounts::ZERO,
         external_data,
         payer_pubkey_hash: sha256_be(payer_address.as_array()),
-        shape: Shape::new(2, 2),
+        shape: Shape::IN2_OUT2,
         p256_signature: None,
     };
 
@@ -926,7 +926,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         public_amounts: PublicAmounts::ZERO,
         external_data,
         payer_pubkey_hash: sha256_be(payer_address.as_array()),
-        shape: Shape::new(2, 2),
+        shape: Shape::IN2_OUT2,
         p256_signature: None,
     };
 
@@ -1098,7 +1098,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         public_amounts: PublicAmounts::ZERO,
         external_data,
         payer_pubkey_hash: sha256_be(payer_address.as_array()),
-        shape: Shape::new(1, 1),
+        shape: Shape::IN1_OUT1,
         p256_signature: None,
     };
 

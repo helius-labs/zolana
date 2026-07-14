@@ -2,7 +2,7 @@
 //! [`SppProofInputs`] (the assembled transaction sent to the prover), written
 //! as a struct literal after encoding explicit output slots with the [`slots`]
 //! encoders; it serves custom UTXOs (zone/swap flows). The high level is [`Transfer`], a
-//! padded transfer (fixed [`transfer::SUPPORTED_SHAPES`] shape, derived change
+//! padded transfer (fixed [`Shape::IN2_OUT3`] shape, derived change
 //! outputs, dummy slots) not intended for custom UTXOs.
 //! [`EncryptedTransaction::hash`] produces the `private_tx_hash` shared as a
 //! public input by the SPP and zone proofs.
@@ -22,7 +22,7 @@ pub use spp_proof_inputs::{
 };
 pub use transfer::{
     canonical_shape, resolve_shape, PreparedRecipient, PreparedTransfer, Recipient, Transfer,
-    Withdrawal, WithdrawalTarget, SENDER_SLOT_COUNT, SUPPORTED_SHAPES,
+    Withdrawal, WithdrawalTarget, SENDER_SLOT_COUNT,
 };
 pub use types::{
     no_address_hashes, private_tx_hash, EncryptedTransaction, InputUtxo, OutputContext, OutputSlot,

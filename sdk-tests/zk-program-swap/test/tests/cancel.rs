@@ -119,8 +119,8 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         }
         .message()?;
 
-        let first_nullifier = first_nullifier(&input_utxos)
-            .map_err(|e| anyhow!("create first nullifier: {e:?}"))?;
+        let first_nullifier =
+            first_nullifier(&input_utxos).map_err(|e| anyhow!("create first nullifier: {e:?}"))?;
         let tx = maker
             .keypair
             .get_transaction_viewing_key(&first_nullifier)
@@ -172,7 +172,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             public_amounts: PublicAmounts::ZERO,
             external_data,
             payer_pubkey_hash: sha256_be(maker_address.solana_address()?.as_array()),
-            shape: Shape::new(2, 2),
+            shape: Shape::IN2_OUT2,
             p256_signature: None,
         };
 
@@ -259,8 +259,8 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let source_slot = ConfidentialSlot::new(source_output, &maker.registry)
             .map_err(|e| anyhow!("cancel source slot: {e:?}"))?;
         let input_utxos = vec![escrow_input];
-        let first_nullifier = first_nullifier(&input_utxos)
-            .map_err(|e| anyhow!("cancel first nullifier: {e:?}"))?;
+        let first_nullifier =
+            first_nullifier(&input_utxos).map_err(|e| anyhow!("cancel first nullifier: {e:?}"))?;
         let tx = maker
             .keypair
             .get_transaction_viewing_key(&first_nullifier)
@@ -312,7 +312,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             public_amounts: PublicAmounts::ZERO,
             external_data,
             payer_pubkey_hash: sha256_be(maker_address.solana_address()?.as_array()),
-            shape: Shape::new(1, 1),
+            shape: Shape::IN1_OUT1,
             p256_signature: None,
         };
 

@@ -273,11 +273,11 @@ mod tests {
             public_amounts: PublicAmounts::ZERO,
             external_data,
             payer_pubkey_hash: sha256_be(Address::default().as_array()),
-            shape: Shape::new(2, 2),
+            shape: Shape::IN2_OUT2,
             p256_signature: None,
         };
 
-        assert_eq!(spp_proof_inputs.shape, Shape::new(2, 2));
+        assert_eq!(spp_proof_inputs.shape, Shape::IN2_OUT2);
         assert_eq!(spp_proof_inputs.output_utxos.len(), 2);
 
         let change = spp_proof_inputs
@@ -445,7 +445,7 @@ mod tests {
             public_amounts: PublicAmounts::ZERO,
             external_data,
             payer_pubkey_hash: sha256_be(Address::default().as_array()),
-            shape: Shape::new(2, 2),
+            shape: Shape::IN2_OUT2,
             p256_signature: None,
         };
 

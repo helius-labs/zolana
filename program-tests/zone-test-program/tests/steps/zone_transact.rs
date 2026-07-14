@@ -369,7 +369,7 @@ impl ZoneLifecycleWorld {
         rail: Rail,
     ) -> Result<TransactIxData> {
         let spend_inputs = self.zone_spend_inputs(&proof_inputs.input_utxos)?;
-        let shape = Shape::new(proof_inputs.shape.n_inputs, proof_inputs.shape.n_outputs);
+        let shape = Shape::new(proof_inputs.shape.n_inputs(), proof_inputs.shape.n_outputs());
 
         match rail {
             Rail::Eddsa => {
@@ -441,8 +441,8 @@ impl ZoneLifecycleWorld {
             },
             zone_program_id: Some(zone),
             shape: Some(Shape::new(
-                proof_inputs.shape.n_inputs,
-                proof_inputs.shape.n_outputs,
+                proof_inputs.shape.n_inputs(),
+                proof_inputs.shape.n_outputs(),
             )),
         };
         let private_tx_hash = probe.build()?.private_tx_hash;
@@ -668,8 +668,8 @@ impl ZoneLifecycleWorld {
             payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(
-                proof_inputs.shape.n_inputs,
-                proof_inputs.shape.n_outputs,
+                proof_inputs.shape.n_inputs(),
+                proof_inputs.shape.n_outputs(),
             )),
         };
         let result = prover.build()?;
@@ -733,7 +733,7 @@ fn assemble_ix_data(
     rail: Rail,
     proof: TransactProof,
 ) -> Result<TransactIxData> {
-    let n_inputs = proof_inputs.shape.n_inputs;
+    let n_inputs = proof_inputs.shape.n_inputs();
     if nullifiers.len() != n_inputs || root_indices.len() != n_inputs {
         return Err(anyhow!(
             "witness input count {} / {} does not match shape {n_inputs}",

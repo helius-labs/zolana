@@ -191,9 +191,9 @@ fn create_and_fill_swap_inline() -> Result<()> {
             input_utxos: inputs,
             output_utxos: outputs,
             public_amounts: PublicAmounts::ZERO,
-            external_data,
+            external_data, // why does this contain external data instead of the external data hash?
             payer_pubkey_hash: sha256_be(maker_address.solana_address()?.as_array()),
-            shape: Shape::new(2, 2),
+            shape: Shape::IN2_OUT2,
             p256_signature: None,
         };
 
@@ -326,7 +326,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
             public_amounts: PublicAmounts::ZERO,
             external_data,
             payer_pubkey_hash: sha256_be(taker_address.solana_address()?.as_array()),
-            shape: Shape::new(2, 2),
+            shape: Shape::IN2_OUT2,
             p256_signature: None,
         };
 

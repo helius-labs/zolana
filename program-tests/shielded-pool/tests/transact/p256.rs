@@ -144,7 +144,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         vec![spend],
         payer_address,
     )
-    .with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
+    .with_shape(zolana_transaction::instructions::transact::Shape::IN2_OUT3);
     transfer
         .withdraw(
             SOL_MINT,

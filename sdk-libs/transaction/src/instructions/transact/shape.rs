@@ -1,31 +1,73 @@
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Shape {
-    pub n_inputs: usize,
-    pub n_outputs: usize,
+    n_inputs: usize,
+    n_outputs: usize,
 }
 
 impl Shape {
-    pub const fn new(n_inputs: usize, n_outputs: usize) -> Self {
-        Self {
-            n_inputs,
-            n_outputs,
-        }
+    pub const IN1_OUT1: Self = Self {
+        n_inputs: 1,
+        n_outputs: 1,
+    };
+    pub const IN1_OUT2: Self = Self {
+        n_inputs: 1,
+        n_outputs: 2,
+    };
+    pub const IN2_OUT2: Self = Self {
+        n_inputs: 2,
+        n_outputs: 2,
+    };
+    pub const IN2_OUT3: Self = Self {
+        n_inputs: 2,
+        n_outputs: 3,
+    };
+    pub const IN3_OUT3: Self = Self {
+        n_inputs: 3,
+        n_outputs: 3,
+    };
+    pub const IN4_OUT3: Self = Self {
+        n_inputs: 4,
+        n_outputs: 3,
+    };
+    pub const IN4_OUT4: Self = Self {
+        n_inputs: 4,
+        n_outputs: 4,
+    };
+    pub const IN5_OUT3: Self = Self {
+        n_inputs: 5,
+        n_outputs: 3,
+    };
+    pub const IN5_OUT4: Self = Self {
+        n_inputs: 5,
+        n_outputs: 4,
+    };
+    pub const IN1_OUT8: Self = Self {
+        n_inputs: 1,
+        n_outputs: 8,
+    };
+
+    pub const fn n_inputs(&self) -> usize {
+        self.n_inputs
+    }
+
+    pub const fn n_outputs(&self) -> usize {
+        self.n_outputs
     }
 }
 
 /// Shapes the SPP prover has keys for. Slot-signed transactions declare their
 /// exact shape (they do not pad), so they validate against this full set rather
-/// than [`SUPPORTED_SHAPES`](super::transfer::SUPPORTED_SHAPES). Kept in sync with
+/// than the fixed padded-transfer shape ([`Shape::IN2_OUT3`]). Kept in sync with
 /// `sdk-libs/client/src/prover/shape.rs`.
 pub const SPP_SUPPORTED_SHAPES: [Shape; 10] = [
-    Shape::new(1, 1),
-    Shape::new(1, 2),
-    Shape::new(2, 2),
-    Shape::new(2, 3),
-    Shape::new(3, 3),
-    Shape::new(4, 3),
-    Shape::new(4, 4),
-    Shape::new(5, 3),
-    Shape::new(5, 4),
-    Shape::new(1, 8),
+    Shape::IN1_OUT1,
+    Shape::IN1_OUT2,
+    Shape::IN2_OUT2,
+    Shape::IN2_OUT3,
+    Shape::IN3_OUT3,
+    Shape::IN4_OUT3,
+    Shape::IN4_OUT4,
+    Shape::IN5_OUT3,
+    Shape::IN5_OUT4,
+    Shape::IN1_OUT8,
 ];

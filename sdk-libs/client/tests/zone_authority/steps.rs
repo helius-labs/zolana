@@ -168,7 +168,7 @@ fn boundary_prover() -> ZoneAuthorityProver {
         external_data: zone_external_data(2),
         payer_pubkey_hash: [0u8; 32],
         zone_program_id: Some(zone),
-        shape: TxShape::new(2, 2),
+        shape: TxShape::IN2_OUT2,
     };
     let commitments = prepared.input_utxo_hashes().expect("input commitments");
     let proofs = indexer
