@@ -27,7 +27,7 @@ light-program-profiler = { workspace = true }
 pinocchio-system = { workspace = true }
 pinocchio = { workspace = true }
 tinyvec = { workspace = true }
-zolana-interface = { workspace = true }
+zolana-interface = { workspace = true, features = ["borsh"] }
 zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
 
