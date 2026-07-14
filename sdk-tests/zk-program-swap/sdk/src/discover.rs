@@ -357,10 +357,10 @@ mod tests {
     use zolana_transaction::{
         instructions::{
             transact::{
-                ConfidentialSlot, OutputContext, OutputSlot, OutputUtxo, SignedTransaction,
-                Transaction,
+                ConfidentialSlot, OutputContext, OutputSlot, OutputUtxo, SlotTransact,
+                SppProofInputs,
             },
-            types::SpendUtxo,
+            types::SppProofInputUtxo,
         },
         utxo::Utxo,
         Data,
@@ -378,8 +378,8 @@ mod tests {
         maker_pubkey: Pubkey,
     }
 
-    fn shielded_transaction(signed: &SignedTransaction) -> ShieldedTransaction {
-        let external = &signed.external_data;
+    fn shielded_transaction(proof_inputs: &SppProofInputs) -> ShieldedTransaction {
+        let external = &proof_inputs.external_data;
         let output_slots = external
             .outputs
             .iter()
@@ -395,7 +395,7 @@ mod tests {
                 payload: output.data.clone().unwrap_or_default(),
             })
             .collect();
-        let nullifiers = signed
+        let nullifiers = proof_inputs
             .input_utxo_hashes()
             .expect("input commitments")
             .iter()
@@ -457,16 +457,16 @@ mod tests {
             zone_program_id: None,
             data: Data::default(),
         };
-        let spend = SpendUtxo::from_keypair(input_utxo, &maker_keypair);
-        let mut tx = Transaction::new(maker_address, vec![spend], Address::default());
+        let spend = SppProofInputUtxo::new(input_utxo, &maker_keypair.nullifier_key);
+        let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
 
         let escrow_utxo_hash = escrow_output.hash().expect("escrow output hash");
         let change_amount =
-            u64::try_from(input_sum(&tx.inputs, &source_mint) - i128::from(escrow_output.amount))
+            u64::try_from(input_sum(&input_utxos, &source_mint) - i128::from(escrow_output.amount))
                 .expect("change amount");
         let change_slot = ConfidentialSlot::new(
             OutputUtxo {
-                owner_address: Some(tx.owner),
+                owner_address: Some(maker_address),
                 asset: source_mint,
                 amount: change_amount,
                 blinding: [21u8; BLINDING_LEN],
@@ -483,13 +483,16 @@ mod tests {
         }
         .encrypt()
         .expect("marker slot");
-        tx.inputs.push(SpendUtxo::new_dummy());
-        let signed = tx
-            .sign_with_slots(&[&change_slot, &escrow_slot, &marker_slot], &maker_keypair)
-            .expect("escrow create sign");
+        let spp_proof_inputs = SlotTransact {
+            input_utxos,
+            payer: Address::default(),
+            expiry_unix_ts: u64::MAX,
+        }
+        .sign(&[&change_slot, &escrow_slot, &marker_slot], &maker_keypair)
+        .expect("escrow create sign");
 
         OrderFixture {
-            tx: shielded_transaction(&signed),
+            tx: shielded_transaction(&spp_proof_inputs),
             wallet: Wallet::new(taker_keypair, registry.clone()).expect("taker wallet"),
             maker_wallet: Wallet::new(maker_keypair, registry).expect("maker wallet"),
             escrow,

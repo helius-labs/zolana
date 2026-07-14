@@ -28,7 +28,7 @@ use zolana_keypair::{
 };
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_transaction::{
-    instructions::transact::signed_transaction::{signed_to_field, BN254_MODULUS_DEC},
+    instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
     OutputUtxo, Utxo,
 };
 

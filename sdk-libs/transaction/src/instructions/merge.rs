@@ -8,7 +8,7 @@ use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, Shield
 
 use crate::{
     error::TransactionError,
-    instructions::types::{InputUtxoContext, SpendUtxo},
+    instructions::types::{InputUtxoContext, SppProofInputUtxo},
     OutputUtxo,
 };
 
@@ -20,7 +20,7 @@ pub const MERGE_INPUTS: usize = 8;
 /// derived single output, and the owner identity. Every input must share one owner
 /// (P256 or Solana) and asset.
 pub struct Merge {
-    inputs: Vec<SpendUtxo>,
+    inputs: Vec<SppProofInputUtxo>,
     output: OutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
@@ -33,7 +33,7 @@ impl Merge {
     /// and a fresh ephemeral viewing scalar from the keypair.
     pub fn new<K: ShieldedKeypairTrait>(
         keypair: &K,
-        inputs: Vec<SpendUtxo>,
+        inputs: Vec<SppProofInputUtxo>,
     ) -> Result<Self, TransactionError> {
         if inputs.is_empty() {
             return Err(TransactionError::NoInputs);
@@ -106,7 +106,7 @@ impl Merge {
             tx_viewing_sk,
         } = self;
         while inputs.len() < MERGE_INPUTS {
-            inputs.push(SpendUtxo::new_dummy());
+            inputs.push(SppProofInputUtxo::new_dummy());
         }
         PreparedMerge {
             inputs,
@@ -123,7 +123,7 @@ impl Merge {
 /// still proofless. [`Self::input_utxo_hashes`] yields what to fetch Merkle proofs
 /// for.
 pub struct PreparedMerge {
-    pub inputs: Vec<SpendUtxo>,
+    pub inputs: Vec<SppProofInputUtxo>,
     pub output: OutputUtxo,
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,

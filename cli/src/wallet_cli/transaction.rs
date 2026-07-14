@@ -3,8 +3,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    create_transfer_sync, CreateTransfer, InputUtxoContext, ProverClient, Rpc, SignedTransaction,
-    SolanaRpc, SpendProof, ZolanaIndexer,
+    create_transfer_sync, CreateTransfer, InputUtxoContext, ProverClient, Rpc, SolanaRpc,
+    SpendProof, SppProofInputs, ZolanaIndexer,
 };
 use zolana_interface::instruction::{Transact, TransactWithdrawal};
 use zolana_transaction::Address;
@@ -48,7 +48,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
             withdrawal: transfer.recipient.withdrawal().cloned(),
             wait_tag: transfer.wait_tag,
         },
-        transfer.signed,
+        transfer.proof_inputs,
     )?;
     let mode = if transfer.recipient.is_public_withdrawal() {
         "withdraw"
@@ -78,11 +78,12 @@ pub(super) struct SubmitPrivateTx<'a> {
 
 pub(super) fn submit_private_transaction(
     request: SubmitPrivateTx<'_>,
-    signed: SignedTransaction,
+    proof_inputs: SppProofInputs,
 ) -> Result<Signature> {
-    let commitments = signed.input_utxo_hashes()?;
+    let commitments = proof_inputs.input_utxo_hashes()?;
     let proofs = spend_proofs(request.indexer, request.tree, &commitments)?;
-    let data = ProverClient::new(request.prover_url.to_string()).prove_transact(signed, &proofs)?;
+    let data =
+        ProverClient::new(request.prover_url.to_string()).prove_transact(proof_inputs, &proofs)?;
     let ix = Transact {
         payer: request.material.funding.pubkey(),
         tree: request.tree,

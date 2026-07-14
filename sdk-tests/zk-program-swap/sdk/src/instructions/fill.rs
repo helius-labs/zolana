@@ -5,7 +5,7 @@ use swap_prover::FillProofInputs;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypairTrait, ViewingKeyTrait};
 use zolana_transaction::{
-    instructions::transact::{ConfidentialSlot, OutputUtxo, SignedTransaction, Transaction},
+    instructions::transact::{ConfidentialSlot, OutputUtxo, SlotTransact, SppProofInputs},
     utxo::Blinding,
     AssetRegistry, TransactionError,
 };
@@ -100,7 +100,7 @@ impl FillProofInputParams {
 }
 
 pub struct EscrowFill {
-    pub tx: Transaction,
+    pub transact: SlotTransact,
     pub source_output: OutputUtxo,
     pub destination_output: OutputUtxo,
 }
@@ -110,15 +110,15 @@ impl EscrowFill {
         self,
         keypair: &K,
         assets: &AssetRegistry,
-    ) -> Result<SignedTransaction, TransactionError> {
+    ) -> Result<SppProofInputs, TransactionError> {
         let Self {
-            tx,
+            transact,
             source_output,
             destination_output,
         } = self;
-        if tx.inputs.len() != 2 {
+        if transact.input_utxos.len() != 2 {
             return Err(TransactionError::TooManyInputs {
-                got: tx.inputs.len(),
+                got: transact.input_utxos.len(),
                 max: 2,
             });
         }
@@ -126,7 +126,7 @@ impl EscrowFill {
         let source_slot = ConfidentialSlot::new(source_output, assets)?;
         let destination_slot = ConfidentialSlot::new(destination_output, assets)?;
 
-        tx.sign_with_slots(&[&source_slot, &destination_slot], keypair)
+        transact.sign(&[&source_slot, &destination_slot], keypair)
     }
 }
 

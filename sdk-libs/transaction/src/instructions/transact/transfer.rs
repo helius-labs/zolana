@@ -2,27 +2,30 @@ use solana_address::Address;
 use zolana_event::OutputData;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{
-    constants::{BLINDING_LEN, SALT_LEN, VIEW_TAG_LEN},
+    constants::{BLINDING_LEN, VIEW_TAG_LEN},
     hash::sha256_be,
     shielded::ShieldedAddress,
     viewing_key::{random_blinding, ViewTag},
-    P256Pubkey, PublicKey, ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
+    P256Pubkey, PublicKey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
 };
 
 use super::{
-    signed_transaction::{asset_field, signed_to_field, PublicAmounts, SignedTransaction},
+    shape::Shape,
+    spp_proof_inputs::{
+        asset_field, first_nullifier, inputs_require_p256, signed_to_field, PublicAmounts,
+        SppProofInputs,
+    },
     ExternalData, OutputUtxo,
 };
 use crate::{
     data::Data,
     error::TransactionError,
-    instructions::types::SpendUtxo,
+    instructions::types::SppProofInputUtxo,
     serialization::{
         confidential::{
             ConfidentialRecipient, ConfidentialRecipientEncode, ConfidentialSenderBundle,
             ConfidentialSenderEncode, TransferRecipientPlaintext, TransferSenderPlaintext,
         },
-        confidential_unified::{ConfidentialUnified, ConfidentialUnifiedEncode},
         OwnerCx, UtxoSerialization,
     },
     utxo::{derive_blinding, Utxo},
@@ -40,26 +43,9 @@ pub const SENDER_SLOT_COUNT: usize = 2;
 
 /// Transfers always pad to this single shape so every transfer has the same
 /// input/output count and its structure is not observable. The SPP prover
-/// supports more shapes ([`SPP_SUPPORTED_SHAPES`]); this fixed shape is the
+/// supports more shapes ([`SPP_SUPPORTED_SHAPES`](super::shape::SPP_SUPPORTED_SHAPES)); this fixed shape is the
 /// privacy-preserving subset used for padded transfers.
 pub const SUPPORTED_SHAPES: [Shape; 1] = [Shape::new(2, 3)];
-
-/// Shapes the SPP prover has keys for. Slot-signed transactions declare their
-/// exact shape (they do not pad), so they validate against this full set rather
-/// than [`SUPPORTED_SHAPES`]. Kept in sync with
-/// `sdk-libs/client/src/prover/shape.rs`.
-pub const SPP_SUPPORTED_SHAPES: [Shape; 10] = [
-    Shape::new(1, 1),
-    Shape::new(1, 2),
-    Shape::new(2, 2),
-    Shape::new(2, 3),
-    Shape::new(3, 3),
-    Shape::new(4, 3),
-    Shape::new(4, 4),
-    Shape::new(5, 3),
-    Shape::new(5, 4),
-    Shape::new(1, 8),
-];
 
 pub struct PreparedRecipient {
     pub view_tag: ViewTag,
@@ -67,8 +53,8 @@ pub struct PreparedRecipient {
     pub plaintext: TransferRecipientPlaintext,
 }
 
-pub struct PreparedTransaction {
-    pub inputs: Vec<SpendUtxo>,
+pub struct PreparedTransfer {
+    pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<OutputUtxo>,
     pub sender_plaintext: TransferSenderPlaintext,
     pub recipients: Vec<PreparedRecipient>,
@@ -83,19 +69,6 @@ pub struct PreparedTransaction {
     pub user_sol_account: Address,
     pub user_spl_token: Address,
     pub spl_token_interface: Address,
-}
-
-pub fn inputs_require_p256(inputs: &[SpendUtxo]) -> Result<bool, TransactionError> {
-    for spend in inputs {
-        // A dummy's zero owner reads as P256; skip it so it never forces the rail.
-        if spend.is_dummy() {
-            continue;
-        }
-        if spend.utxo.owner.signature_type()? == SignatureType::P256 {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 pub struct Recipient {
@@ -118,21 +91,6 @@ pub struct Withdrawal {
     pub asset: Address,
     pub amount: u64,
     pub target: WithdrawalTarget,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Shape {
-    pub n_inputs: usize,
-    pub n_outputs: usize,
-}
-
-impl Shape {
-    pub const fn new(n_inputs: usize, n_outputs: usize) -> Self {
-        Self {
-            n_inputs,
-            n_outputs,
-        }
-    }
 }
 
 pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, TransactionError> {
@@ -174,194 +132,10 @@ pub fn resolve_shape(
     }
 }
 
-pub struct SlotCx<'a> {
-    pub tx: &'a ViewingKey,
-    pub self_pubkey: P256Pubkey,
-    pub salt: [u8; SALT_LEN],
-    /// AES ciphertext ordinal for this slot: the count of data-bearing outputs
-    /// preceding it. Fed into the per-slot key/nonce derivation.
-    pub slot_index: u32,
-}
-
-/// The encoded form of one output slot: its wire [`OwnerTag`], the resolved
-/// 32-byte tag folded into the proof's owner-tag chain and republished as the
-/// event `view_tag`, and the optional ciphertext (`None` when a preceding bundle
-/// covers this slot).
-pub struct EncodedSlot {
-    pub owner_tag: OwnerTag,
-    pub resolved_owner_tag: [u8; 32],
-    pub data: Option<Vec<u8>>,
-}
-
-impl EncodedSlot {
-    /// A self-contained data-bearing slot whose owner tag is embedded inline; the
-    /// resolved tag is the same `view_tag` the ciphertext was sealed under.
-    fn inline(ciphertext: OutputData) -> Self {
-        Self {
-            owner_tag: OwnerTag::Inline(ciphertext.view_tag),
-            resolved_owner_tag: ciphertext.view_tag,
-            data: Some(ciphertext.data),
-        }
-    }
-}
-
-pub trait EncodeOutputSlot {
-    fn output(&self) -> &OutputUtxo;
-    fn encode_slot(&self, cx: &SlotCx) -> Result<EncodedSlot, TransactionError>;
-}
-
-pub struct SenderSlot {
-    pub output: OutputUtxo,
-    pub plaintext: TransferSenderPlaintext,
-}
-
-impl EncodeOutputSlot for SenderSlot {
-    fn output(&self) -> &OutputUtxo {
-        &self.output
-    }
-
-    fn encode_slot(&self, cx: &SlotCx) -> Result<EncodedSlot, TransactionError> {
-        Ok(EncodedSlot::inline(
-            ConfidentialSenderBundle::encode_plaintext(
-                &self.plaintext,
-                self.plaintext.owner_pubkey.confidential_view_tag()?,
-                &ConfidentialSenderEncode {
-                    tx: cx.tx.clone(),
-                    self_pubkey: cx.self_pubkey,
-                    salt: cx.salt,
-                    slot_index: cx.slot_index,
-                    blinding_seed: self.plaintext.blinding_seed,
-                    recipient_viewing_pks: self.plaintext.recipient_viewing_pks.clone(),
-                },
-            )?,
-        ))
-    }
-}
-
-pub struct RecipientSlot {
-    output: OutputUtxo,
-    asset_id: u64,
-}
-
-impl RecipientSlot {
-    pub fn new(output: OutputUtxo, assets: &AssetRegistry) -> Result<Self, TransactionError> {
-        if output.owner_address.is_none() {
-            return Err(TransactionError::MissingOutput);
-        }
-        let asset_id = if output.asset == SOL_MINT {
-            crate::SOL_ASSET_ID
-        } else {
-            assets.asset_id(&output.asset)?
-        };
-        Ok(Self { output, asset_id })
-    }
-}
-
-impl EncodeOutputSlot for RecipientSlot {
-    fn output(&self) -> &OutputUtxo {
-        &self.output
-    }
-
-    fn encode_slot(&self, cx: &SlotCx) -> Result<EncodedSlot, TransactionError> {
-        let address = self
-            .output
-            .owner_address
-            .ok_or(TransactionError::MissingOutput)?;
-        Ok(EncodedSlot::inline(
-            ConfidentialRecipient::encode_plaintext(
-                &TransferRecipientPlaintext {
-                    asset_id: self.asset_id,
-                    amount: self.output.amount,
-                    blinding: self.output.blinding,
-                    zone_program_id: self.output.zone_program_id,
-                    data: self.output.data.clone(),
-                },
-                address.signing_pubkey.confidential_view_tag()?,
-                &ConfidentialRecipientEncode {
-                    tx: cx.tx.clone(),
-                    recipient_pubkey: address.viewing_pubkey,
-                    salt: cx.salt,
-                    slot_index: cx.slot_index,
-                },
-            )?,
-        ))
-    }
-}
-
-pub struct ConfidentialSlot {
-    output: OutputUtxo,
-    asset_id: u64,
-}
-
-impl ConfidentialSlot {
-    pub fn new(output: OutputUtxo, assets: &AssetRegistry) -> Result<Self, TransactionError> {
-        if output.owner_address.is_none() {
-            return Err(TransactionError::MissingOutput);
-        }
-        let asset_id = if output.asset == SOL_MINT {
-            crate::SOL_ASSET_ID
-        } else {
-            assets.asset_id(&output.asset)?
-        };
-        Ok(Self { output, asset_id })
-    }
-}
-
-impl EncodeOutputSlot for ConfidentialSlot {
-    fn output(&self) -> &OutputUtxo {
-        &self.output
-    }
-
-    fn encode_slot(&self, cx: &SlotCx) -> Result<EncodedSlot, TransactionError> {
-        let address = self
-            .output
-            .owner_address
-            .ok_or(TransactionError::MissingOutput)?;
-        Ok(EncodedSlot::inline(ConfidentialUnified::encode_plaintext(
-            &TransferRecipientPlaintext {
-                asset_id: self.asset_id,
-                amount: self.output.amount,
-                blinding: self.output.blinding,
-                zone_program_id: self.output.zone_program_id,
-                data: self.output.data.clone(),
-            },
-            address.signing_pubkey.confidential_view_tag()?,
-            &ConfidentialUnifiedEncode {
-                tx: cx.tx.clone(),
-                recipient_pubkey: address.viewing_pubkey,
-                salt: cx.salt,
-                slot_index: cx.slot_index,
-            },
-        )?))
-    }
-}
-
-/// A slot whose ciphertext is already sealed (e.g. by a zone/swap SDK), carried
-/// through verbatim. Its owner tag is embedded inline from the ciphertext's
-/// `view_tag`.
-pub struct PrebuiltSlot {
-    pub output: OutputUtxo,
-    pub ciphertext: OutputData,
-}
-
-impl EncodeOutputSlot for PrebuiltSlot {
-    fn output(&self) -> &OutputUtxo {
-        &self.output
-    }
-
-    fn encode_slot(&self, _cx: &SlotCx) -> Result<EncodedSlot, TransactionError> {
-        Ok(EncodedSlot::inline(self.ciphertext.clone()))
-    }
-}
-// TODO: we should separate this abstraction into a lowlevel ProofInputs and higher level Transfer that is specialized to perform transfers and is not intended to be used with custom utxos.
-pub struct Transaction {
+pub struct Transfer {
     pub owner: ShieldedAddress,
-    pub inputs: Vec<SpendUtxo>,
+    pub inputs: Vec<SppProofInputUtxo>,
     pub recipients: Vec<Recipient>,
-    /// Fully specified recipient outputs that bind zone/program data. Unlike
-    /// [`Recipient`] (which carries only address/asset/amount), these are minted
-    /// verbatim, so the caller controls `data` and the zone/program ids.
-    pub custom_outputs: Vec<OutputUtxo>,
     pub withdrawal: Option<Withdrawal>,
     pub payer_pubkey_hash: [u8; 32],
     pub blinding_seed: [u8; BLINDING_LEN],
@@ -369,13 +143,12 @@ pub struct Transaction {
     pub expiry_unix_ts: u64,
 }
 
-impl Transaction {
-    pub fn new(owner: ShieldedAddress, inputs: Vec<SpendUtxo>, payer: Address) -> Self {
+impl Transfer {
+    pub fn new(owner: ShieldedAddress, inputs: Vec<SppProofInputUtxo>, payer: Address) -> Self {
         Self {
             owner,
             inputs,
             recipients: Vec::new(),
-            custom_outputs: Vec::new(),
             withdrawal: None,
             payer_pubkey_hash: sha256_be(payer.as_array()),
             blinding_seed: random_blinding(),
@@ -384,17 +157,6 @@ impl Transaction {
             // so callers that want a relayer deadline set it explicitly.
             expiry_unix_ts: u64::MAX,
         }
-    }
-
-    /// Push a fully specified custom recipient output. It counts toward the proof
-    /// shape like a [`Self::send`] recipient and is encoded into its own
-    /// ciphertext slot. The output must name its recipient via `owner_address`.
-    pub fn add_output(&mut self, output: OutputUtxo) -> Result<&mut Self, TransactionError> {
-        if output.owner_address.is_none() {
-            return Err(TransactionError::MissingOutput);
-        }
-        self.custom_outputs.push(output);
-        Ok(self)
     }
 
     pub fn with_shape(mut self, shape: Shape) -> Self {
@@ -444,93 +206,17 @@ impl Transaction {
 
     /// Keypair rail: assemble with the owner's own viewing key and sign in place,
     /// no separate authority. The authority rail is [`Self::prepare`] +
-    /// [`PreparedTransaction::finalize`], with encryption/signing delegated to a
+    /// [`PreparedTransfer::finalize`], with encryption/signing delegated to a
     /// `WalletAuthority`.
     pub fn sign<K: ShieldedKeypairTrait + ViewingKeyTrait>(
         self,
         keypair: &K,
         assets: &AssetRegistry,
-    ) -> Result<SignedTransaction, TransactionError> {
+    ) -> Result<SppProofInputs, TransactionError> {
         let mut signed = self.assemble(keypair, assets)?;
         if keypair.curve()? == SignatureType::P256 {
             let message_hash = signed.message_hash()?;
-            signed.p256_owner = Some(keypair.sign(&message_hash));
-        }
-        Ok(signed)
-    }
-
-    pub fn sign_with_slots<K: ShieldedKeypairTrait + ViewingKeyTrait>(
-        self,
-        slots: &[&dyn EncodeOutputSlot],
-        keypair: &K,
-    ) -> Result<SignedTransaction, TransactionError> {
-        let shape = Shape::new(self.inputs.len(), slots.len());
-        if !SPP_SUPPORTED_SHAPES.contains(&shape) {
-            return Err(TransactionError::UnsupportedShape {
-                n_in: shape.n_inputs,
-                n_out: shape.n_outputs,
-            });
-        }
-
-        let first_nullifier = self.first_nullifier()?;
-        let tx = keypair.get_transaction_viewing_key(&first_nullifier)?;
-        let salt = zolana_keypair::random_salt();
-        let tx_viewing_pk = tx.pubkey();
-        let self_pubkey = keypair.viewing_pubkey();
-
-        let mut output_utxos = Vec::with_capacity(slots.len());
-        let mut transact_outputs = Vec::with_capacity(slots.len());
-        let mut resolved_owner_tags = Vec::with_capacity(slots.len());
-        // AES ordinal: only data-bearing slots consume an index. Every
-        // sign_with_slots slot is data-bearing, so the ordinal equals the slot
-        // position, matching the historical `i as u32`.
-        let mut ordinal = 0u32;
-        for slot in slots.iter() {
-            let encoded = slot.encode_slot(&SlotCx {
-                tx: &tx,
-                self_pubkey,
-                salt,
-                slot_index: ordinal,
-            })?;
-            let output = slot.output().clone();
-            let utxo_hash = output.hash()?;
-            if encoded.data.is_some() {
-                ordinal += 1;
-            }
-            transact_outputs.push(TransactOutput {
-                utxo_hash,
-                owner_tag: encoded.owner_tag,
-                data: encoded.data,
-            });
-            resolved_owner_tags.push(encoded.resolved_owner_tag);
-            output_utxos.push(output);
-        }
-
-        let external_data = ExternalData::new(
-            *tx_viewing_pk.as_bytes(),
-            salt,
-            transact_outputs,
-            resolved_owner_tags,
-            vec![],
-            self.expiry_unix_ts,
-        );
-
-        let mut signed = SignedTransaction {
-            inputs: self.inputs,
-            outputs: output_utxos,
-            public_amounts: PublicAmounts {
-                sol: signed_to_field(0),
-                spl: signed_to_field(0),
-                asset: [0u8; 32],
-            },
-            external_data,
-            payer_pubkey_hash: self.payer_pubkey_hash,
-            shape,
-            p256_owner: None, // TODO: rename to p256 signature
-        };
-        if keypair.curve()? == SignatureType::P256 {
-            let message_hash = signed.message_hash()?;
-            signed.p256_owner = Some(keypair.sign(&message_hash));
+            signed.p256_signature = Some(keypair.sign(&message_hash));
         }
         Ok(signed)
     }
@@ -539,7 +225,7 @@ impl Transaction {
         self,
         keypair: &K,
         assets: &AssetRegistry,
-    ) -> Result<SignedTransaction, TransactionError> {
+    ) -> Result<SppProofInputs, TransactionError> {
         let prepared = self.prepare(assets)?;
         let tx = keypair.get_transaction_viewing_key(&prepared.first_nullifier)?;
         let salt = zolana_keypair::random_salt();
@@ -578,7 +264,7 @@ impl Transaction {
         prepared.finalize(tx_viewing_pk, salt, slots, assets)
     }
 
-    pub fn prepare(self, assets: &AssetRegistry) -> Result<PreparedTransaction, TransactionError> {
+    pub fn prepare(self, assets: &AssetRegistry) -> Result<PreparedTransfer, TransactionError> {
         let spl_asset = self.spl_asset()?;
         let (public_sol, public_spl) = self.public_amounts();
         let sol_change = self.change(&SOL_MINT, public_sol)?;
@@ -645,26 +331,6 @@ impl Transaction {
             });
         }
 
-        for output in &self.custom_outputs {
-            let address = output
-                .owner_address
-                .ok_or(TransactionError::MissingOutput)?;
-            let asset_id = self.asset_id(assets, &output.asset)?;
-            recipient_viewing_pks.push(address.viewing_pubkey);
-            recipients.push(PreparedRecipient {
-                view_tag: address.signing_pubkey.confidential_view_tag()?,
-                recipient_pubkey: address.viewing_pubkey,
-                plaintext: TransferRecipientPlaintext {
-                    asset_id,
-                    amount: output.amount,
-                    blinding: output.blinding,
-                    zone_program_id: output.zone_program_id,
-                    data: output.data.clone(),
-                },
-            });
-            outputs.push(output.clone());
-        }
-
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
         let max_recipients = shape
             .n_outputs
@@ -690,7 +356,7 @@ impl Transaction {
             sol_data: Data::default(),
         };
 
-        let first_nullifier = self.first_nullifier()?;
+        let first_nullifier = first_nullifier(&self.inputs)?;
         let (user_sol_account, user_spl_token, spl_token_interface) = self.external_accounts();
         let public_amounts = PublicAmounts {
             sol: signed_to_field(public_sol),
@@ -701,7 +367,7 @@ impl Transaction {
             },
         };
 
-        Ok(PreparedTransaction {
+        Ok(PreparedTransfer {
             inputs: self.inputs,
             outputs,
             sender_plaintext,
@@ -735,7 +401,6 @@ impl Transaction {
             .iter()
             .map(|spend| spend.utxo.asset)
             .chain(self.recipients.iter().map(|recipient| recipient.asset))
-            .chain(self.custom_outputs.iter().map(|output| output.asset))
             .chain(self.withdrawal.iter().map(|withdrawal| withdrawal.asset));
         for asset in assets {
             if asset != SOL_MINT {
@@ -774,20 +439,11 @@ impl Transaction {
             .sum()
     }
 
-    fn custom_output_sum(&self, asset: &Address) -> i128 {
-        self.custom_outputs
-            .iter()
-            .filter(|output| &output.asset == asset)
-            .map(|output| i128::from(output.amount))
-            .sum()
-    }
-
     fn change(&self, asset: &Address, public: i128) -> Result<u64, TransactionError> {
         let leftover = self
             .input_sum(asset)
             .checked_add(public)
             .and_then(|v| v.checked_sub(self.recipient_sum(asset)))
-            .and_then(|v| v.checked_sub(self.custom_output_sum(asset)))
             .ok_or(TransactionError::SelectedBalanceOverflow)?;
         if leftover < 0 {
             return Err(TransactionError::InsufficientBalance {
@@ -796,19 +452,6 @@ impl Transaction {
             });
         }
         Ok(leftover as u64)
-    }
-
-    fn first_nullifier(&self) -> Result<[u8; 32], TransactionError> {
-        let spend = self.inputs.first().ok_or(TransactionError::NoInputs)?;
-        let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-        let utxo_hash = spend.utxo.hash(
-            &nullifier_pubkey,
-            &spend.data_hash.unwrap_or([0u8; 32]),
-            &spend.zone_data_hash.unwrap_or([0u8; 32]),
-        )?;
-        Ok(spend
-            .nullifier_key
-            .nullifier(&utxo_hash, &spend.utxo.blinding)?)
     }
 
     fn external_accounts(&self) -> (Address, Address, Address) {
@@ -829,15 +472,15 @@ impl Transaction {
     }
 }
 
-impl PreparedTransaction {
+impl PreparedTransfer {
     pub fn finalize(
         self,
         tx_viewing_pk: P256Pubkey,
         salt: [u8; zolana_keypair::constants::SALT_LEN],
         slots: Vec<OutputData>,
         assets: &AssetRegistry,
-    ) -> Result<SignedTransaction, TransactionError> {
-        let PreparedTransaction {
+    ) -> Result<SppProofInputs, TransactionError> {
+        let PreparedTransfer {
             mut inputs,
             mut outputs,
             sender_plaintext,
@@ -876,7 +519,7 @@ impl PreparedTransaction {
             });
         }
         while inputs.len() < shape.n_inputs {
-            inputs.push(SpendUtxo::new_dummy());
+            inputs.push(SppProofInputUtxo::new_dummy());
         }
 
         // Random ciphertexts for the dummy recipient positions, byte-length
@@ -950,14 +593,14 @@ impl PreparedTransaction {
                 external_data.with_public_spl(amount, user_spl_token, spl_token_interface)?;
         }
 
-        Ok(SignedTransaction {
-            inputs,
-            outputs,
+        Ok(SppProofInputs {
+            input_utxos: inputs,
+            output_utxos: outputs,
             public_amounts,
             external_data,
             payer_pubkey_hash,
             shape,
-            p256_owner: None,
+            p256_signature: None,
         })
     }
 }

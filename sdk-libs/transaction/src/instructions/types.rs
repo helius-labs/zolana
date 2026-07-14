@@ -1,21 +1,38 @@
 use solana_address::Address;
 use zolana_keypair::{
-    constants::BLINDING_LEN, shielded::ShieldedKeypair, viewing_key::random_blinding, NullifierKey,
-    PublicKey,
+    constants::BLINDING_LEN, viewing_key::random_blinding, NullifierKey, PublicKey,
 };
 
 use crate::{data::Data, utxo::Utxo};
 
-// TODO: rename to WalletUtxo, ::new(nullifier_key), methods add_data_hash , add zone_data_hash, or SppProofInputUtxo
 #[derive(Clone)]
-pub struct SpendUtxo {
+pub struct SppProofInputUtxo {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
     pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
 }
 
-impl SpendUtxo {
+impl SppProofInputUtxo {
+    pub fn new(utxo: Utxo, nullifier_key: impl AsRef<NullifierKey>) -> Self {
+        Self {
+            utxo,
+            nullifier_key: nullifier_key.as_ref().clone(),
+            data_hash: None,
+            zone_data_hash: None,
+        }
+    }
+
+    pub fn with_data_hash(mut self, data_hash: [u8; 32]) -> Self {
+        self.data_hash = Some(data_hash);
+        self
+    }
+
+    pub fn with_zone_data_hash(mut self, zone_data_hash: [u8; 32]) -> Self {
+        self.zone_data_hash = Some(zone_data_hash);
+        self
+    }
+
     pub fn new_dummy() -> Self {
         let utxo = Utxo {
             owner: PublicKey::zeroed(),
@@ -35,20 +52,6 @@ impl SpendUtxo {
 
     pub fn is_dummy(&self) -> bool {
         self.utxo.owner.is_zero()
-    }
-    // TODO: remove
-    pub fn from_keypair(utxo: Utxo, keypair: &ShieldedKeypair) -> Self {
-        Self::from_nullifier_key(utxo, &keypair.nullifier_key)
-    }
-
-    // TODO: rename to new
-    pub fn from_nullifier_key(utxo: Utxo, nullifier_key: &NullifierKey) -> Self {
-        Self {
-            utxo,
-            nullifier_key: nullifier_key.clone(),
-            data_hash: None,
-            zone_data_hash: None,
-        }
     }
 }
 

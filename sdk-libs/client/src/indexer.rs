@@ -13,7 +13,7 @@ use zolana_api::{
 };
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
-use zolana_transaction::instructions::transact::SignedTransaction;
+use zolana_transaction::instructions::transact::SppProofInputs;
 
 use crate::{
     error::ClientError,
@@ -56,18 +56,18 @@ impl ZolanaIndexer {
     pub fn prove_transact(
         &self,
         tree: Address,
-        signed: SignedTransaction,
+        proof_inputs: SppProofInputs,
     ) -> Result<TransactIxData, ClientError> {
-        let spend_proofs = self.spend_proofs(tree, &signed)?;
-        ProverClient::local().prove_transact(signed, &spend_proofs)
+        let spend_proofs = self.spend_proofs(tree, &proof_inputs)?;
+        ProverClient::local().prove_transact(proof_inputs, &spend_proofs)
     }
 
     fn spend_proofs(
         &self,
         tree: Address,
-        signed: &SignedTransaction,
+        proof_inputs: &SppProofInputs,
     ) -> Result<Vec<SpendProof>, ClientError> {
-        let inputs = signed.input_utxo_hashes()?;
+        let inputs = proof_inputs.input_utxo_hashes()?;
         let state_proofs = self
             .get_merkle_proofs(tree, inputs.iter().map(|c| c.utxo_hash).collect())?
             .proofs;

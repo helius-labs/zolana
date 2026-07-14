@@ -6,7 +6,7 @@ use zolana_interface::instruction::instruction_data::transact::{OutputData, Tran
 use zolana_keypair::{ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
 use zolana_transaction::{
     instructions::transact::{
-        ConfidentialSlot, OutputUtxo, PrebuiltSlot, SignedTransaction, Transaction,
+        ConfidentialSlot, OutputUtxo, PrebuiltSlot, SlotTransact, SppProofInputs,
     },
     utxo::Blinding,
     AssetRegistry, TransactionError, VIEW_TAG_LEN,
@@ -92,7 +92,7 @@ impl FillVerifiableEncryptionProofInputParams {
 }
 
 pub struct EscrowFillVerifiableEncryption {
-    pub tx: Transaction,
+    pub transact: SlotTransact,
     pub source_output: OutputUtxo,
     pub destination_output: OutputUtxo,
     pub destination_ciphertext: Vec<u8>,
@@ -104,17 +104,17 @@ impl EscrowFillVerifiableEncryption {
         self,
         keypair: &K,
         assets: &AssetRegistry,
-    ) -> Result<SignedTransaction, TransactionError> {
+    ) -> Result<SppProofInputs, TransactionError> {
         let Self {
-            tx,
+            transact,
             source_output,
             destination_output,
             destination_ciphertext,
             destination_view_tag,
         } = self;
-        if tx.inputs.len() != 2 {
+        if transact.input_utxos.len() != 2 {
             return Err(TransactionError::TooManyInputs {
-                got: tx.inputs.len(),
+                got: transact.input_utxos.len(),
                 max: 2,
             });
         }
@@ -128,7 +128,7 @@ impl EscrowFillVerifiableEncryption {
             },
         };
 
-        tx.sign_with_slots(&[&source_slot, &destination_slot], keypair)
+        transact.sign(&[&source_slot, &destination_slot], keypair)
     }
 }
 

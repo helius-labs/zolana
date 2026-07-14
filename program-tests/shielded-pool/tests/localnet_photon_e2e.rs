@@ -30,8 +30,8 @@ use zolana_client::{
     prover::field::{be, right_align_slice},
     EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
     NonInclusionProof as IndexedNonInclusionProof, ProverClient, ProverInputs, Rpc,
-    ShieldedTransaction, SolanaRpc, SpendProof, SpendUtxo, Transaction as ClientTransaction,
-    TransferInput, TransferOutput, UtxoInputs, ZolanaIndexer,
+    ShieldedTransaction, SolanaRpc, SpendProof, SppProofInputUtxo, Transfer, TransferInput,
+    TransferOutput, UtxoInputs, ZolanaIndexer,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
@@ -819,23 +819,23 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         }
 
         let wait_tag = payer_public_key.confidential_view_tag()?;
-        let mut tx = ClientTransaction::new(
+        let mut transfer = Transfer::new(
             sender_address,
             vec![
-                SpendUtxo::from_keypair(first_note.utxo.clone(), &sender),
-                SpendUtxo::from_keypair(second_note.utxo.clone(), &sender),
+                SppProofInputUtxo::new(first_note.utxo.clone(), &sender.nullifier_key),
+                SppProofInputUtxo::new(second_note.utxo.clone(), &sender.nullifier_key),
             ],
             payer_address,
         );
-        tx.send(&sender_address, SOL_MINT, TRANSFER_AMOUNT)?;
-        let signed = tx.sign(&sender, &assets)?;
-        let commitments = signed.input_utxo_hashes()?;
+        transfer.send(&sender_address, SOL_MINT, TRANSFER_AMOUNT)?;
+        let proof_inputs = transfer.sign(&sender, &assets)?;
+        let commitments = proof_inputs.input_utxo_hashes()?;
         assert_eq!(commitments.len(), 2);
         assert_eq!(commitments[0].nullifier, first_note.nullifier);
         assert_eq!(commitments[1].nullifier, second_note.nullifier);
 
         let assembled = zolana_client::assemble(
-            signed,
+            proof_inputs,
             &[
                 SpendProof {
                     state: first_state_proof,
@@ -1561,16 +1561,16 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
-        spends.push(SpendUtxo::from_keypair(utxo, &sender));
+        spends.push(SppProofInputUtxo::new(utxo, &sender.nullifier_key));
     }
 
     // ---- build the encrypted transfer with the high-level client builder ----
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let mut tx = ClientTransaction::new(sender.shielded_address()?, spends, payer_address);
-    tx.send(&recipient_address, SOL_MINT, TRANSFER_AMOUNT)?;
-    let signed = tx.sign(&sender, &assets)?;
+    let mut transfer = Transfer::new(sender.shielded_address()?, spends, payer_address);
+    transfer.send(&recipient_address, SOL_MINT, TRANSFER_AMOUNT)?;
+    let proof_inputs = transfer.sign(&sender, &assets)?;
 
-    let commitments = signed.input_utxo_hashes()?;
+    let commitments = proof_inputs.input_utxo_hashes()?;
     let mut spend_proofs = Vec::new();
     for commitment in &commitments {
         let state = wait_for_merkle_proof(&indexer, tree_address, commitment.utxo_hash)?;
@@ -1578,7 +1578,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         spend_proofs.push(SpendProof { state, nullifier });
     }
 
-    let assembled = zolana_client::assemble(signed, &spend_proofs)?;
+    let assembled = zolana_client::assemble(proof_inputs, &spend_proofs)?;
     let proof = match (&assembled.prover_inputs, expected_rail) {
         (ProverInputs::P256(inputs), SpendRail::P256) => {
             ProverClient::local().prove_transfer_p256(inputs)?

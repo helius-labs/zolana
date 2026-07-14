@@ -41,7 +41,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
             withdrawal: Some(withdrawal.withdrawal),
             wait_tag: withdrawal.wait_tag,
         },
-        withdrawal.signed,
+        withdrawal.proof_inputs,
     )?;
     println!(
         "ok withdraw amount={} mint={} to={} signature={}",

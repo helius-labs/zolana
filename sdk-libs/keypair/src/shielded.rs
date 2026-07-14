@@ -51,6 +51,12 @@ pub struct ShieldedKeypair {
     pub viewing_key: ViewingKey,
 }
 
+impl AsRef<NullifierKey> for ShieldedKeypair {
+    fn as_ref(&self) -> &NullifierKey {
+        &self.nullifier_key
+    }
+}
+
 impl ShieldedKeypair {
     pub fn from_keys(
         signing_key: SigningKey,

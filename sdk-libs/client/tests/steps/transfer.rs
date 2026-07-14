@@ -9,11 +9,13 @@
 use borsh::BorshDeserialize;
 use cucumber::{then, when};
 use solana_address::Address;
-use zolana_client::{CircuitType, PublicAmounts, Rpc, SpendUtxo, Transaction, WithdrawalTarget};
+use zolana_client::{
+    CircuitType, PublicAmounts, Rpc, SppProofInputUtxo, Transfer, WithdrawalTarget,
+};
 use zolana_event::OutputDataEncoding;
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::{
-    instructions::transact::signed_transaction::{asset_field, signed_to_field},
+    instructions::transact::spp_proof_inputs::{asset_field, signed_to_field},
     serialization::{
         confidential::{
             ConfidentialRecipient, ConfidentialSenderBundle, TransferRecipientPlaintext,
@@ -66,7 +68,7 @@ impl TransferWorld {
         let sender = ShieldedKeypair::new().expect("sender keypair");
         let assets = AssetRegistry::new([(SPL_ASSET_ID, spl_mint())]).expect("asset registry");
 
-        let inputs: Vec<SpendUtxo> = plan
+        let inputs: Vec<SppProofInputUtxo> = plan
             .inputs
             .iter()
             .map(|input| {
@@ -83,8 +85,8 @@ impl TransferWorld {
                     data: Data::default(),
                 };
                 match input.owner {
-                    crate::world::Owner::P256 => SpendUtxo::from_keypair(utxo, &sender),
-                    crate::world::Owner::Solana => SpendUtxo::from_nullifier_key(
+                    crate::world::Owner::P256 => SppProofInputUtxo::new(utxo, &sender),
+                    crate::world::Owner::Solana => SppProofInputUtxo::new(
                         utxo,
                         &NullifierKey::from_secret(random_blinding(&mut rng)),
                     ),
@@ -99,21 +101,23 @@ impl TransferWorld {
             .map(|_| ShieldedKeypair::new().expect("recipient keypair"))
             .collect();
 
-        let mut tx = Transaction::new(
+        let mut transfer = Transfer::new(
             sender.shielded_address().expect("sender address"),
             inputs,
             Address::default(),
         );
         if plan.declared_shape {
-            tx = tx.with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
+            transfer =
+                transfer.with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
         }
         for (recipient, send) in recipients.iter().zip(&plan.sends) {
-            tx.send(
-                &recipient.shielded_address().expect("recipient address"),
-                asset_addr(send.asset),
-                send.amount,
-            )
-            .expect("send");
+            transfer
+                .send(
+                    &recipient.shielded_address().expect("recipient address"),
+                    asset_addr(send.asset),
+                    send.amount,
+                )
+                .expect("send");
         }
         if let Some(withdraw) = &plan.withdraw {
             let target = match withdraw.asset {
@@ -125,13 +129,14 @@ impl TransferWorld {
                     spl_token_interface: Address::new_from_array([9u8; 32]),
                 },
             };
-            tx.withdraw(asset_addr(withdraw.asset), withdraw.amount, target)
+            transfer
+                .withdraw(asset_addr(withdraw.asset), withdraw.amount, target)
                 .expect("withdraw");
         }
 
-        let signed = tx.sign(&sender, &assets).expect("sign");
+        let proof_inputs = transfer.sign(&sender, &assets).expect("sign");
 
-        let commitments = signed.input_utxo_hashes().expect("input commitments");
+        let commitments = proof_inputs.input_utxo_hashes().expect("input commitments");
         let first_nullifier = commitments.first().expect("at least one input").nullifier;
         let mut indexer = TestIndexer::new();
         for commitment in &commitments {
@@ -141,7 +146,7 @@ impl TransferWorld {
         let input_merkle_proofs = indexer
             .get_input_merkle_proofs(&commitments)
             .expect("input merkle proofs");
-        match zolana_client::into_prover(signed, &input_merkle_proofs)
+        match zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
             .expect("into prover")
             .circuit
         {

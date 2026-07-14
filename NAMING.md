@@ -60,10 +60,21 @@ encoded form from the raw value, use the `_fe` suffix (`secret_fe`,
 Canonical struct fields (`sdk-libs/transaction/src/utxo.rs`): `owner`,
 `asset`, `amount`, `blinding`, `zone_program_id`, `data`.
 
-- Consumed notes: `SpendUtxo` (signing/proving layer) or `InputUtxo`
+- Consumed notes: `SppProofInputUtxo` (signing/proving layer) or `InputUtxo`
   (encrypted/instruction layer); local binding `spend`; collections `inputs`.
 - Created notes: `OutputUtxo`; collections `outputs`. No `src_out` / `in_` /
   `out_` prefixes.
+- The client-side proof-inputs struct is `SppProofInputs`; its UTXO
+  collections are qualified as `input_utxos` / `output_utxos`, while
+  `inputs` / `outputs` remain the pinned spellings for the processor and
+  instruction layers. Its remaining fields are `public_amounts`,
+  `external_data`, `payer_pubkey_hash`, `p256_signature`, and `shape`.
+  `p256_signature` holds a `[u8; 64]` signature, not an owner — never
+  `p256_owner`. Local bindings are `proof_inputs`, never `signed`.
+- The high-level padded-transfer builder is `Transfer` / `PreparedTransfer`,
+  never `TxBuilder`; local bindings are `transfer`, not `tx`. The operation
+  struct that seals slots into `SppProofInputs` is `SlotTransact` with a
+  consuming `sign`. The first-nullifier accessor is `first_nullifier`.
 - The note commitment is `utxo_hash`, not "commitment". The spend marker is
   `nullifier` (note method), `nullifier_hash` (instruction field),
   `nullifier_pk` / `nullifier_pubkey` (the key).

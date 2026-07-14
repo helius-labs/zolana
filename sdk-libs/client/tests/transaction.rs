@@ -1,4 +1,4 @@
-//! Unit tests for the `Transaction` builder abstraction that do not need the
+//! Unit tests for the `Transfer` builder abstraction that do not need the
 //! prover server: change derivation, blinding positions, the encrypted-bundle
 //! round-trip, rail detection, external-data assembly, and the error paths.
 
@@ -22,8 +22,8 @@ use test_indexer::TestIndexer;
 use zolana_client::{
     sign_transaction, AnonymousRecipientSlot, ApprovalRequest, CircuitType, ClientError,
     ConfidentialRecipientSlot, MerkleContext, MerkleProof, NonInclusionProof, P256Signature,
-    PublicAmounts, Rpc, SignedTransaction, SpendProof, SpendUtxo, SyncWalletAuthority, Transaction,
-    TransferP256Prover, WalletAuthority, WithdrawalTarget, NULLIFIER_TREE_HEIGHT,
+    PublicAmounts, Rpc, SpendProof, SppProofInputUtxo, SppProofInputs, SyncWalletAuthority,
+    Transfer, TransferP256Prover, WalletAuthority, WithdrawalTarget, NULLIFIER_TREE_HEIGHT,
     STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputDataEncoding;
@@ -32,7 +32,7 @@ use zolana_interface::instruction::instruction_data::transact::{
 };
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::{
-    instructions::transact::signed_transaction::signed_to_field,
+    instructions::transact::spp_proof_inputs::signed_to_field,
     serialization::{
         confidential::{
             ConfidentialRecipient, ConfidentialSenderBundle, TransferRecipientPlaintext,
@@ -51,7 +51,7 @@ fn blinding(rng: &mut ThreadRng) -> [u8; 31] {
     b
 }
 
-fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> SpendUtxo {
+fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> SppProofInputUtxo {
     let utxo = Utxo {
         owner: sender.signing_pubkey(),
         asset: SOL_MINT,
@@ -60,7 +60,7 @@ fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> Spe
         zone_program_id: None,
         data: Data::default(),
     };
-    SpendUtxo::from_keypair(utxo, sender)
+    SppProofInputUtxo::new(utxo, sender)
 }
 
 fn registry() -> AssetRegistry {
@@ -139,20 +139,20 @@ impl WalletAuthority for AsyncTestAuthority {
     }
 }
 
-fn sign(tx: Transaction, sender: &ShieldedKeypair) -> Result<SignedTransaction, TransactionError> {
-    tx.sign(sender, &registry())
+fn sign(transfer: Transfer, sender: &ShieldedKeypair) -> Result<SppProofInputs, TransactionError> {
+    transfer.sign(sender, &registry())
 }
 
-fn prover_of(signed: SignedTransaction) -> TransferP256Prover {
+fn prover_of(proof_inputs: SppProofInputs) -> TransferP256Prover {
     let mut indexer = TestIndexer::new();
-    let commitments = signed.input_utxo_hashes().expect("commitments");
+    let commitments = proof_inputs.input_utxo_hashes().expect("commitments");
     for commitment in &commitments {
         indexer.add_utxo(commitment.utxo_hash);
     }
     let input_merkle_proofs = indexer
         .get_input_merkle_proofs(&commitments)
         .expect("input merkle proofs");
-    match zolana_client::into_prover(signed, &input_merkle_proofs)
+    match zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
         .expect("into prover")
         .circuit
     {
@@ -267,22 +267,23 @@ fn transfer_round_trip_outputs_and_bundle() {
     let sender_addr = sender.shielded_address().unwrap();
     let recipient_addr = recipient.shielded_address().unwrap();
 
-    let mut tx = Transaction::new(
+    let mut transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+    transfer
+        .send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
         .unwrap();
 
-    let signed = sign(tx, &sender).unwrap();
-    let first_nullifier = signed
+    let proof_inputs = sign(transfer, &sender).unwrap();
+    let first_nullifier = proof_inputs
         .input_utxo_hashes()
         .unwrap()
         .first()
         .unwrap()
         .nullifier;
-    let prover = prover_of(signed);
+    let prover = prover_of(proof_inputs);
     let (sender_pt, recipients_pt) = decrypt(
         &sender,
         &[&recipient],
@@ -391,20 +392,21 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
     let build = |with_recipient: bool| {
         let mut rng = rand::thread_rng();
         let sender = ShieldedKeypair::new().unwrap();
-        let mut tx = Transaction::new(
+        let mut transfer = Transfer::new(
             sender.shielded_address().unwrap(),
             vec![p256_input(&sender, 100, &mut rng)],
             Address::default(),
         );
         if with_recipient {
             let recipient = ShieldedKeypair::new().unwrap();
-            tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+            transfer
+                .send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
                 .unwrap();
         }
-        let signed = sign(tx, &sender).unwrap();
-        let commitments = signed.input_utxo_hashes().unwrap();
+        let proof_inputs = sign(transfer, &sender).unwrap();
+        let commitments = proof_inputs.input_utxo_hashes().unwrap();
         let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
-        zolana_client::assemble(signed, &proofs)
+        zolana_client::assemble(proof_inputs, &proofs)
             .unwrap()
             .with_proof(TransactProof::zeroed_eddsa())
     };
@@ -454,20 +456,21 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let recipient = ShieldedKeypair::new().unwrap();
     let recipient_view_tag = recipient.signing_pubkey().confidential_view_tag().unwrap();
 
-    let mut tx = Transaction::new(
+    let mut transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+    transfer
+        .send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
         .unwrap();
-    let signed = sign(tx, &sender).unwrap();
+    let proof_inputs = sign(transfer, &sender).unwrap();
 
-    let commitments = signed.input_utxo_hashes().unwrap();
+    let commitments = proof_inputs.input_utxo_hashes().unwrap();
     let first_nullifier = commitments.first().unwrap().nullifier;
     let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
 
-    let assembled = zolana_client::assemble(signed, &proofs).unwrap();
+    let assembled = zolana_client::assemble(proof_inputs, &proofs).unwrap();
     let ix = assembled.with_proof(TransactProof::zeroed_eddsa());
 
     // The single real input is padded with one mirrored dummy to the (2,3) shape.
@@ -563,28 +566,29 @@ fn withdrawal_sets_external_data_and_change() {
     let sender_addr = sender.shielded_address().unwrap();
     let dest = Address::new_from_array([9u8; 32]);
 
-    let mut tx = Transaction::new(
+    let mut transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.withdraw(
-        SOL_MINT,
-        30,
-        WithdrawalTarget::Sol {
-            user_sol_account: dest,
-        },
-    )
-    .unwrap();
+    transfer
+        .withdraw(
+            SOL_MINT,
+            30,
+            WithdrawalTarget::Sol {
+                user_sol_account: dest,
+            },
+        )
+        .unwrap();
 
-    let signed = sign(tx, &sender).unwrap();
-    let first_nullifier = signed
+    let proof_inputs = sign(transfer, &sender).unwrap();
+    let first_nullifier = proof_inputs
         .input_utxo_hashes()
         .unwrap()
         .first()
         .unwrap()
         .nullifier;
-    let prover = prover_of(signed);
+    let prover = prover_of(proof_inputs);
     let (sender_pt, recipients_pt) = decrypt(&sender, &[], &first_nullifier, &prover.external_data);
     let seed = sender_pt.blinding_seed;
 
@@ -649,12 +653,12 @@ fn rail_follows_input_owner_type() {
     let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
 
-    let p256_tx = Transaction::new(
+    let p256_transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![p256_input(&sender, 10, &mut rng)],
         Address::default(),
     );
-    assert!(p256_tx.requires_p256_owner().unwrap());
+    assert!(p256_transfer.requires_p256_owner().unwrap());
 
     let ed_utxo = Utxo {
         owner: PublicKey::from_ed25519(&[1u8; 32]),
@@ -664,24 +668,23 @@ fn rail_follows_input_owner_type() {
         zone_program_id: None,
         data: Data::default(),
     };
-    let ed_input =
-        SpendUtxo::from_nullifier_key(ed_utxo, &NullifierKey::from_secret(blinding(&mut rng)));
-    let ed_tx = Transaction::new(
+    let ed_input = SppProofInputUtxo::new(ed_utxo, &NullifierKey::from_secret(blinding(&mut rng)));
+    let ed_transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![ed_input],
         Address::default(),
     );
-    assert!(!ed_tx.requires_p256_owner().unwrap());
+    assert!(!ed_transfer.requires_p256_owner().unwrap());
 
-    let signed = ed_tx.sign(&sender, &registry()).unwrap();
+    let proof_inputs = ed_transfer.sign(&sender, &registry()).unwrap();
     let mut indexer = TestIndexer::new();
-    let commitments = signed.input_utxo_hashes().unwrap();
+    let commitments = proof_inputs.input_utxo_hashes().unwrap();
     for commitment in &commitments {
         indexer.add_utxo(commitment.utxo_hash);
     }
     let input_merkle_proofs = indexer.get_input_merkle_proofs(&commitments).unwrap();
     assert!(matches!(
-        zolana_client::into_prover(signed, &input_merkle_proofs)
+        zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
             .unwrap()
             .circuit,
         CircuitType::Eddsa(_)
@@ -693,15 +696,16 @@ fn p256_owner_signature_matches_built_private_tx_hash() {
     let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
     let recipient = ShieldedKeypair::new().unwrap();
-    let mut tx = Transaction::new(
+    let mut transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+    transfer
+        .send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
         .unwrap();
-    let signed = sign(tx, &sender).unwrap();
-    let prover = prover_of(signed);
+    let proof_inputs = sign(transfer, &sender).unwrap();
+    let prover = prover_of(proof_inputs);
     let owner = prover.p256_owner.clone();
     let built = prover.build().unwrap();
     let message_hash = zolana_keypair::hash::sha256(&built.private_tx_hash);
@@ -727,22 +731,27 @@ fn async_authority_signs_p256_and_invokes_approval() {
         approvals: AtomicUsize::new(0),
         p256_signatures: AtomicUsize::new(0),
     };
-    let mut tx = Transaction::new(
+    let mut transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+    transfer
+        .send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
         .unwrap();
 
     let wallet = Wallet::new(sender.clone(), registry()).expect("wallet");
-    let signed =
-        futures::executor::block_on(sign_transaction(tx, &wallet, Pubkey::default(), &authority))
-            .unwrap();
+    let proof_inputs = futures::executor::block_on(sign_transaction(
+        transfer,
+        &wallet,
+        Pubkey::default(),
+        &authority,
+    ))
+    .unwrap();
 
     assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
     assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 1);
-    let prover = prover_of(signed);
+    let prover = prover_of(proof_inputs);
     let owner = prover.p256_owner.clone();
     let built = prover.build().unwrap();
     let message_hash = zolana_keypair::hash::sha256(&built.private_tx_hash);
@@ -761,12 +770,15 @@ fn async_authority_signs_p256_and_invokes_approval() {
 #[test]
 fn sign_without_inputs_is_no_inputs() {
     let sender = ShieldedKeypair::new().unwrap();
-    let tx = Transaction::new(
+    let transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![],
         Address::default(),
     );
-    assert!(matches!(sign(tx, &sender), Err(TransactionError::NoInputs)));
+    assert!(matches!(
+        sign(transfer, &sender),
+        Err(TransactionError::NoInputs)
+    ));
 }
 
 #[test]
@@ -775,14 +787,15 @@ fn oversend_is_insufficient_balance() {
     let sender = ShieldedKeypair::new().unwrap();
     let recipient = ShieldedKeypair::new().unwrap();
 
-    let mut tx = Transaction::new(
+    let mut transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 200)
+    transfer
+        .send(&recipient.shielded_address().unwrap(), SOL_MINT, 200)
         .unwrap();
-    match sign(tx, &sender) {
+    match sign(transfer, &sender) {
         Err(TransactionError::InsufficientBalance {
             requested,
             available,
@@ -795,21 +808,22 @@ fn oversend_is_insufficient_balance() {
 fn second_withdraw_is_rejected() {
     let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
-    let mut tx = Transaction::new(
+    let mut transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.withdraw(
-        SOL_MINT,
-        10,
-        WithdrawalTarget::Sol {
-            user_sol_account: Address::default(),
-        },
-    )
-    .unwrap();
+    transfer
+        .withdraw(
+            SOL_MINT,
+            10,
+            WithdrawalTarget::Sol {
+                user_sol_account: Address::default(),
+            },
+        )
+        .unwrap();
     assert!(matches!(
-        tx.withdraw(
+        transfer.withdraw(
             SOL_MINT,
             5,
             WithdrawalTarget::Sol {
@@ -827,25 +841,27 @@ fn two_distinct_spl_assets_are_rejected() {
     let ra = ShieldedKeypair::new().unwrap();
     let rb = ShieldedKeypair::new().unwrap();
 
-    let mut tx = Transaction::new(
+    let mut transfer = Transfer::new(
         sender.shielded_address().unwrap(),
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.send(
-        &ra.shielded_address().unwrap(),
-        Address::new_from_array([2u8; 32]),
-        1,
-    )
-    .unwrap();
-    tx.send(
-        &rb.shielded_address().unwrap(),
-        Address::new_from_array([3u8; 32]),
-        1,
-    )
-    .unwrap();
+    transfer
+        .send(
+            &ra.shielded_address().unwrap(),
+            Address::new_from_array([2u8; 32]),
+            1,
+        )
+        .unwrap();
+    transfer
+        .send(
+            &rb.shielded_address().unwrap(),
+            Address::new_from_array([3u8; 32]),
+            1,
+        )
+        .unwrap();
     assert!(matches!(
-        sign(tx, &sender),
+        sign(transfer, &sender),
         Err(TransactionError::MultiplePublicSplAssets)
     ));
 }

@@ -6,8 +6,8 @@ use zolana_interface::{
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, SignatureType};
 use zolana_transaction::{
     instructions::{
-        transact::{PreparedTransaction, SignedTransaction, Transaction, WithdrawalTarget},
-        types::SpendUtxo,
+        transact::{PreparedTransfer, SppProofInputs, Transfer, WithdrawalTarget},
+        types::SppProofInputUtxo,
     },
     Address, AssetRegistry, Wallet, SOL_MINT,
 };
@@ -30,7 +30,7 @@ pub struct ResolvedAddress {
 
 #[derive(Clone)]
 pub struct CreatedTransfer {
-    pub signed: SignedTransaction,
+    pub proof_inputs: SppProofInputs,
     pub wait_tag: ViewTag,
     pub recipient: TransferRecipient,
 }
@@ -66,7 +66,7 @@ impl TransferRecipient {
 
 #[derive(Clone)]
 pub struct CreatedWithdrawal {
-    pub signed: SignedTransaction,
+    pub proof_inputs: SppProofInputs,
     pub wait_tag: ViewTag,
     pub withdrawal: TransactWithdrawal,
 }
@@ -108,7 +108,7 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
         })
         .await?;
         return Ok(CreatedTransfer {
-            signed: withdrawal.signed,
+            proof_inputs: withdrawal.proof_inputs,
             wait_tag: withdrawal.wait_tag,
             recipient: TransferRecipient::PublicWithdrawal {
                 recipient: request.recipient_owner,
@@ -129,10 +129,10 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
         .shielded_address(request.owner_pubkey)
         .await?;
     let wait_tag = address.signing_pubkey.confidential_view_tag()?;
-    let mut tx = Transaction::new(address, inputs, request.payer);
-    tx.send(&recipient.address, request.asset, request.amount)?;
-    let prepared = tx.prepare(&request.wallet.registry)?;
-    let signed = sign_prepared(
+    let mut transfer = Transfer::new(address, inputs, request.payer);
+    transfer.send(&recipient.address, request.asset, request.amount)?;
+    let prepared = transfer.prepare(&request.wallet.registry)?;
+    let proof_inputs = sign_prepared(
         prepared,
         &address,
         request.owner_pubkey,
@@ -145,7 +145,7 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
     )
     .await?;
     Ok(CreatedTransfer {
-        signed,
+        proof_inputs,
         wait_tag,
         recipient: TransferRecipient::Registered(recipient),
     })
@@ -176,10 +176,10 @@ pub async fn create_withdrawal<A: WalletAuthority + ?Sized>(
         .shielded_address(request.owner_pubkey)
         .await?;
     let wait_tag = address.signing_pubkey.confidential_view_tag()?;
-    let mut tx = Transaction::new(address, inputs, request.payer);
-    tx.withdraw(request.asset, request.amount, target)?;
-    let prepared = tx.prepare(&request.wallet.registry)?;
-    let signed = sign_prepared(
+    let mut transfer = Transfer::new(address, inputs, request.payer);
+    transfer.withdraw(request.asset, request.amount, target)?;
+    let prepared = transfer.prepare(&request.wallet.registry)?;
+    let proof_inputs = sign_prepared(
         prepared,
         &address,
         request.owner_pubkey,
@@ -189,7 +189,7 @@ pub async fn create_withdrawal<A: WalletAuthority + ?Sized>(
     )
     .await?;
     Ok(CreatedWithdrawal {
-        signed,
+        proof_inputs,
         wait_tag,
         withdrawal,
     })
@@ -206,13 +206,13 @@ pub fn create_withdrawal_sync<A: SyncWalletAuthority + ?Sized>(
 /// Sign a prepared transaction through a wallet authority (encrypt, approve,
 /// P256-sign).
 pub async fn sign_transaction<A: WalletAuthority + ?Sized>(
-    tx: Transaction,
+    transfer: Transfer,
     wallet: &Wallet,
     owner_pubkey: Pubkey,
     authority: &A,
-) -> Result<SignedTransaction, ClientError> {
+) -> Result<SppProofInputs, ClientError> {
     let address = authority.shielded_address(owner_pubkey).await?;
-    let prepared = tx.prepare(&wallet.registry)?;
+    let prepared = transfer.prepare(&wallet.registry)?;
     sign_prepared(
         prepared,
         &address,
@@ -227,15 +227,15 @@ pub async fn sign_transaction<A: WalletAuthority + ?Sized>(
 /// Blocking adapter for CLI and unit-test flows. Async hosts should call
 /// [`sign_transaction`] directly.
 pub fn sign_transaction_sync<A: SyncWalletAuthority + ?Sized>(
-    tx: Transaction,
+    transfer: Transfer,
     wallet: &Wallet,
     owner_pubkey: Pubkey,
     authority: &A,
-) -> Result<SignedTransaction, ClientError> {
-    futures::executor::block_on(sign_transaction(tx, wallet, owner_pubkey, authority))
+) -> Result<SppProofInputs, ClientError> {
+    futures::executor::block_on(sign_transaction(transfer, wallet, owner_pubkey, authority))
 }
 
-fn recipient_slots(prepared: &PreparedTransaction) -> Vec<ConfidentialRecipientSlot> {
+fn recipient_slots(prepared: &PreparedTransfer) -> Vec<ConfidentialRecipientSlot> {
     prepared
         .recipients
         .iter()
@@ -248,13 +248,13 @@ fn recipient_slots(prepared: &PreparedTransaction) -> Vec<ConfidentialRecipientS
 }
 
 async fn sign_prepared<A: WalletAuthority + ?Sized>(
-    prepared: PreparedTransaction,
+    prepared: PreparedTransfer,
     address: &ShieldedAddress,
     owner_pubkey: Pubkey,
     authority: &A,
     assets: &AssetRegistry,
     approval_summary: String,
-) -> Result<SignedTransaction, ClientError> {
+) -> Result<SppProofInputs, ClientError> {
     let sender_tag = address.signing_pubkey.confidential_view_tag()?;
     let encrypted = authority
         .encrypt_confidential_transfer(
@@ -271,21 +271,21 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
             summary: approval_summary,
         })
         .await?;
-    let mut signed = prepared.finalize(
+    let mut proof_inputs = prepared.finalize(
         encrypted.tx_viewing_pk,
         encrypted.salt,
         encrypted.slots,
         assets,
     )?;
     if address.signing_pubkey.signature_type()? == SignatureType::P256 {
-        let message_hash = signed.message_hash()?;
+        let message_hash = proof_inputs.message_hash()?;
         let sig = authority.sign_p256(owner_pubkey, &message_hash).await?;
         let mut bytes = [0u8; 64];
         bytes[..32].copy_from_slice(&sig.sig_r);
         bytes[32..].copy_from_slice(&sig.sig_s);
-        signed.p256_owner = Some(bytes);
+        proof_inputs.p256_signature = Some(bytes);
     }
-    Ok(signed)
+    Ok(proof_inputs)
 }
 
 fn withdrawal_target(
@@ -325,7 +325,7 @@ async fn select_inputs<A: WalletAuthority + ?Sized>(
     owner_pubkey: Pubkey,
     asset: Address,
     amount: u64,
-) -> Result<Vec<SpendUtxo>, ClientError> {
+) -> Result<Vec<SppProofInputUtxo>, ClientError> {
     let nullifier_key = authority.spend_nullifier_key(owner_pubkey).await?;
     let mut selected = Vec::new();
     let mut total = 0u64;
@@ -333,7 +333,7 @@ async fn select_inputs<A: WalletAuthority + ?Sized>(
         if entry.spent || entry.utxo.asset != asset {
             continue;
         }
-        selected.push(SpendUtxo {
+        selected.push(SppProofInputUtxo {
             utxo: entry.utxo.clone(),
             nullifier_key: nullifier_key.clone(),
             data_hash: None,

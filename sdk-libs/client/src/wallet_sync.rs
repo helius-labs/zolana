@@ -353,8 +353,8 @@ mod tests {
     use zolana_transaction::{
         instructions::{
             merge::Merge as MergePlan,
-            transact::{SignedTransaction, Transaction, WithdrawalTarget},
-            types::SpendUtxo,
+            transact::{SppProofInputs, Transfer, WithdrawalTarget},
+            types::SppProofInputUtxo,
         },
         serialization::{
             merge::{Merge, MergeEncode},
@@ -441,7 +441,7 @@ mod tests {
         assert_eq!(inbound.amount, 100);
         assert_eq!(inbound.counterparty_viewing_pubkey, None);
 
-        let spend = SpendUtxo::from_keypair(wallet.utxos[0].utxo.clone(), &alice);
+        let spend = SppProofInputUtxo::new(wallet.utxos[0].utxo.clone(), &alice);
         let outbound = signed_to_shielded_tx(
             confidential_send(&alice, vec![spend], &bob, SOL_MINT, 40, &assets),
             2,
@@ -474,7 +474,7 @@ mod tests {
     fn sync_wallet_records_confidential_public_withdrawal_history() {
         let assets = AssetRegistry::default();
         let alice = ShieldedKeypair::new().expect("alice");
-        let input = SpendUtxo::from_keypair(test_utxo(&alice, SOL_MINT, 100, 7), &alice);
+        let input = SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 100, 7), &alice);
         let withdrawal = signed_to_shielded_tx(
             confidential_withdrawal(&alice, vec![input], SOL_MINT, 30, &assets),
             1,
@@ -506,8 +506,8 @@ mod tests {
         let alice = ShieldedKeypair::new().expect("alice");
         let bob = ShieldedKeypair::new().expect("bob");
         let inputs = vec![
-            SpendUtxo::from_keypair(test_utxo(&alice, SOL_MINT, 100, 8), &alice),
-            SpendUtxo::from_keypair(test_utxo(&alice, SPL_MINT, 100, 9), &alice),
+            SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 100, 8), &alice),
+            SppProofInputUtxo::new(test_utxo(&alice, SPL_MINT, 100, 9), &alice),
         ];
         let tx = signed_to_shielded_tx(
             confidential_send_and_withdraw(
@@ -544,8 +544,8 @@ mod tests {
         let assets = AssetRegistry::default();
         let alice = ShieldedKeypair::new().expect("alice");
         let inputs = vec![
-            SpendUtxo::from_keypair(test_utxo(&alice, SOL_MINT, 30, 10), &alice),
-            SpendUtxo::from_keypair(test_utxo(&alice, SOL_MINT, 70, 11), &alice),
+            SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 30, 10), &alice),
+            SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 70, 11), &alice),
         ];
         let tx = merge_tx(&alice, inputs, 1, &assets);
         let mut wallet = wallet_with_utxos(&alice, &[(SOL_MINT, 30, 10), (SOL_MINT, 70, 11)]);
@@ -755,7 +755,7 @@ mod tests {
         slot: u64,
         assets: &AssetRegistry,
     ) -> ShieldedTransaction {
-        let input = SpendUtxo::from_keypair(test_utxo(sender, asset, amount, slot as u8), sender);
+        let input = SppProofInputUtxo::new(test_utxo(sender, asset, amount, slot as u8), sender);
         signed_to_shielded_tx(
             confidential_send(sender, vec![input], recipient, asset, amount, assets),
             slot,
@@ -764,90 +764,94 @@ mod tests {
 
     fn confidential_send(
         sender: &ShieldedKeypair,
-        inputs: Vec<SpendUtxo>,
+        inputs: Vec<SppProofInputUtxo>,
         recipient: &ShieldedKeypair,
         asset: Address,
         amount: u64,
         assets: &AssetRegistry,
-    ) -> SignedTransaction {
-        let mut tx = Transaction::new(
+    ) -> SppProofInputs {
+        let mut transfer = Transfer::new(
             sender.shielded_address().expect("sender address"),
             inputs,
             Address::default(),
         );
-        tx.send(
-            &recipient.shielded_address().expect("recipient address"),
-            asset,
-            amount,
-        )
-        .expect("send");
-        tx.sign(sender, assets).expect("sign")
+        transfer
+            .send(
+                &recipient.shielded_address().expect("recipient address"),
+                asset,
+                amount,
+            )
+            .expect("send");
+        transfer.sign(sender, assets).expect("sign")
     }
 
     #[allow(clippy::too_many_arguments)]
     fn confidential_send_and_withdraw(
         sender: &ShieldedKeypair,
-        inputs: Vec<SpendUtxo>,
+        inputs: Vec<SppProofInputUtxo>,
         recipient: &ShieldedKeypair,
         send_asset: Address,
         send_amount: u64,
         withdraw_asset: Address,
         withdraw_amount: u64,
         assets: &AssetRegistry,
-    ) -> SignedTransaction {
-        let mut tx = Transaction::new(
+    ) -> SppProofInputs {
+        let mut transfer = Transfer::new(
             sender.shielded_address().expect("sender address"),
             inputs,
             Address::default(),
         );
-        tx.send(
-            &recipient.shielded_address().expect("recipient address"),
-            send_asset,
-            send_amount,
-        )
-        .expect("send");
-        tx.withdraw(
-            withdraw_asset,
-            withdraw_amount,
-            WithdrawalTarget::Sol {
-                user_sol_account: Address::new_from_array([9u8; 32]),
-            },
-        )
-        .expect("withdraw");
-        tx.sign(sender, assets).expect("sign")
+        transfer
+            .send(
+                &recipient.shielded_address().expect("recipient address"),
+                send_asset,
+                send_amount,
+            )
+            .expect("send");
+        transfer
+            .withdraw(
+                withdraw_asset,
+                withdraw_amount,
+                WithdrawalTarget::Sol {
+                    user_sol_account: Address::new_from_array([9u8; 32]),
+                },
+            )
+            .expect("withdraw");
+        transfer.sign(sender, assets).expect("sign")
     }
 
     fn confidential_withdrawal(
         sender: &ShieldedKeypair,
-        inputs: Vec<SpendUtxo>,
+        inputs: Vec<SppProofInputUtxo>,
         asset: Address,
         amount: u64,
         assets: &AssetRegistry,
-    ) -> SignedTransaction {
-        let mut tx = Transaction::new(
+    ) -> SppProofInputs {
+        let mut transfer = Transfer::new(
             sender.shielded_address().expect("sender address"),
             inputs,
             Address::default(),
         );
-        tx.withdraw(
-            asset,
-            amount,
-            WithdrawalTarget::Sol {
-                user_sol_account: Address::new_from_array([9u8; 32]),
-            },
-        )
-        .expect("withdraw");
-        tx.sign(sender, assets).expect("sign")
+        transfer
+            .withdraw(
+                asset,
+                amount,
+                WithdrawalTarget::Sol {
+                    user_sol_account: Address::new_from_array([9u8; 32]),
+                },
+            )
+            .expect("withdraw");
+        transfer.sign(sender, assets).expect("sign")
     }
 
-    fn signed_to_shielded_tx(signed: SignedTransaction, slot: u64) -> ShieldedTransaction {
-        let nullifiers = signed
+    fn signed_to_shielded_tx(proof_inputs: SppProofInputs, slot: u64) -> ShieldedTransaction {
+        let nullifiers = proof_inputs
             .input_utxo_hashes()
             .expect("input commitments")
             .into_iter()
             .map(|commitment| commitment.nullifier)
             .collect();
-        let external = signed.external_data;
+        let external = proof_inputs.external_data;
         // Mirror the on-chain event 1:1: every output publishes its resolved owner
         // tag as the `view_tag` and its optional ciphertext as the payload; a
         // change slot covered by the sender bundle carries the sender tag with an
@@ -883,7 +887,7 @@ mod tests {
 
     fn merge_tx(
         owner: &ShieldedKeypair,
-        inputs: Vec<SpendUtxo>,
+        inputs: Vec<SppProofInputUtxo>,
         slot: u64,
         assets: &AssetRegistry,
     ) -> ShieldedTransaction {

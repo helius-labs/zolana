@@ -57,8 +57,8 @@ pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
         merge_zone::{MergeZone, PreparedMergeZone},
-        transact::{SignedTransaction, Transaction, WithdrawalTarget},
-        types::{InputUtxoContext, SpendUtxo},
+        transact::{SppProofInputs, Transfer, WithdrawalTarget},
+        types::{InputUtxoContext, SppProofInputUtxo},
         zone_authority::PreparedZoneAuthority,
     },
     AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,

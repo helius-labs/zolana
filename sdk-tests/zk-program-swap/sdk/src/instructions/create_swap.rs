@@ -8,7 +8,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{
     instructions::{
         transact::{OutputUtxo, PrebuiltSlot},
-        types::SpendUtxo,
+        types::SppProofInputUtxo,
     },
     utxo::Blinding,
     TransactionError,
@@ -72,7 +72,7 @@ impl CreateSwapProofInputParams {
     }
 }
 
-pub fn input_sum(inputs: &[SpendUtxo], asset: &Address) -> i128 {
+pub fn input_sum(inputs: &[SppProofInputUtxo], asset: &Address) -> i128 {
     inputs
         .iter()
         .filter(|spend| &spend.utxo.asset == asset)
@@ -153,8 +153,8 @@ mod tests {
     use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedKeypair};
     use zolana_transaction::{
         instructions::{
-            transact::{no_address_hashes, private_tx_hash, ConfidentialSlot, Shape, Transaction},
-            types::SpendUtxo,
+            transact::{no_address_hashes, private_tx_hash, ConfidentialSlot, Shape, SlotTransact},
+            types::SppProofInputUtxo,
         },
         utxo::Utxo,
         AssetRegistry, Data, SOL_MINT,
@@ -187,7 +187,7 @@ mod tests {
             zone_program_id: None,
             data: Data::default(),
         };
-        let spend = SpendUtxo::from_keypair(input_utxo, &owner_keypair);
+        let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair.nullifier_key);
 
         let escrow = OutputUtxo {
             owner_address: Some(order_keypair.shielded_address().expect("order address")),
@@ -210,18 +210,14 @@ mod tests {
             ..Default::default()
         };
 
-        let mut tx = Transaction::new(
-            owner_keypair.shielded_address().expect("owner address"),
-            vec![spend],
-            Address::default(),
-        );
+        let owner_address = owner_keypair.shielded_address().expect("owner address");
 
         let escrow_utxo_hash = escrow.hash().expect("escrow hash");
         let marker_hash = marker.hash().expect("marker hash");
         let change_amount = input_amount - escrow_amount;
         let change_slot = ConfidentialSlot::new(
             OutputUtxo {
-                owner_address: Some(tx.owner),
+                owner_address: Some(owner_address),
                 asset: SOL_MINT,
                 amount: change_amount,
                 blinding: [21u8; BLINDING_LEN],
@@ -238,25 +234,32 @@ mod tests {
         }
         .encrypt()
         .expect("marker slot");
-        tx.inputs.push(SpendUtxo::new_dummy());
-        let signed = tx
-            .sign_with_slots(&[&change_slot, &escrow_slot, &marker_slot], &owner_keypair)
-            .expect("escrow create");
+        let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
+        let spp_proof_inputs = SlotTransact {
+            input_utxos,
+            payer: Address::default(),
+            expiry_unix_ts: u64::MAX,
+        }
+        .sign(&[&change_slot, &escrow_slot, &marker_slot], &owner_keypair)
+        .expect("escrow create");
 
-        assert_eq!(signed.shape, Shape::new(2, 3));
-        assert_eq!(signed.outputs.len(), 3);
+        assert_eq!(spp_proof_inputs.shape, Shape::new(2, 3));
+        assert_eq!(spp_proof_inputs.output_utxos.len(), 3);
 
-        let change = signed.outputs.first().expect("change output");
+        let change = spp_proof_inputs
+            .output_utxos
+            .first()
+            .expect("change output");
         assert!(!change.is_dummy());
         assert_eq!(change.amount, input_amount - escrow_amount);
-        let escrow_out = signed.outputs.get(1).expect("escrow output");
+        let escrow_out = spp_proof_inputs.output_utxos.get(1).expect("escrow output");
         assert!(!escrow_out.is_dummy());
-        let marker_out = signed.outputs.get(2).expect("marker output");
+        let marker_out = spp_proof_inputs.output_utxos.get(2).expect("marker output");
         assert!(!marker_out.is_dummy());
         assert_eq!(marker_out.amount, 0);
 
         let change_hash = change.hash().expect("change hash");
-        let output_hashes: Vec<[u8; 32]> = signed
+        let output_hashes: Vec<[u8; 32]> = spp_proof_inputs
             .external_data
             .outputs
             .iter()
@@ -267,10 +270,14 @@ mod tests {
             vec![change_hash, escrow_utxo_hash, marker_hash]
         );
 
-        assert_eq!(signed.inputs.len(), 2);
-        let spend = signed.inputs.first().expect("input");
+        assert_eq!(spp_proof_inputs.input_utxos.len(), 2);
+        let spend = spp_proof_inputs.input_utxos.first().expect("input");
         assert!(!spend.is_dummy());
-        assert!(signed.inputs.get(1).expect("dummy input").is_dummy());
+        assert!(spp_proof_inputs
+            .input_utxos
+            .get(1)
+            .expect("dummy input")
+            .is_dummy());
         let nullifier_pubkey = spend.nullifier_key.pubkey().expect("nullifier pubkey");
         let source_input_hash = spend
             .utxo
@@ -281,7 +288,10 @@ mod tests {
             )
             .expect("source input hash");
 
-        let external_data_hash = signed.external_data.hash().expect("external data hash");
+        let external_data_hash = spp_proof_inputs
+            .external_data
+            .hash()
+            .expect("external data hash");
         let expected = private_tx_hash(
             &[source_input_hash, [0u8; 32]],
             &[change_hash, escrow_utxo_hash, marker_hash],
@@ -291,9 +301,9 @@ mod tests {
         .expect("private tx hash");
         assert_eq!(
             zolana_keypair::hash::sha256(&expected),
-            signed.message_hash().expect("message hash")
+            spp_proof_inputs.message_hash().expect("message hash")
         );
-        assert_eq!(signed.p256_owner, None);
+        assert_eq!(spp_proof_inputs.p256_signature, None);
     }
 
     #[test]
@@ -313,7 +323,7 @@ mod tests {
             zone_program_id: None,
             data: Data::default(),
         };
-        let spend = SpendUtxo::from_keypair(input_utxo, &owner_keypair);
+        let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair.nullifier_key);
 
         let escrow = OutputUtxo {
             owner_address: Some(order_keypair.shielded_address().expect("order address")),
@@ -336,16 +346,12 @@ mod tests {
             ..Default::default()
         };
 
-        let mut tx = Transaction::new(
-            owner_keypair.shielded_address().expect("owner address"),
-            vec![spend],
-            Address::default(),
-        );
+        let owner_address = owner_keypair.shielded_address().expect("owner address");
 
         let escrow_utxo_hash = escrow.hash().expect("escrow hash");
         let change_slot = ConfidentialSlot::new(
             OutputUtxo {
-                owner_address: Some(tx.owner),
+                owner_address: Some(owner_address),
                 asset: SOL_MINT,
                 amount: 0,
                 blinding: [22u8; BLINDING_LEN],
@@ -362,19 +368,29 @@ mod tests {
         }
         .encrypt()
         .expect("marker slot");
-        tx.inputs.push(SpendUtxo::new_dummy());
-        let signed = tx
-            .sign_with_slots(&[&change_slot, &escrow_slot, &marker_slot], &owner_keypair)
-            .expect("escrow create");
+        let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
+        let spp_proof_inputs = SlotTransact {
+            input_utxos,
+            payer: Address::default(),
+            expiry_unix_ts: u64::MAX,
+        }
+        .sign(&[&change_slot, &escrow_slot, &marker_slot], &owner_keypair)
+        .expect("escrow create");
 
-        let change = signed.outputs.first().expect("change output");
+        let change = spp_proof_inputs
+            .output_utxos
+            .first()
+            .expect("change output");
         assert!(!change.is_dummy());
         assert_eq!(change.amount, 0);
 
-        let escrow_out = signed.outputs.get(1).expect("escrow output");
-        let marker_out = signed.outputs.get(2).expect("marker output");
-        let external_data_hash = signed.external_data.hash().expect("external data hash");
-        let spend = signed.inputs.first().expect("input");
+        let escrow_out = spp_proof_inputs.output_utxos.get(1).expect("escrow output");
+        let marker_out = spp_proof_inputs.output_utxos.get(2).expect("marker output");
+        let external_data_hash = spp_proof_inputs
+            .external_data
+            .hash()
+            .expect("external data hash");
+        let spend = spp_proof_inputs.input_utxos.first().expect("input");
         let nullifier_pubkey = spend.nullifier_key.pubkey().expect("nullifier pubkey");
         let source_input_hash = spend
             .utxo
@@ -391,7 +407,7 @@ mod tests {
             &external_data_hash,
         )
         .expect("private tx hash");
-        let message_hash = signed.message_hash().expect("message hash");
+        let message_hash = spp_proof_inputs.message_hash().expect("message hash");
         assert_eq!(zolana_keypair::hash::sha256(&expected), message_hash);
     }
 }

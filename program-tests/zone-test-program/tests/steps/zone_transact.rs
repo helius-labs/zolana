@@ -8,7 +8,7 @@
 //! fixture program, which forwards to SPP signing the zone's `zone_auth` PDA.
 //!
 //! Assembly mirrors `sdk-libs/client/src/prover/transact/witness.rs::assemble`:
-//! the high-level `Transaction` builder produces a decryptable `SignedTransaction`
+//! the high-level `Transfer` builder produces a decryptable `SppProofInputs`
 //! (outputs, ciphertexts, `external_data`) exactly as a confidential `transact`
 //! would, then this module rebinds the instruction discriminator to
 //! `ZONE_TRANSACT`, drives the zone prover rail, and folds the prover result and
@@ -34,8 +34,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    P256Owner, ProverClient, PublicAmounts, Rpc, Shape, SignedTransaction, SpendProof, SpendUtxo,
-    Transaction as ClientTransaction, TransferSpendInput, WithdrawalTarget, ZoneTransferP256Prover,
+    P256Owner, ProverClient, PublicAmounts, Rpc, Shape, SpendProof, SppProofInputUtxo,
+    SppProofInputs, Transfer, TransferSpendInput, WithdrawalTarget, ZoneTransferP256Prover,
     ZoneTransferProver,
 };
 use zolana_interface::instruction::{
@@ -287,22 +287,21 @@ impl ZoneLifecycleWorld {
             .unwrap_or_else(|| self.payer.insecure_clone());
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
 
-        // The high-level builder produces a decryptable SignedTransaction (outputs,
+        // The high-level builder produces a decryptable SppProofInputs (outputs,
         // ciphertexts, external_data) exactly as a confidential transact; the zone
         // rail differs only in the prover and the instruction, plus the public
         // zone_program_id and the rebound discriminator.
-        let spends: Vec<SpendUtxo> = inputs
+        let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SpendUtxo::from_keypair(u.clone(), &from_keypair))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair.nullifier_key))
             .collect();
-        let mut tx =
-            ClientTransaction::new(from_keypair.shielded_address()?, spends, payer_address);
+        let mut transfer = Transfer::new(from_keypair.shielded_address()?, spends, payer_address);
         match (&to_address, withdrawal) {
             (Some(addr), None) => {
-                tx.send(addr, send_asset, amount)?;
+                transfer.send(addr, send_asset, amount)?;
             }
             (None, Some(recipient)) => {
-                tx.withdraw(
+                transfer.withdraw(
                     send_asset,
                     amount,
                     WithdrawalTarget::Sol {
@@ -317,14 +316,14 @@ impl ZoneLifecycleWorld {
                 return Err(anyhow!("a zone transfer needs a recipient or a withdrawal"));
             }
         }
-        let mut signed = tx.sign(&from_keypair, &self.assets)?;
+        let mut proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
         // Rebind the discriminator to ZONE_TRANSACT before anything commits to
         // external_data: it is folded into external_data_hash and private_tx_hash, so
         // the proof and the on-chain recompute must agree on it.
-        signed.external_data.instruction_discriminator = ZONE_TRANSACT;
+        proof_inputs.external_data.instruction_discriminator = ZONE_TRANSACT;
 
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
-        let data = self.prove_and_assemble(&signed, zone, rail)?;
+        let data = self.prove_and_assemble(&proof_inputs, zone, rail)?;
 
         let withdrawal_meta = withdrawal
             .map(|recipient| TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }));
@@ -365,28 +364,28 @@ impl ZoneLifecycleWorld {
     /// mirroring `witness.rs::assemble`.
     fn prove_and_assemble(
         &self,
-        signed: &SignedTransaction,
+        proof_inputs: &SppProofInputs,
         zone: Address,
         rail: Rail,
     ) -> Result<TransactIxData> {
-        let spend_inputs = self.zone_spend_inputs(&signed.inputs)?;
-        let shape = Shape::new(signed.shape.n_inputs, signed.shape.n_outputs);
+        let spend_inputs = self.zone_spend_inputs(&proof_inputs.input_utxos)?;
+        let shape = Shape::new(proof_inputs.shape.n_inputs, proof_inputs.shape.n_outputs);
 
         match rail {
             Rail::Eddsa => {
                 let prover = ZoneTransferProver {
                     inputs: spend_inputs,
-                    outputs: signed.outputs.clone(),
-                    external_data: signed.external_data.clone(),
-                    public_amounts: client_public_amounts(signed.public_amounts),
-                    payer_pubkey_hash: signed.payer_pubkey_hash,
+                    outputs: proof_inputs.output_utxos.clone(),
+                    external_data: proof_inputs.external_data.clone(),
+                    public_amounts: client_public_amounts(proof_inputs.public_amounts),
+                    payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
                     zone_program_id: Some(zone),
                     shape: Some(shape),
                 };
                 let result = prover.build()?;
                 let proof = ProverClient::local().prove_transfer_zone(&result.inputs)?;
                 assemble_ix_data(
-                    signed,
+                    proof_inputs,
                     &result.nullifiers,
                     result.private_tx_hash,
                     &result.input_root_indices,
@@ -395,13 +394,13 @@ impl ZoneLifecycleWorld {
                 )
             }
             Rail::P256 => {
-                let p256_owner = self.p256_owner(signed, zone)?;
+                let p256_owner = self.p256_owner(proof_inputs, zone)?;
                 let prover = ZoneTransferP256Prover {
                     inputs: spend_inputs,
-                    outputs: signed.outputs.clone(),
-                    external_data: signed.external_data.clone(),
-                    public_amounts: client_public_amounts(signed.public_amounts),
-                    payer_pubkey_hash: signed.payer_pubkey_hash,
+                    outputs: proof_inputs.output_utxos.clone(),
+                    external_data: proof_inputs.external_data.clone(),
+                    public_amounts: client_public_amounts(proof_inputs.public_amounts),
+                    payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
                     p256_owner,
                     zone_program_id: Some(zone),
                     shape: Some(shape),
@@ -409,7 +408,7 @@ impl ZoneLifecycleWorld {
                 let result = prover.build()?;
                 let proof = ProverClient::local().prove_transfer_p256_zone(&result.inputs)?;
                 assemble_ix_data(
-                    signed,
+                    proof_inputs,
                     &result.nullifiers,
                     result.private_tx_hash,
                     &result.input_root_indices,
@@ -425,23 +424,26 @@ impl ZoneLifecycleWorld {
     /// the signature), sign `sha256(private_tx_hash)` with the actor that owns the
     /// first real P256 input, then return the signed owner. The probe and the final
     /// build use identical inputs/outputs/external_data, so the hash is stable.
-    fn p256_owner(&self, signed: &SignedTransaction, zone: Address) -> Result<P256Owner> {
-        let signing_keypair = self.p256_signing_keypair(signed)?;
+    fn p256_owner(&self, proof_inputs: &SppProofInputs, zone: Address) -> Result<P256Owner> {
+        let signing_keypair = self.p256_signing_keypair(proof_inputs)?;
         let pubkey = signing_keypair.signing_pubkey().as_p256()?;
 
         let probe = ZoneTransferP256Prover {
-            inputs: self.zone_spend_inputs(&signed.inputs)?,
-            outputs: signed.outputs.clone(),
-            external_data: signed.external_data.clone(),
-            public_amounts: client_public_amounts(signed.public_amounts),
-            payer_pubkey_hash: signed.payer_pubkey_hash,
+            inputs: self.zone_spend_inputs(&proof_inputs.input_utxos)?,
+            outputs: proof_inputs.output_utxos.clone(),
+            external_data: proof_inputs.external_data.clone(),
+            public_amounts: client_public_amounts(proof_inputs.public_amounts),
+            payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
             p256_owner: P256Owner {
                 pubkey,
                 sig_r: [0u8; 32],
                 sig_s: [0u8; 32],
             },
             zone_program_id: Some(zone),
-            shape: Some(Shape::new(signed.shape.n_inputs, signed.shape.n_outputs)),
+            shape: Some(Shape::new(
+                proof_inputs.shape.n_inputs,
+                proof_inputs.shape.n_outputs,
+            )),
         };
         let private_tx_hash = probe.build()?.private_tx_hash;
 
@@ -467,9 +469,9 @@ impl ZoneLifecycleWorld {
 
     /// The actor keypair whose signing pubkey owns the first real P256 input, used
     /// to sign `sha256(private_tx_hash)`.
-    fn p256_signing_keypair(&self, signed: &SignedTransaction) -> Result<ShieldedKeypair> {
-        let owner = signed
-            .inputs
+    fn p256_signing_keypair(&self, proof_inputs: &SppProofInputs) -> Result<ShieldedKeypair> {
+        let owner = proof_inputs
+            .input_utxos
             .iter()
             .filter(|spend| !spend.is_dummy())
             .map(|spend| spend.utxo.owner)
@@ -482,11 +484,11 @@ impl ZoneLifecycleWorld {
             .ok_or_else(|| anyhow!("no tracked actor owns the P256 input"))
     }
 
-    /// Convert the builder's padded `SpendUtxo` list into the prover's
+    /// Convert the builder's padded `SppProofInputUtxo` list into the prover's
     /// `TransferSpendInput` list, fetching a `SpendProof` for every real input
     /// against its zone-bound UTXO hash (dummies carry no proof and mirror the first
     /// real input's roots downstream).
-    fn zone_spend_inputs(&self, spends: &[SpendUtxo]) -> Result<Vec<TransferSpendInput>> {
+    fn zone_spend_inputs(&self, spends: &[SppProofInputUtxo]) -> Result<Vec<TransferSpendInput>> {
         let mut out = Vec::with_capacity(spends.len());
         for spend in spends {
             let proof = if spend.is_dummy() {
@@ -646,31 +648,33 @@ impl ZoneLifecycleWorld {
             .unwrap_or_else(|| self.payer.insecure_clone());
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
 
-        let spends: Vec<SpendUtxo> = inputs
+        let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SpendUtxo::from_keypair(u.clone(), &from_keypair))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair.nullifier_key))
             .collect();
-        let mut tx =
-            ClientTransaction::new(from_keypair.shielded_address()?, spends, payer_address);
-        tx.send(&to_address, asset, amount)?;
-        let mut signed = tx.sign(&from_keypair, &self.assets)?;
-        signed.external_data.instruction_discriminator = ZONE_TRANSACT;
+        let mut transfer = Transfer::new(from_keypair.shielded_address()?, spends, payer_address);
+        transfer.send(&to_address, asset, amount)?;
+        let mut proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
+        proof_inputs.external_data.instruction_discriminator = ZONE_TRANSACT;
 
         // Assemble the instruction data with real nullifiers / root indices but a
         // zeroed proof, so verification is the only thing that fails.
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
         let prover = ZoneTransferProver {
-            inputs: self.zone_spend_inputs(&signed.inputs)?,
-            outputs: signed.outputs.clone(),
-            external_data: signed.external_data.clone(),
-            public_amounts: client_public_amounts(signed.public_amounts),
-            payer_pubkey_hash: signed.payer_pubkey_hash,
+            inputs: self.zone_spend_inputs(&proof_inputs.input_utxos)?,
+            outputs: proof_inputs.output_utxos.clone(),
+            external_data: proof_inputs.external_data.clone(),
+            public_amounts: client_public_amounts(proof_inputs.public_amounts),
+            payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
             zone_program_id: Some(zone),
-            shape: Some(Shape::new(signed.shape.n_inputs, signed.shape.n_outputs)),
+            shape: Some(Shape::new(
+                proof_inputs.shape.n_inputs,
+                proof_inputs.shape.n_outputs,
+            )),
         };
         let result = prover.build()?;
         let data = assemble_ix_data(
-            &signed,
+            &proof_inputs,
             &result.nullifiers,
             result.private_tx_hash,
             &result.input_root_indices,
@@ -722,14 +726,14 @@ fn client_public_amounts(
 /// inherit the first real input's signer. `external_data` fields flow through
 /// unchanged (already rebound to `ZONE_TRANSACT`).
 fn assemble_ix_data(
-    signed: &SignedTransaction,
+    proof_inputs: &SppProofInputs,
     nullifiers: &[[u8; 32]],
     private_tx_hash: [u8; 32],
     root_indices: &[(u16, u16)],
     rail: Rail,
     proof: TransactProof,
 ) -> Result<TransactIxData> {
-    let n_inputs = signed.shape.n_inputs;
+    let n_inputs = proof_inputs.shape.n_inputs;
     if nullifiers.len() != n_inputs || root_indices.len() != n_inputs {
         return Err(anyhow!(
             "witness input count {} / {} does not match shape {n_inputs}",
@@ -742,7 +746,11 @@ fn assemble_ix_data(
     // eddsa input uses signer index 0 (the fee payer); dummies inherit the first
     // real input's signer.
     let mut real_signer_indices = Vec::new();
-    for spend in signed.inputs.iter().filter(|spend| !spend.is_dummy()) {
+    for spend in proof_inputs
+        .input_utxos
+        .iter()
+        .filter(|spend| !spend.is_dummy())
+    {
         let signer = match (rail, spend.utxo.owner.signature_type()?) {
             (Rail::P256, SignatureType::P256) => P256_OWNED_SIGNER,
             _ => DEFAULT_EDDSA_SIGNER_INDEX,
@@ -772,7 +780,7 @@ fn assemble_ix_data(
         });
     }
 
-    let external = &signed.external_data;
+    let external = &proof_inputs.external_data;
     Ok(TransactIxData {
         proof,
         expiry_unix_ts: external.expiry_unix_ts,

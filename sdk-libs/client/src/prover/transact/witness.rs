@@ -2,7 +2,7 @@ use zolana_interface::instruction::instruction_data::transact::{
     InputUtxo, TransactIxData, TransactProof,
 };
 use zolana_keypair::SignatureType;
-use zolana_transaction::instructions::transact::{builder::inputs_require_p256, SignedTransaction};
+use zolana_transaction::instructions::transact::{inputs_require_p256, SppProofInputs};
 
 use crate::{
     error::ClientError,
@@ -73,10 +73,10 @@ impl AssembledTransfer {
 impl ProverClient {
     pub fn prove_transact(
         &self,
-        tx: SignedTransaction,
+        proof_inputs: SppProofInputs,
         input_proofs: &[SpendProof],
     ) -> Result<TransactIxData, ClientError> {
-        let assembled = assemble(tx, input_proofs)?;
+        let assembled = assemble(proof_inputs, input_proofs)?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => self.prove_transfer_p256(inputs)?,
             ProverInputs::Eddsa(inputs) => self.prove_transfer(inputs)?,
@@ -102,10 +102,12 @@ fn client_public_amounts(
 /// Recover the [`P256Owner`] witness from the stored 64-byte signature and the
 /// first P256-owned input's signing pubkey. The transaction crate keeps only the
 /// raw `r || s` bytes; the pubkey comes from the owner of a real P256 input.
-fn p256_owner(tx: &SignedTransaction) -> Result<P256Owner, ClientError> {
-    let signature = tx.p256_owner.ok_or(ClientError::MissingP256Signature)?;
-    let pubkey = tx
-        .inputs
+fn p256_owner(proof_inputs: &SppProofInputs) -> Result<P256Owner, ClientError> {
+    let signature = proof_inputs
+        .p256_signature
+        .ok_or(ClientError::MissingP256Signature)?;
+    let pubkey = proof_inputs
+        .input_utxos
         .iter()
         .filter(|spend| !spend.is_dummy())
         .map(|spend| spend.utxo.owner)
@@ -124,24 +126,24 @@ fn p256_owner(tx: &SignedTransaction) -> Result<P256Owner, ClientError> {
 }
 
 pub fn into_prover(
-    tx: SignedTransaction,
+    proof_inputs: SppProofInputs,
     input_merkle_proofs: &[SpendProof],
 ) -> Result<BuiltCircuit, ClientError> {
-    let requires_p256 = inputs_require_p256(&tx.inputs)?;
+    let requires_p256 = inputs_require_p256(&proof_inputs.input_utxos)?;
     let p256_owner = if requires_p256 {
-        Some(p256_owner(&tx)?)
+        Some(p256_owner(&proof_inputs)?)
     } else {
         None
     };
-    let SignedTransaction {
-        inputs,
-        outputs,
+    let SppProofInputs {
+        input_utxos: inputs,
+        output_utxos: outputs,
         public_amounts,
         external_data,
         payer_pubkey_hash,
         shape,
         ..
-    } = tx;
+    } = proof_inputs;
 
     let mut spends = Vec::with_capacity(inputs.len());
     let mut real_index = 0;
@@ -206,16 +208,20 @@ pub fn into_prover(
 /// dummy input mirrors the first real input's signer; root indices come from each
 /// real `SpendProof`.
 pub fn assemble(
-    tx: SignedTransaction,
+    proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
 ) -> Result<AssembledTransfer, ClientError> {
-    let shape = tx.shape;
+    let shape = proof_inputs.shape;
 
     // Signer indices for the real inputs only; dummies (zero owner) inherit the
     // first real input's signer below. A zero owner reads as P256, so it must
     // never reach `signature_type`.
     let mut real_signer_indices: Vec<u8> = Vec::new();
-    for spend in tx.inputs.iter().filter(|spend| !spend.is_dummy()) {
+    for spend in proof_inputs
+        .input_utxos
+        .iter()
+        .filter(|spend| !spend.is_dummy())
+    {
         let signer = if spend.utxo.owner.signature_type()? == SignatureType::P256 {
             P256_OWNED_SIGNER
         } else {
@@ -236,9 +242,9 @@ pub fn assemble(
         outputs,
         messages,
         ..
-    } = tx.external_data.clone();
+    } = proof_inputs.external_data.clone();
 
-    let BuiltCircuit { circuit } = into_prover(tx, input_proofs)?;
+    let BuiltCircuit { circuit } = into_prover(proof_inputs, input_proofs)?;
 
     let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices, p256_signing_pk_x) =
         match circuit {

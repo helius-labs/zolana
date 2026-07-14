@@ -19,8 +19,8 @@ use zolana_client::{ensure_registered, Rpc};
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::{
-        transact::{ConfidentialSlot, OutputUtxo, Transaction as SppProofInputs},
-        types::SpendUtxo,
+        transact::{ConfidentialSlot, OutputUtxo, SlotTransact},
+        types::SppProofInputUtxo,
     },
     SOL_MINT,
 };
@@ -87,16 +87,12 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let marker_output_utxo = marker_output_utxo(taker_address);
 
         let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
-        let create_spend = SpendUtxo::from_keypair(maker_input_utxo, &maker.keypair);
-        let mut spp_proof_inputs = SppProofInputs::new(
-            maker_address,
-            vec![create_spend],
-            maker_address.solana_address()?,
-        );
+        let create_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair.nullifier_key);
+        let input_utxos = vec![create_spend, SppProofInputUtxo::new_dummy()];
 
         let escrow_asset = escrow_output_utxo.asset;
-        let leftover = input_sum(&spp_proof_inputs.inputs, &escrow_asset)
-            - i128::from(escrow_output_utxo.amount);
+        let leftover =
+            input_sum(&input_utxos, &escrow_asset) - i128::from(escrow_output_utxo.amount);
         let change_amount = u64::try_from(leftover)
             .map_err(|_| anyhow!("insufficient escrow balance: {leftover}"))?;
         let change_blinding = random_blinding();
@@ -120,18 +116,21 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         }
         .encrypt()?;
 
-        spp_proof_inputs.inputs.push(SpendUtxo::new_dummy());
-        let signed_spp_proof_inputs = spp_proof_inputs
-            .sign_with_slots(&[&change_slot, &escrow_slot, &marker_slot], &maker.keypair)
-            .map_err(|e| anyhow!("escrow create sign: {e:?}"))?;
+        let spp_proof_inputs = SlotTransact {
+            input_utxos,
+            payer: maker_address.solana_address()?,
+            expiry_unix_ts: u64::MAX,
+        }
+        .sign(&[&change_slot, &escrow_slot, &marker_slot], &maker.keypair)
+        .map_err(|e| anyhow!("escrow create sign: {e:?}"))?;
 
         let spp_proof = indexer
-            .prove_transact(tree, signed_spp_proof_inputs.clone())
+            .prove_transact(tree, spp_proof_inputs.clone())
             .map_err(|e| anyhow!("create transact proof: {e:?}"))?;
 
         // Custom proof
-        let first_input_utxo = signed_spp_proof_inputs
-            .inputs
+        let first_input_utxo = spp_proof_inputs
+            .input_utxos
             .first()
             .ok_or_else(|| anyhow!("no create input"))?;
         let create_nullifier_pubkey = first_input_utxo
@@ -146,7 +145,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
                 &first_input_utxo.zone_data_hash.unwrap_or([0u8; 32]),
             )
             .map_err(|e| anyhow!("source input hash: {e:?}"))?;
-        let external_data_hash = signed_spp_proof_inputs
+        let external_data_hash = spp_proof_inputs
             .external_data
             .hash()
             .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
@@ -205,21 +204,20 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .into_input_utxo()
             .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
 
-        let cancel_tx = SppProofInputs::new(
-            maker_address,
-            vec![escrow_input],
-            maker_address.solana_address()?,
-        )
-        .with_expiry(SPP_RELAYER_DEADLINE);
+        let cancel_transact = SlotTransact {
+            input_utxos: vec![escrow_input],
+            payer: maker_address.solana_address()?,
+            expiry_unix_ts: SPP_RELAYER_DEADLINE,
+        };
 
-        let cancel_signed = EscrowCancel {
-            tx: cancel_tx,
+        let cancel_spp_proof_inputs = EscrowCancel {
+            transact: cancel_transact,
             source_output,
         }
         .sign(&maker.keypair, &maker.registry)
         .map_err(|e| anyhow!("escrow cancel sign: {e:?}"))?;
 
-        let cancel_external_data_hash = cancel_signed
+        let cancel_external_data_hash = cancel_spp_proof_inputs
             .external_data
             .hash()
             .map_err(|e| anyhow!("cancel external data hash: {e:?}"))?;
@@ -230,7 +228,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         };
 
         let spp_proof = indexer
-            .prove_transact(tree, cancel_signed)
+            .prove_transact(tree, cancel_spp_proof_inputs)
             .map_err(|e| anyhow!("cancel transact proof: {e:?}"))?;
 
         let cancel_proof = swap_prover_client

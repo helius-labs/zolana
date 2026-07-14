@@ -51,10 +51,10 @@ use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
         transact::{
-            signed_transaction::BN254_MODULUS_DEC, ConfidentialSlot, OutputUtxo, SignedTransaction,
-            Transaction as SppProofInputs,
+            spp_proof_inputs::BN254_MODULUS_DEC, ConfidentialSlot, OutputUtxo, SlotTransact,
+            SppProofInputs,
         },
-        types::SpendUtxo,
+        types::SppProofInputUtxo,
     },
     utxo::Blinding,
     AssetRegistry, Data, Utxo, SOL_MINT,
@@ -270,13 +270,13 @@ fn keypair_from_payer(payer: &Keypair) -> ShieldedKeypair {
 // not the SPP server's transfer keys, so this warm-up is what makes the SPP
 // column deterministic across runs.
 fn prove_transact_timed(
-    signed: SignedTransaction,
+    proof_inputs: SppProofInputs,
     spend_proofs: &[SpendProof],
     prover: &ProverClient,
 ) -> (TransactIxData, Duration) {
-    prove_transact(signed.clone(), spend_proofs, prover).expect("warm prove transact");
+    prove_transact(proof_inputs.clone(), spend_proofs, prover).expect("warm prove transact");
     let start = Instant::now();
-    let transact = prove_transact(signed, spend_proofs, prover).expect("prove transact");
+    let transact = prove_transact(proof_inputs, spend_proofs, prover).expect("prove transact");
     (transact, start.elapsed())
 }
 
@@ -455,16 +455,12 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let marker = marker_output_utxo(taker_address);
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let spend = SpendUtxo::from_keypair(input_utxo, &maker);
-    let mut tx = SppProofInputs::new(
-        maker.shielded_address().expect("maker address"),
-        vec![spend],
-        payer_address,
-    );
+    let spend = SppProofInputUtxo::new(input_utxo, &maker.nullifier_key);
+    let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
     let assets = AssetRegistry::default();
 
     let escrow_asset = escrow.asset;
-    let leftover = input_sum(&tx.inputs, &escrow_asset) - i128::from(escrow.amount);
+    let leftover = input_sum(&input_utxos, &escrow_asset) - i128::from(escrow.amount);
     let change_amount = u64::try_from(leftover).expect("insufficient escrow balance");
     let change_blinding = random_blinding();
     let change = OutputUtxo {
@@ -486,12 +482,17 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     .encrypt()
     .expect("marker slot");
 
-    tx.inputs.push(SpendUtxo::new_dummy());
-    let signed = tx
-        .sign_with_slots(&[&change_slot, &escrow_slot, &marker_slot], &maker)
-        .expect("escrow create sign");
+    let spp_proof_inputs = SlotTransact {
+        input_utxos,
+        payer: payer_address,
+        expiry_unix_ts: u64::MAX,
+    }
+    .sign(&[&change_slot, &escrow_slot, &marker_slot], &maker)
+    .expect("escrow create sign");
 
-    let commitments = signed.input_utxo_hashes().expect("input commitments");
+    let commitments = spp_proof_inputs
+        .input_utxo_hashes()
+        .expect("input commitments");
     let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
@@ -508,7 +509,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         root_index,
     );
 
-    let spend = signed.inputs.first().expect("input");
+    let spend = spp_proof_inputs.input_utxos.first().expect("input");
     let nullifier_pubkey = spend.nullifier_key.pubkey().expect("nullifier pubkey");
     let source_input_hash = spend
         .utxo
@@ -518,7 +519,10 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
             &spend.zone_data_hash.unwrap_or([0u8; 32]),
         )
         .expect("source input hash");
-    let external_data_hash = signed.external_data.hash().expect("external data hash");
+    let external_data_hash = spp_proof_inputs
+        .external_data
+        .hash()
+        .expect("external data hash");
 
     let create_inputs = CreateSwapProofInputParams {
         escrow: escrow_utxo_hash,
@@ -531,7 +535,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
 
     let prover = ProverClient::local();
     let swap_prover_client = SwapProverClient::new_ffi();
-    let (transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let create_result = swap_prover_client
         .prove_create_swap(&create_inputs)
@@ -629,25 +633,26 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         zone_program_id: None,
         data: Data::default(),
     };
-    let taker_spend = SpendUtxo::from_keypair(taker_utxo, &taker);
+    let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker.nullifier_key);
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
-    let tx = SppProofInputs::new(
-        taker_recipient,
-        vec![escrow_input, taker_spend],
-        payer_address,
-    )
-    .with_expiry(escrow.terms.expiry);
+    let transact = SlotTransact {
+        input_utxos: vec![escrow_input, taker_spend],
+        payer: payer_address,
+        expiry_unix_ts: escrow.terms.expiry,
+    };
     let assets = AssetRegistry::default();
-    let signed = EscrowFill {
-        tx,
+    let spp_proof_inputs = EscrowFill {
+        transact,
         source_output,
         destination_output,
     }
     .sign(&taker, &assets)
     .expect("escrow fill sign");
 
-    let commitments = signed.input_utxo_hashes().expect("input commitments");
+    let commitments = spp_proof_inputs
+        .input_utxo_hashes()
+        .expect("input commitments");
     let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
@@ -664,7 +669,10 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         root_index,
     );
 
-    let external_data_hash = signed.external_data.hash().expect("external data hash");
+    let external_data_hash = spp_proof_inputs
+        .external_data
+        .hash()
+        .expect("external data hash");
     let fill_shared = FillProofInputParams {
         external_data_hash,
         ..fill_shared
@@ -672,7 +680,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
 
     let prover = ProverClient::local();
     let swap_prover_client = SwapProverClient::new_ffi();
-    let (transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let fill_result = swap_prover_client
         .prove_fill(&fill_shared)
@@ -764,18 +772,17 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         zone_program_id: None,
         data: Data::default(),
     };
-    let taker_spend = SpendUtxo::from_keypair(taker_utxo, &taker);
+    let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker.nullifier_key);
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
-    let tx = SppProofInputs::new(
-        taker_recipient,
-        vec![escrow_input, taker_spend],
-        payer_address,
-    )
-    .with_expiry(escrow.terms.expiry);
+    let transact = SlotTransact {
+        input_utxos: vec![escrow_input, taker_spend],
+        payer: payer_address,
+        expiry_unix_ts: escrow.terms.expiry,
+    };
     let assets = AssetRegistry::default();
-    let signed = EscrowFillVerifiableEncryption {
-        tx,
+    let spp_proof_inputs = EscrowFillVerifiableEncryption {
+        transact,
         source_output,
         destination_output,
         destination_ciphertext,
@@ -787,7 +794,9 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     .sign(&taker, &assets)
     .expect("escrow fill sign");
 
-    let commitments = signed.input_utxo_hashes().expect("input commitments");
+    let commitments = spp_proof_inputs
+        .input_utxo_hashes()
+        .expect("input commitments");
     let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
@@ -804,7 +813,10 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         root_index,
     );
 
-    let external_data_hash = signed.external_data.hash().expect("external data hash");
+    let external_data_hash = spp_proof_inputs
+        .external_data
+        .hash()
+        .expect("external data hash");
     let fill_shared = FillVerifiableEncryptionProofInputParams {
         external_data_hash,
         ..fill_shared
@@ -812,7 +824,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
 
     let prover = ProverClient::local();
     let swap_prover_client = SwapProverClient::new_ffi();
-    let (transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let fill_result = swap_prover_client
         .prove_fill_verifiable_encryption(&fill_shared)
@@ -898,14 +910,22 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let escrow_input = escrow.into_input_utxo().expect("escrow spend");
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
-    let tx = SppProofInputs::new(maker_recipient, vec![escrow_input], payer_address)
-        .with_expiry(SPP_RELAYER_DEADLINE);
+    let transact = SlotTransact {
+        input_utxos: vec![escrow_input],
+        payer: payer_address,
+        expiry_unix_ts: SPP_RELAYER_DEADLINE,
+    };
     let assets = AssetRegistry::default();
-    let signed = EscrowCancel { tx, source_output }
-        .sign(&maker, &assets)
-        .expect("escrow cancel sign");
+    let spp_proof_inputs = EscrowCancel {
+        transact,
+        source_output,
+    }
+    .sign(&maker, &assets)
+    .expect("escrow cancel sign");
 
-    let commitments = signed.input_utxo_hashes().expect("input commitments");
+    let commitments = spp_proof_inputs
+        .input_utxo_hashes()
+        .expect("input commitments");
     let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
@@ -922,7 +942,10 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         root_index,
     );
 
-    let external_data_hash = signed.external_data.hash().expect("external data hash");
+    let external_data_hash = spp_proof_inputs
+        .external_data
+        .hash()
+        .expect("external data hash");
     let cancel_inputs = CancelProofInputParams {
         external_data_hash,
         ..cancel_inputs
@@ -930,7 +953,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
 
     let prover = ProverClient::local();
     let swap_prover_client = SwapProverClient::new_ffi();
-    let (transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let cancel_result = swap_prover_client
         .prove_cancel(&cancel_inputs)

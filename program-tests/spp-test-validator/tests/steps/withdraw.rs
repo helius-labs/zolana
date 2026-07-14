@@ -1,8 +1,8 @@
 //! `withdraw` (unshield) steps and the World withdrawal operation. A withdrawal
 //! spends the sender's SOL UTXOs and moves the public SOL amount out of the pool
 //! to an external recipient account, keeping a SOL change UTXO for the sender.
-//! Mirrors `execute_transfer` except it calls `tx.withdraw(..)` instead of
-//! `tx.send(..)` and sets `withdrawal: Some(..)` on the `Transact` builder, so the
+//! Mirrors `execute_transfer` except it calls `transfer.withdraw(..)` instead of
+//! `transfer.send(..)` and sets `withdrawal: Some(..)` on the `Transact` builder, so the
 //! builder appends the `sol_interface` custody PDA and the recipient account.
 
 use anyhow::{anyhow, Result};
@@ -13,8 +13,7 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    assemble, ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
-    WithdrawalTarget,
+    assemble, ProverClient, ProverInputs, SpendProof, SppProofInputUtxo, Transfer, WithdrawalTarget,
 };
 use zolana_interface::instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal};
 use zolana_test_utils::test_validator_asserts::{
@@ -77,22 +76,21 @@ impl LifecycleWorld {
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
-        let spends: Vec<SpendUtxo> = inputs
+        let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SpendUtxo::from_keypair(u.clone(), &from_keypair))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair.nullifier_key))
             .collect();
-        let mut tx =
-            ClientTransaction::new(from_keypair.shielded_address()?, spends, payer_address);
-        tx.withdraw(
+        let mut transfer = Transfer::new(from_keypair.shielded_address()?, spends, payer_address);
+        transfer.withdraw(
             SOL_MINT,
             amount,
             WithdrawalTarget::Sol {
                 user_sol_account: Address::new_from_array(recipient.pubkey().to_bytes()),
             },
         )?;
-        let signed = tx.sign(&from_keypair, &self.assets)?;
+        let proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
 
-        let commitments = signed.input_utxo_hashes()?;
+        let commitments = proof_inputs.input_utxo_hashes()?;
         let mut spend_proofs = Vec::new();
         for commitment in &commitments {
             let state =
@@ -105,7 +103,7 @@ impl LifecycleWorld {
             spend_proofs.push(SpendProof { state, nullifier });
         }
 
-        let assembled = assemble(signed, &spend_proofs)?;
+        let assembled = assemble(proof_inputs, &spend_proofs)?;
         let (proof, rail) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (
                 ProverClient::local().prove_transfer_p256(inputs)?,

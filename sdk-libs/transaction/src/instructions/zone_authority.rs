@@ -1,6 +1,6 @@
 //! Zone-authority state transition (`zone_authority_transact`): an unsigned
 //! transact over zone-owned UTXOs. The zone authority is authorized on-chain (the
-//! `zone_config` PDA signs), so unlike [`SignedTransaction`](super::transact::SignedTransaction)
+//! `zone_config` PDA signs), so unlike [`SppProofInputs`](super::transact::SppProofInputs)
 //! there is no owner signature. Mirrors the merge prepared form: it carries the
 //! padded inputs (real first, dummies at the tail) and yields the input
 //! commitments to fetch Merkle proofs for.
@@ -10,8 +10,8 @@ use solana_address::Address;
 use crate::{
     error::TransactionError,
     instructions::{
-        transact::{builder::Shape, signed_transaction::PublicAmounts},
-        types::{InputUtxoContext, SpendUtxo},
+        transact::{shape::Shape, spp_proof_inputs::PublicAmounts},
+        types::{InputUtxoContext, SppProofInputUtxo},
     },
     ExternalData, OutputUtxo,
 };
@@ -20,7 +20,7 @@ use crate::{
 /// `instruction_discriminator` must be `ZONE_AUTHORITY_TRANSACT` (Tag 3) so its
 /// `external_data_hash` matches what the program recomputes on-chain.
 pub struct PreparedZoneAuthority {
-    pub inputs: Vec<SpendUtxo>,
+    pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<OutputUtxo>,
     pub public_amounts: PublicAmounts,
     pub external_data: ExternalData,

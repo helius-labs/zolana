@@ -41,7 +41,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     assemble, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, ProverInputs,
-    SpendProof, SpendUtxo, Transaction as ClientTransaction, WithdrawalTarget, STATE_TREE_HEIGHT,
+    SpendProof, SppProofInputUtxo, Transfer, WithdrawalTarget, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_keypair::{hash::owner_hash, shielded::ShieldedKeypair};
@@ -138,29 +138,30 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     // client builder, padded to the (2,3) P256 shape.
     let recipient = Keypair::new().pubkey();
 
-    let spend = SpendUtxo::from_keypair(utxo, &sender);
-    let mut tx = ClientTransaction::new(
+    let spend = SppProofInputUtxo::new(utxo, &sender.nullifier_key);
+    let mut transfer = Transfer::new(
         sender.shielded_address().expect("sender address"),
         vec![spend],
         payer_address,
     )
     .with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
-    tx.withdraw(
-        SOL_MINT,
-        AMOUNT,
-        WithdrawalTarget::Sol {
-            user_sol_account: Address::new_from_array(recipient.to_bytes()),
-        },
-    )
-    .expect("withdraw");
-    let signed = tx
+    transfer
+        .withdraw(
+            SOL_MINT,
+            AMOUNT,
+            WithdrawalTarget::Sol {
+                user_sol_account: Address::new_from_array(recipient.to_bytes()),
+            },
+        )
+        .expect("withdraw");
+    let proof_inputs = transfer
         .sign(&sender, &AssetRegistry::default())
         .expect("sign p256 transaction");
 
     // One real input: build its state-inclusion + nullifier-non-inclusion proof
     // from the reference trees, with the on-chain root indices (utxo root at
     // history index 1, nullifier root at index 0).
-    let commitments = signed.input_utxo_hashes().expect("input commitments");
+    let commitments = proof_inputs.input_utxo_hashes().expect("input commitments");
     let commitment = commitments.first().expect("one input commitment");
     let state_path: Vec<[u8; 32]> = state_tree
         .get_proof_of_leaf(0, true)
@@ -199,7 +200,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         },
     };
 
-    let assembled = assemble(signed, &[spend_proof]).expect("assemble");
+    let assembled = assemble(proof_inputs, &[spend_proof]).expect("assemble");
     let expected_pi = assembled.public_input_hash;
 
     // The keypair-owned input selects the confidential P256 rail.
@@ -262,7 +263,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             tag,
         };
         use zolana_keypair::hash::{hash_field, sha256};
-        use zolana_transaction::instructions::transact::signed_transaction::signed_to_field;
+        use zolana_transaction::instructions::transact::spp_proof_inputs::signed_to_field;
 
         // The program derives the P256 public input by hashing the raw x-coordinate
         // on-chain; mirror that here.

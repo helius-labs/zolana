@@ -21,7 +21,7 @@ use zolana_transaction::{
     instructions::{
         merge_zone::PreparedMergeZone,
         transact::{no_address_hashes, private_tx_hash},
-        types::SpendUtxo,
+        types::SppProofInputUtxo,
     },
     utxo::program_id_field,
     OutputUtxo,
@@ -290,7 +290,7 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
         let mut spends = Vec::with_capacity(inputs.len());
         let mut real_index = 0;
         for spend in inputs {
-            let SpendUtxo {
+            let SppProofInputUtxo {
                 utxo,
                 nullifier_key,
                 ..

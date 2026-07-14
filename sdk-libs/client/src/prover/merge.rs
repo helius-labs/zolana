@@ -15,8 +15,8 @@ use zolana_keypair::{
 use zolana_transaction::{
     instructions::{
         merge::PreparedMerge,
-        transact::{no_address_hashes, private_tx_hash, signed_transaction::asset_field},
-        types::SpendUtxo,
+        transact::{no_address_hashes, private_tx_hash, spp_proof_inputs::asset_field},
+        types::SppProofInputUtxo,
     },
     EncryptedScheme, OutputUtxo,
 };
@@ -330,7 +330,7 @@ impl TryFrom<MergeWitness> for MergeProver {
         let mut spends = Vec::with_capacity(inputs.len());
         let mut real_index = 0;
         for spend in inputs {
-            let SpendUtxo {
+            let SppProofInputUtxo {
                 utxo,
                 nullifier_key,
                 ..

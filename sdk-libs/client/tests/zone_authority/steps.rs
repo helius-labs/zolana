@@ -9,7 +9,7 @@ use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
     spawn_prover, InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicAmounts, Rpc, Shape,
-    SpendUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
+    SppProofInputUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
 };
 use zolana_interface::{
     instruction::{
@@ -23,7 +23,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::{builder::Shape as TxShape, PublicAmounts as TxPublicAmounts},
+    instructions::transact::{shape::Shape as TxShape, PublicAmounts as TxPublicAmounts},
     Data, ExternalData, OutputUtxo, Utxo, SOL_MINT,
 };
 
@@ -155,7 +155,10 @@ fn boundary_prover() -> ZoneAuthorityProver {
     indexer.add_utxo(utxo_hash);
 
     let prepared = PreparedZoneAuthority {
-        inputs: vec![SpendUtxo::from_keypair(utxo, &kp), SpendUtxo::new_dummy()],
+        inputs: vec![
+            SppProofInputUtxo::new(utxo, &kp),
+            SppProofInputUtxo::new_dummy(),
+        ],
         outputs: vec![dummy_output(), dummy_output()],
         public_amounts: TxPublicAmounts {
             sol: [0u8; 32],

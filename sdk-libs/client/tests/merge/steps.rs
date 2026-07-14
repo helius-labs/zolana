@@ -8,13 +8,13 @@ use cucumber::{given, then};
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{
-    prover::merge::MergeProver, spawn_prover, Merge, MergeWitness, ProverClient, Rpc, SpendUtxo,
-    MERGE_INPUTS,
+    prover::merge::MergeProver, spawn_prover, Merge, MergeWitness, ProverClient, Rpc,
+    SppProofInputUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_8_1;
 use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::signed_transaction::asset_field, Data, OutputUtxo, Utxo,
+    instructions::transact::spp_proof_inputs::asset_field, Data, OutputUtxo, Utxo,
 };
 
 use crate::{test_indexer::TestIndexer, world::MergeWorld};
@@ -71,7 +71,7 @@ impl MergeWorld {
                 .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
                 .expect("utxo hash");
             indexer.add_utxo(utxo_hash);
-            inputs.push(SpendUtxo::from_keypair(utxo, &sender));
+            inputs.push(SppProofInputUtxo::new(utxo, &sender));
         }
 
         // The plan derives the merged output and owner identity; preparing it pads to

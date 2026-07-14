@@ -11,7 +11,7 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    assemble, ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
+    assemble, ProverClient, ProverInputs, SpendProof, SppProofInputUtxo, Transfer,
 };
 use zolana_interface::instruction::Transact;
 use zolana_keypair::PublicKey;
@@ -181,18 +181,17 @@ impl LifecycleWorld {
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
-        let spends: Vec<SpendUtxo> = inputs
+        let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SpendUtxo::from_keypair(u.clone(), &from_keypair))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair.nullifier_key))
             .collect();
-        let mut tx =
-            ClientTransaction::new(from_keypair.shielded_address()?, spends, payer_address);
+        let mut transfer = Transfer::new(from_keypair.shielded_address()?, spends, payer_address);
         if let Some(addr) = &to_address {
-            tx.send(addr, send_asset, amount)?;
+            transfer.send(addr, send_asset, amount)?;
         }
-        let signed = tx.sign(&from_keypair, &self.assets)?;
+        let proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
 
-        let commitments = signed.input_utxo_hashes()?;
+        let commitments = proof_inputs.input_utxo_hashes()?;
         let mut spend_proofs = Vec::new();
         for commitment in &commitments {
             let state =
@@ -208,7 +207,7 @@ impl LifecycleWorld {
         // The rail follows the input owner type: P256-owned inputs prove on the
         // P256 circuit, ed25519-owned inputs on the vanilla eddsa circuit (where the
         // owner authorizes the spend by signing the transaction).
-        let assembled = assemble(signed, &spend_proofs)?;
+        let assembled = assemble(proof_inputs, &spend_proofs)?;
         let (proof, rail) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (
                 ProverClient::local().prove_transfer_p256(inputs)?,

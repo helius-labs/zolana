@@ -7,7 +7,7 @@ use zolana_keypair::{
 };
 pub use zolana_transaction::SOL_ASSET_ID;
 use zolana_transaction::{
-    instructions::{transact::OutputUtxo, types::SpendUtxo},
+    instructions::{transact::OutputUtxo, types::SppProofInputUtxo},
     utxo::{Blinding, Utxo},
     Data, SOL_MINT,
 };
@@ -160,7 +160,7 @@ impl OrderUtxo {
 
     /// The escrow input spend: the opening (terms + blinding) is the full spend
     /// capability; the swap program signs for the PDA via `invoke_signed`.
-    pub fn into_input_utxo(&self) -> Result<SpendUtxo> {
+    pub fn into_input_utxo(&self) -> Result<SppProofInputUtxo> {
         let utxo = Utxo {
             owner: Self::pda_owner(),
             asset: self.source_mint,
@@ -169,9 +169,8 @@ impl OrderUtxo {
             zone_program_id: None,
             data: Data::default(),
         };
-        let mut spend = SpendUtxo::from_nullifier_key(utxo, &Self::nullifier_key());
-        spend.data_hash = Some(self.terms.data_hash()?);
-        Ok(spend)
+        Ok(SppProofInputUtxo::new(utxo, &Self::nullifier_key())
+            .with_data_hash(self.terms.data_hash()?))
     }
 }
 

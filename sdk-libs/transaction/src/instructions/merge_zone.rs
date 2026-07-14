@@ -14,7 +14,7 @@ use crate::{
     error::TransactionError,
     instructions::{
         merge::MERGE_INPUTS,
-        types::{InputUtxoContext, SpendUtxo},
+        types::{InputUtxoContext, SppProofInputUtxo},
     },
     OutputUtxo,
 };
@@ -24,7 +24,7 @@ use crate::{
 /// every input is owned by. Every input must share one owner (P256 or Solana),
 /// asset, and `zone_program_id`.
 pub struct MergeZone {
-    inputs: Vec<SpendUtxo>,
+    inputs: Vec<SppProofInputUtxo>,
     output: OutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
@@ -39,7 +39,7 @@ impl MergeZone {
     /// keypair.
     pub fn new<K: ShieldedKeypairTrait>(
         keypair: &K,
-        inputs: Vec<SpendUtxo>,
+        inputs: Vec<SppProofInputUtxo>,
         zone_program_id: Address,
     ) -> Result<Self, TransactionError> {
         if inputs.is_empty() {
@@ -122,7 +122,7 @@ impl MergeZone {
             zone_program_id,
         } = self;
         while inputs.len() < MERGE_INPUTS {
-            inputs.push(SpendUtxo::new_dummy());
+            inputs.push(SppProofInputUtxo::new_dummy());
         }
         PreparedMergeZone {
             inputs,
@@ -140,7 +140,7 @@ impl MergeZone {
 /// the tail), still proofless. Carries the shared `zone_program_id` the proof
 /// commits. [`Self::input_utxo_hashes`] yields what to fetch Merkle proofs for.
 pub struct PreparedMergeZone {
-    pub inputs: Vec<SpendUtxo>,
+    pub inputs: Vec<SppProofInputUtxo>,
     pub output: OutputUtxo,
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,
