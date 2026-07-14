@@ -2,7 +2,9 @@ mod common;
 
 use std::collections::HashMap;
 
-use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
+use common::{
+    build_transfer, keypair_from_index, local_authority, unique31, unique_nullifier, TransferSpec,
+};
 use proptest::{prelude::*, test_runner::TestCaseError};
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 #[cfg(feature = "parallel")]
@@ -266,8 +268,11 @@ impl Harness {
         let signing = SigningKey::from_bytes(&self.alice.signing_key.secret_bytes()).unwrap();
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::from_keys(signing, viewing).unwrap();
-        let mut wallet = Wallet::new(keypair, self.assets.clone()).unwrap();
-        let report = wallet.sync(&self.txs, at, WINDOW).unwrap();
+        let mut wallet =
+            Wallet::new(keypair.shielded_address().unwrap(), self.assets.clone()).unwrap();
+        let report = wallet
+            .sync(&local_authority(&keypair), &self.txs, at, WINDOW)
+            .unwrap();
         prop_assert_eq!(report.unparsed_transactions, 0);
         prop_assert_eq!(report.undecryptable_candidates, 0);
         prop_assert_eq!(wallet.last_synced, at);
@@ -337,8 +342,11 @@ impl Harness {
         let signing = SigningKey::from_bytes(&self.alice.signing_key.secret_bytes()).unwrap();
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::from_keys(signing, viewing).unwrap();
-        let mut wallet = Wallet::new(keypair, self.assets.clone()).unwrap();
-        let parallel_report = wallet.sync_parallel(&self.txs, at, WINDOW).unwrap();
+        let mut wallet =
+            Wallet::new(keypair.shielded_address().unwrap(), self.assets.clone()).unwrap();
+        let parallel_report = wallet
+            .sync_parallel(&local_authority(&keypair), &self.txs, at, WINDOW)
+            .unwrap();
         prop_assert_eq!(&parallel_report, report);
         prop_assert_eq!(wallet.last_synced, sequential.last_synced);
 

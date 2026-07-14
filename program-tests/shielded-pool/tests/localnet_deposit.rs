@@ -19,7 +19,9 @@ use zolana_program_test::{
     single_deposit_view, DepositOutput, IndexedEvent, IndexedTransaction, TestIndexer,
     ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
 };
-use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{
+    AssetRegistry, LocalWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
+};
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
@@ -94,10 +96,12 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     print_signature("create_tree", &create_tree_tx.signature);
 
-    let mut direct_recipient = Wallet::new(ShieldedKeypair::new()?, AssetRegistry::default())?;
+    let direct_keypair = ShieldedKeypair::new()?;
+    let mut direct_recipient =
+        Wallet::new(direct_keypair.shielded_address()?, AssetRegistry::default())?;
     let direct_data = ZolanaProgramTest::wallet_sol_shield_data(
         DEPOSIT_LAMPORTS,
-        &direct_recipient,
+        &direct_recipient.identity,
         &[3u8; BLINDING_LEN],
         0,
     )?;
@@ -127,12 +131,18 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_ne!(direct_root_after, direct_root_before);
     let direct_view = single_deposit_view(&direct_tx.events)?;
     assert_eq!(direct_root_after, indexer.root());
-    assert_wallet_discovers(&mut direct_recipient, &direct_view)?;
+    assert_wallet_discovers(
+        &mut direct_recipient,
+        &LocalWalletAuthority::new(Pubkey::default(), &direct_keypair),
+        &direct_view,
+    )?;
 
-    let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?, AssetRegistry::default())?;
+    let zone_keypair = ShieldedKeypair::new()?;
+    let mut zone_recipient =
+        Wallet::new(zone_keypair.shielded_address()?, AssetRegistry::default())?;
     let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data(
         DEPOSIT_LAMPORTS,
-        &zone_recipient,
+        &zone_recipient.identity,
         &[5u8; BLINDING_LEN],
         0,
     )?;
@@ -166,7 +176,11 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_ne!(zone_root_after, zone_root_before);
     let zone_view = single_deposit_view(&zone_tx.events)?;
     assert_eq!(zone_root_after, indexer.root());
-    assert_wallet_discovers(&mut zone_recipient, &zone_view)?;
+    assert_wallet_discovers(
+        &mut zone_recipient,
+        &LocalWalletAuthority::new(Pubkey::default(), &zone_keypair),
+        &zone_view,
+    )?;
 
     println!("localnet proofless deposit test passed via {rpc_url}");
     Ok(())
@@ -212,8 +226,13 @@ fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
     })
 }
 
-fn assert_wallet_discovers(wallet: &mut Wallet, view: &DepositOutput) -> TestResult {
+fn assert_wallet_discovers<A: SyncWalletAuthority + ?Sized>(
+    wallet: &mut Wallet,
+    authority: &A,
+    view: &DepositOutput,
+) -> TestResult {
     wallet.sync(
+        authority,
         &[view.to_shielded_transaction(Signature::default())],
         0,
         DEFAULT_TAG_WINDOW,

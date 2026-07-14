@@ -10,6 +10,7 @@ repository.workspace = true
 zolana-interface = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
+async-trait = { workspace = true }
 borsh = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }

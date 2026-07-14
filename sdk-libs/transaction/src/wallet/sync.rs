@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use solana_address::Address;
 use zolana_event::OutputData;
 use zolana_keypair::{
-    viewing_key::ViewTag, KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey,
+    viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey, ViewingKey,
 };
 
 use super::state::{
@@ -24,7 +24,7 @@ use crate::{
         DecodeCx, OwnerCx, UtxoSerialization,
     },
     utxo::Utxo,
-    AssetRegistry, EncryptedScheme,
+    AssetRegistry, EncryptedScheme, SyncWalletAuthority,
 };
 
 pub(super) struct TxIndex {
@@ -91,7 +91,8 @@ pub(super) struct SlotOutcome {
 }
 
 pub(super) struct SyncCtx<'a> {
-    pub(super) keypair: &'a ShieldedKeypair,
+    pub(super) nullifier_key: &'a NullifierKey,
+    pub(super) self_viewing_pubkey: P256Pubkey,
     pub(super) owner: PublicKey,
     pub(super) nullifier_pk: [u8; 32],
     pub(super) utxos: &'a mut Vec<WalletUtxo>,
@@ -138,7 +139,7 @@ impl SyncCtx<'_> {
         {
             return Ok(false);
         }
-        let nullifier = utxo.nullifier(&output_context.hash, &self.keypair.nullifier_key)?;
+        let nullifier = utxo.nullifier(&output_context.hash, self.nullifier_key)?;
         self.push(utxo, output_context, nullifier, data_hash, zone_data_hash);
         Ok(true)
     }
@@ -189,7 +190,7 @@ impl SyncCtx<'_> {
         utxo: &Utxo,
     ) {
         let direction = match sender {
-            Some(sender) if sender == self.keypair.viewing_pubkey() => {
+            Some(sender) if sender == self.self_viewing_pubkey => {
                 PrivateTransactionDirection::SelfTransfer
             }
             _ => PrivateTransactionDirection::Inbound,
@@ -668,12 +669,30 @@ fn scan_stream(
 }
 
 impl Wallet {
-    pub fn sync(
+    pub fn sync<A: SyncWalletAuthority + ?Sized>(
         &mut self,
+        authority: &A,
         transactions: &[ShieldedTransaction],
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
+        let identity = authority.shielded_address()?;
+        if identity != self.identity {
+            return Err(TransactionError::WalletAuthorityMismatch);
+        }
+        let viewing_keys = authority.viewing_keys()?;
+        if viewing_keys
+            .iter()
+            .all(|key| key.pubkey() != identity.viewing_pubkey)
+        {
+            return Err(TransactionError::MissingCurrentViewingKey);
+        }
+        self.ensure_viewing_key_entries(viewing_keys.iter().map(|key| key.pubkey()));
+        let nullifier_key = authority.spend_nullifier_key()?;
+        if nullifier_key.pubkey()? != identity.nullifier_pubkey {
+            return Err(TransactionError::WalletAuthorityMismatch);
+        }
+
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
 
@@ -681,11 +700,12 @@ impl Wallet {
         // disjoint-field borrows let this immutable borrow of `self.registry`
         // coexist with the mutable UTXO/transaction borrows below.
         let assets = &self.registry;
-        let owner_tag = self.keypair.signing_pubkey().confidential_view_tag()?;
+        let owner_tag = identity.signing_pubkey.confidential_view_tag()?;
         let mut ctx = SyncCtx {
-            owner: self.keypair.signing_pubkey(),
-            nullifier_pk: self.keypair.nullifier_key.pubkey()?,
-            keypair: &self.keypair,
+            owner: identity.signing_pubkey,
+            nullifier_pk: identity.nullifier_pubkey,
+            nullifier_key: &nullifier_key,
+            self_viewing_pubkey: identity.viewing_pubkey,
             utxos: &mut self.utxos,
             transactions: &mut self.transactions,
             processed_slots: HashSet::new(),
@@ -695,13 +715,19 @@ impl Wallet {
 
         for entry in self.viewing_key_history.iter_mut() {
             let ViewingKeyEntry {
-                key,
+                viewing_pubkey,
                 tx_count,
                 request_count,
                 known_senders,
                 known_recipients,
                 ..
             } = entry;
+            let Some(key) = viewing_keys
+                .iter()
+                .find(|key| key.pubkey() == *viewing_pubkey)
+            else {
+                continue;
+            };
 
             // Anonymous policy-zone bootstrap scan (recipient viewing-pubkey
             // x-coordinate); also catches proofless deposits.

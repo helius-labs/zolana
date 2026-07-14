@@ -16,7 +16,7 @@ use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit,
 };
-use zolana_transaction::{AssetRegistry, Wallet};
+use zolana_transaction::{AssetRegistry, LocalWalletAuthority, Wallet};
 
 use crate::{common::assert_custom, ShieldedPoolWorld};
 
@@ -207,13 +207,14 @@ fn spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let mint = world.mint();
     let user_token = world.user_token();
     let vault = pda::spl_asset_vault(&mint);
+    let keypair = ShieldedKeypair::new().expect("recipient keypair");
     let mut recipient = Wallet::new(
-        ShieldedKeypair::new().expect("recipient keypair"),
+        keypair.shielded_address().expect("shielded address"),
         AssetRegistry::default(),
     )
     .expect("wallet");
     let seed = [7u8; BLINDING_LEN];
-    let data = ZolanaProgramTest::wallet_spl_shield_data(amount, &recipient, &seed, 0)
+    let data = ZolanaProgramTest::wallet_spl_shield_data(amount, &recipient.identity, &seed, 0)
         .expect("wallet deposit data");
 
     let vault_before = world.rpc().token_balance(&vault).expect("vault balance");
@@ -240,6 +241,7 @@ fn spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         vault_before,
         user_token_before,
         root_before,
+        &LocalWalletAuthority::new(Address::default(), &keypair),
         &mut recipient,
     );
     world.last_proofless_view = Some(event);

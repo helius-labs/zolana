@@ -57,7 +57,8 @@ use zolana_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
     utxo::derive_blinding,
-    AssetRegistry, Data, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW, SOL_MINT,
+    AssetRegistry, Data, LocalWalletAuthority, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
+    SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 
@@ -1733,8 +1734,14 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     // The recipient wallet is handed only the on-chain ciphertext and recovers by
     // decrypting it. `Wallet::store` keeps only recipient-owned notes, so the
     // sender's change slot (encrypted to the sender) is not stored.
-    let mut wallet = Wallet::new(recipient, AssetRegistry::default())?;
-    wallet.sync(std::slice::from_ref(&indexed), 0, DEFAULT_TAG_WINDOW)?;
+    let mut wallet = Wallet::new(recipient.shielded_address()?, AssetRegistry::default())?;
+    let authority = LocalWalletAuthority::new(Pubkey::default(), &recipient);
+    wallet.sync(
+        &authority,
+        std::slice::from_ref(&indexed),
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
     assert_eq!(
         wallet.utxos.len(),
         1,
@@ -1748,7 +1755,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     // Full-struct comparison against an independently derived expected UTXO (hash
     // and nullifier computed the same way the wallet does). The output context is
     // located in the indexed transaction by the independently computed hash.
-    let nullifier_pk = wallet.keypair.nullifier_key.pubkey()?;
+    let nullifier_pk = recipient.nullifier_key.pubkey()?;
     let expected_hash = expected_utxo.hash(&nullifier_pk, &zero, &zero)?;
     let output_context = indexed
         .output_slots
@@ -1757,7 +1764,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         .map(|slot| slot.output_context.clone())
         .ok_or_else(|| anyhow!("expected output not found in indexed transfer"))?;
     let expected_nullifier =
-        expected_utxo.nullifier(&output_context.hash, &wallet.keypair.nullifier_key)?;
+        expected_utxo.nullifier(&output_context.hash, &recipient.nullifier_key)?;
     let expected = WalletUtxo {
         utxo: expected_utxo,
         output_context,

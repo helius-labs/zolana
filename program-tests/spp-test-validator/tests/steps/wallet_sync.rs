@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use cucumber::{then, when};
-use zolana_transaction::{Utxo, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{Address, LocalWalletAuthority, Utxo, DEFAULT_TAG_WINDOW};
 
 use crate::{localnet::ZERO, LifecycleWorld};
 
@@ -20,7 +20,10 @@ impl LifecycleWorld {
         let assets = self.assets.clone();
         let actor = self.actor_mut(name);
         actor.wallet.registry = assets;
-        actor.wallet.sync(&indexed, 0, DEFAULT_TAG_WINDOW)?;
+        let authority = LocalWalletAuthority::new(Address::default(), &actor.keypair);
+        actor
+            .wallet
+            .sync(&authority, &indexed, 0, DEFAULT_TAG_WINDOW)?;
 
         let nullifier_pk = actor.keypair.nullifier_key.pubkey()?;
         let mut spendable_hashes: Vec<[u8; 32]> = Vec::new();
@@ -60,7 +63,10 @@ impl LifecycleWorld {
         let assets = self.assets.clone();
         let actor = self.actor_mut(name);
         actor.wallet.registry = assets;
-        actor.wallet.sync(&indexed, 0, DEFAULT_TAG_WINDOW)?;
+        let authority = LocalWalletAuthority::new(Address::default(), &actor.keypair);
+        actor
+            .wallet
+            .sync(&authority, &indexed, 0, DEFAULT_TAG_WINDOW)?;
         assert!(
             actor.wallet.utxos.is_empty(),
             "{name} should not decrypt any UTXOs but found {}",

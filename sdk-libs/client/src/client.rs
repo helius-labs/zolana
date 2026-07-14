@@ -1122,7 +1122,11 @@ mod tests {
     }
 
     fn wallet_with_tree(keypair: ShieldedKeypair, tree: Address, amount: u64) -> Wallet {
-        let mut wallet = Wallet::new(keypair.clone(), AssetRegistry::default()).expect("wallet");
+        let mut wallet = Wallet::new(
+            keypair.shielded_address().expect("shielded address"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset: SOL_MINT,

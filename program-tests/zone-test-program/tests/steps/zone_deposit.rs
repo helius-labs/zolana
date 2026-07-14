@@ -20,7 +20,7 @@ use zolana_test_utils::{
     spl::mint_to,
     test_validator_asserts::{assert_zone_deposit, fetch_account, ZoneDepositAssertArgs},
 };
-use zolana_transaction::{Data, Utxo, Wallet, SOL_MINT};
+use zolana_transaction::{Data, LocalWalletAuthority, Utxo, Wallet, SOL_MINT};
 
 use crate::{
     actor::{SplZoneDepositAccounts, ZoneDepositRecord},
@@ -187,7 +187,8 @@ impl ZoneLifecycleWorld {
         let event = deposit_output_from_event(indexed)
             .map_err(|e| anyhow!("proofless output decode failed: {e:?}"))?;
 
-        let mut wallet = Wallet::new(keypair, self.assets.clone())?;
+        let mut wallet = Wallet::new(keypair.shielded_address()?, self.assets.clone())?;
+        let authority = LocalWalletAuthority::new(Address::default(), &keypair);
         let expected_asset = match &record.spl {
             None => SOL_MINT,
             Some(spl) => Address::new_from_array(spl.mint.to_bytes()),
@@ -205,6 +206,7 @@ impl ZoneLifecycleWorld {
                 signature: record.signature,
                 tree_before: &record.tree_before,
             },
+            &authority,
             &mut wallet,
         )?;
         Ok(())

@@ -2,7 +2,10 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
+use common::{
+    build_transfer, keypair_from_index, local_authority, unique31, unique_nullifier, wallet_for,
+    TransferSpec,
+};
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair};
 use zolana_transaction::{
     serialization::split::{Split, SplitEncode},
@@ -348,10 +351,16 @@ fn verify_sync(scenario: &Scenario, wallet: &Wallet, report: &SyncReport) {
 #[ignore]
 fn defi_trader_full_sync() {
     let scenario = build_scenario();
-    let mut wallet = Wallet::new(keypair_from_index(0), scenario.assets.clone()).unwrap();
+    let keypair = keypair_from_index(0);
+    let mut wallet = wallet_for(&keypair, scenario.assets.clone());
     let started = Instant::now();
     let report = wallet
-        .sync(&scenario.txs, 1i64, DEFAULT_TAG_WINDOW)
+        .sync(
+            &local_authority(&keypair),
+            &scenario.txs,
+            1i64,
+            DEFAULT_TAG_WINDOW,
+        )
         .unwrap();
     let elapsed = started.elapsed();
 
@@ -377,10 +386,16 @@ fn defi_trader_full_sync() {
 #[ignore]
 fn defi_trader_full_sync_parallel() {
     let scenario = build_scenario();
-    let mut wallet = Wallet::new(keypair_from_index(0), scenario.assets.clone()).unwrap();
+    let keypair = keypair_from_index(0);
+    let mut wallet = wallet_for(&keypair, scenario.assets.clone());
     let started = Instant::now();
     let report = wallet
-        .sync_parallel(&scenario.txs, 1, DEFAULT_TAG_WINDOW)
+        .sync_parallel(
+            &local_authority(&keypair),
+            &scenario.txs,
+            1,
+            DEFAULT_TAG_WINDOW,
+        )
         .unwrap();
     let elapsed = started.elapsed();
 

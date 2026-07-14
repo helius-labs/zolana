@@ -1,11 +1,27 @@
 mod common;
 
-use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
+use common::{
+    build_transfer, keypair_from_index, local_authority, unique31, unique_nullifier, wallet_for,
+    TransferSpec,
+};
 use zolana_transaction::{
-    AssetRegistry, PrivateTransactionDirection, PrivateTransactionKind, Wallet, SOL_MINT,
+    AssetRegistry, PrivateTransactionDirection, PrivateTransactionKind, TransactionError, SOL_MINT,
 };
 
 const WINDOW: u64 = 8;
+
+#[test]
+fn sync_rejects_an_authority_for_another_wallet() {
+    let alice = keypair_from_index(0);
+    let bob = keypair_from_index(1);
+    let mut wallet = wallet_for(&alice, AssetRegistry::default());
+
+    let error = wallet
+        .sync(&local_authority(&bob), &[], 1, WINDOW)
+        .expect_err("mismatched authority");
+
+    assert_eq!(error, TransactionError::WalletAuthorityMismatch);
+}
 
 #[test]
 fn sync_records_inbound_and_outbound_transfer_history() {
@@ -32,9 +48,14 @@ fn sync_records_inbound_and_outbound_transfer_history() {
         },
     );
 
-    let mut alice_wallet = Wallet::new(alice.clone(), assets.clone()).unwrap();
+    let mut alice_wallet = wallet_for(&alice, assets.clone());
     alice_wallet
-        .sync(std::slice::from_ref(&bootstrap_tx), 1, WINDOW)
+        .sync(
+            &local_authority(&alice),
+            std::slice::from_ref(&bootstrap_tx),
+            1,
+            WINDOW,
+        )
         .unwrap();
     assert_eq!(alice_wallet.private_transactions().len(), 1);
     let inbound = &alice_wallet.private_transactions()[0];
@@ -73,7 +94,12 @@ fn sync_records_inbound_and_outbound_transfer_history() {
     );
 
     alice_wallet
-        .sync(&[bootstrap_tx, outbound_tx], 2, WINDOW)
+        .sync(
+            &local_authority(&alice),
+            &[bootstrap_tx, outbound_tx],
+            2,
+            WINDOW,
+        )
         .unwrap();
     assert_eq!(alice_wallet.private_transactions().len(), 2);
 
@@ -114,11 +140,20 @@ fn sync_parallel_records_same_history_as_sync() {
         },
     );
 
-    let mut serial = Wallet::new(alice.clone(), assets.clone()).unwrap();
-    serial.sync(&[tx.clone()], 1, WINDOW).unwrap();
+    let mut serial = wallet_for(&alice, assets.clone());
+    serial
+        .sync(
+            &local_authority(&alice),
+            std::slice::from_ref(&tx),
+            1,
+            WINDOW,
+        )
+        .unwrap();
 
-    let mut parallel = Wallet::new(alice, assets.clone()).unwrap();
-    parallel.sync_parallel(&[tx], 1, WINDOW).unwrap();
+    let mut parallel = wallet_for(&alice, assets.clone());
+    parallel
+        .sync_parallel(&local_authority(&alice), &[tx], 1, WINDOW)
+        .unwrap();
 
     assert_eq!(
         serial.private_transactions(),

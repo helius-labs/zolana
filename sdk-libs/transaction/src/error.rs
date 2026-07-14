@@ -102,6 +102,15 @@ pub enum TransactionError {
 
     #[error("keypair error: {0}")]
     Keypair(#[from] KeypairError),
+
+    #[error("wallet authority identity does not match the wallet")]
+    WalletAuthorityMismatch,
+
+    #[error("wallet authority did not provide its current viewing key")]
+    MissingCurrentViewingKey,
+
+    #[error("wallet authority error: {0}")]
+    Authority(String),
 }
 
 impl From<wincode::WriteError> for TransactionError {

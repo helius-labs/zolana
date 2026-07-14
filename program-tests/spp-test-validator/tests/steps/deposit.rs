@@ -14,7 +14,7 @@ use zolana_test_utils::{
         assert_deposit, assert_spl_deposit, fetch_account, DepositAssertArgs, SplDepositAssertArgs,
     },
 };
-use zolana_transaction::{Wallet, SOL_MINT};
+use zolana_transaction::{Address, LocalWalletAuthority, Wallet, SOL_MINT};
 
 use crate::{
     actor::{DepositRecord, SplDepositAccounts},
@@ -133,7 +133,8 @@ impl LifecycleWorld {
         let event = deposit_output_from_event(indexed)
             .map_err(|e| anyhow!("proofless output decode failed: {e:?}"))?;
 
-        let mut wallet = Wallet::new(keypair, self.assets.clone())?;
+        let mut wallet = Wallet::new(keypair.shielded_address()?, self.assets.clone())?;
+        let authority = LocalWalletAuthority::new(Address::default(), &keypair);
         match &record.spl {
             None => assert_deposit(
                 &self.rpc,
@@ -147,6 +148,7 @@ impl LifecycleWorld {
                     signature: record.signature,
                     tree_before: &record.tree_before,
                 },
+                &authority,
                 &mut wallet,
             )?,
             Some(spl) => assert_spl_deposit(
@@ -165,6 +167,7 @@ impl LifecycleWorld {
                     vault_before: &spl.vault_before,
                     user_token_before: &spl.user_token_before,
                 },
+                &authority,
                 &mut wallet,
             )?,
         }

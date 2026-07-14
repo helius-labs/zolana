@@ -12,7 +12,7 @@ use zolana_interface::{
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::litesvm_assert_deposit;
-use zolana_transaction::{AssetRegistry, Wallet};
+use zolana_transaction::{AssetRegistry, LocalWalletAuthority, Wallet};
 
 use crate::{common::assert_pool_error, ShieldedPoolWorld};
 
@@ -64,13 +64,14 @@ fn assert_invalid_amount_shape(world: &mut ShieldedPoolWorld, data: &DepositIxDa
 #[when(expr = "the depositor shields {int} lamports to a fresh recipient")]
 fn shield_sol(world: &mut ShieldedPoolWorld, amount: u64) {
     let tree = world.tree().pubkey();
+    let keypair = ShieldedKeypair::new().expect("recipient keypair");
     let mut recipient = Wallet::new(
-        ShieldedKeypair::new().expect("recipient keypair"),
+        keypair.shielded_address().expect("shielded address"),
         AssetRegistry::default(),
     )
     .expect("wallet");
     let seed = [3u8; BLINDING_LEN];
-    let mut data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
+    let mut data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient.identity, &seed, 0)
         .expect("wallet deposit data");
     // Exercise the proofless memo end-to-end: instruction data -> emitted event
     // -> recipient wallet discovery.
@@ -90,6 +91,7 @@ fn shield_sol(world: &mut ShieldedPoolWorld, amount: u64) {
         amount,
         [0u8; 32],
         root_before,
+        &LocalWalletAuthority::new(Pubkey::default(), &keypair),
         &mut recipient,
     );
     world.last_proofless_view = Some(event);

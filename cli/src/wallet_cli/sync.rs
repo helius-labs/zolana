@@ -6,7 +6,7 @@ use zolana_client::{sync_wallet as client_sync_wallet, Rpc, ZolanaIndexer};
 use zolana_transaction::Wallet;
 
 use super::{
-    material::{clone_keypair, load_sender_from_resolved_sync, WalletMaterial},
+    material::{load_sender_from_resolved_sync, WalletMaterial},
     resolve::resolve_sync_with_config,
     INDEXER_POLL, INDEXER_TIMEOUT,
 };
@@ -39,8 +39,8 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let material = load_sender_from_resolved_sync(&sync)?;
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
-    let mut wallet = Wallet::new(clone_keypair(&material.keypair)?, assets)?;
-    let report = client_sync_wallet(&mut wallet, &indexer)?;
+    let mut wallet = Wallet::new(material.keypair.shielded_address()?, assets)?;
+    let report = client_sync_wallet(&mut wallet, &material, &indexer)?;
     Ok(SyncContext {
         material,
         wallet,

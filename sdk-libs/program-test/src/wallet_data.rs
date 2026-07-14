@@ -1,6 +1,6 @@
 use zolana_interface::instruction::DepositIxData;
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_transaction::{derive_blinding, TransactionError, Wallet};
+use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedAddress};
+use zolana_transaction::{derive_blinding, TransactionError};
 
 use crate::{ProgramTestError, ZolanaProgramTest};
 
@@ -11,17 +11,14 @@ pub(crate) struct WalletShieldFields {
 }
 
 pub(crate) fn wallet_shield_fields(
-    recipient: &Wallet,
+    recipient: &ShieldedAddress,
     blinding_seed: &[u8; BLINDING_LEN],
     position: u8,
 ) -> Result<WalletShieldFields, ProgramTestError> {
     let blinding = derive_blinding(blinding_seed, position);
-    let owner = recipient
-        .keypair
-        .owner_hash()
-        .map_err(TransactionError::from)?;
+    let owner = recipient.owner_hash().map_err(TransactionError::from)?;
     Ok(WalletShieldFields {
-        view_tag: recipient.keypair.recipient_bootstrap_view_tag(),
+        view_tag: recipient.viewing_pubkey.x(),
         owner,
         blinding,
     })
@@ -60,7 +57,7 @@ impl ZolanaProgramTest {
 
     pub fn wallet_sol_shield_data(
         lamports: u64,
-        recipient: &Wallet,
+        recipient: &ShieldedAddress,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
     ) -> Result<DepositIxData, ProgramTestError> {
@@ -77,7 +74,7 @@ impl ZolanaProgramTest {
 
     pub fn wallet_spl_shield_data(
         amount: u64,
-        recipient: &Wallet,
+        recipient: &ShieldedAddress,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
     ) -> Result<DepositIxData, ProgramTestError> {

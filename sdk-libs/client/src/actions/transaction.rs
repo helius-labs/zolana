@@ -527,7 +527,11 @@ mod tests {
         } else {
             AssetRegistry::new([(2, asset)]).expect("asset registry")
         };
-        let mut wallet = Wallet::new(keypair.clone(), registry).expect("wallet");
+        let mut wallet = Wallet::new(
+            keypair.shielded_address().expect("shielded address"),
+            registry,
+        )
+        .expect("wallet");
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset,

@@ -5,7 +5,7 @@ use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
 use zolana_interface::instruction::ZoneDepositIxData;
 use zolana_program_test::DepositOutput;
-use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use super::{
     assert_indexed_deposit_utxo, fetch_account, state_root_from, to_address, wait_for_indexed_utxo,
@@ -24,10 +24,11 @@ pub struct ZoneDepositAssertArgs<'a> {
 }
 
 #[track_caller]
-pub fn assert_zone_deposit<R: Rpc, I: Rpc>(
+pub fn assert_zone_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
     rpc: &R,
     indexer: &I,
     args: ZoneDepositAssertArgs,
+    authority: &A,
     recipient: &mut Wallet,
 ) -> Result<(), ClientError> {
     let ZoneDepositAssertArgs {
@@ -77,6 +78,7 @@ pub fn assert_zone_deposit<R: Rpc, I: Rpc>(
     let before = recipient.utxos.len();
     recipient
         .sync(
+            authority,
             &[event.to_shielded_transaction(signature)],
             0,
             DEFAULT_TAG_WINDOW,

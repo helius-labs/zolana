@@ -12,15 +12,18 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    AnonymousRecipientSlot, ApprovalRequest, ClientError, ConfidentialRecipientSlot,
-    EncryptedTransfer, LocalWalletAuthority, P256Signature, SolanaRpc, SyncWalletAuthority,
+    AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
+    LocalWalletAuthority, P256Signature, SolanaRpc, SyncWalletAuthority,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
     ViewingKey,
 };
-use zolana_transaction::serialization::{
-    anonymous::AnonymousTransferSenderPlaintext, confidential::TransferSenderPlaintext,
+use zolana_transaction::{
+    serialization::{
+        anonymous::AnonymousTransferSenderPlaintext, confidential::TransferSenderPlaintext,
+    },
+    Address, TransactionError,
 };
 
 use super::{
@@ -60,12 +63,16 @@ impl WalletMaterial {
 }
 
 impl SyncWalletAuthority for WalletMaterial {
-    fn solana_pubkey(&self) -> Pubkey {
-        self.owner_pubkey()
+    fn solana_pubkey(&self) -> Address {
+        Address::new_from_array(self.owner_pubkey().to_bytes())
     }
 
-    fn shielded_address(&self) -> std::result::Result<ShieldedAddress, ClientError> {
+    fn shielded_address(&self) -> std::result::Result<ShieldedAddress, TransactionError> {
         Ok(self.keypair.shielded_address()?)
+    }
+
+    fn viewing_keys(&self) -> std::result::Result<Vec<ViewingKey>, TransactionError> {
+        Ok(vec![self.keypair.viewing_key.clone()])
     }
 
     fn encrypt_confidential_transfer(
@@ -74,9 +81,9 @@ impl SyncWalletAuthority for WalletMaterial {
         sender_tag: ViewTag,
         sender: &TransferSenderPlaintext,
         recipients: &[ConfidentialRecipientSlot],
-    ) -> std::result::Result<EncryptedTransfer, ClientError> {
+    ) -> std::result::Result<EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_confidential_transfer(
-            &LocalWalletAuthority::new(self.owner_pubkey(), &self.keypair),
+            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             sender_tag,
             sender,
@@ -90,9 +97,9 @@ impl SyncWalletAuthority for WalletMaterial {
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> std::result::Result<EncryptedTransfer, ClientError> {
+    ) -> std::result::Result<EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
-            &LocalWalletAuthority::new(self.owner_pubkey(), &self.keypair),
+            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             sender_view_tag,
             sender,
@@ -103,22 +110,22 @@ impl SyncWalletAuthority for WalletMaterial {
     fn request_user_approval(
         &self,
         request: ApprovalRequest,
-    ) -> std::result::Result<(), ClientError> {
-        debug_assert_eq!(request.solana_pubkey, self.owner_pubkey());
+    ) -> std::result::Result<(), TransactionError> {
+        debug_assert_eq!(request.solana_pubkey, self.solana_pubkey());
         Ok(())
     }
 
     fn sign_p256(
         &self,
         message_hash: &[u8; 32],
-    ) -> std::result::Result<P256Signature, ClientError> {
+    ) -> std::result::Result<P256Signature, TransactionError> {
         SyncWalletAuthority::sign_p256(
-            &LocalWalletAuthority::new(self.owner_pubkey(), &self.keypair),
+            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             message_hash,
         )
     }
 
-    fn spend_nullifier_key(&self) -> std::result::Result<NullifierKey, ClientError> {
+    fn spend_nullifier_key(&self) -> std::result::Result<NullifierKey, TransactionError> {
         Ok(self.keypair.nullifier_key.clone())
     }
 }
@@ -241,17 +248,6 @@ pub(super) fn write_json_secret<T: Serialize>(path: &Path, value: &T) -> Result<
             .with_context(|| format!("failed to set permissions on {}", path.display()))?;
     }
     Ok(())
-}
-
-pub(super) fn clone_keypair(keypair: &ShieldedKeypair) -> Result<ShieldedKeypair> {
-    let mut signing = [0u8; 32];
-    signing.copy_from_slice(keypair.signing_key.secret_bytes().as_slice());
-    let mut viewing = [0u8; 32];
-    viewing.copy_from_slice(keypair.viewing_key.secret_bytes().as_slice());
-    Ok(ShieldedKeypair::from_keys(
-        SigningKey::from_bytes(&signing)?,
-        ViewingKey::from_bytes(&viewing)?,
-    )?)
 }
 
 #[cfg(test)]

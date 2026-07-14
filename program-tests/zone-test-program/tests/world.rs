@@ -34,7 +34,8 @@ use zolana_test_utils::{
 };
 use zolana_transaction::{
     serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
-    AssetRegistry, Data, ShieldedTransaction, Utxo, WalletUtxo, DEFAULT_TAG_WINDOW,
+    AssetRegistry, Data, LocalWalletAuthority, ShieldedTransaction, Utxo, WalletUtxo,
+    DEFAULT_TAG_WINDOW,
 };
 
 use crate::{
@@ -268,7 +269,10 @@ impl ZoneLifecycleWorld {
         self.ensure_actor(name)?;
         let indexed = self.indexed.clone();
         let actor = self.actor_mut(name);
-        actor.wallet.sync(&indexed, 0, DEFAULT_TAG_WINDOW)?;
+        let authority = LocalWalletAuthority::new(Address::default(), &actor.keypair);
+        actor
+            .wallet
+            .sync(&authority, &indexed, 0, DEFAULT_TAG_WINDOW)?;
 
         let nullifier_pk = actor.keypair.nullifier_key.pubkey()?;
         let mut spendable_hashes: Vec<[u8; 32]> = Vec::new();
@@ -306,7 +310,10 @@ impl ZoneLifecycleWorld {
         self.ensure_actor(name)?;
         let indexed = self.indexed.clone();
         let actor = self.actor_mut(name);
-        actor.wallet.sync(&indexed, 0, DEFAULT_TAG_WINDOW)?;
+        let authority = LocalWalletAuthority::new(Address::default(), &actor.keypair);
+        actor
+            .wallet
+            .sync(&authority, &indexed, 0, DEFAULT_TAG_WINDOW)?;
         assert!(
             actor.wallet.utxos.is_empty(),
             "{name} should not decrypt any UTXOs but found {}",
