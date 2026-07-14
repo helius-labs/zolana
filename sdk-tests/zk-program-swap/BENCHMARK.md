@@ -28,7 +28,7 @@ Regenerate with `just bench-swap`.
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total |
 | ------------------ | ------------------ | ----- |
-|              59 ms |              16 ms | 75 ms |
+|              59 ms |              15 ms | 75 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx | v0 + ALT Tx |
@@ -46,7 +46,7 @@ Regenerate with `just bench-swap`.
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             109 ms |              16 ms | 126 ms |
+|             107 ms |              17 ms | 125 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
@@ -65,7 +65,7 @@ Regenerate with `just bench-swap`.
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             110 ms |              26 ms | 136 ms |
+|             107 ms |              24 ms | 131 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
@@ -77,14 +77,14 @@ Regenerate with `just bench-swap`.
 | Function                                       |   Total CU |     Net CU |
 | ---------------------------------------------- | ---------- | ---------- |
 | `fill_verifiable_encryption_public_input_hash` |      3,721 |      3,721 |
-| `verify_fill_verifiable_encryption_zk_proof`   |    224,948 |    224,948 |
+| `verify_fill_verifiable_encryption_zk_proof`   |    224,978 |    224,978 |
 | `cpi_spp_transact_signed`                      |    164,702 |    164,702 |
-| `process_fill_verifiable_encryption`           |    394,492 |      1,121 |
+| `process_fill_verifiable_encryption`           |    394,522 |      1,121 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             106 ms |             124 ms | 230 ms |
+|             108 ms |             124 ms | 232 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
