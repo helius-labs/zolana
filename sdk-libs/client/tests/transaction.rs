@@ -65,10 +65,44 @@ fn registry() -> AssetRegistry {
     AssetRegistry::new([]).expect("registry")
 }
 
+fn wallet_with_p256_balance(sender: &ShieldedKeypair, amount: u64) -> Wallet {
+    let mut rng = rand::thread_rng();
+    let spend = p256_input(sender, amount, &mut rng);
+    let nullifier_pk = spend.nullifier_key.pubkey().expect("nullifier pubkey");
+    let hash = spend
+        .utxo
+        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+        .expect("utxo hash");
+    let nullifier = spend
+        .nullifier_key
+        .nullifier(&hash, &spend.utxo.blinding)
+        .expect("nullifier");
+    let mut wallet = Wallet::new(
+        sender.shielded_address().expect("shielded address"),
+        registry(),
+    )
+    .expect("wallet");
+    wallet.utxos.push(WalletUtxo {
+        utxo: spend.utxo,
+        output_context: OutputContext {
+            hash,
+            tree: Address::default(),
+            leaf_index: 0,
+        },
+        nullifier,
+        data_hash: None,
+        zone_data_hash: None,
+        spent: false,
+    });
+    wallet
+}
+
 struct AsyncTestAuthority {
     keypair: ShieldedKeypair,
     approvals: AtomicUsize,
     p256_signatures: AtomicUsize,
+    nullifier_override: Option<NullifierKey>,
+    corrupt_signature: bool,
 }
 
 #[async_trait::async_trait]
@@ -132,13 +166,20 @@ impl WalletAuthority for AsyncTestAuthority {
 
     async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
         self.p256_signatures.fetch_add(1, Ordering::SeqCst);
-        SyncWalletAuthority::sign_p256(
+        let mut signature = SyncWalletAuthority::sign_p256(
             &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             message_hash,
-        )
+        )?;
+        if self.corrupt_signature {
+            signature.sig_r[0] ^= 1;
+        }
+        Ok(signature)
     }
 
     async fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
+        if let Some(nullifier_key) = &self.nullifier_override {
+            return Ok(nullifier_key.clone());
+        }
         SyncWalletAuthority::spend_nullifier_key(&LocalWalletAuthority::new(
             self.solana_pubkey(),
             &self.keypair,
@@ -768,40 +809,15 @@ fn input_commitments_include_data_and_zone_hashes() {
 
 #[test]
 fn async_authority_signs_p256_and_invokes_approval() {
-    let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
     let authority = AsyncTestAuthority {
         keypair: sender.clone(),
         approvals: AtomicUsize::new(0),
         p256_signatures: AtomicUsize::new(0),
+        nullifier_override: None,
+        corrupt_signature: false,
     };
-    let spend = p256_input(&sender, 100, &mut rng);
-    let nullifier_pk = spend.nullifier_key.pubkey().expect("nullifier pubkey");
-    let hash = spend
-        .utxo
-        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
-        .expect("utxo hash");
-    let nullifier = spend
-        .nullifier_key
-        .nullifier(&hash, &spend.utxo.blinding)
-        .expect("nullifier");
-    let mut wallet = Wallet::new(
-        sender.shielded_address().expect("shielded address"),
-        registry(),
-    )
-    .expect("wallet");
-    wallet.utxos.push(WalletUtxo {
-        utxo: spend.utxo,
-        output_context: OutputContext {
-            hash,
-            tree: Address::default(),
-            leaf_index: 0,
-        },
-        nullifier,
-        data_hash: None,
-        zone_data_hash: None,
-        spent: false,
-    });
+    let wallet = wallet_with_p256_balance(&sender, 100);
     let unsigned = create_withdrawal(WithdrawalParams {
         wallet: &wallet,
         payer: Address::default(),
@@ -831,6 +847,113 @@ fn async_authority_signs_p256_and_invokes_approval() {
     verifying_key
         .verify_prehash(&message_hash, &signature)
         .expect("async authority signature verifies");
+}
+
+#[test]
+fn async_signing_rejects_authority_for_another_wallet() {
+    let sender = ShieldedKeypair::new().expect("sender");
+    let other = ShieldedKeypair::new().expect("other");
+    let authority = AsyncTestAuthority {
+        keypair: other,
+        approvals: AtomicUsize::new(0),
+        p256_signatures: AtomicUsize::new(0),
+        nullifier_override: None,
+        corrupt_signature: false,
+    };
+    let wallet = wallet_with_p256_balance(&sender, 100);
+    let unsigned = create_withdrawal(WithdrawalParams {
+        wallet: &wallet,
+        payer: Address::default(),
+        recipient: Pubkey::new_unique(),
+        asset: SOL_MINT,
+        amount: 60,
+    })
+    .expect("created")
+    .transaction;
+
+    let error =
+        match futures::executor::block_on(sign_shielded_transaction(unsigned, &wallet, &authority))
+        {
+            Err(error) => error,
+            Ok(_) => panic!("authority identity must match the wallet"),
+        };
+
+    assert!(matches!(
+        error,
+        ClientError::Transaction(TransactionError::WalletAuthorityMismatch)
+    ));
+    assert_eq!(authority.approvals.load(Ordering::SeqCst), 0);
+    assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn async_signing_rejects_mismatched_nullifier_material() {
+    let sender = ShieldedKeypair::new().expect("sender");
+    let other = ShieldedKeypair::new().expect("other");
+    let authority = AsyncTestAuthority {
+        keypair: sender.clone(),
+        approvals: AtomicUsize::new(0),
+        p256_signatures: AtomicUsize::new(0),
+        nullifier_override: Some(other.nullifier_key),
+        corrupt_signature: false,
+    };
+    let wallet = wallet_with_p256_balance(&sender, 100);
+    let unsigned = create_withdrawal(WithdrawalParams {
+        wallet: &wallet,
+        payer: Address::default(),
+        recipient: Pubkey::new_unique(),
+        asset: SOL_MINT,
+        amount: 60,
+    })
+    .expect("created")
+    .transaction;
+
+    let error =
+        match futures::executor::block_on(sign_shielded_transaction(unsigned, &wallet, &authority))
+        {
+            Err(error) => error,
+            Ok(_) => panic!("nullifier material must match the wallet"),
+        };
+
+    assert!(matches!(
+        error,
+        ClientError::Transaction(TransactionError::WalletAuthorityMismatch)
+    ));
+    assert_eq!(authority.approvals.load(Ordering::SeqCst), 0);
+    assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn async_signing_verifies_remote_p256_signatures() {
+    let sender = ShieldedKeypair::new().expect("sender");
+    let authority = AsyncTestAuthority {
+        keypair: sender.clone(),
+        approvals: AtomicUsize::new(0),
+        p256_signatures: AtomicUsize::new(0),
+        nullifier_override: None,
+        corrupt_signature: true,
+    };
+    let wallet = wallet_with_p256_balance(&sender, 100);
+    let unsigned = create_withdrawal(WithdrawalParams {
+        wallet: &wallet,
+        payer: Address::default(),
+        recipient: Pubkey::new_unique(),
+        asset: SOL_MINT,
+        amount: 60,
+    })
+    .expect("created")
+    .transaction;
+
+    let error =
+        match futures::executor::block_on(sign_shielded_transaction(unsigned, &wallet, &authority))
+        {
+            Err(error) => error,
+            Ok(_) => panic!("invalid P256 signature must be rejected"),
+        };
+
+    assert!(matches!(error, ClientError::P256Signature(_)));
+    assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
+    assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 1);
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use p256::ecdsa::{signature::hazmat::PrehashVerifier, Signature as EcdsaSignature, VerifyingKey};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
@@ -237,9 +238,8 @@ pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>
     fee_payer: Pubkey,
 ) -> Result<SolanaTransaction, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
-    let (blockhash, _) = client.rpc().get_latest_blockhash().await?;
     client
-        .finish_submission_unsigned(&shielded, fee_payer, blockhash)
+        .finish_submission_unsigned(&shielded, fee_payer)
         .await
 }
 
@@ -251,11 +251,11 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     client: &ZolanaClient<R>,
     fee_payer: &dyn Signer,
 ) -> Result<SolanaTransaction, ClientError> {
-    let blockhash = client.rpc().get_latest_blockhash().await?.0;
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let mut native = client
-        .finish_submission_unsigned(&shielded, fee_payer.pubkey(), blockhash)
+        .finish_submission_unsigned(&shielded, fee_payer.pubkey())
         .await?;
+    let blockhash = native.message.recent_blockhash;
     native
         .try_sign(&[fee_payer], blockhash)
         .map_err(|err| ClientError::SolanaTransactionSigning(err.to_string()))?;
@@ -271,8 +271,7 @@ pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     fee_payer: Pubkey,
 ) -> Result<SolanaTransaction, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
-    let (blockhash, _) = client.rpc().get_latest_blockhash()?;
-    client.finish_submission_unsigned_sync(&shielded, fee_payer, blockhash)
+    client.finish_submission_unsigned_sync(&shielded, fee_payer)
 }
 
 #[cfg(feature = "indexer-api")]
@@ -284,9 +283,8 @@ pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     fee_payer: &dyn Signer,
 ) -> Result<SolanaTransaction, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
-    let (blockhash, _) = client.rpc().get_latest_blockhash()?;
-    let mut native =
-        client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey(), blockhash)?;
+    let mut native = client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey())?;
+    let blockhash = native.message.recent_blockhash;
     native
         .try_sign(&[fee_payer], blockhash)
         .map_err(|err| ClientError::SolanaTransactionSigning(err.to_string()))?;
@@ -301,7 +299,13 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
 ) -> Result<SignedPrivateTransaction, ClientError> {
     validate_unsigned_inputs(wallet, transaction.tree, &transaction.inputs)?;
     let address = authority.shielded_address().await?;
+    if address != wallet.identity {
+        return Err(zolana_transaction::TransactionError::WalletAuthorityMismatch.into());
+    }
     let nullifier_key = authority.spend_nullifier_key().await?;
+    if nullifier_key.pubkey()? != address.nullifier_pubkey {
+        return Err(zolana_transaction::TransactionError::WalletAuthorityMismatch.into());
+    }
     let inputs = transaction
         .inputs
         .into_iter()
@@ -375,12 +379,30 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
     if address.signing_pubkey.signature_type()? == SignatureType::P256 {
         let message_hash = proof_inputs.message_hash()?;
         let sig = authority.sign_p256(&message_hash).await?;
+        if sig.pubkey != address.signing_pubkey.as_p256()? {
+            return Err(zolana_transaction::TransactionError::WalletAuthorityMismatch.into());
+        }
         let mut bytes = [0u8; 64];
         bytes[..32].copy_from_slice(&sig.sig_r);
         bytes[32..].copy_from_slice(&sig.sig_s);
+        verify_p256_signature(&sig.pubkey, &message_hash, &bytes)?;
         proof_inputs.p256_signature = Some(bytes);
     }
     Ok(proof_inputs)
+}
+
+fn verify_p256_signature(
+    pubkey: &zolana_keypair::P256Pubkey,
+    message_hash: &[u8; 32],
+    signature: &[u8; 64],
+) -> Result<(), ClientError> {
+    let verifying_key = VerifyingKey::from_sec1_bytes(pubkey.as_bytes())
+        .map_err(|err| ClientError::P256Signature(err.to_string()))?;
+    let signature = EcdsaSignature::from_slice(signature)
+        .map_err(|err| ClientError::P256Signature(err.to_string()))?;
+    verifying_key
+        .verify_prehash(message_hash, &signature)
+        .map_err(|err| ClientError::P256Signature(err.to_string()))
 }
 
 fn withdrawal_target(
