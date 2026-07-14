@@ -191,7 +191,6 @@ impl<R: Rpc> ZolanaClient<R> {
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
-        recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
@@ -203,6 +202,7 @@ impl<R: Rpc> ZolanaClient<R> {
             ProverInputs::Eddsa(inputs) => self.blocking_prover().prove_transfer(inputs)?,
         };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
+        let recent_blockhash = self.rpc.get_latest_blockhash()?.0;
         build_unsigned_solana_transaction(
             self.cu_limit,
             self.cu_price_micro_lamports,
@@ -257,7 +257,6 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
-        recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
@@ -270,6 +269,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             ProverInputs::Eddsa(inputs) => self.async_prover.prove_transfer(inputs).await?,
         };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
+        let recent_blockhash = self.rpc.get_latest_blockhash().await?.0;
         build_unsigned_solana_transaction(
             self.cu_limit,
             self.cu_price_micro_lamports,
@@ -879,13 +879,24 @@ fn wait_for_indexed_transaction(
     }
     let started = Instant::now();
     loop {
-        let response = indexer.get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50))?;
-        if response
-            .transactions
-            .iter()
-            .any(|item| item.tx_signature == signature)
-        {
-            return Ok(());
+        let mut cursor = None;
+        loop {
+            let response = indexer.get_shielded_transactions_by_tags(
+                tags.to_vec(),
+                cursor.clone(),
+                Some(50),
+            )?;
+            if response
+                .transactions
+                .iter()
+                .any(|item| item.tx_signature == signature)
+            {
+                return Ok(());
+            }
+            match response.next_cursor {
+                Some(next) if cursor.as_ref() != Some(&next) => cursor = Some(next),
+                _ => break,
+            }
         }
         if started.elapsed() >= config.timeout {
             return Err(ClientError::IndexerTimeout);
@@ -907,15 +918,22 @@ async fn wait_for_indexed_transaction_async(
     }
     let started = Instant::now();
     loop {
-        let response = indexer
-            .get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50))
-            .await?;
-        if response
-            .transactions
-            .iter()
-            .any(|item| item.tx_signature == signature)
-        {
-            return Ok(());
+        let mut cursor = None;
+        loop {
+            let response = indexer
+                .get_shielded_transactions_by_tags(tags.to_vec(), cursor.clone(), Some(50))
+                .await?;
+            if response
+                .transactions
+                .iter()
+                .any(|item| item.tx_signature == signature)
+            {
+                return Ok(());
+            }
+            match response.next_cursor {
+                Some(next) if cursor.as_ref() != Some(&next) => cursor = Some(next),
+                _ => break,
+            }
         }
         if started.elapsed() >= config.timeout {
             return Err(ClientError::IndexerTimeout);
@@ -1158,6 +1176,73 @@ mod tests {
         let _ = server.requests();
 
         assert!(matches!(error, ClientError::IndexerTimeout));
+    }
+
+    #[test]
+    fn indexed_transaction_poll_paginates_before_waiting() {
+        let signature = Signature::from([10u8; 64]);
+        let server = MockIndexerServer::respond_with(vec![
+            rpc_result(json!({
+                "context": { "slot": 12 },
+                "transactions": [],
+                "next_cursor": "AQ==",
+            })),
+            indexed_transaction_response(signature),
+        ]);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        wait_for_indexed_transaction(
+            &indexer,
+            &[[1u8; 32]],
+            signature,
+            IndexerPollConfig {
+                timeout: Duration::from_millis(50),
+                poll_interval: Duration::ZERO,
+            },
+        )
+        .expect("signature on the second page");
+
+        assert_eq!(
+            server.requests(),
+            [
+                "/get_shielded_transactions_by_tags",
+                "/get_shielded_transactions_by_tags",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn async_indexed_transaction_poll_paginates_before_waiting() {
+        let signature = Signature::from([11u8; 64]);
+        let server = MockIndexerServer::respond_with(vec![
+            rpc_result(json!({
+                "context": { "slot": 12 },
+                "transactions": [],
+                "next_cursor": "Ag==",
+            })),
+            indexed_transaction_response(signature),
+        ]);
+        let indexer = AsyncZolanaIndexer::new(server.url());
+
+        wait_for_indexed_transaction_async(
+            &indexer,
+            &[[2u8; 32]],
+            signature,
+            IndexerPollConfig {
+                timeout: Duration::from_millis(50),
+                poll_interval: Duration::ZERO,
+            },
+        )
+        .await
+        .expect("signature on the second page");
+
+        assert_eq!(
+            server.requests(),
+            [
+                "/get_shielded_transactions_by_tags",
+                "/get_shielded_transactions_by_tags",
+            ]
+        );
     }
 
     fn state_proof(tree: Address, leaf: [u8; 32]) -> MerkleProof {
