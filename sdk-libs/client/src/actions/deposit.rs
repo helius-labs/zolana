@@ -3,9 +3,11 @@
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
+use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use solana_transaction::Transaction as SolanaTransaction;
 use zolana_interface::{
     instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
     pda, SPL_TOKEN_PROGRAM_ID,
@@ -13,7 +15,10 @@ use zolana_interface::{
 use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{owner_utxo_hash, utxo_hash, SOL_MINT};
 
-use crate::{error::ClientError, rpc::Rpc};
+use crate::{
+    error::ClientError,
+    rpc::{AsyncRpc, Rpc},
+};
 
 /// Prepared direct proofless SOL shield.
 ///
@@ -73,6 +78,28 @@ impl Deposit {
         deposit_instruction(tree, depositor, self.spl, &self.data)
     }
 
+    /// Build an unsigned deposit transaction for one or more external signers.
+    pub async fn build_transaction<R: AsyncRpc>(
+        &self,
+        rpc: &R,
+        payer: Pubkey,
+        tree: Pubkey,
+        depositor: Pubkey,
+    ) -> Result<SolanaTransaction, ClientError> {
+        build_deposit_transaction(rpc, payer, tree, depositor, self).await
+    }
+
+    /// Blocking adapter for building an unsigned deposit transaction.
+    pub fn build_transaction_sync<R: Rpc>(
+        &self,
+        rpc: &R,
+        payer: Pubkey,
+        tree: Pubkey,
+        depositor: Pubkey,
+    ) -> Result<SolanaTransaction, ClientError> {
+        build_deposit_transaction_sync(rpc, payer, tree, depositor, self)
+    }
+
     pub fn send<R: Rpc>(
         &self,
         rpc: &R,
@@ -90,6 +117,36 @@ impl Deposit {
 
 pub fn create_deposit(request: DepositParams<'_>) -> Result<Deposit, ClientError> {
     Deposit::new(request)
+}
+
+pub async fn build_deposit_transaction<R: AsyncRpc>(
+    rpc: &R,
+    payer: Pubkey,
+    tree: Pubkey,
+    depositor: Pubkey,
+    deposit: &Deposit,
+) -> Result<SolanaTransaction, ClientError> {
+    let (blockhash, _) = rpc.get_latest_blockhash().await?;
+    Ok(unsigned_deposit_transaction(
+        payer,
+        deposit.instruction(tree, depositor),
+        blockhash,
+    ))
+}
+
+pub fn build_deposit_transaction_sync<R: Rpc>(
+    rpc: &R,
+    payer: Pubkey,
+    tree: Pubkey,
+    depositor: Pubkey,
+    deposit: &Deposit,
+) -> Result<SolanaTransaction, ClientError> {
+    let (blockhash, _) = rpc.get_latest_blockhash()?;
+    Ok(unsigned_deposit_transaction(
+        payer,
+        deposit.instruction(tree, depositor),
+        blockhash,
+    ))
 }
 
 /// Build and send a direct (non-zone) proofless shield: a public deposit
@@ -135,6 +192,16 @@ fn deposit_instruction(
     .instruction()
 }
 
+fn unsigned_deposit_transaction(
+    payer: Pubkey,
+    instruction: Instruction,
+    blockhash: solana_hash::Hash,
+) -> SolanaTransaction {
+    let mut message = Message::new(&[instruction], Some(&payer));
+    message.recent_blockhash = blockhash;
+    SolanaTransaction::new_unsigned(message)
+}
+
 fn spl_accounts(
     asset: Address,
     spl_token_account: Option<Pubkey>,
@@ -178,6 +245,15 @@ mod tests {
         fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
             *self.sent.borrow_mut() = Some(transaction.clone());
             Ok(Signature::default())
+        }
+    }
+
+    struct AsyncMockRpc;
+
+    #[async_trait::async_trait]
+    impl AsyncRpc for AsyncMockRpc {
+        async fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
+            Ok((Hash::new_from_array([7u8; 32]), 1))
         }
     }
 
@@ -235,6 +311,33 @@ mod tests {
         assert_ne!(prepared.data.blinding, [0u8; 31]);
         assert_ne!(prepared.data.owner, [0u8; 32]);
         assert_ne!(prepared.utxo_hash, [0u8; 32]);
+    }
+
+    #[tokio::test]
+    async fn deposit_builder_returns_sendable_unsigned_transaction() {
+        let recipient = ShieldedKeypair::new().expect("recipient");
+        let prepared = create_deposit(DepositParams {
+            recipient: &recipient.shielded_address().expect("shielded address"),
+            asset: SOL_MINT,
+            amount: 1_000,
+            spl_token_account: None,
+            memo: None,
+        })
+        .expect("prepared deposit");
+        let payer = Pubkey::new_unique();
+        let tree = Pubkey::new_unique();
+        let future = prepared.build_transaction(&AsyncMockRpc, payer, tree, payer);
+        fn assert_send<T: Send>(value: T) -> T {
+            value
+        }
+        let transaction = assert_send(future).await.expect("unsigned deposit");
+
+        assert_eq!(transaction.message.account_keys[0], payer);
+        assert_eq!(
+            transaction.message.recent_blockhash,
+            Hash::new_from_array([7u8; 32])
+        );
+        assert_eq!(transaction.signatures, vec![Signature::default()]);
     }
 
     #[test]

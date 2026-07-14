@@ -174,7 +174,7 @@ impl Rpc for ZolanaIndexer {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_encrypted_utxos_by_tags(
         &self,

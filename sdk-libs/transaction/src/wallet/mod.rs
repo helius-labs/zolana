@@ -7,7 +7,7 @@ mod sync;
 
 pub use authority::{
     AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
-    LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority,
+    LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
 pub use state::{
     AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,

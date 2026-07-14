@@ -35,6 +35,9 @@ pub enum ClientError {
     #[error("fee payer does not match the payer bound into the private transaction")]
     FeePayerMismatch,
 
+    #[error("native Solana transaction signing failed: {0}")]
+    SolanaTransactionSigning(String),
+
     #[error(
         "tree is required: wallet holds unspent asset {asset:?} across {tree_count} pool trees"
     )]

@@ -321,9 +321,9 @@ pub trait Rpc {
 }
 
 /// Async combined Solana RPC, SPP indexer, and proving surface for production clients.
-#[async_trait(?Send)]
+#[async_trait]
 #[allow(unused_variables)]
-pub trait AsyncRpc {
+pub trait AsyncRpc: Send + Sync {
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         Err(unsupported("get_account"))
     }

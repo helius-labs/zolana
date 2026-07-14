@@ -24,7 +24,7 @@ use crate::{
         DecodeCx, OwnerCx, UtxoSerialization,
     },
     utxo::Utxo,
-    AssetRegistry, EncryptedScheme, SyncWalletAuthority,
+    AssetRegistry, EncryptedScheme, SyncWalletAuthority, WalletSyncMaterial,
 };
 
 pub(super) struct TxIndex {
@@ -676,11 +676,22 @@ impl Wallet {
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
-        let identity = authority.shielded_address()?;
+        let material = authority.sync_material()?;
+        self.sync_with_material(&material, transactions, synced_at, window)
+    }
+
+    pub fn sync_with_material(
+        &mut self,
+        material: &WalletSyncMaterial,
+        transactions: &[ShieldedTransaction],
+        synced_at: i64,
+        window: u64,
+    ) -> Result<SyncReport, TransactionError> {
+        let identity = material.identity;
         if identity != self.identity {
             return Err(TransactionError::WalletAuthorityMismatch);
         }
-        let viewing_keys = authority.viewing_keys()?;
+        let viewing_keys = &material.viewing_keys;
         if viewing_keys
             .iter()
             .all(|key| key.pubkey() != identity.viewing_pubkey)
@@ -688,8 +699,7 @@ impl Wallet {
             return Err(TransactionError::MissingCurrentViewingKey);
         }
         self.ensure_viewing_key_entries(viewing_keys.iter().map(|key| key.pubkey()));
-        let nullifier_key = authority.spend_nullifier_key()?;
-        if nullifier_key.pubkey()? != identity.nullifier_pubkey {
+        if material.nullifier_key.pubkey()? != identity.nullifier_pubkey {
             return Err(TransactionError::WalletAuthorityMismatch);
         }
 
@@ -704,7 +714,7 @@ impl Wallet {
         let mut ctx = SyncCtx {
             owner: identity.signing_pubkey,
             nullifier_pk: identity.nullifier_pubkey,
-            nullifier_key: &nullifier_key,
+            nullifier_key: &material.nullifier_key,
             self_viewing_pubkey: identity.viewing_pubkey,
             utxos: &mut self.utxos,
             transactions: &mut self.transactions,

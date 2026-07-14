@@ -72,7 +72,7 @@ struct AsyncTestAuthority {
     p256_signatures: AtomicUsize,
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl WalletAuthority for AsyncTestAuthority {
     fn solana_pubkey(&self) -> Address {
         Address::default()
@@ -907,7 +907,7 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
         }
     }
 
-    #[async_trait::async_trait(?Send)]
+    #[async_trait::async_trait]
     impl AsyncRpc for RegistryAbsent {
         async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
             Rpc::get_account(self, address)

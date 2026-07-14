@@ -57,18 +57,38 @@ pub struct EncryptedTransfer {
     pub slots: Vec<OutputCiphertext>,
 }
 
+/// Ephemeral key material required by a wallet scan.
+///
+/// Remote authorities may override `sync_material` to return one consistent
+/// snapshot. Callers should keep this value inside the trusted wallet-service
+/// boundary and discard it after the scan.
+#[derive(Clone)]
+pub struct WalletSyncMaterial {
+    pub identity: ShieldedAddress,
+    pub viewing_keys: Vec<ViewingKey>,
+    pub nullifier_key: NullifierKey,
+}
+
 /// Owner-scoped key authority for scanning, decrypting, encrypting, and
 /// authorizing one wallet. It is the sole source of key material;
 /// [`crate::Wallet`] stores only public identity and indexed state and never
 /// retains secrets.
-#[async_trait(?Send)]
-pub trait WalletAuthority {
+#[async_trait]
+pub trait WalletAuthority: Send + Sync {
     fn solana_pubkey(&self) -> Address;
 
     async fn shielded_address(&self) -> Result<ShieldedAddress, TransactionError>;
 
     /// All current and historical viewing keys needed to scan this wallet.
     async fn viewing_keys(&self) -> Result<Vec<ViewingKey>, TransactionError>;
+
+    async fn sync_material(&self) -> Result<WalletSyncMaterial, TransactionError> {
+        Ok(WalletSyncMaterial {
+            identity: self.shielded_address().await?,
+            viewing_keys: self.viewing_keys().await?,
+            nullifier_key: self.spend_nullifier_key().await?,
+        })
+    }
 
     async fn encrypt_confidential_transfer(
         &self,
@@ -102,12 +122,20 @@ pub trait WalletAuthority {
 /// wallets, tests, and synchronous clients. The blanket implementation below
 /// exposes every blocking authority through [`WalletAuthority`]; this is not a
 /// separate least-privilege capability.
-pub trait SyncWalletAuthority {
+pub trait SyncWalletAuthority: Send + Sync {
     fn solana_pubkey(&self) -> Address;
 
     fn shielded_address(&self) -> Result<ShieldedAddress, TransactionError>;
 
     fn viewing_keys(&self) -> Result<Vec<ViewingKey>, TransactionError>;
+
+    fn sync_material(&self) -> Result<WalletSyncMaterial, TransactionError> {
+        Ok(WalletSyncMaterial {
+            identity: self.shielded_address()?,
+            viewing_keys: self.viewing_keys()?,
+            nullifier_key: self.spend_nullifier_key()?,
+        })
+    }
 
     fn encrypt_confidential_transfer(
         &self,
@@ -134,10 +162,10 @@ pub trait SyncWalletAuthority {
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<T> WalletAuthority for T
 where
-    T: SyncWalletAuthority + ?Sized,
+    T: SyncWalletAuthority + Send + Sync + ?Sized,
 {
     fn solana_pubkey(&self) -> Address {
         SyncWalletAuthority::solana_pubkey(self)
@@ -149,6 +177,10 @@ where
 
     async fn viewing_keys(&self) -> Result<Vec<ViewingKey>, TransactionError> {
         SyncWalletAuthority::viewing_keys(self)
+    }
+
+    async fn sync_material(&self) -> Result<WalletSyncMaterial, TransactionError> {
+        SyncWalletAuthority::sync_material(self)
     }
 
     async fn encrypt_confidential_transfer(

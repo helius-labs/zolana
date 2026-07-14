@@ -1,11 +1,12 @@
 //! High-level Zolana client.
 //!
-//! [`ZolanaClient`] owns Solana RPC, Photon, and the prover. After
+//! [`ZolanaClient`] owns Solana RPC, Photon, and the prover.
 //! [`sign_private_transaction`] returns a signed native Solana transaction.
-//! Submit it through the client's RPC adapter, then confirm on-chain and wait
+//! Submit that transaction through the client's RPC adapter, then confirm on-chain and wait
 //! for Photon indexing with [`ZolanaClient::confirm_private_transaction`].
 
 use std::{
+    sync::OnceLock,
     thread::sleep,
     time::{Duration, Instant},
 };
@@ -21,7 +22,6 @@ use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
-use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction as SolanaTransaction};
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_interface::instruction::Transact;
@@ -71,8 +71,10 @@ impl Default for IndexerPollConfig {
 /// is the caller's RPC adapter.
 pub struct ZolanaClient<R> {
     rpc: R,
-    indexer: ZolanaIndexer,
-    prover: ProverClient,
+    indexer: OnceLock<ZolanaIndexer>,
+    prover: OnceLock<ProverClient>,
+    blocking_indexer_url: Option<String>,
+    blocking_prover_url: Option<String>,
     async_indexer: AsyncZolanaIndexer,
     async_prover: AsyncProverClient,
     tree: Address,
@@ -93,8 +95,10 @@ impl<R> ZolanaClient<R> {
     ) -> Self {
         Self {
             rpc,
-            indexer,
-            prover,
+            indexer: OnceLock::from(indexer),
+            prover: OnceLock::from(prover),
+            blocking_indexer_url: None,
+            blocking_prover_url: None,
             async_indexer,
             async_prover,
             tree,
@@ -105,6 +109,10 @@ impl<R> ZolanaClient<R> {
         }
     }
 
+    /// Build both async and blocking service adapters from their URLs.
+    ///
+    /// Blocking adapters are initialized on first blocking use so constructing
+    /// an async client inside a Tokio runtime never creates a nested runtime.
     pub fn from_urls(
         rpc: R,
         indexer_url: impl AsRef<str>,
@@ -113,14 +121,20 @@ impl<R> ZolanaClient<R> {
     ) -> Self {
         let indexer_url = indexer_url.as_ref().to_string();
         let prover_url = prover_url.into();
-        Self::new(
+        Self {
             rpc,
-            ZolanaIndexer::new(&indexer_url),
-            ProverClient::new(prover_url.clone()),
-            AsyncZolanaIndexer::new(indexer_url),
-            AsyncProverClient::new(prover_url),
+            indexer: OnceLock::new(),
+            prover: OnceLock::new(),
+            blocking_indexer_url: Some(indexer_url.clone()),
+            blocking_prover_url: Some(prover_url.clone()),
+            async_indexer: AsyncZolanaIndexer::new(indexer_url),
+            async_prover: AsyncProverClient::new(prover_url),
             tree,
-        )
+            cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
+            cu_price_micro_lamports: None,
+            indexer_poll: IndexerPollConfig::default(),
+            send_config: None,
+        }
     }
 
     pub fn with_compute_unit_limit(mut self, cu_limit: u32) -> Self {
@@ -150,38 +164,71 @@ impl<R> ZolanaClient<R> {
     pub fn rpc(&self) -> &R {
         &self.rpc
     }
-}
 
-impl<R: Rpc> ZolanaClient<R> {
-    pub(crate) fn finish_submission_sync(
-        &self,
-        signed: &SignedPrivateTransaction,
-        fee_payer: &dyn Signer,
-        recent_blockhash: Hash,
-    ) -> Result<SolanaTransaction, ClientError> {
-        self.finish_submission_sync_with(signed, fee_payer, recent_blockhash, |inputs| {
-            let proof = match inputs {
-                ProverInputs::P256(inputs) => self.prover.prove_transfer_p256(inputs)?,
-                ProverInputs::Eddsa(inputs) => self.prover.prove_transfer(inputs)?,
-            };
-            ProofCompressed::try_from(proof)
+    fn blocking_indexer(&self) -> &ZolanaIndexer {
+        self.indexer.get_or_init(|| {
+            ZolanaIndexer::new(
+                self.blocking_indexer_url
+                    .as_deref()
+                    .expect("blocking indexer URL is set when the client is deferred"),
+            )
         })
     }
 
-    pub(crate) fn finish_submission_sync_with(
+    fn blocking_prover(&self) -> &ProverClient {
+        self.prover.get_or_init(|| {
+            ProverClient::new(
+                self.blocking_prover_url
+                    .clone()
+                    .expect("blocking prover URL is set when the client is deferred"),
+            )
+        })
+    }
+}
+
+impl<R: Rpc> ZolanaClient<R> {
+    pub(crate) fn finish_submission_unsigned_sync(
         &self,
         signed: &SignedPrivateTransaction,
-        fee_payer: &dyn Signer,
+        fee_payer: Pubkey,
+        recent_blockhash: Hash,
+    ) -> Result<SolanaTransaction, ClientError> {
+        validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
+        validate_transaction_tree(signed.tree, self.tree)?;
+        let commitments = signed.transaction.input_commitments()?;
+        let spend_proofs = fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments)?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
+        let proof = match &assembled.prover_inputs {
+            ProverInputs::P256(inputs) => self.blocking_prover().prove_transfer_p256(inputs)?,
+            ProverInputs::Eddsa(inputs) => self.blocking_prover().prove_transfer(inputs)?,
+        };
+        let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
+        build_unsigned_solana_transaction(
+            self.cu_limit,
+            self.cu_price_micro_lamports,
+            fee_payer,
+            signed.tree,
+            signed.withdrawal,
+            assembled.with_proof(proof),
+            recent_blockhash,
+        )
+    }
+
+    #[cfg(test)]
+    fn finish_submission_unsigned_sync_with(
+        &self,
+        signed: &SignedPrivateTransaction,
+        fee_payer: Pubkey,
         recent_blockhash: Hash,
         prove: impl FnOnce(&ProverInputs) -> Result<ProofCompressed, ClientError>,
     ) -> Result<SolanaTransaction, ClientError> {
-        validate_fee_payer(&signed.transaction.payer_pubkey_hash, fee_payer)?;
+        validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
         let commitments = signed.transaction.input_commitments()?;
-        let spend_proofs = fetch_spend_proofs(&self.indexer, self.tree, &commitments)?;
+        let spend_proofs = fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments)?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
         let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
-        build_signed_solana_transaction(
+        build_unsigned_solana_transaction(
             self.cu_limit,
             self.cu_price_micro_lamports,
             fee_payer,
@@ -201,18 +248,18 @@ impl<R: Rpc> ZolanaClient<R> {
         let tags = self
             .rpc()
             .transact_output_view_tags_from_signature(signature)?;
-        wait_for_indexed_transaction(&self.indexer, &tags, signature, self.indexer_poll)
+        wait_for_indexed_transaction(self.blocking_indexer(), &tags, signature, self.indexer_poll)
     }
 }
 
 impl<R: AsyncRpc> ZolanaClient<R> {
-    pub(crate) async fn finish_submission(
+    pub(crate) async fn finish_submission_unsigned(
         &self,
         signed: &SignedPrivateTransaction,
-        fee_payer: &dyn Signer,
+        fee_payer: Pubkey,
         recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError> {
-        validate_fee_payer(&signed.transaction.payer_pubkey_hash, fee_payer)?;
+        validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
         let commitments = signed.transaction.input_commitments()?;
         let spend_proofs =
@@ -223,7 +270,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             ProverInputs::Eddsa(inputs) => self.async_prover.prove_transfer(inputs).await?,
         };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-        build_signed_solana_transaction(
+        build_unsigned_solana_transaction(
             self.cu_limit,
             self.cu_price_micro_lamports,
             fee_payer,
@@ -249,7 +296,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.rpc.get_account(address).await
@@ -556,7 +603,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     }
 
     fn should_retry(&self, error: &ClientError) -> bool {
-        self.rpc.should_retry(error) || self.indexer.should_retry(error)
+        self.rpc.should_retry(error) || self.blocking_indexer().should_retry(error)
     }
 
     fn get_encrypted_utxos_by_tags(
@@ -565,7 +612,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.indexer
+        self.blocking_indexer()
             .get_encrypted_utxos_by_tags(tags, cursor, limit)
     }
 
@@ -575,7 +622,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.indexer
+        self.blocking_indexer()
             .get_shielded_transactions_by_tags(tags, cursor, limit)
     }
 
@@ -583,7 +630,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         &self,
         tags: Vec<[u8; 32]>,
     ) -> Result<ShieldedTransactionStream, ClientError> {
-        self.indexer
+        self.blocking_indexer()
             .subscribe_to_shielded_transactions_by_tags(tags)
     }
 
@@ -592,7 +639,8 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        self.indexer.get_merkle_proofs(tree_account, leaves)
+        self.blocking_indexer()
+            .get_merkle_proofs(tree_account, leaves)
     }
 
     fn get_non_inclusion_proofs(
@@ -600,14 +648,15 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-        self.indexer.get_non_inclusion_proofs(tree_account, leaves)
+        self.blocking_indexer()
+            .get_non_inclusion_proofs(tree_account, leaves)
     }
 
     fn get_input_merkle_proofs(
         &self,
         input_utxo_commitments: &[InputCommitment],
     ) -> Result<Vec<SpendProof>, ClientError> {
-        fetch_spend_proofs(&self.indexer, self.tree, input_utxo_commitments)
+        fetch_spend_proofs(self.blocking_indexer(), self.tree, input_utxo_commitments)
     }
 
     fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
@@ -615,8 +664,8 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments)?;
         let assembled = assemble(transaction, &input_merkle_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => (self.prover.prove_transfer_p256(inputs)?, 1),
-            ProverInputs::Eddsa(inputs) => (self.prover.prove_transfer(inputs)?, 0),
+            ProverInputs::P256(inputs) => (self.blocking_prover().prove_transfer_p256(inputs)?, 1),
+            ProverInputs::Eddsa(inputs) => (self.blocking_prover().prove_transfer(inputs)?, 0),
         };
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
@@ -626,37 +675,33 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     }
 }
 
-fn build_signed_solana_transaction(
+fn build_unsigned_solana_transaction(
     cu_limit: u32,
     cu_price_micro_lamports: Option<u64>,
-    fee_payer: &dyn Signer,
+    fee_payer: Pubkey,
     tree: Address,
     withdrawal: Option<zolana_interface::instruction::TransactWithdrawal>,
     transact_data: zolana_interface::instruction::instruction_data::transact::TransactIxData,
     recent_blockhash: Hash,
 ) -> Result<SolanaTransaction, ClientError> {
     let transact_ix = Transact {
-        payer: fee_payer.pubkey(),
+        payer: fee_payer,
         tree: Pubkey::new_from_array(tree.to_bytes()),
         withdrawal,
         data: transact_data,
     }
     .instruction();
     let instructions = submit_instructions(cu_limit, cu_price_micro_lamports, transact_ix);
-    let payer = fee_payer.pubkey();
-    let message = Message::new(&instructions, Some(&payer));
-    Ok(SolanaTransaction::new(
-        &[fee_payer],
-        message,
-        recent_blockhash,
-    ))
+    let mut message = Message::new(&instructions, Some(&fee_payer));
+    message.recent_blockhash = recent_blockhash;
+    Ok(SolanaTransaction::new_unsigned(message))
 }
 
-fn validate_fee_payer(
+fn validate_fee_payer_pubkey(
     expected_payer_hash: &[u8; 32],
-    fee_payer: &dyn Signer,
+    fee_payer: Pubkey,
 ) -> Result<(), ClientError> {
-    let actual_payer_hash = sha256_be(&fee_payer.pubkey().to_bytes());
+    let actual_payer_hash = sha256_be(&fee_payer.to_bytes());
     if *expected_payer_hash != actual_payer_hash {
         return Err(ClientError::FeePayerMismatch);
     }
@@ -903,6 +948,23 @@ mod tests {
         wallet_authority::LocalWalletAuthority,
     };
 
+    #[tokio::test]
+    async fn from_urls_is_safe_inside_an_async_runtime() {
+        let tree = Address::new_from_array([42u8; 32]);
+        let client =
+            ZolanaClient::from_urls((), "http://127.0.0.1:8784", "http://127.0.0.1:3001", tree);
+
+        assert_eq!(client.tree(), tree);
+        assert!(
+            client.indexer.get().is_none(),
+            "blocking indexer must be initialized lazily"
+        );
+        assert!(
+            client.prover.get().is_none(),
+            "blocking prover must be initialized lazily"
+        );
+    }
+
     #[test]
     fn confirm_private_transaction_sync_waits_for_indexer() {
         let payer = Keypair::new();
@@ -944,8 +1006,9 @@ mod tests {
         )
         .with_compute_unit_price(25_000);
 
-        let transaction = client
-            .finish_submission_sync_with(&shielded, &payer, Hash::default(), |_| {
+        let blockhash = Hash::default();
+        let mut transaction = client
+            .finish_submission_unsigned_sync_with(&shielded, payer.pubkey(), blockhash, |_| {
                 Ok(ProofCompressed {
                     a: [0u8; 32],
                     b: [0u8; 64],
@@ -957,6 +1020,9 @@ mod tests {
                 })
             })
             .expect("finish");
+        transaction
+            .try_sign(&[&payer], blockhash)
+            .expect("sign native transaction");
         let result = client.rpc().send_transaction(&transaction).expect("send");
         client
             .confirm_private_transaction_sync(result)
@@ -983,12 +1049,12 @@ mod tests {
         let payer_hash = sha256_be(&payer.pubkey().to_bytes());
         let tree = Address::new_from_array([7u8; 32]);
 
-        validate_fee_payer(&payer_hash, &payer).expect("matching payer");
+        validate_fee_payer_pubkey(&payer_hash, payer.pubkey()).expect("matching payer");
         validate_transaction_tree(tree, tree).expect("matching tree");
 
         let other_payer = Keypair::new();
         assert!(matches!(
-            validate_fee_payer(&payer_hash, &other_payer),
+            validate_fee_payer_pubkey(&payer_hash, other_payer.pubkey()),
             Err(ClientError::FeePayerMismatch)
         ));
         assert!(matches!(

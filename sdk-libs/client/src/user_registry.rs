@@ -1,8 +1,11 @@
 use solana_address::Address;
+use solana_instruction::Instruction;
 use solana_keypair::Keypair;
+use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use solana_transaction::Transaction as SolanaTransaction;
 use zolana_keypair::{
     viewing_key::ViewTag, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SignatureType,
 };
@@ -20,15 +23,15 @@ use crate::{
 /// Derive the on-chain registry record fields from a shielded keypair: the
 /// P256 owner key (only for P256-owned wallets), nullifier pubkey, and viewing
 /// pubkey. Returns the exact `RegisterData` the register/update instructions take.
-fn register_fields(keypair: &ShieldedKeypair) -> Result<RegisterData, ClientError> {
-    let owner_p256 = match keypair.signing_pubkey().signature_type()? {
-        SignatureType::P256 => Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
+fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientError> {
+    let owner_p256 = match address.signing_pubkey.signature_type()? {
+        SignatureType::P256 => Some(*address.signing_pubkey.as_p256()?.as_bytes()),
         SignatureType::Ed25519 => None,
     };
     Ok(RegisterData {
         owner_p256,
-        nullifier_pubkey: keypair.nullifier_key.pubkey()?,
-        viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
+        nullifier_pubkey: address.nullifier_pubkey,
+        viewing_pubkey: *address.viewing_pubkey.as_bytes(),
     })
 }
 
@@ -51,7 +54,7 @@ pub fn ensure_registered<R: Rpc>(
     keypair: &ShieldedKeypair,
 ) -> Result<Option<Signature>, ClientError> {
     let owner = funding.pubkey();
-    let data = register_fields(keypair)?;
+    let data = register_fields(&keypair.shielded_address()?)?;
     let (user_record, _bump) = user_record_pda(&owner);
     let owner_address = Address::new_from_array(owner.to_bytes());
 
@@ -84,6 +87,83 @@ pub fn ensure_registered<R: Rpc>(
         owner_address,
         &[funding],
     )?))
+}
+
+/// Build an unsigned register/update transaction for an external Solana signer.
+///
+/// Returns `Ok(None)` when the on-chain record already matches `address`.
+pub async fn build_registration_transaction<R: AsyncRpc>(
+    rpc: &R,
+    owner: Pubkey,
+    address: &ShieldedAddress,
+) -> Result<Option<SolanaTransaction>, ClientError> {
+    let data = register_fields(address)?;
+    let existing = fetch_user_record_optional_checked_async(rpc, owner).await?;
+    let Some(instruction) = registration_instruction(owner, data, existing) else {
+        return Ok(None);
+    };
+    let (blockhash, _) = rpc.get_latest_blockhash().await?;
+    Ok(Some(unsigned_registration_transaction(
+        owner,
+        instruction,
+        blockhash,
+    )))
+}
+
+/// Blocking adapter for building an unsigned register/update transaction.
+pub fn build_registration_transaction_sync<R: Rpc>(
+    rpc: &R,
+    owner: Pubkey,
+    address: &ShieldedAddress,
+) -> Result<Option<SolanaTransaction>, ClientError> {
+    let data = register_fields(address)?;
+    let existing = fetch_user_record_optional_checked(rpc, owner)?;
+    let Some(instruction) = registration_instruction(owner, data, existing) else {
+        return Ok(None);
+    };
+    let (blockhash, _) = rpc.get_latest_blockhash()?;
+    Ok(Some(unsigned_registration_transaction(
+        owner,
+        instruction,
+        blockhash,
+    )))
+}
+
+fn registration_instruction(
+    owner: Pubkey,
+    data: RegisterData,
+    existing: Option<UserRecord>,
+) -> Option<Instruction> {
+    let (user_record, _bump) = user_record_pda(&owner);
+    match existing {
+        Some(record)
+            if record.owner_p256 == data.owner_p256
+                && record.nullifier_pubkey == data.nullifier_pubkey
+                && record.viewing_pubkey == data.viewing_pubkey =>
+        {
+            None
+        }
+        Some(_) => Some(update_keys(
+            user_record,
+            owner,
+            UpdateKeysData {
+                owner_p256: data.owner_p256,
+                nullifier_pubkey: data.nullifier_pubkey,
+                viewing_pubkey: data.viewing_pubkey,
+            },
+        )),
+        None => Some(register(user_record, owner, data)),
+    }
+}
+
+fn unsigned_registration_transaction(
+    owner: Pubkey,
+    instruction: Instruction,
+    blockhash: solana_hash::Hash,
+) -> SolanaTransaction {
+    let mut message = Message::new(&[instruction], Some(&owner));
+    message.recent_blockhash = blockhash;
+    SolanaTransaction::new_unsigned(message)
 }
 
 pub fn fetch_user_record_checked<R: Rpc>(
@@ -316,12 +396,20 @@ mod tests {
                 .as_ref()
                 .and_then(|(expected, account)| (*expected == address).then(|| account.clone())))
         }
+
+        fn get_latest_blockhash(&self) -> Result<(solana_hash::Hash, u64), ClientError> {
+            Ok((solana_hash::Hash::new_from_array([9u8; 32]), 1))
+        }
     }
 
-    #[async_trait::async_trait(?Send)]
+    #[async_trait::async_trait]
     impl AsyncRpc for MockRpc {
         async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
             Rpc::get_account(self, address)
+        }
+
+        async fn get_latest_blockhash(&self) -> Result<(solana_hash::Hash, u64), ClientError> {
+            Rpc::get_latest_blockhash(self)
         }
     }
 
@@ -407,6 +495,45 @@ mod tests {
         let record = fetch_user_record_optional_checked(&rpc, owner).expect("optional fetch");
 
         assert_eq!(record, None);
+    }
+
+    #[test]
+    fn registration_builder_returns_unsigned_transaction_for_external_signer() {
+        let owner = Pubkey::new_unique();
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let transaction = build_registration_transaction_sync(
+            &MockRpc::default(),
+            owner,
+            &keypair.shielded_address().expect("shielded address"),
+        )
+        .expect("build registration")
+        .expect("registration required");
+
+        assert_eq!(transaction.message.account_keys[0], owner);
+        assert_eq!(
+            transaction.message.recent_blockhash,
+            solana_hash::Hash::new_from_array([9u8; 32])
+        );
+        assert_eq!(transaction.signatures, vec![Signature::default()]);
+    }
+
+    #[tokio::test]
+    async fn async_registration_builder_returns_sendable_unsigned_transaction() {
+        let owner = Pubkey::new_unique();
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let rpc = MockRpc::default();
+        let address = keypair.shielded_address().expect("shielded address");
+        let future = build_registration_transaction(&rpc, owner, &address);
+        fn assert_send<T: Send>(value: T) -> T {
+            value
+        }
+        let transaction = assert_send(future)
+            .await
+            .expect("build registration")
+            .expect("registration required");
+
+        assert_eq!(transaction.message.account_keys[0], owner);
+        assert_eq!(transaction.signatures, vec![Signature::default()]);
     }
 
     #[test]

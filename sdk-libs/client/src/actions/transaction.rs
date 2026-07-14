@@ -233,7 +233,24 @@ pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdra
     })
 }
 
-/// Encrypt, approve, sign, prove, and build a signed native Solana transaction.
+/// Encrypt, approve, sign, prove, and build an unsigned native Solana
+/// transaction for an external signer.
+#[cfg(feature = "indexer-api")]
+pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
+    transaction: UnsignedPrivateTransaction,
+    wallet: &Wallet,
+    authority: &A,
+    client: &ZolanaClient<R>,
+    fee_payer: Pubkey,
+) -> Result<SolanaTransaction, ClientError> {
+    let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
+    let (blockhash, _) = client.rpc().get_latest_blockhash().await?;
+    client
+        .finish_submission_unsigned(&shielded, fee_payer, blockhash)
+        .await
+}
+
+/// Encrypt, approve, sign, prove, and build a locally signed native Solana transaction.
 #[cfg(feature = "indexer-api")]
 pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     transaction: UnsignedPrivateTransaction,
@@ -242,14 +259,32 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     client: &ZolanaClient<R>,
     fee_payer: &dyn Signer,
 ) -> Result<SolanaTransaction, ClientError> {
+    let blockhash = client.rpc().get_latest_blockhash().await?.0;
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
-    let (blockhash, _) = client.rpc().get_latest_blockhash().await?;
-    client
-        .finish_submission(&shielded, fee_payer, blockhash)
-        .await
+    let mut native = client
+        .finish_submission_unsigned(&shielded, fee_payer.pubkey(), blockhash)
+        .await?;
+    native
+        .try_sign(&[fee_payer], blockhash)
+        .map_err(|err| ClientError::SolanaTransactionSigning(err.to_string()))?;
+    Ok(native)
 }
 
-/// Blocking adapter for CLI flows.
+/// Blocking adapter that builds an unsigned transaction for an external signer.
+#[cfg(feature = "indexer-api")]
+pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
+    transaction: UnsignedPrivateTransaction,
+    wallet: &Wallet,
+    authority: &A,
+    client: &ZolanaClient<R>,
+    fee_payer: Pubkey,
+) -> Result<SolanaTransaction, ClientError> {
+    let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
+    let (blockhash, _) = client.rpc().get_latest_blockhash()?;
+    client.finish_submission_unsigned_sync(&shielded, fee_payer, blockhash)
+}
+
+/// Blocking adapter for locally signed CLI flows.
 #[cfg(feature = "indexer-api")]
 pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     transaction: UnsignedPrivateTransaction,
@@ -260,7 +295,12 @@ pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
 ) -> Result<SolanaTransaction, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
     let (blockhash, _) = client.rpc().get_latest_blockhash()?;
-    client.finish_submission_sync(&shielded, fee_payer, blockhash)
+    let mut native =
+        client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey(), blockhash)?;
+    native
+        .try_sign(&[fee_payer], blockhash)
+        .map_err(|err| ClientError::SolanaTransactionSigning(err.to_string()))?;
+    Ok(native)
 }
 
 /// Encrypt, approve, and P256-sign without proving. Used as the first stage of
@@ -504,7 +544,7 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait(?Send)]
+    #[async_trait::async_trait]
     impl AsyncRpc for MockRpc {
         async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
             Rpc::get_account(self, address)

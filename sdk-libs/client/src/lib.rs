@@ -9,7 +9,8 @@
 //! Typical private transfer flow:
 //! 1. `sync_wallet`
 //! 2. `create_transfer` / `create_withdrawal`
-//! 3. `sign_private_transaction` → signed native `Transaction`
+//! 3. `sign_private_transaction` → locally signed native `Transaction`, or
+//!    `build_private_transaction` → unsigned native `Transaction` for an HSM/custodian
 //! 4. `rpc.send_transaction`
 //! 5. `ZolanaClient::confirm_private_transaction(signature)` for Photon indexing
 //!
@@ -34,12 +35,16 @@ pub mod wallet_sync;
 #[doc(hidden)]
 pub use actions::transaction::{sign_shielded_transaction, sign_shielded_transaction_sync};
 pub use actions::{
-    create_associated_token_account, create_deposit, create_transfer, create_transfer_sync,
-    create_withdrawal, CreatedTransfer, CreatedWithdrawal, Deposit, DepositParams, ResolvedAddress,
-    TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalParams,
+    build_deposit_transaction, build_deposit_transaction_sync, create_associated_token_account,
+    create_deposit, create_transfer, create_transfer_sync, create_withdrawal, CreatedTransfer,
+    CreatedWithdrawal, Deposit, DepositParams, ResolvedAddress, TransferParams, TransferRecipient,
+    UnsignedPrivateTransaction, WithdrawalParams,
 };
 #[cfg(feature = "indexer-api")]
-pub use actions::{sign_private_transaction, sign_private_transaction_sync};
+pub use actions::{
+    build_private_transaction, build_private_transaction_sync, sign_private_transaction,
+    sign_private_transaction_sync,
+};
 #[cfg(feature = "indexer-api")]
 pub use client::{IndexerPollConfig, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
 pub use error::ClientError;
@@ -68,6 +73,7 @@ pub use rpc::{
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
 pub use user_registry::{
+    build_registration_transaction, build_registration_transaction_sync,
     decode_user_record_account, ensure_registered, fetch_user_record_checked,
     fetch_user_record_optional_checked, fetch_user_record_optional_checked_async,
     is_wallet_registered, is_wallet_registered_sync, recipient_confidential_view_tag,
@@ -77,11 +83,11 @@ pub use user_registry::{
 };
 pub use wallet_authority::{
     AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
-    LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority,
+    LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
 pub use wallet_sync::{
-    get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_with_config,
-    SyncWalletConfig,
+    get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_async,
+    sync_wallet_with_config, sync_wallet_with_config_async, SyncWalletConfig,
 };
 pub use zolana_transaction::{
     instructions::{

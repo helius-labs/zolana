@@ -518,7 +518,7 @@ impl Rpc for SolanaRpc {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl AsyncRpc for AsyncSolanaRpc {
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         let pubkey = pubkey_from_address(&address);

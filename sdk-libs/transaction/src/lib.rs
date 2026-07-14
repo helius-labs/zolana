@@ -33,7 +33,7 @@ pub use wallet::{
     EncryptedTransfer, LocalWalletAuthority, P256Signature, PrivateTransaction,
     PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,
     PrivateTransactionStatus, SyncReport, SyncWalletAuthority, ViewingKeyEntry, Wallet,
-    WalletAuthority, WalletUtxo, DEFAULT_TAG_WINDOW,
+    WalletAuthority, WalletSyncMaterial, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 
