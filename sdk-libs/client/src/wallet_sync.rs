@@ -224,13 +224,14 @@ fn fetch_shielded_transactions<I: Rpc>(
 
 fn has_merge_ciphertext(tx: &RpcShieldedTransaction) -> bool {
     tx.output_slots.iter().any(|slot| {
-        let Ok(output_data) = borsh::from_slice::<zolana_event::OutputData>(&slot.payload) else {
+        let Ok(output_data) = borsh::from_slice::<zolana_event::OutputDataEncoding>(&slot.payload)
+        else {
             return false;
         };
         let blob = match output_data {
-            zolana_event::OutputData::Encrypted(blob)
-            | zolana_event::OutputData::VerifiablyEncrypted(blob)
-            | zolana_event::OutputData::Plaintext(blob) => blob,
+            zolana_event::OutputDataEncoding::Encrypted(blob)
+            | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
+            | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
         };
         blob.first()
             .and_then(|b| EncryptedScheme::from_byte(*b).ok())
@@ -847,25 +848,23 @@ mod tests {
             .map(|commitment| commitment.nullifier)
             .collect();
         let external = signed.external_data;
+        // Mirror the on-chain event 1:1: every output publishes its resolved owner
+        // tag as the `view_tag` and its optional ciphertext as the payload; a
+        // change slot covered by the sender bundle carries the sender tag with an
+        // empty payload, which `Wallet::sync` skips.
         let output_slots = external
-            .output_utxo_hashes
+            .outputs
             .iter()
+            .zip(external.resolved_owner_tags.iter())
             .enumerate()
-            .map(|(i, hash)| {
-                let ciphertext = match i {
-                    0 => external.output_ciphertexts.first(),
-                    1 => None,
-                    _ => external.output_ciphertexts.get(i - 1),
-                };
-                OutputSlot {
-                    view_tag: ciphertext.map(|c| c.view_tag).unwrap_or_default(),
-                    output_context: OutputContext {
-                        hash: *hash,
-                        tree: Address::new_from_array([slot as u8; 32]),
-                        leaf_index: i as u64,
-                    },
-                    payload: ciphertext.map(|c| c.data.clone()).unwrap_or_default(),
-                }
+            .map(|(i, (output, view_tag))| OutputSlot {
+                view_tag: *view_tag,
+                output_context: OutputContext {
+                    hash: output.utxo_hash,
+                    tree: Address::new_from_array([slot as u8; 32]),
+                    leaf_index: i as u64,
+                },
+                payload: output.data.clone().unwrap_or_default(),
             })
             .collect();
         ShieldedTransaction {

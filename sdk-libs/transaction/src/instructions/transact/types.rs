@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::OutputData;
+use zolana_event::OutputDataEncoding;
 use zolana_keypair::{hash::poseidon, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;
@@ -186,8 +186,8 @@ pub struct OutputSlot {
 }
 
 impl OutputSlot {
-    pub fn output_data(&self) -> Option<OutputData> {
-        OutputData::try_from_slice(&self.payload).ok()
+    pub fn output_data(&self) -> Option<OutputDataEncoding> {
+        OutputDataEncoding::try_from_slice(&self.payload).ok()
     }
 }
 

@@ -10,7 +10,7 @@ use borsh::BorshDeserialize;
 use cucumber::{then, when};
 use solana_address::Address;
 use zolana_client::{CircuitType, PublicAmounts, Rpc, SpendUtxo, Transaction, WithdrawalTarget};
-use zolana_event::OutputData;
+use zolana_event::OutputDataEncoding;
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::{
     instructions::transact::signed_transaction::{asset_field, signed_to_field},
@@ -209,19 +209,25 @@ fn assert_outputs(
     let change =
         |asset: Asset| -> u64 { (input_sum(asset) + net_public(asset) - send_sum(asset)) as u64 };
 
-    // `output_ciphertexts` is the ix shape ([bundle, recipients / dummies]) with no
-    // empty change placeholder, so the bundle covers one leading slot here. Each
-    // slot's borsh `OutputData` carries a scheme byte plus the per-scheme ciphertext
-    // body; the sender bundle (slot 0) is decoded with the sender's viewing key, and
-    // each recipient slot with that recipient's viewing key.
+    // The data-bearing outputs are the ciphertext-ordinal view ([bundle, recipients
+    // / dummies]); change slots the bundle covers carry `data: None` and drop out.
+    // Each slot's borsh `OutputDataEncoding` carries a scheme byte plus the
+    // per-scheme ciphertext body; the sender bundle (ordinal 0) is decoded with the
+    // sender's viewing key, and each recipient slot with that recipient's viewing
+    // key.
     let tx_viewing_pk = P256Pubkey::from_bytes(external_data.tx_viewing_pk).unwrap();
+    let ciphertexts: Vec<Vec<u8>> = external_data
+        .outputs
+        .iter()
+        .filter_map(|output| output.data.clone())
+        .collect();
     let slot_body = |slot_index: usize| -> Vec<u8> {
-        let slot = external_data.output_ciphertexts.get(slot_index).unwrap();
-        let output_data = OutputData::try_from_slice(&slot.data).unwrap();
+        let data = ciphertexts.get(slot_index).unwrap();
+        let output_data = OutputDataEncoding::try_from_slice(data).unwrap();
         let blob = match output_data {
-            OutputData::Encrypted(blob)
-            | OutputData::VerifiablyEncrypted(blob)
-            | OutputData::Plaintext(blob) => blob,
+            OutputDataEncoding::Encrypted(blob)
+            | OutputDataEncoding::VerifiablyEncrypted(blob)
+            | OutputDataEncoding::Plaintext(blob) => blob,
         };
         let (_scheme, body) = blob.split_first().expect("scheme byte plus body");
         body.to_vec()
@@ -361,13 +367,16 @@ fn assert_outputs(
             zone_data_hash: None,
             tx_viewing_pk: external_data.tx_viewing_pk,
             salt: external_data.salt,
-            output_utxo_hashes: external_data.output_utxo_hashes.clone(),
-            output_ciphertexts: external_data.output_ciphertexts.clone(),
+            outputs: external_data.outputs.clone(),
+            resolved_owner_tags: external_data.resolved_owner_tags.clone(),
+            messages: external_data.messages.clone(),
         }
     );
+    // The sender bundle sits at output 0; its resolved owner tag is the sender's
+    // view tag regardless of how the wire `OwnerTag` encodes it.
     assert_eq!(
-        external_data.output_ciphertexts.first().unwrap().view_tag,
-        sender.signing_pubkey().confidential_view_tag().unwrap()
+        external_data.resolved_owner_tags.first().copied(),
+        Some(sender.signing_pubkey().confidential_view_tag().unwrap())
     );
 
     // The encrypted bundle decrypts to the same sender change and recipients.

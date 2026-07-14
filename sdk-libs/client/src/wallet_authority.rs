@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use p256::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey as EcdsaSigningKey};
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
+use zolana_event::OutputData;
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{random_salt, Salt, ViewTag},
@@ -62,7 +62,7 @@ pub struct AnonymousRecipientSlot {
 pub struct EncryptedTransfer {
     pub tx_viewing_pk: P256Pubkey,
     pub salt: Salt,
-    pub slots: Vec<OutputCiphertext>,
+    pub slots: Vec<OutputData>,
 }
 
 /// Authority for production wallet hosts where approval, key access, or signing

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_event::OutputData;
+use zolana_event::OutputDataEncoding;
 use zolana_keypair::{
     viewing_key::ViewTag, KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey,
 };
@@ -42,9 +42,9 @@ impl TxIndex {
             for (slot_index, slot) in tx.output_slots.iter().enumerate() {
                 let blob = match slot.output_data() {
                     Some(
-                        OutputData::Encrypted(blob)
-                        | OutputData::VerifiablyEncrypted(blob)
-                        | OutputData::Plaintext(blob),
+                        OutputDataEncoding::Encrypted(blob)
+                        | OutputDataEncoding::VerifiablyEncrypted(blob)
+                        | OutputDataEncoding::Plaintext(blob),
                     ) => blob,
                     None => continue,
                 };
@@ -268,9 +268,9 @@ impl SyncCtx<'_> {
             .filter_map(|slot| slot.output_data())
             .filter(|output_data| {
                 let blob = match output_data {
-                    OutputData::Encrypted(blob)
-                    | OutputData::VerifiablyEncrypted(blob)
-                    | OutputData::Plaintext(blob) => blob,
+                    OutputDataEncoding::Encrypted(blob)
+                    | OutputDataEncoding::VerifiablyEncrypted(blob)
+                    | OutputDataEncoding::Plaintext(blob) => blob,
                 };
                 matches!(
                     blob.first()
@@ -404,7 +404,7 @@ impl SyncCtx<'_> {
             zone_program_id: None,
         };
         match output_data {
-            OutputData::Plaintext(blob) => {
+            OutputDataEncoding::Plaintext(blob) => {
                 let Some((&scheme_byte, body)) = blob.split_first() else {
                     self.report.undecryptable_candidates += 1;
                     return Ok(outcome);
@@ -459,7 +459,7 @@ impl SyncCtx<'_> {
                     }
                 }
             }
-            OutputData::Encrypted(blob) => {
+            OutputDataEncoding::Encrypted(blob) => {
                 let Some((&scheme_byte, body)) = blob.split_first() else {
                     self.report.undecryptable_candidates += 1;
                     return Ok(outcome);
@@ -634,7 +634,7 @@ impl SyncCtx<'_> {
                     }
                 }
             }
-            OutputData::VerifiablyEncrypted(blob) => {
+            OutputDataEncoding::VerifiablyEncrypted(blob) => {
                 let Some((&scheme_byte, body)) = blob.split_first() else {
                     self.report.undecryptable_candidates += 1;
                     return Ok(outcome);

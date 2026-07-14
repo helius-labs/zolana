@@ -1,6 +1,7 @@
 use solana_address::Address;
+use zolana_event::OutputData;
 use zolana_interface::instruction::{
-    instruction_data::transact::{ExternalDataHash, OutputCiphertext},
+    instruction_data::transact::{ExternalDataHash, ResolvedOutput, TransactOutput},
     tag,
 };
 
@@ -8,9 +9,10 @@ use crate::error::TransactionError;
 
 /// Transaction-level public data the proofs commit to via `external_data_hash`.
 /// The hash is computed by the canonical [`ExternalDataHash`] from the interface
-/// crate, so the client and the Solana program agree byte-for-byte. The output
-/// commitments and the fixed-length ciphertext slots travel in separate vectors
-/// (`output_ciphertexts[0]` is the sender bundle).
+/// crate, so the client and the Solana program agree byte-for-byte. Each output
+/// carries its commitment, wire `owner_tag`, and optional ciphertext; the
+/// resolved 32-byte owner tags are paired at construction so [`Self::hash`]
+/// needs no transaction context and cannot drift from the wire tags.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalData {
     pub instruction_discriminator: u8,
@@ -28,21 +30,24 @@ pub struct ExternalData {
     pub zone_data_hash: Option<[u8; 32]>,
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; 16],
-    /// All `M` output UTXO commitments in tree-append order (SPL change, SOL
-    /// change, recipients / dummies).
-    pub output_utxo_hashes: Vec<[u8; 32]>,
-    /// Fixed-length ciphertext slots: `[0]` the sender bundle, `[1..]` recipient
-    /// or dummy slots. Length `1 + (M - SENDER_SLOT_COUNT)`, independent of the
-    /// real recipient count.
-    pub output_ciphertexts: Vec<OutputCiphertext>,
+    /// All `M` outputs in tree-append order (SPL change, SOL change, recipients
+    /// / dummies). A `None` `data` marks a slot covered by a preceding bundle.
+    pub outputs: Vec<TransactOutput>,
+    /// The resolved 32-byte owner tag of each output, paired 1:1 with `outputs`
+    /// at construction. `hash()` covers these resolved bytes rather than the
+    /// wire `OwnerTag`, matching the program's OWNER public input.
+    pub resolved_owner_tags: Vec<[u8; 32]>,
+    /// Ciphertexts bound to no output commitment; empty for all current flows.
+    pub messages: Vec<OutputData>,
 }
 
 impl ExternalData {
     pub fn new(
         tx_viewing_pk: [u8; 33],
         salt: [u8; 16],
-        output_utxo_hashes: Vec<[u8; 32]>,
-        output_ciphertexts: Vec<OutputCiphertext>,
+        outputs: Vec<TransactOutput>,
+        resolved_owner_tags: Vec<[u8; 32]>,
+        messages: Vec<OutputData>,
         expiry_unix_ts: u64,
     ) -> Self {
         Self {
@@ -58,8 +63,9 @@ impl ExternalData {
             zone_data_hash: None,
             tx_viewing_pk,
             salt,
-            output_utxo_hashes,
-            output_ciphertexts,
+            outputs,
+            resolved_owner_tags,
+            messages,
         }
     }
 
@@ -105,7 +111,24 @@ impl ExternalData {
     }
 
     /// `external_data_hash` via the canonical interface [`ExternalDataHash`].
+    /// Builds [`ResolvedOutput`]s from the outputs paired with their resolved
+    /// owner tags, so the client and program hash the identical preimage.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
+        if self.outputs.len() != self.resolved_owner_tags.len() {
+            return Err(TransactionError::Hash(
+                "resolved owner tags do not pair 1:1 with outputs".to_string(),
+            ));
+        }
+        let resolved: Vec<ResolvedOutput> = self
+            .outputs
+            .iter()
+            .zip(self.resolved_owner_tags.iter())
+            .map(|(output, owner_tag)| ResolvedOutput {
+                utxo_hash: &output.utxo_hash,
+                owner_tag: *owner_tag,
+                data: output.data.as_deref(),
+            })
+            .collect();
         ExternalDataHash {
             spp_instruction_discriminator: self.instruction_discriminator,
             expiry_unix_ts: self.expiry_unix_ts,
@@ -117,8 +140,8 @@ impl ExternalData {
             spl_token_interface: self.spl_token_interface.as_array(),
             data_hash: self.data_hash,
             zone_data_hash: self.zone_data_hash,
-            output_utxo_hashes: &self.output_utxo_hashes,
-            output_ciphertexts: &self.output_ciphertexts,
+            outputs: &resolved,
+            messages: &self.messages,
         }
         .hash()
         .map_err(|e| TransactionError::Hash(format!("{e:?}")))

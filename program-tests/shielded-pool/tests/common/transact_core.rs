@@ -9,9 +9,9 @@ use zolana_client::{
 };
 use zolana_interface::{
     instruction::{
-        instruction_data::{
-            transact as transact_ix,
-            transact::{ExternalDataHash, InputUtxo, TransactIxData, TransactProof},
+        instruction_data::transact::{
+            ExternalDataHash, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData, TransactOutput,
+            TransactProof,
         },
         tag,
     },
@@ -86,28 +86,57 @@ pub fn public_input_hash(
     hash_chain(&chain).expect("public input hash")
 }
 
-/// Per-output owner `pk_field` the program reconstructs as `hash_field(view_tag)`,
-/// using the bundle-replication OWNER mapping (mirrors the program's
-/// `owner_view_tag` + `sender_slot_count`): the leading `sender_slot_count`
-/// positions all map to `output_ciphertexts[0]`, each tail position to its own
-/// ciphertext.
+/// Per-output owner `pk_field` the program reconstructs as
+/// `hash_field(resolved_owner_tag)`, one per output position. Mirrors the
+/// program's `resolve_output_owner_tags`: each output carries its own owner tag,
+/// resolved here against the transaction's `p256_signing_pk_x`. Tests build
+/// `Inline` tags, for which resolution is the identity, and pass `None`.
 pub fn output_owner_pk_hashes(
-    output_ciphertexts: &[transact_ix::OutputCiphertext],
-    n_outputs: usize,
+    outputs: &[TransactOutput],
+    p256_signing_pk_x: Option<&[u8; 32]>,
 ) -> Result<Vec<[u8; 32]>> {
-    let n_ciphertexts = output_ciphertexts.len();
-    let sender_slots = n_outputs.saturating_sub(n_ciphertexts.saturating_sub(1));
-    (0..n_outputs)
-        .map(|i| {
-            let idx = if i < sender_slots {
-                0
-            } else {
-                1 + i - sender_slots
-            };
-            let ciphertext = output_ciphertexts
-                .get(idx)
-                .ok_or_else(|| anyhow!("missing output ciphertext at {idx}"))?;
-            hash_field(&ciphertext.view_tag).map_err(|e| anyhow!("owner pk field: {e:?}"))
+    outputs
+        .iter()
+        .map(|output| {
+            let resolved = output
+                .resolved(p256_signing_pk_x, |_| None)
+                .map_err(|e| anyhow!("resolve owner tag: {e:?}"))?;
+            hash_field(&resolved.owner_tag).map_err(|e| anyhow!("owner pk field: {e:?}"))
+        })
+        .collect()
+}
+
+/// Build the `transact` output slots from parallel utxo-hash and owner-view-tag
+/// vectors: each output carries an `Inline` owner tag equal to its view tag and
+/// no ciphertext, so `hash_field(view_tag)` is the OWNER public input the circuit
+/// binds that output to. The two slices must have equal length; extra entries in
+/// either are dropped.
+pub fn inline_outputs(
+    output_utxo_hashes: &[[u8; 32]],
+    view_tags: &[[u8; 32]],
+) -> Vec<TransactOutput> {
+    output_utxo_hashes
+        .iter()
+        .zip(view_tags.iter())
+        .map(|(utxo_hash, view_tag)| TransactOutput {
+            utxo_hash: *utxo_hash,
+            owner_tag: OwnerTag::Inline(*view_tag),
+            data: None,
+        })
+        .collect()
+}
+
+/// Resolve every output's owner tag against the transaction context (`Inline`
+/// tags resolve to themselves), producing the `ResolvedOutput` slice
+/// [`ExternalDataHash`] hashes. Mirrors the program's per-output resolution so
+/// the client and program agree on the hash preimage.
+pub fn resolve_outputs(ix: &TransactIxData) -> Result<Vec<ResolvedOutput<'_>>> {
+    ix.outputs
+        .iter()
+        .map(|output| {
+            output
+                .resolved(ix.p256_signing_pk_x.as_ref(), |_| None)
+                .map_err(|e| anyhow!("resolve owner tag: {e:?}"))
         })
         .collect()
 }
@@ -174,16 +203,15 @@ pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> 
 pub fn new_transact_ix_data(
     inputs: Vec<InputUtxo>,
     public_sol_amount: Option<i64>,
-    output_utxo_hashes: Vec<[u8; 32]>,
-    output_ciphertexts: Vec<transact_ix::OutputCiphertext>,
-    p256_signing_pk_field: Option<[u8; 32]>,
+    outputs: Vec<TransactOutput>,
+    p256_signing_pk_x: Option<[u8; 32]>,
 ) -> TransactIxData {
     TransactIxData {
         proof: TransactProof::zeroed_eddsa(),
         expiry_unix_ts: u64::MAX,
         relayer_fee: 0,
         private_tx_hash: [0u8; 32],
-        p256_signing_pk_field,
+        p256_signing_pk_x,
         inputs,
         public_sol_amount,
         public_spl_amount: None,
@@ -191,8 +219,8 @@ pub fn new_transact_ix_data(
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        output_utxo_hashes,
-        output_ciphertexts,
+        outputs,
+        messages: Vec::new(),
     }
 }
 
@@ -201,6 +229,7 @@ pub fn external_data_hash(
     user_sol_account: &[u8; 32],
 ) -> Result<[u8; 32]> {
     let zero = [0u8; 32];
+    let outputs = resolve_outputs(transact_ix_data)?;
     Ok(ExternalDataHash {
         spp_instruction_discriminator: tag::TRANSACT,
         expiry_unix_ts: transact_ix_data.expiry_unix_ts,
@@ -212,17 +241,10 @@ pub fn external_data_hash(
         spl_token_interface: &zero,
         data_hash: None,
         zone_data_hash: None,
-        output_utxo_hashes: &transact_ix_data.output_utxo_hashes,
-        output_ciphertexts: &transact_ix_data.output_ciphertexts,
+        outputs: &outputs,
+        messages: &transact_ix_data.messages,
     }
     .hash()?)
-}
-
-pub fn ix_output_ciphertext(view_tag: [u8; 32]) -> transact_ix::OutputCiphertext {
-    transact_ix::OutputCiphertext {
-        view_tag,
-        data: Vec::new(),
-    }
 }
 
 /// A dummy output (`owner_hash = 0`) over a chosen `blinding`, assembled exactly as

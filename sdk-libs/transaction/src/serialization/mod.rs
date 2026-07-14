@@ -1,6 +1,5 @@
 use solana_address::Address;
-use zolana_event::OutputData;
-use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
+use zolana_event::{OutputData, OutputDataEncoding};
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, PublicKey, ViewingKey};
 
 use crate::{
@@ -81,20 +80,22 @@ pub trait UtxoSerialization {
         owner: &OwnerCx,
         view_tag: [u8; 32],
         cx: &Self::EncodeCx,
-    ) -> Result<OutputCiphertext, TransactionError> {
+    ) -> Result<OutputData, TransactionError> {
         let plaintext = Self::from_utxos(utxos, owner, cx)?;
         Self::encode_plaintext(&plaintext, view_tag, cx)
     }
 
-    /// Seal an already-built plaintext into an [`OutputCiphertext`]: serialize,
-    /// encrypt, prefix the scheme byte, and wrap in the borsh `OutputData` the
-    /// program expects. `encode` is `from_utxos` followed by this; a builder that
-    /// owns plaintext construction calls this directly.
+    /// Seal an already-built plaintext into a published data slot: serialize,
+    /// encrypt, prefix the scheme byte, and wrap in the borsh
+    /// [`OutputDataEncoding`] the program expects. `encode` is `from_utxos`
+    /// followed by this; a builder that owns plaintext construction calls this
+    /// directly. The returned [`OutputData`] pairs the owner `view_tag` with the
+    /// sealed `data` bytes that become the on-chain output ciphertext.
     fn encode_plaintext(
         plaintext: &Self::Plaintext,
         view_tag: [u8; 32],
         cx: &Self::EncodeCx,
-    ) -> Result<OutputCiphertext, TransactionError> {
+    ) -> Result<OutputData, TransactionError> {
         let bytes = Self::serialize(plaintext)?;
         let ciphertext = Self::encrypt(&bytes, cx)?;
         let mut blob = Vec::with_capacity(1 + ciphertext.len());
@@ -102,13 +103,13 @@ pub trait UtxoSerialization {
         blob.extend_from_slice(&ciphertext);
         let output_data = match Self::SCHEME {
             EncryptedScheme::Proofless | EncryptedScheme::PlaintextTransfer => {
-                OutputData::Plaintext(blob)
+                OutputDataEncoding::Plaintext(blob)
             }
-            EncryptedScheme::Merge => OutputData::VerifiablyEncrypted(blob),
-            _ => OutputData::Encrypted(blob),
+            EncryptedScheme::Merge => OutputDataEncoding::VerifiablyEncrypted(blob),
+            _ => OutputDataEncoding::Encrypted(blob),
         };
         let data = borsh::to_vec(&output_data)
             .map_err(|e| TransactionError::Deserialize(e.to_string()))?;
-        Ok(OutputCiphertext { view_tag, data })
+        Ok(OutputData { view_tag, data })
     }
 }

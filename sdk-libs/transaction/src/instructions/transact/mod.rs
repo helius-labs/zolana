@@ -8,7 +8,7 @@ pub mod signed_transaction;
 pub mod types;
 
 pub use builder::{
-    ConfidentialSlot, EncodeOutputSlot, OutputCiphertextSlot, PreparedRecipient,
+    ConfidentialSlot, EncodeOutputSlot, EncodedSlot, PrebuiltSlot, PreparedRecipient,
     PreparedTransaction, RecipientSlot, SenderSlot, Shape, SlotCx, Transaction, WithdrawalTarget,
     SENDER_SLOT_COUNT,
 };

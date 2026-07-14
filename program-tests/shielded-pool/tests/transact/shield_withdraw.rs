@@ -39,7 +39,7 @@ use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, nullifier_tree,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_sol_field,
     real_output, set_output_owner_tags, spend_input, start_prover, transfer_output, SpendInputArgs,
     TransferProverInputsArgs,
@@ -184,25 +184,22 @@ fn shield_then_withdraw_sol() {
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
+    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, 1),
             eddsa_input_utxo(dummy_nullifier, 1),
         ],
         Some(-(AMOUNT as i64)),
-        output_hashes.clone(),
-        vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
-        ],
+        inline_outputs(&output_hashes, &view_tags),
         None,
     );
 
     // All three outputs are dummies; stamp their confidential owner tags from the
-    // program's `hash_field(view_tag)` mapping (nullifier_pk 0 = unconstrained).
+    // program's `hash_field(resolved_owner_tag)` mapping (nullifier_pk 0 =
+    // unconstrained).
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.output_ciphertexts, output_hashes.len())
-            .expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &recipient.to_bytes()).expect("external data hash");
@@ -385,10 +382,10 @@ fn shield_transfer_then_withdraw_sol() {
     let (transfer_dummy_output, transfer_dummy_hash) =
         dummy_transfer_output(&[19u8; 31]).expect("transfer dummy output");
 
-    // One ciphertext per output (1:1 owner mapping). Each real output's view_tag is
-    // its owner's `confidential_view_tag`, so the program's `hash_field(view_tag)`
-    // equals that owner's `owner_pk_field` and the circuit's output owner binding
-    // holds. The dummy slot's view_tag is arbitrary.
+    // Each real output's owner tag is its owner's `confidential_view_tag`, so the
+    // program's `hash_field(resolved_owner_tag)` equals that owner's
+    // `owner_pk_field` and the circuit's output owner binding holds. The dummy
+    // slot's owner tag is arbitrary.
     let change_view_tag = payer_utxo
         .owner
         .confidential_view_tag()
@@ -396,21 +393,20 @@ fn shield_transfer_then_withdraw_sol() {
     let recipient_view_tag = recipient_public_key
         .confidential_view_tag()
         .expect("recipient view tag");
+    let transfer_view_tags = [change_view_tag, recipient_view_tag, [3u8; 32]];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(payer_nullifier, 1),
             eddsa_input_utxo(transfer_dummy_nullifier, 1),
         ],
         None,
-        vec![change_hash, recipient_hash, transfer_dummy_hash],
-        vec![
-            ix_output_ciphertext(change_view_tag),
-            ix_output_ciphertext(recipient_view_tag),
-            ix_output_ciphertext([3u8; 32]),
-        ],
+        inline_outputs(
+            &[change_hash, recipient_hash, transfer_dummy_hash],
+            &transfer_view_tags,
+        ),
         None,
     );
-    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.output_ciphertexts, 3)
+    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.outputs, None)
         .expect("transfer output owner pk hashes");
     let mut transfer_outputs = vec![
         transfer_output(&change_output).expect("change transfer output"),
@@ -563,24 +559,18 @@ fn shield_transfer_then_withdraw_sol() {
         .map(|(out, _)| out)
         .collect();
 
+    let withdraw_view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(recipient_nullifier, 4),
             eddsa_input_utxo(withdraw_dummy_nullifier, 4),
         ],
         Some(-(TRANSFER_AMOUNT as i64)),
-        withdraw_output_hashes.clone(),
-        vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
-        ],
+        inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
         None,
     );
-    let withdraw_owner_pk_hashes = output_owner_pk_hashes(
-        &withdraw_ix_data.output_ciphertexts,
-        withdraw_output_hashes.len(),
-    )
-    .expect("withdraw output owner pk hashes");
+    let withdraw_owner_pk_hashes = output_owner_pk_hashes(&withdraw_ix_data.outputs, None)
+        .expect("withdraw output owner pk hashes");
     set_output_owner_tags(
         &mut withdraw_outputs,
         &withdraw_owner_pk_hashes,

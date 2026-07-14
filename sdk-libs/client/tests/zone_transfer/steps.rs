@@ -16,7 +16,10 @@ use zolana_client::{
     TransferSpendInput, ZoneTransferP256Prover, ZoneTransferProver,
 };
 use zolana_interface::{
-    instruction::{instruction_data::transact::OutputCiphertext, tag::ZONE_TRANSACT},
+    instruction::{
+        instruction_data::transact::{OwnerTag, TransactOutput},
+        tag::ZONE_TRANSACT,
+    },
     verifying_keys::{
         transfer_p256_zone_1_1, transfer_p256_zone_1_2, transfer_p256_zone_1_8,
         transfer_p256_zone_2_2, transfer_p256_zone_2_3, transfer_p256_zone_3_3,
@@ -393,13 +396,15 @@ fn zone_external_data(n_out: usize) -> ExternalData {
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        output_utxo_hashes: vec![[0u8; 32]; n_out],
-        output_ciphertexts: (0..n_out)
-            .map(|_| OutputCiphertext {
-                view_tag: [0u8; 32],
-                data: Vec::new(),
+        outputs: (0..n_out)
+            .map(|_| TransactOutput {
+                utxo_hash: [0u8; 32],
+                owner_tag: OwnerTag::Inline([0u8; 32]),
+                data: None,
             })
             .collect(),
+        resolved_owner_tags: vec![[0u8; 32]; n_out],
+        messages: Vec::new(),
     }
 }
 

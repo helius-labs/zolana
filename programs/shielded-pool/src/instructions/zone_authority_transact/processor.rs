@@ -11,7 +11,7 @@ use zolana_interface::instruction::{
 use crate::instructions::{
     hash::solana_pk_hash,
     shared::check_not_expired,
-    transact::processor::{prepare_proof_inputs, process_transact_core},
+    transact::processor::{prepare_proof_inputs, process_transact_core, resolve_output_owner_tags},
     zone_transact::account::ZoneTransactAccounts,
 };
 
@@ -36,7 +36,8 @@ pub fn process_zone_authority_transact_ix(
     // via the `zone_config` signer. The zone-authority circuit keeps each input
     // owner's `pk_field` private, so `input_owner_pk_hashes` are absent from the
     // public-input hash (see `public_input_hash`) and need no on-chain source.
-    let mut proof_inputs = prepare_proof_inputs::<true, true>(accounts, &ix)?;
+    let resolved_tags = resolve_output_owner_tags(accounts, &ix)?;
+    let mut proof_inputs = prepare_proof_inputs::<true, true>(accounts, &ix, &resolved_tags)?;
     let (transact_accounts, zone_program_id) =
         ZoneTransactAccounts::validate_and_parse::<true>(accounts, &ix)?;
     proof_inputs.zone_program_id = solana_pk_hash(&zone_program_id)?;
@@ -47,5 +48,6 @@ pub fn process_zone_authority_transact_ix(
         transact_accounts,
         clock.slot,
         ZONE_AUTHORITY_TRANSACT,
+        &resolved_tags,
     )
 }

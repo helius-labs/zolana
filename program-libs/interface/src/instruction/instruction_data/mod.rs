@@ -17,7 +17,8 @@ pub use merge_transact::{
 pub use merge_zone::{MergeZoneIxData, MergeZoneIxDataRef};
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
 pub use transact::{
-    InputUtxo, OutputCiphertext, OutputCiphertextRef, OutputUtxo, TransactIxData,
-    TransactIxDataRef, TransactProof,
+    fetch_tag, FetchTagError, InputUtxo, OutputData, OutputDataRef, OutputUtxo, OwnerTag,
+    ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef,
+    TransactProof,
 };
 pub use zone_config::{CreateZoneConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData};

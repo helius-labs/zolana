@@ -2,11 +2,11 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::FillVerifiableEncryptionProofInputs;
-use zolana_interface::instruction::instruction_data::transact::{OutputCiphertext, TransactIxData};
+use zolana_interface::instruction::instruction_data::transact::{OutputData, TransactIxData};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
 use zolana_transaction::{
     instructions::transact::{
-        ConfidentialSlot, OutputCiphertextSlot, OutputUtxo, SignedTransaction, Transaction,
+        ConfidentialSlot, OutputUtxo, PrebuiltSlot, SignedTransaction, Transaction,
     },
     utxo::Blinding,
     AssetRegistry, TransactionError, VIEW_TAG_LEN,
@@ -120,9 +120,9 @@ impl EscrowFillVerifiableEncryption {
         }
 
         let source_slot = ConfidentialSlot::new(source_output, assets)?;
-        let destination_slot = OutputCiphertextSlot {
+        let destination_slot = PrebuiltSlot {
             output: destination_output,
-            ciphertext: OutputCiphertext {
+            ciphertext: OutputData {
                 view_tag: destination_view_tag,
                 data: destination_ciphertext,
             },

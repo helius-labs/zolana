@@ -233,44 +233,38 @@ pub fn assemble(
         zone_data_hash,
         tx_viewing_pk,
         salt,
-        output_utxo_hashes,
-        output_ciphertexts,
+        outputs,
+        messages,
         ..
     } = tx.external_data.clone();
 
     let BuiltCircuit { circuit } = into_prover(tx, input_proofs)?;
 
-    let (
-        prover_inputs,
-        public_input_hash,
-        nullifiers,
-        private_tx,
-        root_indices,
-        p256_signing_pk_field,
-    ) = match circuit {
-        CircuitType::P256(prover) => {
-            let result = prover.build()?;
-            (
-                ProverInputs::P256(result.inputs),
-                result.public_input_hash,
-                result.nullifiers,
-                result.private_tx_hash,
-                result.input_root_indices,
-                Some(result.p256_signing_pk_field),
-            )
-        }
-        CircuitType::Eddsa(prover) => {
-            let result = prover.build()?;
-            (
-                ProverInputs::Eddsa(result.inputs),
-                result.public_input_hash,
-                result.nullifiers,
-                result.private_tx_hash,
-                result.input_root_indices,
-                None,
-            )
-        }
-    };
+    let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices, p256_signing_pk_x) =
+        match circuit {
+            CircuitType::P256(prover) => {
+                let result = prover.build()?;
+                (
+                    ProverInputs::P256(result.inputs),
+                    result.public_input_hash,
+                    result.nullifiers,
+                    result.private_tx_hash,
+                    result.input_root_indices,
+                    Some(result.p256_signing_pk_x),
+                )
+            }
+            CircuitType::Eddsa(prover) => {
+                let result = prover.build()?;
+                (
+                    ProverInputs::Eddsa(result.inputs),
+                    result.public_input_hash,
+                    result.nullifiers,
+                    result.private_tx_hash,
+                    result.input_root_indices,
+                    None,
+                )
+            }
+        };
 
     if nullifiers.len() != shape.n_inputs || root_indices.len() != shape.n_inputs {
         return Err(ClientError::WitnessInputCountMismatch {
@@ -316,7 +310,7 @@ pub fn assemble(
         expiry_unix_ts,
         relayer_fee,
         private_tx_hash: private_tx,
-        p256_signing_pk_field,
+        p256_signing_pk_x,
         inputs,
         public_sol_amount,
         public_spl_amount,
@@ -324,8 +318,8 @@ pub fn assemble(
         zone_data_hash,
         tx_viewing_pk,
         salt,
-        output_utxo_hashes,
-        output_ciphertexts,
+        outputs,
+        messages,
     };
 
     Ok(AssembledTransfer {

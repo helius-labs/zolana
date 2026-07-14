@@ -3,11 +3,11 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::CreateProofInputs;
-use zolana_interface::instruction::instruction_data::transact::{OutputCiphertext, TransactIxData};
+use zolana_interface::instruction::instruction_data::transact::{OutputData, TransactIxData};
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{
     instructions::{
-        transact::{OutputCiphertextSlot, OutputUtxo},
+        transact::{OutputUtxo, PrebuiltSlot},
         types::SpendUtxo,
     },
     utxo::Blinding,
@@ -87,13 +87,13 @@ pub struct MarkerEncrypt {
 }
 
 impl MarkerEncrypt {
-    pub fn encrypt(self) -> Result<OutputCiphertextSlot, TransactionError> {
+    pub fn encrypt(self) -> Result<PrebuiltSlot, TransactionError> {
         let marker_address = self
             .marker
             .owner_address
             .ok_or(TransactionError::MissingOutput)?;
-        Ok(OutputCiphertextSlot {
-            ciphertext: OutputCiphertext {
+        Ok(PrebuiltSlot {
+            ciphertext: OutputData {
                 view_tag: marker_address.signing_pubkey.confidential_view_tag()?,
                 data: borsh::to_vec(&MarkerData {
                     escrow_utxo_hash: self.escrow_utxo_hash,
@@ -122,8 +122,8 @@ impl CreateSwap {
             mut spp_proof,
         } = self;
 
-        if let Some(marker) = spp_proof.output_ciphertexts.last_mut() {
-            marker.data = Vec::new();
+        if let Some(marker) = spp_proof.outputs.last_mut() {
+            marker.data = None;
         }
 
         let data = CreateSwapIxData {
@@ -256,8 +256,14 @@ mod tests {
         assert_eq!(marker_out.amount, 0);
 
         let change_hash = change.hash().expect("change hash");
+        let output_hashes: Vec<[u8; 32]> = signed
+            .external_data
+            .outputs
+            .iter()
+            .map(|output| output.utxo_hash)
+            .collect();
         assert_eq!(
-            signed.external_data.output_utxo_hashes,
+            output_hashes,
             vec![change_hash, escrow_utxo_hash, marker_hash]
         );
 

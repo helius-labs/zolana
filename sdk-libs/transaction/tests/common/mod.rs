@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use zolana_event::OutputData;
+use zolana_event::OutputDataEncoding;
 use zolana_keypair::{
     constants::BLINDING_LEN, viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey,
 };
@@ -60,7 +60,8 @@ fn encrypted_payload(scheme: EncryptedScheme, ciphertext: Vec<u8>) -> Vec<u8> {
     let mut blob = Vec::with_capacity(1 + ciphertext.len());
     blob.push(scheme.as_byte());
     blob.extend_from_slice(&ciphertext);
-    borsh::to_vec(&OutputData::Encrypted(blob)).expect("output data serialization is infallible")
+    borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
+        .expect("output data serialization is infallible")
 }
 
 fn empty_slot() -> OutputSlot {

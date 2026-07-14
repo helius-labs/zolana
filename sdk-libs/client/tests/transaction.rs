@@ -26,8 +26,10 @@ use zolana_client::{
     TransferP256Prover, WalletAuthority, WithdrawalTarget, NULLIFIER_TREE_HEIGHT,
     STATE_TREE_HEIGHT,
 };
-use zolana_event::OutputData;
-use zolana_interface::instruction::instruction_data::transact::TransactProof;
+use zolana_event::OutputDataEncoding;
+use zolana_interface::instruction::instruction_data::transact::{
+    OwnerTag, TransactIxData, TransactProof,
+};
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::{
     instructions::transact::signed_transaction::signed_to_field,
@@ -203,13 +205,21 @@ fn decrypt(
     external_data: &ExternalData,
 ) -> (TransferSenderPlaintext, Vec<TransferRecipientPlaintext>) {
     let tx_viewing_pk = P256Pubkey::from_bytes(external_data.tx_viewing_pk).unwrap();
+    // The AES slot index is the ciphertext ordinal: outputs with `data` in order
+    // (bundle first, then recipients / dummies), skipping the change slots the
+    // bundle covers (`data: None`).
+    let ciphertexts: Vec<Vec<u8>> = external_data
+        .outputs
+        .iter()
+        .filter_map(|output| output.data.clone())
+        .collect();
     let slot_body = |slot_index: usize| -> Vec<u8> {
-        let slot = external_data.output_ciphertexts.get(slot_index).unwrap();
-        let output_data = OutputData::try_from_slice(&slot.data).unwrap();
+        let data = ciphertexts.get(slot_index).unwrap();
+        let output_data = OutputDataEncoding::try_from_slice(data).unwrap();
         let blob = match output_data {
-            OutputData::Encrypted(blob)
-            | OutputData::VerifiablyEncrypted(blob)
-            | OutputData::Plaintext(blob) => blob,
+            OutputDataEncoding::Encrypted(blob)
+            | OutputDataEncoding::VerifiablyEncrypted(blob)
+            | OutputDataEncoding::Plaintext(blob) => blob,
         };
         let (_scheme, body) = blob.split_first().expect("scheme byte plus body");
         body.to_vec()
@@ -328,13 +338,16 @@ fn transfer_round_trip_outputs_and_bundle() {
             zone_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
             salt: prover.external_data.salt,
-            output_utxo_hashes: prover.external_data.output_utxo_hashes.clone(),
-            output_ciphertexts: prover.external_data.output_ciphertexts.clone(),
+            outputs: prover.external_data.outputs.clone(),
+            resolved_owner_tags: prover.external_data.resolved_owner_tags.clone(),
+            messages: prover.external_data.messages.clone(),
         }
     );
+    // The sender bundle sits at output 0; its resolved owner tag is the sender's
+    // view tag regardless of how the wire `OwnerTag` encodes it.
     assert_eq!(
-        prover.external_data.output_ciphertexts[0].view_tag,
-        sender.signing_pubkey().confidential_view_tag().unwrap()
+        prover.external_data.resolved_owner_tags.first().copied(),
+        Some(sender.signing_pubkey().confidential_view_tag().unwrap())
     );
 
     // The encrypted bundle decrypts back to the sender change + recipient.
@@ -364,9 +377,9 @@ fn transfer_round_trip_outputs_and_bundle() {
 }
 
 /// A change-only transfer (recipient slot is a dummy) and a one-recipient transfer
-/// must be byte-shape-indistinguishable in `output_ciphertexts`: same slot count,
-/// every recipient/dummy slot the same derived ciphertext length, and the same
-/// fixed bundle size.
+/// must be byte-shape-indistinguishable in `outputs`: same output count, same
+/// number of ciphertexts, every recipient/dummy ciphertext the same derived
+/// length, and the same fixed bundle size.
 ///
 /// In the confidential default zone a real recipient slot is tagged by the owner
 /// pubkey (a 32-byte value with an arbitrary leading byte). A dummy slot's view tag
@@ -399,31 +412,38 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
     let change_only = build(false);
     let one_recipient = build(true);
 
-    assert_eq!(change_only.output_ciphertexts.len(), 2);
-    assert_eq!(
-        change_only.output_ciphertexts.len(),
-        one_recipient.output_ciphertexts.len(),
-    );
+    // The ciphertext lengths of the data-bearing outputs in order: the bundle at
+    // output 0, then the recipient / dummy slots. Change slots the bundle covers
+    // carry `data: None` and drop out, so this is the ciphertext-ordinal view.
+    let ciphertext_lens = |ix: &TransactIxData| -> Vec<usize> {
+        ix.outputs
+            .iter()
+            .filter_map(|output| output.data.as_ref().map(|data| data.len()))
+            .collect()
+    };
+    let change_lens = ciphertext_lens(&change_only);
+    let recipient_lens = ciphertext_lens(&one_recipient);
+
+    // Both transactions have the same output count and the same number of
+    // ciphertexts, so a dummy does not change the observable shape.
+    assert_eq!(change_only.outputs.len(), one_recipient.outputs.len());
+    assert_eq!(change_lens.len(), 2);
+    assert_eq!(change_lens.len(), recipient_lens.len());
 
     // The dummy slot (change_only) and the real recipient slot (one_recipient) are
     // the same byte length, so neither stands out. The recipient ciphertext length is
     // derived rather than pinned to a constant.
-    let recipient_len = one_recipient
-        .output_ciphertexts
-        .get(1)
-        .expect("recipient slot")
-        .data
-        .len();
-    for ix in [&change_only, &one_recipient] {
-        for slot in ix.output_ciphertexts.get(1..).expect("recipient region") {
-            assert_eq!(slot.data.len(), recipient_len);
+    let recipient_len = *recipient_lens.get(1).expect("recipient slot");
+    for lens in [&change_lens, &recipient_lens] {
+        for len in lens.get(1..).expect("recipient region") {
+            assert_eq!(*len, recipient_len);
         }
     }
 
     // The sender bundle is the same fixed size regardless of the recipient count.
     assert_eq!(
-        change_only.output_ciphertexts.first().unwrap().data.len(),
-        one_recipient.output_ciphertexts.first().unwrap().data.len(),
+        change_lens.first().unwrap(),
+        recipient_lens.first().unwrap(),
     );
 }
 
@@ -465,36 +485,46 @@ fn assemble_carries_ciphertext_and_decrypts() {
     assert_eq!(ix.public_sol_amount, None);
     assert_eq!(ix.public_spl_amount, None);
 
-    // output_ciphertexts[0] is the sender bundle under the sender's owner-pubkey tag;
-    // the recipient slot holds the recipient's owner-pubkey tag and a non-empty
-    // ciphertext.
-    let bundle = ix.output_ciphertexts.first().expect("bundle slot");
+    // Output 0 is the sender bundle. The P256-owned sender carries the shared
+    // signing key tag, resolved on-chain from `p256_signing_pk_x` (the sender's
+    // view tag); its ciphertext is non-empty. The recipient slot holds the
+    // recipient's inline owner tag and a non-empty ciphertext.
+    let bundle = ix.outputs.first().expect("bundle slot");
+    assert_eq!(bundle.owner_tag, OwnerTag::P256SigningKey);
     assert_eq!(
-        bundle.view_tag,
-        sender.signing_pubkey().confidential_view_tag().unwrap()
+        ix.p256_signing_pk_x,
+        Some(sender.signing_pubkey().confidential_view_tag().unwrap())
     );
-    assert!(!bundle.data.is_empty());
+    assert!(bundle.data.as_ref().is_some_and(|data| !data.is_empty()));
     let recipient_slot = ix
-        .output_ciphertexts
+        .outputs
         .get(1..)
         .expect("recipient region")
         .iter()
-        .find(|slot| slot.view_tag == recipient_view_tag)
+        .find(|output| output.owner_tag == OwnerTag::Inline(recipient_view_tag))
         .expect("recipient slot present");
-    assert!(!recipient_slot.data.is_empty());
+    assert!(recipient_slot
+        .data
+        .as_ref()
+        .is_some_and(|data| !data.is_empty()));
 
     // The per-output ciphertext slots decrypt back to the original transfer (bundle
-    // slot 0 decoded by the sender + one recipient slot decoded by the recipient);
-    // the ix shape has no empty change placeholder, so the bundle covers one leading
-    // slot here.
+    // ciphertext-ordinal 0 decoded by the sender + one recipient slot decoded by the
+    // recipient). The AES slot index is the ciphertext ordinal over data-bearing
+    // outputs, so the bundle is 0 and the recipient is 1.
     let tx_viewing_pk = P256Pubkey::from_bytes(ix.tx_viewing_pk).unwrap();
+    let ciphertexts: Vec<Vec<u8>> = ix
+        .outputs
+        .iter()
+        .filter_map(|output| output.data.clone())
+        .collect();
     let slot_body = |slot_index: usize| -> Vec<u8> {
-        let slot = ix.output_ciphertexts.get(slot_index).unwrap();
-        let output_data = OutputData::try_from_slice(&slot.data).unwrap();
+        let data = ciphertexts.get(slot_index).unwrap();
+        let output_data = OutputDataEncoding::try_from_slice(data).unwrap();
         let blob = match output_data {
-            OutputData::Encrypted(blob)
-            | OutputData::VerifiablyEncrypted(blob)
-            | OutputData::Plaintext(blob) => blob,
+            OutputDataEncoding::Encrypted(blob)
+            | OutputDataEncoding::VerifiablyEncrypted(blob)
+            | OutputDataEncoding::Plaintext(blob) => blob,
         };
         let (_scheme, body) = blob.split_first().expect("scheme byte plus body");
         body.to_vec()
@@ -607,8 +637,9 @@ fn withdrawal_sets_external_data_and_change() {
             zone_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
             salt: prover.external_data.salt,
-            output_utxo_hashes: prover.external_data.output_utxo_hashes.clone(),
-            output_ciphertexts: prover.external_data.output_ciphertexts.clone(),
+            outputs: prover.external_data.outputs.clone(),
+            resolved_owner_tags: prover.external_data.resolved_owner_tags.clone(),
+            messages: prover.external_data.messages.clone(),
         }
     );
 }

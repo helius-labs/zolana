@@ -53,10 +53,10 @@ pub fn process_fill_verifiable_encryption(
     check_within_window(clock.unix_timestamp, transact.expiry_unix_ts)?;
 
     let destination_ciphertext = transact
-        .output_ciphertexts
+        .outputs
         .last()
-        .ok_or(SwapError::InvalidInstructionData)?
-        .data;
+        .and_then(|output| output.data)
+        .ok_or(SwapError::InvalidInstructionData)?;
 
     FillVerifiableEncryptionPublicInput {
         private_tx_hash: transact.private_tx_hash,

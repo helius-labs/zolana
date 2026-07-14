@@ -33,7 +33,7 @@ use zolana_client::{
     ShieldedTransaction, SolanaRpc, SpendProof, SpendUtxo, Transaction as ClientTransaction,
     TransferInput, TransferOutput, UtxoInputs, ZolanaIndexer,
 };
-use zolana_event::OutputData;
+use zolana_event::OutputDataEncoding;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::{
     instruction::{
@@ -64,7 +64,7 @@ use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, output_owner_pk_hashes,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
     pack_proof, prove_and_verify_transfer, public_input_hash, public_sol_field, real_output,
     set_output_owner_tags, start_prover, transfer_output, TransferProverInputsArgs,
 };
@@ -319,26 +319,25 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
-    // One ciphertext per output (1:1 owner mapping); each real output's view_tag is
-    // its owner's `confidential_view_tag` so the program's `hash_field(view_tag)`
-    // matches that owner's `owner_pk_field`.
+    // Each real output's owner tag is its owner's `confidential_view_tag` so the
+    // program's `hash_field(resolved_owner_tag)` matches that owner's
+    // `owner_pk_field`.
     let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
+    let transfer_view_tags = [change_view_tag, recipient_view_tag, [3u8; 32]];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(payer_nullifier, payer_state_proof.root_index),
             eddsa_input_utxo(transfer_dummy_nullifier, payer_state_proof.root_index),
         ],
         None,
-        vec![change_hash, recipient_hash, transfer_dummy_hash],
-        vec![
-            ix_output_ciphertext(change_view_tag),
-            ix_output_ciphertext(recipient_view_tag),
-            ix_output_ciphertext([3u8; 32]),
-        ],
+        inline_outputs(
+            &[change_hash, recipient_hash, transfer_dummy_hash],
+            &transfer_view_tags,
+        ),
         None,
     );
-    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.output_ciphertexts, 3)
+    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.outputs, None)
         .map_err(|err| anyhow!("transfer output owner pk hashes: {err}"))?;
     let mut transfer_outputs = vec![
         transfer_output(&change_output)?,
@@ -490,24 +489,18 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         .map(|(out, _)| out)
         .collect();
 
+    let withdraw_view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(recipient_nullifier, recipient_state_proof.root_index),
             eddsa_input_utxo(withdraw_dummy_nullifier, recipient_state_proof.root_index),
         ],
         Some(-(TRANSFER_AMOUNT as i64)),
-        withdraw_output_hashes.clone(),
-        vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
-        ],
+        inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
         None,
     );
-    let withdraw_owner_pk_hashes = output_owner_pk_hashes(
-        &withdraw_ix_data.output_ciphertexts,
-        withdraw_output_hashes.len(),
-    )
-    .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
+    let withdraw_owner_pk_hashes = output_owner_pk_hashes(&withdraw_ix_data.outputs, None)
+        .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
     set_output_owner_tags(
         &mut withdraw_outputs,
         &withdraw_owner_pk_hashes,
@@ -922,9 +915,9 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             .output_data()
             .ok_or_else(|| anyhow!("sender slot is not decodable output data"))?
         {
-            OutputData::Encrypted(blob)
-            | OutputData::VerifiablyEncrypted(blob)
-            | OutputData::Plaintext(blob) => blob,
+            OutputDataEncoding::Encrypted(blob)
+            | OutputDataEncoding::VerifiablyEncrypted(blob)
+            | OutputDataEncoding::Plaintext(blob) => blob,
         };
         let (_scheme, sender_ciphertext) = sender_blob
             .split_first()
@@ -1654,7 +1647,8 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     // Independently reconstruct the expected recipient UTXO: the sender bundle in
     // slot 0 decrypts to the shared blinding seed, from which the recipient's
     // blinding (output position 2 = first recipient slot) derives. Each slot's
-    // borsh `OutputData` carries a scheme byte plus the per-scheme ciphertext body.
+    // borsh `OutputDataEncoding` carries a scheme byte plus the per-scheme
+    // ciphertext body.
     let sender_slot = indexed
         .output_slots
         .first()
@@ -1663,9 +1657,9 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         .output_data()
         .ok_or_else(|| anyhow!("sender slot is not decodable output data"))?
     {
-        OutputData::Encrypted(blob)
-        | OutputData::VerifiablyEncrypted(blob)
-        | OutputData::Plaintext(blob) => blob,
+        OutputDataEncoding::Encrypted(blob)
+        | OutputDataEncoding::VerifiablyEncrypted(blob)
+        | OutputDataEncoding::Plaintext(blob) => blob,
     };
     let (_scheme, sender_ciphertext) = sender_blob
         .split_first()

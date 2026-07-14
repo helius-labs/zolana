@@ -360,7 +360,7 @@ pub(crate) fn decode_sender_seed(
         .output_data()
         .ok_or_else(|| anyhow!("sender slot undecodable"))?;
     let body = match &output_data {
-        zolana_event::OutputData::Encrypted(blob) => blob
+        zolana_event::OutputDataEncoding::Encrypted(blob) => blob
             .split_first()
             .map(|(_, body)| body)
             .ok_or_else(|| anyhow!("empty sender blob"))?,

@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use cucumber::then;
-use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
+use zolana_event::OutputData;
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt, PublicKey};
 use zolana_transaction::{
     data::{Data, DataRecord},
@@ -40,12 +40,12 @@ fn input_utxo(owner: PublicKey, asset: Address, amount: u64, seed: u8) -> Utxo {
     }
 }
 
-fn body(ciphertext: &OutputCiphertext) -> Vec<u8> {
-    let output_data = zolana_event::OutputData::try_from_slice(&ciphertext.data).unwrap();
+fn body(ciphertext: &OutputData) -> Vec<u8> {
+    let output_data = zolana_event::OutputDataEncoding::try_from_slice(&ciphertext.data).unwrap();
     let blob = match output_data {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob,
+        zolana_event::OutputDataEncoding::Encrypted(blob)
+        | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
+        | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
     };
     blob.get(1..).expect("scheme byte").to_vec()
 }

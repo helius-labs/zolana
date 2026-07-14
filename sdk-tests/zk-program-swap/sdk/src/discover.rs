@@ -5,7 +5,7 @@ use borsh::BorshDeserialize;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use zolana_client::{resolve_registered_address, sync_wallet, Rpc};
-use zolana_interface::event::OutputData;
+use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::{P256Pubkey, ShieldedAddress};
 use zolana_transaction::{
     serialization::{
@@ -76,7 +76,7 @@ pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Or
     else {
         bail!("marker without an escrow slot in the same transaction");
     };
-    let Some(OutputData::Encrypted(blob)) = escrow_slot.output_data() else {
+    let Some(OutputDataEncoding::Encrypted(blob)) = escrow_slot.output_data() else {
         bail!("escrow slot payload is not encrypted");
     };
     let (scheme_byte, body) = blob
@@ -230,7 +230,7 @@ pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Optio
     };
     let maker_address = wallet.keypair.shielded_address().map_err(err)?;
     for (position, slot) in tx.output_slots.iter().enumerate() {
-        let Some(OutputData::Encrypted(blob)) = slot.output_data() else {
+        let Some(OutputDataEncoding::Encrypted(blob)) = slot.output_data() else {
             continue;
         };
         let Some((scheme_byte, body)) = blob.split_first() else {
@@ -381,18 +381,18 @@ mod tests {
     fn shielded_transaction(signed: &SignedTransaction) -> ShieldedTransaction {
         let external = &signed.external_data;
         let output_slots = external
-            .output_utxo_hashes
+            .outputs
             .iter()
-            .zip(external.output_ciphertexts.iter())
+            .zip(external.resolved_owner_tags.iter())
             .enumerate()
-            .map(|(index, (utxo_hash, ciphertext))| OutputSlot {
-                view_tag: ciphertext.view_tag,
+            .map(|(index, (output, view_tag))| OutputSlot {
+                view_tag: *view_tag,
                 output_context: OutputContext {
-                    hash: *utxo_hash,
+                    hash: output.utxo_hash,
                     tree: Address::default(),
                     leaf_index: index as u64,
                 },
-                payload: ciphertext.data.clone(),
+                payload: output.data.clone().unwrap_or_default(),
             })
             .collect();
         let nullifiers = signed

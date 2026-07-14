@@ -6,12 +6,12 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 pub const MERGE_INPUT_COUNT: usize = 8;
 
 /// Byte length of the `encrypted_utxo` payload, the unified output encoding
-/// `borsh(OutputData::VerifiablyEncrypted([scheme(1) || tx_viewing_pk(33) ||
+/// `borsh(OutputDataEncoding::VerifiablyEncrypted([scheme(1) || tx_viewing_pk(33) ||
 /// ciphertext(71)]))`: borsh enum tag(1) || vec len u32-le(4) || blob(105).
 pub const MERGE_ENCRYPTED_UTXO_LEN: usize = 110;
 
 /// First byte every merge `encrypted_utxo` must carry: the borsh
-/// `OutputData::VerifiablyEncrypted` discriminant.
+/// `OutputDataEncoding::VerifiablyEncrypted` discriminant.
 pub const MERGE_ENCRYPTED_UTXO_TYPE_PREFIX: u8 = 2;
 
 /// `merge_transact` instruction data (spec: SPP `merge_transact`).

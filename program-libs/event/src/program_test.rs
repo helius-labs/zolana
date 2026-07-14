@@ -73,8 +73,9 @@ pub fn decode_event_payload(payload: &[u8]) -> Result<GeneralEvent, EventDecodeE
 }
 
 pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, EventDecodeError> {
-    let crate::OutputData::Plaintext(blob) =
-        crate::OutputData::try_from_slice(data).map_err(|_| EventDecodeError::InvalidOutputData)?
+    let crate::OutputDataEncoding::Plaintext(blob) =
+        crate::OutputDataEncoding::try_from_slice(data)
+            .map_err(|_| EventDecodeError::InvalidOutputData)?
     else {
         return Err(EventDecodeError::InvalidOutputData);
     };

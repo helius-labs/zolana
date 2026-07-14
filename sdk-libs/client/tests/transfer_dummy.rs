@@ -25,7 +25,7 @@ use zolana_client::{
     TransferSpendInput,
 };
 use zolana_interface::{
-    instruction::instruction_data::transact::OutputCiphertext,
+    instruction::instruction_data::transact::{OwnerTag, TransactOutput},
     verifying_keys::{
         transfer_confidential_1_1, transfer_confidential_1_2, transfer_confidential_1_8,
         transfer_confidential_2_2, transfer_confidential_2_3, transfer_confidential_3_3,
@@ -66,13 +66,15 @@ fn dummy_external_data() -> ExternalData {
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        output_utxo_hashes: vec![[0u8; 32]; 3],
-        output_ciphertexts: (0..2)
-            .map(|_| OutputCiphertext {
-                view_tag: [0u8; 32],
-                data: Vec::new(),
+        outputs: (0..3)
+            .map(|_| TransactOutput {
+                utxo_hash: [0u8; 32],
+                owner_tag: OwnerTag::Inline([0u8; 32]),
+                data: None,
             })
             .collect(),
+        resolved_owner_tags: vec![[0u8; 32]; 3],
+        messages: Vec::new(),
     }
 }
 

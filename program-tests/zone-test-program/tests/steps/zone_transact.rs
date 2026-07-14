@@ -390,7 +390,6 @@ impl ZoneLifecycleWorld {
                     &result.nullifiers,
                     result.private_tx_hash,
                     &result.input_root_indices,
-                    None,
                     Rail::Eddsa,
                     transact_proof(&proof)?,
                 )
@@ -414,7 +413,6 @@ impl ZoneLifecycleWorld {
                     &result.nullifiers,
                     result.private_tx_hash,
                     &result.input_root_indices,
-                    Some(result.p256_signing_pk_field),
                     Rail::P256,
                     transact_proof(&proof)?,
                 )
@@ -676,7 +674,6 @@ impl ZoneLifecycleWorld {
             &result.nullifiers,
             result.private_tx_hash,
             &result.input_root_indices,
-            None,
             Rail::Eddsa,
             TransactProof::zeroed_eddsa(),
         )?;
@@ -729,7 +726,6 @@ fn assemble_ix_data(
     nullifiers: &[[u8; 32]],
     private_tx_hash: [u8; 32],
     root_indices: &[(u16, u16)],
-    p256_signing_pk_field: Option<[u8; 32]>,
     rail: Rail,
     proof: TransactProof,
 ) -> Result<TransactIxData> {
@@ -782,7 +778,10 @@ fn assemble_ix_data(
         expiry_unix_ts: external.expiry_unix_ts,
         relayer_fee: external.relayer_fee,
         private_tx_hash,
-        p256_signing_pk_field,
+        // The zone rail folds the `0` sentinel for P256 ownership (proven inside
+        // the circuit from the signature), so the confidential-rail-only signing
+        // key never reaches the instruction.
+        p256_signing_pk_x: None,
         inputs,
         public_sol_amount: external.public_sol_amount,
         public_spl_amount: external.public_spl_amount,
@@ -790,8 +789,8 @@ fn assemble_ix_data(
         zone_data_hash: external.zone_data_hash,
         tx_viewing_pk: external.tx_viewing_pk,
         salt: external.salt,
-        output_utxo_hashes: external.output_utxo_hashes.clone(),
-        output_ciphertexts: external.output_ciphertexts.clone(),
+        outputs: external.outputs.clone(),
+        messages: external.messages.clone(),
     })
 }
 

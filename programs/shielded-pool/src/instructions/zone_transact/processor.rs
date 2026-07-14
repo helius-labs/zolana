@@ -12,7 +12,7 @@ use super::account::ZoneTransactAccounts;
 use crate::instructions::{
     hash::solana_pk_hash,
     shared::check_not_expired,
-    transact::processor::{prepare_proof_inputs, process_transact_core},
+    transact::processor::{prepare_proof_inputs, process_transact_core, resolve_output_owner_tags},
 };
 
 /// Anonymous policy-zone analog of `transact`. The `ZoneConfig` account (the
@@ -28,7 +28,8 @@ pub fn process_zone_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
 
-    let mut proof_inputs = prepare_proof_inputs::<true, false>(accounts, &ix)?;
+    let resolved_tags = resolve_output_owner_tags(accounts, &ix)?;
+    let mut proof_inputs = prepare_proof_inputs::<true, false>(accounts, &ix, &resolved_tags)?;
     let (transact_accounts, zone_program_id) =
         ZoneTransactAccounts::validate_and_parse::<false>(accounts, &ix)?;
     proof_inputs.zone_program_id = solana_pk_hash(&zone_program_id)?;
@@ -39,5 +40,6 @@ pub fn process_zone_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         transact_accounts,
         clock.slot,
         ZONE_TRANSACT,
+        &resolved_tags,
     )
 }

@@ -16,6 +16,7 @@ use swap_sdk::{
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};
+use zolana_interface::instruction::instruction_data::transact::TransactOutput;
 use zolana_keypair::{hash::sha256_be, random_blinding, random_salt};
 use zolana_transaction::{
     instructions::{
@@ -159,25 +160,36 @@ fn create_and_fill_swap_inline() -> Result<()> {
 
         let slots: [&dyn EncodeOutputSlot; 3] = [&change_slot, &escrow_slot, &marker_slot];
         let mut outputs = Vec::with_capacity(slots.len());
-        let mut output_utxo_hashes = Vec::with_capacity(slots.len());
-        let mut output_ciphertexts = Vec::with_capacity(slots.len());
-        for (slot_index, slot) in slots.iter().enumerate() {
-            output_ciphertexts.push(slot.encode_slot(&SlotCx {
+        let mut transact_outputs = Vec::with_capacity(slots.len());
+        let mut resolved_owner_tags = Vec::with_capacity(slots.len());
+        let mut ordinal = 0u32;
+        for slot in slots.iter() {
+            let encoded = slot.encode_slot(&SlotCx {
                 tx: &tx_viewing_key,
                 self_pubkey,
                 salt,
-                slot_index: slot_index as u32,
-            })?);
+                slot_index: ordinal,
+            })?;
             let output = slot.output().clone();
-            output_utxo_hashes.push(output.hash()?);
+            let utxo_hash = output.hash()?;
+            if encoded.data.is_some() {
+                ordinal += 1;
+            }
+            transact_outputs.push(TransactOutput {
+                utxo_hash,
+                owner_tag: encoded.owner_tag,
+                data: encoded.data,
+            });
+            resolved_owner_tags.push(encoded.resolved_owner_tag);
             outputs.push(output);
         }
         // 5. create external data hash
         let external_data = ExternalData::new(
             *tx_viewing_key.pubkey().as_bytes(),
             salt,
-            output_utxo_hashes,
-            output_ciphertexts,
+            transact_outputs,
+            resolved_owner_tags,
+            vec![],
             u64::MAX,
         );
         let external_data_hash = external_data
@@ -299,25 +311,36 @@ fn create_and_fill_swap_inline() -> Result<()> {
 
         let slots: [&dyn EncodeOutputSlot; 2] = [&source_slot, &destination_slot];
         let mut outputs = Vec::with_capacity(slots.len());
-        let mut output_utxo_hashes = Vec::with_capacity(slots.len());
-        let mut output_ciphertexts = Vec::with_capacity(slots.len());
-        for (slot_index, slot) in slots.iter().enumerate() {
-            output_ciphertexts.push(slot.encode_slot(&SlotCx {
+        let mut transact_outputs = Vec::with_capacity(slots.len());
+        let mut resolved_owner_tags = Vec::with_capacity(slots.len());
+        let mut ordinal = 0u32;
+        for slot in slots.iter() {
+            let encoded = slot.encode_slot(&SlotCx {
                 tx: &tx_viewing_key,
                 self_pubkey,
                 salt,
-                slot_index: slot_index as u32,
-            })?);
+                slot_index: ordinal,
+            })?;
             let output = slot.output().clone();
-            output_utxo_hashes.push(output.hash()?);
+            let utxo_hash = output.hash()?;
+            if encoded.data.is_some() {
+                ordinal += 1;
+            }
+            transact_outputs.push(TransactOutput {
+                utxo_hash,
+                owner_tag: encoded.owner_tag,
+                data: encoded.data,
+            });
+            resolved_owner_tags.push(encoded.resolved_owner_tag);
             outputs.push(output);
         }
 
         let external_data = ExternalData::new(
             *tx_viewing_key.pubkey().as_bytes(),
             salt,
-            output_utxo_hashes,
-            output_ciphertexts,
+            transact_outputs,
+            resolved_owner_tags,
+            vec![],
             terms.expiry,
         );
         let fill_external_data_hash = external_data

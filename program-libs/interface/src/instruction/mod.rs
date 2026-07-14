@@ -5,10 +5,11 @@ use borsh::BorshSerialize;
 #[cfg(feature = "solana")]
 pub use builders::*;
 pub use instruction_data::{
-    BatchUpdateNullifierTreeData, CompressedProof, CreateProtocolConfigData, CreateTreeData,
-    CreateZoneConfigData, DepositIxData, InputUtxo, MergeExternalDataHash, MergeTransactIxData,
-    MergeTransactIxDataRef, MergeZoneIxData, MergeZoneIxDataRef, OutputCiphertext,
-    OutputCiphertextRef, OutputUtxo, PauseTreeData, TransactIxData, TransactIxDataRef,
+    fetch_tag, BatchUpdateNullifierTreeData, CompressedProof, CreateProtocolConfigData,
+    CreateTreeData, CreateZoneConfigData, DepositIxData, FetchTagError, InputUtxo,
+    MergeExternalDataHash, MergeTransactIxData, MergeTransactIxDataRef, MergeZoneIxData,
+    MergeZoneIxDataRef, OutputData, OutputDataRef, OutputUtxo, OwnerTag, PauseTreeData,
+    ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef,
     TransactProof, UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
     UtxoData, ZoneDepositIxData,
 };

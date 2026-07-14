@@ -1,5 +1,6 @@
 use solana_address::Address;
-use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
+use zolana_event::OutputData;
+use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN, VIEW_TAG_LEN},
     hash::sha256_be,
@@ -177,12 +178,36 @@ pub struct SlotCx<'a> {
     pub tx: &'a ViewingKey,
     pub self_pubkey: P256Pubkey,
     pub salt: [u8; SALT_LEN],
+    /// AES ciphertext ordinal for this slot: the count of data-bearing outputs
+    /// preceding it. Fed into the per-slot key/nonce derivation.
     pub slot_index: u32,
+}
+
+/// The encoded form of one output slot: its wire [`OwnerTag`], the resolved
+/// 32-byte tag folded into the proof's owner-tag chain and republished as the
+/// event `view_tag`, and the optional ciphertext (`None` when a preceding bundle
+/// covers this slot).
+pub struct EncodedSlot {
+    pub owner_tag: OwnerTag,
+    pub resolved_owner_tag: [u8; 32],
+    pub data: Option<Vec<u8>>,
+}
+
+impl EncodedSlot {
+    /// A self-contained data-bearing slot whose owner tag is embedded inline; the
+    /// resolved tag is the same `view_tag` the ciphertext was sealed under.
+    fn inline(ciphertext: OutputData) -> Self {
+        Self {
+            owner_tag: OwnerTag::Inline(ciphertext.view_tag),
+            resolved_owner_tag: ciphertext.view_tag,
+            data: Some(ciphertext.data),
+        }
+    }
 }
 
 pub trait EncodeOutputSlot {
     fn output(&self) -> &OutputUtxo;
-    fn encode_slot(&self, cx: &SlotCx) -> Result<OutputCiphertext, TransactionError>;
+    fn encode_slot(&self, cx: &SlotCx) -> Result<EncodedSlot, TransactionError>;
 }
 
 pub struct SenderSlot {
@@ -195,19 +220,21 @@ impl EncodeOutputSlot for SenderSlot {
         &self.output
     }
 
-    fn encode_slot(&self, cx: &SlotCx) -> Result<OutputCiphertext, TransactionError> {
-        ConfidentialSenderBundle::encode_plaintext(
-            &self.plaintext,
-            self.plaintext.owner_pubkey.confidential_view_tag()?,
-            &ConfidentialSenderEncode {
-                tx: cx.tx.clone(),
-                self_pubkey: cx.self_pubkey,
-                salt: cx.salt,
-                slot_index: cx.slot_index,
-                blinding_seed: self.plaintext.blinding_seed,
-                recipient_viewing_pks: self.plaintext.recipient_viewing_pks.clone(),
-            },
-        )
+    fn encode_slot(&self, cx: &SlotCx) -> Result<EncodedSlot, TransactionError> {
+        Ok(EncodedSlot::inline(
+            ConfidentialSenderBundle::encode_plaintext(
+                &self.plaintext,
+                self.plaintext.owner_pubkey.confidential_view_tag()?,
+                &ConfidentialSenderEncode {
+                    tx: cx.tx.clone(),
+                    self_pubkey: cx.self_pubkey,
+                    salt: cx.salt,
+                    slot_index: cx.slot_index,
+                    blinding_seed: self.plaintext.blinding_seed,
+                    recipient_viewing_pks: self.plaintext.recipient_viewing_pks.clone(),
+                },
+            )?,
+        ))
     }
 }
 
@@ -235,27 +262,29 @@ impl EncodeOutputSlot for RecipientSlot {
         &self.output
     }
 
-    fn encode_slot(&self, cx: &SlotCx) -> Result<OutputCiphertext, TransactionError> {
+    fn encode_slot(&self, cx: &SlotCx) -> Result<EncodedSlot, TransactionError> {
         let address = self
             .output
             .owner_address
             .ok_or(TransactionError::MissingOutput)?;
-        ConfidentialRecipient::encode_plaintext(
-            &TransferRecipientPlaintext {
-                asset_id: self.asset_id,
-                amount: self.output.amount,
-                blinding: self.output.blinding,
-                zone_program_id: self.output.zone_program_id,
-                data: self.output.data.clone(),
-            },
-            address.signing_pubkey.confidential_view_tag()?,
-            &ConfidentialRecipientEncode {
-                tx: cx.tx.clone(),
-                recipient_pubkey: address.viewing_pubkey,
-                salt: cx.salt,
-                slot_index: cx.slot_index,
-            },
-        )
+        Ok(EncodedSlot::inline(
+            ConfidentialRecipient::encode_plaintext(
+                &TransferRecipientPlaintext {
+                    asset_id: self.asset_id,
+                    amount: self.output.amount,
+                    blinding: self.output.blinding,
+                    zone_program_id: self.output.zone_program_id,
+                    data: self.output.data.clone(),
+                },
+                address.signing_pubkey.confidential_view_tag()?,
+                &ConfidentialRecipientEncode {
+                    tx: cx.tx.clone(),
+                    recipient_pubkey: address.viewing_pubkey,
+                    salt: cx.salt,
+                    slot_index: cx.slot_index,
+                },
+            )?,
+        ))
     }
 }
 
@@ -283,12 +312,12 @@ impl EncodeOutputSlot for ConfidentialSlot {
         &self.output
     }
 
-    fn encode_slot(&self, cx: &SlotCx) -> Result<OutputCiphertext, TransactionError> {
+    fn encode_slot(&self, cx: &SlotCx) -> Result<EncodedSlot, TransactionError> {
         let address = self
             .output
             .owner_address
             .ok_or(TransactionError::MissingOutput)?;
-        ConfidentialUnified::encode_plaintext(
+        Ok(EncodedSlot::inline(ConfidentialUnified::encode_plaintext(
             &TransferRecipientPlaintext {
                 asset_id: self.asset_id,
                 amount: self.output.amount,
@@ -303,22 +332,25 @@ impl EncodeOutputSlot for ConfidentialSlot {
                 salt: cx.salt,
                 slot_index: cx.slot_index,
             },
-        )
+        )?))
     }
 }
 
-pub struct OutputCiphertextSlot {
+/// A slot whose ciphertext is already sealed (e.g. by a zone/swap SDK), carried
+/// through verbatim. Its owner tag is embedded inline from the ciphertext's
+/// `view_tag`.
+pub struct PrebuiltSlot {
     pub output: OutputUtxo,
-    pub ciphertext: OutputCiphertext,
+    pub ciphertext: OutputData,
 }
 
-impl EncodeOutputSlot for OutputCiphertextSlot {
+impl EncodeOutputSlot for PrebuiltSlot {
     fn output(&self) -> &OutputUtxo {
         &self.output
     }
 
-    fn encode_slot(&self, _cx: &SlotCx) -> Result<OutputCiphertext, TransactionError> {
-        Ok(self.ciphertext.clone())
+    fn encode_slot(&self, _cx: &SlotCx) -> Result<EncodedSlot, TransactionError> {
+        Ok(EncodedSlot::inline(self.ciphertext.clone()))
     }
 }
 // TODO: we should separate this abstraction into a lowlevel ProofInputs and higher level Transfer that is specialized to perform transfers and is not intended to be used with custom utxos.
@@ -447,25 +479,39 @@ impl Transaction {
         let self_pubkey = keypair.viewing_pubkey();
 
         let mut output_utxos = Vec::with_capacity(slots.len());
-        let mut output_utxo_hashes = Vec::with_capacity(slots.len());
-        let mut output_ciphertexts = Vec::with_capacity(slots.len());
-        for (i, slot) in slots.iter().enumerate() {
-            output_ciphertexts.push(slot.encode_slot(&SlotCx {
+        let mut transact_outputs = Vec::with_capacity(slots.len());
+        let mut resolved_owner_tags = Vec::with_capacity(slots.len());
+        // AES ordinal: only data-bearing slots consume an index. Every
+        // sign_with_slots slot is data-bearing, so the ordinal equals the slot
+        // position, matching the historical `i as u32`.
+        let mut ordinal = 0u32;
+        for slot in slots.iter() {
+            let encoded = slot.encode_slot(&SlotCx {
                 tx: &tx,
                 self_pubkey,
                 salt,
-                slot_index: i as u32,
-            })?);
+                slot_index: ordinal,
+            })?;
             let output = slot.output().clone();
-            output_utxo_hashes.push(output.hash()?);
+            let utxo_hash = output.hash()?;
+            if encoded.data.is_some() {
+                ordinal += 1;
+            }
+            transact_outputs.push(TransactOutput {
+                utxo_hash,
+                owner_tag: encoded.owner_tag,
+                data: encoded.data,
+            });
+            resolved_owner_tags.push(encoded.resolved_owner_tag);
             output_utxos.push(output);
         }
 
         let external_data = ExternalData::new(
             *tx_viewing_pk.as_bytes(),
             salt,
-            output_utxo_hashes,
-            output_ciphertexts,
+            transact_outputs,
+            resolved_owner_tags,
+            vec![],
             self.expiry_unix_ts,
         );
 
@@ -788,15 +834,15 @@ impl PreparedTransaction {
         self,
         tx_viewing_pk: P256Pubkey,
         salt: [u8; zolana_keypair::constants::SALT_LEN],
-        slots: Vec<OutputCiphertext>,
+        slots: Vec<OutputData>,
         assets: &AssetRegistry,
     ) -> Result<SignedTransaction, TransactionError> {
         let PreparedTransaction {
             mut inputs,
             mut outputs,
+            sender_plaintext,
             public_amounts,
             shape,
-            max_recipients,
             payer_pubkey_hash,
             expiry_unix_ts,
             public_sol_amount,
@@ -807,12 +853,17 @@ impl PreparedTransaction {
             ..
         } = self;
 
+        // The sender owns every change position; its resolved tag is the owner
+        // view tag folded into the proof's owner-tag chain. The wire tag is the
+        // most compact form that resolves to it: `P256SigningKey` on the P256
+        // rail, `Account(0)` when the owner is the fee payer, else `Inline`.
+        let (sender_tag, sender_resolved) =
+            sender_owner_tag(&sender_plaintext.owner_pubkey, &payer_pubkey_hash)?;
+
         // Each padded recipient slot gets one random view tag, shared between its
         // dummy output (folded into the confidential proof's owner-tag chain) and
         // its dummy ciphertext, so the dummy is indistinguishable from a real
-        // recipient and the proof's tag equals the published tag. The dummy outputs
-        // (positions >= RECIPIENT_POSITION_BASE) align 1:1 with the dummy
-        // ciphertexts (indices >= 1 + real recipient count).
+        // recipient and the proof's tag equals the published tag.
         let dummy_recipient_count = shape.n_outputs.saturating_sub(outputs.len());
         let dummy_tags = (0..dummy_recipient_count)
             .map(|_| random_view_tag())
@@ -828,35 +879,67 @@ impl PreparedTransaction {
             inputs.push(SpendUtxo::new_dummy());
         }
 
-        let mut output_utxo_hashes = Vec::with_capacity(outputs.len());
-        for output in &outputs {
-            output_utxo_hashes.push(output.hash()?);
-        }
-
-        let mut output_ciphertexts = slots;
-        if output_ciphertexts.len() < 1 + max_recipients {
+        // Random ciphertexts for the dummy recipient positions, byte-length
+        // matched to a real recipient slot so dummies do not stand out.
+        let mut dummy_ciphertexts = if dummy_recipient_count > 0 {
             let throwaway = zolana_keypair::ViewingKey::new();
             let dummy_len = dummy_ciphertext_len(&throwaway, throwaway.pubkey(), salt, assets)?;
-            let mut tags = dummy_tags.iter();
-            while output_ciphertexts.len() < 1 + max_recipients {
-                // Reuse the aligned dummy output's tag; fall back to a fresh one only
-                // if the arrays ever diverge in length.
-                let view_tag = match tags.next() {
-                    Some(tag) => *tag,
-                    None => random_view_tag()?,
-                };
-                output_ciphertexts.push(OutputCiphertext {
-                    view_tag,
-                    data: random_dummy_ciphertext(dummy_len),
-                });
-            }
+            (0..dummy_recipient_count)
+                .map(|_| random_dummy_ciphertext(dummy_len))
+                .collect::<Vec<_>>()
+                .into_iter()
+        } else {
+            Vec::new().into_iter()
+        };
+
+        // 1:1 output assembly. The sender bundle covers the leading
+        // SENDER_SLOT_COUNT change positions: position 0 carries the bundle
+        // ciphertext, the rest carry `None` (the sender's tag with empty data).
+        // Recipient positions carry their own ciphertext inline; dummy positions
+        // carry the aligned random ciphertext under the dummy output's tag.
+        let (bundle, recipient_slots) = match slots.split_first() {
+            Some((bundle, rest)) => (Some(bundle), rest),
+            None => (None, &[][..]),
+        };
+        let mut transact_outputs = Vec::with_capacity(outputs.len());
+        let mut resolved_owner_tags = Vec::with_capacity(outputs.len());
+        for (position, output) in outputs.iter().enumerate() {
+            let utxo_hash = output.hash()?;
+            let (owner_tag, resolved, data) = if position == 0 {
+                (sender_tag, sender_resolved, bundle.map(|b| b.data.clone()))
+            } else if position < SENDER_SLOT_COUNT {
+                (sender_tag, sender_resolved, None)
+            } else {
+                let recipient_index = position - SENDER_SLOT_COUNT;
+                match recipient_slots.get(recipient_index) {
+                    Some(slot) => (
+                        OwnerTag::Inline(slot.view_tag),
+                        slot.view_tag,
+                        Some(slot.data.clone()),
+                    ),
+                    None => {
+                        let tag = output.owner_tag.ok_or(TransactionError::MissingOutput)?;
+                        let ciphertext = dummy_ciphertexts
+                            .next()
+                            .ok_or(TransactionError::MissingOutput)?;
+                        (OwnerTag::Inline(tag), tag, Some(ciphertext))
+                    }
+                }
+            };
+            transact_outputs.push(TransactOutput {
+                utxo_hash,
+                owner_tag,
+                data,
+            });
+            resolved_owner_tags.push(resolved);
         }
 
         let mut external_data = ExternalData::new(
             *tx_viewing_pk.as_bytes(),
             salt,
-            output_utxo_hashes,
-            output_ciphertexts,
+            transact_outputs,
+            resolved_owner_tags,
+            vec![],
             expiry_unix_ts,
         );
         if let Some(amount) = public_sol_amount {
@@ -877,6 +960,29 @@ impl PreparedTransaction {
             p256_owner: None,
         })
     }
+}
+
+/// The sender's output owner tag and its resolved 32-byte value. The resolved
+/// value is always `confidential_view_tag()` (the P256 x-coordinate or the full
+/// ed25519 key); the wire tag is the most compact form that resolves to it:
+/// `P256SigningKey` on the P256 rail, `Account(0)` when the ed25519 owner is the
+/// fee payer at account index 0, else `Inline` (relayed transfer).
+fn sender_owner_tag(
+    owner_pubkey: &PublicKey,
+    payer_pubkey_hash: &[u8; 32],
+) -> Result<(OwnerTag, [u8; 32]), TransactionError> {
+    let resolved = owner_pubkey.confidential_view_tag()?;
+    let tag = match owner_pubkey.signature_type()? {
+        SignatureType::P256 => OwnerTag::P256SigningKey,
+        SignatureType::Ed25519 => {
+            if sha256_be(&resolved) == *payer_pubkey_hash {
+                OwnerTag::Account(0)
+            } else {
+                OwnerTag::Inline(resolved)
+            }
+        }
+    };
+    Ok((tag, resolved))
 }
 
 /// A view tag for a dummy output slot: the Poseidon hash of 31 random bytes. The
@@ -901,8 +1007,8 @@ fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
     data
 }
 
-/// The exact `OutputCiphertext::data` byte length of a real recipient slot, derived
-/// by encoding a throwaway recipient through the same path. This keeps dummy slots
+/// The exact ciphertext byte length of a real recipient slot, derived by
+/// encoding a throwaway recipient through the same path. This keeps dummy slots
 /// byte-length-indistinguishable from real ones without pinning a brittle constant.
 fn dummy_ciphertext_len(
     tx: &zolana_keypair::ViewingKey,
@@ -935,4 +1041,46 @@ fn dummy_ciphertext_len(
         },
     )?;
     Ok(ciphertext.data.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::SigningKey;
+
+    use super::*;
+
+    /// An ed25519 owner who is also the fee payer at account index 0 is tagged
+    /// `Account(0)`; the resolved value is the owner's view tag (the ed25519 key).
+    #[test]
+    fn sender_tag_is_account_zero_when_owner_is_payer() {
+        let pk = SigningKey::from_ed25519(&[7u8; 32]).pubkey();
+        let resolved = pk.confidential_view_tag().unwrap();
+        let payer_hash = sha256_be(&resolved);
+        let (tag, got_resolved) = sender_owner_tag(&pk, &payer_hash).unwrap();
+        assert_eq!(tag, OwnerTag::Account(0));
+        assert_eq!(got_resolved, resolved);
+    }
+
+    /// A relayed transfer whose ed25519 owner is not the fee payer falls back to
+    /// an inline tag carrying the owner's view tag verbatim.
+    #[test]
+    fn sender_tag_is_inline_for_relayed_transfer() {
+        let pk = SigningKey::from_ed25519(&[7u8; 32]).pubkey();
+        let resolved = pk.confidential_view_tag().unwrap();
+        let unrelated_payer_hash = [0u8; 32];
+        let (tag, got_resolved) = sender_owner_tag(&pk, &unrelated_payer_hash).unwrap();
+        assert_eq!(tag, OwnerTag::Inline(resolved));
+        assert_eq!(got_resolved, resolved);
+    }
+
+    /// A P256 owner is tagged `P256SigningKey`, resolving to the shared signing
+    /// key's x-coordinate regardless of the fee payer.
+    #[test]
+    fn sender_tag_is_p256_signing_key_for_p256_owner() {
+        let pk = SigningKey::new().pubkey();
+        let resolved = pk.confidential_view_tag().unwrap();
+        let (tag, got_resolved) = sender_owner_tag(&pk, &[0u8; 32]).unwrap();
+        assert_eq!(tag, OwnerTag::P256SigningKey);
+        assert_eq!(got_resolved, resolved);
+    }
 }

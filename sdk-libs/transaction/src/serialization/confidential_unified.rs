@@ -106,7 +106,7 @@ impl UtxoSerialization for ConfidentialUnified {
 #[cfg(test)]
 mod tests {
     use borsh::BorshDeserialize;
-    use zolana_event::OutputData;
+    use zolana_event::OutputDataEncoding;
     use zolana_keypair::constants::BLINDING_LEN;
 
     use super::*;
@@ -137,8 +137,8 @@ mod tests {
             },
         )
         .expect("encode");
-        let OutputData::Encrypted(blob) =
-            OutputData::try_from_slice(&ciphertext.data).expect("output data")
+        let OutputDataEncoding::Encrypted(blob) =
+            OutputDataEncoding::try_from_slice(&ciphertext.data).expect("output data")
         else {
             panic!("expected encrypted output data");
         };

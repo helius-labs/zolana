@@ -10,9 +10,9 @@ use solana_address::Address;
 #[allow(unused_imports)]
 pub use transact_core::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, output_owner_pk_hashes,
-    pack_proof, prove_and_verify_transfer, public_input_hash, set_output_owner_tags, start_prover,
-    TransferProverInputsArgs,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
+    pack_proof, prove_and_verify_transfer, public_input_hash, resolve_outputs,
+    set_output_owner_tags, start_prover, TransferProverInputsArgs,
 };
 use zolana_client::{
     prover::field::{be, hash_chain, right_align_slice},
@@ -139,6 +139,7 @@ pub fn external_data_hash_spl(
     spl_token_interface: &[u8; 32],
 ) -> Result<[u8; 32]> {
     let zero = [0u8; 32];
+    let outputs = resolve_outputs(transact_ix_data)?;
     Ok(ExternalDataHash {
         spp_instruction_discriminator: tag::TRANSACT,
         expiry_unix_ts: transact_ix_data.expiry_unix_ts,
@@ -150,8 +151,8 @@ pub fn external_data_hash_spl(
         spl_token_interface,
         data_hash: None,
         zone_data_hash: None,
-        output_utxo_hashes: &transact_ix_data.output_utxo_hashes,
-        output_ciphertexts: &transact_ix_data.output_ciphertexts,
+        outputs: &outputs,
+        messages: &transact_ix_data.messages,
     }
     .hash()?)
 }

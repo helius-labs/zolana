@@ -45,6 +45,7 @@ pub struct PublicAmounts {
     pub asset: [u8; 32],
 }
 
+// TODO: rename to SppProofinputs
 // Sent to the ProverServer
 #[derive(Clone)]
 pub struct SignedTransaction {
