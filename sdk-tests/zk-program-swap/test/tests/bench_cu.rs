@@ -455,7 +455,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let marker = marker_output_utxo(taker_address);
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let spend = SppProofInputUtxo::new(input_utxo, &maker.nullifier_key);
+    let spend = SppProofInputUtxo::new(input_utxo, &maker);
     let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
     let assets = AssetRegistry::default();
 
@@ -633,7 +633,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         zone_program_id: None,
         data: Data::default(),
     };
-    let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker.nullifier_key);
+    let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker);
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
     let transact = SlotTransact {
@@ -772,7 +772,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         zone_program_id: None,
         data: Data::default(),
     };
-    let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker.nullifier_key);
+    let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker);
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
     let transact = SlotTransact {

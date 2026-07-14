@@ -457,7 +457,7 @@ mod tests {
             zone_program_id: None,
             data: Data::default(),
         };
-        let spend = SppProofInputUtxo::new(input_utxo, &maker_keypair.nullifier_key);
+        let spend = SppProofInputUtxo::new(input_utxo, &maker_keypair);
         let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
 
         let escrow_utxo_hash = escrow_output.hash().expect("escrow output hash");

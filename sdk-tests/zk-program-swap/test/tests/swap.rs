@@ -100,7 +100,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
 
         // 2. Select input utxos.
-        let create_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair.nullifier_key);
+        let create_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
 
         let create_nullifier_pubkey = create_spend
             .nullifier_key
@@ -280,7 +280,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let escrow_input = escrow
             .into_input_utxo()
             .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
-        let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair.nullifier_key);
+        let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair);
 
         let inputs = vec![escrow_input, taker_spend];
         let fill_first_nullifier =

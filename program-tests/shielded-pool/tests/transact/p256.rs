@@ -138,7 +138,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     // client builder, padded to the (2,3) P256 shape.
     let recipient = Keypair::new().pubkey();
 
-    let spend = SppProofInputUtxo::new(utxo, &sender.nullifier_key);
+    let spend = SppProofInputUtxo::new(utxo, &sender);
     let mut transfer = Transfer::new(
         sender.shielded_address().expect("sender address"),
         vec![spend],

@@ -78,7 +78,7 @@ impl LifecycleWorld {
 
         let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair.nullifier_key))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair))
             .collect();
         let mut transfer = Transfer::new(from_keypair.shielded_address()?, spends, payer_address);
         transfer.withdraw(

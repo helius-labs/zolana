@@ -822,8 +822,8 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         let mut transfer = Transfer::new(
             sender_address,
             vec![
-                SppProofInputUtxo::new(first_note.utxo.clone(), &sender.nullifier_key),
-                SppProofInputUtxo::new(second_note.utxo.clone(), &sender.nullifier_key),
+                SppProofInputUtxo::new(first_note.utxo.clone(), &sender),
+                SppProofInputUtxo::new(second_note.utxo.clone(), &sender),
             ],
             payer_address,
         );
@@ -1561,7 +1561,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
-        spends.push(SppProofInputUtxo::new(utxo, &sender.nullifier_key));
+        spends.push(SppProofInputUtxo::new(utxo, &sender));
     }
 
     // ---- build the encrypted transfer with the high-level client builder ----

@@ -293,7 +293,7 @@ impl ZoneLifecycleWorld {
         // zone_program_id and the rebound discriminator.
         let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair.nullifier_key))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair))
             .collect();
         let mut transfer = Transfer::new(from_keypair.shielded_address()?, spends, payer_address);
         match (&to_address, withdrawal) {
@@ -650,7 +650,7 @@ impl ZoneLifecycleWorld {
 
         let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair.nullifier_key))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair))
             .collect();
         let mut transfer = Transfer::new(from_keypair.shielded_address()?, spends, payer_address);
         transfer.send(&to_address, asset, amount)?;

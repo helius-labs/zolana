@@ -187,7 +187,7 @@ mod tests {
             zone_program_id: None,
             data: Data::default(),
         };
-        let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair.nullifier_key);
+        let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);
 
         let escrow = OutputUtxo {
             owner_address: Some(order_keypair.shielded_address().expect("order address")),
@@ -323,7 +323,7 @@ mod tests {
             zone_program_id: None,
             data: Data::default(),
         };
-        let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair.nullifier_key);
+        let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);
 
         let escrow = OutputUtxo {
             owner_address: Some(order_keypair.shielded_address().expect("order address")),

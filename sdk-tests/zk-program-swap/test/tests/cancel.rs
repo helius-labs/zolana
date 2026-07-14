@@ -87,7 +87,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let marker_output_utxo = marker_output_utxo(taker_address);
 
         let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
-        let create_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair.nullifier_key);
+        let create_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
         let input_utxos = vec![create_spend, SppProofInputUtxo::new_dummy()];
 
         let escrow_asset = escrow_output_utxo.asset;
