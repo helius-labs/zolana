@@ -1,18 +1,16 @@
 use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{
     hash::{hash_field, owner_hash, sha256, split_be_128},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
-use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    ExternalData, OutputUtxo, Utxo,
-};
+use zolana_transaction::{instructions::transact::PrivateTxHash, ExternalData, OutputUtxo, Utxo};
 
 use crate::{
     error::ClientError,
     prover::{
-        field::{be, hash_chain, right_align_slice},
+        field::{be, right_align_slice},
         shape::{resolve_shape, Shape},
         transact::witness::SpendProof,
         TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs,
@@ -102,12 +100,12 @@ impl TransferP256Prover {
         )?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(
+        let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
-        )?;
+        )
+        .hash()?;
         let p256_message_hash = sha256(&private_tx);
         let signature = self.p256_owner.witness()?;
         let (p256_message_low, p256_message_high) = split_be_128(&p256_message_hash);
@@ -433,10 +431,10 @@ pub(crate) struct PublicInputs<'a> {
 impl PublicInputs<'_> {
     pub(crate) fn hash(&self) -> Result<[u8; 32], ClientError> {
         let elements = [
-            hash_chain(self.nullifiers)?,
-            hash_chain(self.output_hashes)?,
-            hash_chain(self.utxo_roots)?,
-            hash_chain(self.nullifier_tree_roots)?,
+            create_hash_chain_from_slice(self.nullifiers)?,
+            create_hash_chain_from_slice(self.output_hashes)?,
+            create_hash_chain_from_slice(self.utxo_roots)?,
+            create_hash_chain_from_slice(self.nullifier_tree_roots)?,
             *self.private_tx,
             hash_field(self.p256_message_hash)?,
             *self.external_data_hash,
@@ -445,12 +443,12 @@ impl PublicInputs<'_> {
             self.public_amounts.asset,
             *self.zone_program_id,
             *self.payer_pubkey_hash,
-            hash_chain(self.input_owner_pk_hashes)?,
+            create_hash_chain_from_slice(self.input_owner_pk_hashes)?,
             // Confidential appendix (the client always uses the confidential variant).
-            hash_chain(self.output_owner_pk_hashes)?,
+            create_hash_chain_from_slice(self.output_owner_pk_hashes)?,
             *self.p256_signing_pk_field,
         ];
-        hash_chain(&elements)
+        Ok(create_hash_chain_from_slice(&elements)?)
     }
 }
 fn check_path_length(got: usize, expected: usize) -> Result<(), ClientError> {

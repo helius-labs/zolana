@@ -4,7 +4,8 @@ use groth16_solana::groth16::negate_g1_be;
 use solana_address::Address;
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
 use swap_program::instructions::{create_swap::CreateProof, shared::u64_to_field};
-use zolana_hasher::{Hasher, Poseidon};
+use zolana_keypair::{CompressedShieldedAddress, P256Pubkey};
+use zolana_transaction::instructions::transact::PrivateTxHash;
 
 use crate::{
     bytes_to_decimal_string, ffi, order_terms::OrderTerms, CircuitId, ProveOutput,
@@ -69,30 +70,12 @@ pub struct CreateProofInputs {
     pub change_blinding: [u8; 32],
 }
 
-fn poseidon(inputs: &[&[u8; 32]]) -> Result<[u8; 32], CreateError> {
-    let slices: Vec<&[u8]> = inputs.iter().map(|i| i.as_slice()).collect();
-    Poseidon::hashv(&slices).map_err(|_| CreateError::Poseidon)
-}
-
-fn hash_chain(inputs: &[[u8; 32]]) -> Result<[u8; 32], CreateError> {
-    let mut iter = inputs.iter();
-    let first = match iter.next() {
-        Some(v) => *v,
-        None => return Ok([0u8; 32]),
-    };
-    let mut acc = first;
-    for next in iter {
-        acc = poseidon(&[&acc, next])?;
-    }
-    Ok(acc)
-}
-
 impl CreateProofInputs {
     fn order_terms(&self) -> Result<OrderTerms, CreateError> {
         Ok(OrderTerms {
             destination_asset: Address::new_from_array(self.destination_mint),
             destination_amount: self.destination_amount,
-            destination: self.maker_address_fe()?,
+            destination: self.maker_address()?,
             expiry: self.expiry,
             taker: self.taker_pk_fe,
             fill_mode: self.fill_mode,
@@ -127,9 +110,12 @@ impl CreateProofInputs {
         ))
     }
 
-    fn maker_address_fe(&self) -> Result<[u8; 32], CreateError> {
-        crate::order_terms::maker_address_fe(&self.maker_owner_hash, &self.maker_viewing_pk)
-            .map_err(|_| CreateError::Poseidon)
+    fn maker_address(&self) -> Result<[u8; 32], CreateError> {
+        Ok(CompressedShieldedAddress {
+            owner_hash: self.maker_owner_hash,
+            viewing_pubkey: P256Pubkey::from_bytes(self.maker_viewing_pk)?,
+        }
+        .hash()?)
     }
 
     pub fn change_output_hash(&self) -> Result<[u8; 32], CreateError> {
@@ -140,15 +126,13 @@ impl CreateProofInputs {
     }
 
     fn private_tx_hash(&self, escrow_utxo_hash: &[u8; 32]) -> Result<[u8; 32], CreateError> {
-        let input_chain = hash_chain(&[self.source_input_hash, [0u8; 32]])?;
-        let output_chain = hash_chain(&[self.change_output_hash()?, *escrow_utxo_hash])?;
-        let address_chain = hash_chain(&[[0u8; 32], [0u8; 32]])?;
-        poseidon(&[
-            &input_chain,
-            &output_chain,
-            &address_chain,
+        PrivateTxHash::new(
+            &[self.source_input_hash, [0u8; 32]],
+            &[self.change_output_hash()?, *escrow_utxo_hash],
             &self.external_data_hash,
-        ])
+        )
+        .hash()
+        .map_err(|_| CreateError::Poseidon)
     }
 
     pub fn public_input_hash(&self) -> Result<[u8; 32], CreateError> {

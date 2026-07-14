@@ -23,7 +23,9 @@ use swap_prover::{preload, CircuitId};
 use swap_sdk::{
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
-        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
+        create_swap::{
+            input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes,
+        },
         fill::{Fill, FillProofInputParams},
         fill_verifiable_encryption::{
             FillVerifiableEncryption, FillVerifiableEncryptionProofInputParams,
@@ -753,7 +755,8 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     }
     .output();
     let source_output = escrow.source_output(taker_recipient, source_output_blinding);
-    let destination_output = escrow.destination_output(maker_recipient, destination_output_blinding);
+    let destination_output =
+        escrow.destination_output(maker_recipient, destination_output_blinding);
     let destination_ciphertext = escrow
         .destination_ciphertext(&destination_output)
         .expect("destination ciphertext");

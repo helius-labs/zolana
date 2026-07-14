@@ -5,7 +5,11 @@ use swap_program::instructions::{
     fill_verifiable_encryption::FillVerifiableEncryptionProof, shared::u64_to_field,
 };
 use zolana_hasher::{Hasher, Poseidon};
-use zolana_keypair::merge::{merge_ciphertext_hash, symmetric_apply, MERGE_INFO};
+use zolana_keypair::{
+    merge::{merge_ciphertext_hash, symmetric_apply, MERGE_INFO},
+    CompressedShieldedAddress, P256Pubkey,
+};
+use zolana_transaction::instructions::transact::PrivateTxHash;
 
 use crate::{
     bytes_to_decimal_string,
@@ -96,19 +100,6 @@ pub struct FillVerifiableEncryptionProofInputs {
 fn poseidon(inputs: &[&[u8; 32]]) -> Result<[u8; 32], FillVerifiableEncryptionError> {
     let slices: Vec<&[u8]> = inputs.iter().map(|i| i.as_slice()).collect();
     Poseidon::hashv(&slices).map_err(|_| FillVerifiableEncryptionError::Poseidon)
-}
-
-fn hash_chain(inputs: &[[u8; 32]]) -> Result<[u8; 32], FillVerifiableEncryptionError> {
-    let mut iter = inputs.iter();
-    let first = match iter.next() {
-        Some(v) => *v,
-        None => return Ok([0u8; 32]),
-    };
-    let mut acc = first;
-    for next in iter {
-        acc = poseidon(&[&acc, next])?;
-    }
-    Ok(acc)
 }
 
 #[derive(Default)]
@@ -209,10 +200,11 @@ impl FillVerifiableEncryptionProofInputs {
         let data_hash = OrderTerms {
             destination_asset: Address::new_from_array(self.destination_mint),
             destination_amount: self.destination_amount,
-            destination: crate::order_terms::maker_address_fe(
-                &self.maker_owner_hash,
-                &self.maker_viewing_pk,
-            )?,
+            destination: CompressedShieldedAddress {
+                owner_hash: self.maker_owner_hash,
+                viewing_pubkey: P256Pubkey::from_bytes(self.maker_viewing_pk)?,
+            }
+            .hash()?,
             expiry: self.expiry,
             taker: self.taker_pk_fe,
             fill_mode: FILL_MODE_VERIFIABLE,
@@ -275,15 +267,13 @@ impl FillVerifiableEncryptionProofInputs {
         let source_output_hash = utxos.source_output.hash()?;
         let destination_output_hash = utxos.destination_output.hash()?;
 
-        let input_chain = hash_chain(&[escrow_utxo_hash, taker_utxo_hash])?;
-        let output_chain = hash_chain(&[source_output_hash, destination_output_hash])?;
-        let address_chain = hash_chain(&[[0u8; 32], [0u8; 32]])?;
-        let private_tx_hash = poseidon(&[
-            &input_chain,
-            &output_chain,
-            &address_chain,
+        let private_tx_hash = PrivateTxHash::new(
+            &[escrow_utxo_hash, taker_utxo_hash],
+            &[source_output_hash, destination_output_hash],
             &self.external_data_hash,
-        ])?;
+        )
+        .hash()
+        .map_err(|_| FillVerifiableEncryptionError::Poseidon)?;
 
         let (ciphertext, ct_hash) = self.ciphertext()?;
         let expiry = u64_to_field(self.expiry);

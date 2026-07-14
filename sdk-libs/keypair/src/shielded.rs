@@ -1,7 +1,7 @@
 use crate::{
     constants::{BLINDING_LEN, SALT_LEN},
     error::KeypairError,
-    hash::owner_hash,
+    hash::{owner_hash, pack33, poseidon},
     nullifier_key::NullifierKey,
     pubkey::{P256Pubkey, PublicKey},
     signing_key::SigningKey,
@@ -31,6 +31,13 @@ impl ShieldedAddress {
 pub struct CompressedShieldedAddress {
     pub owner_hash: [u8; 32],
     pub viewing_pubkey: P256Pubkey,
+}
+
+impl CompressedShieldedAddress {
+    pub fn hash(&self) -> Result<[u8; 32], KeypairError> {
+        let (lo, hi) = pack33(self.viewing_pubkey.as_bytes());
+        poseidon(&[&self.owner_hash, &lo, &hi])
+    }
 }
 
 impl TryFrom<&ShieldedAddress> for CompressedShieldedAddress {

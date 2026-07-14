@@ -8,7 +8,9 @@ use swap_sdk::{
     discover::discover_own_orders,
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
-        create_swap::{input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
+        create_swap::{
+            input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes,
+        },
     },
     order::{OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,

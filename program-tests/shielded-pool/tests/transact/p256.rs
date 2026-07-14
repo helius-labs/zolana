@@ -256,8 +256,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     // real validator by the `spp-test-validator` suite (litesvm's syscall stubs do
     // not evaluate the Pedersen-PoK pairing).
     {
-        use zolana_client::prover::field::hash_chain;
-        use zolana_hasher::{sha256::Sha256BE, Hasher};
+        use zolana_hasher::{hash_chain::create_hash_chain_from_slice, sha256::Sha256BE, Hasher};
         use zolana_interface::instruction::{
             instruction_data::transact::{ExternalDataHash, ResolvedOutput},
             tag,
@@ -311,10 +310,10 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         let payer_pubkey_hash = Sha256BE::hash(&payer.pubkey().to_bytes()).expect("payer hash");
         let p256_message_hash = sha256(&ix_data.private_tx_hash);
         let chain = [
-            hash_chain(&nullifiers).unwrap(),
-            hash_chain(&output_utxo_hashes).unwrap(),
-            hash_chain(&vec![utxo_root; n_in]).unwrap(),
-            hash_chain(&vec![nullifier_root; n_in]).unwrap(),
+            create_hash_chain_from_slice(&nullifiers).unwrap(),
+            create_hash_chain_from_slice(&output_utxo_hashes).unwrap(),
+            create_hash_chain_from_slice(&vec![utxo_root; n_in]).unwrap(),
+            create_hash_chain_from_slice(&vec![nullifier_root; n_in]).unwrap(),
             ix_data.private_tx_hash,
             hash_field(&p256_message_hash).unwrap(),
             external_data_hash,
@@ -323,11 +322,11 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             zero, // public_spl_asset_pubkey (no mint)
             zero, // zone_program_id
             payer_pubkey_hash,
-            hash_chain(&input_owner).unwrap(),
-            hash_chain(&output_owner).unwrap(),
+            create_hash_chain_from_slice(&input_owner).unwrap(),
+            create_hash_chain_from_slice(&output_owner).unwrap(),
             p256_field,
         ];
-        let program_public_input = hash_chain(&chain).unwrap();
+        let program_public_input = create_hash_chain_from_slice(&chain).unwrap();
         assert_eq!(
             program_public_input, expected_pi,
             "program-reconstructed public input matches the proof's"

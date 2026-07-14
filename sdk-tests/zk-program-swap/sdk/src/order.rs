@@ -1,9 +1,9 @@
 use anyhow::Result;
 use solana_address::Address;
-use swap_prover::order_terms::maker_address_fe;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::{
-    constants::BLINDING_LEN, hash::hash_field, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress,
+    constants::BLINDING_LEN, hash::hash_field, CompressedShieldedAddress, NullifierKey, P256Pubkey,
+    PublicKey, ShieldedAddress,
 };
 pub use zolana_transaction::SOL_ASSET_ID;
 use zolana_transaction::{
@@ -28,16 +28,6 @@ impl BlindingField for Blinding {
 
 pub trait DataHash {
     fn data_hash(&self) -> Result<[u8; 32]>;
-}
-
-impl DataHash for ShieldedAddress {
-    fn data_hash(&self) -> Result<[u8; 32]> {
-        maker_address_fe(
-            &self.owner_hash().map_err(err)?,
-            self.viewing_pubkey.as_bytes(),
-        )
-        .map_err(err)
-    }
 }
 
 impl DataHash for Address {
@@ -69,7 +59,10 @@ impl OrderTerms {
         swap_prover::OrderTerms {
             destination_asset: self.destination_mint,
             destination_amount: self.destination_amount,
-            destination: self.destination.data_hash()?,
+            destination: CompressedShieldedAddress::try_from(&self.destination)
+                .map_err(err)?
+                .hash()
+                .map_err(err)?,
             taker: self.taker.data_hash()?,
             expiry: self.expiry,
             fill_mode: self.fill_mode,

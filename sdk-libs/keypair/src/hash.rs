@@ -2,7 +2,7 @@ use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
 use zolana_hasher::{Hasher, Poseidon};
 
-use crate::{error::KeypairError, pubkey::PublicKey};
+use crate::{constants::P256_PUBKEY_LEN, error::KeypairError, pubkey::PublicKey};
 
 pub fn derive_seed_secret(seed: &[u8; 32], info: &[u8]) -> Result<[u8; 32], KeypairError> {
     let mut out = [0u8; 32];
@@ -27,6 +27,16 @@ pub fn split_be_128(v: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
     high[16..].copy_from_slice(&v[0..16]);
     low[16..].copy_from_slice(&v[16..32]);
     (low, high)
+}
+
+/// pack33 mirrors Pack33To2FECircuit: lo = bytes[0..31], hi = bytes[31..33] (16-bit).
+pub(crate) fn pack33(b: &[u8; P256_PUBKEY_LEN]) -> ([u8; 32], [u8; 32]) {
+    let mut lo = [0u8; 32];
+    lo[1..32].copy_from_slice(&b[0..31]);
+    let mut hi = [0u8; 32];
+    hi[30] = b[31];
+    hi[31] = b[32];
+    (lo, hi)
 }
 
 pub(crate) fn fe_right_align(bytes: &[u8]) -> Result<[u8; 32], KeypairError> {

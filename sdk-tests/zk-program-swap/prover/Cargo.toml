@@ -22,6 +22,7 @@ solana-bn254 = { workspace = true }
 thiserror = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
 
 [build-dependencies]
 bindgen = "0.70"

@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use solana_address::Address;
 use swap_program::instructions::{cancel::CancelProof, shared::u64_to_field};
 use zolana_hasher::{Hasher, Poseidon};
+use zolana_keypair::{CompressedShieldedAddress, P256Pubkey};
+use zolana_transaction::instructions::transact::PrivateTxHash;
 
 use crate::{
     bytes_to_decimal_string, create::gnark_proof_to_wire, ffi, order_terms::OrderTerms, CircuitId,
@@ -82,28 +84,16 @@ fn poseidon(inputs: &[&[u8; 32]]) -> Result<[u8; 32], CancelError> {
     Poseidon::hashv(&slices).map_err(|_| CancelError::Poseidon)
 }
 
-fn hash_chain(inputs: &[[u8; 32]]) -> Result<[u8; 32], CancelError> {
-    let mut iter = inputs.iter();
-    let first = match iter.next() {
-        Some(v) => *v,
-        None => return Ok([0u8; 32]),
-    };
-    let mut acc = first;
-    for next in iter {
-        acc = poseidon(&[&acc, next])?;
-    }
-    Ok(acc)
-}
-
 impl CancelProofInputs {
     fn order_terms(&self) -> Result<OrderTerms, CancelError> {
         Ok(OrderTerms {
             destination_asset: Address::new_from_array(self.destination_mint),
             destination_amount: self.destination_amount,
-            destination: crate::order_terms::maker_address_fe(
-                &self.maker_owner_hash,
-                &self.maker_viewing_pk,
-            )?,
+            destination: CompressedShieldedAddress {
+                owner_hash: self.maker_owner_hash,
+                viewing_pubkey: P256Pubkey::from_bytes(self.maker_viewing_pk)?,
+            }
+            .hash()?,
             expiry: self.expiry,
             taker: self.taker_pk_fe,
             fill_mode: self.fill_mode,
@@ -147,15 +137,13 @@ impl CancelProofInputs {
         escrow_utxo_hash: &[u8; 32],
         source_output_hash: &[u8; 32],
     ) -> Result<[u8; 32], CancelError> {
-        let input_chain = hash_chain(&[*escrow_utxo_hash])?;
-        let output_chain = hash_chain(&[*source_output_hash])?;
-        let address_chain = hash_chain(&[[0u8; 32]])?;
-        poseidon(&[
-            &input_chain,
-            &output_chain,
-            &address_chain,
+        PrivateTxHash::new(
+            &[*escrow_utxo_hash],
+            &[*source_output_hash],
             &self.external_data_hash,
-        ])
+        )
+        .hash()
+        .map_err(|_| CancelError::Poseidon)
     }
 
     fn witness_map(

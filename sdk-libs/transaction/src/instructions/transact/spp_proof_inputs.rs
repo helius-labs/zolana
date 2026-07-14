@@ -7,7 +7,7 @@ use zolana_keypair::{
 
 use super::{
     shape::{Shape, SPP_SUPPORTED_SHAPES},
-    types::{no_address_hashes, private_tx_hash},
+    types::PrivateTxHash,
 };
 use crate::{
     error::TransactionError,
@@ -201,12 +201,8 @@ impl SppProofInputs {
         }
 
         let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(
-            &input_hashes,
-            &output_hashes,
-            &no_address_hashes(self.input_utxos.len()),
-            &external_data_hash,
-        )?;
+        let private_tx =
+            PrivateTxHash::new(&input_hashes, &output_hashes, &external_data_hash).hash()?;
         Ok(sha256(&private_tx))
     }
 }

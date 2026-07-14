@@ -280,10 +280,7 @@ fn split_round_trips(world: &mut TransactionWorld, name: String) {
 
     let nf = [11u8; 32];
     let salt = random_salt();
-    let transaction_viewing_key = owner
-        .viewing_key
-        .get_transaction_viewing_key(&nf)
-        .unwrap();
+    let transaction_viewing_key = owner.viewing_key.get_transaction_viewing_key(&nf).unwrap();
     let tx_viewing_pk = transaction_viewing_key.pubkey();
     let owner_cx = OwnerCx {
         owner: owner.signing_pubkey(),

@@ -10,23 +10,6 @@ pub const FILL_MODE_VERIFIABLE: u64 = 1;
 
 pub const FILL_ENC_KDF_DOMAIN: u64 = 0x5357_4150_4649_4c4c;
 
-fn pack33(bytes: &[u8; 33]) -> ([u8; 32], [u8; 32]) {
-    let mut lo = [0u8; 32];
-    lo[1..32].copy_from_slice(&bytes[0..31]);
-    let mut hi = [0u8; 32];
-    hi[30] = bytes[31];
-    hi[31] = bytes[32];
-    (lo, hi)
-}
-
-pub fn maker_address_fe(
-    owner_hash: &[u8; 32],
-    viewing_pk: &[u8; 33],
-) -> Result<[u8; 32], KeypairError> {
-    let (lo, hi) = pack33(viewing_pk);
-    poseidon(&[owner_hash, &lo, &hi])
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct OrderTerms {
     pub destination_asset: Address,
@@ -55,29 +38,44 @@ impl OrderTerms {
 
 #[cfg(test)]
 mod tests {
+    use zolana_keypair::{CompressedShieldedAddress, P256Pubkey, ViewingKey};
+
     use super::*;
 
+    fn sample_viewing_pk(seed: u8) -> P256Pubkey {
+        ViewingKey::from_seed(&[seed; 32], b"order-terms-test")
+            .unwrap()
+            .pubkey()
+    }
+
     #[test]
-    fn maker_address_fe_matches_program() {
+    fn compressed_address_hash_matches_program() {
         let owner_hash = [3u8; 32];
-        let mut viewing_pk = [0u8; 33];
-        viewing_pk[0] = 2;
-        viewing_pk[17] = 42;
-        viewing_pk[32] = 5;
-        let ours = maker_address_fe(&owner_hash, &viewing_pk).unwrap();
-        let theirs =
-            swap_program::instructions::shared::maker_address_fe(&owner_hash, &viewing_pk).unwrap();
+        let viewing_pubkey = sample_viewing_pk(42);
+        let ours = CompressedShieldedAddress {
+            owner_hash,
+            viewing_pubkey,
+        }
+        .hash()
+        .unwrap();
+        let theirs = swap_program::instructions::shared::maker_address_fe(
+            &owner_hash,
+            viewing_pubkey.as_bytes(),
+        )
+        .unwrap();
         assert_eq!(ours, theirs);
     }
 
     fn sample_terms(fill_mode: u64) -> OrderTerms {
-        let mut viewing_pk = [0u8; 33];
-        viewing_pk[0] = 2;
-        viewing_pk[32] = 9;
         OrderTerms {
             destination_asset: Address::new_from_array([2u8; 32]),
             destination_amount: 250,
-            destination: maker_address_fe(&[7u8; 32], &viewing_pk).expect("destination fe"),
+            destination: CompressedShieldedAddress {
+                owner_hash: [7u8; 32],
+                viewing_pubkey: sample_viewing_pk(9),
+            }
+            .hash()
+            .expect("destination hash"),
             expiry: 1_700_000_000,
             taker: [11u8; 32],
             fill_mode,

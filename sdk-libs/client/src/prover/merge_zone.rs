@@ -9,6 +9,7 @@
 use num_bigint::BigUint;
 use p256::SecretKey;
 use solana_address::Address;
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::instruction::instruction_data::{
     merge_transact::{MergeExternalDataHash, MergeTransactIxData},
     merge_zone::MergeZoneIxData,
@@ -19,9 +20,7 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     instructions::{
-        merge_zone::PreparedMergeZone,
-        transact::{no_address_hashes, private_tx_hash},
-        types::SppProofInputUtxo,
+        merge_zone::PreparedMergeZone, transact::PrivateTxHash, types::SppProofInputUtxo,
     },
     utxo::program_id_field,
     OutputUtxo,
@@ -30,7 +29,7 @@ use zolana_transaction::{
 use crate::{
     error::ClientError,
     prover::{
-        field::{be, hash_chain},
+        field::be,
         merge::{
             dummy_p256_xy, merge_encrypted_utxo, merge_plaintext, right_align, signing_xy,
             uncompressed,
@@ -165,15 +164,14 @@ impl MergeZoneProver {
             output_utxo_hash: &output_hash,
             encrypted_utxo: &encrypted_utxo,
         }
-        .hash()
-        .map_err(|e| ClientError::Hasher(e.to_string()))?;
+        .hash()?;
 
-        let private_tx = private_tx_hash(
+        let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
-        )?;
+        )
+        .hash()?;
 
         // Owner signing pk_field, used to feed the ed25519 owner rail's
         // `owner_pk_hash` witness below (not a public input on the zone rail).
@@ -184,11 +182,11 @@ impl MergeZoneProver {
         // after the ciphertext hash. `zone_program_id_field` equals the on-chain
         // `solana_pk_hash(zone)` the program derives from the calling `zone_config`.
         let zone_program_id_field = program_id_field(&Some(self.zone_program_id))?;
-        let public_input = hash_chain(&[
-            hash_chain(&assembled_inputs.nullifiers)?,
+        let public_input = create_hash_chain_from_slice(&[
+            create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
-            hash_chain(&assembled_inputs.utxo_roots)?,
-            hash_chain(&assembled_inputs.nullifier_tree_roots)?,
+            create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
+            create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             external_data_hash,
             tx_pk_lo,

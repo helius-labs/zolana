@@ -26,6 +26,6 @@ pub use transfer::{
     Withdrawal, WithdrawalTarget, SENDER_SLOT_COUNT,
 };
 pub use types::{
-    no_address_hashes, private_tx_hash, EncryptedTransaction, InputUtxo, OutputContext, OutputSlot,
-    OutputUtxo, ShieldedTransaction,
+    EncryptedTransaction, InputUtxo, OutputContext, OutputSlot, OutputUtxo, PrivateTxHash,
+    ShieldedTransaction,
 };

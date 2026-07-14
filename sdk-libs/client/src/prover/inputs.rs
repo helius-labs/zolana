@@ -1,8 +1,7 @@
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_keypair::hash::poseidon;
 use zolana_transaction::{
-    instructions::transact::spp_proof_inputs::asset_field,
+    instructions::{transact::spp_proof_inputs::asset_field, types::SppProofInputUtxo},
     utxo::{program_id_field, UTXO_DOMAIN},
     OutputUtxo,
 };
@@ -104,8 +103,9 @@ impl TransferInput {
         owner_pk_hash: &[u8; 32],
     ) -> Result<(Self, [u8; 32]), ClientError> {
         let blinding_32 = right_align(blinding);
-        let utxo_hash = dummy_utxo_hash(&blinding_32)?;
-        let nullifier = dummy_nullifier(&utxo_hash, &blinding_32)?;
+        let mut spend = SppProofInputUtxo::new_dummy();
+        spend.utxo.blinding = *blinding;
+        let nullifier = spend.nullifier()?;
         Ok((
             Self {
                 utxo: UtxoInputs::new_dummy(be(&blinding_32)),
@@ -138,30 +138,6 @@ pub struct TransferOutput {
     /// Both 0 for a dummy output (the circuit leaves its owner tag unconstrained).
     pub owner_pk_hash: BigUint,
     pub nullifier_pk: BigUint,
-}
-
-fn dummy_utxo_hash(blinding_32: &[u8; 32]) -> Result<[u8; 32], ClientError> {
-    let zero = [0u8; 32];
-    let owner_utxo_hash =
-        poseidon(&[&zero, blinding_32]).map_err(|e| ClientError::Hasher(e.to_string()))?;
-    // program_hash and zone_hash over all-zero (data_hash, program_id) and
-    // (zone_data_hash, zone_program_id) pairs.
-    let program_hash = poseidon(&[&zero, &zero]).map_err(|e| ClientError::Hasher(e.to_string()))?;
-    let zone_hash = poseidon(&[&zero, &zero]).map_err(|e| ClientError::Hasher(e.to_string()))?;
-    poseidon(&[
-        &zero,
-        &zero,
-        &zero,
-        &program_hash,
-        &zone_hash,
-        &owner_utxo_hash,
-    ])
-    .map_err(|e| ClientError::Hasher(e.to_string()))
-}
-
-fn dummy_nullifier(utxo_hash: &[u8; 32], blinding_32: &[u8; 32]) -> Result<[u8; 32], ClientError> {
-    let secret = [0u8; 32];
-    poseidon(&[utxo_hash, blinding_32, &secret]).map_err(|e| ClientError::Hasher(e.to_string()))
 }
 
 /// Flat, pre-computed witness for the P256-capable spp_transaction circuit.

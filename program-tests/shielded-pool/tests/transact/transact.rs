@@ -29,7 +29,7 @@ use zolana_interface::instruction::{
 };
 use zolana_keypair::hash::hash_field;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::instructions::transact::{no_address_hashes, private_tx_hash};
+use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
@@ -124,13 +124,9 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
         external_data_hash(&transact_ix_data, &zero).expect("external data hash");
 
     // Dummy inputs and outputs contribute zero hashes to private_tx_hash.
-    let private_tx = private_tx_hash(
-        &[zero, zero],
-        &[zero, zero, zero],
-        &no_address_hashes(2),
-        &external_data_hash,
-    )
-    .expect("private tx hash");
+    let private_tx = PrivateTxHash::new(&[zero, zero], &[zero, zero, zero], &external_data_hash)
+        .hash()
+        .expect("private tx hash");
 
     // Values the program reconstructs from accounts[0] (the payer).
     let owner_hash = hash_field(&payer_bytes).expect("owner hash");

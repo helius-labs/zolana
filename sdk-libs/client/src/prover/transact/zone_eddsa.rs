@@ -14,17 +14,16 @@
 //! `p256_signing_pk_field`.
 
 use solana_address::Address;
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::hash::hash_field;
 use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    utxo::program_id_field,
-    ExternalData, OutputUtxo,
+    instructions::transact::PrivateTxHash, utxo::program_id_field, ExternalData, OutputUtxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
-        field::{be, hash_chain},
+        field::be,
         shape::{resolve_shape, Shape},
         transact::p256_and_eddsa::{
             assemble_inputs, assemble_outputs, OwnerMode, PublicAmounts, TransferSpendInput,
@@ -65,12 +64,12 @@ impl ZoneTransferProver {
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(
+        let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
-        )?;
+        )
+        .hash()?;
 
         // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
         // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
@@ -79,15 +78,15 @@ impl ZoneTransferProver {
 
         // Zone eddsa-rail public-input layout: the 13-element base chain
         // (Confidential=false, ZoneAuthority=false in public_inputs.go), i.e. the 12
-        // base elements PLUS hash_chain(input_owner_pk_hashes), with NO confidential
+        // base elements PLUS create_hash_chain_from_slice(input_owner_pk_hashes), with NO confidential
         // appendix (no output-owner chain, no p256_signing_pk_field). hash_field(&[0;32])
         // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element on
         // the eddsa rail.
-        let public_input = hash_chain(&[
-            hash_chain(&assembled_inputs.nullifiers)?,
-            hash_chain(&assembled_outputs.output_hashes)?,
-            hash_chain(&assembled_inputs.utxo_roots)?,
-            hash_chain(&assembled_inputs.nullifier_tree_roots)?,
+        let public_input = create_hash_chain_from_slice(&[
+            create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
+            create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
+            create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
+            create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             hash_field(&[0u8; 32])?,
             external_data_hash,
@@ -96,7 +95,7 @@ impl ZoneTransferProver {
             self.public_amounts.asset,
             zone_program_id,
             self.payer_pubkey_hash,
-            hash_chain(&assembled_inputs.input_owner_pk_hashes)?,
+            create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
         ])?;
 
         let inputs = TransferInputs {

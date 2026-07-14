@@ -55,7 +55,7 @@ use zolana_program_test::{
 };
 use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
 use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
+    instructions::transact::PrivateTxHash,
     serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
     utxo::derive_blinding,
     AssetRegistry, Data, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW, SOL_MINT,
@@ -350,12 +350,12 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &[payer_nullifier_pk, recipient_nullifier_pk, zero],
     );
     let transfer_external_hash = external_data_hash(&transfer_ix_data, &zero)?;
-    let transfer_private_tx = private_tx_hash(
+    let transfer_private_tx = PrivateTxHash::new(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
-        &no_address_hashes(2),
         &transfer_external_hash,
-    )?;
+    )
+    .hash()?;
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
     let transfer_public_input_hash = public_input_hash(
         &[payer_nullifier, transfer_dummy_nullifier],
@@ -508,12 +508,12 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     );
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())?;
-    let withdraw_private_tx = private_tx_hash(
+    let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[zero, zero, zero],
-        &no_address_hashes(2),
         &withdraw_external_hash,
-    )?;
+    )
+    .hash()?;
     let public_sol_field = public_sol_field(withdraw_ix_data.public_sol_amount);
     let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes)?;
     let withdraw_public_input_hash = public_input_hash(

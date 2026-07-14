@@ -15,10 +15,10 @@ pub use transact_core::{
     set_output_owner_tags, start_prover, TransferProverInputsArgs,
 };
 use zolana_client::{
-    prover::field::{be, hash_chain, right_align_slice},
+    prover::field::{be, right_align_slice},
     TransferInput, TransferInputs, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon;
+use zolana_hasher::{hash_chain::create_hash_chain_from_slice, Poseidon};
 use zolana_interface::instruction::{
     instruction_data::transact::{ExternalDataHash, TransactIxData},
     tag,
@@ -87,10 +87,10 @@ pub fn public_input_hash_spl(
 ) -> [u8; 32] {
     let zero = [0u8; 32];
     let chain = [
-        hash_chain(nullifiers).expect("nullifier chain"),
-        hash_chain(output_hashes).expect("output chain"),
-        hash_chain(utxo_roots).expect("utxo root chain"),
-        hash_chain(nullifier_tree_roots).expect("nullifier root chain"),
+        create_hash_chain_from_slice(nullifiers).expect("nullifier chain"),
+        create_hash_chain_from_slice(output_hashes).expect("output chain"),
+        create_hash_chain_from_slice(utxo_roots).expect("utxo root chain"),
+        create_hash_chain_from_slice(nullifier_tree_roots).expect("nullifier root chain"),
         *private_tx,
         hash_field(&zero).expect("p256 message field"),
         *external_data_hash,
@@ -99,11 +99,11 @@ pub fn public_input_hash_spl(
         hash_field(mint).expect("public spl asset pubkey"),
         zero, // zone_program_id
         *payer_pubkey_hash,
-        hash_chain(input_owner_pk_hashes).expect("input owner chain"),
-        hash_chain(output_owner_pk_hashes).expect("output owner chain"),
+        create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
+        create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
         *p256_signing_pk_field,
     ];
-    hash_chain(&chain).expect("public input hash spl")
+    create_hash_chain_from_slice(&chain).expect("public input hash spl")
 }
 
 /// Mirror of `build_transfer_prover_inputs` for the SPL rail: the witness carries

@@ -7,20 +7,19 @@
 //! into the hash.
 
 use solana_address::Address;
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{
     hash::{hash_field, sha256, split_be_128},
     PublicKey,
 };
 use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    utxo::program_id_field,
-    ExternalData, OutputUtxo,
+    instructions::transact::PrivateTxHash, utxo::program_id_field, ExternalData, OutputUtxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
-        field::{be, hash_chain},
+        field::be,
         shape::{resolve_shape, Shape},
         transact::p256_and_eddsa::{
             assemble_inputs, assemble_outputs, OwnerMode, P256Owner, PublicAmounts,
@@ -82,12 +81,12 @@ impl ZoneTransferP256Prover {
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Zone)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(
+        let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
-        )?;
+        )
+        .hash()?;
         let p256_message_hash = sha256(&private_tx);
         let signature = self.p256_owner.witness()?;
         let (p256_message_low, p256_message_high) = split_be_128(&p256_message_hash);
@@ -103,11 +102,11 @@ impl ZoneTransferP256Prover {
         // p256-message position. No output-owner chain and no p256_signing_pk_field.
         // Mirrors PublicInputHash with ZoneAuthority=false, Confidential=false in
         // prover/server/prover-test/spp/protocol/public_inputs.go.
-        let public_input = hash_chain(&[
-            hash_chain(&assembled_inputs.nullifiers)?,
-            hash_chain(&assembled_outputs.output_hashes)?,
-            hash_chain(&assembled_inputs.utxo_roots)?,
-            hash_chain(&assembled_inputs.nullifier_tree_roots)?,
+        let public_input = create_hash_chain_from_slice(&[
+            create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
+            create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
+            create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
+            create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             hash_field(&p256_message_hash)?,
             external_data_hash,
@@ -116,7 +115,7 @@ impl ZoneTransferP256Prover {
             self.public_amounts.asset,
             zone_program_id,
             self.payer_pubkey_hash,
-            hash_chain(&assembled_inputs.input_owner_pk_hashes)?,
+            create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
         ])?;
 
         let inputs = TransferP256Inputs {

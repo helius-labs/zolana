@@ -119,6 +119,12 @@ pub enum TransactionError {
     Keypair(#[from] KeypairError),
 }
 
+impl From<zolana_hasher::HasherError> for TransactionError {
+    fn from(e: zolana_hasher::HasherError) -> Self {
+        TransactionError::Keypair(KeypairError::Poseidon(e.into()))
+    }
+}
+
 impl From<wincode::WriteError> for TransactionError {
     fn from(e: wincode::WriteError) -> Self {
         TransactionError::Serialize(e.to_string())

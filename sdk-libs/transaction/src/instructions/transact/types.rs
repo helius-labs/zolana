@@ -1,6 +1,7 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{OutputData, OutputDataEncoding};
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{hash::poseidon, random_blinding, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;
@@ -149,46 +150,45 @@ impl EncryptedTransaction {
             .iter()
             .map(OutputUtxo::hash)
             .collect::<Result<Vec<_>, _>>()?;
-        private_tx_hash(
-            &input_hashes,
-            &output_hashes,
-            &no_address_hashes(input_hashes.len()),
-            &self.external_data.hash()?,
-        )
+        PrivateTxHash::new(&input_hashes, &output_hashes, &self.external_data.hash()?).hash()
     }
 }
 
-pub fn private_tx_hash(
-    input_hashes: &[[u8; 32]],
-    output_hashes: &[[u8; 32]],
-    address_hashes: &[[u8; 32]],
-    external_data_hash: &[u8; 32],
-) -> Result<[u8; 32], TransactionError> {
-    let input_chain = hash_chain(input_hashes)?;
-    let output_chain = hash_chain(output_hashes)?;
-    let address_chain = hash_chain(address_hashes)?;
-    Ok(poseidon(&[
-        &input_chain,
-        &output_chain,
-        &address_chain,
-        external_data_hash,
-    ])?)
+pub struct PrivateTxHash<'a> {
+    pub input_hashes: &'a [[u8; 32]],
+    pub output_hashes: &'a [[u8; 32]],
+    pub address_hashes: Option<&'a [[u8; 32]]>,
+    pub external_data_hash: &'a [u8; 32],
 }
 
-pub fn no_address_hashes(n_inputs: usize) -> Vec<[u8; 32]> {
-    vec![[0u8; 32]; n_inputs]
-}
-
-fn hash_chain(items: &[[u8; 32]]) -> Result<[u8; 32], TransactionError> {
-    let mut iter = items.iter();
-    let mut acc = match iter.next() {
-        Some(first) => *first,
-        None => return Ok([0u8; 32]),
-    };
-    for item in iter {
-        acc = poseidon(&[&acc, item])?;
+impl<'a> PrivateTxHash<'a> {
+    pub fn new(
+        input_hashes: &'a [[u8; 32]],
+        output_hashes: &'a [[u8; 32]],
+        external_data_hash: &'a [u8; 32],
+    ) -> Self {
+        Self {
+            input_hashes,
+            output_hashes,
+            address_hashes: None,
+            external_data_hash,
+        }
     }
-    Ok(acc)
+
+    pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
+        let input_chain = create_hash_chain_from_slice(self.input_hashes)?;
+        let output_chain = create_hash_chain_from_slice(self.output_hashes)?;
+        let address_chain = match self.address_hashes {
+            Some(address_hashes) => create_hash_chain_from_slice(address_hashes)?,
+            None => create_hash_chain_from_slice(&vec![[0u8; 32]; self.input_hashes.len()])?,
+        };
+        Ok(poseidon(&[
+            &input_chain,
+            &output_chain,
+            &address_chain,
+            self.external_data_hash,
+        ])?)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -1,8 +1,5 @@
 use num_bigint::BigUint;
-use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    ExternalData, OutputUtxo,
-};
+use zolana_transaction::{instructions::transact::PrivateTxHash, ExternalData, OutputUtxo};
 
 use crate::{
     error::ClientError,
@@ -45,12 +42,12 @@ impl TransferProver {
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(
+        let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
-        )?;
+        )
+        .hash()?;
         let p256_message_hash = [0u8; 32];
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,

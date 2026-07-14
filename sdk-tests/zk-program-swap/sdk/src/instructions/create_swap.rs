@@ -153,8 +153,8 @@ mod tests {
     use zolana_transaction::{
         instructions::{
             transact::{
-                encrypt_transaction_data, get_transaction_viewing_key, no_address_hashes,
-                private_tx_hash, ExternalData, OutputUtxo, Shape, SppProofInputs,
+                encrypt_transaction_data, get_transaction_viewing_key, ExternalData, OutputUtxo,
+                PrivateTxHash, Shape, SppProofInputs,
             },
             types::SppProofInputUtxo,
         },
@@ -286,12 +286,12 @@ mod tests {
             .external_data
             .hash()
             .expect("external data hash");
-        let expected = private_tx_hash(
+        let expected = PrivateTxHash::new(
             &[source_input_hash, [0u8; 32]],
             &[change_hash, escrow_utxo_hash],
-            &no_address_hashes(2),
             &external_data_hash,
         )
+        .hash()
         .expect("private tx hash");
         assert_eq!(
             zolana_keypair::hash::sha256(&expected),
@@ -378,15 +378,15 @@ mod tests {
             .expect("external data hash");
         let spend = spp_proof_inputs.input_utxos.first().expect("input");
         let source_input_hash = spend.hash().expect("source input hash");
-        let expected = private_tx_hash(
+        let expected = PrivateTxHash::new(
             &[source_input_hash, [0u8; 32]],
             &[
                 change.hash().expect("change hash"),
                 escrow_out.hash().expect("escrow hash"),
             ],
-            &no_address_hashes(2),
             &external_data_hash,
         )
+        .hash()
         .expect("private tx hash");
         let message_hash = spp_proof_inputs.message_hash().expect("message hash");
         assert_eq!(zolana_keypair::hash::sha256(&expected), message_hash);
