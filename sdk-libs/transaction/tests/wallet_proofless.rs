@@ -7,12 +7,13 @@ use zolana_transaction::{
 
 fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ShieldedTransaction {
     let blinding = [9u8; BLINDING_LEN];
+    let data_hash = [14u8; 32];
     let owner = wallet.keypair.owner_hash().expect("owner hash");
     let owner_utxo_hash = owner_utxo_hash(&owner, &blinding).expect("owner UTXO hash");
     let utxo_hash = utxo_hash(
         SOL_MINT,
         amount,
-        &[0u8; 32],
+        &data_hash,
         &[0u8; 32],
         None,
         &owner_utxo_hash,
@@ -24,7 +25,7 @@ fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ShieldedTransaction 
         blinding,
         asset: SOL_MINT.to_bytes(),
         amount,
-        data_hash: None,
+        data_hash: Some(data_hash),
         utxo_data: None,
         zone_program_id: None,
         zone_data_hash: None,
@@ -72,6 +73,8 @@ fn sync_discovers_and_spends_proofless_deposit() {
     assert_eq!(wallet.utxos.len(), 1, "deposit discovered");
     let discovered = wallet.utxos.first().expect("discovered utxo");
     assert_eq!(discovered.output_context.hash, deposit_hash);
+    assert_eq!(discovered.data_hash, Some([14u8; 32]));
+    assert_eq!(discovered.zone_data_hash, None);
     assert!(!discovered.spent);
     assert_eq!(
         discovered.utxo.data.memo(),

@@ -13,7 +13,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     AnonymousRecipientSlot, ApprovalRequest, ClientError, ConfidentialRecipientSlot,
-    EncryptedTransfer, P256Signature, SolanaRpc, SyncWalletAuthority,
+    EncryptedTransfer, LocalWalletAuthority, P256Signature, SolanaRpc, SyncWalletAuthority,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
@@ -57,40 +57,26 @@ impl WalletMaterial {
     pub(super) fn owner_pubkey(&self) -> Pubkey {
         self.funding.pubkey()
     }
-
-    fn check_owner_pubkey(&self, owner_pubkey: Pubkey) -> std::result::Result<(), ClientError> {
-        if owner_pubkey == self.owner_pubkey() {
-            Ok(())
-        } else {
-            Err(ClientError::AddressResolution(format!(
-                "wallet file belongs to owner_pubkey {}, got {owner_pubkey}",
-                self.owner_pubkey()
-            )))
-        }
-    }
 }
 
 impl SyncWalletAuthority for WalletMaterial {
-    fn shielded_address(
-        &self,
-        owner_pubkey: Pubkey,
-    ) -> std::result::Result<ShieldedAddress, ClientError> {
-        self.check_owner_pubkey(owner_pubkey)?;
+    fn solana_pubkey(&self) -> Pubkey {
+        self.owner_pubkey()
+    }
+
+    fn shielded_address(&self) -> std::result::Result<ShieldedAddress, ClientError> {
         Ok(self.keypair.shielded_address()?)
     }
 
     fn encrypt_confidential_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_tag: ViewTag,
         sender: &TransferSenderPlaintext,
         recipients: &[ConfidentialRecipientSlot],
     ) -> std::result::Result<EncryptedTransfer, ClientError> {
-        self.check_owner_pubkey(owner_pubkey)?;
         SyncWalletAuthority::encrypt_confidential_transfer(
-            &self.keypair,
-            owner_pubkey,
+            &LocalWalletAuthority::new(self.owner_pubkey(), &self.keypair),
             first_nullifier,
             sender_tag,
             sender,
@@ -100,16 +86,13 @@ impl SyncWalletAuthority for WalletMaterial {
 
     fn encrypt_anonymous_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> std::result::Result<EncryptedTransfer, ClientError> {
-        self.check_owner_pubkey(owner_pubkey)?;
         SyncWalletAuthority::encrypt_anonymous_transfer(
-            &self.keypair,
-            owner_pubkey,
+            &LocalWalletAuthority::new(self.owner_pubkey(), &self.keypair),
             first_nullifier,
             sender_view_tag,
             sender,
@@ -121,23 +104,21 @@ impl SyncWalletAuthority for WalletMaterial {
         &self,
         request: ApprovalRequest,
     ) -> std::result::Result<(), ClientError> {
-        self.check_owner_pubkey(request.owner_pubkey)
+        debug_assert_eq!(request.solana_pubkey, self.owner_pubkey());
+        Ok(())
     }
 
     fn sign_p256(
         &self,
-        owner_pubkey: Pubkey,
         message_hash: &[u8; 32],
     ) -> std::result::Result<P256Signature, ClientError> {
-        self.check_owner_pubkey(owner_pubkey)?;
-        SyncWalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
+        SyncWalletAuthority::sign_p256(
+            &LocalWalletAuthority::new(self.owner_pubkey(), &self.keypair),
+            message_hash,
+        )
     }
 
-    fn spend_nullifier_key(
-        &self,
-        owner_pubkey: Pubkey,
-    ) -> std::result::Result<NullifierKey, ClientError> {
-        self.check_owner_pubkey(owner_pubkey)?;
+    fn spend_nullifier_key(&self) -> std::result::Result<NullifierKey, ClientError> {
         Ok(self.keypair.nullifier_key.clone())
     }
 }
@@ -314,59 +295,15 @@ mod tests {
     }
 
     #[test]
-    fn wrong_owner_pubkey_is_rejected() {
+    fn wallet_authority_is_bound_to_funding_owner() {
         let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let funding = Keypair::new();
         let material = WalletMaterial { keypair, funding };
-        let owner_pubkey = material.owner_pubkey();
-        let wrong = Pubkey::new_unique();
-
-        let err = match material.shielded_address(wrong) {
-            Ok(_) => panic!("wrong owner_pubkey should fail"),
-            Err(err) => err,
-        };
-        assert!(matches!(err, ClientError::AddressResolution(_)));
-        assert!(err.to_string().contains(&owner_pubkey.to_string()));
-
-        material
-            .shielded_address(owner_pubkey)
-            .expect("correct owner_pubkey should succeed");
-    }
-
-    #[test]
-    fn wrong_owner_pubkey_rejected_for_spend_nullifier_key() {
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
-        let funding = Keypair::new();
-        let material = WalletMaterial { keypair, funding };
-        let wrong = Pubkey::new_unique();
-
-        let err = match material.spend_nullifier_key(wrong) {
-            Ok(_) => panic!("wrong owner_pubkey should fail"),
-            Err(err) => err,
-        };
-        assert!(matches!(err, ClientError::AddressResolution(_)));
-
-        material
-            .spend_nullifier_key(material.owner_pubkey())
-            .expect("correct owner_pubkey should succeed");
-    }
-
-    #[test]
-    fn wrong_owner_pubkey_rejected_for_sign_p256() {
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
-        let funding = Keypair::new();
-        let material = WalletMaterial { keypair, funding };
-        let wrong = Pubkey::new_unique();
         let message_hash = [7u8; 32];
 
-        let err = match material.sign_p256(wrong, &message_hash) {
-            Ok(_) => panic!("wrong owner_pubkey should fail"),
-            Err(err) => err,
-        };
-        assert!(matches!(err, ClientError::AddressResolution(_)));
-
-        material
-            .sign_p256(material.owner_pubkey(), &message_hash)
-            .expect("correct owner_pubkey should succeed");
+        assert_eq!(material.solana_pubkey(), material.funding.pubkey());
+        material.shielded_address().expect("shielded address");
+        material.spend_nullifier_key().expect("nullifier key");
+        material.sign_p256(&message_hash).expect("P256 signature");
     }
 }

@@ -9,7 +9,9 @@ pub mod shape;
 pub mod transact;
 pub mod zone_authority;
 
-pub use client::{spawn_prover, AsyncPollConfig, ProverClient, PROVE_PATH, SERVER_ADDRESS};
+pub use client::{
+    spawn_prover, AsyncPollConfig, AsyncProverClient, ProverClient, PROVE_PATH, SERVER_ADDRESS,
+};
 pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
     TransferP256Inputs, UtxoInputs,

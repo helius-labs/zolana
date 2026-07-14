@@ -1,4 +1,4 @@
-//! Build-and-send actions for shielded-pool operations over [`Rpc`].
+//! High-level wallet actions for shielded-pool operations over [`Rpc`].
 //!
 //! [`Rpc`]: crate::rpc::Rpc
 
@@ -7,9 +7,13 @@ pub mod deposit;
 pub mod transaction;
 
 pub use create_associated_token_account::create_associated_token_account;
-pub use deposit::{create_deposit, deposit, CreateDeposit, Deposit};
+pub use deposit::{create_deposit, deposit, Deposit, DepositParams};
+#[cfg(feature = "indexer-api")]
+pub(crate) use transaction::SignedPrivateTransaction;
 pub use transaction::{
-    create_transfer, create_transfer_sync, create_withdrawal, create_withdrawal_sync,
-    sign_transaction, sign_transaction_sync, CreateTransfer, CreateWithdrawal, CreatedTransfer,
-    CreatedWithdrawal, ResolvedAddress, TransferRecipient,
+    create_transfer, create_transfer_sync, create_withdrawal, CreatedTransfer, CreatedWithdrawal,
+    ResolvedAddress, TransferParams, TransferRecipient, UnsignedPrivateTransaction,
+    WithdrawalParams,
 };
+#[cfg(feature = "indexer-api")]
+pub use transaction::{sign_private_transaction, sign_private_transaction_sync};

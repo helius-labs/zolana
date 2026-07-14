@@ -16,13 +16,12 @@ clap = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-client = { workspace = true, features = ["client"] }
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }

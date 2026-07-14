@@ -349,6 +349,8 @@ impl ZoneLifecycleWorld {
             utxo,
             output_context,
             nullifier,
+            data_hash: None,
+            zone_data_hash: None,
             spent: false,
         })
     }

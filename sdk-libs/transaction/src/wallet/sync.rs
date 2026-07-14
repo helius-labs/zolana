@@ -102,11 +102,20 @@ pub(super) struct SyncCtx<'a> {
 }
 
 impl SyncCtx<'_> {
-    fn push(&mut self, utxo: Utxo, output_context: OutputContext, nullifier: [u8; 32]) {
+    fn push(
+        &mut self,
+        utxo: Utxo,
+        output_context: OutputContext,
+        nullifier: [u8; 32],
+        data_hash: Option<[u8; 32]>,
+        zone_data_hash: Option<[u8; 32]>,
+    ) {
         self.utxos.push(WalletUtxo {
             utxo,
             output_context,
             nullifier,
+            data_hash,
+            zone_data_hash,
             spent: false,
         });
         self.report.stored_utxos += 1;
@@ -116,6 +125,8 @@ impl SyncCtx<'_> {
         &mut self,
         utxo: Utxo,
         output_context: OutputContext,
+        data_hash: Option<[u8; 32]>,
+        zone_data_hash: Option<[u8; 32]>,
     ) -> Result<bool, TransactionError> {
         if utxo.owner != self.owner {
             return Ok(false);
@@ -128,7 +139,7 @@ impl SyncCtx<'_> {
             return Ok(false);
         }
         let nullifier = utxo.nullifier(&output_context.hash, &self.keypair.nullifier_key)?;
-        self.push(utxo, output_context, nullifier);
+        self.push(utxo, output_context, nullifier, data_hash, zone_data_hash);
         Ok(true)
     }
 
@@ -147,7 +158,7 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(false);
         };
-        self.store(utxo, output_context)
+        self.store(utxo, output_context, None, None)
     }
 
     fn record(&mut self, tx: PrivateTransaction) {
@@ -326,17 +337,21 @@ impl SyncCtx<'_> {
         &mut self,
         utxos: Vec<Utxo>,
         output_context: &OutputContext,
-        data_hash: &[u8; 32],
-        zone_data_hash: &[u8; 32],
+        data_hash: Option<[u8; 32]>,
+        zone_data_hash: Option<[u8; 32]>,
     ) -> Result<bool, TransactionError> {
         let mut stored = false;
         for utxo in utxos {
-            let hash = utxo.hash(&self.nullifier_pk, data_hash, zone_data_hash)?;
+            let hash = utxo.hash(
+                &self.nullifier_pk,
+                &data_hash.unwrap_or([0u8; 32]),
+                &zone_data_hash.unwrap_or([0u8; 32]),
+            )?;
             if hash != output_context.hash {
                 self.report.undecryptable_candidates += 1;
                 continue;
             }
-            self.store(utxo, output_context.clone())?;
+            self.store(utxo, output_context.clone(), data_hash, zone_data_hash)?;
             stored = true;
         }
         Ok(stored)
@@ -412,8 +427,8 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        let data_hash = plaintext.data_hash.unwrap_or([0u8; 32]);
-                        let zone_data_hash = plaintext.zone_data_hash.unwrap_or([0u8; 32]);
+                        let data_hash = plaintext.data_hash;
+                        let zone_data_hash = plaintext.zone_data_hash;
                         let Ok(utxos) = Proofless::into_utxos(plaintext, &owner_cx) else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
@@ -421,8 +436,8 @@ impl SyncCtx<'_> {
                         if self.store_recipient_utxos(
                             utxos.clone(),
                             &output_context,
-                            &data_hash,
-                            &zone_data_hash,
+                            data_hash,
+                            zone_data_hash,
                         )? {
                             self.processed_slots.insert(site);
                             if let Some(utxo) = utxos.first() {
@@ -475,12 +490,7 @@ impl SyncCtx<'_> {
                                 return Ok(outcome);
                             }
                         };
-                        if self.store_recipient_utxos(
-                            utxos.clone(),
-                            &output_context,
-                            &[0u8; 32],
-                            &[0u8; 32],
-                        )? {
+                        if self.store_recipient_utxos(utxos.clone(), &output_context, None, None)? {
                             self.processed_slots.insert(site);
                             outcome.sender = Some(sender);
                             if let Some(utxo) = utxos.first() {
@@ -500,12 +510,7 @@ impl SyncCtx<'_> {
                                 return Ok(outcome);
                             }
                         };
-                        if self.store_recipient_utxos(
-                            utxos.clone(),
-                            &output_context,
-                            &[0u8; 32],
-                            &[0u8; 32],
-                        )? {
+                        if self.store_recipient_utxos(utxos.clone(), &output_context, None, None)? {
                             self.processed_slots.insert(site);
                             if let Some(utxo) = utxos.first() {
                                 self.record_received(tx, site.1, None, utxo);
@@ -622,12 +627,7 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        if self.store_recipient_utxos(
-                            utxos.clone(),
-                            &output_context,
-                            &[0u8; 32],
-                            &[0u8; 32],
-                        )? {
+                        if self.store_recipient_utxos(utxos.clone(), &output_context, None, None)? {
                             self.processed_slots.insert(site);
                             if let Some(utxo) = utxos.first() {
                                 self.record_merge(tx, &output_context, utxo);

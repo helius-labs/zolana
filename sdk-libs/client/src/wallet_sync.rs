@@ -985,6 +985,8 @@ mod tests {
                     leaf_index: u64::from(seed),
                 },
                 nullifier,
+                data_hash: None,
+                zone_data_hash: None,
                 spent: false,
             });
         }

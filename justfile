@@ -70,8 +70,9 @@ test-user-registry-litesvm: build-programs
 test-sdk-libs:
     cargo test -p zolana-keypair
     cargo test -p zolana-transaction
-    cargo test -p zolana-client --lib actions::transaction
-    cargo test -p zolana-client --test transaction
+    cargo test -p zolana-client --lib --features indexer-api
+    cargo test -p zolana-client --test transaction --features indexer-api
+    cargo test -p zolana-client --test solana_rpc --features solana-rpc
 
 # Photon unit and SQLite-backed integration tests. The Postgres migration smoke
 # test runs in CI where a database service is available.
@@ -85,7 +86,7 @@ test-photon:
 # GITHUB_TOKEN, or uses local keys verified by CHECKSUM. Builds the go prover
 # binary and the zolana CLI the spawned server/test rely on.
 test-client-integration: build-prover-server build-cli
-    cargo test -p zolana-client
+    cargo test -p zolana-client --all-features
 
 # One real transfer proof through Redis, TransferQueueWorker, and the Rust
 # client's async /prove status polling. Requires a reachable Redis URL.

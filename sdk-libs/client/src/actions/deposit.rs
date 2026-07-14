@@ -27,7 +27,7 @@ pub struct Deposit {
     pub spl: Option<DepositSplAccounts>,
 }
 
-pub struct CreateDeposit<'a> {
+pub struct DepositParams<'a> {
     pub recipient: &'a ShieldedAddress,
     pub asset: Address,
     pub amount: u64,
@@ -37,7 +37,7 @@ pub struct CreateDeposit<'a> {
 }
 
 impl Deposit {
-    pub fn new(request: CreateDeposit<'_>) -> Result<Self, ClientError> {
+    pub fn new(request: DepositParams<'_>) -> Result<Self, ClientError> {
         // Fresh blinding is sent in the clear; the recipient `owner` commitment
         // is derived from public address material, so a third-party depositor
         // needs no shared secret and the recipient spends the note directly.
@@ -88,7 +88,7 @@ impl Deposit {
     }
 }
 
-pub fn create_deposit(request: CreateDeposit<'_>) -> Result<Deposit, ClientError> {
+pub fn create_deposit(request: DepositParams<'_>) -> Result<Deposit, ClientError> {
     Deposit::new(request)
 }
 
@@ -221,7 +221,7 @@ mod tests {
     fn prepared_sol_deposit_derives_consistent_material() {
         let recipient = ShieldedKeypair::new().unwrap();
         let recipient_address = recipient.shielded_address().unwrap();
-        let prepared = create_deposit(CreateDeposit {
+        let prepared = create_deposit(DepositParams {
             recipient: &recipient_address,
             asset: SOL_MINT,
             amount: 1_000,
@@ -245,7 +245,7 @@ mod tests {
         let user_token = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
 
-        let prepared = create_deposit(CreateDeposit {
+        let prepared = create_deposit(DepositParams {
             recipient: &recipient_address,
             asset,
             amount: 1_000,

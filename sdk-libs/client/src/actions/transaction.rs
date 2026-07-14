@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
@@ -9,17 +11,25 @@ use zolana_transaction::{
         transact::{PreparedTransaction, SignedTransaction, Transaction, WithdrawalTarget},
         types::SpendUtxo,
     },
-    Address, AssetRegistry, Wallet, SOL_MINT,
+    Address, AssetRegistry, Utxo, Wallet, SOL_MINT,
 };
+
+#[cfg(feature = "indexer-api")]
+use solana_signer::Signer;
+#[cfg(feature = "indexer-api")]
+use solana_transaction::Transaction as SolanaTransaction;
 
 use crate::{
     error::ClientError,
-    rpc::Rpc,
-    user_registry::try_resolve_registered_address,
+    rpc::{AsyncRpc, Rpc},
+    user_registry::{try_resolve_registered_address, try_resolve_registered_address_async},
     wallet_authority::{
         ApprovalRequest, ConfidentialRecipientSlot, SyncWalletAuthority, WalletAuthority,
     },
 };
+
+#[cfg(feature = "indexer-api")]
+use crate::client::ZolanaClient;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedAddress {
@@ -30,8 +40,7 @@ pub struct ResolvedAddress {
 
 #[derive(Clone)]
 pub struct CreatedTransfer {
-    pub signed: SignedTransaction,
-    pub wait_tag: ViewTag,
+    pub transaction: UnsignedPrivateTransaction,
     pub recipient: TransferRecipient,
 }
 
@@ -66,173 +75,256 @@ impl TransferRecipient {
 
 #[derive(Clone)]
 pub struct CreatedWithdrawal {
-    pub signed: SignedTransaction,
-    pub wait_tag: ViewTag,
+    pub transaction: UnsignedPrivateTransaction,
     pub withdrawal: TransactWithdrawal,
 }
 
-pub struct CreateTransfer<'a, R: Rpc, A: ?Sized> {
+/// Shielded transaction after wallet authority encrypts and signs.
+#[doc(hidden)]
+pub struct SignedPrivateTransaction {
+    pub transaction: SignedTransaction,
+    pub withdrawal: Option<TransactWithdrawal>,
+    pub tree: Address,
+}
+
+#[derive(Clone)]
+pub struct UnsignedPrivateTransaction {
+    payer: Address,
+    tree: Address,
+    inputs: Vec<UnsignedSpendInput>,
+    action: PrivateTransactionAction,
+    withdrawal: Option<TransactWithdrawal>,
+    approval_summary: String,
+}
+
+impl UnsignedPrivateTransaction {
+    pub fn payer(&self) -> Address {
+        self.payer
+    }
+
+    pub fn tree(&self) -> Address {
+        self.tree
+    }
+
+    pub fn input_count(&self) -> usize {
+        self.inputs.len()
+    }
+}
+
+#[derive(Clone)]
+struct UnsignedSpendInput {
+    utxo: Utxo,
+    utxo_hash: [u8; 32],
+    nullifier: [u8; 32],
+    data_hash: Option<[u8; 32]>,
+    zone_data_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone)]
+enum PrivateTransactionAction {
+    Transfer {
+        recipient: ShieldedAddress,
+        asset: Address,
+        amount: u64,
+    },
+    Withdrawal {
+        asset: Address,
+        amount: u64,
+        target: WithdrawalTarget,
+    },
+}
+
+pub struct TransferParams<'a, R> {
     pub rpc: &'a R,
     pub wallet: &'a Wallet,
-    pub authority: &'a A,
-    pub owner_pubkey: Pubkey,
     pub payer: Address,
-    pub recipient_owner: Pubkey,
+    /// Solana pubkey of the recipient. Resolved against the on-chain user registry
+    /// internally; unregistered owners fall back to a public withdrawal.
+    pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
 }
 
-pub struct CreateWithdrawal<'a, A: ?Sized> {
+pub struct WithdrawalParams<'a> {
     pub wallet: &'a Wallet,
-    pub authority: &'a A,
-    pub owner_pubkey: Pubkey,
     pub payer: Address,
     pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
 }
 
-pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
-    request: CreateTransfer<'_, R, A>,
+pub async fn create_transfer<R: AsyncRpc>(
+    request: TransferParams<'_, R>,
 ) -> Result<CreatedTransfer, ClientError> {
-    let Some(recipient) = try_resolve_registered_address(request.rpc, request.recipient_owner)?
-    else {
-        let withdrawal = create_withdrawal(CreateWithdrawal {
+    let recipient = try_resolve_registered_address_async(request.rpc, request.recipient).await?;
+    create_transfer_with_recipient(request, recipient)
+}
+
+pub fn create_transfer_sync<R: Rpc>(
+    request: TransferParams<'_, R>,
+) -> Result<CreatedTransfer, ClientError> {
+    let recipient = try_resolve_registered_address(request.rpc, request.recipient)?;
+    create_transfer_with_recipient(request, recipient)
+}
+
+fn create_transfer_with_recipient<R>(
+    request: TransferParams<'_, R>,
+    recipient: Option<ResolvedAddress>,
+) -> Result<CreatedTransfer, ClientError> {
+    let tree = resolve_spend_tree(request.wallet, request.asset)?;
+    let Some(recipient) = recipient else {
+        let withdrawal = create_withdrawal(WithdrawalParams {
             wallet: request.wallet,
-            authority: request.authority,
-            owner_pubkey: request.owner_pubkey,
             payer: request.payer,
-            recipient: request.recipient_owner,
+            recipient: request.recipient,
             asset: request.asset,
             amount: request.amount,
-        })
-        .await?;
+        })?;
         return Ok(CreatedTransfer {
-            signed: withdrawal.signed,
-            wait_tag: withdrawal.wait_tag,
+            transaction: withdrawal.transaction,
             recipient: TransferRecipient::PublicWithdrawal {
-                recipient: request.recipient_owner,
+                recipient: request.recipient,
                 withdrawal: withdrawal.withdrawal,
             },
         });
     };
-    let inputs = select_inputs(
-        request.wallet,
-        request.authority,
-        request.owner_pubkey,
-        request.asset,
-        request.amount,
-    )
-    .await?;
-    let address = request
-        .authority
-        .shielded_address(request.owner_pubkey)
-        .await?;
-    let wait_tag = address.signing_pubkey.confidential_view_tag()?;
-    let mut tx = Transaction::new(address, inputs, request.payer);
-    tx.send(&recipient.address, request.asset, request.amount)?;
-    let prepared = tx.prepare(&request.wallet.registry)?;
-    let signed = sign_prepared(
-        prepared,
-        &address,
-        request.owner_pubkey,
-        request.authority,
-        &request.wallet.registry,
-        format!(
-            "private transfer of {} to {}",
-            request.amount, request.recipient_owner
-        ),
-    )
-    .await?;
+    let inputs = select_inputs(request.wallet, tree, request.asset, request.amount)?;
     Ok(CreatedTransfer {
-        signed,
-        wait_tag,
+        transaction: UnsignedPrivateTransaction {
+            payer: request.payer,
+            tree,
+            inputs,
+            action: PrivateTransactionAction::Transfer {
+                recipient: recipient.address,
+                asset: request.asset,
+                amount: request.amount,
+            },
+            withdrawal: None,
+            approval_summary: format!(
+                "private transaction transfer of {} to {}",
+                request.amount, request.recipient
+            ),
+        },
         recipient: TransferRecipient::Registered(recipient),
     })
 }
 
-/// Blocking adapter for CLI and unit-test flows. Async hosts should call
-/// [`create_transfer`] directly.
-pub fn create_transfer_sync<R: Rpc, A: SyncWalletAuthority + ?Sized>(
-    request: CreateTransfer<'_, R, A>,
-) -> Result<CreatedTransfer, ClientError> {
-    futures::executor::block_on(create_transfer(request))
-}
-
-pub async fn create_withdrawal<A: WalletAuthority + ?Sized>(
-    request: CreateWithdrawal<'_, A>,
-) -> Result<CreatedWithdrawal, ClientError> {
-    let inputs = select_inputs(
-        request.wallet,
-        request.authority,
-        request.owner_pubkey,
-        request.asset,
-        request.amount,
-    )
-    .await?;
+pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdrawal, ClientError> {
+    let tree = resolve_spend_tree(request.wallet, request.asset)?;
+    let inputs = select_inputs(request.wallet, tree, request.asset, request.amount)?;
     let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
-    let address = request
-        .authority
-        .shielded_address(request.owner_pubkey)
-        .await?;
-    let wait_tag = address.signing_pubkey.confidential_view_tag()?;
-    let mut tx = Transaction::new(address, inputs, request.payer);
-    tx.withdraw(request.asset, request.amount, target)?;
-    let prepared = tx.prepare(&request.wallet.registry)?;
-    let signed = sign_prepared(
-        prepared,
-        &address,
-        request.owner_pubkey,
-        request.authority,
-        &request.wallet.registry,
-        format!("withdraw {} to {}", request.amount, request.recipient),
-    )
-    .await?;
     Ok(CreatedWithdrawal {
-        signed,
-        wait_tag,
+        transaction: UnsignedPrivateTransaction {
+            payer: request.payer,
+            tree,
+            inputs,
+            action: PrivateTransactionAction::Withdrawal {
+                asset: request.asset,
+                amount: request.amount,
+                target,
+            },
+            withdrawal: Some(withdrawal),
+            approval_summary: format!(
+                "private transaction withdrawal of {} to {}",
+                request.amount, request.recipient
+            ),
+        },
         withdrawal,
     })
 }
 
-/// Blocking adapter for CLI and unit-test flows. Async hosts should call
-/// [`create_withdrawal`] directly.
-pub fn create_withdrawal_sync<A: SyncWalletAuthority + ?Sized>(
-    request: CreateWithdrawal<'_, A>,
-) -> Result<CreatedWithdrawal, ClientError> {
-    futures::executor::block_on(create_withdrawal(request))
+/// Encrypt, approve, sign, prove, and build a signed native Solana transaction.
+#[cfg(feature = "indexer-api")]
+pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
+    transaction: UnsignedPrivateTransaction,
+    wallet: &Wallet,
+    authority: &A,
+    client: &ZolanaClient<R>,
+    fee_payer: &dyn Signer,
+) -> Result<SolanaTransaction, ClientError> {
+    let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
+    let (blockhash, _) = client.rpc().get_latest_blockhash().await?;
+    client
+        .finish_submission(&shielded, fee_payer, blockhash)
+        .await
 }
 
-/// Sign a prepared transaction through a wallet authority (encrypt, approve,
-/// P256-sign).
-pub async fn sign_transaction<A: WalletAuthority + ?Sized>(
-    tx: Transaction,
+/// Blocking adapter for CLI flows.
+#[cfg(feature = "indexer-api")]
+pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
+    transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
-    owner_pubkey: Pubkey,
     authority: &A,
-) -> Result<SignedTransaction, ClientError> {
-    let address = authority.shielded_address(owner_pubkey).await?;
+    client: &ZolanaClient<R>,
+    fee_payer: &dyn Signer,
+) -> Result<SolanaTransaction, ClientError> {
+    let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
+    let (blockhash, _) = client.rpc().get_latest_blockhash()?;
+    client.finish_submission_sync(&shielded, fee_payer, blockhash)
+}
+
+/// Encrypt, approve, and P256-sign without proving. Used as the first stage of
+/// [`sign_private_transaction`] and by integration tests that only exercise wallet
+/// authority behavior.
+#[doc(hidden)]
+pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
+    transaction: UnsignedPrivateTransaction,
+    wallet: &Wallet,
+    authority: &A,
+) -> Result<SignedPrivateTransaction, ClientError> {
+    validate_unsigned_inputs(wallet, transaction.tree, &transaction.inputs)?;
+    let address = authority.shielded_address().await?;
+    let nullifier_key = authority.spend_nullifier_key().await?;
+    let inputs = transaction
+        .inputs
+        .into_iter()
+        .map(|input| SpendUtxo {
+            utxo: input.utxo,
+            nullifier_key: nullifier_key.clone(),
+            data_hash: input.data_hash,
+            zone_data_hash: input.zone_data_hash,
+        })
+        .collect();
+    let mut tx = Transaction::new(address, inputs, transaction.payer);
+    match transaction.action {
+        PrivateTransactionAction::Transfer {
+            recipient,
+            asset,
+            amount,
+        } => {
+            tx.send(&recipient, asset, amount)?;
+        }
+        PrivateTransactionAction::Withdrawal {
+            asset,
+            amount,
+            target,
+        } => {
+            tx.withdraw(asset, amount, target)?;
+        }
+    }
     let prepared = tx.prepare(&wallet.registry)?;
-    sign_prepared(
+    let signed = sign_prepared(
         prepared,
         &address,
-        owner_pubkey,
         authority,
         &wallet.registry,
-        "private transaction".to_string(),
+        transaction.approval_summary,
     )
-    .await
+    .await?;
+    Ok(SignedPrivateTransaction {
+        transaction: signed,
+        withdrawal: transaction.withdrawal,
+        tree: transaction.tree,
+    })
 }
 
-/// Blocking adapter for CLI and unit-test flows. Async hosts should call
-/// [`sign_transaction`] directly.
-pub fn sign_transaction_sync<A: SyncWalletAuthority + ?Sized>(
-    tx: Transaction,
+#[doc(hidden)]
+pub fn sign_shielded_transaction_sync<A: SyncWalletAuthority + ?Sized>(
+    transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
-    owner_pubkey: Pubkey,
     authority: &A,
-) -> Result<SignedTransaction, ClientError> {
-    futures::executor::block_on(sign_transaction(tx, wallet, owner_pubkey, authority))
+) -> Result<SignedPrivateTransaction, ClientError> {
+    futures::executor::block_on(sign_shielded_transaction(transaction, wallet, authority))
 }
 
 fn recipient_slots(prepared: &PreparedTransaction) -> Vec<ConfidentialRecipientSlot> {
@@ -250,7 +342,6 @@ fn recipient_slots(prepared: &PreparedTransaction) -> Vec<ConfidentialRecipientS
 async fn sign_prepared<A: WalletAuthority + ?Sized>(
     prepared: PreparedTransaction,
     address: &ShieldedAddress,
-    owner_pubkey: Pubkey,
     authority: &A,
     assets: &AssetRegistry,
     approval_summary: String,
@@ -258,7 +349,6 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
     let sender_tag = address.signing_pubkey.confidential_view_tag()?;
     let encrypted = authority
         .encrypt_confidential_transfer(
-            owner_pubkey,
             &prepared.first_nullifier,
             sender_tag,
             &prepared.sender_plaintext,
@@ -267,7 +357,7 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
         .await?;
     authority
         .request_user_approval(ApprovalRequest {
-            owner_pubkey,
+            solana_pubkey: authority.solana_pubkey(),
             summary: approval_summary,
         })
         .await?;
@@ -279,7 +369,7 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
     )?;
     if address.signing_pubkey.signature_type()? == SignatureType::P256 {
         let message_hash = signed.message_hash()?;
-        let sig = authority.sign_p256(owner_pubkey, &message_hash).await?;
+        let sig = authority.sign_p256(&message_hash).await?;
         let mut bytes = [0u8; 64];
         bytes[..32].copy_from_slice(&sig.sig_r);
         bytes[32..].copy_from_slice(&sig.sig_s);
@@ -319,40 +409,76 @@ fn withdrawal_target(
     ))
 }
 
-async fn select_inputs<A: WalletAuthority + ?Sized>(
+fn resolve_spend_tree(wallet: &Wallet, asset: Address) -> Result<Address, ClientError> {
+    let trees: BTreeSet<Address> = wallet
+        .utxos
+        .iter()
+        .filter(|entry| !entry.spent && entry.utxo.asset == asset)
+        .map(|entry| entry.output_context.tree)
+        .collect();
+
+    match trees.len() {
+        0 => Err(ClientError::InsufficientBalance {
+            requested: 1,
+            available: 0,
+        }),
+        1 => Ok(*trees.iter().next().expect("single tree")),
+        tree_count => Err(ClientError::AmbiguousTree { asset, tree_count }),
+    }
+}
+
+fn select_inputs(
     wallet: &Wallet,
-    authority: &A,
-    owner_pubkey: Pubkey,
+    tree: Address,
     asset: Address,
     amount: u64,
-) -> Result<Vec<SpendUtxo>, ClientError> {
-    let nullifier_key = authority.spend_nullifier_key(owner_pubkey).await?;
+) -> Result<Vec<UnsignedSpendInput>, ClientError> {
     let mut selected = Vec::new();
-    let mut total = 0u64;
-    for entry in &wallet.utxos {
-        if entry.spent || entry.utxo.asset != asset {
-            continue;
-        }
-        selected.push(SpendUtxo {
+    let mut available = 0u64;
+    for entry in wallet.utxos.iter().filter(|entry| {
+        !entry.spent && entry.utxo.asset == asset && entry.output_context.tree == tree
+    }) {
+        selected.push(UnsignedSpendInput {
             utxo: entry.utxo.clone(),
-            nullifier_key: nullifier_key.clone(),
-            data_hash: None,
-            zone_data_hash: None,
+            utxo_hash: entry.output_context.hash,
+            nullifier: entry.nullifier,
+            data_hash: entry.data_hash,
+            zone_data_hash: entry.zone_data_hash,
         });
-        total = total
+        available = available
             .checked_add(entry.utxo.amount)
             .ok_or(ClientError::SelectedBalanceOverflow)?;
-        if total >= amount {
-            break;
+        if available >= amount {
+            return Ok(selected);
         }
     }
-    if total < amount {
-        return Err(ClientError::InsufficientBalance {
-            requested: amount,
-            available: total,
+
+    Err(ClientError::InsufficientBalance {
+        requested: amount,
+        available,
+    })
+}
+
+fn validate_unsigned_inputs(
+    wallet: &Wallet,
+    tree: Address,
+    inputs: &[UnsignedSpendInput],
+) -> Result<(), ClientError> {
+    for (index, input) in inputs.iter().enumerate() {
+        let available = wallet.utxos.iter().any(|entry| {
+            !entry.spent
+                && entry.output_context.tree == tree
+                && entry.output_context.hash == input.utxo_hash
+                && entry.nullifier == input.nullifier
+                && entry.data_hash == input.data_hash
+                && entry.zone_data_hash == input.zone_data_hash
+                && entry.utxo == input.utxo
         });
+        if !available {
+            return Err(ClientError::UnsignedInputUnavailable { index });
+        }
     }
-    Ok(selected)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -375,6 +501,13 @@ mod tests {
                 .account
                 .as_ref()
                 .and_then(|(expected, account)| (*expected == address).then(|| account.clone())))
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl AsyncRpc for MockRpc {
+        async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+            Rpc::get_account(self, address)
         }
     }
 
@@ -418,13 +551,15 @@ mod tests {
                 leaf_index: 0,
             },
             nullifier,
+            data_hash: None,
+            zone_data_hash: None,
             spent: false,
         });
         wallet
     }
 
     #[test]
-    fn create_transfer_to_registered_recipient_builds_shielded_transfer() {
+    fn create_transfer_sync_to_registered_recipient_builds_shielded_transfer() {
         let sender = ShieldedKeypair::new().unwrap();
         let recipient = ShieldedKeypair::new().unwrap();
         let owner = Pubkey::new_unique();
@@ -453,13 +588,11 @@ mod tests {
         };
         let wallet = wallet_with_sol(sender.clone(), 10);
 
-        let result = create_transfer_sync(CreateTransfer {
+        let result = create_transfer_sync(TransferParams {
             rpc: &rpc,
             wallet: &wallet,
-            authority: &sender,
-            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
-            recipient_owner: owner,
+            recipient: owner,
             asset: SOL_MINT,
             amount: 1,
         })
@@ -472,20 +605,65 @@ mod tests {
         assert!(result.recipient.withdrawal().is_none());
     }
 
+    #[tokio::test]
+    async fn create_transfer_resolves_registered_recipient() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let recipient = ShieldedKeypair::new().unwrap();
+        let owner = Pubkey::new_unique();
+        let (record_pda, bump) = user_record_pda(&owner);
+        let record = UserRecord {
+            owner: owner.to_bytes().into(),
+            bump,
+            owner_p256: Some(*recipient.signing_pubkey().as_p256().unwrap().as_bytes()),
+            nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
+            viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
+            sync_delegate: None,
+            entries: Vec::new(),
+            merging_enabled: false,
+        };
+        let rpc = MockRpc {
+            account: Some((
+                Address::new_from_array(record_pda.to_bytes()),
+                Account {
+                    lamports: 1,
+                    data: account_data(&record),
+                    owner: user_registry_program_id(),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )),
+        };
+        let wallet = wallet_with_sol(sender, 10);
+
+        let result = create_transfer(TransferParams {
+            rpc: &rpc,
+            wallet: &wallet,
+            payer: Address::default(),
+            recipient: owner,
+            asset: SOL_MINT,
+            amount: 1,
+        })
+        .await
+        .expect("async transfer");
+
+        assert!(matches!(
+            result.recipient,
+            TransferRecipient::Registered(resolved) if resolved.owner == owner
+        ));
+    }
+
     #[test]
-    fn create_transfer_to_unregistered_recipient_builds_public_withdrawal() {
+    fn create_transfer_sync_to_unregistered_recipient_builds_public_withdrawal() {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_sol(sender.clone(), 10);
         let recipient = Pubkey::new_unique();
         let rpc = MockRpc { account: None };
 
-        let result = create_transfer_sync(CreateTransfer {
+        let result = create_transfer_sync(TransferParams {
             rpc: &rpc,
             wallet: &wallet,
-            authority: &sender,
-            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
-            recipient_owner: recipient,
+            recipient,
             asset: SOL_MINT,
             amount: 1,
         })
@@ -501,7 +679,7 @@ mod tests {
     }
 
     #[test]
-    fn create_transfer_to_unregistered_recipient_builds_spl_public_withdrawal() {
+    fn create_transfer_sync_to_unregistered_recipient_builds_spl_public_withdrawal() {
         let sender = ShieldedKeypair::new().unwrap();
         let mint = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
@@ -510,13 +688,11 @@ mod tests {
         let recipient = Pubkey::new_unique();
         let token_account = pda::associated_token_address(&recipient, &mint);
 
-        let result = create_transfer_sync(CreateTransfer {
+        let result = create_transfer_sync(TransferParams {
             rpc: &rpc,
             wallet: &wallet,
-            authority: &sender,
-            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
-            recipient_owner: recipient,
+            recipient,
             asset,
             amount: 1,
         })
@@ -543,10 +719,8 @@ mod tests {
         let recipient = Pubkey::new_unique();
         let token_account = pda::associated_token_address(&recipient, &mint);
 
-        let result = create_withdrawal_sync(CreateWithdrawal {
+        let result = create_withdrawal(WithdrawalParams {
             wallet: &wallet,
-            authority: &sender,
-            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
             recipient,
             asset,
@@ -564,5 +738,139 @@ mod tests {
                 token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
             })
         );
+    }
+
+    #[test]
+    fn signing_rejects_input_spent_after_creation() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let authority =
+            crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
+        let mut wallet = wallet_with_sol(sender.clone(), 10);
+        let unsigned = create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            recipient: Pubkey::new_unique(),
+            asset: SOL_MINT,
+            amount: 1,
+        })
+        .expect("withdrawal")
+        .transaction;
+        wallet.utxos[0].spent = true;
+
+        let error = match sign_shielded_transaction_sync(unsigned, &wallet, &authority) {
+            Err(error) => error,
+            Ok(_) => panic!("spent input must be rejected before approval"),
+        };
+
+        assert!(matches!(
+            error,
+            ClientError::UnsignedInputUnavailable { index: 0 }
+        ));
+    }
+
+    #[test]
+    fn action_path_preserves_input_commitment_hashes() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let authority =
+            crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
+        let mut wallet = wallet_with_sol(sender.clone(), 10);
+        let data_hash = [13u8; 32];
+        let nullifier_pubkey = sender.nullifier_key.pubkey().unwrap();
+        let hash = wallet.utxos[0]
+            .utxo
+            .hash(&nullifier_pubkey, &data_hash, &[0u8; 32])
+            .unwrap();
+        wallet.utxos[0].output_context.hash = hash;
+        wallet.utxos[0].nullifier = wallet.utxos[0]
+            .utxo
+            .nullifier(&hash, &sender.nullifier_key)
+            .unwrap();
+        wallet.utxos[0].data_hash = Some(data_hash);
+        let unsigned = create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            recipient: Pubkey::new_unique(),
+            asset: SOL_MINT,
+            amount: 1,
+        })
+        .unwrap()
+        .transaction;
+
+        let signed = sign_shielded_transaction_sync(unsigned, &wallet, &authority).unwrap();
+
+        assert_eq!(
+            signed.transaction.input_commitments().unwrap()[0].utxo_hash,
+            hash
+        );
+    }
+
+    #[test]
+    fn input_selection_keeps_every_input_on_one_tree() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let second_tree = Address::new_from_array([9u8; 32]);
+        let mut wallet = wallet_with_sol(sender.clone(), 10);
+        wallet.utxos[0].output_context.tree = second_tree;
+
+        let created = create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            recipient: Pubkey::new_unique(),
+            asset: SOL_MINT,
+            amount: 8,
+        })
+        .expect("tree with enough balance");
+
+        assert_eq!(created.transaction.tree(), second_tree);
+        assert_eq!(created.transaction.input_count(), 1);
+    }
+
+    #[test]
+    fn resolve_spend_tree_infers_single_tree_balance() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_sol(sender, 10);
+
+        let tree = resolve_spend_tree(&wallet, SOL_MINT).expect("infer tree");
+
+        assert_eq!(tree, Address::default());
+    }
+
+    #[test]
+    fn resolve_spend_tree_errors_when_balance_spans_multiple_trees() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let mut wallet = wallet_with_sol(sender.clone(), 4);
+        let second_tree = Address::new_from_array([9u8; 32]);
+        let mut second = wallet_with_sol(sender, 10).utxos.remove(0);
+        second.output_context.tree = second_tree;
+        wallet.utxos.push(second);
+
+        let error = match resolve_spend_tree(&wallet, SOL_MINT) {
+            Err(error) => error,
+            Ok(_) => panic!("expected ambiguous tree error"),
+        };
+
+        assert!(matches!(
+            error,
+            ClientError::AmbiguousTree {
+                asset,
+                tree_count: 2,
+            } if asset == SOL_MINT
+        ));
+    }
+
+    #[test]
+    fn create_withdrawal_infers_tree_when_omitted() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_sol(sender.clone(), 10);
+
+        let created = create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            recipient: Pubkey::new_unique(),
+            asset: SOL_MINT,
+            amount: 1,
+        })
+        .expect("withdrawal");
+
+        assert_eq!(created.transaction.tree(), Address::default());
     }
 }

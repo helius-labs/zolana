@@ -79,6 +79,8 @@ pub struct WalletUtxo {
     pub utxo: Utxo,
     pub output_context: OutputContext,
     pub nullifier: [u8; 32],
+    pub data_hash: Option<[u8; 32]>,
+    pub zone_data_hash: Option<[u8; 32]>,
     pub spent: bool,
 }
 

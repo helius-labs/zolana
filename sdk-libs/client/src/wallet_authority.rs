@@ -33,7 +33,7 @@ pub struct P256Signature {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApprovalRequest {
-    pub owner_pubkey: Pubkey,
+    pub solana_pubkey: Pubkey,
     pub summary: String,
 }
 
@@ -69,11 +69,13 @@ pub struct EncryptedTransfer {
 /// may cross a process, device, or remote custody boundary.
 #[async_trait(?Send)]
 pub trait WalletAuthority {
-    async fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError>;
+    /// Solana owner whose user-registry record names this authority's keys.
+    fn solana_pubkey(&self) -> Pubkey;
+
+    async fn shielded_address(&self) -> Result<ShieldedAddress, ClientError>;
 
     async fn encrypt_confidential_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_tag: ViewTag,
         sender: &TransferSenderPlaintext,
@@ -82,7 +84,6 @@ pub trait WalletAuthority {
 
     async fn encrypt_anonymous_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
@@ -93,22 +94,19 @@ pub trait WalletAuthority {
         Ok(())
     }
 
-    async fn sign_p256(
-        &self,
-        owner_pubkey: Pubkey,
-        message_hash: &[u8; 32],
-    ) -> Result<P256Signature, ClientError>;
+    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, ClientError>;
 
-    async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError>;
+    async fn spend_nullifier_key(&self) -> Result<NullifierKey, ClientError>;
 }
 
 /// Blocking authority for tests, CLI flows, and local direct-key wallets.
 pub trait SyncWalletAuthority {
-    fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError>;
+    fn solana_pubkey(&self) -> Pubkey;
+
+    fn shielded_address(&self) -> Result<ShieldedAddress, ClientError>;
 
     fn encrypt_confidential_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_tag: ViewTag,
         sender: &TransferSenderPlaintext,
@@ -117,7 +115,6 @@ pub trait SyncWalletAuthority {
 
     fn encrypt_anonymous_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
@@ -128,13 +125,9 @@ pub trait SyncWalletAuthority {
         Ok(())
     }
 
-    fn sign_p256(
-        &self,
-        owner_pubkey: Pubkey,
-        message_hash: &[u8; 32],
-    ) -> Result<P256Signature, ClientError>;
+    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, ClientError>;
 
-    fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError>;
+    fn spend_nullifier_key(&self) -> Result<NullifierKey, ClientError>;
 }
 
 #[async_trait(?Send)]
@@ -142,13 +135,16 @@ impl<T> WalletAuthority for T
 where
     T: SyncWalletAuthority + ?Sized,
 {
-    async fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError> {
-        SyncWalletAuthority::shielded_address(self, owner_pubkey)
+    fn solana_pubkey(&self) -> Pubkey {
+        SyncWalletAuthority::solana_pubkey(self)
+    }
+
+    async fn shielded_address(&self) -> Result<ShieldedAddress, ClientError> {
+        SyncWalletAuthority::shielded_address(self)
     }
 
     async fn encrypt_confidential_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_tag: ViewTag,
         sender: &TransferSenderPlaintext,
@@ -156,7 +152,6 @@ where
     ) -> Result<EncryptedTransfer, ClientError> {
         SyncWalletAuthority::encrypt_confidential_transfer(
             self,
-            owner_pubkey,
             first_nullifier,
             sender_tag,
             sender,
@@ -166,7 +161,6 @@ where
 
     async fn encrypt_anonymous_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
@@ -174,7 +168,6 @@ where
     ) -> Result<EncryptedTransfer, ClientError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
             self,
-            owner_pubkey,
             first_nullifier,
             sender_view_tag,
             sender,
@@ -186,16 +179,31 @@ where
         SyncWalletAuthority::request_user_approval(self, request)
     }
 
-    async fn sign_p256(
-        &self,
-        owner_pubkey: Pubkey,
-        message_hash: &[u8; 32],
-    ) -> Result<P256Signature, ClientError> {
-        SyncWalletAuthority::sign_p256(self, owner_pubkey, message_hash)
+    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, ClientError> {
+        SyncWalletAuthority::sign_p256(self, message_hash)
     }
 
-    async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError> {
-        SyncWalletAuthority::spend_nullifier_key(self, owner_pubkey)
+    async fn spend_nullifier_key(&self) -> Result<NullifierKey, ClientError> {
+        SyncWalletAuthority::spend_nullifier_key(self)
+    }
+}
+
+/// Owner-scoped adapter for a local shielded keypair.
+///
+/// A [`ShieldedKeypair`] contains shielded keys but does not know the Solana
+/// account whose user-registry record publishes them. This adapter binds those
+/// two pieces once, so signing cannot receive a mismatched owner separately.
+pub struct LocalWalletAuthority<'a> {
+    solana_pubkey: Pubkey,
+    keypair: &'a ShieldedKeypair,
+}
+
+impl<'a> LocalWalletAuthority<'a> {
+    pub fn new(solana_pubkey: Pubkey, keypair: &'a ShieldedKeypair) -> Self {
+        Self {
+            solana_pubkey,
+            keypair,
+        }
     }
 }
 
@@ -206,24 +214,28 @@ fn recipient_slot_index(i: usize) -> Result<u32, ClientError> {
     })
 }
 
-impl SyncWalletAuthority for ShieldedKeypair {
-    fn shielded_address(&self, _owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError> {
-        Ok(self.shielded_address()?)
+impl SyncWalletAuthority for LocalWalletAuthority<'_> {
+    fn solana_pubkey(&self) -> Pubkey {
+        self.solana_pubkey
+    }
+
+    fn shielded_address(&self) -> Result<ShieldedAddress, ClientError> {
+        Ok(self.keypair.shielded_address()?)
     }
 
     fn encrypt_confidential_transfer(
         &self,
-        _owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_tag: ViewTag,
         sender: &TransferSenderPlaintext,
         recipients: &[ConfidentialRecipientSlot],
     ) -> Result<EncryptedTransfer, ClientError> {
         let tx = self
+            .keypair
             .viewing_key
             .get_transaction_viewing_key(first_nullifier)?;
         let salt = random_salt();
-        let self_pubkey = self.viewing_key.pubkey();
+        let self_pubkey = self.keypair.viewing_key.pubkey();
 
         let mut slots = Vec::with_capacity(1 + recipients.len());
         let sender_cx = ConfidentialSenderEncode {
@@ -261,17 +273,17 @@ impl SyncWalletAuthority for ShieldedKeypair {
 
     fn encrypt_anonymous_transfer(
         &self,
-        _owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, ClientError> {
         let tx = self
+            .keypair
             .viewing_key
             .get_transaction_viewing_key(first_nullifier)?;
         let salt = random_salt();
-        let self_pubkey = self.viewing_key.pubkey();
+        let self_pubkey = self.keypair.viewing_key.pubkey();
 
         let mut slots = Vec::with_capacity(1 + recipients.len());
         let sender_cx = AnonymousSenderEncode {
@@ -310,13 +322,10 @@ impl SyncWalletAuthority for ShieldedKeypair {
         })
     }
 
-    fn sign_p256(
-        &self,
-        _owner_pubkey: Pubkey,
-        message_hash: &[u8; 32],
-    ) -> Result<P256Signature, ClientError> {
-        let signer = EcdsaSigningKey::from_slice(self.signing_key.secret_bytes().as_slice())
-            .map_err(|e| ClientError::P256Signature(e.to_string()))?;
+    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, ClientError> {
+        let signer =
+            EcdsaSigningKey::from_slice(self.keypair.signing_key.secret_bytes().as_slice())
+                .map_err(|e| ClientError::P256Signature(e.to_string()))?;
         let signature: Signature = signer
             .sign_prehash(message_hash)
             .map_err(|e| ClientError::P256Signature(e.to_string()))?;
@@ -326,13 +335,13 @@ impl SyncWalletAuthority for ShieldedKeypair {
         sig_r.copy_from_slice(&bytes[..32]);
         sig_s.copy_from_slice(&bytes[32..]);
         Ok(P256Signature {
-            pubkey: self.signing_pubkey().as_p256()?,
+            pubkey: self.keypair.signing_pubkey().as_p256()?,
             sig_r,
             sig_s,
         })
     }
 
-    fn spend_nullifier_key(&self, _owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError> {
-        Ok(self.nullifier_key.clone())
+    fn spend_nullifier_key(&self) -> Result<NullifierKey, ClientError> {
+        Ok(self.keypair.nullifier_key.clone())
     }
 }

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use solana_signer::Signer;
 use zolana_client::{
-    create_deposit, resolve_registered_address, CreateDeposit, SolanaRpc, ZolanaIndexer,
+    create_deposit, resolve_registered_address, DepositParams, SolanaRpc, ZolanaIndexer,
 };
 
 use super::{
@@ -33,7 +33,7 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
         .transpose()?
         .unwrap_or_else(|| material.funding.pubkey());
     let recipient = resolve_registered_address(&rpc, recipient_pubkey)?;
-    let deposit = create_deposit(CreateDeposit {
+    let deposit = create_deposit(DepositParams {
         recipient: &recipient.address,
         asset,
         amount: opts.amount,

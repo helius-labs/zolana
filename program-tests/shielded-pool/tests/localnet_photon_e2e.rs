@@ -1762,6 +1762,8 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         utxo: expected_utxo,
         output_context,
         nullifier: expected_nullifier,
+        data_hash: None,
+        zone_data_hash: None,
         spent: false,
     };
     assert_eq!(*recovered, expected);

@@ -65,7 +65,11 @@ impl SignedTransaction {
             .enumerate()
             .map(|(index, spend)| {
                 let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-                let utxo_hash = spend.utxo.hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
+                let utxo_hash = spend.utxo.hash(
+                    &nullifier_pubkey,
+                    &spend.data_hash.unwrap_or([0u8; 32]),
+                    &spend.zone_data_hash.unwrap_or([0u8; 32]),
+                )?;
                 let nullifier = spend
                     .nullifier_key
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;

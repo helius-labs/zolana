@@ -20,11 +20,12 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
-    sign_transaction, AnonymousRecipientSlot, ApprovalRequest, CircuitType, ClientError,
-    ConfidentialRecipientSlot, MerkleContext, MerkleProof, NonInclusionProof, P256Signature,
+    create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
+    ApprovalRequest, AsyncRpc, CircuitType, ClientError, ConfidentialRecipientSlot,
+    LocalWalletAuthority, MerkleContext, MerkleProof, NonInclusionProof, P256Signature,
     PublicAmounts, Rpc, SignedTransaction, SpendProof, SpendUtxo, SyncWalletAuthority, Transaction,
-    TransferP256Prover, WalletAuthority, WithdrawalTarget, NULLIFIER_TREE_HEIGHT,
-    STATE_TREE_HEIGHT,
+    TransferP256Prover, TransferParams, WalletAuthority, WithdrawalParams, WithdrawalTarget,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputData;
 use zolana_interface::instruction::instruction_data::transact::TransactProof;
@@ -39,8 +40,8 @@ use zolana_transaction::{
         DecodeCx, UtxoSerialization,
     },
     utxo::derive_blinding,
-    AssetRegistry, Data, ExternalData, OutputUtxo, TransactionError, Utxo, Wallet, SOL_ASSET_ID,
-    SOL_MINT,
+    AssetRegistry, Data, ExternalData, OutputContext, OutputUtxo, TransactionError, Utxo, Wallet,
+    WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
 
 fn blinding(rng: &mut ThreadRng) -> [u8; 31] {
@@ -73,24 +74,28 @@ struct AsyncTestAuthority {
 
 #[async_trait::async_trait(?Send)]
 impl WalletAuthority for AsyncTestAuthority {
+    fn solana_pubkey(&self) -> Pubkey {
+        Pubkey::default()
+    }
+
     async fn shielded_address(
         &self,
-        owner_pubkey: Pubkey,
     ) -> Result<zolana_keypair::shielded::ShieldedAddress, ClientError> {
-        SyncWalletAuthority::shielded_address(&self.keypair, owner_pubkey)
+        SyncWalletAuthority::shielded_address(&LocalWalletAuthority::new(
+            self.solana_pubkey(),
+            &self.keypair,
+        ))
     }
 
     async fn encrypt_confidential_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_tag: [u8; 32],
         sender: &TransferSenderPlaintext,
         recipients: &[ConfidentialRecipientSlot],
     ) -> Result<zolana_client::EncryptedTransfer, ClientError> {
         SyncWalletAuthority::encrypt_confidential_transfer(
-            &self.keypair,
-            owner_pubkey,
+            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             sender_tag,
             sender,
@@ -100,15 +105,13 @@ impl WalletAuthority for AsyncTestAuthority {
 
     async fn encrypt_anonymous_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_view_tag: [u8; 32],
         sender: &zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<zolana_client::EncryptedTransfer, ClientError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
-            &self.keypair,
-            owner_pubkey,
+            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             sender_view_tag,
             sender,
@@ -117,23 +120,25 @@ impl WalletAuthority for AsyncTestAuthority {
     }
 
     async fn request_user_approval(&self, request: ApprovalRequest) -> Result<(), ClientError> {
-        assert_eq!(request.owner_pubkey, Pubkey::default());
+        assert_eq!(request.solana_pubkey, self.solana_pubkey());
         assert!(request.summary.contains("private transaction"));
         self.approvals.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
-    async fn sign_p256(
-        &self,
-        owner_pubkey: Pubkey,
-        message_hash: &[u8; 32],
-    ) -> Result<P256Signature, ClientError> {
+    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, ClientError> {
         self.p256_signatures.fetch_add(1, Ordering::SeqCst);
-        SyncWalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
+        SyncWalletAuthority::sign_p256(
+            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            message_hash,
+        )
     }
 
-    async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError> {
-        SyncWalletAuthority::spend_nullifier_key(&self.keypair, owner_pubkey)
+    async fn spend_nullifier_key(&self) -> Result<NullifierKey, ClientError> {
+        SyncWalletAuthority::spend_nullifier_key(&LocalWalletAuthority::new(
+            self.solana_pubkey(),
+            &self.keypair,
+        ))
     }
 }
 
@@ -687,31 +692,89 @@ fn p256_owner_signature_matches_built_private_tx_hash() {
 }
 
 #[test]
-fn async_authority_signs_p256_and_invokes_approval() {
+fn input_commitments_include_data_and_zone_hashes() {
     let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
     let recipient = ShieldedKeypair::new().unwrap();
+    let mut spend = p256_input(&sender, 100, &mut rng);
+    spend.data_hash = Some([11u8; 32]);
+    spend.zone_data_hash = Some([12u8; 32]);
+    let nullifier_pubkey = spend.nullifier_key.pubkey().unwrap();
+    let expected_hash = spend
+        .utxo
+        .hash(
+            &nullifier_pubkey,
+            spend.data_hash.as_ref().unwrap(),
+            spend.zone_data_hash.as_ref().unwrap(),
+        )
+        .unwrap();
+    let expected_nullifier = spend
+        .nullifier_key
+        .nullifier(&expected_hash, &spend.utxo.blinding)
+        .unwrap();
+    let mut tx = Transaction::new(
+        sender.shielded_address().unwrap(),
+        vec![spend],
+        Address::default(),
+    );
+    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+        .unwrap();
+    let signed = sign(tx, &sender).unwrap();
+
+    let commitments = signed.input_commitments().unwrap();
+
+    assert_eq!(commitments[0].utxo_hash, expected_hash);
+    assert_eq!(commitments[0].nullifier, expected_nullifier);
+}
+
+#[test]
+fn async_authority_signs_p256_and_invokes_approval() {
+    let mut rng = rand::thread_rng();
+    let sender = ShieldedKeypair::new().unwrap();
     let authority = AsyncTestAuthority {
         keypair: sender.clone(),
         approvals: AtomicUsize::new(0),
         p256_signatures: AtomicUsize::new(0),
     };
-    let mut tx = Transaction::new(
-        sender.shielded_address().unwrap(),
-        vec![p256_input(&sender, 100, &mut rng)],
-        Address::default(),
-    );
-    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
-        .unwrap();
-
-    let wallet = Wallet::new(sender.clone(), registry()).expect("wallet");
+    let spend = p256_input(&sender, 100, &mut rng);
+    let nullifier_pk = spend.nullifier_key.pubkey().expect("nullifier pubkey");
+    let hash = spend
+        .utxo
+        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+        .expect("utxo hash");
+    let nullifier = spend
+        .nullifier_key
+        .nullifier(&hash, &spend.utxo.blinding)
+        .expect("nullifier");
+    let mut wallet = Wallet::new(sender.clone(), registry()).expect("wallet");
+    wallet.utxos.push(WalletUtxo {
+        utxo: spend.utxo,
+        output_context: OutputContext {
+            hash,
+            tree: Address::default(),
+            leaf_index: 0,
+        },
+        nullifier,
+        data_hash: None,
+        zone_data_hash: None,
+        spent: false,
+    });
+    let unsigned = create_withdrawal(WithdrawalParams {
+        wallet: &wallet,
+        payer: Address::default(),
+        recipient: Pubkey::new_unique(),
+        asset: SOL_MINT,
+        amount: 60,
+    })
+    .expect("created")
+    .transaction;
     let signed =
-        futures::executor::block_on(sign_transaction(tx, &wallet, Pubkey::default(), &authority))
+        futures::executor::block_on(sign_shielded_transaction(unsigned, &wallet, &authority))
             .unwrap();
 
     assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
     assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 1);
-    let prover = prover_of(signed);
+    let prover = prover_of(signed.transaction);
     let owner = prover.p256_owner.clone();
     let built = prover.build().unwrap();
     let message_hash = zolana_keypair::hash::sha256(&built.private_tx_hash);
@@ -817,4 +880,72 @@ fn two_distinct_spl_assets_are_rejected() {
         sign(tx, &sender),
         Err(TransactionError::MultiplePublicSplAssets)
     ));
+}
+
+#[tokio::test]
+async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
+    use solana_account::Account;
+    use zolana_keypair::ShieldedKeypair;
+    use zolana_transaction::{Data, Utxo, WalletUtxo, SOL_MINT};
+
+    struct RegistryAbsent;
+
+    impl Rpc for RegistryAbsent {
+        fn get_account(&self, _address: Address) -> Result<Option<Account>, ClientError> {
+            Ok(None)
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl AsyncRpc for RegistryAbsent {
+        async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+            Rpc::get_account(self, address)
+        }
+    }
+
+    let sender = ShieldedKeypair::new().unwrap();
+    let mut wallet = Wallet::new(sender.clone(), registry()).expect("wallet");
+    let utxo = Utxo {
+        owner: sender.signing_pubkey(),
+        asset: SOL_MINT,
+        amount: 10,
+        blinding: [7u8; 31],
+        zone_program_id: None,
+        data: Data::default(),
+    };
+    let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pubkey");
+    let hash = utxo
+        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+        .expect("utxo hash");
+    let nullifier = utxo
+        .nullifier(&hash, &sender.nullifier_key)
+        .expect("nullifier");
+    wallet.utxos.push(WalletUtxo {
+        utxo,
+        output_context: OutputContext {
+            hash,
+            tree: Address::default(),
+            leaf_index: 0,
+        },
+        nullifier,
+        data_hash: None,
+        zone_data_hash: None,
+        spent: false,
+    });
+
+    let recipient = Pubkey::new_unique();
+    let rpc = RegistryAbsent;
+    let created = create_transfer(TransferParams {
+        rpc: &rpc,
+        wallet: &wallet,
+        payer: Address::default(),
+        recipient,
+        asset: SOL_MINT,
+        amount: 1,
+    })
+    .await
+    .expect("async create transfer");
+
+    assert!(created.recipient.is_public_withdrawal());
+    assert_eq!(created.transaction.tree(), Address::default());
 }
