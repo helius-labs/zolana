@@ -369,7 +369,8 @@ impl ZoneLifecycleWorld {
         rail: Rail,
     ) -> Result<TransactIxData> {
         let spend_inputs = self.zone_spend_inputs(&proof_inputs.input_utxos)?;
-        let shape = Shape::new(proof_inputs.shape.n_inputs(), proof_inputs.shape.n_outputs());
+        let tx_shape = proof_inputs.shape()?;
+        let shape = Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs());
 
         match rail {
             Rail::Eddsa => {
@@ -377,7 +378,7 @@ impl ZoneLifecycleWorld {
                     inputs: spend_inputs,
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
-                    public_amounts: client_public_amounts(proof_inputs.public_amounts),
+                    public_amounts: client_public_amounts(proof_inputs.public_amounts()?),
                     payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
                     zone_program_id: Some(zone),
                     shape: Some(shape),
@@ -399,7 +400,7 @@ impl ZoneLifecycleWorld {
                     inputs: spend_inputs,
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
-                    public_amounts: client_public_amounts(proof_inputs.public_amounts),
+                    public_amounts: client_public_amounts(proof_inputs.public_amounts()?),
                     payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
                     p256_owner,
                     zone_program_id: Some(zone),
@@ -427,12 +428,13 @@ impl ZoneLifecycleWorld {
     fn p256_owner(&self, proof_inputs: &SppProofInputs, zone: Address) -> Result<P256Owner> {
         let signing_keypair = self.p256_signing_keypair(proof_inputs)?;
         let pubkey = signing_keypair.signing_pubkey().as_p256()?;
+        let tx_shape = proof_inputs.shape()?;
 
         let probe = ZoneTransferP256Prover {
             inputs: self.zone_spend_inputs(&proof_inputs.input_utxos)?,
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),
-            public_amounts: client_public_amounts(proof_inputs.public_amounts),
+            public_amounts: client_public_amounts(proof_inputs.public_amounts()?),
             payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
             p256_owner: P256Owner {
                 pubkey,
@@ -440,10 +442,7 @@ impl ZoneLifecycleWorld {
                 sig_s: [0u8; 32],
             },
             zone_program_id: Some(zone),
-            shape: Some(Shape::new(
-                proof_inputs.shape.n_inputs(),
-                proof_inputs.shape.n_outputs(),
-            )),
+            shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
         };
         let private_tx_hash = probe.build()?.private_tx_hash;
 
@@ -660,17 +659,15 @@ impl ZoneLifecycleWorld {
         // Assemble the instruction data with real nullifiers / root indices but a
         // zeroed proof, so verification is the only thing that fails.
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
+        let tx_shape = proof_inputs.shape()?;
         let prover = ZoneTransferProver {
             inputs: self.zone_spend_inputs(&proof_inputs.input_utxos)?,
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),
-            public_amounts: client_public_amounts(proof_inputs.public_amounts),
+            public_amounts: client_public_amounts(proof_inputs.public_amounts()?),
             payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
             zone_program_id: Some(zone),
-            shape: Some(Shape::new(
-                proof_inputs.shape.n_inputs(),
-                proof_inputs.shape.n_outputs(),
-            )),
+            shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
         };
         let result = prover.build()?;
         let data = assemble_ix_data(
@@ -733,7 +730,7 @@ fn assemble_ix_data(
     rail: Rail,
     proof: TransactProof,
 ) -> Result<TransactIxData> {
-    let n_inputs = proof_inputs.shape.n_inputs();
+    let n_inputs = proof_inputs.shape()?.n_inputs();
     if nullifiers.len() != n_inputs || root_indices.len() != n_inputs {
         return Err(anyhow!(
             "witness input count {} / {} does not match shape {n_inputs}",

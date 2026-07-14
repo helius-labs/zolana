@@ -9,21 +9,21 @@ use crate::{
         confidential_unified::{ConfidentialUnified, ConfidentialUnifiedEncode},
         UtxoSerialization,
     },
-    AssetRegistry, SOL_MINT,
+    AssetRegistry,
 };
 
-pub struct EncodedOutputs {
+pub struct EncodedTransactionData {
     pub salt: [u8; SALT_LEN],
     pub output_utxos: Vec<OutputUtxo>,
     pub outputs: Vec<TransactOutput>,
     pub resolved_owner_tags: Vec<[u8; 32]>,
 }
 
-pub fn encode_slots(
+pub fn encrypt_transaction_data(
     outputs: &[OutputUtxo],
     assets: &AssetRegistry,
     transaction_viewing_key: &ViewingKey,
-) -> Result<EncodedOutputs, TransactionError> {
+) -> Result<EncodedTransactionData, TransactionError> {
     let salt = random_salt();
     let mut output_utxos = Vec::with_capacity(outputs.len());
     let mut transact_outputs = Vec::with_capacity(outputs.len());
@@ -32,11 +32,7 @@ pub fn encode_slots(
         let address = output
             .owner_address
             .ok_or(TransactionError::MissingOutput)?;
-        let asset_id = if output.asset == SOL_MINT {
-            crate::SOL_ASSET_ID
-        } else {
-            assets.asset_id(&output.asset)?
-        };
+        let asset_id = assets.asset_id(&output.asset)?;
         let ciphertext = ConfidentialUnified::encode_plaintext(
             &TransferRecipientPlaintext {
                 asset_id,
@@ -61,7 +57,7 @@ pub fn encode_slots(
         resolved_owner_tags.push(ciphertext.view_tag);
         output_utxos.push(output.clone());
     }
-    Ok(EncodedOutputs {
+    Ok(EncodedTransactionData {
         salt,
         output_utxos,
         outputs: transact_outputs,

@@ -1,18 +1,18 @@
 use num_bigint::{BigInt, BigUint, Sign};
 use solana_address::Address;
 use zolana_keypair::{
-    hash::{hash_field, sha256},
-    SignatureType, ViewingKey, ViewingKeyTrait,
+    hash::{hash_field, sha256, sha256_be},
+    ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
 };
 
 use super::{
-    shape::Shape,
+    shape::{Shape, SPP_SUPPORTED_SHAPES},
     types::{no_address_hashes, private_tx_hash},
 };
 use crate::{
     error::TransactionError,
     instructions::types::{InputUtxoContext, SppProofInputUtxo},
-    ExternalData, OutputUtxo,
+    ExternalData, OutputUtxo, SOL_MINT,
 };
 
 pub const BN254_MODULUS_DEC: &str =
@@ -88,14 +88,83 @@ impl PublicAmounts {
 pub struct SppProofInputs {
     pub input_utxos: Vec<SppProofInputUtxo>,
     pub output_utxos: Vec<OutputUtxo>,
-    pub public_amounts: PublicAmounts,
     pub external_data: ExternalData,
     pub payer_pubkey_hash: [u8; 32],
-    pub shape: Shape,
     pub p256_signature: Option<[u8; 64]>,
 }
 
 impl SppProofInputs {
+    pub fn new(
+        input_utxos: Vec<SppProofInputUtxo>,
+        output_utxos: Vec<OutputUtxo>,
+        external_data: ExternalData,
+        payer: Address,
+    ) -> Self {
+        Self {
+            input_utxos,
+            output_utxos,
+            external_data,
+            payer_pubkey_hash: sha256_be(payer.as_array()),
+            p256_signature: None,
+        }
+    }
+
+    pub fn sign_p256<K: ShieldedKeypairTrait>(
+        &mut self,
+        keypair: &K,
+    ) -> Result<(), TransactionError> {
+        if keypair.curve()? != SignatureType::P256 {
+            return Err(TransactionError::SignerNotP256);
+        }
+        let message_hash = self.message_hash()?;
+        self.p256_signature = Some(keypair.sign(&message_hash));
+        Ok(())
+    }
+
+    pub fn shape(&self) -> Result<Shape, TransactionError> {
+        let n_in = self.input_utxos.len();
+        let n_out = self.output_utxos.len();
+        SPP_SUPPORTED_SHAPES
+            .into_iter()
+            .find(|shape| shape.n_inputs() == n_in && shape.n_outputs() == n_out)
+            .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
+    }
+
+    pub fn public_amounts(&self) -> Result<PublicAmounts, TransactionError> {
+        let sol = i128::from(self.external_data.public_sol_amount.unwrap_or(0));
+        let spl = i128::from(self.external_data.public_spl_amount.unwrap_or(0));
+        let asset = if spl != 0 {
+            asset_field(&self.public_spl_asset()?)?
+        } else {
+            [0u8; 32]
+        };
+        Ok(PublicAmounts {
+            sol: signed_to_field(sol),
+            spl: signed_to_field(spl),
+            asset,
+        })
+    }
+
+    fn public_spl_asset(&self) -> Result<Address, TransactionError> {
+        let mut found: Option<Address> = None;
+        let assets = self
+            .input_utxos
+            .iter()
+            .map(|spend| spend.utxo.asset)
+            .chain(self.output_utxos.iter().map(|output| output.asset));
+        for asset in assets {
+            if asset != SOL_MINT {
+                match found {
+                    Some(existing) if existing != asset => {
+                        return Err(TransactionError::MultiplePublicSplAssets)
+                    }
+                    _ => found = Some(asset),
+                }
+            }
+        }
+        found.ok_or(TransactionError::MissingPublicSplAsset)
+    }
+
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         self.input_utxos
             .iter()
@@ -113,7 +182,7 @@ impl SppProofInputs {
 
     pub fn message_hash(&self) -> Result<[u8; 32], TransactionError> {
         // Dummies contribute zero to match circuit private_tx hashing.
-        let mut input_hashes = Vec::with_capacity(self.shape.n_inputs());
+        let mut input_hashes = Vec::with_capacity(self.input_utxos.len());
         for spend in &self.input_utxos {
             if spend.is_dummy() {
                 input_hashes.push([0u8; 32]);
@@ -122,7 +191,7 @@ impl SppProofInputs {
             }
         }
 
-        let mut output_hashes = Vec::with_capacity(self.shape.n_outputs());
+        let mut output_hashes = Vec::with_capacity(self.output_utxos.len());
         for output in &self.output_utxos {
             if output.is_dummy() {
                 output_hashes.push([0u8; 32]);
@@ -135,7 +204,7 @@ impl SppProofInputs {
         let private_tx = private_tx_hash(
             &input_hashes,
             &output_hashes,
-            &no_address_hashes(self.shape.n_inputs()),
+            &no_address_hashes(self.input_utxos.len()),
             &external_data_hash,
         )?;
         Ok(sha256(&private_tx))

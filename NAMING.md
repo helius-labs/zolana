@@ -74,7 +74,7 @@ Canonical struct fields (`sdk-libs/transaction/src/utxo.rs`): `owner`,
 - The high-level padded-transfer builder is `Transfer` / `PreparedTransfer`,
   never `TxBuilder`; local bindings are `transfer`, not `tx`. Slot-based flows
   have no operation struct: they encode confidential output slots with
-  `encode_slots` (binding `encoded`; the `dyn EncodeOutputSlot` loop is only for
+  `encrypt_transaction_data` (binding `encoded`; the `dyn EncodeOutputSlot` loop is only for
   flows mixing in a `PrebuiltSlot`) and write the `SppProofInputs` struct
   literal; the result binding is `proof_inputs`. The first-nullifier accessor is
   `first_nullifier`.

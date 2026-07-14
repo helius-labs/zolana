@@ -356,12 +356,12 @@ fn collect_own_orders<I: Rpc>(wallet: &Wallet, indexer: &I) -> Result<Vec<OwnOrd
 mod tests {
     use solana_signature::Signature;
     use swap_prover::FILL_MODE_DERIVED;
-    use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, ShieldedKeypair};
+    use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
     use zolana_transaction::{
         instructions::{
             transact::{
-                encode_slots, get_transaction_viewing_key, ExternalData, OutputContext,
-                OutputSlot, OutputUtxo, PublicAmounts, Shape, SppProofInputs,
+                encrypt_transaction_data, get_transaction_viewing_key, ExternalData, OutputContext,
+                OutputSlot, OutputUtxo, SppProofInputs,
             },
             types::SppProofInputUtxo,
         },
@@ -479,8 +479,12 @@ mod tests {
         let transaction_viewing_key = get_transaction_viewing_key(&maker_keypair, &input_utxos)
             .expect("transaction viewing key");
 
-        let encoded = encode_slots(&[change, escrow_output], &registry, &transaction_viewing_key)
-            .expect("encode slots");
+        let encoded = encrypt_transaction_data(
+            &[change, escrow_output],
+            &registry,
+            &transaction_viewing_key,
+        )
+        .expect("encode slots");
 
         let external_data = ExternalData::new(
             *transaction_viewing_key.pubkey().as_bytes(),
@@ -489,15 +493,12 @@ mod tests {
             encoded.resolved_owner_tags,
             vec![marker_message],
         );
-        let spp_proof_inputs = SppProofInputs {
+        let spp_proof_inputs = SppProofInputs::new(
             input_utxos,
-            output_utxos: encoded.output_utxos,
-            public_amounts: PublicAmounts::ZERO,
+            encoded.output_utxos,
             external_data,
-            payer_pubkey_hash: sha256_be(Address::default().as_array()),
-            shape: Shape::IN2_OUT2,
-            p256_signature: None,
-        };
+            Address::default(),
+        );
 
         OrderFixture {
             tx: shielded_transaction(&spp_proof_inputs),

@@ -45,13 +45,13 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{hash::sha256_be, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encode_slots, get_transaction_viewing_key, spp_proof_inputs::BN254_MODULUS_DEC,
-            ExternalData, OutputUtxo, PublicAmounts, Shape, SppProofInputs,
+            encrypt_transaction_data, get_transaction_viewing_key,
+            spp_proof_inputs::BN254_MODULUS_DEC, ExternalData, OutputUtxo, SppProofInputs,
         },
         types::SppProofInputUtxo,
     },
@@ -477,10 +477,10 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     .message()
     .expect("marker message");
 
-    let transaction_viewing_key = get_transaction_viewing_key(&maker, &input_utxos)
-        .expect("create transaction viewing key");
+    let transaction_viewing_key =
+        get_transaction_viewing_key(&maker, &input_utxos).expect("create transaction viewing key");
 
-    let encoded = encode_slots(&[change, escrow], &assets, &transaction_viewing_key)
+    let encoded = encrypt_transaction_data(&[change, escrow], &assets, &transaction_viewing_key)
         .expect("encode create slots");
 
     let external_data = ExternalData::new(
@@ -490,15 +490,12 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         encoded.resolved_owner_tags,
         vec![marker_message],
     );
-    let spp_proof_inputs = SppProofInputs {
+    let spp_proof_inputs = SppProofInputs::new(
         input_utxos,
-        output_utxos: encoded.output_utxos,
-        public_amounts: PublicAmounts::ZERO,
+        encoded.output_utxos,
         external_data,
-        payer_pubkey_hash: sha256_be(payer_address.as_array()),
-        shape: Shape::IN2_OUT2,
-        p256_signature: None,
-    };
+        payer_address,
+    );
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -640,10 +637,10 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
     let input_utxos = vec![escrow_input, taker_spend];
-    let transaction_viewing_key = get_transaction_viewing_key(&taker, &input_utxos)
-        .expect("fill transaction viewing key");
+    let transaction_viewing_key =
+        get_transaction_viewing_key(&taker, &input_utxos).expect("fill transaction viewing key");
 
-    let encoded = encode_slots(
+    let encoded = encrypt_transaction_data(
         &[source_output, destination_output],
         &assets,
         &transaction_viewing_key,
@@ -658,15 +655,12 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         vec![],
     );
     external_data.expiry_unix_ts = escrow.terms.expiry;
-    let spp_proof_inputs = SppProofInputs {
+    let spp_proof_inputs = SppProofInputs::new(
         input_utxos,
-        output_utxos: encoded.output_utxos,
-        public_amounts: PublicAmounts::ZERO,
+        encoded.output_utxos,
         external_data,
-        payer_pubkey_hash: sha256_be(payer_address.as_array()),
-        shape: Shape::IN2_OUT2,
-        p256_signature: None,
-    };
+        payer_address,
+    );
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -799,10 +793,10 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         .confidential_view_tag()
         .expect("maker view tag");
     let input_utxos = vec![escrow_input, taker_spend];
-    let transaction_viewing_key = get_transaction_viewing_key(&taker, &input_utxos)
-        .expect("fill transaction viewing key");
+    let transaction_viewing_key =
+        get_transaction_viewing_key(&taker, &input_utxos).expect("fill transaction viewing key");
 
-    let mut encoded = encode_slots(&[source_output], &assets, &transaction_viewing_key)
+    let mut encoded = encrypt_transaction_data(&[source_output], &assets, &transaction_viewing_key)
         .expect("encode fill source slot");
     let destination_utxo_hash = destination_output.hash().expect("fill output hash");
     encoded.outputs.push(TransactOutput {
@@ -821,15 +815,12 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         vec![],
     );
     external_data.expiry_unix_ts = escrow.terms.expiry;
-    let spp_proof_inputs = SppProofInputs {
+    let spp_proof_inputs = SppProofInputs::new(
         input_utxos,
-        output_utxos: encoded.output_utxos,
-        public_amounts: PublicAmounts::ZERO,
+        encoded.output_utxos,
         external_data,
-        payer_pubkey_hash: sha256_be(payer_address.as_array()),
-        shape: Shape::IN2_OUT2,
-        p256_signature: None,
-    };
+        payer_address,
+    );
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -949,10 +940,10 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
     let input_utxos = vec![escrow_input];
-    let transaction_viewing_key = get_transaction_viewing_key(&maker, &input_utxos)
-        .expect("cancel transaction viewing key");
+    let transaction_viewing_key =
+        get_transaction_viewing_key(&maker, &input_utxos).expect("cancel transaction viewing key");
 
-    let encoded = encode_slots(&[source_output], &assets, &transaction_viewing_key)
+    let encoded = encrypt_transaction_data(&[source_output], &assets, &transaction_viewing_key)
         .expect("encode cancel slots");
 
     let mut external_data = ExternalData::new(
@@ -963,15 +954,12 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         vec![],
     );
     external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
-    let spp_proof_inputs = SppProofInputs {
+    let spp_proof_inputs = SppProofInputs::new(
         input_utxos,
-        output_utxos: encoded.output_utxos,
-        public_amounts: PublicAmounts::ZERO,
+        encoded.output_utxos,
         external_data,
-        payer_pubkey_hash: sha256_be(payer_address.as_array()),
-        shape: Shape::IN1_OUT1,
-        p256_signature: None,
-    };
+        payer_address,
+    );
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()

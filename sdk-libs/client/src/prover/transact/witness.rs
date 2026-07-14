@@ -135,13 +135,13 @@ pub fn into_prover(
     } else {
         None
     };
+    let shape = client_shape(proof_inputs.shape()?);
+    let public_amounts = client_public_amounts(proof_inputs.public_amounts()?);
     let SppProofInputs {
         input_utxos: inputs,
         output_utxos: outputs,
-        public_amounts,
         external_data,
         payer_pubkey_hash,
-        shape,
         ..
     } = proof_inputs;
 
@@ -172,9 +172,6 @@ pub fn into_prover(
             proof,
         });
     }
-
-    let shape = client_shape(shape);
-    let public_amounts = client_public_amounts(public_amounts);
 
     let circuit = if requires_p256 {
         let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
@@ -211,7 +208,7 @@ pub fn assemble(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
 ) -> Result<AssembledTransfer, ClientError> {
-    let shape = proof_inputs.shape;
+    let shape = proof_inputs.shape()?;
 
     // Signer indices for the real inputs only; dummies (zero owner) inherit the
     // first real input's signer below. A zero owner reads as P256, so it must

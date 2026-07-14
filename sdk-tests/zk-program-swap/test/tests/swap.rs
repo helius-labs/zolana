@@ -16,12 +16,12 @@ use swap_sdk::{
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};
-use zolana_keypair::{hash::sha256_be, random_blinding};
+use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::{
         transact::{
-            encode_slots, get_transaction_viewing_key, ExternalData, OutputUtxo,
-            PublicAmounts, Shape, SppProofInputs,
+            encrypt_transaction_data, get_transaction_viewing_key, ExternalData, OutputUtxo,
+            SppProofInputs,
         },
         types::SppProofInputUtxo,
     },
@@ -119,38 +119,35 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("escrow output hash: {e:?}"))?;
 
         // 4. Encrypt output utxos.
+
+        let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &inputs)
+            .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
+
+        let encoded_transaction_data = encrypt_transaction_data(
+            &[change, escrow_output_utxo],
+            &maker.registry,
+            &transaction_viewing_key,
+        )?;
+
         let marker_message = OrderMarker {
             escrow_utxo_hash,
             maker_pubkey: maker_address.solana_address()?,
             taker_address,
         }
         .message()?;
-
-        let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &inputs)
-            .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-
-        let encoded = encode_slots(
-            &[change, escrow_output_utxo],
-            &maker.registry,
-            &transaction_viewing_key,
-        )?;
-
         let external_data = ExternalData::new(
             *transaction_viewing_key.pubkey().as_bytes(),
-            encoded.salt,
-            encoded.outputs,
-            encoded.resolved_owner_tags,
+            encoded_transaction_data.salt,
+            encoded_transaction_data.outputs,
+            encoded_transaction_data.resolved_owner_tags,
             vec![marker_message],
         );
-        let spp_proof_inputs = SppProofInputs {
-            input_utxos: inputs,
-            output_utxos: encoded.output_utxos,
-            public_amounts: PublicAmounts::ZERO,
+        let spp_proof_inputs = SppProofInputs::new(
+            inputs,
+            encoded_transaction_data.output_utxos,
             external_data,
-            payer_pubkey_hash: sha256_be(maker_address.solana_address()?.as_array()),
-            shape: Shape::IN2_OUT2,
-            p256_signature: None,
-        };
+            maker_address.solana_address()?,
+        );
 
         let external_data_hash = spp_proof_inputs
             .external_data
@@ -232,7 +229,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let transaction_viewing_key = get_transaction_viewing_key(&taker.keypair, &inputs)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
 
-        let encoded = encode_slots(
+        let encoded = encrypt_transaction_data(
             &[source_output, destination_output],
             &taker.registry,
             &transaction_viewing_key,
@@ -246,15 +243,12 @@ fn create_and_fill_swap_inline() -> Result<()> {
             vec![],
         );
         external_data.expiry_unix_ts = terms.expiry;
-        let fill_spp_proof_inputs = SppProofInputs {
-            input_utxos: inputs,
-            output_utxos: encoded.output_utxos,
-            public_amounts: PublicAmounts::ZERO,
+        let fill_spp_proof_inputs = SppProofInputs::new(
+            inputs,
+            encoded.output_utxos,
             external_data,
-            payer_pubkey_hash: sha256_be(taker_address.solana_address()?.as_array()),
-            shape: Shape::IN2_OUT2,
-            p256_signature: None,
-        };
+            taker_address.solana_address()?,
+        );
 
         let fill_external_data_hash = fill_spp_proof_inputs
             .external_data

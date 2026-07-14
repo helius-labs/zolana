@@ -79,6 +79,12 @@ pub enum TransactionError {
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
 
+    #[error("public spl amount set but no spl asset among the transaction utxos")]
+    MissingPublicSplAsset,
+
+    #[error("p256 signing requires a p256 keypair")]
+    SignerNotP256,
+
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 

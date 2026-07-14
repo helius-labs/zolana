@@ -137,12 +137,12 @@ impl CreateSwap {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, shielded::ShieldedKeypair};
+    use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedKeypair};
     use zolana_transaction::{
         instructions::{
             transact::{
-                encode_slots, get_transaction_viewing_key, no_address_hashes, private_tx_hash,
-                ExternalData, OutputUtxo, PublicAmounts, Shape, SppProofInputs,
+                encrypt_transaction_data, get_transaction_viewing_key, no_address_hashes,
+                private_tx_hash, ExternalData, OutputUtxo, Shape, SppProofInputs,
             },
             types::SppProofInputUtxo,
         },
@@ -213,8 +213,9 @@ mod tests {
         let transaction_viewing_key = get_transaction_viewing_key(&owner_keypair, &input_utxos)
             .expect("transaction viewing key");
 
-        let encoded = encode_slots(&[change, escrow], &assets, &transaction_viewing_key)
-            .expect("encode slots");
+        let encoded =
+            encrypt_transaction_data(&[change, escrow], &assets, &transaction_viewing_key)
+                .expect("encode slots");
 
         let external_data = ExternalData::new(
             *transaction_viewing_key.pubkey().as_bytes(),
@@ -223,17 +224,14 @@ mod tests {
             encoded.resolved_owner_tags,
             vec![marker_message],
         );
-        let spp_proof_inputs = SppProofInputs {
+        let spp_proof_inputs = SppProofInputs::new(
             input_utxos,
-            output_utxos: encoded.output_utxos,
-            public_amounts: PublicAmounts::ZERO,
+            encoded.output_utxos,
             external_data,
-            payer_pubkey_hash: sha256_be(Address::default().as_array()),
-            shape: Shape::IN2_OUT2,
-            p256_signature: None,
-        };
+            Address::default(),
+        );
 
-        assert_eq!(spp_proof_inputs.shape, Shape::IN2_OUT2);
+        assert_eq!(spp_proof_inputs.shape().expect("shape"), Shape::IN2_OUT2);
         assert_eq!(spp_proof_inputs.output_utxos.len(), 2);
 
         let change = spp_proof_inputs
@@ -336,8 +334,9 @@ mod tests {
         let transaction_viewing_key = get_transaction_viewing_key(&owner_keypair, &input_utxos)
             .expect("transaction viewing key");
 
-        let encoded = encode_slots(&[change, escrow], &assets, &transaction_viewing_key)
-            .expect("encode slots");
+        let encoded =
+            encrypt_transaction_data(&[change, escrow], &assets, &transaction_viewing_key)
+                .expect("encode slots");
 
         let external_data = ExternalData::new(
             *transaction_viewing_key.pubkey().as_bytes(),
@@ -346,15 +345,12 @@ mod tests {
             encoded.resolved_owner_tags,
             vec![marker_message],
         );
-        let spp_proof_inputs = SppProofInputs {
+        let spp_proof_inputs = SppProofInputs::new(
             input_utxos,
-            output_utxos: encoded.output_utxos,
-            public_amounts: PublicAmounts::ZERO,
+            encoded.output_utxos,
             external_data,
-            payer_pubkey_hash: sha256_be(Address::default().as_array()),
-            shape: Shape::IN2_OUT2,
-            p256_signature: None,
-        };
+            Address::default(),
+        );
 
         let change = spp_proof_inputs
             .output_utxos

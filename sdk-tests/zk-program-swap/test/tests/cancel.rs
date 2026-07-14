@@ -16,12 +16,12 @@ use swap_sdk::{
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};
-use zolana_keypair::{hash::sha256_be, random_blinding};
+use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::{
         transact::{
-            encode_slots, get_transaction_viewing_key, ExternalData, OutputUtxo,
-            PublicAmounts, Shape, SppProofInputs,
+            encrypt_transaction_data, get_transaction_viewing_key, ExternalData, OutputUtxo,
+            SppProofInputs,
         },
         types::SppProofInputUtxo,
     },
@@ -113,7 +113,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &input_utxos)
             .map_err(|e| anyhow!("create transaction viewing key: {e:?}"))?;
 
-        let encoded = encode_slots(
+        let encoded = encrypt_transaction_data(
             &[change, escrow_output_utxo],
             &maker.registry,
             &transaction_viewing_key,
@@ -127,15 +127,12 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             encoded.resolved_owner_tags,
             vec![marker_message],
         );
-        let spp_proof_inputs = SppProofInputs {
+        let spp_proof_inputs = SppProofInputs::new(
             input_utxos,
-            output_utxos: encoded.output_utxos,
-            public_amounts: PublicAmounts::ZERO,
+            encoded.output_utxos,
             external_data,
-            payer_pubkey_hash: sha256_be(maker_address.solana_address()?.as_array()),
-            shape: Shape::IN2_OUT2,
-            p256_signature: None,
-        };
+            maker_address.solana_address()?,
+        );
 
         let spp_proof = indexer
             .prove_transact(tree, spp_proof_inputs.clone())
@@ -212,8 +209,9 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &input_utxos)
             .map_err(|e| anyhow!("cancel transaction viewing key: {e:?}"))?;
 
-        let encoded = encode_slots(&[source_output], &maker.registry, &transaction_viewing_key)
-            .map_err(|e| anyhow!("encode cancel slots: {e:?}"))?;
+        let encoded =
+            encrypt_transaction_data(&[source_output], &maker.registry, &transaction_viewing_key)
+                .map_err(|e| anyhow!("encode cancel slots: {e:?}"))?;
 
         let mut external_data = ExternalData::new(
             *transaction_viewing_key.pubkey().as_bytes(),
@@ -223,15 +221,12 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             vec![],
         );
         external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
-        let cancel_spp_proof_inputs = SppProofInputs {
+        let cancel_spp_proof_inputs = SppProofInputs::new(
             input_utxos,
-            output_utxos: encoded.output_utxos,
-            public_amounts: PublicAmounts::ZERO,
+            encoded.output_utxos,
             external_data,
-            payer_pubkey_hash: sha256_be(maker_address.solana_address()?.as_array()),
-            shape: Shape::IN1_OUT1,
-            p256_signature: None,
-        };
+            maker_address.solana_address()?,
+        );
 
         let cancel_external_data_hash = cancel_spp_proof_inputs
             .external_data

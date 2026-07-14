@@ -16,7 +16,7 @@ pub mod types;
 
 pub use external_data::ExternalData;
 pub use shape::{Shape, SPP_SUPPORTED_SHAPES};
-pub use slots::{encode_slots, EncodedOutputs};
+pub use slots::{encrypt_transaction_data, EncodedTransactionData};
 pub use spp_proof_inputs::{
     first_nullifier, get_transaction_viewing_key, inputs_require_p256, signed_to_field,
     PublicAmounts, SppProofInputs,

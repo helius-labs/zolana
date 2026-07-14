@@ -11,10 +11,7 @@ use zolana_keypair::{
 
 use super::{
     shape::Shape,
-    spp_proof_inputs::{
-        asset_field, first_nullifier, inputs_require_p256, signed_to_field, PublicAmounts,
-        SppProofInputs,
-    },
+    spp_proof_inputs::{first_nullifier, inputs_require_p256, SppProofInputs},
     ExternalData, OutputUtxo,
 };
 use crate::{
@@ -53,7 +50,6 @@ pub struct PreparedTransfer {
     pub sender_plaintext: TransferSenderPlaintext,
     pub recipients: Vec<PreparedRecipient>,
     pub first_nullifier: [u8; 32],
-    pub public_amounts: PublicAmounts,
     pub shape: Shape,
     pub max_recipients: usize,
     pub payer_pubkey_hash: [u8; 32],
@@ -204,8 +200,7 @@ impl Transfer {
     ) -> Result<SppProofInputs, TransactionError> {
         let mut signed = self.assemble(keypair, assets)?;
         if keypair.curve()? == SignatureType::P256 {
-            let message_hash = signed.message_hash()?;
-            signed.p256_signature = Some(keypair.sign(&message_hash));
+            signed.sign_p256(keypair)?;
         }
         Ok(signed)
     }
@@ -348,14 +343,6 @@ impl Transfer {
 
         let first_nullifier = first_nullifier(&self.inputs)?;
         let (user_sol_account, user_spl_token, spl_token_interface) = self.external_accounts();
-        let public_amounts = PublicAmounts {
-            sol: signed_to_field(public_sol),
-            spl: signed_to_field(public_spl),
-            asset: match (public_spl != 0, spl_asset) {
-                (true, Some(asset)) => asset_field(&asset)?,
-                _ => [0u8; 32],
-            },
-        };
 
         Ok(PreparedTransfer {
             inputs: self.inputs,
@@ -363,7 +350,6 @@ impl Transfer {
             sender_plaintext,
             recipients,
             first_nullifier,
-            public_amounts,
             shape,
             max_recipients,
             payer_pubkey_hash: self.payer_pubkey_hash,
@@ -473,7 +459,6 @@ impl PreparedTransfer {
             mut inputs,
             mut outputs,
             sender_plaintext,
-            public_amounts,
             shape,
             payer_pubkey_hash,
             public_sol_amount,
@@ -583,10 +568,8 @@ impl PreparedTransfer {
         Ok(SppProofInputs {
             input_utxos: inputs,
             output_utxos: outputs,
-            public_amounts,
             external_data,
             payer_pubkey_hash,
-            shape,
             p256_signature: None,
         })
     }
