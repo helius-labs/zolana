@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use light_program_profiler::profile;
 use pinocchio::{AccountView, ProgramResult};
+use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
@@ -15,11 +16,17 @@ pub struct MarkerData {
     pub maker_pubkey: [u8; 32],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateProof {
     pub proof_a: [u8; 32],
     pub proof_b: [u8; 64],
     pub proof_c: [u8; 32],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct CreateSwapIxData {
+    pub proof: CreateProof,
+    pub transact: TransactIxData,
 }
 
 const ESCROW_OUTPUT_INDEX: usize = 1;
@@ -30,11 +37,10 @@ pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> Program
     let mut iter = AccountIterator::new(accounts);
     let maker_pubkey = *iter.next_signer_mut("payer")?.address().as_array();
 
-    let mut cursor = data;
-    let proof =
-        CreateProof::deserialize(&mut cursor).map_err(|_| SwapError::InvalidInstructionData)?;
-    let mut transact =
-        TransactIxData::deserialize(cursor).map_err(|_| SwapError::InvalidInstructionData)?;
+    let CreateSwapIxData {
+        proof,
+        mut transact,
+    } = wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;
 
     verify_create_zk_proof(&proof, transact.private_tx_hash)?;
 

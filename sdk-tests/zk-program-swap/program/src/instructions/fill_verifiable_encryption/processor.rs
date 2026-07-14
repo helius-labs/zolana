@@ -1,9 +1,9 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use light_program_profiler::profile;
 use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
+use wincode::{io::Cursor, SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::instruction_data::transact::TransactIxDataRef;
 
@@ -24,7 +24,7 @@ pub(crate) fn check_within_window(now: i64, expiry_unix_ts: u64) -> ProgramResul
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct FillVerifiableEncryptionProof {
     pub proof_a: [u8; 32],
     pub proof_b: [u8; 64],
@@ -42,10 +42,12 @@ pub fn process_fill_verifiable_encryption(
     let mut iter = AccountIterator::new(accounts);
     let _payer = iter.next_signer_mut("payer")?;
 
-    let mut cursor = data;
-    let proof = FillVerifiableEncryptionProof::deserialize(&mut cursor)
-        .map_err(|_| SwapError::InvalidInstructionData)?;
-    let transact_bytes = cursor;
+    let mut cursor = Cursor::new(data);
+    let proof: FillVerifiableEncryptionProof =
+        wincode::deserialize_from(&mut cursor).map_err(|_| SwapError::InvalidInstructionData)?;
+    let transact_bytes = data
+        .get(cursor.position()..)
+        .ok_or(SwapError::InvalidInstructionData)?;
     let transact = TransactIxDataRef::from_bytes(transact_bytes)
         .map_err(|_| SwapError::InvalidInstructionData)?;
 

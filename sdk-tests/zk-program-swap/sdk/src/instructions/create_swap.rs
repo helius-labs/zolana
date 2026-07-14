@@ -16,27 +16,8 @@ use zolana_transaction::{
 use crate::{
     err, escrow_authority_pda,
     order::{BlindingField, DataHash, OrderUtxo},
-    program_id_pubkey, spp_program_meta, tag, CreateProof, MarkerData,
+    program_id_pubkey, spp_program_meta, tag, CreateProof, CreateSwapIxData, MarkerData,
 };
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CreateSwapIxData {
-    pub proof: CreateProof,
-    pub transact: TransactIxData,
-}
-// TODO: check why we need manual serialization at all.
-impl CreateSwapIxData {
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut data = borsh::to_vec(&self.proof).expect("CreateProof serialization is infallible");
-        data.extend_from_slice(
-            &self
-                .transact
-                .serialize()
-                .expect("transact serialization is infallible"),
-        );
-        data
-    }
-}
 
 pub struct SppTxHashes {
     pub source_input_hash: [u8; 32],
@@ -144,11 +125,11 @@ impl CreateSwap {
             marker.data = Vec::new();
         }
 
-        let data = CreateSwapIxData {
+        let data = wincode::serialize(&CreateSwapIxData {
             proof: create_swap_proof,
             transact: spp_proof,
-        }
-        .serialize();
+        })
+        .map_err(err)?;
 
         let accounts = vec![
             AccountMeta::new(payer, true),

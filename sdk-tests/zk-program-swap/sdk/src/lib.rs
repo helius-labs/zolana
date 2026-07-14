@@ -8,7 +8,7 @@ use solana_pubkey::Pubkey;
 pub use swap_program::{
     instructions::{
         cancel::CancelProof,
-        create_swap::{CreateProof, MarkerData},
+        create_swap::{CreateProof, CreateSwapIxData, MarkerData},
         fill::FillProof,
         fill_verifiable_encryption::FillVerifiableEncryptionProof,
     },

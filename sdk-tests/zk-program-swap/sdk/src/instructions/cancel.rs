@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::CancelProofInputs;
+use wincode::SchemaWrite;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::instructions::transact::OutputUtxo;
@@ -12,7 +13,7 @@ use crate::{
     program_id_pubkey, spp_program_meta, tag, CancelProof,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, SchemaWrite)]
 pub struct CancelIxData {
     pub proof: CancelProof,
     /// The committed order `expiry` the cancel proof reveals as a public input.
@@ -22,22 +23,6 @@ pub struct CancelIxData {
     /// past. The proof binds `order_expiry` to the escrow's committed terms.
     pub order_expiry: u64,
     pub transact: TransactIxData,
-}
-
-impl CancelIxData {
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut data = borsh::to_vec(&self.proof).expect("CancelProof serialization is infallible");
-        data.extend_from_slice(
-            &borsh::to_vec(&self.order_expiry).expect("u64 serialization is infallible"),
-        );
-        data.extend_from_slice(
-            &self
-                .transact
-                .serialize()
-                .expect("transact serialization is infallible"),
-        );
-        data
-    }
 }
 
 pub struct CancelProofInputParams {
@@ -111,12 +96,12 @@ impl Cancel {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
 
-        let data = CancelIxData {
+        let data = wincode::serialize(&CancelIxData {
             proof: cancel_proof,
             order_expiry,
             transact: spp_proof,
-        }
-        .serialize();
+        })
+        .map_err(err)?;
 
         // The maker is a dedicated readonly signer after the fee payer; the swap
         // program reads its pubkey to bind the cancel proof to the escrow's maker.

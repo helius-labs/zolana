@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::FillProofInputs;
+use wincode::SchemaWrite;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_transaction::instructions::transact::OutputUtxo;
 
@@ -11,23 +12,10 @@ use crate::{
     program_id_pubkey, spp_program_meta, tag, FillProof,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, SchemaWrite)]
 pub struct FillIxData {
     pub proof: FillProof,
     pub transact: TransactIxData,
-}
-
-impl FillIxData {
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut data = borsh::to_vec(&self.proof).expect("FillProof serialization is infallible");
-        data.extend_from_slice(
-            &self
-                .transact
-                .serialize()
-                .expect("transact serialization is infallible"),
-        );
-        data
-    }
 }
 
 pub struct FillProofInputParams {
@@ -108,11 +96,11 @@ impl Fill {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
 
-        let data = FillIxData {
+        let data = wincode::serialize(&FillIxData {
             proof: fill_proof,
             transact: spp_proof,
-        }
-        .serialize();
+        })
+        .map_err(err)?;
 
         let accounts = vec![
             AccountMeta::new(payer, true),

@@ -1,9 +1,9 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use light_program_profiler::profile;
 use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
+use wincode::{io::Cursor, SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::instruction_data::transact::TransactIxDataRef;
 
@@ -24,7 +24,7 @@ pub(crate) fn check_after_window(now: i64, expiry_unix_ts: u64) -> ProgramResult
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CancelProof {
     pub proof_a: [u8; 32],
     pub proof_b: [u8; 64],
@@ -41,12 +41,14 @@ pub fn process_cancel(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
     // cancel and the maker knows the refund blinding it chose.
     let maker_owner_pk_field = hash_field(iter.next_signer("maker")?.address().as_array())?;
 
-    let mut cursor = data;
-    let proof =
-        CancelProof::deserialize(&mut cursor).map_err(|_| SwapError::InvalidInstructionData)?;
-    let order_expiry =
-        u64::deserialize(&mut cursor).map_err(|_| SwapError::InvalidInstructionData)?;
-    let transact_bytes = cursor;
+    let mut cursor = Cursor::new(data);
+    let proof: CancelProof =
+        wincode::deserialize_from(&mut cursor).map_err(|_| SwapError::InvalidInstructionData)?;
+    let order_expiry: u64 =
+        wincode::deserialize_from(&mut cursor).map_err(|_| SwapError::InvalidInstructionData)?;
+    let transact_bytes = data
+        .get(cursor.position()..)
+        .ok_or(SwapError::InvalidInstructionData)?;
     let transact = TransactIxDataRef::from_bytes(transact_bytes)
         .map_err(|_| SwapError::InvalidInstructionData)?;
 

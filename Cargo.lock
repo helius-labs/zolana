@@ -8207,6 +8207,7 @@ dependencies = [
  "solana-program-error 3.0.1",
  "swap-prover",
  "thiserror 2.0.18",
+ "wincode",
  "zolana-account-checks",
  "zolana-hasher",
  "zolana-interface",
