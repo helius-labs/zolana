@@ -25,7 +25,7 @@ pub(crate) struct OrderFixture {
     pub(crate) tx: ShieldedTransaction,
     pub(crate) wallet: Wallet,
     pub(crate) maker_wallet: Wallet,
-    pub(crate) escrow: OrderUtxo,
+    pub(crate) order_utxo: OrderUtxo,
     pub(crate) maker_address: ShieldedAddress,
     pub(crate) maker_pubkey: Pubkey,
 }
@@ -84,16 +84,16 @@ pub(crate) fn order_fixture() -> OrderFixture {
         expiry: 2_000_000_000,
         take_mode: TAKE_MODE_DERIVED,
     };
-    let escrow = OrderUtxo {
+    let order_utxo = OrderUtxo {
         terms,
         blinding: [11u8; BLINDING_LEN],
         source_mint,
         source_amount: 400_000,
         destination_asset_id: SOL_ASSET_ID,
     };
-    let escrow_output = escrow
+    let order_output_utxo = order_utxo
         .output_utxo(taker_address.viewing_pubkey)
-        .expect("escrow output");
+        .expect("order output");
     let maker_pubkey = Pubkey::new_from_array(
         *maker_address
             .solana_address()
@@ -112,13 +112,13 @@ pub(crate) fn order_fixture() -> OrderFixture {
     let spend = SppProofInputUtxo::new(input_utxo, &maker_keypair);
     let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
 
-    let escrow_utxo_hash = escrow_output.hash().expect("escrow output hash");
+    let order_utxo_hash = order_output_utxo.hash().expect("order output hash");
     let change_amount =
-        u64::try_from(input_sum(&input_utxos, &source_mint) - i128::from(escrow_output.amount))
+        u64::try_from(input_sum(&input_utxos, &source_mint) - i128::from(order_output_utxo.amount))
             .expect("change amount");
     let change = OutputUtxo::new(source_mint, change_amount, maker_address).expect("change output");
     let marker_message = OrderMarker {
-        escrow_utxo_hash,
+        order_utxo_hash,
         maker_pubkey,
         taker_address,
     }
@@ -128,7 +128,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
         .expect("transaction viewing key");
 
     let encoded = encrypt_transaction_data(
-        &[change, escrow_output],
+        &[change, order_output_utxo],
         &registry,
         &transaction_viewing_key,
     )
@@ -152,7 +152,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
         tx: shielded_transaction(&spp_proof_inputs),
         wallet: Wallet::new(taker_keypair, registry.clone()).expect("taker wallet"),
         maker_wallet: Wallet::new(maker_keypair, registry).expect("maker wallet"),
-        escrow,
+        order_utxo,
         maker_address,
         maker_pubkey,
     }

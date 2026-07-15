@@ -10,12 +10,12 @@ pub enum SwapError {
     NotYetExpired = 8006,
     #[error("proof verification failed")]
     ProofVerificationFailed = 8007,
-    #[error("derived program address does not match")]
-    InvalidPda = 8010,
     #[error("instruction data is invalid")]
     InvalidInstructionData = 8011,
-    #[error("escrow-authority account is missing from the transact account list")]
-    MissingEscrowAuthority = 8013,
+    #[error("trailing account is not the shielded-pool program")]
+    InvalidShieldedPoolProgram = 8012,
+    #[error("order-authority account is missing from the transact account list")]
+    MissingOrderAuthority = 8013,
     #[error("make transact must carry exactly one marker message")]
     InvalidMarkerMessage = 8014,
     #[error("make marker message data must be empty")]

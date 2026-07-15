@@ -26,18 +26,18 @@ impl SppTxHashes {
 }
 
 pub struct MakeProofInputParams {
-    pub escrow: OrderUtxo,
+    pub order_utxo: OrderUtxo,
     pub change: OutputUtxo,
     pub spp_tx_hashes: SppTxHashes,
 }
 
 impl MakeProofInputParams {
     pub fn to_proof_inputs(&self) -> Result<MakeProofInputs> {
-        let terms = &self.escrow.terms;
+        let terms = &self.order_utxo.terms;
         if self.change.owner_address != Some(terms.destination) {
             bail!("change owner does not match order destination");
         }
-        if self.change.asset != self.escrow.source_mint {
+        if self.change.asset != self.order_utxo.source_mint {
             bail!("change asset does not match order source mint");
         }
         if self.change.data_hash.is_some()
@@ -47,11 +47,11 @@ impl MakeProofInputParams {
             bail!("change output must not carry data or zone commitments");
         }
         let order = OrderTermsProofInput::try_from(terms)?;
-        let escrow = ProofInputUtxo::try_from(&self.escrow.to_input_utxo()?).map_err(err)?;
+        let order_utxo = ProofInputUtxo::try_from(&self.order_utxo.to_input_utxo()?).map_err(err)?;
         let change = ProofInputUtxo::try_from(&self.change).map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
             &[self.spp_tx_hashes.source_input_hash, [0u8; 32]],
-            &[change.hash().map_err(err)?, escrow.hash().map_err(err)?],
+            &[change.hash().map_err(err)?, order_utxo.hash().map_err(err)?],
             &self.spp_tx_hashes.external_data_hash,
         )
         .hash()
@@ -59,7 +59,7 @@ impl MakeProofInputParams {
         Ok(MakeProofInputs {
             private_tx_hash,
             order,
-            escrow,
+            order_utxo,
             change,
             source_input_hash: self.spp_tx_hashes.source_input_hash,
             external_data_hash: self.spp_tx_hashes.external_data_hash,
@@ -77,7 +77,7 @@ mod tests {
     use super::*;
     use crate::state::{OrderTerms, OrderUtxo};
 
-    // A make funded by an input whose value equals the escrow amount produces a
+    // A make funded by an input whose value equals the order amount produces a
     // zero-value change output. That output is non-dummy (owner = order
     // destination), so SPP folds its real utxo hash into private_tx_hash. The
     // make proof must fold the same real hash -- never a zeroed hash keyed on
@@ -90,7 +90,7 @@ mod tests {
             .shielded_address()
             .expect("destination address");
 
-        let escrow = OrderUtxo {
+        let order_utxo = OrderUtxo {
             terms: OrderTerms {
                 destination_mint: SOL_MINT,
                 destination_amount: 250_000,
@@ -113,14 +113,14 @@ mod tests {
         let source_input_hash = spp_tx_hashes.source_input_hash;
         let external_data_hash = spp_tx_hashes.external_data_hash;
         let change_hash = change.hash().expect("change hash");
-        let escrow_input_hash = escrow
+        let order_utxo_hash = order_utxo
             .to_input_utxo()
-            .expect("escrow input")
+            .expect("order input")
             .hash()
-            .expect("escrow hash");
+            .expect("order hash");
 
         let inputs = MakeProofInputParams {
-            escrow,
+            order_utxo,
             change,
             spp_tx_hashes,
         }
@@ -131,7 +131,7 @@ mod tests {
         // real hash; the make proof's public input must equal that.
         let expected = PrivateTxHash::new(
             &[source_input_hash, [0u8; 32]],
-            &[change_hash, escrow_input_hash],
+            &[change_hash, order_utxo_hash],
             &external_data_hash,
         )
         .hash()

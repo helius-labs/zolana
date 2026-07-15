@@ -17,7 +17,7 @@ use zolana_keypair::{hash::hash_field, ViewingKey};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 mod shared;
-use shared::escrow_owner_hash;
+use shared::order_utxo_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/take")
@@ -61,13 +61,13 @@ fn build_inputs(destination_output_blinding: Blinding) -> TakeProofInputs {
     let source_mint = Address::new_from_array([1u8; 32]);
     let destination_mint = Address::new_from_array([2u8; 32]);
     let taker_owner_hash = fe(77);
-    let escrow = ProofInputUtxo::new(
-        escrow_owner_hash(&fe(42)),
+    let order_utxo = ProofInputUtxo::new(
+        order_utxo_owner_hash(&fe(42)),
         &source_mint,
         1_000,
         &blinding(7),
     )
-    .expect("escrow utxo")
+    .expect("order utxo")
     .with_data_hash(order.data_hash().expect("order data hash"));
     let taker_in = ProofInputUtxo::new(
         taker_owner_hash,
@@ -88,7 +88,7 @@ fn build_inputs(destination_output_blinding: Blinding) -> TakeProofInputs {
     let external_data_hash = fe(8);
     let private_tx_hash = PrivateTxHash::new(
         &[
-            escrow.hash().expect("escrow hash"),
+            order_utxo.hash().expect("order utxo hash"),
             taker_in.hash().expect("taker input hash"),
         ],
         &[
@@ -109,7 +109,7 @@ fn build_inputs(destination_output_blinding: Blinding) -> TakeProofInputs {
         public_input_hash,
         private_tx_hash,
         order,
-        escrow,
+        order_utxo,
         taker_in,
         source_output,
         destination_output,
@@ -215,6 +215,13 @@ fn take_prove_verify() {
             &VERIFYINGKEY,
         )
         .expect("program take verify must accept a valid proof");
+    } else {
+        eprintln!(
+            "SKIP: committed take VERIFYINGKEY does not match the locally generated \
+             build/gnark/take/vk.bin (keys are gitignored and groth16 setup is randomized), \
+             so the on-chain verify_groth16 path was not exercised. Download the pinned keys \
+             matching swap-keys.CHECKSUM to run it."
+        );
     }
 }
 
@@ -252,6 +259,6 @@ fn take_rejects_wrong_destination_blinding() {
 
     assert!(
         inputs.prove().is_err(),
-        "proving must fail when the destination output blinding is not derived from the escrow blinding"
+        "proving must fail when the destination output blinding is not derived from the order utxo blinding"
     );
 }

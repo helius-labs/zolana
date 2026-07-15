@@ -49,7 +49,7 @@ impl TakePublicInput<'_> {
 #[profile]
 pub fn process_take_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
-    let _payer = iter.next_signer_mut("payer")?;
+    iter.next_signer_mut("payer")?;
 
     let TakeIxData { proof, transact } =
         wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;

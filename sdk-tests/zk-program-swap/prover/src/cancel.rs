@@ -16,7 +16,7 @@ pub struct CancelProofInputs {
     pub order: OrderTermsProofInput,
     pub maker_owner_pk_field: [u8; 32],
     pub maker_nullifier_pk: [u8; 32],
-    pub escrow: ProofInputUtxo,
+    pub order_utxo: ProofInputUtxo,
     pub source_output: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
 }
@@ -38,7 +38,7 @@ impl CancelProofInputs {
             .order
             .witness_entries("Order")
             .into_iter()
-            .chain(utxo_witness_entries(&self.escrow, "Escrow"))
+            .chain(utxo_witness_entries(&self.order_utxo, "OrderUtxo"))
             .chain(utxo_witness_entries(&self.source_output, "SourceOutput"))
         {
             map.insert(key, value);

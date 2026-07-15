@@ -21,7 +21,7 @@ pub fn u64_right_align(value: u64) -> [u8; 32] {
 /// `owner_pk_field` for an ed25519 owner: `Poseidon(value[16..32], value[0..16])`
 /// with each half right-aligned into a field element. Matches
 /// `zolana_keypair::hash::hash_field` so the maker's Solana signer pubkey maps
-/// to the `owner_pk_field` committed in the escrow's `maker_owner_hash`.
+/// to the `owner_pk_field` committed in the order's `maker_owner_hash`.
 pub fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     let mut low = [0u8; 32];
     low[16..].copy_from_slice(&value[16..32]);
@@ -56,7 +56,7 @@ pub fn cpi_spp_transact(spp_accounts: &[AccountView], transact_bytes: &[u8]) -> 
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
     if spp_program_account.address() != &spp_id {
-        return Err(SwapError::InvalidPda.into());
+        return Err(SwapError::InvalidShieldedPoolProgram.into());
     }
 
     let metas: Vec<InstructionAccount> = spp_accounts
@@ -85,28 +85,28 @@ pub fn cpi_spp_transact_signed(
     spp_accounts: &[AccountView],
     transact_bytes: &[u8],
 ) -> ProgramResult {
-    let (escrow_authority, bump) =
-        Address::find_program_address(&[crate::ESCROW_AUTHORITY_PDA_SEED], &crate::ID);
+    let (order_authority, bump) =
+        Address::find_program_address(&[crate::ORDER_AUTHORITY_PDA_SEED], &crate::ID);
 
     let spp_program_account = spp_accounts
         .last()
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
     if spp_program_account.address() != &spp_id {
-        return Err(SwapError::InvalidPda.into());
+        return Err(SwapError::InvalidShieldedPoolProgram.into());
     }
 
     if !spp_accounts
         .iter()
-        .any(|account| account.address() == &escrow_authority)
+        .any(|account| account.address() == &order_authority)
     {
-        return Err(SwapError::MissingEscrowAuthority.into());
+        return Err(SwapError::MissingOrderAuthority.into());
     }
 
     let metas: Vec<InstructionAccount> = spp_accounts
         .iter()
         .map(|account| {
-            let is_signer = account.is_signer() || account.address() == &escrow_authority;
+            let is_signer = account.is_signer() || account.address() == &order_authority;
             InstructionAccount::new(account.address(), account.is_writable(), is_signer)
         })
         .collect();
@@ -122,7 +122,7 @@ pub fn cpi_spp_transact_signed(
     };
     let bump = [bump];
     let seeds = [
-        Seed::from(crate::ESCROW_AUTHORITY_PDA_SEED),
+        Seed::from(crate::ORDER_AUTHORITY_PDA_SEED),
         Seed::from(&bump),
     ];
     let signer = Signer::from(&seeds);

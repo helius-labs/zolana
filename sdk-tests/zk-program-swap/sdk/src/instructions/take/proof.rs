@@ -16,16 +16,16 @@ use crate::{
     state::OrderUtxo,
 };
 
-pub fn derive_destination_blinding(escrow_blinding: &Blinding) -> Result<Blinding> {
+pub fn derive_destination_blinding(order_utxo_blinding: &Blinding) -> Result<Blinding> {
     let domain = u64_right_align(DESTINATION_BLINDING_DOMAIN);
-    let derived = poseidon(&[&right_align_blinding(escrow_blinding), &domain]).map_err(err)?;
+    let derived = poseidon(&[&right_align_blinding(order_utxo_blinding), &domain]).map_err(err)?;
     let mut blinding = [0u8; BLINDING_LEN];
     blinding.copy_from_slice(derived.get(1..32).ok_or_else(|| err("blinding tail"))?);
     Ok(blinding)
 }
 
 pub struct TakeProofInputParams {
-    pub escrow: OrderUtxo,
+    pub order_utxo: OrderUtxo,
     pub taker_in: OutputUtxo,
     pub source_output: OutputUtxo,
     pub destination_output: OutputUtxo,
@@ -34,7 +34,7 @@ pub struct TakeProofInputParams {
 
 impl TakeProofInputParams {
     pub fn to_proof_inputs(&self) -> Result<TakeProofInputs> {
-        let terms = &self.escrow.terms;
+        let terms = &self.order_utxo.terms;
         let taker = check_output_utxo(
             "taker_in",
             &self.taker_in,
@@ -44,8 +44,8 @@ impl TakeProofInputParams {
         let source_owner = check_output_utxo(
             "source_output",
             &self.source_output,
-            &self.escrow.source_mint,
-            self.escrow.source_amount,
+            &self.order_utxo.source_mint,
+            self.order_utxo.source_amount,
         )?;
         if source_owner != taker {
             bail!("source output owner does not match the taker input owner");
@@ -59,19 +59,19 @@ impl TakeProofInputParams {
         if destination_owner != terms.destination {
             bail!("destination output owner does not match the order destination");
         }
-        if self.destination_output.blinding != self.escrow.derived_destination_blinding()? {
+        if self.destination_output.blinding != self.order_utxo.derived_destination_blinding()? {
             bail!("destination output blinding does not match the derived blinding");
         }
         if terms.take_mode != TAKE_MODE_DERIVED {
             bail!("order take_mode does not authorize the derived take");
         }
         let order = OrderTermsProofInput::try_from(terms)?;
-        let escrow = ProofInputUtxo::try_from(&self.escrow.to_input_utxo()?).map_err(err)?;
+        let order_utxo = ProofInputUtxo::try_from(&self.order_utxo.to_input_utxo()?).map_err(err)?;
         let taker_in = ProofInputUtxo::try_from(&self.taker_in).map_err(err)?;
         let source_output = ProofInputUtxo::try_from(&self.source_output).map_err(err)?;
         let destination_output = ProofInputUtxo::try_from(&self.destination_output).map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
-            &[escrow.hash().map_err(err)?, taker_in.hash().map_err(err)?],
+            &[order_utxo.hash().map_err(err)?, taker_in.hash().map_err(err)?],
             &[
                 source_output.hash().map_err(err)?,
                 destination_output.hash().map_err(err)?,
@@ -90,7 +90,7 @@ impl TakeProofInputParams {
             public_input_hash,
             private_tx_hash,
             order,
-            escrow,
+            order_utxo,
             taker_in,
             source_output,
             destination_output,

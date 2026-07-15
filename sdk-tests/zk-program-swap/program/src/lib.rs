@@ -15,7 +15,7 @@ pub mod tag {
     pub const TAKE_VERIFIABLE_ENCRYPTION: u8 = 5;
 }
 
-pub const ESCROW_AUTHORITY_PDA_SEED: &[u8] = b"escrow_authority";
+pub const ORDER_AUTHORITY_PDA_SEED: &[u8] = b"order_authority";
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
 mod entrypoint {

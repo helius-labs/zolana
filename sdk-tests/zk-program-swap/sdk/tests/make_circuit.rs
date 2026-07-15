@@ -17,7 +17,7 @@ use zolana_keypair::{hash::hash_field, ViewingKey};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 mod shared;
-use shared::escrow_owner_hash;
+use shared::order_utxo_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/make")
@@ -64,13 +64,13 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
     let mut order = sample_order();
     order.destination_amount = destination_amount;
     let source_mint = Address::new_from_array([1u8; 32]);
-    let escrow = ProofInputUtxo::new(
-        escrow_owner_hash(&fe(42)),
+    let order_utxo = ProofInputUtxo::new(
+        order_utxo_owner_hash(&fe(42)),
         &source_mint,
         1_000,
         &blinding(7),
     )
-    .expect("escrow utxo")
+    .expect("order utxo")
     .with_data_hash(order.data_hash().expect("order data hash"));
     let change = ProofInputUtxo::new(
         order.maker_owner_hash,
@@ -85,7 +85,7 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
         &[source_input_hash, [0u8; 32]],
         &[
             change.hash().expect("change hash"),
-            escrow.hash().expect("escrow hash"),
+            order_utxo.hash().expect("order utxo hash"),
         ],
         &external_data_hash,
     )
@@ -94,7 +94,7 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
     MakeProofInputs {
         private_tx_hash,
         order,
-        escrow,
+        order_utxo,
         change,
         source_input_hash,
         external_data_hash,
@@ -188,6 +188,13 @@ fn make_prove_verify() {
             &VERIFYINGKEY,
         )
         .expect("program verify_groth16 must accept a valid proof");
+    } else {
+        eprintln!(
+            "SKIP: committed make VERIFYINGKEY does not match the locally generated \
+             build/gnark/make/vk.bin (keys are gitignored and groth16 setup is randomized), \
+             so the on-chain verify_groth16 path was not exercised. Download the pinned keys \
+             matching swap-keys.CHECKSUM to run it."
+        );
     }
 }
 

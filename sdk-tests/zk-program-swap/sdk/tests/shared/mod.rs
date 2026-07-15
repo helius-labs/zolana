@@ -4,10 +4,10 @@ use zolana_keypair::{
     NullifierKey,
 };
 
-pub fn escrow_owner_hash(escrow_authority: &[u8; 32]) -> [u8; 32] {
-    let pk_field = hash_field(escrow_authority).expect("escrow authority field");
+pub fn order_utxo_owner_hash(order_authority: &[u8; 32]) -> [u8; 32] {
+    let pk_field = hash_field(order_authority).expect("order authority field");
     let nullifier_pk = NullifierKey::from_secret([0u8; BLINDING_LEN])
         .pubkey()
         .expect("zero-secret nullifier pubkey");
-    poseidon(&[&pk_field, &nullifier_pk]).expect("escrow owner hash")
+    poseidon(&[&pk_field, &nullifier_pk]).expect("order utxo owner hash")
 }

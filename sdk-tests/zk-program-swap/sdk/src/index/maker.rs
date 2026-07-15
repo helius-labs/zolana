@@ -22,7 +22,7 @@ use crate::{
 /// An order rediscovered by its maker from its own create transaction.
 #[derive(Debug)]
 pub struct MakerOrder {
-    pub escrow: OrderUtxo,
+    pub order_utxo: OrderUtxo,
     pub taker_viewing_pubkey: P256Pubkey,
 }
 
@@ -31,7 +31,7 @@ pub struct MakerOrder {
 /// `tx_viewing_pk` proves the maker authored the transaction). Each unified slot
 /// embeds its recipient viewing pubkey, so that key decrypts every slot from
 /// the sender side directly; the opening is accepted only if the reconstructed
-/// escrow utxo hash matches the slot's committed leaf.
+/// order utxo hash matches the slot's committed leaf.
 pub fn scan_maker(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<MakerOrder>> {
     let (Some(tx_viewing_pk), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
         return Ok(None);
@@ -63,14 +63,14 @@ pub fn scan_maker(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Ma
         ) else {
             continue;
         };
-        let Ok(escrow_utxo_hash) = order
-            .escrow
+        let Ok(order_utxo_hash) = order
+            .order_utxo
             .output_utxo(taker_viewing_pubkey)
             .and_then(|output| output.hash().map_err(err))
         else {
             continue;
         };
-        if escrow_utxo_hash != slot.output_context.hash {
+        if order_utxo_hash != slot.output_context.hash {
             continue;
         }
         return Ok(Some(order));
@@ -88,7 +88,7 @@ fn maker_order_candidate(
     let source_mint = resolve_mint(registry, plaintext.asset_id).ok()?;
     let destination_mint = resolve_mint(registry, order_data.destination_asset_id).ok()?;
     Some(MakerOrder {
-        escrow: OrderUtxo {
+        order_utxo: OrderUtxo {
             terms: OrderTerms {
                 destination_mint,
                 destination_amount: order_data.destination_amount,
@@ -128,8 +128,8 @@ mod tests {
             .expect("scan")
             .expect("own order");
         assert_eq!(
-            (order.escrow, order.taker_viewing_pubkey),
-            (fixture.escrow, fixture.wallet.keypair.viewing_pubkey())
+            (order.order_utxo, order.taker_viewing_pubkey),
+            (fixture.order_utxo, fixture.wallet.keypair.viewing_pubkey())
         );
     }
 

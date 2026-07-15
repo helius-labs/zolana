@@ -14,15 +14,15 @@ pub use swap_program::{
             TakeVerifiableEncryptionIxData, TakeVerifiableEncryptionProof,
         },
     },
-    tag, ESCROW_AUTHORITY_PDA_SEED,
+    tag, ORDER_AUTHORITY_PDA_SEED,
 };
 
-/// The escrow-authority PDA the swap program signs with (`invoke_signed`) to spend
-/// an escrow. It owns the escrow UTXO (`PublicKey::from_ed25519(pda)`), holds no
+/// The order-authority PDA the swap program signs with (`invoke_signed`) to spend
+/// an order UTXO. It owns the order UTXO (`PublicKey::from_ed25519(pda)`), holds no
 /// data, and is never created.
-pub fn escrow_authority_pda() -> Pubkey {
+pub fn order_authority_pda() -> Pubkey {
     let (pda, _bump) =
-        Pubkey::find_program_address(&[ESCROW_AUTHORITY_PDA_SEED], &swap_program::ID);
+        Pubkey::find_program_address(&[ORDER_AUTHORITY_PDA_SEED], &swap_program::ID);
     pda
 }
 pub(crate) fn err(e: impl core::fmt::Debug) -> anyhow::Error {

@@ -12,7 +12,7 @@ use super::encryption::destination_ciphertext_with_hash;
 use crate::{err, shared::check_output_utxo, state::OrderUtxo};
 
 pub struct TakeVerifiableEncryptionProofInputParams {
-    pub escrow: OrderUtxo,
+    pub order_utxo: OrderUtxo,
     pub taker_in: OutputUtxo,
     pub source_output: OutputUtxo,
     pub destination_output: OutputUtxo,
@@ -21,7 +21,7 @@ pub struct TakeVerifiableEncryptionProofInputParams {
 
 impl TakeVerifiableEncryptionProofInputParams {
     pub fn to_proof_inputs(&self) -> Result<TakeVerifiableEncryptionProofInputs> {
-        let terms = &self.escrow.terms;
+        let terms = &self.order_utxo.terms;
         let taker = check_output_utxo(
             "taker_in",
             &self.taker_in,
@@ -31,8 +31,8 @@ impl TakeVerifiableEncryptionProofInputParams {
         let source_owner = check_output_utxo(
             "source_output",
             &self.source_output,
-            &self.escrow.source_mint,
-            self.escrow.source_amount,
+            &self.order_utxo.source_mint,
+            self.order_utxo.source_amount,
         )?;
         if source_owner != taker {
             bail!("source output owner does not match the taker input owner");
@@ -50,12 +50,12 @@ impl TakeVerifiableEncryptionProofInputParams {
             bail!("order take_mode does not authorize the verifiable-encryption take");
         }
         let order = OrderTermsProofInput::try_from(terms)?;
-        let escrow = ProofInputUtxo::try_from(&self.escrow.to_input_utxo()?).map_err(err)?;
+        let order_utxo = ProofInputUtxo::try_from(&self.order_utxo.to_input_utxo()?).map_err(err)?;
         let taker_in = ProofInputUtxo::try_from(&self.taker_in).map_err(err)?;
         let source_output = ProofInputUtxo::try_from(&self.source_output).map_err(err)?;
         let destination_output = ProofInputUtxo::try_from(&self.destination_output).map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
-            &[escrow.hash().map_err(err)?, taker_in.hash().map_err(err)?],
+            &[order_utxo.hash().map_err(err)?, taker_in.hash().map_err(err)?],
             &[
                 source_output.hash().map_err(err)?,
                 destination_output.hash().map_err(err)?,
@@ -65,7 +65,7 @@ impl TakeVerifiableEncryptionProofInputParams {
         .hash()
         .map_err(err)?;
         let (ciphertext, _) = destination_ciphertext_with_hash(
-            &self.escrow.blinding,
+            &self.order_utxo.blinding,
             &terms.destination_mint,
             terms.destination_amount,
             &self.destination_output.blinding,
@@ -82,7 +82,7 @@ impl TakeVerifiableEncryptionProofInputParams {
             private_tx_hash,
             order,
             taker_nullifier_pk: taker.nullifier_pubkey,
-            escrow,
+            order_utxo,
             taker_in,
             source_output,
             destination_output,

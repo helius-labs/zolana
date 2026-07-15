@@ -20,7 +20,7 @@ use zolana_keypair::{
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 mod shared;
-use shared::escrow_owner_hash;
+use shared::order_utxo_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/cancel")
@@ -66,20 +66,20 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
         take_mode: TAKE_MODE_DERIVED,
     };
     let source_mint = Address::new_from_array([1u8; 32]);
-    let escrow = ProofInputUtxo::new(
-        escrow_owner_hash(&fe(42)),
+    let order_utxo = ProofInputUtxo::new(
+        order_utxo_owner_hash(&fe(42)),
         &source_mint,
         1_000,
         &blinding(7),
     )
-    .expect("escrow utxo")
+    .expect("order utxo")
     .with_data_hash(order.data_hash().expect("order data hash"));
     let source_output =
         ProofInputUtxo::new(source_output_owner, &source_mint, 1_000, &blinding(11))
             .expect("source output utxo");
     let external_data_hash = fe(8);
     let private_tx_hash = PrivateTxHash::new(
-        &[escrow.hash().expect("escrow hash")],
+        &[order_utxo.hash().expect("order utxo hash")],
         &[source_output.hash().expect("source output hash")],
         &external_data_hash,
     )
@@ -98,7 +98,7 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
         order,
         maker_owner_pk_field,
         maker_nullifier_pk,
-        escrow,
+        order_utxo,
         source_output,
         external_data_hash,
     }
@@ -199,6 +199,13 @@ fn cancel_prove_verify() {
             &VERIFYINGKEY,
         )
         .expect("program cancel verify must accept a valid proof");
+    } else {
+        eprintln!(
+            "SKIP: committed cancel VERIFYINGKEY does not match the locally generated \
+             build/gnark/cancel/vk.bin (keys are gitignored and groth16 setup is randomized), \
+             so the on-chain verify_groth16 path was not exercised. Download the pinned keys \
+             matching swap-keys.CHECKSUM to run it."
+        );
     }
 }
 

@@ -16,7 +16,7 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct MarkerData {
-    pub escrow_utxo_hash: [u8; 32],
+    pub order_utxo_hash: [u8; 32],
     pub maker_pubkey: [u8; 32],
 }
 
@@ -33,7 +33,7 @@ pub struct MakeIxData {
     pub transact: TransactIxData,
 }
 
-const ESCROW_OUTPUT_INDEX: usize = 1;
+const ORDER_OUTPUT_INDEX: usize = 1;
 
 #[inline(never)]
 #[profile]
@@ -56,9 +56,9 @@ pub fn process_make_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         transact.private_tx_hash,
         &make::VERIFYINGKEY,
     )?;
-    let escrow_utxo_hash = transact
+    let order_utxo_hash = transact
         .outputs
-        .get(ESCROW_OUTPUT_INDEX)
+        .get(ORDER_OUTPUT_INDEX)
         .ok_or(SwapError::InvalidInstructionData)?
         .utxo_hash;
     let [marker_message] = transact.messages.as_mut_slice() else {
@@ -68,7 +68,7 @@ pub fn process_make_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         return Err(SwapError::MarkerDataNotEmpty.into());
     }
     let marker = MarkerData {
-        escrow_utxo_hash,
+        order_utxo_hash,
         maker_pubkey,
     };
     marker_message.data = borsh::to_vec(&marker).map_err(|_| SwapError::InvalidInstructionData)?;

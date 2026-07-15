@@ -23,7 +23,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct TakerOrder {
-    pub escrow: OrderUtxo,
+    pub order_utxo: OrderUtxo,
     pub maker_pubkey: Pubkey,
 }
 
@@ -31,10 +31,10 @@ pub struct TakerOrderCandidate {
     pub source_amount: u64,
     pub source_mint: Address,
     pub destination_mint: Address,
-    pub escrow_blinding: Blinding,
+    pub order_utxo_blinding: Blinding,
     pub order_data: PlainTextData,
     pub maker_pubkey: Pubkey,
-    pub escrow_utxo_hash: [u8; 32],
+    pub order_utxo_hash: [u8; 32],
 }
 
 pub fn scan_taker(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<TakerOrderCandidate>> {
@@ -53,21 +53,21 @@ pub fn scan_taker(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Ta
     let marker = MarkerData::try_from_slice(&marker_message.data)
         .map_err(|e| anyhow!("marker payload: {e}"))?;
     let Some((slot_index, _, body)) =
-        unified_slots(tx).find(|(_, slot, _)| slot.output_context.hash == marker.escrow_utxo_hash)
+        unified_slots(tx).find(|(_, slot, _)| slot.output_context.hash == marker.order_utxo_hash)
     else {
-        bail!("marker without a unified escrow ciphertext in the same transaction");
+        bail!("marker without a unified order ciphertext in the same transaction");
     };
     let cx = DecodeCx::for_slot(&wallet.keypair.viewing_key, tx, slot_index);
-    let escrow_plaintext = ConfidentialUnified::decode(&body, &cx).map_err(err)?;
-    let order_data = parse_order_data(&escrow_plaintext.data.records)?;
+    let order_utxo_plaintext = ConfidentialUnified::decode(&body, &cx).map_err(err)?;
+    let order_data = parse_order_data(&order_utxo_plaintext.data.records)?;
     Ok(Some(TakerOrderCandidate {
-        source_amount: escrow_plaintext.amount,
-        source_mint: resolve_mint(&wallet.registry, escrow_plaintext.asset_id)?,
+        source_amount: order_utxo_plaintext.amount,
+        source_mint: resolve_mint(&wallet.registry, order_utxo_plaintext.asset_id)?,
         destination_mint: resolve_mint(&wallet.registry, order_data.destination_asset_id)?,
-        escrow_blinding: escrow_plaintext.blinding,
+        order_utxo_blinding: order_utxo_plaintext.blinding,
         order_data,
         maker_pubkey: Pubkey::new_from_array(marker.maker_pubkey),
-        escrow_utxo_hash: marker.escrow_utxo_hash,
+        order_utxo_hash: marker.order_utxo_hash,
     }))
 }
 
@@ -85,22 +85,22 @@ impl TakerOrderCandidate {
             expiry: self.order_data.expiry,
             take_mode: self.order_data.take_mode,
         };
-        let escrow = OrderUtxo {
+        let order_utxo = OrderUtxo {
             terms,
-            blinding: self.escrow_blinding,
+            blinding: self.order_utxo_blinding,
             source_mint: self.source_mint,
             source_amount: self.source_amount,
             destination_asset_id: self.order_data.destination_asset_id,
         };
-        let escrow_utxo_hash = escrow
+        let order_utxo_hash = order_utxo
             .output_utxo(taker_viewing_pubkey)?
             .hash()
             .map_err(err)?;
-        if escrow_utxo_hash != self.escrow_utxo_hash {
-            bail!("reconstructed escrow utxo hash does not match the committed leaf");
+        if order_utxo_hash != self.order_utxo_hash {
+            bail!("reconstructed order utxo hash does not match the committed leaf");
         }
         Ok(TakerOrder {
-            escrow,
+            order_utxo,
             maker_pubkey: self.maker_pubkey,
         })
     }
@@ -147,8 +147,8 @@ mod tests {
             )
             .expect("order");
         assert_eq!(
-            (order.escrow, order.maker_pubkey),
-            (fixture.escrow, fixture.maker_pubkey)
+            (order.order_utxo, order.maker_pubkey),
+            (fixture.order_utxo, fixture.maker_pubkey)
         );
     }
 

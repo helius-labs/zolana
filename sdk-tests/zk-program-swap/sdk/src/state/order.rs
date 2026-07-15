@@ -42,8 +42,8 @@ pub struct PlainTextData {
     pub take_mode: u64,
 }
 
-/// The escrow UTXO's two representations: the output minted at create time and
-/// the spend consumed at take/cancel time. Both share the escrow-authority PDA
+/// The order UTXO's two representations: the output minted at create time and
+/// the spend consumed at take/cancel time. Both share the order-authority PDA
 /// as the ed25519 owner key and the zero-secret nullifier key -- the synthetic
 /// shielded address that the swap program signs for via `invoke_signed` -- so
 /// their utxo hashes are byte-identical.
@@ -57,7 +57,7 @@ pub struct OrderUtxo {
 }
 
 // All instructions: the order terms are private inputs to each circuit; the
-// escrow utxo's data hash is computed over them.
+// order utxo's data hash is computed over them.
 impl OrderTerms {
     // The utxo itself commits source amount and mint.
     // The data hash constrains:
@@ -117,11 +117,11 @@ impl DataHash for Address {
     }
 }
 
-// make mints to the synthetic escrow owner; take,
+// make mints to the synthetic order owner; take,
 // take_verifiable_encryption, and cancel spend from it.
 impl OrderUtxo {
     fn pda_owner() -> PublicKey {
-        PublicKey::from_ed25519(crate::escrow_authority_pda().as_array())
+        PublicKey::from_ed25519(crate::order_authority_pda().as_array())
     }
 
     /// Constant nullifier key so that both counterparties can spend this utxo.
@@ -130,7 +130,7 @@ impl OrderUtxo {
     }
 }
 
-// make: the taker-readable note payload encrypted into the escrow
+// make: the taker-readable note payload encrypted into the order
 // output slot; discover decodes it back into the terms.
 impl OrderTerms {
     pub fn to_plaintext(&self, destination_asset_id: u64) -> PlainTextData {
@@ -144,7 +144,7 @@ impl OrderTerms {
     }
 }
 
-// make: serialized into the escrow note; discover: deserialized from
+// make: serialized into the order note; discover: deserialized from
 // it.
 impl PlainTextData {
     pub fn serialize(&self) -> Result<Vec<u8>> {
@@ -156,10 +156,10 @@ impl PlainTextData {
     }
 }
 
-// make: the escrow output; discover recomputes it to match the output
+// make: the order output; discover recomputes it to match the output
 // slots fetched from the indexer.
 impl OrderUtxo {
-    /// The taker's viewing pubkey makes the escrow slot ciphertext
+    /// The taker's viewing pubkey makes the order slot ciphertext
     /// readable by the taker; its `owner_hash` is a constant across orders.
     pub fn output_utxo(&self, taker_viewing_pubkey: P256Pubkey) -> Result<OutputUtxo> {
         let data_hash = self.terms.data_hash()?;
@@ -185,10 +185,10 @@ impl OrderUtxo {
     }
 }
 
-// take, take_verifiable_encryption, cancel: spend the escrow and pay out the
+// take, take_verifiable_encryption, cancel: spend the order utxo and pay out the
 // source funds (to the taker on take, back to the maker on cancel).
 impl OrderUtxo {
-    /// The escrow input spend: the opening (terms + blinding) is the full spend
+    /// The order input spend: the opening (terms + blinding) is the full spend
     /// capability; the swap program signs for the PDA via `invoke_signed`.
     pub fn to_input_utxo(&self) -> Result<SppProofInputUtxo> {
         let utxo = Utxo {
@@ -227,7 +227,7 @@ impl OrderUtxo {
     }
 }
 
-// take: the take circuit derives the destination blinding from the escrow
+// take: the take circuit derives the destination blinding from the order utxo
 // blinding, so the maker recomputes the payout from the opening instead of
 // decrypting a ciphertext.
 impl OrderUtxo {
@@ -287,7 +287,7 @@ mod tests {
         let verifiable = sample_terms(TAKE_MODE_VERIFIABLE).data_hash().unwrap();
         assert_ne!(
             derived, verifiable,
-            "escrow dataHash must distinguish the authorized take instruction, so an escrow created for one take cannot be settled by the other"
+            "order dataHash must distinguish the authorized take instruction, so an order created for one take cannot be settled by the other"
         );
     }
 }

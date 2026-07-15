@@ -13,8 +13,8 @@ type Circuit struct {
 
 	Order orderterms.OrderTerms
 
-	Escrow spp.UtxoCircuitFields
-	Change spp.UtxoCircuitFields
+	OrderUtxo spp.UtxoCircuitFields
+	Change    spp.UtxoCircuitFields
 
 	SourceInputHash  frontend.Variable
 	ExternalDataHash frontend.Variable
@@ -24,13 +24,13 @@ func (c *Circuit) Define(api frontend.API) error {
 	c.Order.Check(api)
 	makerAddressFe := c.Order.MakerAddressFE(api)
 
-	escrowOutputUtxoHash := c.checkEscrowOutputUtxo(api, makerAddressFe)
+	orderOutputUtxoHash := c.checkOrderOutputUtxo(api, makerAddressFe)
 	changeOutputUtxoHash := c.checkChangeOutputUtxo(api)
 
 	privateTxHashInputs{
 		SourceInputHash:      c.SourceInputHash,
 		ChangeOutputUtxoHash: changeOutputUtxoHash,
-		EscrowOutputUtxoHash: escrowOutputUtxoHash,
+		OrderOutputUtxoHash:  orderOutputUtxoHash,
 		ExternalDataHash:     c.ExternalDataHash,
 		PrivateTxHash:        c.PrivateTxHash,
 	}.Check(api)
@@ -41,27 +41,27 @@ func (c *Circuit) Define(api frontend.API) error {
 type privateTxHashInputs struct {
 	SourceInputHash      frontend.Variable
 	ChangeOutputUtxoHash frontend.Variable
-	EscrowOutputUtxoHash frontend.Variable
+	OrderOutputUtxoHash  frontend.Variable
 	ExternalDataHash     frontend.Variable
 	PrivateTxHash        frontend.Variable
 }
 
 func (t privateTxHashInputs) Check(api frontend.API) {
 	inputHashes := []frontend.Variable{t.SourceInputHash, frontend.Variable(0)}
-	outputHashes := []frontend.Variable{t.ChangeOutputUtxoHash, t.EscrowOutputUtxoHash}
+	outputHashes := []frontend.Variable{t.ChangeOutputUtxoHash, t.OrderOutputUtxoHash}
 	addressHashes := []frontend.Variable{frontend.Variable(0), frontend.Variable(0)}
 
 	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 
-func (c *Circuit) checkEscrowOutputUtxo(api frontend.API, makerAddressFe frontend.Variable) frontend.Variable {
-	api.AssertIsEqual(c.Escrow.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.Escrow.ZoneDataHash, 0)
-	api.AssertIsEqual(c.Escrow.ZoneProgramID, 0)
-	api.AssertIsEqual(c.Escrow.DataHash, c.Order.DataHash(api, makerAddressFe))
-	api.AssertIsDifferent(c.Escrow.Amount, 0)
-	return spp.UtxoHashCircuit(api, c.Escrow)
+func (c *Circuit) checkOrderOutputUtxo(api frontend.API, makerAddressFe frontend.Variable) frontend.Variable {
+	api.AssertIsEqual(c.OrderUtxo.Domain, spp.UtxoDomain)
+	api.AssertIsEqual(c.OrderUtxo.ZoneDataHash, 0)
+	api.AssertIsEqual(c.OrderUtxo.ZoneProgramID, 0)
+	api.AssertIsEqual(c.OrderUtxo.DataHash, c.Order.DataHash(api, makerAddressFe))
+	api.AssertIsDifferent(c.OrderUtxo.Amount, 0)
+	return spp.UtxoHashCircuit(api, c.OrderUtxo)
 }
 
 func (c *Circuit) checkChangeOutputUtxo(api frontend.API) frontend.Variable {
@@ -69,7 +69,7 @@ func (c *Circuit) checkChangeOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.Change.ZoneDataHash, 0)
 	api.AssertIsEqual(c.Change.ZoneProgramID, 0)
 	api.AssertIsEqual(c.Change.DataHash, 0)
-	api.AssertIsEqual(c.Change.Asset, c.Escrow.Asset)
+	api.AssertIsEqual(c.Change.Asset, c.OrderUtxo.Asset)
 	api.AssertIsEqual(c.Change.Owner, c.Order.MakerOwnerHash)
 	return spp.UtxoHashCircuit(api, c.Change)
 }

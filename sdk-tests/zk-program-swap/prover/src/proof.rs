@@ -15,6 +15,8 @@ pub enum ProofError {
     CompressG1(String),
     #[error("compress G2 failed: {0}")]
     CompressG2(String),
+    #[error("take_verifiable_encryption proof is missing its BSB22 commitment")]
+    MissingCommitment,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -55,18 +57,18 @@ impl From<OrderProof> for CancelProof {
     }
 }
 
-impl From<OrderProof> for TakeVerifiableEncryptionProof {
-    fn from(proof: OrderProof) -> Self {
-        let (commitment, commitment_pok) = proof
-            .commitment
-            .expect("take proof carries a BSB22 commitment");
-        Self {
+impl TryFrom<OrderProof> for TakeVerifiableEncryptionProof {
+    type Error = ProofError;
+
+    fn try_from(proof: OrderProof) -> Result<Self, Self::Error> {
+        let (commitment, commitment_pok) = proof.commitment.ok_or(ProofError::MissingCommitment)?;
+        Ok(Self {
             proof_a: proof.proof_a,
             proof_b: proof.proof_b,
             proof_c: proof.proof_c,
             commitment,
             commitment_pok,
-        }
+        })
     }
 }
 

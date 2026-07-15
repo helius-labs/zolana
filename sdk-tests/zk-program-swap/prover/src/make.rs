@@ -13,7 +13,7 @@ use crate::{
 pub struct MakeProofInputs {
     pub private_tx_hash: [u8; 32],
     pub order: OrderTermsProofInput,
-    pub escrow: ProofInputUtxo,
+    pub order_utxo: ProofInputUtxo,
     pub change: ProofInputUtxo,
     pub source_input_hash: [u8; 32],
     pub external_data_hash: [u8; 32],
@@ -34,7 +34,7 @@ impl MakeProofInputs {
             .order
             .witness_entries("Order")
             .into_iter()
-            .chain(utxo_witness_entries(&self.escrow, "Escrow"))
+            .chain(utxo_witness_entries(&self.order_utxo, "OrderUtxo"))
             .chain(utxo_witness_entries(&self.change, "Change"))
         {
             map.insert(key, value);

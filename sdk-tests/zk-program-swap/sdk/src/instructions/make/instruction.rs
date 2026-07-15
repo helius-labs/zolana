@@ -11,7 +11,7 @@ use zolana_transaction::TransactionError;
 use crate::{err, tag, MakeIxData, MakeProof, MarkerData};
 
 pub struct OrderMarker {
-    pub escrow_utxo_hash: [u8; 32],
+    pub order_utxo_hash: [u8; 32],
     pub maker_pubkey: Pubkey,
     pub taker_address: ShieldedAddress,
 }
@@ -21,10 +21,10 @@ impl OrderMarker {
         Ok(OutputData {
             view_tag: self.taker_address.signing_pubkey.confidential_view_tag()?,
             data: borsh::to_vec(&MarkerData {
-                escrow_utxo_hash: self.escrow_utxo_hash,
+                order_utxo_hash: self.order_utxo_hash,
                 maker_pubkey: self.maker_pubkey.to_bytes(),
             })
-            .expect("MarkerData serialization is infallible"),
+            .map_err(|e| TransactionError::Serialize(e.to_string()))?,
         })
     }
 }
@@ -89,14 +89,14 @@ mod tests {
 
     use super::*;
 
-    fn data_hash_fe(byte: u8) -> [u8; 32] {
+    fn data_hash_bytes(byte: u8) -> [u8; 32] {
         let mut out = [byte; 32];
         out[0] = 0;
         out
     }
 
     #[test]
-    fn sign_escrow_make_layout() {
+    fn sign_order_utxo_make_layout() {
         let owner_keypair = ShieldedKeypair::from_seed_ed25519(&[7u8; 32]).expect("owner keypair");
         let order_keypair = ShieldedKeypair::from_seed_ed25519(&[9u8; 32]).expect("order keypair");
         let taker_keypair =
@@ -104,7 +104,7 @@ mod tests {
         let assets = AssetRegistry::default();
 
         let input_amount = 1_000_000u64;
-        let escrow_amount = 400_000u64;
+        let order_utxo_amount = 400_000u64;
 
         let input_utxo = Utxo {
             owner: owner_keypair.signing_pubkey(),
@@ -116,33 +116,33 @@ mod tests {
         };
         let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);
 
-        let escrow = OutputUtxo {
+        let order_utxo = OutputUtxo {
             owner_address: Some(order_keypair.shielded_address().expect("order address")),
             asset: SOL_MINT,
-            amount: escrow_amount,
+            amount: order_utxo_amount,
             blinding: [11u8; BLINDING_LEN],
             ..Default::default()
         }
-        .with_utxo_data(vec![1, 2, 3, 4], data_hash_fe(0xAB));
+        .with_utxo_data(vec![1, 2, 3, 4], data_hash_bytes(0xAB));
 
         let taker_address = taker_keypair
             .shielded_address()
             .expect("market maker address");
         let owner_address = owner_keypair.shielded_address().expect("owner address");
 
-        let escrow_utxo_hash = escrow.hash().expect("escrow hash");
-        let change_amount = input_amount - escrow_amount;
+        let order_utxo_hash = order_utxo.hash().expect("order hash");
+        let change_amount = input_amount - order_utxo_amount;
         let change =
             OutputUtxo::new(SOL_MINT, change_amount, owner_address).expect("change output");
         let marker_message = OrderMarker {
-            escrow_utxo_hash,
+            order_utxo_hash,
             maker_pubkey: Pubkey::default(),
             taker_address,
         }
         .message()
         .expect("marker message");
         let expected_marker_bytes = borsh::to_vec(&MarkerData {
-            escrow_utxo_hash,
+            order_utxo_hash,
             maker_pubkey: Pubkey::default().to_bytes(),
         })
         .expect("marker bytes");
@@ -151,7 +151,7 @@ mod tests {
             .expect("transaction viewing key");
 
         let encoded =
-            encrypt_transaction_data(&[change, escrow], &assets, &transaction_viewing_key)
+            encrypt_transaction_data(&[change, order_utxo], &assets, &transaction_viewing_key)
                 .expect("encode slots");
 
         let external_data = ExternalData::new(
@@ -176,9 +176,9 @@ mod tests {
             .first()
             .expect("change output");
         assert!(!change.is_dummy());
-        assert_eq!(change.amount, input_amount - escrow_amount);
-        let escrow_out = spp_proof_inputs.output_utxos.get(1).expect("escrow output");
-        assert!(!escrow_out.is_dummy());
+        assert_eq!(change.amount, input_amount - order_utxo_amount);
+        let order_output_utxo = spp_proof_inputs.output_utxos.get(1).expect("order output");
+        assert!(!order_output_utxo.is_dummy());
 
         let change_hash = change.hash().expect("change hash");
         let output_hashes: Vec<[u8; 32]> = spp_proof_inputs
@@ -187,7 +187,7 @@ mod tests {
             .iter()
             .map(|output| output.utxo_hash)
             .collect();
-        assert_eq!(output_hashes, vec![change_hash, escrow_utxo_hash]);
+        assert_eq!(output_hashes, vec![change_hash, order_utxo_hash]);
 
         let marker = spp_proof_inputs
             .external_data
@@ -213,7 +213,7 @@ mod tests {
             .expect("external data hash");
         let expected = PrivateTxHash::new(
             &[source_input_hash, [0u8; 32]],
-            &[change_hash, escrow_utxo_hash],
+            &[change_hash, order_utxo_hash],
             &external_data_hash,
         )
         .hash()
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn sign_escrow_make_zero_change_utxo() {
+    fn sign_order_utxo_make_zero_change_utxo() {
         let owner_keypair = ShieldedKeypair::from_seed_ed25519(&[3u8; 32]).expect("owner keypair");
         let order_keypair = ShieldedKeypair::from_seed_ed25519(&[4u8; 32]).expect("order keypair");
         let taker_keypair =
@@ -244,24 +244,24 @@ mod tests {
         };
         let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);
 
-        let escrow = OutputUtxo {
+        let order_utxo = OutputUtxo {
             owner_address: Some(order_keypair.shielded_address().expect("order address")),
             asset: SOL_MINT,
             amount,
             blinding: [12u8; BLINDING_LEN],
             ..Default::default()
         }
-        .with_utxo_data(vec![9, 9], data_hash_fe(0xCD));
+        .with_utxo_data(vec![9, 9], data_hash_bytes(0xCD));
 
         let taker_address = taker_keypair
             .shielded_address()
             .expect("market maker address");
         let owner_address = owner_keypair.shielded_address().expect("owner address");
 
-        let escrow_utxo_hash = escrow.hash().expect("escrow hash");
+        let order_utxo_hash = order_utxo.hash().expect("order hash");
         let change = OutputUtxo::new(SOL_MINT, 0, owner_address).expect("change output");
         let marker_message = OrderMarker {
-            escrow_utxo_hash,
+            order_utxo_hash,
             maker_pubkey: Pubkey::default(),
             taker_address,
         }
@@ -272,7 +272,7 @@ mod tests {
             .expect("transaction viewing key");
 
         let encoded =
-            encrypt_transaction_data(&[change, escrow], &assets, &transaction_viewing_key)
+            encrypt_transaction_data(&[change, order_utxo], &assets, &transaction_viewing_key)
                 .expect("encode slots");
 
         let external_data = ExternalData::new(
@@ -296,7 +296,7 @@ mod tests {
         assert!(!change.is_dummy());
         assert_eq!(change.amount, 0);
 
-        let escrow_out = spp_proof_inputs.output_utxos.get(1).expect("escrow output");
+        let order_output_utxo = spp_proof_inputs.output_utxos.get(1).expect("order output");
         let external_data_hash = spp_proof_inputs
             .external_data
             .hash()
@@ -307,7 +307,7 @@ mod tests {
             &[source_input_hash, [0u8; 32]],
             &[
                 change.hash().expect("change hash"),
-                escrow_out.hash().expect("escrow hash"),
+                order_output_utxo.hash().expect("order hash"),
             ],
             &external_data_hash,
         )

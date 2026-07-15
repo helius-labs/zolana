@@ -331,7 +331,7 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
 }
 
 #[test]
-#[ignore]
+#[ignore = "CU benchmark; slow, needs SBF binaries + prover. Run via just bench-swap"]
 fn bench_cu_swap() {
     std::env::set_var("SBF_OUT_DIR", PROFILING_SBF_DIR);
 
@@ -407,35 +407,35 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         expiry: EXPIRY,
         take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
     };
-    let escrow = OrderUtxo {
+    let order_utxo = OrderUtxo {
         terms,
         blinding: random_blinding(),
         source_mint: SOL_MINT,
         source_amount: SOURCE_AMOUNT,
         destination_asset_id: 2,
     };
-    let escrow_output_utxo = escrow
+    let order_output_utxo = order_utxo
         .output_utxo(taker_address.viewing_pubkey)
-        .expect("escrow output");
+        .expect("order output");
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
     let spend = SppProofInputUtxo::new(input_utxo, &maker);
     let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
     let assets = AssetRegistry::default();
 
-    let escrow_asset = escrow_output_utxo.asset;
-    let leftover = input_sum(&input_utxos, &escrow_asset) - i128::from(escrow_output_utxo.amount);
-    let change_amount = u64::try_from(leftover).expect("insufficient escrow balance");
+    let order_utxo_asset = order_output_utxo.asset;
+    let leftover = input_sum(&input_utxos, &order_utxo_asset) - i128::from(order_output_utxo.amount);
+    let change_amount = u64::try_from(leftover).expect("insufficient order balance");
     let change = OutputUtxo::new(
-        escrow_asset,
+        order_utxo_asset,
         change_amount,
         maker.shielded_address().expect("maker address"),
     )
     .expect("change output");
 
-    let escrow_output_hash = escrow_output_utxo.hash().expect("escrow output hash");
+    let order_utxo_hash = order_output_utxo.hash().expect("order output hash");
     let marker_message = OrderMarker {
-        escrow_utxo_hash: escrow_output_hash,
+        order_utxo_hash,
         maker_pubkey: payer.pubkey(),
         taker_address,
     }
@@ -446,7 +446,7 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         get_transaction_viewing_key(&maker, &input_utxos).expect("make transaction viewing key");
 
     let encoded = encrypt_transaction_data(
-        &[change.clone(), escrow_output_utxo],
+        &[change.clone(), order_output_utxo],
         &assets,
         &transaction_viewing_key,
     )
@@ -486,7 +486,7 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     );
 
     let make_proof_inputs = MakeProofInputParams {
-        escrow,
+        order_utxo,
         change,
         spp_tx_hashes: SppTxHashes::new(&spp_proof_inputs).expect("spp tx hashes"),
     };
@@ -551,7 +551,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         expiry: EXPIRY,
         take_mode: swap_prover::TAKE_MODE_DERIVED,
     };
-    let escrow = OrderUtxo {
+    let order_utxo = OrderUtxo {
         terms,
         blinding: random_blinding(),
         source_mint: SOL_MINT,
@@ -562,13 +562,13 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let taker_in_blinding = random_blinding();
     let source_output_blinding = random_blinding();
 
-    let taker_in = escrow.destination_output(taker_address, taker_in_blinding);
-    let source_output = escrow.source_output(taker_address, source_output_blinding);
-    let destination_output = escrow
+    let taker_in = order_utxo.destination_output(taker_address, taker_in_blinding);
+    let source_output = order_utxo.source_output(taker_address, source_output_blinding);
+    let destination_output = order_utxo
         .derived_destination_output(maker_address)
         .expect("destination output");
 
-    let escrow_input = escrow.to_input_utxo().expect("escrow spend");
+    let order_input_utxo = order_utxo.to_input_utxo().expect("order spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: SOL_MINT,
@@ -581,7 +581,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
-    let input_utxos = vec![escrow_input, taker_spend];
+    let input_utxos = vec![order_input_utxo, taker_spend];
     let transaction_viewing_key =
         get_transaction_viewing_key(&taker, &input_utxos).expect("take transaction viewing key");
 
@@ -599,7 +599,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         encoded.resolved_owner_tags,
         vec![],
     );
-    external_data.expiry_unix_ts = escrow.terms.expiry;
+    external_data.expiry_unix_ts = order_utxo.terms.expiry;
     let spp_proof_inputs = SppProofInputs::new(
         input_utxos,
         encoded.output_utxos,
@@ -627,7 +627,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     );
 
     let take_proof_inputs = TakeProofInputParams {
-        escrow,
+        order_utxo,
         taker_in,
         source_output,
         destination_output,
@@ -690,7 +690,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         expiry: EXPIRY,
         take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
     };
-    let escrow = OrderUtxo {
+    let order_utxo = OrderUtxo {
         terms,
         blinding: random_blinding(),
         source_mint: SOL_MINT,
@@ -702,15 +702,15 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let destination_output_blinding = random_blinding();
     let source_output_blinding = random_blinding();
 
-    let taker_in = escrow.destination_output(taker_address, taker_in_blinding);
-    let source_output = escrow.source_output(taker_address, source_output_blinding);
+    let taker_in = order_utxo.destination_output(taker_address, taker_in_blinding);
+    let source_output = order_utxo.source_output(taker_address, source_output_blinding);
     let destination_output =
-        escrow.destination_output(maker_address, destination_output_blinding);
-    let destination_ciphertext = escrow
+        order_utxo.destination_output(maker_address, destination_output_blinding);
+    let destination_ciphertext = order_utxo
         .destination_ciphertext(&destination_output)
         .expect("destination ciphertext");
 
-    let escrow_input = escrow.to_input_utxo().expect("escrow spend");
+    let order_input_utxo = order_utxo.to_input_utxo().expect("order spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: SOL_MINT,
@@ -727,7 +727,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         .signing_pubkey
         .confidential_view_tag()
         .expect("maker view tag");
-    let input_utxos = vec![escrow_input, taker_spend];
+    let input_utxos = vec![order_input_utxo, taker_spend];
     let transaction_viewing_key =
         get_transaction_viewing_key(&taker, &input_utxos).expect("take transaction viewing key");
 
@@ -753,7 +753,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         encoded.resolved_owner_tags,
         vec![],
     );
-    external_data.expiry_unix_ts = escrow.terms.expiry;
+    external_data.expiry_unix_ts = order_utxo.terms.expiry;
     let spp_proof_inputs = SppProofInputs::new(
         input_utxos,
         encoded.output_utxos,
@@ -781,7 +781,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     );
 
     let take_proof_inputs = TakeVerifiableEncryptionProofInputParams {
-        escrow,
+        order_utxo,
         taker_in,
         source_output,
         destination_output,
@@ -805,7 +805,9 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let ix = TakeVerifiableEncryption {
         payer: taker_payer.pubkey(),
         tree,
-        take_proof: take_proof.into(),
+        take_proof: take_proof
+            .try_into()
+            .expect("tve proof carries a BSB22 commitment"),
         spp_proof: transact,
     }
     .instruction()
@@ -857,7 +859,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         expiry: ORDER_EXPIRY,
         take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
     };
-    let escrow = OrderUtxo {
+    let order_utxo = OrderUtxo {
         terms,
         blinding: random_blinding(),
         source_mint: SOL_MINT,
@@ -866,13 +868,13 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     };
     let source_output_blinding = random_blinding();
 
-    let source_output = escrow.source_output(maker_address, source_output_blinding);
+    let source_output = order_utxo.source_output(maker_address, source_output_blinding);
 
-    let escrow_input = escrow.to_input_utxo().expect("escrow spend");
+    let order_input_utxo = order_utxo.to_input_utxo().expect("order spend");
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
-    let input_utxos = vec![escrow_input];
+    let input_utxos = vec![order_input_utxo];
     let transaction_viewing_key =
         get_transaction_viewing_key(&maker, &input_utxos).expect("cancel transaction viewing key");
 
@@ -918,7 +920,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     );
 
     let cancel_proof_inputs = CancelProofInputParams {
-        escrow: escrow.clone(),
+        order_utxo: order_utxo.clone(),
         taker_viewing_pubkey,
         source_output,
         external_data_hash: spp_proof_inputs
@@ -951,7 +953,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         payer: maker_payer.pubkey(),
         tree,
         cancel_proof: cancel_proof.into(),
-        order_expiry: escrow.terms.expiry,
+        order_expiry: order_utxo.terms.expiry,
         spp_proof: transact,
     }
     .instruction()

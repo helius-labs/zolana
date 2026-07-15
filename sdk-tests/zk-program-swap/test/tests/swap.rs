@@ -33,18 +33,18 @@ const EXPIRY: u64 = 2_000_000_000;
 // driven against a real localnet (validator + Photon indexer + prover) that
 // `setup()` starts, including registering an SPL asset with the pool.
 //
-// The maker escrows an SPL token and wants SOL; the taker pays SOL and receives the
+// The maker orders an SPL token and wants SOL; the taker pays SOL and receives the
 // SPL. Destination is SOL, so the derived take rail applies; the SPL source stays
 // in shielded UTXOs (the SPP transact is asset-generic for a purely-shielded
-// spend, and the make/take flows denominate change in the escrow asset).
+// spend, and the make/take flows denominate change in the order asset).
 //
 // Flow:
 //   1. Fund (in setup): maker shields 1.0 SPL, taker shields 0.25 SOL; each wallet
 //      syncs from the indexer to discover and decrypt its own note.
-//   2. Make: maker spends its 1.0 SPL UTXO -> escrow 0.4 SPL (taker-owned, held
-//      under the escrow-authority PDA), marker (0-value taker-owned discovery
+//   2. Make: maker spends its 1.0 SPL UTXO -> order UTXO 0.4 SPL (taker-owned, held
+//      under the order-authority PDA), marker (0-value taker-owned discovery
 //      note), change 0.6 SPL (back to maker). ZK make proof, v0 tx via ALT.
-//   3. Take (derived): taker spends escrow (0.4 SPL) + its own 0.25 SOL UTXO ->
+//   3. Take (derived): taker spends the order UTXO (0.4 SPL) + its own 0.25 SOL UTXO ->
 //      source_output 0.4 SPL (to taker), destination_output 0.25 SOL (to maker).
 //      ZK take proof, v0 tx.
 //   4. Assert both take outputs are indexed.
@@ -84,14 +84,14 @@ fn make_and_take_swap_inline() -> Result<()> {
         };
 
         let maker_address = maker.keypair.shielded_address()?;
-        let escrow = OrderUtxo {
+        let order_utxo = OrderUtxo {
             terms,
             blinding: random_blinding(),
             source_mint: spl_mint,
             source_amount: SOURCE_AMOUNT,
             destination_asset_id: SOL_ASSET_ID,
         };
-        let escrow_output_utxo = escrow.output_utxo(taker_address.viewing_pubkey)?;
+        let order_output_utxo = order_utxo.output_utxo(taker_address.viewing_pubkey)?;
 
         let maker_input_utxo = maker
             .balance(spl_mint, Some(Filter::MinAmount(SOURCE_AMOUNT)))?
@@ -105,17 +105,17 @@ fn make_and_take_swap_inline() -> Result<()> {
         let input_utxos = vec![input_utxo, SppProofInputUtxo::new_dummy()];
 
         // 3. create output utxos.
-        let escrow_asset = escrow_output_utxo.asset;
+        let order_utxo_asset = order_output_utxo.asset;
 
         let leftover =
-            input_sum(&input_utxos, &escrow_asset) - i128::from(escrow_output_utxo.amount);
+            input_sum(&input_utxos, &order_utxo_asset) - i128::from(order_output_utxo.amount);
         let change_amount = u64::try_from(leftover)
-            .map_err(|_| anyhow!("insufficient escrow balance: {leftover}"))?;
-        let change = OutputUtxo::new(escrow_asset, change_amount, maker_address)?;
+            .map_err(|_| anyhow!("insufficient order balance: {leftover}"))?;
+        let change = OutputUtxo::new(order_utxo_asset, change_amount, maker_address)?;
 
-        let escrow_utxo_hash = escrow_output_utxo
+        let order_utxo_hash = order_output_utxo
             .hash()
-            .map_err(|e| anyhow!("escrow output hash: {e:?}"))?;
+            .map_err(|e| anyhow!("order output hash: {e:?}"))?;
 
         // 4. Encrypt output utxos.
 
@@ -123,13 +123,13 @@ fn make_and_take_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
 
         let encoded_transaction_data = encrypt_transaction_data(
-            &[change.clone(), escrow_output_utxo],
+            &[change.clone(), order_output_utxo],
             &maker.registry,
             &transaction_viewing_key,
         )?;
 
         let marker_message = OrderMarker {
-            escrow_utxo_hash,
+            order_utxo_hash,
             maker_pubkey: maker_address.solana_address()?,
             taker_address,
         }
@@ -155,7 +155,7 @@ fn make_and_take_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
         let make_proof_inputs = MakeProofInputParams {
-            escrow,
+            order_utxo,
             change,
             spp_tx_hashes,
         };
@@ -180,8 +180,8 @@ fn make_and_take_swap_inline() -> Result<()> {
         let order = index_taker(&mut taker, &indexer, &rpc, Duration::from_secs(60))?
             .pop()
             .ok_or_else(|| anyhow!("no swap order discovered"))?;
-        let escrow = order.escrow;
-        let terms = escrow.terms.clone();
+        let order_utxo = order.order_utxo;
+        let terms = order_utxo.terms.clone();
 
         let taker_input_utxo = taker
             .balance(
@@ -198,9 +198,9 @@ fn make_and_take_swap_inline() -> Result<()> {
                     terms.destination_amount
                 )
             })?;
-        let taker_in = escrow.destination_output(taker_address, taker_input_utxo.blinding);
-        let source_output = escrow.source_output(taker_address, random_blinding());
-        let destination_output = escrow
+        let taker_in = order_utxo.destination_output(taker_address, taker_input_utxo.blinding);
+        let source_output = order_utxo.source_output(taker_address, random_blinding());
+        let destination_output = order_utxo
             .derived_destination_output(terms.destination)
             .map_err(|e| anyhow!("destination output: {e:?}"))?;
         let source_output_hash = source_output
@@ -210,12 +210,12 @@ fn make_and_take_swap_inline() -> Result<()> {
             .hash()
             .map_err(|e| anyhow!("destination output hash: {e:?}"))?;
 
-        let escrow_input = escrow
+        let order_input_utxo = order_utxo
             .to_input_utxo()
-            .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
+            .map_err(|e| anyhow!("order spend: {e:?}"))?;
         let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair);
 
-        let inputs = vec![escrow_input, taker_spend];
+        let inputs = vec![order_input_utxo, taker_spend];
 
         let transaction_viewing_key = get_transaction_viewing_key(&taker.keypair, &inputs)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
@@ -242,7 +242,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         );
 
         let take_proof_inputs = TakeProofInputParams {
-            escrow,
+            order_utxo,
             taker_in,
             source_output,
             destination_output,

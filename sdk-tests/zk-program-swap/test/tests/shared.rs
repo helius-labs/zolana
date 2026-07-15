@@ -31,7 +31,7 @@ use zolana_test_utils::{
 use zolana_transaction::{AssetRegistry, Filter, Wallet, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
 
-// SPL the maker shields and escrows (source), and SOL the taker pays (destination).
+// SPL the maker shields into the order UTXO (source), and SOL the taker pays (destination).
 pub const MAKER_SHIELD_SPL: u64 = 1_000_000_000;
 pub const SOURCE_AMOUNT: u64 = 400_000_000;
 pub const DESTINATION_AMOUNT: u64 = 250_000_000;
@@ -184,7 +184,7 @@ pub fn setup() -> Result<TestEnv> {
 
     let tree = tree.pubkey();
 
-    // Register an SPL asset with the pool so the maker can escrow it. Both
+    // Register an SPL asset with the pool so the maker can order it. Both
     // CreateAssetCounter and CreateSplInterface check the protocol authority (the
     // Squads protocol vault), so each is wrapped in execute_sync_ix.
     let spl_mint = create_mint(&rpc, &payer)?;
@@ -236,7 +236,7 @@ pub fn setup() -> Result<TestEnv> {
         .expect("ed25519 seed is the first 32 bytes");
     let taker_shielded_keypair = ShieldedKeypair::from_ed25519(&taker_seed, ViewingKey::new())?;
 
-    // Fund the actors: shield the maker's SPL (the source it escrows) and the
+    // Fund the actors: shield the maker's SPL (the source it orders) and the
     // taker's SOL (what it pays). Then discover the notes through each party's
     // wallet, which scans the indexer for its view tags and decrypts its own
     // outputs. Photon lags the validator, so poll sync until both notes appear.

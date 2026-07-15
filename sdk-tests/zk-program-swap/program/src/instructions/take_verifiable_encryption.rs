@@ -60,7 +60,7 @@ pub fn process_take_verifiable_encryption_ix(
     data: &[u8],
 ) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
-    let _payer = iter.next_signer_mut("payer")?;
+    iter.next_signer_mut("payer")?;
 
     let TakeVerifiableEncryptionIxData { proof, transact } =
         wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;

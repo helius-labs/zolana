@@ -16,7 +16,7 @@ pub struct TakeProofInputs {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub order: OrderTermsProofInput,
-    pub escrow: ProofInputUtxo,
+    pub order_utxo: ProofInputUtxo,
     pub taker_in: ProofInputUtxo,
     pub source_output: ProofInputUtxo,
     pub destination_output: ProofInputUtxo,
@@ -38,7 +38,7 @@ impl TakeProofInputs {
             .order
             .witness_entries("Core_Order")
             .into_iter()
-            .chain(utxo_witness_entries(&self.escrow, "Core_Escrow"))
+            .chain(utxo_witness_entries(&self.order_utxo, "Core_OrderUtxo"))
             .chain(utxo_witness_entries(&self.taker_in, "Core_TakerIn"))
             .chain(utxo_witness_entries(
                 &self.source_output,

@@ -17,7 +17,7 @@ pub struct TakeVerifiableEncryptionProofInputs {
     pub private_tx_hash: [u8; 32],
     pub order: OrderTermsProofInput,
     pub taker_nullifier_pk: [u8; 32],
-    pub escrow: ProofInputUtxo,
+    pub order_utxo: ProofInputUtxo,
     pub taker_in: ProofInputUtxo,
     pub source_output: ProofInputUtxo,
     pub destination_output: ProofInputUtxo,
@@ -40,7 +40,7 @@ impl TakeVerifiableEncryptionProofInputs {
             .order
             .witness_entries("Core_Order")
             .into_iter()
-            .chain(utxo_witness_entries(&self.escrow, "Core_Escrow"))
+            .chain(utxo_witness_entries(&self.order_utxo, "Core_OrderUtxo"))
             .chain(utxo_witness_entries(&self.taker_in, "Core_TakerIn"))
             .chain(utxo_witness_entries(
                 &self.source_output,

@@ -43,6 +43,6 @@ pub(crate) fn parse_order_data(records: &[DataRecord]) -> Result<PlainTextData> 
             DataRecord::UtxoData(bytes) => Some(bytes.as_slice()),
             _ => None,
         })
-        .ok_or_else(|| anyhow!("escrow plaintext carries no utxo data record"))?;
+        .ok_or_else(|| anyhow!("order plaintext carries no utxo data record"))?;
     PlainTextData::deserialize(order_bytes)
 }

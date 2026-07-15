@@ -31,7 +31,7 @@ use zolana_keypair::{
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 mod shared;
-use shared::escrow_owner_hash;
+use shared::order_utxo_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -99,13 +99,13 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
     let destination_amount = overrides
         .destination_amount
         .unwrap_or(order.destination_amount);
-    let escrow = ProofInputUtxo::new(
-        escrow_owner_hash(&fe(42)),
+    let order_utxo = ProofInputUtxo::new(
+        order_utxo_owner_hash(&fe(42)),
         &source_mint,
         1_000,
         &blinding(7),
     )
-    .expect("escrow utxo")
+    .expect("order utxo")
     .with_data_hash(order.data_hash().expect("order data hash"));
     let taker_in = ProofInputUtxo::new(
         taker_owner,
@@ -126,7 +126,7 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
     let external_data_hash = fe(8);
     let private_tx_hash = PrivateTxHash::new(
         &[
-            escrow.hash().expect("escrow hash"),
+            order_utxo.hash().expect("order utxo hash"),
             taker_in.hash().expect("taker input hash"),
         ],
         &[
@@ -150,7 +150,7 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
         private_tx_hash,
         order,
         taker_nullifier_pk: fe(200),
-        escrow,
+        order_utxo,
         taker_in,
         source_output,
         destination_output,
@@ -273,7 +273,9 @@ fn take_prove_verify_and_round_trip() {
         }
         .hash()
         .expect("program take public input hash");
-        let proof: TakeVerifiableEncryptionProof = proof.into();
+        let proof: TakeVerifiableEncryptionProof = proof
+            .try_into()
+            .expect("tve proof carries a BSB22 commitment");
         verify_groth16(
             CompressedGroth16Proof {
                 a: &proof.proof_a,
@@ -285,6 +287,13 @@ fn take_prove_verify_and_round_trip() {
             &VERIFYINGKEY,
         )
         .expect("program take verify must accept a valid proof");
+    } else {
+        eprintln!(
+            "SKIP: committed take_verifiable_encryption VERIFYINGKEY does not match the locally \
+             generated build/gnark/take_verifiable_encryption/vk.bin (keys are gitignored and \
+             groth16 setup is randomized), so the on-chain verify_groth16 path was not exercised. \
+             Download the pinned keys matching swap-keys.CHECKSUM to run it."
+        );
     }
 
     let (asset, amount) =
@@ -295,7 +304,7 @@ fn take_prove_verify_and_round_trip() {
             hash_field(&[2u8; 32]).expect("destination asset"),
             inputs.order.destination_amount
         ),
-        "the maker recovers (destination_asset, destination_amount) by decrypting with the escrow blinding"
+        "the maker recovers (destination_asset, destination_amount) by decrypting with the order utxo blinding"
     );
 }
 

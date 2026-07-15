@@ -48,7 +48,7 @@ func (p PublicInputs) Check(api frontend.API, expiry frontend.Variable, ctHash f
 
 func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable {
 	sharedSecret := gadget.PoseidonHash(api, []frontend.Variable{
-		c.Core.Escrow.Blinding,
+		c.Core.OrderUtxo.Blinding,
 		frontend.Variable(orderterms.TakeEncKdfDomain),
 	})
 	aesGadget := aes.NewAESGadget(api)

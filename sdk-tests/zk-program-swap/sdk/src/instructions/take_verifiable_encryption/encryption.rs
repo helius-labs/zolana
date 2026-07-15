@@ -11,13 +11,13 @@ use zolana_transaction::utxo::Blinding;
 
 use crate::{err, shared::right_align_blinding};
 
-fn take_shared_secret(escrow_blinding: &Blinding) -> Result<[u8; 32]> {
+fn take_shared_secret(order_utxo_blinding: &Blinding) -> Result<[u8; 32]> {
     let domain = u64_right_align(TAKE_ENC_KDF_DOMAIN);
-    poseidon(&[&right_align_blinding(escrow_blinding), &domain]).map_err(err)
+    poseidon(&[&right_align_blinding(order_utxo_blinding), &domain]).map_err(err)
 }
 
 pub fn destination_ciphertext_with_hash(
-    escrow_blinding: &Blinding,
+    order_utxo_blinding: &Blinding,
     destination_mint: &Address,
     destination_amount: u64,
     destination_output_blinding: &Blinding,
@@ -27,7 +27,7 @@ pub fn destination_ciphertext_with_hash(
     plaintext.extend_from_slice(&hash_field(destination_mint.as_array()).map_err(err)?);
     plaintext.extend_from_slice(destination_output_blinding);
     symmetric_apply(
-        &take_shared_secret(escrow_blinding)?,
+        &take_shared_secret(order_utxo_blinding)?,
         MERGE_INFO,
         &mut plaintext,
     )
@@ -37,12 +37,12 @@ pub fn destination_ciphertext_with_hash(
 }
 
 pub fn decrypt_destination(
-    escrow_blinding: &Blinding,
+    order_utxo_blinding: &Blinding,
     ciphertext: &[u8],
 ) -> Result<([u8; 32], u64)> {
     let mut plaintext = ciphertext.to_vec();
     symmetric_apply(
-        &take_shared_secret(escrow_blinding)?,
+        &take_shared_secret(order_utxo_blinding)?,
         MERGE_INFO,
         &mut plaintext,
     )
