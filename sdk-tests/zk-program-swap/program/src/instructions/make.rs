@@ -11,7 +11,7 @@ use crate::{
         shared::cpi_spp_transact,
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
-    verifying_keys::create,
+    verifying_keys::make,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -21,15 +21,15 @@ pub struct MarkerData {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct CreateProof {
+pub struct MakeProof {
     pub proof_a: [u8; 32],
     pub proof_b: [u8; 64],
     pub proof_c: [u8; 32],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct CreateSwapIxData {
-    pub proof: CreateProof,
+pub struct MakeIxData {
+    pub proof: MakeProof,
     pub transact: TransactIxData,
 }
 
@@ -37,11 +37,11 @@ const ESCROW_OUTPUT_INDEX: usize = 1;
 
 #[inline(never)]
 #[profile]
-pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_make(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     let maker_pubkey = *iter.next_signer_mut("payer")?.address().as_array();
 
-    let CreateSwapIxData {
+    let MakeIxData {
         proof,
         mut transact,
     } = wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;
@@ -54,7 +54,7 @@ pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> Program
             commitment: None,
         },
         transact.private_tx_hash,
-        &create::VERIFYINGKEY,
+        &make::VERIFYINGKEY,
     )?;
     let escrow_utxo_hash = transact
         .outputs

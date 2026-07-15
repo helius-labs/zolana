@@ -30,7 +30,7 @@ pub struct OrderTerms {
 
     pub expiry: u64,
     // With or without verifiable encryption.
-    pub fill_mode: u64,
+    pub take_mode: u64,
 }
 
 #[derive(SchemaWrite, SchemaRead, Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,11 +39,11 @@ pub struct PlainTextData {
     pub destination_amount: u64,
     pub expiry: u64,
     pub taker: Address,
-    pub fill_mode: u64,
+    pub take_mode: u64,
 }
 
 /// The escrow UTXO's two representations: the output minted at create time and
-/// the spend consumed at fill/cancel time. Both share the escrow-authority PDA
+/// the spend consumed at take/cancel time. Both share the escrow-authority PDA
 /// as the ed25519 owner key and the zero-secret nullifier key -- the synthetic
 /// shielded address that the swap program signs for via `invoke_signed` -- so
 /// their utxo hashes are byte-identical.
@@ -65,8 +65,8 @@ impl OrderTerms {
     // 2. how many tokens of the mint we want to swap into
     // 3. which shielded pubkey the swap settlement will go to
     // 4. the order expiry
-    // 5. the taker allowed to fill
-    // 6. the fill mode
+    // 5. the taker allowed to take
+    // 6. the take_mode
     pub fn data_hash(&self) -> Result<[u8; 32]> {
         OrderTermsProofInput::try_from(self)?.data_hash()
     }
@@ -84,7 +84,7 @@ impl TryFrom<&OrderTerms> for OrderTermsProofInput {
             maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
             expiry: terms.expiry,
             taker_pk_fe: terms.taker.data_hash()?,
-            fill_mode: terms.fill_mode,
+            take_mode: terms.take_mode,
         })
     }
 }
@@ -104,7 +104,7 @@ impl DataHash for OrderTermsProofInput {
             &maker_address,
             &u64_to_field(self.expiry),
             &self.taker_pk_fe,
-            &u64_to_field(self.fill_mode),
+            &u64_to_field(self.take_mode),
         ])
         .map_err(err)
     }
@@ -117,8 +117,8 @@ impl DataHash for Address {
     }
 }
 
-// create_swap mints to the synthetic escrow owner; fill,
-// fill_verifiable_encryption, and cancel spend from it.
+// make mints to the synthetic escrow owner; take,
+// take_verifiable_encryption, and cancel spend from it.
 impl OrderUtxo {
     fn pda_owner() -> PublicKey {
         PublicKey::from_ed25519(crate::escrow_authority_pda().as_array())
@@ -130,7 +130,7 @@ impl OrderUtxo {
     }
 }
 
-// create_swap: the taker-readable note payload encrypted into the escrow
+// make: the taker-readable note payload encrypted into the escrow
 // output slot; discover decodes it back into the terms.
 impl OrderTerms {
     pub fn to_plaintext(&self, destination_asset_id: u64) -> PlainTextData {
@@ -139,12 +139,12 @@ impl OrderTerms {
             destination_amount: self.destination_amount,
             expiry: self.expiry,
             taker: self.taker,
-            fill_mode: self.fill_mode,
+            take_mode: self.take_mode,
         }
     }
 }
 
-// create_swap: serialized into the escrow note; discover: deserialized from
+// make: serialized into the escrow note; discover: deserialized from
 // it.
 impl PlainTextData {
     pub fn serialize(&self) -> Result<Vec<u8>> {
@@ -156,7 +156,7 @@ impl PlainTextData {
     }
 }
 
-// create_swap: the escrow output; discover recomputes it to match the output
+// make: the escrow output; discover recomputes it to match the output
 // slots fetched from the indexer.
 impl OrderUtxo {
     /// The taker's viewing pubkey makes the escrow slot ciphertext
@@ -185,8 +185,8 @@ impl OrderUtxo {
     }
 }
 
-// fill, fill_verifiable_encryption, cancel: spend the escrow and pay out the
-// source funds (to the taker on fill, back to the maker on cancel).
+// take, take_verifiable_encryption, cancel: spend the escrow and pay out the
+// source funds (to the taker on take, back to the maker on cancel).
 impl OrderUtxo {
     /// The escrow input spend: the opening (terms + blinding) is the full spend
     /// capability; the swap program signs for the PDA via `invoke_signed`.
@@ -214,7 +214,7 @@ impl OrderUtxo {
     }
 }
 
-// fill, fill_verifiable_encryption: pay out the maker's destination funds.
+// take, take_verifiable_encryption: pay out the maker's destination funds.
 impl OrderUtxo {
     pub fn destination_output(&self, recipient: ShieldedAddress, blinding: Blinding) -> OutputUtxo {
         OutputUtxo {
@@ -227,7 +227,7 @@ impl OrderUtxo {
     }
 }
 
-// fill: the fill circuit derives the destination blinding from the escrow
+// take: the take circuit derives the destination blinding from the escrow
 // blinding, so the maker recomputes the payout from the opening instead of
 // decrypting a ciphertext.
 impl OrderUtxo {
@@ -236,16 +236,16 @@ impl OrderUtxo {
     }
 
     pub fn derived_destination_blinding(&self) -> Result<Blinding> {
-        crate::instructions::fill::derive_destination_blinding(&self.blinding)
+        crate::instructions::take::derive_destination_blinding(&self.blinding)
     }
 }
 
-// fill_verifiable_encryption: the maker-readable ciphertext of the destination
+// take_verifiable_encryption: the maker-readable ciphertext of the destination
 // payout; the proof checks it against the payout output.
 impl OrderUtxo {
     pub fn destination_ciphertext(&self, destination_output: &OutputUtxo) -> Result<Vec<u8>> {
         Ok(
-            crate::instructions::fill_verifiable_encryption::destination_ciphertext_with_hash(
+            crate::instructions::take_verifiable_encryption::destination_ciphertext_with_hash(
                 &self.blinding,
                 &self.terms.destination_mint,
                 self.terms.destination_amount,
@@ -258,7 +258,7 @@ impl OrderUtxo {
 
 #[cfg(test)]
 mod tests {
-    use swap_prover::{FILL_MODE_DERIVED, FILL_MODE_VERIFIABLE};
+    use swap_prover::{TAKE_MODE_DERIVED, TAKE_MODE_VERIFIABLE};
     use zolana_keypair::ViewingKey;
 
     use super::*;
@@ -269,7 +269,7 @@ mod tests {
             .pubkey()
     }
 
-    fn sample_terms(fill_mode: u64) -> OrderTermsProofInput {
+    fn sample_terms(take_mode: u64) -> OrderTermsProofInput {
         OrderTermsProofInput {
             destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
             destination_amount: 250,
@@ -277,17 +277,17 @@ mod tests {
             maker_viewing_pk: *sample_viewing_pk(9).as_bytes(),
             expiry: 1_700_000_000,
             taker_pk_fe: [11u8; 32],
-            fill_mode,
+            take_mode,
         }
     }
 
     #[test]
-    fn data_hash_binds_fill_mode() {
-        let derived = sample_terms(FILL_MODE_DERIVED).data_hash().unwrap();
-        let verifiable = sample_terms(FILL_MODE_VERIFIABLE).data_hash().unwrap();
+    fn data_hash_binds_take_mode() {
+        let derived = sample_terms(TAKE_MODE_DERIVED).data_hash().unwrap();
+        let verifiable = sample_terms(TAKE_MODE_VERIFIABLE).data_hash().unwrap();
         assert_ne!(
             derived, verifiable,
-            "escrow dataHash must distinguish the authorized fill instruction, so an escrow created for one fill cannot be settled by the other"
+            "escrow dataHash must distinguish the authorized take instruction, so an escrow created for one take cannot be settled by the other"
         );
     }
 }

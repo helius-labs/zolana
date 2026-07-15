@@ -23,10 +23,10 @@ use swap_prover::{preload, CircuitId};
 use swap_sdk::{
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
-        create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
-        fill::{Fill, FillProofInputParams},
-        fill_verifiable_encryption::{
-            FillVerifiableEncryption, FillVerifiableEncryptionProofInputParams,
+        make::{Make, MakeProofInputParams, OrderMarker, SppTxHashes},
+        take::{Take, TakeProofInputParams},
+        take_verifiable_encryption::{
+            TakeVerifiableEncryption, TakeVerifiableEncryptionProofInputParams,
         },
     },
     prover::SwapProverClient,
@@ -346,7 +346,7 @@ fn bench_cu_swap() {
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Confidential Swap -- CU Benchmark".into(),
         description:
-            "Compute unit profiling for the confidential swap create/fill/fill_verifiable_encryption/cancel \
+            "Compute unit profiling for the confidential swap make/take/take_verifiable_encryption/cancel \
              instructions, replayed under mollusk. The shielded-pool tree account is built directly (the \
              program's `create_tree` init plus the input utxo hashes appended), and each \
              instruction hashes its public input, verifies its own Groth16 proof, then CPIs SPP \
@@ -365,20 +365,20 @@ fn bench_cu_swap() {
     });
 
     start_prover();
-    preload(CircuitId::Create).expect("preload create keys");
-    preload(CircuitId::Fill).expect("preload fill keys");
-    preload(CircuitId::FillVerifiableEncryption).expect("preload fill_verifiable_encryption keys");
+    preload(CircuitId::Make).expect("preload make keys");
+    preload(CircuitId::Take).expect("preload take keys");
+    preload(CircuitId::TakeVerifiableEncryption).expect("preload take_verifiable_encryption keys");
     preload(CircuitId::Cancel).expect("preload cancel keys");
 
-    bench_create(&mut mollusk, &spp_id, &mut bench);
-    bench_fill_derived(&mut mollusk, &spp_id, &mut bench);
-    bench_fill(&mut mollusk, &spp_id, &mut bench);
+    bench_make(&mut mollusk, &spp_id, &mut bench);
+    bench_take_derived(&mut mollusk, &spp_id, &mut bench);
+    bench_take(&mut mollusk, &spp_id, &mut bench);
     bench_cancel(&mut mollusk, &spp_id, &mut bench);
 
     bench.generate().expect("write BENCHMARK.md");
 }
 
-fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
+fn bench_make(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const INPUT_AMOUNT: u64 = 1_000_000;
     const SOURCE_AMOUNT: u64 = 400_000;
     const EXPIRY: u64 = 1_900_000_000;
@@ -405,7 +405,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         destination: maker.shielded_address().expect("maker address"),
         taker: Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
         expiry: EXPIRY,
-        fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
+        take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
     };
     let escrow = OrderUtxo {
         terms,
@@ -443,14 +443,14 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     .expect("marker message");
 
     let transaction_viewing_key =
-        get_transaction_viewing_key(&maker, &input_utxos).expect("create transaction viewing key");
+        get_transaction_viewing_key(&maker, &input_utxos).expect("make transaction viewing key");
 
     let encoded = encrypt_transaction_data(
         &[change.clone(), escrow_output_utxo],
         &assets,
         &transaction_viewing_key,
     )
-    .expect("encode create slots");
+    .expect("encode make slots");
 
     let external_data = ExternalData::new(
         *transaction_viewing_key.pubkey().as_bytes(),
@@ -485,7 +485,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         root_index,
     );
 
-    let create_inputs = CreateSwapProofInputParams {
+    let make_inputs = MakeProofInputParams {
         escrow,
         change,
         spp_tx_hashes: SppTxHashes::new(&spp_proof_inputs).expect("spp tx hashes"),
@@ -495,23 +495,23 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
-    let create_result = swap_prover_client
-        .prove_create_swap(
-            &create_inputs
+    let make_result = swap_prover_client
+        .prove_make(
+            &make_inputs
                 .to_proof_inputs()
-                .expect("create proof inputs"),
+                .expect("make proof inputs"),
         )
-        .expect("swap create prove");
+        .expect("swap make prove");
     let swap_dur = t1.elapsed();
 
-    let ix = CreateSwap {
+    let ix = Make {
         payer: payer.pubkey(),
         tree,
-        create_swap_proof: create_result.into(),
+        make_proof: make_result.into(),
         spp_proof: transact,
     }
     .instruction()
-    .expect("create swap instruction");
+    .expect("make instruction");
 
     let fixtures = vec![
         (tree, tree_account),
@@ -524,14 +524,14 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let entries = take_profiling_entries();
     assert!(
         !entries.is_empty(),
-        "no profiling entries for 'create swap'"
+        "no profiling entries for 'make'"
     );
-    bench.add_from_entries("create swap", entries);
-    bench.add_table("create swap", proving_time_table(spp_dur, swap_dur));
-    bench.add_table("create swap", tx_size_table(&ix, &payer.pubkey()));
+    bench.add_from_entries("make", entries);
+    bench.add_table("make", proving_time_table(spp_dur, swap_dur));
+    bench.add_table("make", tx_size_table(&ix, &payer.pubkey()));
 }
 
-fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
+fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const DESTINATION_AMOUNT: u64 = 250;
     const EXPIRY: u64 = 1_900_000_000;
@@ -549,7 +549,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         destination: maker_recipient,
         taker: Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
         expiry: EXPIRY,
-        fill_mode: swap_prover::FILL_MODE_DERIVED,
+        take_mode: swap_prover::TAKE_MODE_DERIVED,
     };
     let escrow = OrderUtxo {
         terms,
@@ -583,14 +583,14 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let assets = AssetRegistry::default();
     let input_utxos = vec![escrow_input, taker_spend];
     let transaction_viewing_key =
-        get_transaction_viewing_key(&taker, &input_utxos).expect("fill transaction viewing key");
+        get_transaction_viewing_key(&taker, &input_utxos).expect("take transaction viewing key");
 
     let encoded = encrypt_transaction_data(
         &[source_output.clone(), destination_output.clone()],
         &assets,
         &transaction_viewing_key,
     )
-    .expect("encode fill slots");
+    .expect("encode take slots");
 
     let mut external_data = ExternalData::new(
         *transaction_viewing_key.pubkey().as_bytes(),
@@ -626,7 +626,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         root_index,
     );
 
-    let fill_shared = FillProofInputParams {
+    let take_shared = TakeProofInputParams {
         escrow,
         taker_in,
         source_output,
@@ -641,19 +641,19 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
-    let fill_result = swap_prover_client
-        .prove_fill(&fill_shared.to_proof_inputs().expect("fill proof inputs"))
-        .expect("swap fill prove");
+    let take_result = swap_prover_client
+        .prove_take(&take_shared.to_proof_inputs().expect("take proof inputs"))
+        .expect("swap take prove");
     let swap_dur = t1.elapsed();
 
-    let ix = Fill {
+    let ix = Take {
         payer: taker_payer.pubkey(),
         tree,
-        fill_proof: fill_result.into(),
+        take_proof: take_result.into(),
         spp_proof: transact,
     }
     .instruction()
-    .expect("fill instruction");
+    .expect("take instruction");
 
     let fixtures = vec![
         (tree, tree_account),
@@ -664,13 +664,13 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
-    assert!(!entries.is_empty(), "no profiling entries for 'fill'");
-    bench.add_from_entries("fill", entries);
-    bench.add_table("fill", proving_time_table(spp_dur, swap_dur));
-    bench.add_table("fill", tx_size_table(&ix, &taker_payer.pubkey()));
+    assert!(!entries.is_empty(), "no profiling entries for 'take'");
+    bench.add_from_entries("take", entries);
+    bench.add_table("take", proving_time_table(spp_dur, swap_dur));
+    bench.add_table("take", tx_size_table(&ix, &taker_payer.pubkey()));
 }
 
-fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
+fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const DESTINATION_AMOUNT: u64 = 250;
     const EXPIRY: u64 = 1_900_000_000;
@@ -688,7 +688,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         destination: maker_recipient,
         taker: Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
         expiry: EXPIRY,
-        fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
+        take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
     };
     let escrow = OrderUtxo {
         terms,
@@ -729,15 +729,15 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         .expect("maker view tag");
     let input_utxos = vec![escrow_input, taker_spend];
     let transaction_viewing_key =
-        get_transaction_viewing_key(&taker, &input_utxos).expect("fill transaction viewing key");
+        get_transaction_viewing_key(&taker, &input_utxos).expect("take transaction viewing key");
 
     let mut encoded = encrypt_transaction_data(
         std::slice::from_ref(&source_output),
         &assets,
         &transaction_viewing_key,
     )
-    .expect("encode fill source slot");
-    let destination_utxo_hash = destination_output.hash().expect("fill output hash");
+    .expect("encode take source slot");
+    let destination_utxo_hash = destination_output.hash().expect("take output hash");
     encoded.outputs.push(TransactOutput {
         utxo_hash: destination_utxo_hash,
         owner_tag: OwnerTag::Inline(destination_view_tag),
@@ -780,7 +780,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         root_index,
     );
 
-    let fill_shared = FillVerifiableEncryptionProofInputParams {
+    let take_shared = TakeVerifiableEncryptionProofInputParams {
         escrow,
         taker_in,
         source_output,
@@ -795,21 +795,21 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
-    let fill_result = swap_prover_client
-        .prove_fill_verifiable_encryption(
-            &fill_shared.to_proof_inputs().expect("fill proof inputs"),
+    let take_result = swap_prover_client
+        .prove_take_verifiable_encryption(
+            &take_shared.to_proof_inputs().expect("take proof inputs"),
         )
-        .expect("swap fill prove");
+        .expect("swap take prove");
     let swap_dur = t1.elapsed();
 
-    let ix = FillVerifiableEncryption {
+    let ix = TakeVerifiableEncryption {
         payer: taker_payer.pubkey(),
         tree,
-        fill_proof: fill_result.into(),
+        take_proof: take_result.into(),
         spp_proof: transact,
     }
     .instruction()
-    .expect("fill_verifiable_encryption instruction");
+    .expect("take_verifiable_encryption instruction");
 
     let fixtures = vec![
         (tree, tree_account),
@@ -822,15 +822,15 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let entries = take_profiling_entries();
     assert!(
         !entries.is_empty(),
-        "no profiling entries for 'fill_verifiable_encryption'"
+        "no profiling entries for 'take_verifiable_encryption'"
     );
-    bench.add_from_entries("fill_verifiable_encryption", entries);
+    bench.add_from_entries("take_verifiable_encryption", entries);
     bench.add_table(
-        "fill_verifiable_encryption",
+        "take_verifiable_encryption",
         proving_time_table(spp_dur, swap_dur),
     );
     bench.add_table(
-        "fill_verifiable_encryption",
+        "take_verifiable_encryption",
         tx_size_table(&ix, &taker_payer.pubkey()),
     );
 }
@@ -855,7 +855,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         destination: maker_recipient,
         taker: Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
         expiry: ORDER_EXPIRY,
-        fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
+        take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
     };
     let escrow = OrderUtxo {
         terms,

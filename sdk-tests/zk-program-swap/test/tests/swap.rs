@@ -7,8 +7,8 @@ use shared::{send_v0_with_lookup_table, setup, TestEnv, DESTINATION_AMOUNT, SOUR
 use swap_sdk::{
     index::index_taker,
     instructions::{
-        create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
-        fill::{Fill, FillProofInputParams},
+        make::{Make, MakeProofInputParams, OrderMarker, SppTxHashes},
+        take::{Take, TakeProofInputParams},
     },
     prover::SwapProverClient,
     shared::input_sum,
@@ -29,29 +29,29 @@ use zolana_transaction::{
 
 const EXPIRY: u64 = 2_000_000_000;
 
-// Confidential SOL<->SPL swap on the shielded pool -- create then derived fill --
+// Confidential SOL<->SPL swap on the shielded pool -- make then derived take --
 // driven against a real localnet (validator + Photon indexer + prover) that
 // `setup()` starts, including registering an SPL asset with the pool.
 //
 // The maker escrows an SPL token and wants SOL; the taker pays SOL and receives the
-// SPL. Destination is SOL, so the derived fill rail applies; the SPL source stays
+// SPL. Destination is SOL, so the derived take rail applies; the SPL source stays
 // in shielded UTXOs (the SPP transact is asset-generic for a purely-shielded
-// spend, and the create/fill flows denominate change in the escrow asset).
+// spend, and the make/take flows denominate change in the escrow asset).
 //
 // Flow:
 //   1. Fund (in setup): maker shields 1.0 SPL, taker shields 0.25 SOL; each wallet
 //      syncs from the indexer to discover and decrypt its own note.
-//   2. Create: maker spends its 1.0 SPL UTXO -> escrow 0.4 SPL (taker-owned, held
+//   2. Make: maker spends its 1.0 SPL UTXO -> escrow 0.4 SPL (taker-owned, held
 //      under the escrow-authority PDA), marker (0-value taker-owned discovery
-//      note), change 0.6 SPL (back to maker). ZK create proof, v0 tx via ALT.
-//   3. Fill (derived): taker spends escrow (0.4 SPL) + its own 0.25 SOL UTXO ->
+//      note), change 0.6 SPL (back to maker). ZK make proof, v0 tx via ALT.
+//   3. Take (derived): taker spends escrow (0.4 SPL) + its own 0.25 SOL UTXO ->
 //      source_output 0.4 SPL (to taker), destination_output 0.25 SOL (to maker).
-//      ZK fill proof, v0 tx.
-//   4. Assert both fill outputs are indexed.
+//      ZK take proof, v0 tx.
+//   4. Assert both take outputs are indexed.
 //
 // Net: maker 1.0 SPL -> 0.6 SPL + 0.25 SOL; taker 0.25 SOL -> 0.4 SPL.
 #[test]
-fn create_and_fill_swap_inline() -> Result<()> {
+fn make_and_take_swap_inline() -> Result<()> {
     let TestEnv {
         rpc,
         indexer,
@@ -67,7 +67,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
 
         // 1. Set order terms.
         let taker_address = taker.keypair.shielded_address()?;
-        // The taker's ed25519 authorization identity: the fill's taker input UTXO
+        // The taker's ed25519 authorization identity: the take's taker input UTXO
         // owner must match the order-committed taker.
         let taker_authorization_address = taker_address
             .solana_address()
@@ -80,7 +80,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
             destination: maker.keypair.shielded_address()?,
             taker: taker_authorization_address,
             expiry: EXPIRY,
-            fill_mode: swap_prover::FILL_MODE_DERIVED,
+            take_mode: swap_prover::TAKE_MODE_DERIVED,
         };
 
         let maker_address = maker.keypair.shielded_address()?;
@@ -152,27 +152,27 @@ fn create_and_fill_swap_inline() -> Result<()> {
         // 5. create spp proof.
         let spp_proof = indexer
             .prove_transact(tree, spp_proof_inputs)
-            .map_err(|e| anyhow!("create transact proof: {e:?}"))?;
+            .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
-        let create_swap_proof_inputs = CreateSwapProofInputParams {
+        let make_proof_inputs = MakeProofInputParams {
             escrow,
             change,
             spp_tx_hashes,
         };
 
-        let create_swap_proof = swap_prover_client
-            .prove_create_swap(&create_swap_proof_inputs.to_proof_inputs()?)
-            .map_err(|e| anyhow!("create proof: {e:?}"))?;
+        let make_proof = swap_prover_client
+            .prove_make(&make_proof_inputs.to_proof_inputs()?)
+            .map_err(|e| anyhow!("make proof: {e:?}"))?;
 
-        let create_swap_ix = CreateSwap {
+        let make_ix = Make {
             payer: maker_address.solana_address()?,
             tree,
-            create_swap_proof: create_swap_proof.into(),
+            make_proof: make_proof.into(),
             spp_proof,
         }
         .instruction()?;
 
-        send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, create_swap_ix)?;
+        send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, make_ix)?;
     }
 
     {
@@ -234,45 +234,45 @@ fn create_and_fill_swap_inline() -> Result<()> {
             vec![],
         );
         external_data.expiry_unix_ts = terms.expiry;
-        let fill_spp_proof_inputs = SppProofInputs::new(
+        let take_spp_proof_inputs = SppProofInputs::new(
             inputs,
             encoded.output_utxos,
             external_data,
             taker_address.solana_address()?,
         );
 
-        let fill_inputs = FillProofInputParams {
+        let take_inputs = TakeProofInputParams {
             escrow,
             taker_in,
             source_output,
             destination_output,
-            external_data_hash: fill_spp_proof_inputs
+            external_data_hash: take_spp_proof_inputs
                 .external_data
                 .hash()
-                .map_err(|e| anyhow!("fill external data hash: {e:?}"))?,
+                .map_err(|e| anyhow!("take external data hash: {e:?}"))?,
         };
 
         let spp_proof = indexer
-            .prove_transact(tree, fill_spp_proof_inputs)
-            .map_err(|e| anyhow!("fill transact proof: {e:?}"))?;
+            .prove_transact(tree, take_spp_proof_inputs)
+            .map_err(|e| anyhow!("take transact proof: {e:?}"))?;
 
-        let fill_proof = swap_prover_client
-            .prove_fill(&fill_inputs.to_proof_inputs()?)
-            .map_err(|e| anyhow!("fill proof: {e:?}"))?;
+        let take_proof = swap_prover_client
+            .prove_take(&take_inputs.to_proof_inputs()?)
+            .map_err(|e| anyhow!("take proof: {e:?}"))?;
 
-        let fill_ix = Fill {
+        let take_ix = Take {
             payer: taker_address.solana_address()?,
             tree,
-            fill_proof: fill_proof.into(),
+            take_proof: take_proof.into(),
             spp_proof,
         }
         .instruction()?;
 
-        send_v0_with_lookup_table(&rpc, &taker.keypair.to_solana_keypair()?, fill_ix)?;
+        send_v0_with_lookup_table(&rpc, &taker.keypair.to_solana_keypair()?, take_ix)?;
 
         indexer
             .get_merkle_proofs(tree, vec![source_output_hash, destination_output_hash])
-            .map_err(|e| anyhow!("fill outputs index: {e}"))?;
+            .map_err(|e| anyhow!("take outputs index: {e}"))?;
     }
     Ok(())
 }

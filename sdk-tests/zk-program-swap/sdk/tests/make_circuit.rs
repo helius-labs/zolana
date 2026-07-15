@@ -6,12 +6,12 @@ use groth16_solana::{
 use solana_address::Address;
 use swap_program::{
     instructions::{
-        create_swap::CreateProof,
+        make::MakeProof,
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
-    verifying_keys::create::VERIFYINGKEY,
+    verifying_keys::make::VERIFYINGKEY,
 };
-use swap_prover::{CircuitId, CreateProofInputs, OrderTermsProofInput, FILL_MODE_DERIVED};
+use swap_prover::{CircuitId, MakeProofInputs, OrderTermsProofInput, TAKE_MODE_DERIVED};
 use swap_sdk::state::DataHash;
 use zolana_keypair::{hash::hash_field, ViewingKey};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
@@ -20,13 +20,13 @@ mod shared;
 use shared::escrow_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/create")
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/make")
 }
 
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        swap_prover::setup(CircuitId::Create, &dir).expect("setup failed");
+        swap_prover::setup(CircuitId::Make, &dir).expect("setup failed");
     }
 }
 
@@ -56,11 +56,11 @@ fn sample_order() -> OrderTermsProofInput {
         maker_viewing_pk,
         expiry: 1_700_000_000,
         taker_pk_fe: fe(123),
-        fill_mode: FILL_MODE_DERIVED,
+        take_mode: TAKE_MODE_DERIVED,
     }
 }
 
-fn build_inputs(destination_amount: u64, change_amount: u64) -> CreateProofInputs {
+fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs {
     let mut order = sample_order();
     order.destination_amount = destination_amount;
     let source_mint = Address::new_from_array([1u8; 32]);
@@ -93,7 +93,7 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> CreateProofInput
     )
     .hash()
     .expect("private tx hash");
-    CreateProofInputs {
+    MakeProofInputs {
         private_tx_hash,
         order,
         escrow,
@@ -103,7 +103,7 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> CreateProofInput
     }
 }
 
-fn sample_inputs() -> CreateProofInputs {
+fn sample_inputs() -> MakeProofInputs {
     build_inputs(250, 750)
 }
 
@@ -146,7 +146,7 @@ fn program_vk_has_no_commitment() {
     assert_eq!(VERIFYINGKEY.nr_pubinputs, 1);
     assert!(
         VERIFYINGKEY.vk_commitment_g2.is_none(),
-        "create circuit is standard Groth16: no BSB22 commitment"
+        "make circuit is standard Groth16: no BSB22 commitment"
     );
     assert_eq!(
         VERIFYINGKEY.vk_ic.len(),
@@ -156,7 +156,7 @@ fn program_vk_has_no_commitment() {
 }
 
 #[test]
-fn create_prove_verify() {
+fn make_prove_verify() {
     ensure_keys();
     let vk = generated_vk();
 
@@ -174,11 +174,11 @@ fn create_prove_verify() {
             &proof.proof_c,
             inputs.private_tx_hash,
         ),
-        "groth16 proof must verify against the create verifying key with private_tx_hash as the sole public input"
+        "groth16 proof must verify against the make verifying key with private_tx_hash as the sole public input"
     );
 
     if keys_in_sync(&vk) {
-        let proof: CreateProof = proof.into();
+        let proof: MakeProof = proof.into();
         verify_groth16(
             CompressedGroth16Proof {
                 a: &proof.proof_a,
@@ -194,7 +194,7 @@ fn create_prove_verify() {
 }
 
 #[test]
-fn create_rejects_tampered_public_input() {
+fn make_rejects_tampered_public_input() {
     ensure_keys();
     let vk = generated_vk();
 
@@ -217,7 +217,7 @@ fn create_rejects_tampered_public_input() {
 }
 
 #[test]
-fn create_rejects_tampered_order_term() {
+fn make_rejects_tampered_order_term() {
     ensure_keys();
 
     let inputs = build_inputs(0, 750);
@@ -229,7 +229,7 @@ fn create_rejects_tampered_order_term() {
 }
 
 #[test]
-fn create_zero_change_proves() {
+fn make_zero_change_proves() {
     ensure_keys();
     let vk = generated_vk();
 

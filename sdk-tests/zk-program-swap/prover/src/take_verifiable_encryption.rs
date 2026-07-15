@@ -9,10 +9,10 @@ use crate::{
     CircuitId, OrderTermsProofInput,
 };
 
-pub const FILL_ENC_KDF_DOMAIN: u64 = 0x5357_4150_4649_4c4c;
+pub const TAKE_ENC_KDF_DOMAIN: u64 = 0x5357_4150_5441_4b45;
 
 #[derive(Debug, Clone)]
-pub struct FillVerifiableEncryptionProofInputs {
+pub struct TakeVerifiableEncryptionProofInputs {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub order: OrderTermsProofInput,
@@ -24,7 +24,7 @@ pub struct FillVerifiableEncryptionProofInputs {
     pub external_data_hash: [u8; 32],
 }
 
-impl FillVerifiableEncryptionProofInputs {
+impl TakeVerifiableEncryptionProofInputs {
     fn witness(&self) -> ffi::WitnessMap {
         let scalars: [(&str, [u8; 32]); 4] = [
             ("Public_PublicInputHash", self.public_input_hash),
@@ -58,7 +58,7 @@ impl FillVerifiableEncryptionProofInputs {
 
     pub fn prove(&self) -> Result<OrderProof, ProofError> {
         negate_and_compress_proof_with_commitment(&ffi::prove(
-            CircuitId::FillVerifiableEncryption,
+            CircuitId::TakeVerifiableEncryption,
             &self.witness(),
         )?)
     }

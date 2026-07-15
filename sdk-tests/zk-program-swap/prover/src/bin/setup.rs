@@ -26,19 +26,19 @@ fn main() {
     }
 
     let circuit = match circuit_arg.to_lowercase().as_str() {
-        "create" => CircuitId::Create,
+        "make" => CircuitId::Make,
         "cancel" => CircuitId::Cancel,
-        "fill" => CircuitId::Fill,
-        "fill_verifiable_encryption" => CircuitId::FillVerifiableEncryption,
+        "take" => CircuitId::Take,
+        "take_verifiable_encryption" => CircuitId::TakeVerifiableEncryption,
         other => usage_and_exit(&format!("unknown circuit {other:?}")),
     };
 
     let rust_vk_path = rust_vk_path.unwrap_or_else(|| {
         let circuit_name = match circuit {
-            CircuitId::Create => "create",
+            CircuitId::Make => "make",
             CircuitId::Cancel => "cancel",
-            CircuitId::Fill => "fill",
-            CircuitId::FillVerifiableEncryption => "fill_verifiable_encryption",
+            CircuitId::Take => "take",
+            CircuitId::TakeVerifiableEncryption => "take_verifiable_encryption",
         };
         build_dir.join(format!("{circuit_name}_verifying_key.rs"))
     });
@@ -77,7 +77,7 @@ fn main() {
 fn usage_and_exit(msg: &str) -> ! {
     eprintln!("error: {msg}");
     eprintln!("usage: swap-prover-setup <circuit> <build-dir> [--rust-vk <path>]");
-    eprintln!("  circuit: create | cancel | fill | fill_verifiable_encryption");
+    eprintln!("  circuit: make | cancel | take | take_verifiable_encryption");
     eprintln!("  build-dir: where pk.bin / vk.bin are written");
     eprintln!("  --rust-vk: optional override for the generated Rust source path");
     std::process::exit(2);

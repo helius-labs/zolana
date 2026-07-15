@@ -7,9 +7,7 @@ use pinocchio::{
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 use zolana_hasher::{Hasher, Poseidon};
-use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData, merge_utils::ciphertext_hash,
-};
+use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
     error::SwapError,
@@ -20,34 +18,28 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct FillVerifiableEncryptionProof {
+pub struct TakeProof {
     pub proof_a: [u8; 32],
     pub proof_b: [u8; 64],
     pub proof_c: [u8; 32],
-    pub commitment: [u8; 32],
-    pub commitment_pok: [u8; 32],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct FillVerifiableEncryptionIxData {
-    pub proof: FillVerifiableEncryptionProof,
+pub struct TakeIxData {
+    pub proof: TakeProof,
     pub transact: TransactIxData,
 }
 
-pub struct FillVerifiableEncryptionPublicInput<'a> {
+pub struct TakePublicInput<'a> {
     pub private_tx_hash: &'a [u8; 32],
     pub expiry: u64,
-    pub destination_ciphertext: &'a [u8],
 }
 
-impl FillVerifiableEncryptionPublicInput<'_> {
+impl TakePublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        let ct_hash = ciphertext_hash(self.destination_ciphertext)
-            .map_err(|_| ProgramError::from(SwapError::HashingFailed))?;
         Poseidon::hashv(&[
             self.private_tx_hash.as_slice(),
             u64_to_field(self.expiry).as_slice(),
-            ct_hash.as_slice(),
         ])
         .map_err(|_| SwapError::HashingFailed.into())
     }
@@ -55,39 +47,29 @@ impl FillVerifiableEncryptionPublicInput<'_> {
 
 #[inline(never)]
 #[profile]
-pub fn process_fill_verifiable_encryption(
-    accounts: &mut [AccountView],
-    data: &[u8],
-) -> ProgramResult {
+pub fn process_take(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     let _payer = iter.next_signer_mut("payer")?;
 
-    let FillVerifiableEncryptionIxData { proof, transact } =
+    let TakeIxData { proof, transact } =
         wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;
 
     let clock = Clock::get()?;
     check_within_window(clock.unix_timestamp, transact.expiry_unix_ts)?;
-
-    let destination_ciphertext = transact
-        .outputs
-        .last()
-        .and_then(|output| output.data.as_deref())
-        .ok_or(SwapError::InvalidInstructionData)?;
 
     verify_groth16(
         CompressedGroth16Proof {
             a: &proof.proof_a,
             b: &proof.proof_b,
             c: &proof.proof_c,
-            commitment: Some((&proof.commitment, &proof.commitment_pok)),
+            commitment: None,
         },
-        FillVerifiableEncryptionPublicInput {
+        TakePublicInput {
             private_tx_hash: &transact.private_tx_hash,
             expiry: transact.expiry_unix_ts,
-            destination_ciphertext,
         }
         .hash()?,
-        &crate::verifying_keys::fill_verifiable_encryption::VERIFYINGKEY,
+        &crate::verifying_keys::take::VERIFYINGKEY,
     )?;
 
     let transact_bytes = transact

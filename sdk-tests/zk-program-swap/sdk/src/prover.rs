@@ -1,7 +1,7 @@
 use anyhow::Result;
 use swap_prover::{
-    CancelProofInputs, CreateProofInputs, FillProofInputs, FillVerifiableEncryptionProofInputs,
-    OrderProof,
+    CancelProofInputs, MakeProofInputs, OrderProof, TakeProofInputs,
+    TakeVerifiableEncryptionProofInputs,
 };
 
 use crate::err;
@@ -14,11 +14,11 @@ impl SwapProverClient {
         Self
     }
 
-    pub fn prove_create_swap(&self, inputs: &CreateProofInputs) -> Result<OrderProof> {
+    pub fn prove_make(&self, inputs: &MakeProofInputs) -> Result<OrderProof> {
         inputs.prove().map_err(err)
     }
 
-    pub fn prove_fill(&self, inputs: &FillProofInputs) -> Result<OrderProof> {
+    pub fn prove_take(&self, inputs: &TakeProofInputs) -> Result<OrderProof> {
         inputs.prove().map_err(err)
     }
 
@@ -26,9 +26,9 @@ impl SwapProverClient {
         inputs.prove().map_err(err)
     }
 
-    pub fn prove_fill_verifiable_encryption(
+    pub fn prove_take_verifiable_encryption(
         &self,
-        inputs: &FillVerifiableEncryptionProofInputs,
+        inputs: &TakeVerifiableEncryptionProofInputs,
     ) -> Result<OrderProof> {
         inputs.prove().map_err(err)
     }

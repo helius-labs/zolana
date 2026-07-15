@@ -4,10 +4,10 @@ fn main() {
     println!("cargo:rerun-if-changed=circuits/main.go");
     println!("cargo:rerun-if-changed=circuits/go.mod");
     println!("cargo:rerun-if-changed=circuits/go.sum");
-    println!("cargo:rerun-if-changed=circuits/create/create.go");
+    println!("cargo:rerun-if-changed=circuits/make/make.go");
     println!("cargo:rerun-if-changed=circuits/cancel/cancel.go");
-    println!("cargo:rerun-if-changed=circuits/fill/fill.go");
-    println!("cargo:rerun-if-changed=circuits/fill_verifiable_encryption/fill.go");
+    println!("cargo:rerun-if-changed=circuits/take/take.go");
+    println!("cargo:rerun-if-changed=circuits/take_verifiable_encryption/take.go");
     println!("cargo:rerun-if-changed=circuits/witness/witness.go");
     println!("cargo:rerun-if-changed=circuits/orderterms/orderterms.go");
 

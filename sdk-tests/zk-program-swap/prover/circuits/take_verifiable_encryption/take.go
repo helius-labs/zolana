@@ -1,8 +1,8 @@
-package fill_verifiable_encryption
+package take_verifiable_encryption
 
 import (
-	"circuits/fill"
 	"circuits/orderterms"
+	"circuits/take"
 
 	"github.com/consensys/gnark/frontend"
 
@@ -16,13 +16,13 @@ var kdfInfo = []byte("TSPP/merge")
 type Circuit struct {
 	Public PublicInputs
 
-	Core fill.Core
+	Core take.Core
 
 	TakerNullifierPk frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
-	api.AssertIsEqual(c.Core.Order.FillMode, orderterms.FillModeVerifiable)
+	api.AssertIsEqual(c.Core.Order.TakeMode, orderterms.TakeModeVerifiable)
 
 	takerOwnerHash := gadget.PoseidonHash(api, []frontend.Variable{c.Core.Order.TakerPkFe, c.TakerNullifierPk})
 	api.AssertIsEqual(c.Core.TakerIn.Owner, takerOwnerHash)
@@ -49,7 +49,7 @@ func (p PublicInputs) Check(api frontend.API, expiry frontend.Variable, ctHash f
 func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable {
 	sharedSecret := gadget.PoseidonHash(api, []frontend.Variable{
 		c.Core.Escrow.Blinding,
-		frontend.Variable(orderterms.FillEncKdfDomain),
+		frontend.Variable(orderterms.TakeEncKdfDomain),
 	})
 	aesGadget := aes.NewAESGadget(api)
 	key, nonce := ve.KeySchedule(api, sharedSecret, kdfInfoVars(), len(kdfInfo))

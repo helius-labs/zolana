@@ -11,7 +11,7 @@ use swap_program::{
     },
     verifying_keys::cancel::VERIFYINGKEY,
 };
-use swap_prover::{CancelProofInputs, CircuitId, OrderTermsProofInput, FILL_MODE_DERIVED};
+use swap_prover::{CancelProofInputs, CircuitId, OrderTermsProofInput, TAKE_MODE_DERIVED};
 use swap_sdk::state::DataHash;
 use zolana_keypair::{
     hash::{hash_field, poseidon},
@@ -63,7 +63,7 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
         maker_viewing_pk,
         expiry: 1_700_000_000,
         taker_pk_fe: fe(123),
-        fill_mode: FILL_MODE_DERIVED,
+        take_mode: TAKE_MODE_DERIVED,
     };
     let source_mint = Address::new_from_array([1u8; 32]);
     let escrow = ProofInputUtxo::new(

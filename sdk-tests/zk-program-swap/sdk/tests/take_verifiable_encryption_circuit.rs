@@ -6,19 +6,19 @@ use groth16_solana::{
 use solana_address::Address;
 use swap_program::{
     instructions::{
-        fill_verifiable_encryption::{
-            FillVerifiableEncryptionProof, FillVerifiableEncryptionPublicInput,
+        take_verifiable_encryption::{
+            TakeVerifiableEncryptionProof, TakeVerifiableEncryptionPublicInput,
         },
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
-    verifying_keys::fill_verifiable_encryption::VERIFYINGKEY,
+    verifying_keys::take_verifiable_encryption::VERIFYINGKEY,
 };
 use swap_prover::{
-    CircuitId, FillVerifiableEncryptionProofInputs, OrderProof, OrderTermsProofInput,
-    FILL_MODE_VERIFIABLE,
+    CircuitId, OrderProof, OrderTermsProofInput, TakeVerifiableEncryptionProofInputs,
+    TAKE_MODE_VERIFIABLE,
 };
 use swap_sdk::{
-    instructions::fill_verifiable_encryption::{
+    instructions::take_verifiable_encryption::{
         decrypt_destination, destination_ciphertext_with_hash,
     },
     state::DataHash,
@@ -35,13 +35,13 @@ use shared::escrow_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../build/gnark/fill_verifiable_encryption")
+        .join("../build/gnark/take_verifiable_encryption")
 }
 
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        swap_prover::setup(CircuitId::FillVerifiableEncryption, &dir).expect("setup failed");
+        swap_prover::setup(CircuitId::TakeVerifiableEncryption, &dir).expect("setup failed");
     }
 }
 
@@ -71,7 +71,7 @@ fn sample_order() -> OrderTermsProofInput {
         maker_viewing_pk,
         expiry: 1_700_000_000,
         taker_pk_fe: fe(123),
-        fill_mode: FILL_MODE_VERIFIABLE,
+        take_mode: TAKE_MODE_VERIFIABLE,
     }
 }
 
@@ -86,7 +86,7 @@ struct SampleOverrides {
     destination_amount: Option<u64>,
 }
 
-fn build_inputs(overrides: SampleOverrides) -> FillVerifiableEncryptionProofInputs {
+fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInputs {
     let order = sample_order();
     let source_mint = Address::new_from_array([1u8; 32]);
     let destination_mint = Address::new_from_array([2u8; 32]);
@@ -138,14 +138,14 @@ fn build_inputs(overrides: SampleOverrides) -> FillVerifiableEncryptionProofInpu
     .hash()
     .expect("private tx hash");
     let (ciphertext, _) = sample_ciphertext(&order);
-    let public_input_hash = FillVerifiableEncryptionPublicInput {
+    let public_input_hash = TakeVerifiableEncryptionPublicInput {
         private_tx_hash: &private_tx_hash,
         expiry: order.expiry,
         destination_ciphertext: &ciphertext,
     }
     .hash()
     .expect("public input hash");
-    FillVerifiableEncryptionProofInputs {
+    TakeVerifiableEncryptionProofInputs {
         public_input_hash,
         private_tx_hash,
         order,
@@ -168,7 +168,7 @@ fn sample_ciphertext(order: &OrderTermsProofInput) -> (Vec<u8>, [u8; 32]) {
     .expect("destination ciphertext")
 }
 
-fn sample_inputs() -> FillVerifiableEncryptionProofInputs {
+fn sample_inputs() -> TakeVerifiableEncryptionProofInputs {
     build_inputs(SampleOverrides::default())
 }
 
@@ -229,7 +229,7 @@ fn program_vk_has_bsb22_commitment() {
     assert_eq!(VERIFYINGKEY.nr_pubinputs, 1);
     assert!(
         VERIFYINGKEY.vk_commitment_g2.is_some(),
-        "fill circuit carries a BSB22 commitment"
+        "take circuit carries a BSB22 commitment"
     );
     assert_eq!(
         VERIFYINGKEY.vk_ic.len(),
@@ -239,7 +239,7 @@ fn program_vk_has_bsb22_commitment() {
 }
 
 #[test]
-fn fill_prove_verify_and_round_trip() {
+fn take_prove_verify_and_round_trip() {
     ensure_keys();
     let vk = generated_vk();
 
@@ -250,30 +250,30 @@ fn fill_prove_verify_and_round_trip() {
     assert!(!proof_a_zero, "proof_a must not be all zero");
     assert!(
         proof.commitment.is_some(),
-        "fill proof must carry a BSB22 commitment"
+        "take proof must carry a BSB22 commitment"
     );
 
     assert!(
         verify_with_generated_vk(&vk, &proof, inputs.public_input_hash),
-        "groth16 proof must verify with new_with_commitment against the fill verifying key"
+        "groth16 proof must verify with new_with_commitment against the take verifying key"
     );
 
     let (ciphertext, ct_hash) = sample_ciphertext(&inputs.order);
     assert_eq!(
-        ciphertext_hash(&ciphertext).expect("program-side fill ciphertext hash"),
+        ciphertext_hash(&ciphertext).expect("program-side take ciphertext hash"),
         ct_hash,
         "program-side ctHash must match the sdk's destination ciphertext hash"
     );
 
     if keys_in_sync(&vk) {
-        let public_input_hash = FillVerifiableEncryptionPublicInput {
+        let public_input_hash = TakeVerifiableEncryptionPublicInput {
             private_tx_hash: &inputs.private_tx_hash,
             expiry: inputs.order.expiry,
             destination_ciphertext: &ciphertext,
         }
         .hash()
-        .expect("program fill public input hash");
-        let proof: FillVerifiableEncryptionProof = proof.into();
+        .expect("program take public input hash");
+        let proof: TakeVerifiableEncryptionProof = proof.into();
         verify_groth16(
             CompressedGroth16Proof {
                 a: &proof.proof_a,
@@ -284,7 +284,7 @@ fn fill_prove_verify_and_round_trip() {
             public_input_hash,
             &VERIFYINGKEY,
         )
-        .expect("program fill verify must accept a valid proof");
+        .expect("program take verify must accept a valid proof");
     }
 
     let (asset, amount) =
@@ -300,7 +300,7 @@ fn fill_prove_verify_and_round_trip() {
 }
 
 #[test]
-fn fill_rejects_tampered_public_input() {
+fn take_rejects_tampered_public_input() {
     ensure_keys();
     let vk = generated_vk();
 
@@ -317,7 +317,7 @@ fn fill_rejects_tampered_public_input() {
 }
 
 #[test]
-fn fill_rejects_wrong_taker_address() {
+fn take_rejects_wrong_taker_address() {
     ensure_keys();
 
     let order = sample_order();
@@ -335,7 +335,7 @@ fn fill_rejects_wrong_taker_address() {
 }
 
 #[test]
-fn fill_rejects_wrong_destination_output_owner() {
+fn take_rejects_wrong_destination_output_owner() {
     ensure_keys();
 
     let order = sample_order();
@@ -353,7 +353,7 @@ fn fill_rejects_wrong_destination_output_owner() {
 }
 
 #[test]
-fn fill_rejects_wrong_destination_output_amount() {
+fn take_rejects_wrong_destination_output_amount() {
     ensure_keys();
 
     let order = sample_order();

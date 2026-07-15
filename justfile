@@ -149,13 +149,13 @@ bench-shielded-pool: build-programs
 # published keys are the only set matching the committed Rust verifying keys;
 # regenerating locally (regen-swap-keys) requires publishing a new release and
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
-swap-keys-tag := "swap-keys-v1"
+swap-keys-tag := "swap-keys-v2"
 
 ensure-swap-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     base="sdk-tests/zk-program-swap"
-    for c in create fill cancel fill_verifiable_encryption; do
+    for c in make take cancel take_verifiable_encryption; do
         dir="$base/build/gnark/$c"
         for kind in pk vk; do
             if [ ! -f "$dir/$kind.bin" ]; then
@@ -181,13 +181,13 @@ regen-swap-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     base="sdk-tests/zk-program-swap"
-    for c in create fill cancel fill_verifiable_encryption; do
+    for c in make take cancel take_verifiable_encryption; do
         cargo run --release -p swap-prover --bin swap-prover-setup -- \
             "$c" "$base/build/gnark/$c" \
             --rust-vk "$base/program/src/verifying_keys/$c.rs"
     done
     : > "$base/swap-keys.CHECKSUM"
-    for c in create fill cancel fill_verifiable_encryption; do
+    for c in make take cancel take_verifiable_encryption; do
         for kind in pk vk; do
             shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
                 | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/swap-keys.CHECKSUM"

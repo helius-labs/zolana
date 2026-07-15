@@ -2,8 +2,8 @@ use swap_program::instructions::shared::u64_to_field;
 
 use crate::bytes_to_decimal_string;
 
-pub const FILL_MODE_DERIVED: u64 = 0;
-pub const FILL_MODE_VERIFIABLE: u64 = 1;
+pub const TAKE_MODE_DERIVED: u64 = 0;
+pub const TAKE_MODE_VERIFIABLE: u64 = 1;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OrderTermsProofInput {
@@ -13,7 +13,7 @@ pub struct OrderTermsProofInput {
     pub maker_viewing_pk: [u8; 33],
     pub expiry: u64,
     pub taker_pk_fe: [u8; 32],
-    pub fill_mode: u64,
+    pub take_mode: u64,
 }
 
 impl OrderTermsProofInput {
@@ -24,7 +24,7 @@ impl OrderTermsProofInput {
             ("MakerOwnerHash", self.maker_owner_hash),
             ("Expiry", u64_to_field(self.expiry)),
             ("TakerPkFe", self.taker_pk_fe),
-            ("FillMode", u64_to_field(self.fill_mode)),
+            ("TakeMode", u64_to_field(self.take_mode)),
         ];
         let mut entries: Vec<(String, Vec<String>)> = scalars
             .iter()

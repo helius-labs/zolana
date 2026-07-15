@@ -1,4 +1,4 @@
-package fill
+package take
 
 import (
 	"circuits/orderterms"
@@ -20,7 +20,7 @@ type Circuit struct {
 }
 
 func (c *Circuit) Define(api frontend.API) error {
-	api.AssertIsEqual(c.Core.Order.FillMode, orderterms.FillModeDerived)
+	api.AssertIsEqual(c.Core.Order.TakeMode, orderterms.TakeModeDerived)
 	api.AssertIsEqual(c.Core.DestinationOutput.Blinding, DeriveDestinationBlinding(api, c.Core.Escrow.Blinding))
 
 	c.Core.Check(api, c.Public.PrivateTxHash)

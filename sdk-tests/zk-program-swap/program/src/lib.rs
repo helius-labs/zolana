@@ -5,14 +5,14 @@ pub mod verifying_keys;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{
-    process_cancel, process_create_swap, process_fill, process_fill_verifiable_encryption,
+    process_cancel, process_make, process_take, process_take_verifiable_encryption,
 };
 
 pub mod tag {
-    pub const CREATE_SWAP: u8 = 2;
-    pub const FILL: u8 = 3;
+    pub const MAKE: u8 = 2;
+    pub const TAKE: u8 = 3;
     pub const CANCEL: u8 = 4;
-    pub const FILL_VERIFIABLE_ENCRYPTION: u8 = 5;
+    pub const TAKE_VERIFIABLE_ENCRYPTION: u8 = 5;
 }
 
 pub const ESCROW_AUTHORITY_PDA_SEED: &[u8] = b"escrow_authority";
@@ -38,10 +38,10 @@ pub fn process_instruction(
         .ok_or(ProgramError::InvalidInstructionData)?;
 
     match *ix_tag {
-        tag::CREATE_SWAP => process_create_swap(accounts, ix_data),
-        tag::FILL => process_fill(accounts, ix_data),
+        tag::MAKE => process_make(accounts, ix_data),
+        tag::TAKE => process_take(accounts, ix_data),
         tag::CANCEL => process_cancel(accounts, ix_data),
-        tag::FILL_VERIFIABLE_ENCRYPTION => process_fill_verifiable_encryption(accounts, ix_data),
+        tag::TAKE_VERIFIABLE_ENCRYPTION => process_take_verifiable_encryption(accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

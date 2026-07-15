@@ -33,17 +33,17 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	"circuits/cancel"
-	"circuits/create"
-	"circuits/fill"
-	"circuits/fill_verifiable_encryption"
+	makecircuit "circuits/make"
+	"circuits/take"
+	"circuits/take_verifiable_encryption"
 	"circuits/witness"
 )
 
 const (
-	CircuitCreate                   = 0
+	CircuitMake                     = 0
 	CircuitCancel                   = 1
-	CircuitFill                     = 2
-	CircuitFillVerifiableEncryption = 3
+	CircuitTake                     = 2
+	CircuitTakeVerifiableEncryption = 3
 )
 
 var (
@@ -70,14 +70,14 @@ func compileCircuit(id int) (constraint.ConstraintSystem, error) {
 	var circuit frontend.Circuit
 	var opts []frontend.CompileOption
 	switch id {
-	case CircuitCreate:
-		circuit = &create.Circuit{}
+	case CircuitMake:
+		circuit = &makecircuit.Circuit{}
 	case CircuitCancel:
 		circuit = &cancel.Circuit{}
-	case CircuitFill:
-		circuit = &fill.Circuit{}
-	case CircuitFillVerifiableEncryption:
-		circuit = &fill_verifiable_encryption.Circuit{}
+	case CircuitTake:
+		circuit = &take.Circuit{}
+	case CircuitTakeVerifiableEncryption:
+		circuit = &take_verifiable_encryption.Circuit{}
 		opts = append(opts, frontend.WithCompressThreshold(300))
 	default:
 		return nil, fmt.Errorf("unknown circuit id %d", id)
@@ -94,14 +94,14 @@ func compileCircuit(id int) (constraint.ConstraintSystem, error) {
 func assignFromWitness(id int, witnessValues map[string][]string) (frontend.Circuit, error) {
 	var circuit frontend.Circuit
 	switch id {
-	case CircuitCreate:
-		circuit = &create.Circuit{}
+	case CircuitMake:
+		circuit = &makecircuit.Circuit{}
 	case CircuitCancel:
 		circuit = &cancel.Circuit{}
-	case CircuitFill:
-		circuit = &fill.Circuit{}
-	case CircuitFillVerifiableEncryption:
-		circuit = &fill_verifiable_encryption.Circuit{}
+	case CircuitTake:
+		circuit = &take.Circuit{}
+	case CircuitTakeVerifiableEncryption:
+		circuit = &take_verifiable_encryption.Circuit{}
 	default:
 		return nil, fmt.Errorf("unknown circuit id %d", id)
 	}

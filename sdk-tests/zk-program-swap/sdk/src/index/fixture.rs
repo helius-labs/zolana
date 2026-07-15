@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use swap_prover::FILL_MODE_DERIVED;
+use swap_prover::TAKE_MODE_DERIVED;
 use zolana_keypair::{constants::BLINDING_LEN, P256Pubkey, ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{
     instructions::{
@@ -16,7 +16,7 @@ use zolana_transaction::{
 };
 
 use crate::{
-    instructions::create_swap::OrderMarker,
+    instructions::make::OrderMarker,
     shared::input_sum,
     state::{OrderTerms, OrderUtxo},
 };
@@ -82,7 +82,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
             .solana_address()
             .expect("taker solana address"),
         expiry: 2_000_000_000,
-        fill_mode: FILL_MODE_DERIVED,
+        take_mode: TAKE_MODE_DERIVED,
     };
     let escrow = OrderUtxo {
         terms,

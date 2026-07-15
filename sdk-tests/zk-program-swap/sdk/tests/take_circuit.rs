@@ -6,13 +6,13 @@ use groth16_solana::{
 use solana_address::Address;
 use swap_program::{
     instructions::{
-        fill::{FillProof, FillPublicInput},
+        take::{TakeProof, TakePublicInput},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
-    verifying_keys::fill::VERIFYINGKEY,
+    verifying_keys::take::VERIFYINGKEY,
 };
-use swap_prover::{CircuitId, FillProofInputs, OrderTermsProofInput, FILL_MODE_DERIVED};
-use swap_sdk::{instructions::fill::derive_destination_blinding, state::DataHash};
+use swap_prover::{CircuitId, OrderTermsProofInput, TakeProofInputs, TAKE_MODE_DERIVED};
+use swap_sdk::{instructions::take::derive_destination_blinding, state::DataHash};
 use zolana_keypair::{hash::hash_field, ViewingKey};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
@@ -20,13 +20,13 @@ mod shared;
 use shared::escrow_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/fill")
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/take")
 }
 
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        swap_prover::setup(CircuitId::Fill, &dir).expect("setup failed");
+        swap_prover::setup(CircuitId::Take, &dir).expect("setup failed");
     }
 }
 
@@ -47,7 +47,7 @@ fn blinding(byte: u8) -> Blinding {
     out
 }
 
-fn build_inputs(destination_output_blinding: Blinding) -> FillProofInputs {
+fn build_inputs(destination_output_blinding: Blinding) -> TakeProofInputs {
     let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
     let order = OrderTermsProofInput {
         destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
@@ -56,7 +56,7 @@ fn build_inputs(destination_output_blinding: Blinding) -> FillProofInputs {
         maker_viewing_pk,
         expiry: 1_700_000_000,
         taker_pk_fe: fe(123),
-        fill_mode: FILL_MODE_DERIVED,
+        take_mode: TAKE_MODE_DERIVED,
     };
     let source_mint = Address::new_from_array([1u8; 32]);
     let destination_mint = Address::new_from_array([2u8; 32]);
@@ -99,13 +99,13 @@ fn build_inputs(destination_output_blinding: Blinding) -> FillProofInputs {
     )
     .hash()
     .expect("private tx hash");
-    let public_input_hash = FillPublicInput {
+    let public_input_hash = TakePublicInput {
         private_tx_hash: &private_tx_hash,
         expiry: order.expiry,
     }
     .hash()
     .expect("public input hash");
-    FillProofInputs {
+    TakeProofInputs {
         public_input_hash,
         private_tx_hash,
         order,
@@ -117,7 +117,7 @@ fn build_inputs(destination_output_blinding: Blinding) -> FillProofInputs {
     }
 }
 
-fn sample_inputs() -> FillProofInputs {
+fn sample_inputs() -> TakeProofInputs {
     let derived = derive_destination_blinding(&blinding(7)).expect("derive destination blinding");
     build_inputs(derived)
 }
@@ -161,7 +161,7 @@ fn program_vk_has_no_commitment() {
     assert_eq!(VERIFYINGKEY.nr_pubinputs, 1);
     assert!(
         VERIFYINGKEY.vk_commitment_g2.is_none(),
-        "derived fill circuit is standard Groth16: no BSB22 commitment"
+        "derived take circuit is standard Groth16: no BSB22 commitment"
     );
     assert_eq!(
         VERIFYINGKEY.vk_ic.len(),
@@ -171,7 +171,7 @@ fn program_vk_has_no_commitment() {
 }
 
 #[test]
-fn fill_prove_verify() {
+fn take_prove_verify() {
     ensure_keys();
     let vk = generated_vk();
 
@@ -182,7 +182,7 @@ fn fill_prove_verify() {
     assert!(!proof_a_zero, "proof_a must not be all zero");
     assert!(
         proof.commitment.is_none(),
-        "derived fill proof must not carry a BSB22 commitment"
+        "derived take proof must not carry a BSB22 commitment"
     );
 
     assert!(
@@ -193,17 +193,17 @@ fn fill_prove_verify() {
             &proof.proof_c,
             inputs.public_input_hash,
         ),
-        "groth16 proof must verify against the generated fill verifying key"
+        "groth16 proof must verify against the generated take verifying key"
     );
 
     if keys_in_sync(&vk) {
-        let public_input_hash = FillPublicInput {
+        let public_input_hash = TakePublicInput {
             private_tx_hash: &inputs.private_tx_hash,
             expiry: inputs.order.expiry,
         }
         .hash()
-        .expect("program fill public input hash");
-        let proof: FillProof = proof.into();
+        .expect("program take public input hash");
+        let proof: TakeProof = proof.into();
         verify_groth16(
             CompressedGroth16Proof {
                 a: &proof.proof_a,
@@ -214,12 +214,12 @@ fn fill_prove_verify() {
             public_input_hash,
             &VERIFYINGKEY,
         )
-        .expect("program fill verify must accept a valid proof");
+        .expect("program take verify must accept a valid proof");
     }
 }
 
 #[test]
-fn fill_rejects_tampered_public_input() {
+fn take_rejects_tampered_public_input() {
     ensure_keys();
     let vk = generated_vk();
 
@@ -242,7 +242,7 @@ fn fill_rejects_tampered_public_input() {
 }
 
 #[test]
-fn fill_rejects_wrong_destination_blinding() {
+fn take_rejects_wrong_destination_blinding() {
     ensure_keys();
 
     let mut wrong_blinding =

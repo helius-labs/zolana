@@ -10,7 +10,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct CreateProofInputs {
+pub struct MakeProofInputs {
     pub private_tx_hash: [u8; 32],
     pub order: OrderTermsProofInput,
     pub escrow: ProofInputUtxo,
@@ -19,7 +19,7 @@ pub struct CreateProofInputs {
     pub external_data_hash: [u8; 32],
 }
 
-impl CreateProofInputs {
+impl MakeProofInputs {
     fn witness(&self) -> ffi::WitnessMap {
         let scalars: [(&str, [u8; 32]); 3] = [
             ("PrivateTxHash", self.private_tx_hash),
@@ -43,6 +43,6 @@ impl CreateProofInputs {
     }
 
     pub fn prove(&self) -> Result<OrderProof, ProofError> {
-        negate_and_compress_proof(&ffi::prove(CircuitId::Create, &self.witness())?)
+        negate_and_compress_proof(&ffi::prove(CircuitId::Make, &self.witness())?)
     }
 }

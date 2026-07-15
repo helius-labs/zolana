@@ -16,9 +16,9 @@ pub enum SwapError {
     InvalidInstructionData = 8011,
     #[error("escrow-authority account is missing from the transact account list")]
     MissingEscrowAuthority = 8013,
-    #[error("create-swap transact must carry exactly one marker message")]
+    #[error("make transact must carry exactly one marker message")]
     InvalidMarkerMessage = 8014,
-    #[error("create-swap marker message data must be empty")]
+    #[error("make marker message data must be empty")]
     MarkerDataNotEmpty = 8015,
     #[error("hashing failed")]
     HashingFailed = 8016,

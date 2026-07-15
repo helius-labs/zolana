@@ -1,7 +1,7 @@
 use swap_program::instructions::shared::{check_after_window, check_within_window};
 
 #[test]
-fn fill_window_boundary() {
+fn take_window_boundary() {
     assert!(check_within_window(0, 100).is_ok());
     assert!(check_within_window(100, 100).is_ok());
     assert!(check_within_window(99, 100).is_ok());

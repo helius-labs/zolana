@@ -1,8 +1,8 @@
 use groth16_solana::groth16::negate_g1_be;
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
 use swap_program::instructions::{
-    cancel::CancelProof, create_swap::CreateProof, fill::FillProof,
-    fill_verifiable_encryption::FillVerifiableEncryptionProof,
+    cancel::CancelProof, make::MakeProof, take::TakeProof,
+    take_verifiable_encryption::TakeVerifiableEncryptionProof,
 };
 
 use crate::ffi::{self, ProveOutput};
@@ -25,7 +25,7 @@ pub struct OrderProof {
     pub commitment: Option<([u8; 32], [u8; 32])>,
 }
 
-impl From<OrderProof> for CreateProof {
+impl From<OrderProof> for MakeProof {
     fn from(proof: OrderProof) -> Self {
         Self {
             proof_a: proof.proof_a,
@@ -35,7 +35,7 @@ impl From<OrderProof> for CreateProof {
     }
 }
 
-impl From<OrderProof> for FillProof {
+impl From<OrderProof> for TakeProof {
     fn from(proof: OrderProof) -> Self {
         Self {
             proof_a: proof.proof_a,
@@ -55,11 +55,11 @@ impl From<OrderProof> for CancelProof {
     }
 }
 
-impl From<OrderProof> for FillVerifiableEncryptionProof {
+impl From<OrderProof> for TakeVerifiableEncryptionProof {
     fn from(proof: OrderProof) -> Self {
         let (commitment, commitment_pok) = proof
             .commitment
-            .expect("fill proof carries a BSB22 commitment");
+            .expect("take proof carries a BSB22 commitment");
         Self {
             proof_a: proof.proof_a,
             proof_b: proof.proof_b,

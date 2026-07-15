@@ -8,7 +8,7 @@ use swap_sdk::{
     index::index_maker,
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
-        create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
+        make::{Make, MakeProofInputParams, OrderMarker, SppTxHashes},
     },
     prover::SwapProverClient,
     shared::input_sum,
@@ -34,12 +34,12 @@ use zolana_transaction::{
 const EXPIRY: u64 = 1_000_000;
 const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 
-// Confidential swap cancel on the shielded pool -- create then cancel -- driven
+// Confidential swap cancel on the shielded pool -- make then cancel -- driven
 // against the same localnet (validator + Photon indexer + prover) as swap.rs.
 //
 // Flow:
 //   1. Fund (in setup): maker shields 1.0 SPL, taker shields 0.25 SOL.
-//   2. Create: identical to swap.rs, but the order expiry is already in the past.
+//   2. Make: identical to swap.rs, but the order expiry is already in the past.
 //   3. Discover: the maker rediscovers the order opening from the indexer
 //      (`index_maker`), decrypting the escrow slot from the sender side.
 //   4. Cancel: the maker spends the escrow (0.4 SPL, escrow-authority-owned) ->
@@ -48,7 +48,7 @@ const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 //
 // Net: maker 1.0 SPL -> 0.6 SPL change + 0.4 SPL returned; the taker never acts.
 #[test]
-fn create_and_cancel_swap_inline() -> Result<()> {
+fn make_and_cancel_swap_inline() -> Result<()> {
     let TestEnv {
         rpc,
         indexer,
@@ -74,7 +74,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             destination: maker.keypair.shielded_address()?,
             taker: taker_authorization_address,
             expiry: EXPIRY,
-            fill_mode: swap_prover::FILL_MODE_DERIVED,
+            take_mode: swap_prover::TAKE_MODE_DERIVED,
         };
 
         let maker_address = maker.keypair.shielded_address()?;
@@ -93,8 +93,8 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .first()
             .cloned()
             .ok_or_else(|| anyhow!("no spendable utxo of {spl_mint} >= {SOURCE_AMOUNT}"))?;
-        let create_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
-        let input_utxos = vec![create_spend, SppProofInputUtxo::new_dummy()];
+        let make_spend = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
+        let input_utxos = vec![make_spend, SppProofInputUtxo::new_dummy()];
 
         let escrow_asset = escrow_output_utxo.asset;
         let leftover =
@@ -114,14 +114,14 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         .message()?;
 
         let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &input_utxos)
-            .map_err(|e| anyhow!("create transaction viewing key: {e:?}"))?;
+            .map_err(|e| anyhow!("make transaction viewing key: {e:?}"))?;
 
         let encoded = encrypt_transaction_data(
             &[change.clone(), escrow_output_utxo],
             &maker.registry,
             &transaction_viewing_key,
         )
-        .map_err(|e| anyhow!("encode create slots: {e:?}"))?;
+        .map_err(|e| anyhow!("encode make slots: {e:?}"))?;
 
         let external_data = ExternalData::new(
             *transaction_viewing_key.pubkey().as_bytes(),
@@ -139,27 +139,27 @@ fn create_and_cancel_swap_inline() -> Result<()> {
 
         let spp_proof = indexer
             .prove_transact(tree, spp_proof_inputs.clone())
-            .map_err(|e| anyhow!("create transact proof: {e:?}"))?;
+            .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
-        let create_swap_proof_inputs = CreateSwapProofInputParams {
+        let make_proof_inputs = MakeProofInputParams {
             escrow,
             change,
             spp_tx_hashes: SppTxHashes::new(&spp_proof_inputs)?,
         };
 
-        let create_swap_proof = swap_prover_client
-            .prove_create_swap(&create_swap_proof_inputs.to_proof_inputs()?)
-            .map_err(|e| anyhow!("create proof: {e:?}"))?;
+        let make_proof = swap_prover_client
+            .prove_make(&make_proof_inputs.to_proof_inputs()?)
+            .map_err(|e| anyhow!("make proof: {e:?}"))?;
 
-        let create_swap_ix = CreateSwap {
+        let make_ix = Make {
             payer: maker_address.solana_address()?,
             tree,
-            create_swap_proof: create_swap_proof.into(),
+            make_proof: make_proof.into(),
             spp_proof,
         }
         .instruction()?;
 
-        send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, create_swap_ix)?;
+        send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, make_ix)?;
     }
 
     {

@@ -1,17 +1,30 @@
 use anyhow::{bail, Result};
-use swap_program::instructions::fill_verifiable_encryption::FillVerifiableEncryptionPublicInput;
+use swap_program::instructions::{shared::u64_to_field, take::TakePublicInput};
 use swap_prover::{
-    FillVerifiableEncryptionProofInputs, OrderTermsProofInput, FILL_MODE_VERIFIABLE,
+    OrderTermsProofInput, TakeProofInputs, DESTINATION_BLINDING_DOMAIN, TAKE_MODE_DERIVED,
 };
+use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon};
 use zolana_transaction::{
     instructions::transact::{OutputUtxo, PrivateTxHash},
+    utxo::Blinding,
     ProofInputUtxo,
 };
 
-use super::encryption::destination_ciphertext_with_hash;
-use crate::{err, shared::check_output_utxo, state::OrderUtxo};
+use crate::{
+    err,
+    shared::{check_output_utxo, to_blinding_array},
+    state::OrderUtxo,
+};
 
-pub struct FillVerifiableEncryptionProofInputParams {
+pub fn derive_destination_blinding(escrow_blinding: &Blinding) -> Result<Blinding> {
+    let domain = u64_to_field(DESTINATION_BLINDING_DOMAIN);
+    let derived = poseidon(&[&to_blinding_array(escrow_blinding), &domain]).map_err(err)?;
+    let mut blinding = [0u8; BLINDING_LEN];
+    blinding.copy_from_slice(derived.get(1..32).ok_or_else(|| err("blinding tail"))?);
+    Ok(blinding)
+}
+
+pub struct TakeProofInputParams {
     pub escrow: OrderUtxo,
     pub taker_in: OutputUtxo,
     pub source_output: OutputUtxo,
@@ -19,8 +32,8 @@ pub struct FillVerifiableEncryptionProofInputParams {
     pub external_data_hash: [u8; 32],
 }
 
-impl FillVerifiableEncryptionProofInputParams {
-    pub fn to_proof_inputs(&self) -> Result<FillVerifiableEncryptionProofInputs> {
+impl TakeProofInputParams {
+    pub fn to_proof_inputs(&self) -> Result<TakeProofInputs> {
         let terms = &self.escrow.terms;
         let taker = check_output_utxo(
             "taker_in",
@@ -46,8 +59,11 @@ impl FillVerifiableEncryptionProofInputParams {
         if destination_owner != terms.destination {
             bail!("destination output owner does not match the order destination");
         }
-        if terms.fill_mode != FILL_MODE_VERIFIABLE {
-            bail!("order fill_mode does not authorize the verifiable-encryption fill");
+        if self.destination_output.blinding != self.escrow.derived_destination_blinding()? {
+            bail!("destination output blinding does not match the derived blinding");
+        }
+        if terms.take_mode != TAKE_MODE_DERIVED {
+            bail!("order take_mode does not authorize the derived take");
         }
         let order = OrderTermsProofInput::try_from(terms)?;
         let escrow = ProofInputUtxo::try_from(&self.escrow.to_input_utxo()?).map_err(err)?;
@@ -64,24 +80,16 @@ impl FillVerifiableEncryptionProofInputParams {
         )
         .hash()
         .map_err(err)?;
-        let (ciphertext, _) = destination_ciphertext_with_hash(
-            &self.escrow.blinding,
-            &terms.destination_mint,
-            terms.destination_amount,
-            &self.destination_output.blinding,
-        )?;
-        let public_input_hash = FillVerifiableEncryptionPublicInput {
+        let public_input_hash = TakePublicInput {
             private_tx_hash: &private_tx_hash,
             expiry: terms.expiry,
-            destination_ciphertext: &ciphertext,
         }
         .hash()
         .map_err(err)?;
-        Ok(FillVerifiableEncryptionProofInputs {
+        Ok(TakeProofInputs {
             public_input_hash,
             private_tx_hash,
             order,
-            taker_nullifier_pk: taker.nullifier_pubkey,
             escrow,
             taker_in,
             source_output,

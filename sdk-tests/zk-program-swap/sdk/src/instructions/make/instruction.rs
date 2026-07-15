@@ -8,7 +8,7 @@ use zolana_interface::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::TransactionError;
 
-use crate::{err, tag, CreateProof, CreateSwapIxData, MarkerData};
+use crate::{err, tag, MakeIxData, MakeProof, MarkerData};
 
 pub struct OrderMarker {
     pub escrow_utxo_hash: [u8; 32],
@@ -29,19 +29,19 @@ impl OrderMarker {
     }
 }
 
-pub struct CreateSwap {
+pub struct Make {
     pub payer: Pubkey,
     pub tree: Pubkey,
-    pub create_swap_proof: CreateProof,
+    pub make_proof: MakeProof,
     pub spp_proof: TransactIxData,
 }
 
-impl CreateSwap {
+impl Make {
     pub fn instruction(self) -> Result<Instruction> {
         let Self {
             payer,
             tree,
-            create_swap_proof,
+            make_proof,
             mut spp_proof,
         } = self;
 
@@ -49,8 +49,8 @@ impl CreateSwap {
             marker.data = Vec::new();
         }
 
-        let data = wincode::serialize(&CreateSwapIxData {
-            proof: create_swap_proof,
+        let data = wincode::serialize(&MakeIxData {
+            proof: make_proof,
             transact: spp_proof,
         })
         .map_err(err)?;
@@ -61,7 +61,7 @@ impl CreateSwap {
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
-        let mut instruction_data = vec![tag::CREATE_SWAP];
+        let mut instruction_data = vec![tag::MAKE];
         instruction_data.extend_from_slice(&data);
         Ok(Instruction {
             program_id: swap_program::ID,
@@ -96,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn sign_escrow_create_layout() {
+    fn sign_escrow_make_layout() {
         let owner_keypair = ShieldedKeypair::from_seed_ed25519(&[7u8; 32]).expect("owner keypair");
         let order_keypair = ShieldedKeypair::from_seed_ed25519(&[9u8; 32]).expect("order keypair");
         let taker_keypair =
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn sign_escrow_create_zero_change_note() {
+    fn sign_escrow_make_zero_change_note() {
         let owner_keypair = ShieldedKeypair::from_seed_ed25519(&[3u8; 32]).expect("owner keypair");
         let order_keypair = ShieldedKeypair::from_seed_ed25519(&[4u8; 32]).expect("order keypair");
         let taker_keypair =

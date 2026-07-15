@@ -83,7 +83,7 @@ impl TakerOrderCandidate {
             destination,
             taker: self.order_data.taker,
             expiry: self.order_data.expiry,
-            fill_mode: self.order_data.fill_mode,
+            take_mode: self.order_data.take_mode,
         };
         let escrow = OrderUtxo {
             terms,

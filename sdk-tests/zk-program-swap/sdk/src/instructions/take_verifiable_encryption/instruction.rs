@@ -1,17 +1,17 @@
 use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use swap_program::instructions::fill_verifiable_encryption::FillVerifiableEncryptionIxData;
+use swap_program::instructions::take_verifiable_encryption::TakeVerifiableEncryptionIxData;
 use zolana_interface::{
     instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{err, escrow_authority_pda, tag, FillVerifiableEncryptionProof};
+use crate::{err, escrow_authority_pda, tag, TakeVerifiableEncryptionProof};
 
-pub struct FillVerifiableEncryption {
+pub struct TakeVerifiableEncryption {
     pub payer: Pubkey,
     pub tree: Pubkey,
-    pub fill_proof: FillVerifiableEncryptionProof,
+    pub take_proof: TakeVerifiableEncryptionProof,
     pub spp_proof: TransactIxData,
 }
 
@@ -23,20 +23,20 @@ pub struct FillVerifiableEncryption {
 /// safe.
 const ESCROW_AUTHORITY_SIGNER_INDEX: u8 = 2;
 
-impl FillVerifiableEncryption {
+impl TakeVerifiableEncryption {
     pub fn instruction(self) -> Result<Instruction> {
         let Self {
             payer,
             tree,
-            fill_proof,
+            take_proof,
             mut spp_proof,
         } = self;
         if let Some(escrow_input) = spp_proof.inputs.get_mut(0) {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
 
-        let data = wincode::serialize(&FillVerifiableEncryptionIxData {
-            proof: fill_proof,
+        let data = wincode::serialize(&TakeVerifiableEncryptionIxData {
+            proof: take_proof,
             transact: spp_proof,
         })
         .map_err(err)?;
@@ -48,7 +48,7 @@ impl FillVerifiableEncryption {
             AccountMeta::new_readonly(escrow_authority_pda(), false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
-        let mut instruction_data = vec![tag::FILL_VERIFIABLE_ENCRYPTION];
+        let mut instruction_data = vec![tag::TAKE_VERIFIABLE_ENCRYPTION];
         instruction_data.extend_from_slice(&data);
         Ok(Instruction {
             program_id: swap_program::ID,

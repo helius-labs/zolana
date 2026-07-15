@@ -8,10 +8,10 @@ use solana_pubkey::Pubkey;
 pub use swap_program::{
     instructions::{
         cancel::{CancelIxData, CancelProof},
-        create_swap::{CreateProof, CreateSwapIxData, MarkerData},
-        fill::{FillIxData, FillProof},
-        fill_verifiable_encryption::{
-            FillVerifiableEncryptionIxData, FillVerifiableEncryptionProof,
+        make::{MakeIxData, MakeProof, MarkerData},
+        take::{TakeIxData, TakeProof},
+        take_verifiable_encryption::{
+            TakeVerifiableEncryptionIxData, TakeVerifiableEncryptionProof,
         },
     },
     tag, ESCROW_AUTHORITY_PDA_SEED,

@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use swap_prover::{CreateProofInputs, OrderTermsProofInput};
+use swap_prover::{MakeProofInputs, OrderTermsProofInput};
 use zolana_transaction::{
     instructions::transact::{OutputUtxo, PrivateTxHash, SppProofInputs},
     ProofInputUtxo,
@@ -25,14 +25,14 @@ impl SppTxHashes {
     }
 }
 
-pub struct CreateSwapProofInputParams {
+pub struct MakeProofInputParams {
     pub escrow: OrderUtxo,
     pub change: OutputUtxo,
     pub spp_tx_hashes: SppTxHashes,
 }
 
-impl CreateSwapProofInputParams {
-    pub fn to_proof_inputs(&self) -> Result<CreateProofInputs> {
+impl MakeProofInputParams {
+    pub fn to_proof_inputs(&self) -> Result<MakeProofInputs> {
         let terms = &self.escrow.terms;
         if self.change.owner_address != Some(terms.destination) {
             bail!("change owner does not match order destination");
@@ -61,7 +61,7 @@ impl CreateSwapProofInputParams {
         )
         .hash()
         .map_err(err)?;
-        Ok(CreateProofInputs {
+        Ok(MakeProofInputs {
             private_tx_hash,
             order,
             escrow,
