@@ -1,4 +1,4 @@
-pub mod discover;
+pub mod index;
 pub mod instructions;
 pub mod prover;
 pub mod shared;

@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use shared::{send_v0_with_lookup_table, setup, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT};
 use swap_sdk::{
-    discover::discover_orders,
+    index::discover_orders,
     instructions::{
         create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
         fill::{Fill, FillProofInputParams},

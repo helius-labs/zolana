@@ -1,0 +1,184 @@
+use std::time::Duration;
+
+use anyhow::{anyhow, bail, Result};
+use borsh::BorshDeserialize;
+use solana_address::Address;
+use solana_pubkey::Pubkey;
+use zolana_client::{resolve_registered_address, Rpc};
+use zolana_keypair::{P256Pubkey, ShieldedAddress};
+use zolana_transaction::{
+    serialization::confidential_unified::ConfidentialUnified, utxo::Blinding, DecodeCx,
+    ShieldedTransaction, UtxoSerialization, Wallet,
+};
+
+use super::{
+    poll::{collect_tagged, discover_until},
+    scan::{parse_order_data, resolve_mint, unified_slots},
+};
+use crate::{
+    err,
+    state::{OrderTerms, OrderUtxo, PlainTextData},
+    MarkerData,
+};
+
+#[derive(Debug)]
+pub struct DiscoveredOrder {
+    pub escrow: OrderUtxo,
+    pub maker_pubkey: Pubkey,
+}
+
+pub struct OrderCandidate {
+    pub source_amount: u64,
+    pub source_mint: Address,
+    pub destination_mint: Address,
+    pub escrow_blinding: Blinding,
+    pub order_data: PlainTextData,
+    pub maker_pubkey: Pubkey,
+    pub escrow_utxo_hash: [u8; 32],
+}
+
+pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<OrderCandidate>> {
+    let taker_tag = wallet
+        .keypair
+        .signing_pubkey()
+        .confidential_view_tag()
+        .map_err(err)?;
+    let Some(marker_message) = tx
+        .messages
+        .iter()
+        .find(|message| message.view_tag == taker_tag)
+    else {
+        return Ok(None);
+    };
+    let marker = MarkerData::try_from_slice(&marker_message.data)
+        .map_err(|e| anyhow!("marker payload: {e}"))?;
+    let Some((slot_index, _, body)) =
+        unified_slots(tx).find(|(_, slot, _)| slot.output_context.hash == marker.escrow_utxo_hash)
+    else {
+        bail!("marker without a unified escrow ciphertext in the same transaction");
+    };
+    let cx = DecodeCx::for_slot(&wallet.keypair.viewing_key, tx, slot_index);
+    let escrow_plaintext = ConfidentialUnified::decode(&body, &cx).map_err(err)?;
+    let order_data = parse_order_data(&escrow_plaintext.data.records)?;
+    Ok(Some(OrderCandidate {
+        source_amount: escrow_plaintext.amount,
+        source_mint: resolve_mint(&wallet.registry, escrow_plaintext.asset_id)?,
+        destination_mint: resolve_mint(&wallet.registry, order_data.destination_asset_id)?,
+        escrow_blinding: escrow_plaintext.blinding,
+        order_data,
+        maker_pubkey: Pubkey::new_from_array(marker.maker_pubkey),
+        escrow_utxo_hash: marker.escrow_utxo_hash,
+    }))
+}
+
+impl OrderCandidate {
+    pub fn into_order(
+        self,
+        destination: ShieldedAddress,
+        taker_viewing_pubkey: P256Pubkey,
+    ) -> Result<DiscoveredOrder> {
+        let terms = OrderTerms {
+            destination_mint: self.destination_mint,
+            destination_amount: self.order_data.destination_amount,
+            destination,
+            taker: self.order_data.taker,
+            expiry: self.order_data.expiry,
+            fill_mode: self.order_data.fill_mode,
+        };
+        let escrow = OrderUtxo {
+            terms,
+            blinding: self.escrow_blinding,
+            source_mint: self.source_mint,
+            source_amount: self.source_amount,
+            destination_asset_id: self.order_data.destination_asset_id,
+        };
+        let escrow_utxo_hash = escrow
+            .output_utxo(taker_viewing_pubkey)?
+            .hash()
+            .map_err(err)?;
+        if escrow_utxo_hash != self.escrow_utxo_hash {
+            bail!("reconstructed escrow utxo hash does not match the committed leaf");
+        }
+        Ok(DiscoveredOrder {
+            escrow,
+            maker_pubkey: self.maker_pubkey,
+        })
+    }
+}
+
+pub fn discover_orders<I: Rpc, R: Rpc>(
+    wallet: &mut Wallet,
+    indexer: &I,
+    rpc: &R,
+    timeout: Duration,
+) -> Result<Vec<DiscoveredOrder>> {
+    discover_until(wallet, indexer, timeout, "orders", |wallet| {
+        let taker_viewing_pubkey = wallet.keypair.viewing_pubkey();
+        collect_tagged(wallet, indexer, |tx| {
+            let Some(candidate) = scan_order(tx, wallet)? else {
+                return Ok(None);
+            };
+            let maker_resolved_address =
+                resolve_registered_address(rpc, candidate.maker_pubkey).map_err(err)?;
+            candidate
+                .into_order(maker_resolved_address.address, taker_viewing_pubkey)
+                .map(Some)
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::ShieldedKeypair;
+
+    use super::*;
+    use crate::index::fixture::order_fixture;
+
+    #[test]
+    fn scan_order_reconstructs_terms_from_the_transaction() {
+        let fixture = order_fixture();
+        let candidate = scan_order(&fixture.tx, &fixture.wallet)
+            .expect("scan")
+            .expect("order candidate");
+        let order = candidate
+            .into_order(
+                fixture.maker_address,
+                fixture.wallet.keypair.viewing_pubkey(),
+            )
+            .expect("order");
+        assert_eq!(
+            (order.escrow, order.maker_pubkey),
+            (fixture.escrow, fixture.maker_pubkey)
+        );
+    }
+
+    #[test]
+    fn into_order_rejects_a_wrong_maker_address() {
+        let fixture = order_fixture();
+        let candidate = scan_order(&fixture.tx, &fixture.wallet)
+            .expect("scan")
+            .expect("order candidate");
+        let taker_address = fixture
+            .wallet
+            .keypair
+            .shielded_address()
+            .expect("taker address");
+        let error = candidate
+            .into_order(taker_address, fixture.wallet.keypair.viewing_pubkey())
+            .expect_err("wrong maker address must fail the hash check");
+        assert!(error
+            .to_string()
+            .contains("does not match the committed leaf"));
+    }
+
+    #[test]
+    fn scan_order_ignores_transactions_for_other_takers() {
+        let fixture = order_fixture();
+        let other_keypair = ShieldedKeypair::from_seed_ed25519(&[21u8; 32]).expect("other keypair");
+        let other_wallet =
+            Wallet::new(other_keypair, fixture.wallet.registry.clone()).expect("other wallet");
+        assert!(scan_order(&fixture.tx, &other_wallet)
+            .expect("scan")
+            .is_none());
+    }
+}
