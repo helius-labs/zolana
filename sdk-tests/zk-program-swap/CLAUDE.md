@@ -61,18 +61,20 @@ transformation between domain types and prover witnesses.
   `mod.rs` only `pub use`s the public items. `fill/` also owns
   `derive_destination_blinding`; `fill_verifiable_encryption/encryption.rs`
   owns the verifiable-encryption ciphertext codec.
-- `order.rs`: client-side order model — `OrderTerms`, the escrow `OrderUtxo`
-  (output and spend forms), recipient plaintext encoding, `input_sum`,
-  `escrow_owner_hash`, and the order-terms `DataHash` impls.
-- `shared.rs`: crate-internal helpers shared across the instruction modules
-  (`check_output_utxo`, `to_blinding_array`).
+- `state/order.rs`: the client-side order state — `OrderTerms` (with its
+  `OrderTermsProofInput` conversion and `DataHash` impls), the `PlainTextData`
+  note payload, and the escrow `OrderUtxo` (output and spend forms). Impl
+  blocks are grouped and commented by the instructions that use them.
+- `shared.rs`: helpers shared across the instruction modules and tests
+  (`input_sum`, `check_output_utxo`, `to_blinding_array`).
 - `discover.rs`: taker-side order discovery — wallet sync, marker decoding,
   maker resolution via the user registry, escrow opening recovery.
 - `prover.rs`: `SwapProverClient`, mirroring `zolana_client::ProverClient` —
   one `prove_*(&*ProofInputs) -> OrderProof` per circuit, no data processing.
   The SPP transfer proof comes from `ProverClient::prove_transact` directly.
 - `tests/`: per-circuit prove/verify tests against the generated and program
-  verifying keys, including program-side public-input recomputation.
+  verifying keys, including program-side public-input recomputation;
+  `tests/shared/` holds test-only helpers (`escrow_owner_hash`).
 
 ### `test` (`swap-test-validator`)
 

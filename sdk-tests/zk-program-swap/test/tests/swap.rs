@@ -10,8 +10,9 @@ use swap_sdk::{
         create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
         fill::{Fill, FillProofInputParams},
     },
-    order::{input_sum, OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,
+    shared::input_sum,
+    state::{OrderTerms, OrderUtxo},
 };
 use zolana_client::{ensure_registered, Rpc};
 use zolana_keypair::random_blinding;
@@ -23,7 +24,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    Filter, SOL_MINT,
+    Filter, SOL_ASSET_ID, SOL_MINT,
 };
 
 const EXPIRY: u64 = 2_000_000_000;

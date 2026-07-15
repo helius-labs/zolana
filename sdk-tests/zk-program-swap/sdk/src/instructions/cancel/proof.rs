@@ -7,7 +7,7 @@ use zolana_transaction::{
     ProofInputUtxo,
 };
 
-use crate::{err, order::OrderUtxo, shared::check_output_utxo};
+use crate::{err, shared::check_output_utxo, state::OrderUtxo};
 
 pub struct CancelProofInputParams {
     pub escrow: OrderUtxo,

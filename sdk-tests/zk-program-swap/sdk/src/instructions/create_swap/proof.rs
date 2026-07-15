@@ -5,7 +5,7 @@ use zolana_transaction::{
     ProofInputUtxo,
 };
 
-use crate::{err, order::OrderUtxo};
+use crate::{err, state::OrderUtxo};
 
 pub struct SppTxHashes {
     pub source_input_hash: [u8; 32],

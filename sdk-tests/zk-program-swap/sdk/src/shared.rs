@@ -1,9 +1,20 @@
 use anyhow::Result;
 use solana_address::Address;
 use zolana_keypair::ShieldedAddress;
-use zolana_transaction::{instructions::transact::OutputUtxo, utxo::Blinding};
+use zolana_transaction::{
+    instructions::{transact::OutputUtxo, types::SppProofInputUtxo},
+    utxo::Blinding,
+};
 
 use crate::err;
+
+pub fn input_sum(inputs: &[SppProofInputUtxo], asset: &Address) -> i128 {
+    inputs
+        .iter()
+        .filter(|spend| &spend.utxo.asset == asset)
+        .map(|spend| i128::from(spend.utxo.amount))
+        .sum()
+}
 
 pub(crate) fn to_blinding_array(blinding: &Blinding) -> [u8; 32] {
     let mut out = [0u8; 32];

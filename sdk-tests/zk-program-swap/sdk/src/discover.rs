@@ -19,7 +19,7 @@ use zolana_transaction::{
 
 use crate::{
     err,
-    order::{OrderTerms, OrderUtxo, PlainTextData},
+    state::{OrderTerms, OrderUtxo, PlainTextData},
     MarkerData,
 };
 
@@ -332,7 +332,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{instructions::create_swap::OrderMarker, order::input_sum};
+    use crate::{instructions::create_swap::OrderMarker, shared::input_sum};
 
     struct OrderFixture {
         tx: ShieldedTransaction,

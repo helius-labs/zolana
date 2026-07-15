@@ -12,12 +12,12 @@ use swap_program::{
     verifying_keys::fill::VERIFYINGKEY,
 };
 use swap_prover::{CircuitId, FillProofInputs, OrderTermsProofInput, FILL_MODE_DERIVED};
-use swap_sdk::{
-    instructions::fill::derive_destination_blinding,
-    order::{escrow_owner_hash, DataHash},
-};
+use swap_sdk::{instructions::fill::derive_destination_blinding, state::DataHash};
 use zolana_keypair::{hash::hash_field, ViewingKey};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
+
+mod shared;
+use shared::escrow_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/fill")
@@ -62,7 +62,7 @@ fn build_inputs(destination_output_blinding: Blinding) -> FillProofInputs {
     let destination_mint = Address::new_from_array([2u8; 32]);
     let taker_owner_hash = fe(77);
     let escrow = ProofInputUtxo::new(
-        escrow_owner_hash(&fe(42)).expect("escrow owner hash"),
+        escrow_owner_hash(&fe(42)),
         &source_mint,
         1_000,
         &blinding(7),

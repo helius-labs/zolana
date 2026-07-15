@@ -29,8 +29,9 @@ use swap_sdk::{
             FillVerifiableEncryption, FillVerifiableEncryptionProofInputParams,
         },
     },
-    order::{input_sum, OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,
+    shared::input_sum,
+    state::{OrderTerms, OrderUtxo},
 };
 use zolana_client::{
     MerkleContext, MerkleProof, NonInclusionProof, ProverClient, SpendProof, NULLIFIER_TREE_HEIGHT,
@@ -55,7 +56,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetRegistry, Data, Utxo, SOL_MINT,
+    AssetRegistry, Data, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 

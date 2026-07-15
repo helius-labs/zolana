@@ -21,7 +21,7 @@ use swap_sdk::{
     instructions::fill_verifiable_encryption::{
         decrypt_destination, destination_ciphertext_with_hash,
     },
-    order::{escrow_owner_hash, DataHash},
+    state::DataHash,
 };
 use zolana_interface::merge_utils::ciphertext_hash;
 use zolana_keypair::{
@@ -29,6 +29,9 @@ use zolana_keypair::{
     ViewingKey,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
+
+mod shared;
+use shared::escrow_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -97,7 +100,7 @@ fn build_inputs(overrides: SampleOverrides) -> FillVerifiableEncryptionProofInpu
         .destination_amount
         .unwrap_or(order.destination_amount);
     let escrow = ProofInputUtxo::new(
-        escrow_owner_hash(&fe(42)).expect("escrow owner hash"),
+        escrow_owner_hash(&fe(42)),
         &source_mint,
         1_000,
         &blinding(7),

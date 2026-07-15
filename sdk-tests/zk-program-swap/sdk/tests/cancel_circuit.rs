@@ -12,12 +12,15 @@ use swap_program::{
     verifying_keys::cancel::VERIFYINGKEY,
 };
 use swap_prover::{CancelProofInputs, CircuitId, OrderTermsProofInput, FILL_MODE_DERIVED};
-use swap_sdk::order::{escrow_owner_hash, DataHash};
+use swap_sdk::state::DataHash;
 use zolana_keypair::{
     hash::{hash_field, poseidon},
     ViewingKey,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
+
+mod shared;
+use shared::escrow_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/cancel")
@@ -64,7 +67,7 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
     };
     let source_mint = Address::new_from_array([1u8; 32]);
     let escrow = ProofInputUtxo::new(
-        escrow_owner_hash(&fe(42)).expect("escrow owner hash"),
+        escrow_owner_hash(&fe(42)),
         &source_mint,
         1_000,
         &blinding(7),

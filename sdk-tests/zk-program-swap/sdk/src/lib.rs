@@ -1,8 +1,8 @@
 pub mod discover;
 pub mod instructions;
-pub mod order;
 pub mod prover;
-pub(crate) mod shared;
+pub mod shared;
+pub mod state;
 
 use solana_pubkey::Pubkey;
 pub use swap_program::{

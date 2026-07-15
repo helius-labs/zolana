@@ -12,8 +12,8 @@ use zolana_transaction::{
 
 use crate::{
     err,
-    order::OrderUtxo,
     shared::{check_output_utxo, to_blinding_array},
+    state::OrderUtxo,
 };
 
 pub fn derive_destination_blinding(escrow_blinding: &Blinding) -> Result<Blinding> {

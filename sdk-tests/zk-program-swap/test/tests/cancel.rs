@@ -10,8 +10,9 @@ use swap_sdk::{
         cancel::{Cancel, CancelProofInputParams},
         create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
     },
-    order::{input_sum, OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,
+    shared::input_sum,
+    state::{OrderTerms, OrderUtxo},
 };
 use zolana_client::{ensure_registered, Rpc};
 use zolana_keypair::random_blinding;
@@ -23,7 +24,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    Filter, SOL_MINT,
+    Filter, SOL_ASSET_ID, SOL_MINT,
 };
 
 // The committed order expiry is already in the past, so the maker can cancel

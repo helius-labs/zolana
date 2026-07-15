@@ -9,7 +9,7 @@ use zolana_transaction::{
 };
 
 use super::encryption::destination_ciphertext_with_hash;
-use crate::{err, order::OrderUtxo, shared::check_output_utxo};
+use crate::{err, shared::check_output_utxo, state::OrderUtxo};
 
 pub struct FillVerifiableEncryptionProofInputParams {
     pub escrow: OrderUtxo,
