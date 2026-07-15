@@ -10,12 +10,13 @@ use zolana_interface::{
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
     AssetBalance, EncryptedScheme, OutputContext, OutputSlot, PrivateTransaction,
-    ShieldedTransaction, SyncReport, Wallet, DEFAULT_TAG_WINDOW,
+    ShieldedTransaction, SyncReport, SyncWalletAuthority, TransactionError, Wallet,
+    WalletAuthority, WalletSyncMaterial, DEFAULT_TAG_WINDOW,
 };
 
 use crate::{
     error::ClientError,
-    rpc::{EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
+    rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
 };
 
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
@@ -41,22 +42,30 @@ impl Default for SyncWalletConfig {
     }
 }
 
-pub fn sync_wallet<I>(wallet: &mut Wallet, indexer: &I) -> Result<SyncReport, ClientError>
+pub fn sync_wallet<A, I>(
+    wallet: &mut Wallet,
+    authority: &A,
+    indexer: &I,
+) -> Result<SyncReport, ClientError>
 where
+    A: SyncWalletAuthority + ?Sized,
     I: Rpc,
 {
-    sync_wallet_with_config(wallet, indexer, SyncWalletConfig::default())
+    sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::default())
 }
 
-pub fn sync_wallet_with_config<I>(
+pub fn sync_wallet_with_config<A, I>(
     wallet: &mut Wallet,
+    authority: &A,
     indexer: &I,
     config: SyncWalletConfig,
 ) -> Result<SyncReport, ClientError>
 where
+    A: SyncWalletAuthority + ?Sized,
     I: Rpc,
 {
     let config = normalized_config(config);
+    let material = authority.sync_material()?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut report = SyncReport::default();
@@ -64,7 +73,7 @@ where
 
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
-        let tags = wallet_query_tags(wallet, config.tag_window)?;
+        let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
         fetch_shielded_transactions(indexer, &tags, &mut transactions, config)?;
         fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config)?;
 
@@ -88,7 +97,7 @@ where
                 ))
         });
         txs.extend(deposits);
-        report = wallet.sync(&txs, now_unix_ts(), config.tag_window)?;
+        report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
 
         if before == (transactions.len(), proofless_deposits.len()) {
             break;
@@ -102,7 +111,78 @@ where
     // loop. A refresh source that cannot enumerate accounts (RPC without
     // `get_program_accounts`) is a soft miss: sync keeps today's behaviour.
     if !report.unknown_asset_ids.is_empty() && refresh_registry_from_chain(wallet, indexer)? > 0 {
-        report = wallet.sync(&txs, now_unix_ts(), config.tag_window)?;
+        report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
+    }
+
+    Ok(report)
+}
+
+pub async fn sync_wallet_async<A, I>(
+    wallet: &mut Wallet,
+    authority: &A,
+    indexer: &I,
+) -> Result<SyncReport, ClientError>
+where
+    A: WalletAuthority + ?Sized,
+    I: AsyncRpc,
+{
+    sync_wallet_with_config_async(wallet, authority, indexer, SyncWalletConfig::default()).await
+}
+
+pub async fn sync_wallet_with_config_async<A, I>(
+    wallet: &mut Wallet,
+    authority: &A,
+    indexer: &I,
+    config: SyncWalletConfig,
+) -> Result<SyncReport, ClientError>
+where
+    A: WalletAuthority + ?Sized,
+    I: AsyncRpc,
+{
+    let config = normalized_config(config);
+    let material = authority.sync_material().await?;
+    let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
+    let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
+    let mut report = SyncReport::default();
+    let mut txs = Vec::new();
+
+    for _ in 0..config.rounds {
+        let before = (transactions.len(), proofless_deposits.len());
+        let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
+        fetch_shielded_transactions_async(indexer, &tags, &mut transactions, config).await?;
+        fetch_proofless_deposits_async(indexer, &tags, &mut proofless_deposits, config).await?;
+
+        txs = transactions.values().cloned().collect::<Vec<_>>();
+        txs.sort_by_key(|a| (a.slot, a.tx_signature));
+        let mut deposits = proofless_deposits.values().cloned().collect::<Vec<_>>();
+        deposits.sort_by(|a, b| {
+            (
+                a.output_slots
+                    .first()
+                    .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
+                a.slot,
+                a.tx_signature,
+            )
+                .cmp(&(
+                    b.output_slots
+                        .first()
+                        .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
+                    b.slot,
+                    b.tx_signature,
+                ))
+        });
+        txs.extend(deposits);
+        report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
+
+        if before == (transactions.len(), proofless_deposits.len()) {
+            break;
+        }
+    }
+
+    if !report.unknown_asset_ids.is_empty()
+        && refresh_registry_from_chain_async(wallet, indexer).await? > 0
+    {
+        report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
     }
 
     Ok(report)
@@ -141,6 +221,36 @@ where
     Ok(inserted)
 }
 
+async fn refresh_registry_from_chain_async<I>(
+    wallet: &mut Wallet,
+    indexer: &I,
+) -> Result<usize, ClientError>
+where
+    I: AsyncRpc,
+{
+    let program_id = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let accounts = match indexer.get_program_accounts(program_id).await {
+        Ok(accounts) => accounts,
+        Err(ClientError::UnsupportedRpcMethod(_)) => return Ok(0),
+        Err(err) => return Err(err),
+    };
+
+    let mut inserted = 0;
+    for (_, account) in accounts {
+        let Ok(registry) = SplAssetRegistry::from_account_bytes(&account.data) else {
+            continue;
+        };
+        if wallet
+            .registry
+            .insert(registry.asset_id, registry.mint)
+            .is_ok()
+        {
+            inserted += 1;
+        }
+    }
+    Ok(inserted)
+}
+
 pub fn get_private_transactions(wallet: &Wallet) -> &[PrivateTransaction] {
     wallet.private_transactions()
 }
@@ -158,27 +268,51 @@ fn normalized_config(config: SyncWalletConfig) -> SyncWalletConfig {
     }
 }
 
-fn wallet_query_tags(wallet: &Wallet, window: u64) -> Result<Vec<ViewTag>, ClientError> {
+fn wallet_query_tags(
+    wallet: &Wallet,
+    material: &WalletSyncMaterial,
+    window: u64,
+) -> Result<Vec<ViewTag>, ClientError> {
+    let identity = material.identity;
+    if identity != wallet.identity {
+        return Err(TransactionError::WalletAuthorityMismatch.into());
+    }
+    let viewing_keys = &material.viewing_keys;
+    if viewing_keys
+        .iter()
+        .all(|key| key.pubkey() != identity.viewing_pubkey)
+    {
+        return Err(TransactionError::MissingCurrentViewingKey.into());
+    }
+
     let mut tags = HashSet::new();
     // Confidential default-zone outputs (sender change, recipients, merge) are all
     // tagged by the owner signing pubkey.
-    tags.insert(wallet.keypair.signing_pubkey().confidential_view_tag()?);
-    for entry in &wallet.viewing_key_history {
-        tags.insert(entry.key.recipient_bootstrap_view_tag());
-        for n in 0..entry.tx_count.saturating_add(window) {
-            tags.insert(entry.key.get_sender_view_tag(n)?);
+    tags.insert(identity.signing_pubkey.confidential_view_tag()?);
+    for key in viewing_keys {
+        let state = wallet
+            .viewing_key_history
+            .iter()
+            .find(|entry| entry.viewing_pubkey == key.pubkey());
+        let tx_count = state.map_or(0, |entry| entry.tx_count);
+        let request_count = state.map_or(0, |entry| entry.request_count);
+        tags.insert(key.recipient_bootstrap_view_tag());
+        for n in 0..tx_count.saturating_add(window) {
+            tags.insert(key.get_sender_view_tag(n)?);
         }
-        for n in 0..entry.request_count.saturating_add(window) {
-            tags.insert(entry.key.get_recipient_request_view_tag(n)?);
+        for n in 0..request_count.saturating_add(window) {
+            tags.insert(key.get_recipient_request_view_tag(n)?);
         }
-        for (sender, count) in &entry.known_senders {
-            for n in 0..count.saturating_add(window) {
-                tags.insert(entry.key.get_recipient_shared_view_tag(sender, n)?);
+        if let Some(state) = state {
+            for (sender, count) in &state.known_senders {
+                for n in 0..count.saturating_add(window) {
+                    tags.insert(key.get_recipient_shared_view_tag(sender, n)?);
+                }
             }
-        }
-        for (recipient, count) in &entry.known_recipients {
-            for n in 0..count.saturating_add(window) {
-                tags.insert(entry.key.get_send_shared_view_tag(recipient, n)?);
+            for (recipient, count) in &state.known_recipients {
+                for n in 0..count.saturating_add(window) {
+                    tags.insert(key.get_send_shared_view_tag(recipient, n)?);
+                }
             }
         }
     }
@@ -204,6 +338,37 @@ fn fetch_shielded_transactions<I: Rpc>(
                 // endpoint before marking them as proofless. They are discovered
                 // through `get_encrypted_utxos_by_tags` below, not as decryptable
                 // shielded transfers.
+                if tx.proofless
+                    || ((tx.tx_viewing_pk.is_none() || tx.salt.is_none())
+                        && !has_merge_ciphertext(&tx))
+                {
+                    continue;
+                }
+                let key = tx.tx_signature.to_string();
+                out.entry(key).or_insert(convert_sync_transaction(tx)?);
+            }
+            cursor = response.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn fetch_shielded_transactions_async<I: AsyncRpc>(
+    indexer: &I,
+    tags: &[ViewTag],
+    out: &mut HashMap<String, ShieldedTransaction>,
+    config: SyncWalletConfig,
+) -> Result<(), ClientError> {
+    for chunk in tags.chunks(config.tag_query_chunk) {
+        let mut cursor = None;
+        loop {
+            let response = indexer
+                .get_shielded_transactions_by_tags(chunk.to_vec(), cursor, Some(config.page_limit))
+                .await?;
+            for tx in response.transactions {
                 if tx.proofless
                     || ((tx.tx_viewing_pk.is_none() || tx.salt.is_none())
                         && !has_merge_ciphertext(&tx))
@@ -255,6 +420,42 @@ where
                 cursor,
                 Some(config.page_limit),
             )?;
+            for item in response.matches {
+                if item.tx_viewing_pk.is_some() || item.salt.is_some() {
+                    continue;
+                }
+                let key = format!(
+                    "{}:{}",
+                    item.tx_signature, item.output_slot.output_context.leaf_index
+                );
+                if out.contains_key(&key) {
+                    continue;
+                }
+                if let Some(view) = proofless_deposit_from_indexed_match(item)? {
+                    out.insert(key, view);
+                }
+            }
+            cursor = response.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn fetch_proofless_deposits_async<I: AsyncRpc>(
+    indexer: &I,
+    tags: &[ViewTag],
+    out: &mut HashMap<String, ShieldedTransaction>,
+    config: SyncWalletConfig,
+) -> Result<(), ClientError> {
+    for chunk in tags.chunks(config.tag_query_chunk) {
+        let mut cursor = None;
+        loop {
+            let response = indexer
+                .get_encrypted_utxos_by_tags(chunk.to_vec(), cursor, Some(config.page_limit))
+                .await?;
             for item in response.matches {
                 if item.tx_viewing_pk.is_some() || item.salt.is_some() {
                     continue;
@@ -359,8 +560,8 @@ mod tests {
             merge::{Merge, MergeEncode},
             Proofless,
         },
-        Address, AssetRegistry, Data, OwnerCx, PrivateTransactionDirection, PrivateTransactionKind,
-        Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
+        Address, AssetRegistry, Data, LocalWalletAuthority, OwnerCx, PrivateTransactionDirection,
+        PrivateTransactionKind, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
     };
 
     use super::*;
@@ -413,8 +614,61 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl AsyncRpc for MockIndexer {
+        async fn get_program_accounts(
+            &self,
+            program_id: Address,
+        ) -> Result<Vec<(Address, solana_account::Account)>, ClientError> {
+            Rpc::get_program_accounts(self, program_id)
+        }
+
+        async fn get_encrypted_utxos_by_tags(
+            &self,
+            tags: Vec<ViewTag>,
+            cursor: Option<Vec<u8>>,
+            limit: Option<u32>,
+        ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
+            Rpc::get_encrypted_utxos_by_tags(self, tags, cursor, limit)
+        }
+
+        async fn get_shielded_transactions_by_tags(
+            &self,
+            tags: Vec<ViewTag>,
+            cursor: Option<Vec<u8>>,
+            limit: Option<u32>,
+        ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+            Rpc::get_shielded_transactions_by_tags(self, tags, cursor, limit)
+        }
+    }
+
     const SPL_ASSET_ID: u64 = 2;
     const SPL_MINT: Address = Address::new_from_array([2u8; 32]);
+
+    fn local_authority(keypair: &ShieldedKeypair) -> LocalWalletAuthority<'_> {
+        LocalWalletAuthority::new(Address::default(), keypair)
+    }
+
+    #[tokio::test]
+    async fn async_sync_future_is_send_and_keeps_wallet_keyless() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let authority = local_authority(&keypair);
+        let indexer = MockIndexer::default();
+        let mut wallet = Wallet::new(
+            keypair.shielded_address().expect("shielded address"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
+        let future = sync_wallet_async(&mut wallet, &authority, &indexer);
+        fn assert_send<T: Send>(value: T) -> T {
+            value
+        }
+
+        let report = assert_send(future).await.expect("async sync");
+
+        assert_eq!(report, SyncReport::default());
+        assert!(wallet.utxos.is_empty());
+    }
 
     #[test]
     fn sync_wallet_records_confidential_transfer_history_without_duplicates() {
@@ -423,9 +677,14 @@ mod tests {
         let bob = ShieldedKeypair::new().expect("bob");
         let funding = confidential_transfer_tx(&bob, &alice, SOL_MINT, 100, 1, &assets);
 
-        let mut wallet = Wallet::new(alice.clone(), assets.clone()).expect("wallet");
+        let mut wallet = Wallet::new(
+            alice.shielded_address().expect("shielded address"),
+            assets.clone(),
+        )
+        .expect("wallet");
         sync_wallet(
             &mut wallet,
+            &local_authority(&alice),
             &MockIndexer {
                 transactions: vec![funding.clone()],
                 matches: Vec::new(),
@@ -451,8 +710,8 @@ mod tests {
             program_accounts: Vec::new(),
         };
 
-        sync_wallet(&mut wallet, &indexer).expect("sync outbound");
-        sync_wallet(&mut wallet, &indexer).expect("resync is idempotent");
+        sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync outbound");
+        sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("resync is idempotent");
 
         assert_eq!(wallet.private_transactions().len(), 2);
         let outbound = wallet
@@ -482,6 +741,7 @@ mod tests {
 
         sync_wallet(
             &mut wallet,
+            &local_authority(&alice),
             &MockIndexer {
                 transactions: vec![withdrawal],
                 matches: Vec::new(),
@@ -518,6 +778,7 @@ mod tests {
 
         sync_wallet(
             &mut wallet,
+            &local_authority(&alice),
             &MockIndexer {
                 transactions: vec![tx],
                 matches: Vec::new(),
@@ -551,6 +812,7 @@ mod tests {
 
         let report = sync_wallet(
             &mut wallet,
+            &local_authority(&alice),
             &MockIndexer {
                 transactions: vec![tx],
                 matches: Vec::new(),
@@ -606,13 +868,9 @@ mod tests {
 
     #[test]
     fn proofless_fetch_decodes_indexed_payload() {
-        let wallet = Wallet::new(
-            ShieldedKeypair::new().expect("shielded keypair"),
-            AssetRegistry::default(),
-        )
-        .expect("wallet");
-        let output = proofless_output_for_wallet(&wallet, 1_234);
-        let item = encrypted_match(&wallet, output.clone());
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let output = proofless_output_for_keypair(&keypair, 1_234);
+        let item = encrypted_match(&keypair, output.clone());
         let indexer = MockIndexer {
             transactions: Vec::new(),
             matches: vec![item],
@@ -622,7 +880,7 @@ mod tests {
 
         fetch_proofless_deposits(
             &indexer,
-            &[wallet.keypair.recipient_bootstrap_view_tag()],
+            &[keypair.recipient_bootstrap_view_tag()],
             &mut out,
             SyncWalletConfig::default(),
         )
@@ -631,7 +889,7 @@ mod tests {
         let deposit = out.values().next().expect("proofless deposit");
         assert!(deposit.proofless);
         let slot = deposit.output_slots.first().expect("proofless slot");
-        assert_eq!(slot.view_tag, wallet.keypair.recipient_bootstrap_view_tag());
+        assert_eq!(slot.view_tag, keypair.recipient_bootstrap_view_tag());
         assert_eq!(slot.output_context.tree.to_bytes(), [7u8; 32]);
         assert_eq!(slot.output_context.leaf_index, 13);
         let decoded = decode_output_data(&slot.payload).expect("decode proofless output");
@@ -642,19 +900,21 @@ mod tests {
 
     #[test]
     fn sync_wallet_discovers_indexed_proofless_deposit() {
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let mut wallet = Wallet::new(
-            ShieldedKeypair::new().expect("shielded keypair"),
+            keypair.shielded_address().expect("shielded address"),
             AssetRegistry::default(),
         )
         .expect("wallet");
-        let output = proofless_output_for_wallet(&wallet, 42);
+        let output = proofless_output_for_keypair(&keypair, 42);
         let indexer = MockIndexer {
             transactions: Vec::new(),
-            matches: vec![encrypted_match(&wallet, output)],
+            matches: vec![encrypted_match(&keypair, output)],
             program_accounts: Vec::new(),
         };
 
-        sync_wallet(&mut wallet, &indexer).expect("sync indexed proofless deposit");
+        sync_wallet(&mut wallet, &local_authority(&keypair), &indexer)
+            .expect("sync indexed proofless deposit");
 
         assert_eq!(wallet.utxos.len(), 1);
         assert_eq!(wallet.utxos[0].utxo.amount, 42);
@@ -673,19 +933,21 @@ mod tests {
 
     #[test]
     fn get_private_token_balances_aggregates_unspent_utxos() {
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let mut wallet = Wallet::new(
-            ShieldedKeypair::new().expect("shielded keypair"),
+            keypair.shielded_address().expect("shielded address"),
             AssetRegistry::default(),
         )
         .expect("wallet");
-        let output = proofless_output_for_wallet(&wallet, 42);
+        let output = proofless_output_for_keypair(&keypair, 42);
         let indexer = MockIndexer {
             transactions: Vec::new(),
-            matches: vec![encrypted_match(&wallet, output)],
+            matches: vec![encrypted_match(&keypair, output)],
             program_accounts: Vec::new(),
         };
 
-        sync_wallet(&mut wallet, &indexer).expect("sync indexed proofless deposit");
+        sync_wallet(&mut wallet, &local_authority(&keypair), &indexer)
+            .expect("sync indexed proofless deposit");
 
         let balances = get_private_token_balances(&wallet).expect("balances");
         assert_eq!(balances.len(), 1);
@@ -696,19 +958,21 @@ mod tests {
 
     #[test]
     fn get_private_transactions_matches_wallet_history() {
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let mut wallet = Wallet::new(
-            ShieldedKeypair::new().expect("shielded keypair"),
+            keypair.shielded_address().expect("shielded address"),
             AssetRegistry::default(),
         )
         .expect("wallet");
-        let output = proofless_output_for_wallet(&wallet, 7);
+        let output = proofless_output_for_keypair(&keypair, 7);
         let indexer = MockIndexer {
             transactions: Vec::new(),
-            matches: vec![encrypted_match(&wallet, output)],
+            matches: vec![encrypted_match(&keypair, output)],
             program_accounts: Vec::new(),
         };
 
-        sync_wallet(&mut wallet, &indexer).expect("sync indexed proofless deposit");
+        sync_wallet(&mut wallet, &local_authority(&keypair), &indexer)
+            .expect("sync indexed proofless deposit");
 
         let txs = get_private_transactions(&wallet);
         assert_eq!(txs.len(), 1);
@@ -721,12 +985,8 @@ mod tests {
 
     #[test]
     fn proofless_fetch_skips_rows_with_viewing_material() {
-        let wallet = Wallet::new(
-            ShieldedKeypair::new().expect("shielded keypair"),
-            AssetRegistry::default(),
-        )
-        .expect("wallet");
-        let mut item = encrypted_match(&wallet, proofless_output_for_wallet(&wallet, 1));
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let mut item = encrypted_match(&keypair, proofless_output_for_keypair(&keypair, 1));
         item.salt = Some([1u8; 16]);
         let indexer = MockIndexer {
             transactions: Vec::new(),
@@ -737,7 +997,7 @@ mod tests {
 
         fetch_proofless_deposits(
             &indexer,
-            &[wallet.keypair.recipient_bootstrap_view_tag()],
+            &[keypair.recipient_bootstrap_view_tag()],
             &mut out,
             SyncWalletConfig::default(),
         )
@@ -967,7 +1227,11 @@ mod tests {
                 next_asset_id += 1;
             }
         }
-        let mut wallet = Wallet::new(owner.clone(), registry).expect("wallet");
+        let mut wallet = Wallet::new(
+            owner.shielded_address().expect("shielded address"),
+            registry,
+        )
+        .expect("wallet");
         for &(asset, amount, seed) in entries {
             let utxo = test_utxo(owner, asset, amount, seed);
             let nullifier_pk = owner.nullifier_key.pubkey().expect("nullifier pubkey");
@@ -985,6 +1249,8 @@ mod tests {
                     leaf_index: u64::from(seed),
                 },
                 nullifier,
+                data_hash: None,
+                zone_data_hash: None,
                 spent: false,
             });
         }
@@ -1002,9 +1268,9 @@ mod tests {
         }
     }
 
-    fn proofless_output_for_wallet(wallet: &Wallet, amount: u64) -> ProoflessOutput {
+    fn proofless_output_for_keypair(keypair: &ShieldedKeypair, amount: u64) -> ProoflessOutput {
         ProoflessOutput {
-            owner: wallet.keypair.owner_hash().expect("owner hash"),
+            owner: keypair.owner_hash().expect("owner hash"),
             blinding: [9u8; BLINDING_LEN],
             asset: SOL_MINT.to_bytes(),
             amount,
@@ -1017,14 +1283,14 @@ mod tests {
         }
     }
 
-    fn encrypted_match(wallet: &Wallet, output: ProoflessOutput) -> EncryptedUtxoMatch {
+    fn encrypted_match(keypair: &ShieldedKeypair, output: ProoflessOutput) -> EncryptedUtxoMatch {
         EncryptedUtxoMatch {
             slot: 1,
             tx_signature: Signature::default(),
             output_slot: OutputSlot {
-                view_tag: wallet.keypair.recipient_bootstrap_view_tag(),
+                view_tag: keypair.recipient_bootstrap_view_tag(),
                 output_context: OutputContext {
-                    hash: proofless_leaf_hash(wallet, &output),
+                    hash: proofless_leaf_hash(keypair, &output),
                     tree: Address::new_from_array([7u8; 32]),
                     leaf_index: 13,
                 },
@@ -1035,10 +1301,10 @@ mod tests {
         }
     }
 
-    fn proofless_leaf_hash(wallet: &Wallet, output: &ProoflessOutput) -> [u8; 32] {
+    fn proofless_leaf_hash(keypair: &ShieldedKeypair, output: &ProoflessOutput) -> [u8; 32] {
         let assets = AssetRegistry::default();
         let owner_cx = OwnerCx {
-            owner: wallet.keypair.signing_pubkey(),
+            owner: keypair.signing_pubkey(),
             assets: &assets,
             zone_program_id: None,
         };
@@ -1049,11 +1315,7 @@ mod tests {
             .into_iter()
             .next()
             .expect("proofless utxo");
-        let nullifier_pk = wallet
-            .keypair
-            .nullifier_key
-            .pubkey()
-            .expect("nullifier pubkey");
+        let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
         utxo.hash(&nullifier_pk, &data_hash, &zone_data_hash)
             .expect("proofless leaf hash")
     }
@@ -1086,14 +1348,19 @@ mod tests {
         let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
 
         // Alice's wallet only knows SOL — the SPL id is unknown at first.
-        let mut wallet = Wallet::new(alice.clone(), AssetRegistry::default()).expect("wallet");
+        let mut wallet = Wallet::new(
+            alice.shielded_address().expect("shielded address"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
         let indexer = MockIndexer {
             transactions: vec![transfer],
             matches: Vec::new(),
             program_accounts: vec![spl_registry_account(SPL_MINT, SPL_ASSET_ID)],
         };
 
-        let report = sync_wallet(&mut wallet, &indexer).expect("sync with backfill");
+        let report = sync_wallet(&mut wallet, &local_authority(&alice), &indexer)
+            .expect("sync with backfill");
 
         // The note decoded after the refresh: it is stored and no id remains
         // unknown in the final report.
@@ -1115,14 +1382,19 @@ mod tests {
         let alice = ShieldedKeypair::new().expect("alice");
         let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
 
-        let mut wallet = Wallet::new(alice.clone(), AssetRegistry::default()).expect("wallet");
+        let mut wallet = Wallet::new(
+            alice.shielded_address().expect("shielded address"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
         let indexer = MockIndexer {
             transactions: vec![transfer],
             matches: Vec::new(),
             program_accounts: Vec::new(),
         };
 
-        let report = sync_wallet(&mut wallet, &indexer).expect("sync no backfill");
+        let report =
+            sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync no backfill");
 
         assert_eq!(report.stored_utxos, 0);
         assert!(report.unknown_asset_ids.contains(&SPL_ASSET_ID));
@@ -1138,14 +1410,19 @@ mod tests {
         let alice = ShieldedKeypair::new().expect("alice");
         let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
 
-        let mut wallet = Wallet::new(alice.clone(), full.clone()).expect("wallet");
+        let mut wallet = Wallet::new(
+            alice.shielded_address().expect("shielded address"),
+            full.clone(),
+        )
+        .expect("wallet");
         let indexer = MockIndexer {
             transactions: vec![transfer],
             matches: Vec::new(),
             program_accounts: Vec::new(),
         };
 
-        let report = sync_wallet(&mut wallet, &indexer).expect("sync known");
+        let report =
+            sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync known");
         // `stored_utxos` is per-sync-call and the multi-round loop re-syncs the
         // same tx (a duplicate store), so assert the durable wallet state and
         // that no id was ever unknown.

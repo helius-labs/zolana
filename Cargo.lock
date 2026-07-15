@@ -11122,7 +11122,6 @@ dependencies = [
  "hex",
  "serde",
  "serde_json",
- "solana-compute-budget-interface",
  "solana-instruction 3.4.0",
  "solana-keypair",
  "solana-pubkey 4.2.0",
@@ -11158,6 +11157,7 @@ dependencies = [
  "solana-bn254 3.2.1",
  "solana-clock 3.1.1",
  "solana-commitment-config",
+ "solana-compute-budget-interface",
  "solana-hash 4.5.0",
  "solana-instruction 3.4.0",
  "solana-keypair",
@@ -11170,6 +11170,7 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-status-client-types",
  "thiserror 2.0.18",
+ "tokio",
  "zolana-api",
  "zolana-event",
  "zolana-hasher",
@@ -11357,6 +11358,7 @@ name = "zolana-transaction"
 version = "0.1.0"
 dependencies = [
  "ark-bn254 0.5.0",
+ "async-trait",
  "borsh",
  "criterion",
  "cucumber",

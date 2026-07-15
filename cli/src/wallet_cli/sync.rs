@@ -6,7 +6,7 @@ use zolana_client::{sync_wallet as client_sync_wallet, Rpc, ZolanaIndexer};
 use zolana_transaction::Wallet;
 
 use super::{
-    material::{clone_keypair, load_sender_from_resolved_sync, WalletMaterial},
+    material::{load_sender_from_resolved_sync, WalletMaterial},
     resolve::resolve_sync_with_config,
     INDEXER_POLL, INDEXER_TIMEOUT,
 };
@@ -39,8 +39,8 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let material = load_sender_from_resolved_sync(&sync)?;
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
-    let mut wallet = Wallet::new(clone_keypair(&material.keypair)?, assets)?;
-    let report = client_sync_wallet(&mut wallet, &indexer)?;
+    let mut wallet = Wallet::new(material.keypair.shielded_address()?, assets)?;
+    let report = client_sync_wallet(&mut wallet, &material, &indexer)?;
     Ok(SyncContext {
         material,
         wallet,
@@ -59,28 +59,6 @@ pub(super) fn wait_for_indexed_utxo(
         let response = indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50))?;
         if response
             .matches
-            .iter()
-            .any(|item| item.tx_signature == signature)
-        {
-            return Ok(());
-        }
-        if started.elapsed().unwrap_or_default() >= INDEXER_TIMEOUT {
-            bail!("timed out waiting for Photon to index {signature}");
-        }
-        sleep(INDEXER_POLL);
-    }
-}
-
-pub(super) fn wait_for_indexed_transaction(
-    indexer: &ZolanaIndexer,
-    tag: [u8; 32],
-    signature: Signature,
-) -> Result<()> {
-    let started = SystemTime::now();
-    loop {
-        let response = indexer.get_shielded_transactions_by_tags(vec![tag], None, Some(50))?;
-        if response
-            .transactions
             .iter()
             .any(|item| item.tx_signature == signature)
         {

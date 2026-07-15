@@ -1,7 +1,8 @@
 mod common;
 
-use common::{build_transfer, keypair_from_index, TransferSpec};
+use common::{build_transfer, keypair_from_index, local_authority, wallet_for, TransferSpec};
 use zolana_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
+use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, DEFAULT_TAG_WINDOW};
 
 const BORSH_HEADER_LEN: usize = 5;
@@ -33,16 +34,23 @@ fn transfer_alice_receives() -> (ShieldedTransaction, Utxo, AssetRegistry) {
     (tx, recipient_utxo, assets)
 }
 
-fn alice_wallet() -> Wallet {
-    Wallet::new(keypair_from_index(0), AssetRegistry::default()).unwrap()
+fn alice_wallet() -> (ShieldedKeypair, Wallet) {
+    let keypair = keypair_from_index(0);
+    let wallet = wallet_for(&keypair, AssetRegistry::default());
+    (keypair, wallet)
 }
 
 #[test]
 fn untampered_transfer_is_discovered() {
     let (tx, recipient_utxo, _assets) = transfer_alice_receives();
-    let mut wallet = alice_wallet();
+    let (keypair, mut wallet) = alice_wallet();
     wallet
-        .sync(std::slice::from_ref(&tx), 1, DEFAULT_TAG_WINDOW)
+        .sync(
+            &local_authority(&keypair),
+            std::slice::from_ref(&tx),
+            1,
+            DEFAULT_TAG_WINDOW,
+        )
         .unwrap();
     assert_eq!(wallet.utxos.len(), 1);
     assert_eq!(wallet.utxos.first().unwrap().utxo, recipient_utxo);
@@ -64,9 +72,14 @@ fn tampered_ciphertext_is_rejected_by_utxo_hash() {
         *byte ^= 0xff;
     }
 
-    let mut wallet = alice_wallet();
+    let (keypair, mut wallet) = alice_wallet();
     let report = wallet
-        .sync(std::slice::from_ref(&tx), 1, DEFAULT_TAG_WINDOW)
+        .sync(
+            &local_authority(&keypair),
+            std::slice::from_ref(&tx),
+            1,
+            DEFAULT_TAG_WINDOW,
+        )
         .unwrap();
     assert!(wallet.utxos.is_empty(), "{:?}", wallet.utxos);
     assert!(report.undecryptable_candidates >= 1);

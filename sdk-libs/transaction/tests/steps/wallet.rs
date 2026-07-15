@@ -7,8 +7,8 @@ use zolana_transaction::{
         OwnerCx, UtxoSerialization,
     },
     wallet::{AssetBalance, PrivateTransactionDirection, PrivateTransactionKind, Wallet},
-    AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, Utxo, SOL_ASSET_ID,
-    SOL_MINT,
+    Address, AssetRegistry, Data, LocalWalletAuthority, OutputContext, OutputSlot,
+    ShieldedTransaction, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 
 use super::transfer::{build_anonymous_transfer, RecipientSpec};
@@ -272,9 +272,15 @@ fn recorded_split(world: &mut TransactionWorld, owner: String, parts: u8) {
 
 #[when(expr = "a fresh wallet for {string} is synced from the recorded transactions")]
 fn sync_fresh_wallet(world: &mut TransactionWorld, name: String) {
-    let mut wallet = Wallet::new(world.fresh_keypair(&name), AssetRegistry::default()).unwrap();
+    let keypair = world.fresh_keypair(&name);
+    let mut wallet = Wallet::new(
+        keypair.shielded_address().unwrap(),
+        AssetRegistry::default(),
+    )
+    .unwrap();
+    let authority = LocalWalletAuthority::new(Address::default(), &keypair);
     let report = wallet
-        .sync(&world.sync_transactions, 1_700_000_000, 8)
+        .sync(&authority, &world.sync_transactions, 1_700_000_000, 8)
         .unwrap();
     assert_eq!(report.unparsed_transactions, 0);
     assert_eq!(report.stored_utxos, wallet.utxos.len());

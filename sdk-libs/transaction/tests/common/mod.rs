@@ -9,8 +9,8 @@ use zolana_transaction::{
         AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle, AnonymousSenderEncode,
         AnonymousTransferSenderPlaintext,
     },
-    Address, AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, OwnerCx,
-    ShieldedTransaction, Utxo, UtxoSerialization, SOL_MINT,
+    Address, AssetRegistry, Data, EncryptedScheme, LocalWalletAuthority, OutputContext, OutputSlot,
+    OwnerCx, ShieldedTransaction, Utxo, UtxoSerialization, Wallet, SOL_MINT,
 };
 
 pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
@@ -23,6 +23,14 @@ pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     let signing = SigningKey::from_bytes(&signing_bytes).unwrap();
     let viewing = ViewingKey::from_bytes(&viewing_bytes).unwrap();
     ShieldedKeypair::from_keys(signing, viewing).unwrap()
+}
+
+pub fn local_authority(keypair: &ShieldedKeypair) -> LocalWalletAuthority<'_> {
+    LocalWalletAuthority::new(Address::default(), keypair)
+}
+
+pub fn wallet_for(keypair: &ShieldedKeypair, registry: AssetRegistry) -> Wallet {
+    Wallet::new(keypair.shielded_address().unwrap(), registry).unwrap()
 }
 
 pub fn unique31(counter: &mut u64, prefix: u8) -> [u8; BLINDING_LEN] {

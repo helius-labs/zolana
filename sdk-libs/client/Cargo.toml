@@ -1,7 +1,7 @@
 [package]
 name = "zolana-client"
 version = "0.1.0"
-description = "Host-side Groth16 witness builder for SPP transaction circuits (transfer / transfer-eddsa)."
+description = "Client SDK for building, proving, and submitting Zolana private transactions."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -11,6 +11,7 @@ autotests = false
 default = []
 indexer-api = ["dep:zolana-api"]
 solana-rpc = ["dep:bs58", "dep:solana-rpc-client", "dep:solana-commitment-config"]
+client = ["indexer-api", "solana-rpc"]
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
@@ -35,6 +36,7 @@ async-trait = { workspace = true }
 bs58 = { workspace = true, optional = true }
 solana-account = { workspace = true }
 solana-clock = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
@@ -47,6 +49,7 @@ solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true, features = ["bincode"] }
 solana-transaction-status-client-types = { workspace = true }
+tokio = { workspace = true, features = ["time", "rt", "macros"] }
 
 [dev-dependencies]
 base64 = { workspace = true }

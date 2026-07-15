@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use solana_address::Address;
 use zolana_event::OutputData;
 use zolana_keypair::{
-    viewing_key::ViewTag, KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey,
+    viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey, ViewingKey,
 };
 
 use super::state::{
@@ -24,7 +24,7 @@ use crate::{
         DecodeCx, OwnerCx, UtxoSerialization,
     },
     utxo::Utxo,
-    AssetRegistry, EncryptedScheme,
+    AssetRegistry, EncryptedScheme, SyncWalletAuthority, WalletSyncMaterial,
 };
 
 pub(super) struct TxIndex {
@@ -91,7 +91,8 @@ pub(super) struct SlotOutcome {
 }
 
 pub(super) struct SyncCtx<'a> {
-    pub(super) keypair: &'a ShieldedKeypair,
+    pub(super) nullifier_key: &'a NullifierKey,
+    pub(super) self_viewing_pubkey: P256Pubkey,
     pub(super) owner: PublicKey,
     pub(super) nullifier_pk: [u8; 32],
     pub(super) utxos: &'a mut Vec<WalletUtxo>,
@@ -102,11 +103,20 @@ pub(super) struct SyncCtx<'a> {
 }
 
 impl SyncCtx<'_> {
-    fn push(&mut self, utxo: Utxo, output_context: OutputContext, nullifier: [u8; 32]) {
+    fn push(
+        &mut self,
+        utxo: Utxo,
+        output_context: OutputContext,
+        nullifier: [u8; 32],
+        data_hash: Option<[u8; 32]>,
+        zone_data_hash: Option<[u8; 32]>,
+    ) {
         self.utxos.push(WalletUtxo {
             utxo,
             output_context,
             nullifier,
+            data_hash,
+            zone_data_hash,
             spent: false,
         });
         self.report.stored_utxos += 1;
@@ -116,6 +126,8 @@ impl SyncCtx<'_> {
         &mut self,
         utxo: Utxo,
         output_context: OutputContext,
+        data_hash: Option<[u8; 32]>,
+        zone_data_hash: Option<[u8; 32]>,
     ) -> Result<bool, TransactionError> {
         if utxo.owner != self.owner {
             return Ok(false);
@@ -127,8 +139,8 @@ impl SyncCtx<'_> {
         {
             return Ok(false);
         }
-        let nullifier = utxo.nullifier(&output_context.hash, &self.keypair.nullifier_key)?;
-        self.push(utxo, output_context, nullifier);
+        let nullifier = utxo.nullifier(&output_context.hash, self.nullifier_key)?;
+        self.push(utxo, output_context, nullifier, data_hash, zone_data_hash);
         Ok(true)
     }
 
@@ -147,7 +159,7 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(false);
         };
-        self.store(utxo, output_context)
+        self.store(utxo, output_context, None, None)
     }
 
     fn record(&mut self, tx: PrivateTransaction) {
@@ -178,7 +190,7 @@ impl SyncCtx<'_> {
         utxo: &Utxo,
     ) {
         let direction = match sender {
-            Some(sender) if sender == self.keypair.viewing_pubkey() => {
+            Some(sender) if sender == self.self_viewing_pubkey => {
                 PrivateTransactionDirection::SelfTransfer
             }
             _ => PrivateTransactionDirection::Inbound,
@@ -326,17 +338,21 @@ impl SyncCtx<'_> {
         &mut self,
         utxos: Vec<Utxo>,
         output_context: &OutputContext,
-        data_hash: &[u8; 32],
-        zone_data_hash: &[u8; 32],
+        data_hash: Option<[u8; 32]>,
+        zone_data_hash: Option<[u8; 32]>,
     ) -> Result<bool, TransactionError> {
         let mut stored = false;
         for utxo in utxos {
-            let hash = utxo.hash(&self.nullifier_pk, data_hash, zone_data_hash)?;
+            let hash = utxo.hash(
+                &self.nullifier_pk,
+                &data_hash.unwrap_or([0u8; 32]),
+                &zone_data_hash.unwrap_or([0u8; 32]),
+            )?;
             if hash != output_context.hash {
                 self.report.undecryptable_candidates += 1;
                 continue;
             }
-            self.store(utxo, output_context.clone())?;
+            self.store(utxo, output_context.clone(), data_hash, zone_data_hash)?;
             stored = true;
         }
         Ok(stored)
@@ -412,8 +428,8 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        let data_hash = plaintext.data_hash.unwrap_or([0u8; 32]);
-                        let zone_data_hash = plaintext.zone_data_hash.unwrap_or([0u8; 32]);
+                        let data_hash = plaintext.data_hash;
+                        let zone_data_hash = plaintext.zone_data_hash;
                         let Ok(utxos) = Proofless::into_utxos(plaintext, &owner_cx) else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
@@ -421,8 +437,8 @@ impl SyncCtx<'_> {
                         if self.store_recipient_utxos(
                             utxos.clone(),
                             &output_context,
-                            &data_hash,
-                            &zone_data_hash,
+                            data_hash,
+                            zone_data_hash,
                         )? {
                             self.processed_slots.insert(site);
                             if let Some(utxo) = utxos.first() {
@@ -475,12 +491,7 @@ impl SyncCtx<'_> {
                                 return Ok(outcome);
                             }
                         };
-                        if self.store_recipient_utxos(
-                            utxos.clone(),
-                            &output_context,
-                            &[0u8; 32],
-                            &[0u8; 32],
-                        )? {
+                        if self.store_recipient_utxos(utxos.clone(), &output_context, None, None)? {
                             self.processed_slots.insert(site);
                             outcome.sender = Some(sender);
                             if let Some(utxo) = utxos.first() {
@@ -500,12 +511,7 @@ impl SyncCtx<'_> {
                                 return Ok(outcome);
                             }
                         };
-                        if self.store_recipient_utxos(
-                            utxos.clone(),
-                            &output_context,
-                            &[0u8; 32],
-                            &[0u8; 32],
-                        )? {
+                        if self.store_recipient_utxos(utxos.clone(), &output_context, None, None)? {
                             self.processed_slots.insert(site);
                             if let Some(utxo) = utxos.first() {
                                 self.record_received(tx, site.1, None, utxo);
@@ -622,12 +628,7 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        if self.store_recipient_utxos(
-                            utxos.clone(),
-                            &output_context,
-                            &[0u8; 32],
-                            &[0u8; 32],
-                        )? {
+                        if self.store_recipient_utxos(utxos.clone(), &output_context, None, None)? {
                             self.processed_slots.insert(site);
                             if let Some(utxo) = utxos.first() {
                                 self.record_merge(tx, &output_context, utxo);
@@ -668,12 +669,40 @@ fn scan_stream(
 }
 
 impl Wallet {
-    pub fn sync(
+    pub fn sync<A: SyncWalletAuthority + ?Sized>(
         &mut self,
+        authority: &A,
         transactions: &[ShieldedTransaction],
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
+        let material = authority.sync_material()?;
+        self.sync_with_material(&material, transactions, synced_at, window)
+    }
+
+    pub fn sync_with_material(
+        &mut self,
+        material: &WalletSyncMaterial,
+        transactions: &[ShieldedTransaction],
+        synced_at: i64,
+        window: u64,
+    ) -> Result<SyncReport, TransactionError> {
+        let identity = material.identity;
+        if identity != self.identity {
+            return Err(TransactionError::WalletAuthorityMismatch);
+        }
+        let viewing_keys = &material.viewing_keys;
+        if viewing_keys
+            .iter()
+            .all(|key| key.pubkey() != identity.viewing_pubkey)
+        {
+            return Err(TransactionError::MissingCurrentViewingKey);
+        }
+        self.ensure_viewing_key_entries(viewing_keys.iter().map(|key| key.pubkey()));
+        if material.nullifier_key.pubkey()? != identity.nullifier_pubkey {
+            return Err(TransactionError::WalletAuthorityMismatch);
+        }
+
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
 
@@ -681,11 +710,12 @@ impl Wallet {
         // disjoint-field borrows let this immutable borrow of `self.registry`
         // coexist with the mutable UTXO/transaction borrows below.
         let assets = &self.registry;
-        let owner_tag = self.keypair.signing_pubkey().confidential_view_tag()?;
+        let owner_tag = identity.signing_pubkey.confidential_view_tag()?;
         let mut ctx = SyncCtx {
-            owner: self.keypair.signing_pubkey(),
-            nullifier_pk: self.keypair.nullifier_key.pubkey()?,
-            keypair: &self.keypair,
+            owner: identity.signing_pubkey,
+            nullifier_pk: identity.nullifier_pubkey,
+            nullifier_key: &material.nullifier_key,
+            self_viewing_pubkey: identity.viewing_pubkey,
             utxos: &mut self.utxos,
             transactions: &mut self.transactions,
             processed_slots: HashSet::new(),
@@ -695,13 +725,19 @@ impl Wallet {
 
         for entry in self.viewing_key_history.iter_mut() {
             let ViewingKeyEntry {
-                key,
+                viewing_pubkey,
                 tx_count,
                 request_count,
                 known_senders,
                 known_recipients,
                 ..
             } = entry;
+            let Some(key) = viewing_keys
+                .iter()
+                .find(|key| key.pubkey() == *viewing_pubkey)
+            else {
+                continue;
+            };
 
             // Anonymous policy-zone bootstrap scan (recipient viewing-pubkey
             // x-coordinate); also catches proofless deposits.

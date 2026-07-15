@@ -1,26 +1,33 @@
 //! Blocking RPC adapter for the Zolana indexer API.
 
+use async_trait::async_trait;
 use solana_address::Address;
 #[cfg(test)]
 use solana_signature::Signature;
 use zolana_api::{
     Base64String, BlockingZolanaApi, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot,
-    SerializablePubkey,
+    SerializablePubkey, ZolanaApi,
 };
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 
 use crate::{
     error::ClientError,
     rpc::{
-        Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, MerkleContext,
-        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, Rpc, ShieldedTransaction,
+        AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+        GetMerkleProofsResponse, GetNonInclusionProofsResponse,
+        GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof, NonInclusionProof,
+        OutputContext, OutputSlot, Rpc, ShieldedTransaction,
     },
 };
 
 #[derive(Clone, Debug)]
 pub struct ZolanaIndexer {
     api: BlockingZolanaApi,
+}
+
+#[derive(Clone, Debug)]
+pub struct AsyncZolanaIndexer {
+    api: ZolanaApi,
 }
 
 impl ZolanaIndexer {
@@ -40,6 +47,27 @@ impl ZolanaIndexer {
     }
 
     pub fn api(&self) -> &BlockingZolanaApi {
+        &self.api
+    }
+}
+
+impl AsyncZolanaIndexer {
+    pub fn new(url: impl AsRef<str>) -> Self {
+        Self {
+            api: ZolanaApi::new(url),
+        }
+    }
+
+    pub fn with_api(api: ZolanaApi) -> Self {
+        Self { api }
+    }
+
+    pub fn with_http_trace(mut self) -> Self {
+        self.api = self.api.with_http_trace();
+        self
+    }
+
+    pub fn api(&self) -> &ZolanaApi {
         &self.api
     }
 }
@@ -146,8 +174,115 @@ impl Rpc for ZolanaIndexer {
     }
 }
 
+#[async_trait]
+impl AsyncRpc for AsyncZolanaIndexer {
+    async fn get_encrypted_utxos_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+    ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
+        let response = self
+            .api
+            .get_encrypted_utxos_by_tags(
+                tags.into_iter().map(encode_hash).collect(),
+                encode_cursor(cursor),
+                limit.map(u64::from),
+            )
+            .await
+            .map_err(indexer_error)?;
+
+        Ok(GetEncryptedUtxosByTagsResponse {
+            context: convert_context(response.context),
+            matches: response
+                .matches
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| convert_encrypted_utxo_match(index, item))
+                .collect::<Result<Vec<_>, _>>()?,
+            next_cursor: response.next_cursor.map(Into::into),
+        })
+    }
+
+    async fn get_shielded_transactions_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        let response = self
+            .api
+            .get_shielded_transactions_by_tags(
+                tags.into_iter().map(encode_hash).collect(),
+                encode_cursor(cursor),
+                limit.map(u64::from),
+            )
+            .await
+            .map_err(indexer_error)?;
+
+        Ok(GetShieldedTransactionsByTagsResponse {
+            context: convert_context(response.context),
+            transactions: response
+                .transactions
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| convert_shielded_transaction(index, item))
+                .collect::<Result<Vec<_>, _>>()?,
+            next_cursor: response.next_cursor.map(Into::into),
+        })
+    }
+
+    async fn get_merkle_proofs(
+        &self,
+        tree_account: Address,
+        leaves: Vec<[u8; 32]>,
+    ) -> Result<GetMerkleProofsResponse, ClientError> {
+        let response = self
+            .api
+            .get_merkle_proofs(
+                encode_pubkey(tree_account),
+                leaves.into_iter().map(encode_hash).collect(),
+            )
+            .await
+            .map_err(indexer_error)?;
+
+        Ok(GetMerkleProofsResponse {
+            context: convert_context(response.context),
+            proofs: response
+                .proofs
+                .into_iter()
+                .map(convert_merkle_proof)
+                .collect(),
+        })
+    }
+
+    async fn get_non_inclusion_proofs(
+        &self,
+        tree_account: Address,
+        leaves: Vec<[u8; 32]>,
+    ) -> Result<GetNonInclusionProofsResponse, ClientError> {
+        let response = self
+            .api
+            .get_non_inclusion_proofs(
+                encode_pubkey(tree_account),
+                leaves.into_iter().map(encode_hash).collect(),
+            )
+            .await
+            .map_err(indexer_error)?;
+
+        Ok(GetNonInclusionProofsResponse {
+            context: convert_context(response.context),
+            proofs: response
+                .proofs
+                .into_iter()
+                .map(convert_non_inclusion_proof)
+                .collect(),
+        })
+    }
+}
+
 fn indexer_error(error: zolana_api::ApiError) -> ClientError {
-    ClientError::Rpc(format!("indexer API: {error}"))
+    ClientError::Indexer(error.to_string())
 }
 
 fn convert_context(context: zolana_api::Context) -> Context {
@@ -598,7 +733,7 @@ mod tests {
             .expect_err("JSON-RPC errors must surface");
         let _ = server.request();
 
-        assert!(err.to_string().contains("indexer API"));
+        assert!(matches!(&err, ClientError::Indexer(_)));
         assert!(err.to_string().contains("bad tag"));
     }
 

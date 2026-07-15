@@ -8,8 +8,8 @@
 
 use hkdf::Hkdf;
 use p256::{
-    elliptic_curve::{generic_array::GenericArray, hash2curve::FromOkm},
-    NonZeroScalar, PublicKey as P256PublicKey, Scalar, SecretKey,
+    elliptic_curve::hash2curve::FromOkm, NonZeroScalar, PublicKey as P256PublicKey, Scalar,
+    SecretKey,
 };
 use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
@@ -101,7 +101,7 @@ impl ViewingKey {
 
     pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
         let mut out = [0u8; 32];
-        out.copy_from_slice(self.secret.to_bytes().as_slice());
+        out.copy_from_slice(&self.secret.to_bytes());
         Zeroizing::new(out)
     }
 
@@ -234,7 +234,7 @@ impl ViewingKey {
         let secret = self.tx_viewing_secret()?;
         let mut okm = [0u8; 48];
         hkdf_expand(Some(first_nullifier), &secret, &[INFO_TX_VIEWING], &mut okm)?;
-        let scalar = Scalar::from_okm(GenericArray::from_slice(&okm));
+        let scalar = scalar_from_okm(&okm);
         let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar))
             .ok_or(KeypairError::ZeroScalar)?;
         Ok(ViewingKey::from_secret_key(SecretKey::from(nonzero)))
@@ -311,6 +311,16 @@ impl ViewingKey {
             slot_index,
         )
     }
+}
+
+// p256 0.13's `FromOkm` API still exposes generic-array 0.14. Newer
+// generic-array releases deprecate that type, so keep the compatibility use
+// isolated until p256's public hash-to-field API moves to hybrid-array.
+#[allow(deprecated)]
+fn scalar_from_okm(okm: &[u8; 48]) -> Scalar {
+    use p256::elliptic_curve::generic_array::GenericArray;
+
+    Scalar::from_okm(GenericArray::from_slice(okm))
 }
 
 impl Default for ViewingKey {

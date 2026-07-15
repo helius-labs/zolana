@@ -3,9 +3,11 @@
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
+use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use solana_transaction::Transaction as SolanaTransaction;
 use zolana_interface::{
     instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
     pda, SPL_TOKEN_PROGRAM_ID,
@@ -13,7 +15,10 @@ use zolana_interface::{
 use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{owner_utxo_hash, utxo_hash, SOL_MINT};
 
-use crate::{error::ClientError, rpc::Rpc};
+use crate::{
+    error::ClientError,
+    rpc::{AsyncRpc, Rpc},
+};
 
 /// Prepared direct proofless SOL shield.
 ///
@@ -27,7 +32,7 @@ pub struct Deposit {
     pub spl: Option<DepositSplAccounts>,
 }
 
-pub struct CreateDeposit<'a> {
+pub struct DepositParams<'a> {
     pub recipient: &'a ShieldedAddress,
     pub asset: Address,
     pub amount: u64,
@@ -37,7 +42,7 @@ pub struct CreateDeposit<'a> {
 }
 
 impl Deposit {
-    pub fn new(request: CreateDeposit<'_>) -> Result<Self, ClientError> {
+    pub fn new(request: DepositParams<'_>) -> Result<Self, ClientError> {
         // Fresh blinding is sent in the clear; the recipient `owner` commitment
         // is derived from public address material, so a third-party depositor
         // needs no shared secret and the recipient spends the note directly.
@@ -73,6 +78,28 @@ impl Deposit {
         deposit_instruction(tree, depositor, self.spl, &self.data)
     }
 
+    /// Build an unsigned deposit transaction for one or more external signers.
+    pub async fn build_transaction<R: AsyncRpc>(
+        &self,
+        rpc: &R,
+        payer: Pubkey,
+        tree: Pubkey,
+        depositor: Pubkey,
+    ) -> Result<SolanaTransaction, ClientError> {
+        build_deposit_transaction(rpc, payer, tree, depositor, self).await
+    }
+
+    /// Blocking adapter for building an unsigned deposit transaction.
+    pub fn build_transaction_sync<R: Rpc>(
+        &self,
+        rpc: &R,
+        payer: Pubkey,
+        tree: Pubkey,
+        depositor: Pubkey,
+    ) -> Result<SolanaTransaction, ClientError> {
+        build_deposit_transaction_sync(rpc, payer, tree, depositor, self)
+    }
+
     pub fn send<R: Rpc>(
         &self,
         rpc: &R,
@@ -88,8 +115,38 @@ impl Deposit {
     }
 }
 
-pub fn create_deposit(request: CreateDeposit<'_>) -> Result<Deposit, ClientError> {
+pub fn create_deposit(request: DepositParams<'_>) -> Result<Deposit, ClientError> {
     Deposit::new(request)
+}
+
+pub async fn build_deposit_transaction<R: AsyncRpc>(
+    rpc: &R,
+    payer: Pubkey,
+    tree: Pubkey,
+    depositor: Pubkey,
+    deposit: &Deposit,
+) -> Result<SolanaTransaction, ClientError> {
+    let (blockhash, _) = rpc.get_latest_blockhash().await?;
+    Ok(unsigned_deposit_transaction(
+        payer,
+        deposit.instruction(tree, depositor),
+        blockhash,
+    ))
+}
+
+pub fn build_deposit_transaction_sync<R: Rpc>(
+    rpc: &R,
+    payer: Pubkey,
+    tree: Pubkey,
+    depositor: Pubkey,
+    deposit: &Deposit,
+) -> Result<SolanaTransaction, ClientError> {
+    let (blockhash, _) = rpc.get_latest_blockhash()?;
+    Ok(unsigned_deposit_transaction(
+        payer,
+        deposit.instruction(tree, depositor),
+        blockhash,
+    ))
 }
 
 /// Build and send a direct (non-zone) proofless shield: a public deposit
@@ -133,6 +190,16 @@ fn deposit_instruction(
         memo: data.memo.clone(),
     }
     .instruction()
+}
+
+fn unsigned_deposit_transaction(
+    payer: Pubkey,
+    instruction: Instruction,
+    blockhash: solana_hash::Hash,
+) -> SolanaTransaction {
+    let mut message = Message::new(&[instruction], Some(&payer));
+    message.recent_blockhash = blockhash;
+    SolanaTransaction::new_unsigned(message)
 }
 
 fn spl_accounts(
@@ -181,6 +248,15 @@ mod tests {
         }
     }
 
+    struct AsyncMockRpc;
+
+    #[async_trait::async_trait]
+    impl AsyncRpc for AsyncMockRpc {
+        async fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
+            Ok((Hash::new_from_array([7u8; 32]), 1))
+        }
+    }
+
     #[test]
     fn deposit_sends_the_interface_instruction() {
         let rpc = MockRpc::default();
@@ -221,7 +297,7 @@ mod tests {
     fn prepared_sol_deposit_derives_consistent_material() {
         let recipient = ShieldedKeypair::new().unwrap();
         let recipient_address = recipient.shielded_address().unwrap();
-        let prepared = create_deposit(CreateDeposit {
+        let prepared = create_deposit(DepositParams {
             recipient: &recipient_address,
             asset: SOL_MINT,
             amount: 1_000,
@@ -237,6 +313,33 @@ mod tests {
         assert_ne!(prepared.utxo_hash, [0u8; 32]);
     }
 
+    #[tokio::test]
+    async fn deposit_builder_returns_sendable_unsigned_transaction() {
+        let recipient = ShieldedKeypair::new().expect("recipient");
+        let prepared = create_deposit(DepositParams {
+            recipient: &recipient.shielded_address().expect("shielded address"),
+            asset: SOL_MINT,
+            amount: 1_000,
+            spl_token_account: None,
+            memo: None,
+        })
+        .expect("prepared deposit");
+        let payer = Pubkey::new_unique();
+        let tree = Pubkey::new_unique();
+        let future = prepared.build_transaction(&AsyncMockRpc, payer, tree, payer);
+        fn assert_send<T: Send>(value: T) -> T {
+            value
+        }
+        let transaction = assert_send(future).await.expect("unsigned deposit");
+
+        assert_eq!(transaction.message.account_keys[0], payer);
+        assert_eq!(
+            transaction.message.recent_blockhash,
+            Hash::new_from_array([7u8; 32])
+        );
+        assert_eq!(transaction.signatures, vec![Signature::default()]);
+    }
+
     #[test]
     fn prepared_spl_deposit_carries_settlement_accounts() {
         let recipient = ShieldedKeypair::new().unwrap();
@@ -245,7 +348,7 @@ mod tests {
         let user_token = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
 
-        let prepared = create_deposit(CreateDeposit {
+        let prepared = create_deposit(DepositParams {
             recipient: &recipient_address,
             asset,
             amount: 1_000,

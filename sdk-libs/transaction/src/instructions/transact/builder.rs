@@ -82,6 +82,7 @@ struct Recipient {
     amount: u64,
 }
 
+#[derive(Clone)]
 pub enum WithdrawalTarget {
     Sol {
         user_sol_account: Address,

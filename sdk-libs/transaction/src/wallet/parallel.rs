@@ -1,13 +1,16 @@
 use std::collections::HashSet;
 
 use rayon::prelude::*;
-use zolana_keypair::{viewing_key::ViewTag, KeypairError, P256Pubkey, ViewingKey};
+use zolana_keypair::{viewing_key::ViewTag, KeypairError, P256Pubkey};
 
 use super::{
     state::{SyncReport, ViewingKeyEntry, Wallet},
     sync::{SyncCtx, TxIndex},
 };
-use crate::{error::TransactionError, instructions::transact::ShieldedTransaction, AssetRegistry};
+use crate::{
+    error::TransactionError, instructions::transact::ShieldedTransaction, SyncWalletAuthority,
+    WalletSyncMaterial,
+};
 
 type StreamHits = Vec<(u64, Vec<(usize, usize)>)>;
 
@@ -81,21 +84,50 @@ fn probe_presence_stream(
 }
 
 impl Wallet {
-    pub fn sync_parallel(
+    pub fn sync_parallel<A: SyncWalletAuthority + ?Sized>(
         &mut self,
+        authority: &A,
         transactions: &[ShieldedTransaction],
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
+        let material = authority.sync_material()?;
+        self.sync_parallel_with_material(&material, transactions, synced_at, window)
+    }
+
+    pub fn sync_parallel_with_material(
+        &mut self,
+        material: &WalletSyncMaterial,
+        transactions: &[ShieldedTransaction],
+        synced_at: i64,
+        window: u64,
+    ) -> Result<SyncReport, TransactionError> {
+        let identity = material.identity;
+        if identity != self.identity {
+            return Err(TransactionError::WalletAuthorityMismatch);
+        }
+        let viewing_keys = &material.viewing_keys;
+        if viewing_keys
+            .iter()
+            .all(|key| key.pubkey() != identity.viewing_pubkey)
+        {
+            return Err(TransactionError::MissingCurrentViewingKey);
+        }
+        self.ensure_viewing_key_entries(viewing_keys.iter().map(|key| key.pubkey()));
+        if material.nullifier_key.pubkey()? != identity.nullifier_pubkey {
+            return Err(TransactionError::WalletAuthorityMismatch);
+        }
+
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
 
         let assets = &self.registry;
-        let owner_tag = self.keypair.signing_pubkey().confidential_view_tag()?;
+        let owner_tag = identity.signing_pubkey.confidential_view_tag()?;
         let mut ctx = SyncCtx {
-            owner: self.keypair.signing_pubkey(),
-            nullifier_pk: self.keypair.nullifier_key.pubkey()?,
-            keypair: &self.keypair,
+            owner: identity.signing_pubkey,
+            nullifier_pk: identity.nullifier_pubkey,
+            nullifier_key: &material.nullifier_key,
+            self_viewing_pubkey: identity.viewing_pubkey,
             utxos: &mut self.utxos,
             transactions: &mut self.transactions,
             processed_slots: HashSet::new(),
@@ -105,14 +137,19 @@ impl Wallet {
 
         for entry in self.viewing_key_history.iter_mut() {
             let ViewingKeyEntry {
-                key,
+                viewing_pubkey,
                 tx_count,
                 request_count,
                 known_senders,
                 known_recipients,
                 ..
             } = entry;
-            let key: &ViewingKey = key;
+            let Some(key) = viewing_keys
+                .iter()
+                .find(|key| key.pubkey() == *viewing_pubkey)
+            else {
+                continue;
+            };
 
             // Anonymous policy-zone bootstrap scan (recipient viewing-pubkey
             // x-coordinate); also catches proofless deposits.

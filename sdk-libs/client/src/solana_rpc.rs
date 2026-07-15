@@ -5,27 +5,39 @@
 //! does not index shielded-pool state itself.
 
 use std::{
+    collections::BTreeSet,
     thread::sleep,
     time::{Duration, Instant},
 };
 
+use async_trait::async_trait;
 use solana_account::Account;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
-use solana_rpc_client::{api::config::RpcTransactionConfig, rpc_client::RpcClient};
+use solana_rpc_client::{
+    api::config::RpcTransactionConfig, nonblocking::rpc_client::RpcClient as NonblockingRpcClient,
+    rpc_client::RpcClient,
+};
 use solana_signature::Signature;
 use solana_transaction::Transaction;
 use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
-    EncodedTransaction, UiCompiledInstruction, UiInstruction, UiLoadedAddresses, UiMessage,
-    UiTransactionEncoding,
+    EncodedTransaction, TransactionStatus, UiCompiledInstruction, UiInstruction, UiLoadedAddresses,
+    UiMessage, UiTransactionEncoding,
 };
 use zolana_event::{InstructionGroup, ParsedInstruction};
+use zolana_interface::{
+    instruction::{instruction_data::transact::TransactIxData, tag},
+    SHIELDED_POOL_PROGRAM_ID,
+};
 
-use crate::{error::ClientError, rpc::Rpc};
+use crate::{
+    error::ClientError,
+    rpc::{AsyncRpc, Rpc},
+};
 
 fn pubkey_from_address(address: &Address) -> Pubkey {
     Pubkey::new_from_array(address.to_bytes())
@@ -36,9 +48,45 @@ pub struct SolanaRpc {
     confirmation_timeout: Duration,
 }
 
+pub struct AsyncSolanaRpc {
+    client: NonblockingRpcClient,
+}
+
 #[derive(Clone, Debug)]
 pub struct ConfirmedInstructionGroups {
     pub groups: Vec<InstructionGroup>,
+}
+
+const DEFAULT_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Unique `view_tag`s from a confirmed shielded-pool `TRANSACT` outer instruction.
+pub fn transact_output_view_tags_from_instruction_groups(
+    groups: &ConfirmedInstructionGroups,
+) -> Result<Vec<[u8; 32]>, ClientError> {
+    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    for group in &groups.groups {
+        let outer = &group.outer;
+        if outer.program_id != program_id {
+            continue;
+        }
+        let Some(instruction_tag) = outer.data.first() else {
+            continue;
+        };
+        if *instruction_tag != tag::TRANSACT {
+            continue;
+        }
+        let transact_data = TransactIxData::deserialize(&outer.data[1..])
+            .map_err(|err| ClientError::Rpc(format!("decode transact instruction data: {err}")))?;
+        let tags = transact_data
+            .output_ciphertexts
+            .iter()
+            .map(|slot| slot.view_tag)
+            .collect::<BTreeSet<_>>();
+        return Ok(tags.into_iter().collect());
+    }
+    Err(ClientError::Rpc(
+        "confirmed transaction has no shielded-pool TRANSACT instruction".into(),
+    ))
 }
 
 impl SolanaRpc {
@@ -103,47 +151,15 @@ impl SolanaRpc {
         signature: &Signature,
     ) -> Result<ConfirmedInstructionGroups, ClientError> {
         let transaction = self.fetch_confirmed_transaction(signature)?;
-        let encoded = transaction.transaction;
-        let meta = encoded
-            .meta
-            .ok_or_else(|| ClientError::Rpc("transaction missing metadata".into()))?;
-        let (account_keys, outer_instructions) =
-            transaction_message_parts(encoded.transaction, &meta.loaded_addresses)?;
-        let inner = match meta.inner_instructions {
-            OptionSerializer::Some(inner) => inner,
-            OptionSerializer::None | OptionSerializer::Skip => {
-                return Err(ClientError::Rpc(format!(
-                    "transaction missing inner instructions: {signature}"
-                )));
-            }
-        };
+        instruction_groups_from_confirmed_transaction(signature, transaction)
+    }
 
-        let mut groups = outer_instructions
-            .iter()
-            .map(|instruction| parsed_instruction(&account_keys, instruction, Some(1)))
-            .map(|outer| {
-                outer.map(|outer| InstructionGroup {
-                    outer,
-                    inner: Vec::new(),
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        for inner_group in inner {
-            let Some(group) = groups.get_mut(inner_group.index as usize) else {
-                return Err(ClientError::Rpc(format!(
-                    "inner instruction group {} has no outer instruction",
-                    inner_group.index
-                )));
-            };
-            group.inner = inner_group
-                .instructions
-                .iter()
-                .map(|instruction| ui_instruction_to_parsed(&account_keys, instruction))
-                .collect::<Result<Vec<_>, _>>()?;
-        }
-
-        Ok(ConfirmedInstructionGroups { groups })
+    pub fn transact_output_view_tags_from_signature(
+        &self,
+        signature: &Signature,
+    ) -> Result<Vec<[u8; 32]>, ClientError> {
+        let groups = self.fetch_confirmed_instruction_groups(signature)?;
+        transact_output_view_tags_from_instruction_groups(&groups)
     }
 
     pub fn fetch_confirmed_transaction(
@@ -170,6 +186,115 @@ impl SolanaRpc {
             }
         }
     }
+}
+
+impl AsyncSolanaRpc {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self::with_client(NonblockingRpcClient::new_with_commitment(
+            url.into(),
+            CommitmentConfig::confirmed(),
+        ))
+    }
+
+    pub fn with_client(client: NonblockingRpcClient) -> Self {
+        Self { client }
+    }
+
+    pub fn client(&self) -> &NonblockingRpcClient {
+        &self.client
+    }
+
+    pub async fn fetch_confirmed_transaction(
+        &self,
+        signature: &Signature,
+    ) -> Result<EncodedConfirmedTransactionWithStatusMeta, ClientError> {
+        let started = Instant::now();
+        loop {
+            let config = RpcTransactionConfig {
+                encoding: Some(UiTransactionEncoding::Json),
+                commitment: Some(CommitmentConfig::confirmed()),
+                max_supported_transaction_version: Some(0),
+            };
+            match self
+                .client
+                .get_transaction_with_config(signature, config)
+                .await
+            {
+                Ok(transaction) => return Ok(transaction),
+                Err(_) if started.elapsed() < DEFAULT_CONFIRMATION_TIMEOUT => {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+                Err(err) => {
+                    return Err(ClientError::Rpc(format!(
+                        "get_transaction {signature}: {err}"
+                    )));
+                }
+            }
+        }
+    }
+
+    pub async fn fetch_confirmed_instruction_groups(
+        &self,
+        signature: &Signature,
+    ) -> Result<ConfirmedInstructionGroups, ClientError> {
+        let transaction = self.fetch_confirmed_transaction(signature).await?;
+        instruction_groups_from_confirmed_transaction(signature, transaction)
+    }
+
+    pub async fn transact_output_view_tags_from_signature(
+        &self,
+        signature: &Signature,
+    ) -> Result<Vec<[u8; 32]>, ClientError> {
+        let groups = self.fetch_confirmed_instruction_groups(signature).await?;
+        transact_output_view_tags_from_instruction_groups(&groups)
+    }
+}
+
+fn instruction_groups_from_confirmed_transaction(
+    signature: &Signature,
+    transaction: EncodedConfirmedTransactionWithStatusMeta,
+) -> Result<ConfirmedInstructionGroups, ClientError> {
+    let encoded = transaction.transaction;
+    let meta = encoded
+        .meta
+        .ok_or_else(|| ClientError::Rpc("transaction missing metadata".into()))?;
+    let (account_keys, outer_instructions) =
+        transaction_message_parts(encoded.transaction, &meta.loaded_addresses)?;
+    let inner = match meta.inner_instructions {
+        OptionSerializer::Some(inner) => inner,
+        OptionSerializer::None | OptionSerializer::Skip => {
+            return Err(ClientError::Rpc(format!(
+                "transaction missing inner instructions: {signature}"
+            )));
+        }
+    };
+
+    let mut groups = outer_instructions
+        .iter()
+        .map(|instruction| parsed_instruction(&account_keys, instruction, Some(1)))
+        .map(|outer| {
+            outer.map(|outer| InstructionGroup {
+                outer,
+                inner: Vec::new(),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for inner_group in inner {
+        let Some(group) = groups.get_mut(inner_group.index as usize) else {
+            return Err(ClientError::Rpc(format!(
+                "inner instruction group {} has no outer instruction",
+                inner_group.index
+            )));
+        };
+        group.inner = inner_group
+            .instructions
+            .iter()
+            .map(|instruction| ui_instruction_to_parsed(&account_keys, instruction))
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+
+    Ok(ConfirmedInstructionGroups { groups })
 }
 
 fn transaction_message_parts(
@@ -295,6 +420,26 @@ impl Rpc for SolanaRpc {
             .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program}: {err}")))
     }
 
+    fn get_multiple_accounts(
+        &self,
+        addresses: Vec<Address>,
+    ) -> Result<Vec<Option<Account>>, ClientError> {
+        let pubkeys = addresses
+            .iter()
+            .map(pubkey_from_address)
+            .collect::<Vec<_>>();
+        self.client
+            .get_multiple_accounts(&pubkeys)
+            .map_err(|err| ClientError::Rpc(format!("get_multiple_accounts: {err}")))
+    }
+
+    fn get_balance(&self, address: Address) -> Result<u64, ClientError> {
+        let pubkey = pubkey_from_address(&address);
+        self.client
+            .get_balance(&pubkey)
+            .map_err(|err| ClientError::Rpc(format!("get_balance {pubkey}: {err}")))
+    }
+
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
         self.client
             .get_minimum_balance_for_rent_exemption(data_len)
@@ -306,16 +451,209 @@ impl Rpc for SolanaRpc {
     }
 
     fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
-        let blockhash = self
-            .client
-            .get_latest_blockhash()
-            .map_err(|err| ClientError::Rpc(format!("get_latest_blockhash: {err}")))?;
-        Ok((blockhash, 0))
+        self.client
+            .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())
+            .map_err(|err| ClientError::Rpc(format!("get_latest_blockhash: {err}")))
+    }
+
+    fn get_block_height(&self) -> Result<u64, ClientError> {
+        self.client
+            .get_block_height()
+            .map_err(|err| ClientError::Rpc(format!("get_block_height: {err}")))
+    }
+
+    fn get_slot(&self) -> Result<u64, ClientError> {
+        self.client
+            .get_slot()
+            .map_err(|err| ClientError::Rpc(format!("get_slot: {err}")))
+    }
+
+    fn get_signature_statuses(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.client
+            .get_signature_statuses(&signatures)
+            .map(|response| response.value)
+            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses: {err}")))
+    }
+
+    fn health(&self) -> Result<(), ClientError> {
+        self.client
+            .get_health()
+            .map_err(|err| ClientError::Rpc(format!("get_health: {err}")))
     }
 
     fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
         self.client
             .send_and_confirm_transaction(transaction)
             .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+    }
+
+    fn send_transaction_with_config(
+        &self,
+        transaction: &Transaction,
+        config: solana_rpc_client_api::config::RpcSendTransactionConfig,
+    ) -> Result<Signature, ClientError> {
+        self.client
+            .send_and_confirm_transaction_with_spinner_and_config(
+                transaction,
+                CommitmentConfig::confirmed(),
+                config,
+            )
+            .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+    }
+
+    fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
+        self.client
+            .confirm_transaction(&signature)
+            .map_err(|err| ClientError::Rpc(format!("confirm_transaction {signature}: {err}")))
+    }
+
+    fn transact_output_view_tags_from_signature(
+        &self,
+        signature: Signature,
+    ) -> Result<Vec<[u8; 32]>, ClientError> {
+        SolanaRpc::transact_output_view_tags_from_signature(self, &signature)
+    }
+}
+
+#[async_trait]
+impl AsyncRpc for AsyncSolanaRpc {
+    async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+        let pubkey = pubkey_from_address(&address);
+        self.client
+            .get_account_with_commitment(&pubkey, CommitmentConfig::confirmed())
+            .await
+            .map(|response| response.value)
+            .map_err(|err| ClientError::Rpc(format!("get_account {pubkey}: {err}")))
+    }
+
+    async fn get_program_accounts(
+        &self,
+        program_id: Address,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        let program = pubkey_from_address(&program_id);
+        self.client
+            .get_program_accounts(&program)
+            .await
+            .map(|accounts| {
+                accounts
+                    .into_iter()
+                    .map(|(pubkey, account)| (Address::new_from_array(pubkey.to_bytes()), account))
+                    .collect()
+            })
+            .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program}: {err}")))
+    }
+
+    async fn get_multiple_accounts(
+        &self,
+        addresses: Vec<Address>,
+    ) -> Result<Vec<Option<Account>>, ClientError> {
+        let pubkeys = addresses
+            .iter()
+            .map(pubkey_from_address)
+            .collect::<Vec<_>>();
+        self.client
+            .get_multiple_accounts(&pubkeys)
+            .await
+            .map_err(|err| ClientError::Rpc(format!("get_multiple_accounts: {err}")))
+    }
+
+    async fn get_balance(&self, address: Address) -> Result<u64, ClientError> {
+        let pubkey = pubkey_from_address(&address);
+        self.client
+            .get_balance(&pubkey)
+            .await
+            .map_err(|err| ClientError::Rpc(format!("get_balance {pubkey}: {err}")))
+    }
+
+    async fn get_minimum_balance_for_rent_exemption(
+        &self,
+        data_len: usize,
+    ) -> Result<u64, ClientError> {
+        self.client
+            .get_minimum_balance_for_rent_exemption(data_len)
+            .await
+            .map_err(|err| {
+                ClientError::Rpc(format!(
+                    "get_minimum_balance_for_rent_exemption {data_len}: {err}"
+                ))
+            })
+    }
+
+    async fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
+        self.client
+            .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())
+            .await
+            .map_err(|err| ClientError::Rpc(format!("get_latest_blockhash: {err}")))
+    }
+
+    async fn get_block_height(&self) -> Result<u64, ClientError> {
+        self.client
+            .get_block_height()
+            .await
+            .map_err(|err| ClientError::Rpc(format!("get_block_height: {err}")))
+    }
+
+    async fn get_slot(&self) -> Result<u64, ClientError> {
+        self.client
+            .get_slot()
+            .await
+            .map_err(|err| ClientError::Rpc(format!("get_slot: {err}")))
+    }
+
+    async fn get_signature_statuses(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.client
+            .get_signature_statuses(&signatures)
+            .await
+            .map(|response| response.value)
+            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses: {err}")))
+    }
+
+    async fn health(&self) -> Result<(), ClientError> {
+        self.client
+            .get_health()
+            .await
+            .map_err(|err| ClientError::Rpc(format!("get_health: {err}")))
+    }
+
+    async fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
+        self.client
+            .send_and_confirm_transaction(transaction)
+            .await
+            .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+    }
+
+    async fn send_transaction_with_config(
+        &self,
+        transaction: &Transaction,
+        config: solana_rpc_client_api::config::RpcSendTransactionConfig,
+    ) -> Result<Signature, ClientError> {
+        self.client
+            .send_and_confirm_transaction_with_config(
+                transaction,
+                CommitmentConfig::confirmed(),
+                config,
+            )
+            .await
+            .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+    }
+
+    async fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
+        self.client
+            .confirm_transaction(&signature)
+            .await
+            .map_err(|err| ClientError::Rpc(format!("confirm_transaction {signature}: {err}")))
+    }
+
+    async fn transact_output_view_tags_from_signature(
+        &self,
+        signature: Signature,
+    ) -> Result<Vec<[u8; 32]>, ClientError> {
+        AsyncSolanaRpc::transact_output_view_tags_from_signature(self, &signature).await
     }
 }

@@ -29,6 +29,29 @@ pub enum ClientError {
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 
+    #[error("unsigned input {index} is no longer available in the wallet")]
+    UnsignedInputUnavailable { index: usize },
+
+    #[error("fee payer does not match the payer bound into the private transaction")]
+    FeePayerMismatch,
+
+    #[error("native Solana transaction signing failed: {0}")]
+    SolanaTransactionSigning(String),
+
+    #[error(
+        "tree is required: wallet holds unspent asset {asset:?} across {tree_count} pool trees"
+    )]
+    AmbiguousTree {
+        asset: solana_address::Address,
+        tree_count: usize,
+    },
+
+    #[error("private transaction targets tree {transaction_tree:?}, but the client uses {client_tree:?}")]
+    TreeMismatch {
+        transaction_tree: [u8; 32],
+        client_tree: [u8; 32],
+    },
+
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },
 
@@ -79,6 +102,27 @@ pub enum ClientError {
     #[error("missing input merkle proof for input {index}")]
     MissingInputMerkleProof { index: usize },
 
+    #[error(
+        "indexer returned incomplete input proofs: expected {expected}, got {state} state and {nullifier} nullifier proofs"
+    )]
+    IncompleteInputProofs {
+        expected: usize,
+        state: usize,
+        nullifier: usize,
+    },
+
+    #[error("state proof {index} does not match its requested UTXO commitment")]
+    StateProofLeafMismatch { index: usize },
+
+    #[error("state proof {index} targets a different tree")]
+    StateProofTreeMismatch { index: usize },
+
+    #[error("nullifier proof {index} does not match its requested nullifier")]
+    NullifierProofLeafMismatch { index: usize },
+
+    #[error("nullifier proof {index} targets a different tree")]
+    NullifierProofTreeMismatch { index: usize },
+
     #[error("expected {expected} input tree-index entries, got {actual}")]
     InputTreeIndexCountMismatch { expected: usize, actual: usize },
 
@@ -88,8 +132,14 @@ pub enum ClientError {
     #[error("rpc error: {0}")]
     Rpc(String),
 
+    #[error("indexer error: {0}")]
+    Indexer(String),
+
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
+
+    #[error("indexer did not observe the transaction before the poll timeout")]
+    IndexerTimeout,
 
     #[error("proof path has {got} elements, expected {expected}")]
     ProofPathLength { got: usize, expected: usize },

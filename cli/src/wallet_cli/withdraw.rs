@@ -1,12 +1,15 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{create_withdrawal_sync, CreateWithdrawal, SolanaRpc, ZolanaIndexer};
+use zolana_client::{
+    create_withdrawal, sign_private_transaction_sync, Rpc, SolanaRpc, WithdrawalParams,
+    ZolanaClient,
+};
 use zolana_transaction::Address;
 
 use super::{
     resolve::get_network,
     sync::sync_context,
-    transaction::{maybe_airdrop, submit_private_transaction, SubmitPrivateTx},
+    transaction::maybe_airdrop,
     util::{ensure_positive, format_address, parse_address, parse_pubkey},
 };
 use crate::args::WithdrawOptions;
@@ -16,33 +19,32 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
-    let tree = network.tree;
+    let client = ZolanaClient::from_urls(
+        rpc,
+        network.sync.indexer_url.clone(),
+        network.prover_url.clone(),
+        Address::new_from_array(network.tree.to_bytes()),
+    );
     let recipient = parse_pubkey(&opts.to)?;
 
-    let withdrawal = create_withdrawal_sync(CreateWithdrawal {
+    let withdrawal = create_withdrawal(WithdrawalParams {
         wallet: &ctx.wallet,
-        authority: &ctx.material,
-        owner_pubkey: ctx.material.owner_pubkey(),
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
         recipient,
         asset,
         amount: opts.amount,
     })?;
-    let signature = submit_private_transaction(
-        SubmitPrivateTx {
-            rpc: &rpc,
-            indexer: &indexer,
-            material: &ctx.material,
-            tree,
-            prover_url: &network.prover_url,
-            withdrawal: Some(withdrawal.withdrawal),
-            wait_tag: withdrawal.wait_tag,
-        },
-        withdrawal.signed,
+    let transaction = sign_private_transaction_sync(
+        withdrawal.transaction,
+        &ctx.wallet,
+        &ctx.material,
+        &client,
+        &ctx.material.funding,
     )?;
+    let signature = client.rpc().send_transaction(&transaction)?;
+    client.confirm_private_transaction_sync(signature)?;
     println!(
         "ok withdraw amount={} mint={} to={} signature={}",
         opts.amount,

@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_keypair::{P256Pubkey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{shielded::ShieldedAddress, P256Pubkey};
 
 use crate::{
     error::TransactionError, instructions::transact::OutputContext, utxo::Utxo, AssetRegistry,
@@ -53,7 +53,7 @@ pub struct PrivateTransaction {
 }
 
 pub struct ViewingKeyEntry {
-    pub key: ViewingKey,
+    pub viewing_pubkey: P256Pubkey,
     pub created_at: i64,
     pub tx_count: u64,
     pub request_count: u64,
@@ -62,9 +62,9 @@ pub struct ViewingKeyEntry {
 }
 
 impl ViewingKeyEntry {
-    pub fn new(key: ViewingKey, created_at: i64) -> Self {
+    pub fn new(viewing_pubkey: P256Pubkey, created_at: i64) -> Self {
         Self {
-            key,
+            viewing_pubkey,
             created_at,
             tx_count: 0,
             request_count: 0,
@@ -79,6 +79,8 @@ pub struct WalletUtxo {
     pub utxo: Utxo,
     pub output_context: OutputContext,
     pub nullifier: [u8; 32],
+    pub data_hash: Option<[u8; 32]>,
+    pub zone_data_hash: Option<[u8; 32]>,
     pub spent: bool,
 }
 
@@ -103,7 +105,9 @@ pub struct SyncReport {
 }
 
 pub struct Wallet {
-    pub keypair: ShieldedKeypair,
+    /// Public wallet identity. All secret key material is supplied by a
+    /// `WalletAuthority` when cryptographic work is required.
+    pub identity: ShieldedAddress,
     /// Asset-id ↔ mint translation config for this wallet's session. Built once
     /// before the wallet and immutable afterward; the build and sync paths read
     /// it to encode/decode UTXO asset ids.
@@ -120,19 +124,35 @@ pub struct Wallet {
 
 impl Wallet {
     pub fn new(
-        keypair: ShieldedKeypair,
+        identity: ShieldedAddress,
         registry: AssetRegistry,
     ) -> Result<Self, TransactionError> {
-        let key = ViewingKey::from_bytes(&keypair.viewing_key.secret_bytes())?;
+        let viewing_pubkey = identity.viewing_pubkey;
         Ok(Self {
-            keypair,
+            identity,
             registry,
-            viewing_key_history: vec![ViewingKeyEntry::new(key, 0)],
+            viewing_key_history: vec![ViewingKeyEntry::new(viewing_pubkey, 0)],
             utxos: Vec::new(),
             transactions: Vec::new(),
             nullifiers: HashSet::new(),
             last_synced: 0,
         })
+    }
+
+    pub(crate) fn ensure_viewing_key_entries(
+        &mut self,
+        viewing_pubkeys: impl IntoIterator<Item = P256Pubkey>,
+    ) {
+        for viewing_pubkey in viewing_pubkeys {
+            if self
+                .viewing_key_history
+                .iter()
+                .all(|entry| entry.viewing_pubkey != viewing_pubkey)
+            {
+                self.viewing_key_history
+                    .push(ViewingKeyEntry::new(viewing_pubkey, 0));
+            }
+        }
     }
 
     pub fn private_transactions(&self) -> &[PrivateTransaction] {

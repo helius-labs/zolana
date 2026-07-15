@@ -1,5 +1,6 @@
 use std::pin::Pin;
 
+use async_trait::async_trait;
 use futures::Stream;
 use solana_account::Account;
 use solana_address::Address;
@@ -248,6 +249,13 @@ pub trait Rpc {
         Err(unsupported("confirm_transaction"))
     }
 
+    fn transact_output_view_tags_from_signature(
+        &self,
+        signature: Signature,
+    ) -> Result<Vec<[u8; 32]>, ClientError> {
+        Err(unsupported("transact_output_view_tags_from_signature"))
+    }
+
     fn should_retry(&self, error: &ClientError) -> bool {
         false
     }
@@ -310,10 +318,174 @@ pub trait Rpc {
     fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
         Err(unsupported("prove"))
     }
+}
 
-    /// Build the SPP proof and submit the resulting transaction in one call.
-    fn send_and_prove(&self, transaction: SignedTransaction) -> Result<Signature, ClientError> {
-        Err(unsupported("send_and_prove"))
+/// Async combined Solana RPC, SPP indexer, and proving surface for production clients.
+#[async_trait]
+#[allow(unused_variables)]
+pub trait AsyncRpc: Send + Sync {
+    async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+        Err(unsupported("get_account"))
+    }
+
+    async fn get_multiple_accounts(
+        &self,
+        addresses: Vec<Address>,
+    ) -> Result<Vec<Option<Account>>, ClientError> {
+        Err(unsupported("get_multiple_accounts"))
+    }
+
+    async fn get_program_accounts(
+        &self,
+        program_id: Address,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        Err(unsupported("get_program_accounts"))
+    }
+
+    async fn get_balance(&self, address: Address) -> Result<u64, ClientError> {
+        Err(unsupported("get_balance"))
+    }
+
+    async fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
+        Err(unsupported("get_latest_blockhash"))
+    }
+
+    async fn get_block_height(&self) -> Result<u64, ClientError> {
+        Err(unsupported("get_block_height"))
+    }
+
+    async fn get_slot(&self) -> Result<u64, ClientError> {
+        Err(unsupported("get_slot"))
+    }
+
+    async fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
+        Err(unsupported("get_transaction_slot"))
+    }
+
+    async fn get_signature_statuses(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        Err(unsupported("get_signature_statuses"))
+    }
+
+    async fn get_minimum_balance_for_rent_exemption(
+        &self,
+        data_len: usize,
+    ) -> Result<u64, ClientError> {
+        Err(unsupported("get_minimum_balance_for_rent_exemption"))
+    }
+
+    async fn health(&self) -> Result<(), ClientError> {
+        Err(unsupported("health"))
+    }
+
+    async fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
+        Err(unsupported("send_transaction"))
+    }
+
+    async fn send_transaction_with_config(
+        &self,
+        transaction: &Transaction,
+        config: RpcSendTransactionConfig,
+    ) -> Result<Signature, ClientError> {
+        Err(unsupported("send_transaction_with_config"))
+    }
+
+    async fn send_versioned_transaction_with_config(
+        &self,
+        transaction: &VersionedTransaction,
+        config: RpcSendTransactionConfig,
+    ) -> Result<Signature, ClientError> {
+        Err(unsupported("send_versioned_transaction_with_config"))
+    }
+
+    async fn process_transaction(
+        &self,
+        transaction: Transaction,
+    ) -> Result<Signature, ClientError> {
+        Err(unsupported("process_transaction"))
+    }
+
+    async fn process_transaction_with_context(
+        &self,
+        transaction: Transaction,
+    ) -> Result<(Signature, Slot), ClientError> {
+        Err(unsupported("process_transaction_with_context"))
+    }
+
+    async fn process_versioned_transaction(
+        &self,
+        transaction: VersionedTransaction,
+    ) -> Result<Signature, ClientError> {
+        Err(unsupported("process_versioned_transaction"))
+    }
+
+    async fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
+        Err(unsupported("confirm_transaction"))
+    }
+
+    async fn transact_output_view_tags_from_signature(
+        &self,
+        signature: Signature,
+    ) -> Result<Vec<[u8; 32]>, ClientError> {
+        Err(unsupported("transact_output_view_tags_from_signature"))
+    }
+
+    fn should_retry(&self, error: &ClientError) -> bool {
+        false
+    }
+
+    async fn get_encrypted_utxos_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+    ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
+        Err(unsupported("get_encrypted_utxos_by_tags"))
+    }
+
+    async fn get_shielded_transactions_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_tags"))
+    }
+
+    async fn subscribe_to_shielded_transactions_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+    ) -> Result<ShieldedTransactionStream, ClientError> {
+        Err(unsupported("subscribe_to_shielded_transactions_by_tags"))
+    }
+
+    async fn get_merkle_proofs(
+        &self,
+        tree_account: Address,
+        leaves: Vec<[u8; 32]>,
+    ) -> Result<GetMerkleProofsResponse, ClientError> {
+        Err(unsupported("get_merkle_proofs"))
+    }
+
+    async fn get_non_inclusion_proofs(
+        &self,
+        tree_account: Address,
+        leaves: Vec<[u8; 32]>,
+    ) -> Result<GetNonInclusionProofsResponse, ClientError> {
+        Err(unsupported("get_non_inclusion_proofs"))
+    }
+
+    async fn get_input_merkle_proofs(
+        &self,
+        input_utxo_commitments: &[InputCommitment],
+    ) -> Result<Vec<SpendProof>, ClientError> {
+        Err(unsupported("get_input_merkle_proofs"))
+    }
+
+    async fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
+        Err(unsupported("prove"))
     }
 }
 

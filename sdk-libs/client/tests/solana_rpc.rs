@@ -30,3 +30,23 @@ fn get_program_accounts_wraps_the_underlying_client() {
         .get_program_accounts(program)
         .expect("get_program_accounts");
 }
+
+#[test]
+fn latest_blockhash_preserves_last_valid_block_height() {
+    let rpc = SolanaRpc::with_client(RpcClient::new_mock("succeeds".to_owned()));
+
+    let (_blockhash, last_valid_block_height) =
+        rpc.get_latest_blockhash().expect("get_latest_blockhash");
+
+    assert_ne!(last_valid_block_height, 0);
+}
+
+#[test]
+fn common_chain_state_methods_are_supported() {
+    let rpc = SolanaRpc::with_client(RpcClient::new_mock("succeeds".to_owned()));
+    let address = Address::new_from_array(Pubkey::new_unique().to_bytes());
+
+    rpc.get_balance(address).expect("get_balance");
+    rpc.get_block_height().expect("get_block_height");
+    rpc.get_slot().expect("get_slot");
+}

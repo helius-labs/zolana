@@ -3,7 +3,7 @@
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::DepositIxData;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled SPL `deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
@@ -15,7 +15,7 @@ use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 /// the deposit; `root_before` is the on-chain state root captured before it.
 #[track_caller]
 #[allow(clippy::too_many_arguments)]
-pub fn litesvm_assert_spl_deposit(
+pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
     program_test: &mut ZolanaProgramTest,
     tree: &Pubkey,
     mint: &Pubkey,
@@ -27,6 +27,7 @@ pub fn litesvm_assert_spl_deposit(
     vault_before: u64,
     user_token_before: u64,
     root_before: [u8; 32],
+    authority: &A,
     recipient: &mut Wallet,
 ) {
     assert_eq!(event.output.amount, expected_amount, "event amount");
@@ -61,6 +62,7 @@ pub fn litesvm_assert_spl_deposit(
     let before = recipient.utxos.len();
     recipient
         .sync(
+            authority,
             &[event.to_shielded_transaction(solana_signature::Signature::default())],
             0,
             DEFAULT_TAG_WINDOW,

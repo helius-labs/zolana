@@ -7,6 +7,8 @@ use std::{
     time::Duration,
 };
 
+use tokio::time::sleep as async_sleep;
+
 use crate::{
     error::ClientError,
     prover::{
@@ -98,6 +100,15 @@ fn build_http_client() -> reqwest::blocking::Client {
         .expect("failed to build HTTP client")
 }
 
+fn build_async_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(PROVE_CONNECT_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS))
+        .build()
+        .expect("failed to build HTTP client")
+}
+
 /// Blocking client for the transfer proving endpoints of the prover server.
 pub struct ProverClient {
     server_address: String,
@@ -105,7 +116,20 @@ pub struct ProverClient {
     async_poll: AsyncPollConfig,
 }
 
+/// Async client for the transfer proving endpoints of the prover server.
+pub struct AsyncProverClient {
+    server_address: String,
+    http: reqwest::Client,
+    async_poll: AsyncPollConfig,
+}
+
 impl Default for ProverClient {
+    fn default() -> Self {
+        Self::local()
+    }
+}
+
+impl Default for AsyncProverClient {
     fn default() -> Self {
         Self::local()
     }
@@ -328,6 +352,194 @@ fn wait_or_timeout(
     Ok(())
 }
 
+impl AsyncProverClient {
+    pub fn local() -> Self {
+        Self::new(server_address())
+    }
+
+    pub fn new(server_address: String) -> Self {
+        Self {
+            server_address,
+            http: build_async_http_client(),
+            async_poll: AsyncPollConfig::default(),
+        }
+    }
+
+    /// Override the queued-proof polling config (see [`AsyncPollConfig`]).
+    pub fn with_async_poll_config(mut self, config: AsyncPollConfig) -> Self {
+        self.async_poll = config;
+        self
+    }
+
+    /// Prove a P256-rail transfer, returning the uncompressed negated proof. Use
+    /// `ProofCompressed::try_from` for the wire format.
+    pub async fn prove_transfer_p256(
+        &self,
+        inputs: &TransferP256Inputs,
+    ) -> Result<Proof, ClientError> {
+        self.send(to_json_p256(inputs)).await
+    }
+
+    /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
+    /// Call [`Proof::compress`] for the wire format.
+    pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.send(to_json(inputs)).await
+    }
+
+    pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_merge(inputs)).await
+    }
+
+    pub async fn prove_zone_authority(
+        &self,
+        inputs: &TransferInputs,
+    ) -> Result<Proof, ClientError> {
+        self.send(to_json_zone_authority(inputs)).await
+    }
+
+    pub async fn prove_merge_zone(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_merge_zone(inputs)).await
+    }
+
+    pub async fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_zone(inputs)).await
+    }
+
+    pub async fn prove_transfer_p256_zone(
+        &self,
+        inputs: &TransferP256Inputs,
+    ) -> Result<Proof, ClientError> {
+        self.send(to_json_p256_zone(inputs)).await
+    }
+
+    pub async fn prove_batch_address_append(
+        &self,
+        inputs: &BatchAddressAppendInputs,
+    ) -> Result<Proof, ClientError> {
+        self.send(to_json_batch_address_append(inputs)).await
+    }
+
+    async fn send(&self, body: String) -> Result<Proof, ClientError> {
+        let url = format!("{}{}", self.server_address, PROVE_PATH);
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let outcome = self
+                .http
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .body(body.clone())
+                .send()
+                .await;
+            match outcome {
+                Ok(response) => {
+                    let status = response.status();
+                    let text = response.text().await.map_err(|e| {
+                        ClientError::ProverServer(format!("failed to read response body: {e}"))
+                    })?;
+                    if !status.is_success() {
+                        return Err(ClientError::ProverServer(format!(
+                            "status {status}: {text}"
+                        )));
+                    }
+
+                    let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+                        ClientError::ProofParse(format!("invalid response JSON: {e}"))
+                    })?;
+                    if value.get("proof").is_none() {
+                        if let Some(job_id) = value.get("job_id").and_then(|v| v.as_str()) {
+                            return self.poll_async(job_id).await;
+                        }
+                    }
+                    return ProverClient::proof_from_value(&value, &text);
+                }
+                Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
+                    async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
+                }
+                Err(e) => {
+                    return Err(ClientError::ProverServer(format!(
+                        "request failed after {attempt} attempt(s): {e}"
+                    )));
+                }
+            }
+        }
+    }
+
+    async fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
+        let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
+        let poll_interval = self.async_poll.poll_interval_secs.max(1);
+        let max_wait = self.async_poll.max_wait_secs;
+        let mut waited = 0u64;
+        loop {
+            let response = match self.http.get(&url).send().await {
+                Ok(response) => response,
+                Err(_) => {
+                    async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                    continue;
+                }
+            };
+            let status = response.status();
+            if status.is_client_error() {
+                let text = match response.text().await {
+                    Ok(text) => text,
+                    Err(e) => format!("failed to read status body: {e}"),
+                };
+                return Err(ClientError::ProverServer(format!(
+                    "status {status}: {text}"
+                )));
+            }
+            if status.is_server_error() {
+                async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                continue;
+            }
+
+            let text = match response.text().await {
+                Ok(text) => text,
+                Err(_) => {
+                    async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                    continue;
+                }
+            };
+            let value: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|e| ClientError::ProofParse(format!("invalid status JSON: {e}")))?;
+
+            match value.get("status").and_then(|v| v.as_str()) {
+                Some("completed") => {
+                    let result = value.get("result").map_or(&value, |result| result);
+                    return ProverClient::proof_from_value(result, &text);
+                }
+                Some("failed") => {
+                    return Err(ClientError::ProverServer(format!(
+                        "async proof failed (job {job_id}): {text}"
+                    )));
+                }
+                _ => {
+                    async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                }
+            }
+        }
+    }
+}
+
+async fn async_wait_or_timeout(
+    job_id: &str,
+    waited: &mut u64,
+    max_wait: u64,
+    poll_interval: u64,
+) -> Result<(), ClientError> {
+    if *waited >= max_wait {
+        let waited_secs = *waited;
+        return Err(ClientError::ProverServer(format!(
+            "async proof timed out after {waited_secs}s (job {job_id})"
+        )));
+    }
+    let remaining = max_wait.saturating_sub(*waited);
+    let sleep_secs = poll_interval.min(remaining);
+    async_sleep(Duration::from_secs(sleep_secs)).await;
+    *waited = (*waited).saturating_add(sleep_secs);
+    Ok(())
+}
+
 /// Block until a prover server is reachable, starting one via the `zolana` CLI if
 /// none is already running. Intended for tests.
 pub fn spawn_prover() -> Result<(), ClientError> {
@@ -526,7 +738,7 @@ mod tests {
                 }),
             ),
         ]);
-        let proof = async_client(server.url())
+        let proof = queued_prover_client(server.url())
             .send("{}".to_string())
             .expect("queued proof should complete");
         let requests = server.requests();
@@ -557,7 +769,7 @@ mod tests {
                 }),
             ),
         ]);
-        let err = async_client(server.url())
+        let err = queued_prover_client(server.url())
             .send("{}".to_string())
             .expect_err("failed async status should surface");
         let requests = server.requests();
@@ -575,7 +787,7 @@ mod tests {
             MockResponse::json(200, json!({ "status": "queued" })),
             MockResponse::json(200, json!({ "status": "processing" })),
         ]);
-        let err = async_client(server.url())
+        let err = queued_prover_client(server.url())
             .send("{}".to_string())
             .expect_err("slow async proof should time out");
         let requests = server.requests();
@@ -597,7 +809,7 @@ mod tests {
             MockResponse::json(202, json!({ "job_id": "job-bad-json" })),
             MockResponse::text(200, "not json"),
         ]);
-        let err = async_client(server.url())
+        let err = queued_prover_client(server.url())
             .send("{}".to_string())
             .expect_err("malformed status body should fail");
         let requests = server.requests();
@@ -618,7 +830,7 @@ mod tests {
                 }),
             ),
         ]);
-        let err = async_client(server.url())
+        let err = queued_prover_client(server.url())
             .send("{}".to_string())
             .expect_err("404 status should fail immediately");
         let requests = server.requests();
@@ -645,7 +857,7 @@ mod tests {
                 }),
             ),
         ]);
-        let proof = async_client(server.url())
+        let proof = queued_prover_client(server.url())
             .send("{}".to_string())
             .expect("transient poll error should be retried");
         let requests = server.requests();
@@ -659,6 +871,70 @@ mod tests {
             ],
         );
         assert_eq!(proof.a, [0u8; 64]);
+    }
+
+    #[tokio::test]
+    async fn async_prover_poll_returns_completed_nested_proof() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "job_id": "async-job" })),
+            MockResponse::json(200, json!({ "status": "processing" })),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "completed",
+                    "result": {
+                        "proof": gnark_proof(),
+                        "proof_duration_ms": 4,
+                    },
+                }),
+            ),
+        ]);
+        let proof = async_prover_client(server.url())
+            .send("{}".to_string())
+            .await
+            .expect("queued async proof should complete");
+        let requests = server.requests();
+
+        assert_paths(
+            &requests,
+            [
+                "/prove",
+                "/prove/status?job_id=async-job",
+                "/prove/status?job_id=async-job",
+            ],
+        );
+        assert_eq!(proof.a, [0u8; 64]);
+        assert_eq!(proof.b, [0u8; 128]);
+        assert_eq!(proof.c, [0u8; 64]);
+    }
+
+    #[tokio::test]
+    async fn async_prover_poll_retries_transient_error() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "job_id": "async-transient" })),
+            MockResponse::disconnect(),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "completed",
+                    "result": { "proof": gnark_proof() },
+                }),
+            ),
+        ]);
+        async_prover_client(server.url())
+            .send("{}".to_string())
+            .await
+            .expect("transient async poll error should be retried");
+        let requests = server.requests();
+
+        assert_paths(
+            &requests,
+            [
+                "/prove",
+                "/prove/status?job_id=async-transient",
+                "/prove/status?job_id=async-transient",
+            ],
+        );
     }
 
     #[test]
@@ -675,8 +951,15 @@ mod tests {
         assert_eq!(prover_port(SERVER_ADDRESS), DEFAULT_PROVER_PORT);
     }
 
-    fn async_client(url: &str) -> ProverClient {
+    fn queued_prover_client(url: &str) -> ProverClient {
         ProverClient::new(url.to_string()).with_async_poll_config(AsyncPollConfig {
+            poll_interval_secs: 1,
+            max_wait_secs: 1,
+        })
+    }
+
+    fn async_prover_client(url: &str) -> AsyncProverClient {
+        AsyncProverClient::new(url.to_string()).with_async_poll_config(AsyncPollConfig {
             poll_interval_secs: 1,
             max_wait_secs: 1,
         })

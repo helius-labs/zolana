@@ -1,6 +1,6 @@
 use aes::Aes256;
 use ctr::{
-    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
+    cipher::{KeyIvInit, StreamCipher},
     Ctr32BE,
 };
 use hkdf::Hkdf;
@@ -24,7 +24,7 @@ pub(crate) fn ctr_apply(key: &[u8; 32], nonce: &[u8; CTR_NONCE_LEN], buf: &mut [
     let mut iv = [0u8; 16];
     iv[..CTR_NONCE_LEN].copy_from_slice(nonce);
     iv[15] = 2;
-    let mut cipher = Aes256Ctr::new(GenericArray::from_slice(key), GenericArray::from_slice(&iv));
+    let mut cipher = Aes256Ctr::new(key.into(), (&iv).into());
     cipher.apply_keystream(buf);
 }
 
@@ -38,7 +38,7 @@ pub(crate) fn ecdh_x(
 pub(crate) fn ecdh_x_point(secret_key: &SecretKey, point: &AffinePoint) -> [u8; 32] {
     let shared = diffie_hellman(secret_key.to_nonzero_scalar(), point);
     let mut x = [0u8; 32];
-    x.copy_from_slice(shared.raw_secret_bytes().as_slice());
+    x.copy_from_slice(shared.raw_secret_bytes());
     x
 }
 

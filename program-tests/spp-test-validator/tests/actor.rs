@@ -52,7 +52,7 @@ impl Actor {
     }
 
     pub(crate) fn with_keypair(keypair: ShieldedKeypair) -> Result<Self> {
-        let wallet = Wallet::new(keypair.clone(), AssetRegistry::default())?;
+        let wallet = Wallet::new(keypair.shielded_address()?, AssetRegistry::default())?;
         Ok(Self {
             keypair,
             wallet,

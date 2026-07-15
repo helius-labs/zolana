@@ -62,7 +62,7 @@ impl SigningKey {
         match &self.inner {
             SigningKeyInner::P256(sk) => {
                 let mut out = [0u8; 32];
-                out.copy_from_slice(sk.to_bytes().as_slice());
+                out.copy_from_slice(&sk.to_bytes());
                 Zeroizing::new(out)
             }
             SigningKeyInner::Ed25519(sk) => Zeroizing::new(*sk.as_bytes()),
@@ -89,7 +89,7 @@ impl SigningKey {
                     .sign_prehash(msg)
                     .expect("p256 prehash signing is infallible for a 32-byte digest");
                 let mut out = [0u8; 64];
-                out.copy_from_slice(sig.to_bytes().as_slice());
+                out.copy_from_slice(&sig.to_bytes());
                 out
             }
             SigningKeyInner::Ed25519(sk) => sk.sign(msg).to_bytes(),
