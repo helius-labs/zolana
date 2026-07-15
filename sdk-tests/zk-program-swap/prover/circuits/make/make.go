@@ -71,6 +71,5 @@ func (c *Circuit) checkChangeOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.Change.DataHash, 0)
 	api.AssertIsEqual(c.Change.Asset, c.Escrow.Asset)
 	api.AssertIsEqual(c.Change.Owner, c.Order.MakerOwnerHash)
-	changeHash := spp.UtxoHashCircuit(api, c.Change)
-	return api.Select(api.IsZero(c.Change.Amount), frontend.Variable(0), changeHash)
+	return spp.UtxoHashCircuit(api, c.Change)
 }

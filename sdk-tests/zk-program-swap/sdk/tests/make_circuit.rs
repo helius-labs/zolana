@@ -81,14 +81,12 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
     .expect("change utxo");
     let source_input_hash = fe(5);
     let external_data_hash = fe(8);
-    let change_output_hash = if change_amount == 0 {
-        [0u8; 32]
-    } else {
-        change.hash().expect("change hash")
-    };
     let private_tx_hash = PrivateTxHash::new(
         &[source_input_hash, [0u8; 32]],
-        &[change_output_hash, escrow.hash().expect("escrow hash")],
+        &[
+            change.hash().expect("change hash"),
+            escrow.hash().expect("escrow hash"),
+        ],
         &external_data_hash,
     )
     .hash()
@@ -115,21 +113,21 @@ fn verify_with_generated_vk(
     public_input: [u8; 32],
 ) -> bool {
     let a = match decompress_g1(proof_a) {
-        Ok(v) => v,
+        Ok(g1) => g1,
         Err(_) => return false,
     };
     let b = match decompress_g2(proof_b) {
-        Ok(v) => v,
+        Ok(g2) => g2,
         Err(_) => return false,
     };
     let c = match decompress_g1(proof_c) {
-        Ok(v) => v,
+        Ok(g1) => g1,
         Err(_) => return false,
     };
     let public_inputs = [public_input];
     let borrowed = vk.as_borrowed();
     let mut verifier = match Groth16Verifier::new(&a, &b, &c, &public_inputs, &borrowed) {
-        Ok(v) => v,
+        Ok(parsed) => parsed,
         Err(_) => return false,
     };
     verifier.verify().is_ok()
@@ -244,6 +242,6 @@ fn make_zero_change_proves() {
             &proof.proof_c,
             inputs.private_tx_hash,
         ),
-        "zero-change (dummy change output) must prove and verify"
+        "a zero-value change output is non-dummy: its real utxo hash enters private_tx_hash and the proof must verify, matching SPP"
     );
 }
