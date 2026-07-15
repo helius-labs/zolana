@@ -16,7 +16,7 @@ pub fn input_sum(inputs: &[SppProofInputUtxo], asset: &Address) -> i128 {
         .sum()
 }
 
-pub(crate) fn to_blinding_array(blinding: &Blinding) -> [u8; 32] {
+pub(crate) fn right_align_blinding(blinding: &Blinding) -> [u8; 32] {
     let mut out = [0u8; 32];
     out[1..].copy_from_slice(blinding);
     out

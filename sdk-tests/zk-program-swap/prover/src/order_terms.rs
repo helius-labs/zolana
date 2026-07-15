@@ -1,4 +1,4 @@
-use swap_program::instructions::shared::u64_to_field;
+use swap_program::instructions::shared::u64_right_align;
 
 use crate::bytes_to_decimal_string;
 
@@ -20,11 +20,11 @@ impl OrderTermsProofInput {
     pub fn witness_entries(&self, prefix: &str) -> Vec<(String, Vec<String>)> {
         let scalars: [(&str, [u8; 32]); 6] = [
             ("DestinationAsset", self.destination_asset),
-            ("DestinationAmount", u64_to_field(self.destination_amount)),
+            ("DestinationAmount", u64_right_align(self.destination_amount)),
             ("MakerOwnerHash", self.maker_owner_hash),
-            ("Expiry", u64_to_field(self.expiry)),
+            ("Expiry", u64_right_align(self.expiry)),
             ("TakerPkFe", self.taker_pk_fe),
-            ("TakeMode", u64_to_field(self.take_mode)),
+            ("TakeMode", u64_right_align(self.take_mode)),
         ];
         let mut entries: Vec<(String, Vec<String>)> = scalars
             .iter()

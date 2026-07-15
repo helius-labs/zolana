@@ -9,13 +9,13 @@ import (
 )
 
 func Assign(circuit frontend.Circuit, witnessValues map[string][]string) error {
-	v := reflect.ValueOf(circuit)
-	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Struct {
+	circuitValue := reflect.ValueOf(circuit)
+	if circuitValue.Kind() != reflect.Ptr || circuitValue.Elem().Kind() != reflect.Struct {
 		return fmt.Errorf("witness: circuit must be a pointer to struct, got %T", circuit)
 	}
 
 	known := make(map[string]bool, len(witnessValues))
-	if err := assignStruct(v.Elem(), "", witnessValues, known); err != nil {
+	if err := assignStruct(circuitValue.Elem(), "", witnessValues, known); err != nil {
 		return err
 	}
 	return checkUnexpected(witnessValues, known)
@@ -57,29 +57,29 @@ func assignStruct(v reflect.Value, prefix string, witnessValues map[string][]str
 	return nil
 }
 
-func assignScalarField(witnessValues map[string][]string, key string, dst reflect.Value) error {
+func assignScalarField(witnessValues map[string][]string, key string, destination reflect.Value) error {
 	n, err := singleBigInt(witnessValues, key)
 	if err != nil {
 		return err
 	}
-	dst.Set(reflect.ValueOf(frontend.Variable(n)))
+	destination.Set(reflect.ValueOf(frontend.Variable(n)))
 	return nil
 }
 
-func assignArrayField(witnessValues map[string][]string, key string, dst reflect.Value) error {
+func assignArrayField(witnessValues map[string][]string, key string, destination reflect.Value) error {
 	vals, ok := witnessValues[key]
 	if !ok {
 		return fmt.Errorf("witness: missing key %q", key)
 	}
-	if len(vals) != dst.Len() {
-		return fmt.Errorf("witness: key %q expected %d values, got %d", key, dst.Len(), len(vals))
+	if len(vals) != destination.Len() {
+		return fmt.Errorf("witness: key %q expected %d values, got %d", key, destination.Len(), len(vals))
 	}
 	for i, raw := range vals {
 		n, ok := new(big.Int).SetString(raw, 10)
 		if !ok {
 			return fmt.Errorf("witness: key %q[%d] invalid decimal %q", key, i, raw)
 		}
-		dst.Index(i).Set(reflect.ValueOf(frontend.Variable(n)))
+		destination.Index(i).Set(reflect.ValueOf(frontend.Variable(n)))
 	}
 	return nil
 }

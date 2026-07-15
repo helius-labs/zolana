@@ -12,7 +12,7 @@ use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use crate::{
     error::SwapError,
     instructions::{
-        shared::{check_after_window, cpi_spp_transact_signed, hash_field, u64_to_field},
+        shared::{check_after_window, cpi_spp_transact_signed, hash_field, u64_right_align},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
 };
@@ -47,7 +47,7 @@ impl CancelPublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
         Poseidon::hashv(&[
             self.private_tx_hash.as_slice(),
-            u64_to_field(self.expiry).as_slice(),
+            u64_right_align(self.expiry).as_slice(),
             self.maker_owner_pk_field.as_slice(),
         ])
         .map_err(|_| SwapError::HashingFailed.into())
@@ -56,7 +56,7 @@ impl CancelPublicInput<'_> {
 
 #[inline(never)]
 #[profile]
-pub fn process_cancel(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     let _payer = iter.next_signer_mut("payer")?;
     // The maker signs the cancel; the cancel proof recomputes the escrow's

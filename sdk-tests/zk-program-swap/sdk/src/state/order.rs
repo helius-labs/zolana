@@ -1,6 +1,6 @@
 use anyhow::Result;
 use solana_address::Address;
-use swap_program::instructions::shared::u64_to_field;
+use swap_program::instructions::shared::u64_right_align;
 use swap_prover::OrderTermsProofInput;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::{
@@ -100,11 +100,11 @@ impl DataHash for OrderTermsProofInput {
         .map_err(err)?;
         poseidon(&[
             &self.destination_asset,
-            &u64_to_field(self.destination_amount),
+            &u64_right_align(self.destination_amount),
             &maker_address,
-            &u64_to_field(self.expiry),
+            &u64_right_align(self.expiry),
             &self.taker_pk_fe,
-            &u64_to_field(self.take_mode),
+            &u64_right_align(self.take_mode),
         ])
         .map_err(err)
     }

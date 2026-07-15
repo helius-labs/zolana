@@ -222,26 +222,26 @@ pub fn setup() -> Result<TestEnv> {
     let spl_funding = create_token_account(&rpc, &payer, &spl_mint, &payer.pubkey())?;
     mint_to(&rpc, &payer, &spl_mint, &spl_funding, 1_000_000_000)?;
 
-    let maker_solana = Keypair::new();
-    let maker_seed: [u8; 32] = maker_solana.to_bytes()[..32]
+    let maker_solana_keypair = Keypair::new();
+    let maker_seed: [u8; 32] = maker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    let maker_shielded = ShieldedKeypair::from_ed25519(&maker_seed, ViewingKey::new())?;
-    rpc.airdrop(&maker_solana.pubkey(), 10_000_000_000)?;
+    let maker_shielded_keypair = ShieldedKeypair::from_ed25519(&maker_seed, ViewingKey::new())?;
+    rpc.airdrop(&maker_solana_keypair.pubkey(), 10_000_000_000)?;
 
-    let taker_solana = Keypair::new();
-    rpc.airdrop(&taker_solana.pubkey(), 10_000_000_000)?;
-    let taker_seed: [u8; 32] = taker_solana.to_bytes()[..32]
+    let taker_solana_keypair = Keypair::new();
+    rpc.airdrop(&taker_solana_keypair.pubkey(), 10_000_000_000)?;
+    let taker_seed: [u8; 32] = taker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    let taker_shielded = ShieldedKeypair::from_ed25519(&taker_seed, ViewingKey::new())?;
+    let taker_shielded_keypair = ShieldedKeypair::from_ed25519(&taker_seed, ViewingKey::new())?;
 
     // Fund the actors: shield the maker's SPL (the source it escrows) and the
     // taker's SOL (what it pays). Then discover the notes through each party's
     // wallet, which scans the indexer for its view tags and decrypts its own
     // outputs. Photon lags the validator, so poll sync until both notes appear.
     Deposit::new(CreateDeposit {
-        recipient: &maker_shielded.shielded_address()?,
+        recipient: &maker_shielded_keypair.shielded_address()?,
         asset: spl_mint,
         amount: MAKER_SHIELD_SPL,
         spl_token_account: Some(spl_funding),
@@ -249,7 +249,7 @@ pub fn setup() -> Result<TestEnv> {
     })?
     .send(&rpc, &payer, tree, &payer)?;
     Deposit::new(CreateDeposit {
-        recipient: &taker_shielded.shielded_address()?,
+        recipient: &taker_shielded_keypair.shielded_address()?,
         asset: SOL_MINT,
         amount: DESTINATION_AMOUNT,
         spl_token_account: None,
@@ -257,9 +257,9 @@ pub fn setup() -> Result<TestEnv> {
     })?
     .send(&rpc, &payer, tree, &payer)?;
 
-    let mut maker_wallet = Wallet::new(maker_shielded.clone(), assets.clone())
+    let mut maker_wallet = Wallet::new(maker_shielded_keypair.clone(), assets.clone())
         .map_err(|e| anyhow!("maker wallet: {e:?}"))?;
-    let mut taker_wallet = Wallet::new(taker_shielded.clone(), assets.clone())
+    let mut taker_wallet = Wallet::new(taker_shielded_keypair.clone(), assets.clone())
         .map_err(|e| anyhow!("taker wallet: {e:?}"))?;
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {

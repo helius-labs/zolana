@@ -178,27 +178,27 @@ fn verify_with_generated_vk(
     public_input: [u8; 32],
 ) -> bool {
     let a = match decompress_g1(&proof.proof_a) {
-        Ok(v) => v,
+        Ok(g1) => g1,
         Err(_) => return false,
     };
     let b = match decompress_g2(&proof.proof_b) {
-        Ok(v) => v,
+        Ok(g2) => g2,
         Err(_) => return false,
     };
     let c = match decompress_g1(&proof.proof_c) {
-        Ok(v) => v,
+        Ok(g1) => g1,
         Err(_) => return false,
     };
     let (commitment, commitment_pok) = match proof.commitment {
-        Some(v) => v,
+        Some(pair) => pair,
         None => return false,
     };
     let commitment = match decompress_g1(&commitment) {
-        Ok(v) => v,
+        Ok(g1) => g1,
         Err(_) => return false,
     };
     let commitment_pok = match decompress_g1(&commitment_pok) {
-        Ok(v) => v,
+        Ok(g1) => g1,
         Err(_) => return false,
     };
     let public_inputs = [public_input];
@@ -212,7 +212,7 @@ fn verify_with_generated_vk(
         &public_inputs,
         &borrowed,
     ) {
-        Ok(v) => v,
+        Ok(parsed) => parsed,
         Err(_) => return false,
     };
     verifier.verify().is_ok()

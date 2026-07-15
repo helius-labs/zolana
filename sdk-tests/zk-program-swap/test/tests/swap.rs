@@ -241,7 +241,7 @@ fn make_and_take_swap_inline() -> Result<()> {
             taker_address.solana_address()?,
         );
 
-        let take_inputs = TakeProofInputParams {
+        let take_proof_inputs = TakeProofInputParams {
             escrow,
             taker_in,
             source_output,
@@ -257,7 +257,7 @@ fn make_and_take_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("take transact proof: {e:?}"))?;
 
         let take_proof = swap_prover_client
-            .prove_take(&take_inputs.to_proof_inputs()?)
+            .prove_take(&take_proof_inputs.to_proof_inputs()?)
             .map_err(|e| anyhow!("take proof: {e:?}"))?;
 
         let take_ix = Take {

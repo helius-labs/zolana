@@ -37,7 +37,7 @@ const ESCROW_OUTPUT_INDEX: usize = 1;
 
 #[inline(never)]
 #[profile]
-pub fn process_make(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_make_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     let maker_pubkey = *iter.next_signer_mut("payer")?.address().as_array();
 

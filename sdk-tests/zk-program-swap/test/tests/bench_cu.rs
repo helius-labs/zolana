@@ -77,10 +77,10 @@ fn to_mollusk_instruction(ix: &Instruction) -> MolluskInstruction {
         accounts: ix
             .accounts
             .iter()
-            .map(|m| MolluskAccountMeta {
-                pubkey: to_mollusk_pubkey(&m.pubkey),
-                is_signer: m.is_signer,
-                is_writable: m.is_writable,
+            .map(|meta| MolluskAccountMeta {
+                pubkey: to_mollusk_pubkey(&meta.pubkey),
+                is_signer: meta.is_signer,
+                is_writable: meta.is_writable,
             })
             .collect(),
         data: ix.data.clone(),
@@ -106,11 +106,11 @@ fn build_tree_fixture(
     tree: &Pubkey,
     leaves: &[[u8; 32]],
 ) -> (MolluskAccount, [u8; 32], [u8; 32], u16) {
-    let mut data = vec![0u8; tree_account_size()];
+    let mut tree_account_bytes = vec![0u8; tree_account_size()];
     let root_index = leaves.len() as u16;
     let (utxo_root, nullifier_root) = {
         let mut account = TreeAccount::init(
-            &mut data,
+            &mut tree_account_bytes,
             TREE_ACCOUNT_DISCRIMINATOR,
             STATE_HEIGHT as u8,
             [1u8; 32],
@@ -128,7 +128,7 @@ fn build_tree_fixture(
     };
     let fixture = MolluskAccount {
         lamports: 1_000_000_000_000,
-        data,
+        data: tree_account_bytes,
         owner: MolluskPubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         executable: false,
         rent_epoch: 0,
@@ -291,8 +291,8 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
         addresses: ix
             .accounts
             .iter()
-            .filter(|m| !m.is_signer)
-            .map(|m| Address::new_from_array(m.pubkey.to_bytes()))
+            .filter(|meta| !meta.is_signer)
+            .map(|meta| Address::new_from_array(meta.pubkey.to_bytes()))
             .chain(std::iter::once(Address::new_from_array(
                 ix.program_id.to_bytes(),
             )))
@@ -469,7 +469,7 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
         .expect("input commitments");
-    let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
+    let leaves: Vec<[u8; 32]> = commitments.iter().map(|input| input.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -485,7 +485,7 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         root_index,
     );
 
-    let make_inputs = MakeProofInputParams {
+    let make_proof_inputs = MakeProofInputParams {
         escrow,
         change,
         spp_tx_hashes: SppTxHashes::new(&spp_proof_inputs).expect("spp tx hashes"),
@@ -494,20 +494,20 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let prover = ProverClient::local();
     let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
-    let t1 = Instant::now();
-    let make_result = swap_prover_client
+    let swap_prove_start = Instant::now();
+    let make_proof = swap_prover_client
         .prove_make(
-            &make_inputs
+            &make_proof_inputs
                 .to_proof_inputs()
                 .expect("make proof inputs"),
         )
         .expect("swap make prove");
-    let swap_dur = t1.elapsed();
+    let swap_dur = swap_prove_start.elapsed();
 
     let ix = Make {
         payer: payer.pubkey(),
         tree,
-        make_proof: make_result.into(),
+        make_proof: make_proof.into(),
         spp_proof: transact,
     }
     .instruction()
@@ -539,14 +539,14 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let tree = Keypair::new().pubkey();
     let taker_payer = Keypair::new();
     let taker = keypair_from_payer(&taker_payer);
-    let taker_recipient = taker.shielded_address().expect("taker address");
+    let taker_address = taker.shielded_address().expect("taker address");
     let maker = ShieldedKeypair::from_seed_ed25519(&[0x51; 32]).expect("maker keypair");
-    let maker_recipient = maker.shielded_address().expect("maker address");
+    let maker_address = maker.shielded_address().expect("maker address");
 
     let terms = OrderTerms {
         destination_mint: SOL_MINT,
         destination_amount: DESTINATION_AMOUNT,
-        destination: maker_recipient,
+        destination: maker_address,
         taker: Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
         expiry: EXPIRY,
         take_mode: swap_prover::TAKE_MODE_DERIVED,
@@ -562,10 +562,10 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let taker_in_blinding = random_blinding();
     let source_output_blinding = random_blinding();
 
-    let taker_in = escrow.destination_output(taker_recipient, taker_in_blinding);
-    let source_output = escrow.source_output(taker_recipient, source_output_blinding);
+    let taker_in = escrow.destination_output(taker_address, taker_in_blinding);
+    let source_output = escrow.source_output(taker_address, source_output_blinding);
     let destination_output = escrow
-        .derived_destination_output(maker_recipient)
+        .derived_destination_output(maker_address)
         .expect("destination output");
 
     let escrow_input = escrow.to_input_utxo().expect("escrow spend");
@@ -610,7 +610,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
         .expect("input commitments");
-    let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
+    let leaves: Vec<[u8; 32]> = commitments.iter().map(|input| input.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -626,7 +626,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         root_index,
     );
 
-    let take_shared = TakeProofInputParams {
+    let take_proof_inputs = TakeProofInputParams {
         escrow,
         taker_in,
         source_output,
@@ -640,16 +640,16 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let prover = ProverClient::local();
     let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
-    let t1 = Instant::now();
-    let take_result = swap_prover_client
-        .prove_take(&take_shared.to_proof_inputs().expect("take proof inputs"))
+    let swap_prove_start = Instant::now();
+    let take_proof = swap_prover_client
+        .prove_take(&take_proof_inputs.to_proof_inputs().expect("take proof inputs"))
         .expect("swap take prove");
-    let swap_dur = t1.elapsed();
+    let swap_dur = swap_prove_start.elapsed();
 
     let ix = Take {
         payer: taker_payer.pubkey(),
         tree,
-        take_proof: take_result.into(),
+        take_proof: take_proof.into(),
         spp_proof: transact,
     }
     .instruction()
@@ -678,14 +678,14 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let tree = Keypair::new().pubkey();
     let taker_payer = Keypair::new();
     let taker = keypair_from_payer(&taker_payer);
-    let taker_recipient = taker.shielded_address().expect("taker address");
+    let taker_address = taker.shielded_address().expect("taker address");
     let maker = ShieldedKeypair::from_seed_ed25519(&[0x51; 32]).expect("maker keypair");
-    let maker_recipient = maker.shielded_address().expect("maker address");
+    let maker_address = maker.shielded_address().expect("maker address");
 
     let terms = OrderTerms {
         destination_mint: SOL_MINT,
         destination_amount: DESTINATION_AMOUNT,
-        destination: maker_recipient,
+        destination: maker_address,
         taker: Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
         expiry: EXPIRY,
         take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
@@ -702,10 +702,10 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let destination_output_blinding = random_blinding();
     let source_output_blinding = random_blinding();
 
-    let taker_in = escrow.destination_output(taker_recipient, taker_in_blinding);
-    let source_output = escrow.source_output(taker_recipient, source_output_blinding);
+    let taker_in = escrow.destination_output(taker_address, taker_in_blinding);
+    let source_output = escrow.source_output(taker_address, source_output_blinding);
     let destination_output =
-        escrow.destination_output(maker_recipient, destination_output_blinding);
+        escrow.destination_output(maker_address, destination_output_blinding);
     let destination_ciphertext = escrow
         .destination_ciphertext(&destination_output)
         .expect("destination ciphertext");
@@ -723,7 +723,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
-    let destination_view_tag = maker_recipient
+    let destination_view_tag = maker_address
         .signing_pubkey
         .confidential_view_tag()
         .expect("maker view tag");
@@ -764,7 +764,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
         .expect("input commitments");
-    let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
+    let leaves: Vec<[u8; 32]> = commitments.iter().map(|input| input.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -780,7 +780,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         root_index,
     );
 
-    let take_shared = TakeVerifiableEncryptionProofInputParams {
+    let take_proof_inputs = TakeVerifiableEncryptionProofInputParams {
         escrow,
         taker_in,
         source_output,
@@ -794,18 +794,18 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let prover = ProverClient::local();
     let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
-    let t1 = Instant::now();
-    let take_result = swap_prover_client
+    let swap_prove_start = Instant::now();
+    let take_proof = swap_prover_client
         .prove_take_verifiable_encryption(
-            &take_shared.to_proof_inputs().expect("take proof inputs"),
+            &take_proof_inputs.to_proof_inputs().expect("take proof inputs"),
         )
         .expect("swap take prove");
-    let swap_dur = t1.elapsed();
+    let swap_dur = swap_prove_start.elapsed();
 
     let ix = TakeVerifiableEncryption {
         payer: taker_payer.pubkey(),
         tree,
-        take_proof: take_result.into(),
+        take_proof: take_proof.into(),
         spp_proof: transact,
     }
     .instruction()
@@ -843,7 +843,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let tree = Keypair::new().pubkey();
     let maker_payer = Keypair::new();
     let maker = keypair_from_payer(&maker_payer);
-    let maker_recipient = maker.shielded_address().expect("maker address");
+    let maker_address = maker.shielded_address().expect("maker address");
     let taker = ShieldedKeypair::from_seed_ed25519(&[0x4d; 32]).expect("taker keypair");
     let taker_viewing_pubkey = taker
         .shielded_address()
@@ -852,7 +852,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let terms = OrderTerms {
         destination_mint: Address::new_from_array([7u8; 32]),
         destination_amount: 250,
-        destination: maker_recipient,
+        destination: maker_address,
         taker: Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
         expiry: ORDER_EXPIRY,
         take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
@@ -866,7 +866,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     };
     let source_output_blinding = random_blinding();
 
-    let source_output = escrow.source_output(maker_recipient, source_output_blinding);
+    let source_output = escrow.source_output(maker_address, source_output_blinding);
 
     let escrow_input = escrow.to_input_utxo().expect("escrow spend");
 
@@ -901,7 +901,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
         .expect("input commitments");
-    let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
+    let leaves: Vec<[u8; 32]> = commitments.iter().map(|input| input.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -917,7 +917,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         root_index,
     );
 
-    let cancel_inputs = CancelProofInputParams {
+    let cancel_proof_inputs = CancelProofInputParams {
         escrow: escrow.clone(),
         taker_viewing_pubkey,
         source_output,
@@ -930,18 +930,18 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let prover = ProverClient::local();
     let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
-    let t1 = Instant::now();
-    let cancel_result = swap_prover_client
+    let swap_prove_start = Instant::now();
+    let cancel_proof = swap_prover_client
         .prove_cancel(
-            &cancel_inputs
+            &cancel_proof_inputs
                 .to_proof_inputs()
                 .expect("cancel proof inputs"),
         )
         .expect("swap cancel prove");
-    let swap_dur = t1.elapsed();
+    let swap_dur = swap_prove_start.elapsed();
 
     let maker_signer = Pubkey::new_from_array(
-        maker_recipient
+        maker_address
             .signing_pubkey
             .as_ed25519()
             .expect("maker ed25519"),
@@ -950,7 +950,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         maker: maker_signer,
         payer: maker_payer.pubkey(),
         tree,
-        cancel_proof: cancel_result.into(),
+        cancel_proof: cancel_proof.into(),
         order_expiry: escrow.terms.expiry,
         spp_proof: transact,
     }

@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use swap_program::instructions::{shared::u64_to_field, take::TakePublicInput};
+use swap_program::instructions::{shared::u64_right_align, take::TakePublicInput};
 use swap_prover::{
     OrderTermsProofInput, TakeProofInputs, DESTINATION_BLINDING_DOMAIN, TAKE_MODE_DERIVED,
 };
@@ -12,13 +12,13 @@ use zolana_transaction::{
 
 use crate::{
     err,
-    shared::{check_output_utxo, to_blinding_array},
+    shared::{check_output_utxo, right_align_blinding},
     state::OrderUtxo,
 };
 
 pub fn derive_destination_blinding(escrow_blinding: &Blinding) -> Result<Blinding> {
-    let domain = u64_to_field(DESTINATION_BLINDING_DOMAIN);
-    let derived = poseidon(&[&to_blinding_array(escrow_blinding), &domain]).map_err(err)?;
+    let domain = u64_right_align(DESTINATION_BLINDING_DOMAIN);
+    let derived = poseidon(&[&right_align_blinding(escrow_blinding), &domain]).map_err(err)?;
     let mut blinding = [0u8; BLINDING_LEN];
     blinding.copy_from_slice(derived.get(1..32).ok_or_else(|| err("blinding tail"))?);
     Ok(blinding)

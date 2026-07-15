@@ -14,7 +14,7 @@ use zolana_interface::{
 use crate::{
     error::SwapError,
     instructions::{
-        shared::{check_within_window, cpi_spp_transact_signed, u64_to_field},
+        shared::{check_within_window, cpi_spp_transact_signed, u64_right_align},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
 };
@@ -46,7 +46,7 @@ impl TakeVerifiableEncryptionPublicInput<'_> {
             .map_err(|_| ProgramError::from(SwapError::HashingFailed))?;
         Poseidon::hashv(&[
             self.private_tx_hash.as_slice(),
-            u64_to_field(self.expiry).as_slice(),
+            u64_right_align(self.expiry).as_slice(),
             ct_hash.as_slice(),
         ])
         .map_err(|_| SwapError::HashingFailed.into())
@@ -55,7 +55,7 @@ impl TakeVerifiableEncryptionPublicInput<'_> {
 
 #[inline(never)]
 #[profile]
-pub fn process_take_verifiable_encryption(
+pub fn process_take_verifiable_encryption_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {

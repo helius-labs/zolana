@@ -1,6 +1,6 @@
 use anyhow::Result;
 use solana_address::Address;
-use swap_program::instructions::shared::u64_to_field;
+use swap_program::instructions::shared::u64_right_align;
 use swap_prover::TAKE_ENC_KDF_DOMAIN;
 use zolana_keypair::{
     constants::BLINDING_LEN,
@@ -9,11 +9,11 @@ use zolana_keypair::{
 };
 use zolana_transaction::utxo::Blinding;
 
-use crate::{err, shared::to_blinding_array};
+use crate::{err, shared::right_align_blinding};
 
 fn take_shared_secret(escrow_blinding: &Blinding) -> Result<[u8; 32]> {
-    let domain = u64_to_field(TAKE_ENC_KDF_DOMAIN);
-    poseidon(&[&to_blinding_array(escrow_blinding), &domain]).map_err(err)
+    let domain = u64_right_align(TAKE_ENC_KDF_DOMAIN);
+    poseidon(&[&right_align_blinding(escrow_blinding), &domain]).map_err(err)
 }
 
 pub fn destination_ciphertext_with_hash(

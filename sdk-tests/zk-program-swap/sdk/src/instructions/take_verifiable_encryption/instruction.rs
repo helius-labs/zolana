@@ -35,7 +35,7 @@ impl TakeVerifiableEncryption {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
 
-        let data = wincode::serialize(&TakeVerifiableEncryptionIxData {
+        let serialized_ix = wincode::serialize(&TakeVerifiableEncryptionIxData {
             proof: take_proof,
             transact: spp_proof,
         })
@@ -49,7 +49,7 @@ impl TakeVerifiableEncryption {
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
         let mut instruction_data = vec![tag::TAKE_VERIFIABLE_ENCRYPTION];
-        instruction_data.extend_from_slice(&data);
+        instruction_data.extend_from_slice(&serialized_ix);
         Ok(Instruction {
             program_id: swap_program::ID,
             accounts,

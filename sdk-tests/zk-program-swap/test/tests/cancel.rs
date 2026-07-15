@@ -206,7 +206,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             maker_address.solana_address()?,
         );
 
-        let cancel_inputs = CancelProofInputParams {
+        let cancel_proof_inputs = CancelProofInputParams {
             escrow: escrow.clone(),
             taker_viewing_pubkey,
             source_output,
@@ -221,7 +221,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("cancel transact proof: {e:?}"))?;
 
         let cancel_proof = swap_prover_client
-            .prove_cancel(&cancel_inputs.to_proof_inputs()?)
+            .prove_cancel(&cancel_proof_inputs.to_proof_inputs()?)
             .map_err(|e| anyhow!("cancel proof: {e:?}"))?;
 
         let cancel_ix = Cancel {

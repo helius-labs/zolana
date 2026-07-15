@@ -130,21 +130,21 @@ fn verify_with_vk(
     public_input: [u8; 32],
 ) -> bool {
     let a = match decompress_g1(proof_a) {
-        Ok(v) => v,
+        Ok(g1) => g1,
         Err(_) => return false,
     };
     let b = match decompress_g2(proof_b) {
-        Ok(v) => v,
+        Ok(g2) => g2,
         Err(_) => return false,
     };
     let c = match decompress_g1(proof_c) {
-        Ok(v) => v,
+        Ok(g1) => g1,
         Err(_) => return false,
     };
     let public_inputs = [public_input];
     let borrowed = vk.as_borrowed();
     let mut verifier = match Groth16Verifier::new(&a, &b, &c, &public_inputs, &borrowed) {
-        Ok(v) => v,
+        Ok(parsed) => parsed,
         Err(_) => return false,
     };
     verifier.verify().is_ok()

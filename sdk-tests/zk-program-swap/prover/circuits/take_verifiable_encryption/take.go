@@ -11,7 +11,7 @@ import (
 	"zolana/prover/circuits/verifiable-encryption/aes"
 )
 
-var kdfInfo = []byte("TSPP/merge")
+var mergeKdfInfo = []byte("TSPP/merge")
 
 type Circuit struct {
 	Public PublicInputs
@@ -52,7 +52,7 @@ func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable 
 		frontend.Variable(orderterms.TakeEncKdfDomain),
 	})
 	aesGadget := aes.NewAESGadget(api)
-	key, nonce := ve.KeySchedule(api, sharedSecret, kdfInfoVars(), len(kdfInfo))
+	key, nonce := ve.KeySchedule(api, sharedSecret, mergeKdfInfoVars(), len(mergeKdfInfo))
 
 	var plaintext [71]frontend.Variable
 	copy(plaintext[0:8], ve.FieldToBytesBE(api, c.Core.Order.DestinationAmount, 8))
@@ -62,9 +62,9 @@ func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable 
 	return gadget.PoseidonHash(api, ve.PackBytesBE(api, ciphertext, 16))
 }
 
-func kdfInfoVars() []frontend.Variable {
-	out := make([]frontend.Variable, len(kdfInfo))
-	for i, b := range kdfInfo {
+func mergeKdfInfoVars() []frontend.Variable {
+	out := make([]frontend.Variable, len(mergeKdfInfo))
+	for i, b := range mergeKdfInfo {
 		out[i] = frontend.Variable(b)
 	}
 	return out

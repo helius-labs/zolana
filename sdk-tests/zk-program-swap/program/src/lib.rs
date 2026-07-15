@@ -5,7 +5,7 @@ pub mod verifying_keys;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{
-    process_cancel, process_make, process_take, process_take_verifiable_encryption,
+    process_cancel_ix, process_make_ix, process_take_ix, process_take_verifiable_encryption_ix,
 };
 
 pub mod tag {
@@ -38,10 +38,12 @@ pub fn process_instruction(
         .ok_or(ProgramError::InvalidInstructionData)?;
 
     match *ix_tag {
-        tag::MAKE => process_make(accounts, ix_data),
-        tag::TAKE => process_take(accounts, ix_data),
-        tag::CANCEL => process_cancel(accounts, ix_data),
-        tag::TAKE_VERIFIABLE_ENCRYPTION => process_take_verifiable_encryption(accounts, ix_data),
+        tag::MAKE => process_make_ix(accounts, ix_data),
+        tag::TAKE => process_take_ix(accounts, ix_data),
+        tag::CANCEL => process_cancel_ix(accounts, ix_data),
+        tag::TAKE_VERIFIABLE_ENCRYPTION => {
+            process_take_verifiable_encryption_ix(accounts, ix_data)
+        }
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

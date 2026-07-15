@@ -49,7 +49,7 @@ impl Make {
             marker.data = Vec::new();
         }
 
-        let data = wincode::serialize(&MakeIxData {
+        let serialized_ix = wincode::serialize(&MakeIxData {
             proof: make_proof,
             transact: spp_proof,
         })
@@ -62,7 +62,7 @@ impl Make {
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
         let mut instruction_data = vec![tag::MAKE];
-        instruction_data.extend_from_slice(&data);
+        instruction_data.extend_from_slice(&serialized_ix);
         Ok(Instruction {
             program_id: swap_program::ID,
             accounts,
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn sign_escrow_make_zero_change_note() {
+    fn sign_escrow_make_zero_change_utxo() {
         let owner_keypair = ShieldedKeypair::from_seed_ed25519(&[3u8; 32]).expect("owner keypair");
         let order_keypair = ShieldedKeypair::from_seed_ed25519(&[4u8; 32]).expect("order keypair");
         let taker_keypair =

@@ -12,7 +12,7 @@ use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::error::SwapError;
 
-pub fn u64_to_field(value: u64) -> [u8; 32] {
+pub fn u64_right_align(value: u64) -> [u8; 32] {
     let mut bytes = [0u8; 32];
     bytes[24..32].copy_from_slice(&value.to_be_bytes());
     bytes
@@ -61,17 +61,19 @@ pub fn cpi_spp_transact(spp_accounts: &[AccountView], transact_bytes: &[u8]) -> 
 
     let metas: Vec<InstructionAccount> = spp_accounts
         .iter()
-        .map(|a| InstructionAccount::new(a.address(), a.is_writable(), a.is_signer()))
+        .map(|account| {
+            InstructionAccount::new(account.address(), account.is_writable(), account.is_signer())
+        })
         .collect();
 
-    let mut data = Vec::with_capacity(1 + transact_bytes.len());
-    data.push(TRANSACT);
-    data.extend_from_slice(transact_bytes);
+    let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
+    instruction_data.push(TRANSACT);
+    instruction_data.extend_from_slice(transact_bytes);
 
     let instruction = InstructionView {
         program_id: &spp_id,
         accounts: &metas,
-        data: &data,
+        data: &instruction_data,
     };
     invoke_with_bounds::<16, _>(&instruction, spp_accounts)
 }
@@ -96,27 +98,27 @@ pub fn cpi_spp_transact_signed(
 
     if !spp_accounts
         .iter()
-        .any(|a| a.address() == &escrow_authority)
+        .any(|account| account.address() == &escrow_authority)
     {
         return Err(SwapError::MissingEscrowAuthority.into());
     }
 
     let metas: Vec<InstructionAccount> = spp_accounts
         .iter()
-        .map(|a| {
-            let is_signer = a.is_signer() || a.address() == &escrow_authority;
-            InstructionAccount::new(a.address(), a.is_writable(), is_signer)
+        .map(|account| {
+            let is_signer = account.is_signer() || account.address() == &escrow_authority;
+            InstructionAccount::new(account.address(), account.is_writable(), is_signer)
         })
         .collect();
 
-    let mut data = Vec::with_capacity(1 + transact_bytes.len());
-    data.push(TRANSACT);
-    data.extend_from_slice(transact_bytes);
+    let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
+    instruction_data.push(TRANSACT);
+    instruction_data.extend_from_slice(transact_bytes);
 
     let instruction = InstructionView {
         program_id: &spp_id,
         accounts: &metas,
-        data: &data,
+        data: &instruction_data,
     };
     let bump = [bump];
     let seeds = [
