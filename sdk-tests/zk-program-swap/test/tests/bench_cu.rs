@@ -32,7 +32,7 @@ use swap_sdk::{
         },
     },
     order::{OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
-    prover::{prove_transact, SwapProverClient},
+    prover::SwapProverClient,
 };
 use zolana_client::{
     MerkleContext, MerkleProof, NonInclusionProof, ProverClient, SpendProof, NULLIFIER_TREE_HEIGHT,
@@ -275,9 +275,13 @@ fn prove_transact_timed(
     spend_proofs: &[SpendProof],
     prover: &ProverClient,
 ) -> (TransactIxData, Duration) {
-    prove_transact(proof_inputs.clone(), spend_proofs, prover).expect("warm prove transact");
+    prover
+        .prove_transact(proof_inputs.clone(), spend_proofs)
+        .expect("warm prove transact");
     let start = Instant::now();
-    let transact = prove_transact(proof_inputs, spend_proofs, prover).expect("prove transact");
+    let transact = prover
+        .prove_transact(proof_inputs, spend_proofs)
+        .expect("prove transact");
     (transact, start.elapsed())
 }
 

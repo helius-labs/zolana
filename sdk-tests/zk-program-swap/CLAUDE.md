@@ -64,8 +64,8 @@ transformation between domain types and prover witnesses.
 - `discover.rs`: taker-side order discovery — wallet sync, marker decoding,
   maker resolution via the user registry, escrow opening recovery.
 - `prover.rs`: `SwapProverClient`, mirroring `zolana_client::ProverClient` —
-  one `prove_*(&*ProofInputs) -> OrderProof` per circuit, no data processing —
-  plus `prove_transact` for the SPP transfer proof.
+  one `prove_*(&*ProofInputs) -> OrderProof` per circuit, no data processing.
+  The SPP transfer proof comes from `ProverClient::prove_transact` directly.
 - `tests/`: per-circuit prove/verify tests against the generated and program
   verifying keys, including program-side public-input recomputation.
 
