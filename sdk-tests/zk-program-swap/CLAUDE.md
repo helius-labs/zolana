@@ -35,7 +35,7 @@ main prover server's role: it does not process data — it takes prepared
 witnesses and proves.
 
 - Go gnark circuits in `circuits/` (`create`, `fill`,
-  `fill_verifiable_encryption`, `cancel`, plus a `stub` smoke-test circuit).
+  `fill_verifiable_encryption`, `cancel`).
 - `build.rs` compiles the Go package to a c-archive; `src/ffi.rs` exposes
   `setup` / `preload` / `prove` over bindgen.
 - Per-circuit `*ProofInputs` structs are pure field-element containers
@@ -45,8 +45,7 @@ witnesses and proves.
   crate exports the circuit constants (`FILL_MODE_*`, KDF/blinding domains).
 - `swap-prover-setup` bin regenerates proving/verifying keys and the Rust vk
   constants in the program crate.
-- `tests/stub_circuit.rs`: FFI smoke test; the per-circuit proof tests live in
-  `sdk/tests/`.
+- The per-circuit proof tests live in `sdk/tests/`.
 
 ### `sdk` (`swap-sdk`)
 

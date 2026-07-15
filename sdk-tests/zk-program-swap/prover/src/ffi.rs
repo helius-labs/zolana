@@ -15,11 +15,10 @@ pub type WitnessMap = HashMap<String, Vec<String>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum CircuitId {
-    Stub = 0,
-    Create = 1,
-    Cancel = 2,
-    Fill = 3,
-    FillVerifiableEncryption = 4,
+    Create = 0,
+    Cancel = 1,
+    Fill = 2,
+    FillVerifiableEncryption = 3,
 }
 
 #[derive(Debug, Clone)]
@@ -133,7 +132,6 @@ pub fn prove(circuit: CircuitId, witness: &WitnessMap) -> Result<ProveOutput> {
 fn build_dir(circuit: CircuitId) -> PathBuf {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark");
     let sub = match circuit {
-        CircuitId::Stub => "stub",
         CircuitId::Create => "create",
         CircuitId::Cancel => "cancel",
         CircuitId::Fill => "fill",
@@ -143,13 +141,11 @@ fn build_dir(circuit: CircuitId) -> PathBuf {
 }
 
 fn circuit_once(circuit: CircuitId) -> &'static Once {
-    static STUB: Once = Once::new();
     static CREATE: Once = Once::new();
     static CANCEL: Once = Once::new();
     static FILL: Once = Once::new();
     static FILL_VERIFIABLE_ENCRYPTION: Once = Once::new();
     match circuit {
-        CircuitId::Stub => &STUB,
         CircuitId::Create => &CREATE,
         CircuitId::Cancel => &CANCEL,
         CircuitId::Fill => &FILL,

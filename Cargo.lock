@@ -8216,10 +8216,8 @@ dependencies = [
 name = "swap-prover"
 version = "0.1.0"
 dependencies = [
- "ark-bn254 0.5.0",
  "bindgen",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
- "light-poseidon 0.4.0",
  "num-bigint 0.4.6",
  "serde_json",
  "solana-bn254 3.2.1",

@@ -22,11 +22,3 @@ thiserror = { workspace = true }
 
 [build-dependencies]
 bindgen = "0.70"
-
-[dev-dependencies]
-ark-bn254 = { workspace = true }
-light-poseidon = { workspace = true }
-
-[[test]]
-name = "stub_circuit"
-path = "tests/stub_circuit.rs"

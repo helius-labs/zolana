@@ -26,7 +26,6 @@ fn main() {
     }
 
     let circuit = match circuit_arg.to_lowercase().as_str() {
-        "stub" => CircuitId::Stub,
         "create" => CircuitId::Create,
         "cancel" => CircuitId::Cancel,
         "fill" => CircuitId::Fill,
@@ -36,7 +35,6 @@ fn main() {
 
     let rust_vk_path = rust_vk_path.unwrap_or_else(|| {
         let circuit_name = match circuit {
-            CircuitId::Stub => "stub",
             CircuitId::Create => "create",
             CircuitId::Cancel => "cancel",
             CircuitId::Fill => "fill",
@@ -79,7 +77,7 @@ fn main() {
 fn usage_and_exit(msg: &str) -> ! {
     eprintln!("error: {msg}");
     eprintln!("usage: swap-prover-setup <circuit> <build-dir> [--rust-vk <path>]");
-    eprintln!("  circuit: stub | create | cancel | fill_verifiable_encryption");
+    eprintln!("  circuit: create | cancel | fill | fill_verifiable_encryption");
     eprintln!("  build-dir: where pk.bin / vk.bin are written");
     eprintln!("  --rust-vk: optional override for the generated Rust source path");
     std::process::exit(2);

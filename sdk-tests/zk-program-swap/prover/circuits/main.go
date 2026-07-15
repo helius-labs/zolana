@@ -36,16 +36,14 @@ import (
 	"circuits/create"
 	"circuits/fill"
 	"circuits/fill_verifiable_encryption"
-	"circuits/stub"
 	"circuits/witness"
 )
 
 const (
-	CircuitStub                     = 0
-	CircuitCreate                   = 1
-	CircuitCancel                   = 2
-	CircuitFill                     = 3
-	CircuitFillVerifiableEncryption = 4
+	CircuitCreate                   = 0
+	CircuitCancel                   = 1
+	CircuitFill                     = 2
+	CircuitFillVerifiableEncryption = 3
 )
 
 var (
@@ -72,8 +70,6 @@ func compileCircuit(id int) (constraint.ConstraintSystem, error) {
 	var circuit frontend.Circuit
 	var opts []frontend.CompileOption
 	switch id {
-	case CircuitStub:
-		circuit = &stub.Circuit{}
 	case CircuitCreate:
 		circuit = &create.Circuit{}
 	case CircuitCancel:
@@ -98,8 +94,6 @@ func compileCircuit(id int) (constraint.ConstraintSystem, error) {
 func assignFromWitness(id int, witnessValues map[string][]string) (frontend.Circuit, error) {
 	var circuit frontend.Circuit
 	switch id {
-	case CircuitStub:
-		circuit = &stub.Circuit{}
 	case CircuitCreate:
 		circuit = &create.Circuit{}
 	case CircuitCancel:
