@@ -3,7 +3,11 @@ use zolana_keypair::{
     constants::BLINDING_LEN, viewing_key::random_blinding, NullifierKey, PublicKey,
 };
 
-use crate::{data::Data, error::TransactionError, utxo::Utxo};
+use crate::{
+    data::Data,
+    error::TransactionError,
+    utxo::{owner_utxo_hash, utxo_hash, Utxo},
+};
 
 #[derive(Clone)]
 pub struct SppProofInputUtxo {
@@ -55,6 +59,19 @@ impl SppProofInputUtxo {
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
+        // A dummy's zeroed owner is not a parseable key; it contributes a zero
+        // owner hash instead. The circuit skips ownership for dummies, so the
+        // value only pads the hash chain.
+        if self.is_dummy() {
+            return utxo_hash(
+                self.utxo.asset,
+                self.utxo.amount,
+                &self.data_hash.unwrap_or_default(),
+                &self.zone_data_hash.unwrap_or_default(),
+                self.utxo.zone_program_id,
+                &owner_utxo_hash(&[0u8; 32], &self.utxo.blinding)?,
+            );
+        }
         let nullifier_pubkey = self.nullifier_key.pubkey()?;
         self.utxo.hash(
             &nullifier_pubkey,
