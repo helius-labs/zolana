@@ -9,11 +9,11 @@ use zolana_keypair::{
 };
 use zolana_transaction::utxo::Blinding;
 
-use crate::{err, order::BlindingField};
+use crate::{err, shared::to_blinding_array};
 
 fn fill_shared_secret(escrow_blinding: &Blinding) -> Result<[u8; 32]> {
     let domain = u64_to_field(FILL_ENC_KDF_DOMAIN);
-    poseidon(&[&escrow_blinding.to_field(), &domain]).map_err(err)
+    poseidon(&[&to_blinding_array(escrow_blinding), &domain]).map_err(err)
 }
 
 pub fn destination_ciphertext_with_hash(

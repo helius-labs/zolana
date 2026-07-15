@@ -71,8 +71,7 @@ pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> Program
         escrow_utxo_hash,
         maker_pubkey,
     };
-    marker_message.data =
-        borsh::to_vec(&marker).map_err(|_| SwapError::InvalidInstructionData)?;
+    marker_message.data = borsh::to_vec(&marker).map_err(|_| SwapError::InvalidInstructionData)?;
     let transact_bytes = transact
         .serialize()
         .map_err(|_| SwapError::InvalidInstructionData)?;

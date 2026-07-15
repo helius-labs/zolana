@@ -91,8 +91,8 @@ pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Or
     };
     let marker = MarkerData::try_from_slice(&marker_message.data)
         .map_err(|e| anyhow!("marker payload: {e}"))?;
-    let Some((slot_index, _, body)) = unified_slots(tx)
-        .find(|(_, slot, _)| slot.output_context.hash == marker.escrow_utxo_hash)
+    let Some((slot_index, _, body)) =
+        unified_slots(tx).find(|(_, slot, _)| slot.output_context.hash == marker.escrow_utxo_hash)
     else {
         bail!("marker without a unified escrow ciphertext in the same transaction");
     };
@@ -253,9 +253,12 @@ pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Optio
         else {
             continue;
         };
-        let Some(order) =
-            own_order_candidate(&wallet.registry, maker_address, plaintext, taker_viewing_pubkey)
-        else {
+        let Some(order) = own_order_candidate(
+            &wallet.registry,
+            maker_address,
+            plaintext,
+            taker_viewing_pubkey,
+        ) else {
             continue;
         };
         let Ok(escrow_utxo_hash) = order

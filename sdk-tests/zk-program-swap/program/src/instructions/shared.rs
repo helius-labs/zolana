@@ -27,8 +27,7 @@ pub fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     low[16..].copy_from_slice(&value[16..32]);
     let mut high = [0u8; 32];
     high[16..].copy_from_slice(&value[0..16]);
-    Poseidon::hashv(&[low.as_slice(), high.as_slice()])
-        .map_err(|_| SwapError::HashingFailed.into())
+    Poseidon::hashv(&[low.as_slice(), high.as_slice()]).map_err(|_| SwapError::HashingFailed.into())
 }
 
 #[inline(always)]

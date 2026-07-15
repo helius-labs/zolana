@@ -1,6 +1,8 @@
 use anyhow::{bail, Result};
 use swap_program::instructions::{fill::FillPublicInput, shared::u64_to_field};
-use swap_prover::{FillProofInputs, DESTINATION_BLINDING_DOMAIN, FILL_MODE_DERIVED};
+use swap_prover::{
+    FillProofInputs, OrderTermsProofInput, DESTINATION_BLINDING_DOMAIN, FILL_MODE_DERIVED,
+};
 use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon};
 use zolana_transaction::{
     instructions::transact::{OutputUtxo, PrivateTxHash},
@@ -10,12 +12,13 @@ use zolana_transaction::{
 
 use crate::{
     err,
-    order::{ensure_payout, BlindingField, OrderUtxo},
+    order::OrderUtxo,
+    shared::{check_output_utxo, to_blinding_array},
 };
 
 pub fn derive_destination_blinding(escrow_blinding: &Blinding) -> Result<Blinding> {
     let domain = u64_to_field(DESTINATION_BLINDING_DOMAIN);
-    let derived = poseidon(&[&escrow_blinding.to_field(), &domain]).map_err(err)?;
+    let derived = poseidon(&[&to_blinding_array(escrow_blinding), &domain]).map_err(err)?;
     let mut blinding = [0u8; BLINDING_LEN];
     blinding.copy_from_slice(derived.get(1..32).ok_or_else(|| err("blinding tail"))?);
     Ok(blinding)
@@ -32,13 +35,13 @@ pub struct FillProofInputParams {
 impl FillProofInputParams {
     pub fn to_proof_inputs(&self) -> Result<FillProofInputs> {
         let terms = &self.escrow.terms;
-        let taker = ensure_payout(
+        let taker = check_output_utxo(
             "taker_in",
             &self.taker_in,
             &terms.destination_mint,
             terms.destination_amount,
         )?;
-        let source_owner = ensure_payout(
+        let source_owner = check_output_utxo(
             "source_output",
             &self.source_output,
             &self.escrow.source_mint,
@@ -47,7 +50,7 @@ impl FillProofInputParams {
         if source_owner != taker {
             bail!("source output owner does not match the taker input owner");
         }
-        let destination_owner = ensure_payout(
+        let destination_owner = check_output_utxo(
             "destination_output",
             &self.destination_output,
             &terms.destination_mint,
@@ -62,12 +65,11 @@ impl FillProofInputParams {
         if terms.fill_mode != FILL_MODE_DERIVED {
             bail!("order fill_mode does not authorize the derived fill");
         }
-        let order = terms.field_elements()?;
+        let order = OrderTermsProofInput::try_from(terms)?;
         let escrow = ProofInputUtxo::try_from(&self.escrow.to_input_utxo()?).map_err(err)?;
         let taker_in = ProofInputUtxo::try_from(&self.taker_in).map_err(err)?;
         let source_output = ProofInputUtxo::try_from(&self.source_output).map_err(err)?;
-        let destination_output =
-            ProofInputUtxo::try_from(&self.destination_output).map_err(err)?;
+        let destination_output = ProofInputUtxo::try_from(&self.destination_output).map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
             &[escrow.hash().map_err(err)?, taker_in.hash().map_err(err)?],
             &[

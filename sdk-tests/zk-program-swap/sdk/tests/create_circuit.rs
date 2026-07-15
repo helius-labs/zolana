@@ -13,7 +13,7 @@ use swap_program::{
 };
 use swap_prover::{CircuitId, CreateProofInputs, OrderTermsProofInput, FILL_MODE_DERIVED};
 use swap_sdk::order::{escrow_owner_hash, DataHash};
-use zolana_keypair::hash::hash_field;
+use zolana_keypair::{hash::hash_field, ViewingKey};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 fn build_dir() -> std::path::PathBuf {
@@ -45,9 +45,7 @@ fn blinding(byte: u8) -> Blinding {
 }
 
 fn sample_order() -> OrderTermsProofInput {
-    let mut maker_viewing_pk = [0u8; 33];
-    maker_viewing_pk[0] = 2;
-    maker_viewing_pk[32] = 55;
+    let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
     OrderTermsProofInput {
         destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,

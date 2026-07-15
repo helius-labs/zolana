@@ -29,7 +29,7 @@ use swap_sdk::{
             FillVerifiableEncryption, FillVerifiableEncryptionProofInputParams,
         },
     },
-    order::{input_sum, OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
+    order::{input_sum, OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
 use zolana_client::{
@@ -45,7 +45,7 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
@@ -55,7 +55,6 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    utxo::Blinding,
     AssetRegistry, Data, Utxo, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
@@ -425,7 +424,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let payer = Keypair::new();
     let maker = keypair_from_payer(&payer);
 
-    let input_blinding: Blinding = [3u8; 31];
+    let input_blinding = random_blinding();
     let input_utxo = Utxo {
         owner: maker.signing_pubkey(),
         asset: SOL_MINT,
@@ -447,7 +446,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     };
     let escrow = OrderUtxo {
         terms,
-        blinding: [7u8; 31],
+        blinding: random_blinding(),
         source_mint: SOL_MINT,
         source_amount: SOURCE_AMOUNT,
         destination_asset_id: 2,
@@ -534,7 +533,11 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let create_result = swap_prover_client
-        .prove_create_swap(&create_inputs.to_proof_inputs().expect("create proof inputs"))
+        .prove_create_swap(
+            &create_inputs
+                .to_proof_inputs()
+                .expect("create proof inputs"),
+        )
         .expect("swap create prove");
     let swap_dur = t1.elapsed();
 
@@ -591,22 +594,16 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     };
     let escrow = OrderUtxo {
         terms,
-        blinding: [7u8; 31],
+        blinding: random_blinding(),
         source_mint: SOL_MINT,
         source_amount: SOURCE_AMOUNT,
         destination_asset_id: SOL_ASSET_ID,
     };
 
-    let taker_in_blinding: Blinding = [13u8; 31];
-    let source_output_blinding: Blinding = [31u8; 31];
+    let taker_in_blinding = random_blinding();
+    let source_output_blinding = random_blinding();
 
-    let taker_in = Recipient {
-        address: taker_recipient,
-        amount: DESTINATION_AMOUNT,
-        blinding: taker_in_blinding,
-        mint: SOL_MINT,
-    }
-    .output();
+    let taker_in = escrow.destination_output(taker_recipient, taker_in_blinding);
     let source_output = escrow.source_output(taker_recipient, source_output_blinding);
     let destination_output = escrow
         .derived_destination_output(maker_recipient)
@@ -739,23 +736,17 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     };
     let escrow = OrderUtxo {
         terms,
-        blinding: [7u8; 31],
+        blinding: random_blinding(),
         source_mint: SOL_MINT,
         source_amount: SOURCE_AMOUNT,
         destination_asset_id: SOL_ASSET_ID,
     };
 
-    let taker_in_blinding: Blinding = [13u8; 31];
-    let destination_output_blinding: Blinding = [21u8; 31];
-    let source_output_blinding: Blinding = [31u8; 31];
+    let taker_in_blinding = random_blinding();
+    let destination_output_blinding = random_blinding();
+    let source_output_blinding = random_blinding();
 
-    let taker_in = Recipient {
-        address: taker_recipient,
-        amount: DESTINATION_AMOUNT,
-        blinding: taker_in_blinding,
-        mint: SOL_MINT,
-    }
-    .output();
+    let taker_in = escrow.destination_output(taker_recipient, taker_in_blinding);
     let source_output = escrow.source_output(taker_recipient, source_output_blinding);
     let destination_output =
         escrow.destination_output(maker_recipient, destination_output_blinding);
@@ -849,7 +840,9 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let fill_result = swap_prover_client
-        .prove_fill_verifiable_encryption(&fill_shared.to_proof_inputs().expect("fill proof inputs"))
+        .prove_fill_verifiable_encryption(
+            &fill_shared.to_proof_inputs().expect("fill proof inputs"),
+        )
         .expect("swap fill prove");
     let swap_dur = t1.elapsed();
 
@@ -913,12 +906,12 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     };
     let escrow = OrderUtxo {
         terms,
-        blinding: [7u8; 31],
+        blinding: random_blinding(),
         source_mint: SOL_MINT,
         source_amount: SOURCE_AMOUNT,
         destination_asset_id: 2,
     };
-    let source_output_blinding: Blinding = [19u8; 31];
+    let source_output_blinding = random_blinding();
 
     let source_output = escrow.source_output(maker_recipient, source_output_blinding);
 
@@ -986,7 +979,11 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let cancel_result = swap_prover_client
-        .prove_cancel(&cancel_inputs.to_proof_inputs().expect("cancel proof inputs"))
+        .prove_cancel(
+            &cancel_inputs
+                .to_proof_inputs()
+                .expect("cancel proof inputs"),
+        )
         .expect("swap cancel prove");
     let swap_dur = t1.elapsed();
 

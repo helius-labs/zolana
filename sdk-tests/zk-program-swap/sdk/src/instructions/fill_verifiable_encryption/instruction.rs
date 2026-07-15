@@ -2,12 +2,11 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_program::instructions::fill_verifiable_encryption::FillVerifiableEncryptionIxData;
-use zolana_interface::instruction::instruction_data::transact::TransactIxData;
-
-use crate::{
-    err, escrow_authority_pda, program_id_pubkey, spp_program_meta, tag,
-    FillVerifiableEncryptionProof,
+use zolana_interface::{
+    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
+
+use crate::{err, escrow_authority_pda, tag, FillVerifiableEncryptionProof};
 
 pub struct FillVerifiableEncryption {
     pub payer: Pubkey,
@@ -47,12 +46,12 @@ impl FillVerifiableEncryption {
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(escrow_authority_pda(), false),
-            spp_program_meta(),
+            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
         let mut instruction_data = vec![tag::FILL_VERIFIABLE_ENCRYPTION];
         instruction_data.extend_from_slice(&data);
         Ok(Instruction {
-            program_id: program_id_pubkey(),
+            program_id: swap_program::ID,
             accounts,
             data: instruction_data,
         })

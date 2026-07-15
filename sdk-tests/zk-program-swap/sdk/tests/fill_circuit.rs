@@ -16,7 +16,7 @@ use swap_sdk::{
     instructions::fill::derive_destination_blinding,
     order::{escrow_owner_hash, DataHash},
 };
-use zolana_keypair::hash::hash_field;
+use zolana_keypair::{hash::hash_field, ViewingKey};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 fn build_dir() -> std::path::PathBuf {
@@ -48,9 +48,7 @@ fn blinding(byte: u8) -> Blinding {
 }
 
 fn build_inputs(destination_output_blinding: Blinding) -> FillProofInputs {
-    let mut maker_viewing_pk = [0u8; 33];
-    maker_viewing_pk[0] = 2;
-    maker_viewing_pk[32] = 55;
+    let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
     let order = OrderTermsProofInput {
         destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,

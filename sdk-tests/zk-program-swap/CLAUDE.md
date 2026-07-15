@@ -63,8 +63,9 @@ transformation between domain types and prover witnesses.
   owns the verifiable-encryption ciphertext codec.
 - `order.rs`: client-side order model — `OrderTerms`, the escrow `OrderUtxo`
   (output and spend forms), recipient plaintext encoding, `input_sum`,
-  `escrow_owner_hash`, `maker_address_fe`, and the order-terms `DataHash`
-  impls.
+  `escrow_owner_hash`, and the order-terms `DataHash` impls.
+- `shared.rs`: crate-internal helpers shared across the instruction modules
+  (`check_output_utxo`, `to_blinding_array`).
 - `discover.rs`: taker-side order discovery — wallet sync, marker decoding,
   maker resolution via the user registry, escrow opening recovery.
 - `prover.rs`: `SwapProverClient`, mirroring `zolana_client::ProverClient` —

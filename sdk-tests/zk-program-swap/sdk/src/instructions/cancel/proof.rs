@@ -1,16 +1,13 @@
 use anyhow::{bail, Result};
 use swap_program::instructions::cancel::CancelPublicInput;
-use swap_prover::CancelProofInputs;
+use swap_prover::{CancelProofInputs, OrderTermsProofInput};
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::{
     instructions::transact::{OutputUtxo, PrivateTxHash},
     ProofInputUtxo,
 };
 
-use crate::{
-    err,
-    order::{ensure_payout, OrderUtxo},
-};
+use crate::{err, order::OrderUtxo, shared::check_output_utxo};
 
 pub struct CancelProofInputParams {
     pub escrow: OrderUtxo,
@@ -22,7 +19,7 @@ pub struct CancelProofInputParams {
 impl CancelProofInputParams {
     pub fn to_proof_inputs(&self) -> Result<CancelProofInputs> {
         let terms = &self.escrow.terms;
-        let maker = ensure_payout(
+        let maker = check_output_utxo(
             "source_output",
             &self.source_output,
             &self.escrow.source_mint,
@@ -31,7 +28,7 @@ impl CancelProofInputParams {
         if maker != terms.destination {
             bail!("source output owner does not match the order destination");
         }
-        let order = terms.field_elements()?;
+        let order = OrderTermsProofInput::try_from(terms)?;
         let maker_owner_pk_field = maker.signing_pubkey.owner_pk_field().map_err(err)?;
         let escrow = ProofInputUtxo::try_from(&self.escrow.to_input_utxo()?).map_err(err)?;
         let source_output = ProofInputUtxo::try_from(&self.source_output).map_err(err)?;

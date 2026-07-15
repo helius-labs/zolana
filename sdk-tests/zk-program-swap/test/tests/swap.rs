@@ -10,7 +10,7 @@ use swap_sdk::{
         create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
         fill::{Fill, FillProofInputParams},
     },
-    order::{input_sum, OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
+    order::{input_sum, OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};
@@ -198,13 +198,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
                     terms.destination_amount
                 )
             })?;
-        let taker_in = Recipient {
-            address: taker_address,
-            amount: terms.destination_amount,
-            blinding: taker_input_utxo.blinding,
-            mint: terms.destination_mint,
-        }
-        .output();
+        let taker_in = escrow.destination_output(taker_address, taker_input_utxo.blinding);
         let source_output = escrow.source_output(taker_address, random_blinding());
         let destination_output = escrow
             .derived_destination_output(terms.destination)

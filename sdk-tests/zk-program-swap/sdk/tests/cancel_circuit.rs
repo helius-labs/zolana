@@ -13,7 +13,10 @@ use swap_program::{
 };
 use swap_prover::{CancelProofInputs, CircuitId, OrderTermsProofInput, FILL_MODE_DERIVED};
 use swap_sdk::order::{escrow_owner_hash, DataHash};
-use zolana_keypair::hash::{hash_field, poseidon};
+use zolana_keypair::{
+    hash::{hash_field, poseidon},
+    ViewingKey,
+};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 fn build_dir() -> std::path::PathBuf {
@@ -49,9 +52,7 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
     let maker_nullifier_pk = fe(88);
     let maker_owner_hash =
         poseidon(&[&maker_owner_pk_field, &maker_nullifier_pk]).expect("owner hash");
-    let mut maker_viewing_pk = [0u8; 33];
-    maker_viewing_pk[0] = 2;
-    maker_viewing_pk[32] = 55;
+    let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
     let order = OrderTermsProofInput {
         destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,

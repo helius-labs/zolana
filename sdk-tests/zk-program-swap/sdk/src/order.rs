@@ -3,11 +3,10 @@ use solana_address::Address;
 use swap_program::instructions::shared::u64_to_field;
 use swap_prover::OrderTermsProofInput;
 use wincode::{SchemaRead, SchemaWrite};
-use zolana_interface::merge_utils::pack33;
 use zolana_keypair::{
     constants::BLINDING_LEN,
     hash::{hash_field, poseidon},
-    NullifierKey, P256Pubkey, PublicKey, ShieldedAddress,
+    CompressedShieldedAddress, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress,
 };
 pub use zolana_transaction::SOL_ASSET_ID;
 use zolana_transaction::{
@@ -34,14 +33,14 @@ pub fn escrow_owner_hash(escrow_authority: &[u8; 32]) -> Result<[u8; 32]> {
     poseidon(&[&pk_field, &nullifier_pk]).map_err(err)
 }
 
-pub fn maker_address_fe(owner_hash: &[u8; 32], viewing_pk: &[u8; 33]) -> Result<[u8; 32]> {
-    let (lo, hi) = pack33(viewing_pk);
-    poseidon(&[owner_hash, &lo, &hi]).map_err(err)
-}
-
 impl DataHash for OrderTermsProofInput {
     fn data_hash(&self) -> Result<[u8; 32]> {
-        let maker_address = maker_address_fe(&self.maker_owner_hash, &self.maker_viewing_pk)?;
+        let maker_address = CompressedShieldedAddress {
+            owner_hash: self.maker_owner_hash,
+            viewing_pubkey: P256Pubkey::from_bytes(self.maker_viewing_pk).map_err(err)?,
+        }
+        .hash()
+        .map_err(err)?;
         poseidon(&[
             &self.destination_asset,
             &u64_to_field(self.destination_amount),
@@ -51,18 +50,6 @@ impl DataHash for OrderTermsProofInput {
             &u64_to_field(self.fill_mode),
         ])
         .map_err(err)
-    }
-}
-
-pub trait BlindingField {
-    fn to_field(&self) -> [u8; 32];
-}
-
-impl BlindingField for Blinding {
-    fn to_field(&self) -> [u8; 32] {
-        let mut out = [0u8; 32];
-        out[1..].copy_from_slice(self);
-        out
     }
 }
 
@@ -96,19 +83,7 @@ impl OrderTerms {
     // 2. how many tokens of the mint we want to swap into
     // 3. which shielded pubkey the swap settlement will go to
     pub fn data_hash(&self) -> Result<[u8; 32]> {
-        self.field_elements()?.data_hash()
-    }
-    // TODO: implement From instead
-    pub fn field_elements(&self) -> Result<OrderTermsProofInput> {
-        Ok(OrderTermsProofInput {
-            destination_asset: hash_field(self.destination_mint.as_array()).map_err(err)?,
-            destination_amount: self.destination_amount,
-            maker_owner_hash: self.destination.owner_hash().map_err(err)?,
-            maker_viewing_pk: *self.destination.viewing_pubkey.as_bytes(),
-            expiry: self.expiry,
-            taker_pk_fe: self.taker.data_hash()?,
-            fill_mode: self.fill_mode,
-        })
+        OrderTermsProofInput::try_from(self)?.data_hash()
     }
 
     pub fn to_plaintext(&self, destination_asset_id: u64) -> PlainTextData {
@@ -119,6 +94,22 @@ impl OrderTerms {
             taker: self.taker,
             fill_mode: self.fill_mode,
         }
+    }
+}
+
+impl TryFrom<&OrderTerms> for OrderTermsProofInput {
+    type Error = anyhow::Error;
+
+    fn try_from(terms: &OrderTerms) -> Result<Self> {
+        Ok(Self {
+            destination_asset: hash_field(terms.destination_mint.as_array()).map_err(err)?,
+            destination_amount: terms.destination_amount,
+            maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
+            maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
+            expiry: terms.expiry,
+            taker_pk_fe: terms.taker.data_hash()?,
+            fill_mode: terms.fill_mode,
+        })
     }
 }
 
@@ -207,23 +198,23 @@ impl OrderUtxo {
     }
 
     pub fn source_output(&self, recipient: ShieldedAddress, blinding: Blinding) -> OutputUtxo {
-        Recipient {
-            address: recipient,
+        OutputUtxo {
+            asset: self.source_mint,
             amount: self.source_amount,
             blinding,
-            mint: self.source_mint,
+            owner_address: Some(recipient),
+            ..Default::default()
         }
-        .output()
     }
 
     pub fn destination_output(&self, recipient: ShieldedAddress, blinding: Blinding) -> OutputUtxo {
-        Recipient {
-            address: recipient,
+        OutputUtxo {
+            asset: self.terms.destination_mint,
             amount: self.terms.destination_amount,
             blinding,
-            mint: self.terms.destination_mint,
+            owner_address: Some(recipient),
+            ..Default::default()
         }
-        .output()
     }
 
     /// The derived rail: the fill circuit derives the destination blinding from
@@ -250,57 +241,10 @@ impl OrderUtxo {
     }
 }
 
-pub(crate) fn ensure_payout(
-    label: &str,
-    output: &OutputUtxo,
-    mint: &Address,
-    amount: u64,
-) -> Result<ShieldedAddress> {
-    let owner = output
-        .owner_address
-        .ok_or_else(|| err(format!("{label} owner address missing")))?;
-    if &output.asset != mint {
-        return Err(err(format!("{label} asset mismatch")));
-    }
-    if output.amount != amount {
-        return Err(err(format!("{label} amount mismatch")));
-    }
-    if output.data_hash.is_some()
-        || output.zone_data_hash.is_some()
-        || output.zone_program_id.is_some()
-    {
-        return Err(err(format!(
-            "{label} must not carry data or zone commitments"
-        )));
-    }
-    Ok(owner)
-}
-
-// TODO: remove use OutputUtxo directly instead
-#[derive(Clone, Copy, Debug)]
-pub struct Recipient {
-    pub address: ShieldedAddress,
-    pub amount: u64,
-    pub blinding: Blinding,
-    pub mint: Address,
-}
-
-impl Recipient {
-    pub fn output(&self) -> OutputUtxo {
-        OutputUtxo {
-            asset: self.mint,
-            amount: self.amount,
-            blinding: self.blinding,
-            owner_address: Some(self.address),
-            ..Default::default()
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use swap_prover::{FILL_MODE_DERIVED, FILL_MODE_VERIFIABLE};
-    use zolana_keypair::{CompressedShieldedAddress, ViewingKey};
+    use zolana_keypair::ViewingKey;
 
     use super::*;
 
@@ -308,20 +252,6 @@ mod tests {
         ViewingKey::from_seed(&[seed; 32], b"order-terms-test")
             .unwrap()
             .pubkey()
-    }
-
-    #[test]
-    fn compressed_address_hash_matches_program() {
-        let owner_hash = [3u8; 32];
-        let viewing_pubkey = sample_viewing_pk(42);
-        let ours = CompressedShieldedAddress {
-            owner_hash,
-            viewing_pubkey,
-        }
-        .hash()
-        .unwrap();
-        let theirs = maker_address_fe(&owner_hash, viewing_pubkey.as_bytes()).unwrap();
-        assert_eq!(ours, theirs);
     }
 
     fn sample_terms(fill_mode: u64) -> OrderTermsProofInput {

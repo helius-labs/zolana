@@ -1,11 +1,14 @@
 use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::instruction_data::transact::{OutputData, TransactIxData};
+use zolana_interface::{
+    instruction::instruction_data::transact::{OutputData, TransactIxData},
+    SHIELDED_POOL_PROGRAM_ID,
+};
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::TransactionError;
 
-use crate::{err, program_id_pubkey, spp_program_meta, tag, CreateProof, CreateSwapIxData, MarkerData};
+use crate::{err, tag, CreateProof, CreateSwapIxData, MarkerData};
 
 pub struct OrderMarker {
     pub escrow_utxo_hash: [u8; 32],
@@ -56,12 +59,12 @@ impl CreateSwap {
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
-            spp_program_meta(),
+            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
         let mut instruction_data = vec![tag::CREATE_SWAP];
         instruction_data.extend_from_slice(&data);
         Ok(Instruction {
-            program_id: program_id_pubkey(),
+            program_id: swap_program::ID,
             accounts,
             data: instruction_data,
         })

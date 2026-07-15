@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use swap_prover::CreateProofInputs;
+use swap_prover::{CreateProofInputs, OrderTermsProofInput};
 use zolana_transaction::{
     instructions::transact::{OutputUtxo, PrivateTxHash, SppProofInputs},
     ProofInputUtxo,
@@ -46,7 +46,7 @@ impl CreateSwapProofInputParams {
         {
             bail!("change output must not carry data or zone commitments");
         }
-        let order = terms.field_elements()?;
+        let order = OrderTermsProofInput::try_from(terms)?;
         let escrow = ProofInputUtxo::try_from(&self.escrow.to_input_utxo()?).map_err(err)?;
         let change = ProofInputUtxo::try_from(&self.change).map_err(err)?;
         let change_output_hash = if self.change.amount == 0 {
