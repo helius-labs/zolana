@@ -2,10 +2,12 @@ use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{
-    hash::{hash_field, owner_hash, sha256, split_be_128},
+    hash::{hash_field, sha256, split_be_128},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
-use zolana_transaction::{instructions::transact::PrivateTxHash, ExternalData, OutputUtxo, Utxo};
+use zolana_transaction::{
+    instructions::transact::PrivateTxHash, ExternalData, OutputUtxo, ProofInputUtxo, Utxo,
+};
 
 use crate::{
     error::ClientError,
@@ -13,7 +15,7 @@ use crate::{
         field::{be, right_align_slice},
         shape::{resolve_shape, Shape},
         transact::witness::SpendProof,
-        TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs,
+        TransferInput, TransferOutput, TransferP256Inputs,
     },
     rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
@@ -282,10 +284,10 @@ pub(crate) fn assemble_inputs(
         let zone_data_hash = spend.zone_data_hash.unwrap_or([0u8; 32]);
 
         let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-        let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pubkey)?;
-        let utxo_hash = spend
+        let utxo_inputs = spend
             .utxo
-            .hash(&nullifier_pubkey, &data_hash, &zone_data_hash)?;
+            .proof_input(&nullifier_pubkey, &data_hash, &zone_data_hash)?;
+        let utxo_hash = utxo_inputs.hash()?;
         let nullifier = spend
             .nullifier_key
             .nullifier(&utxo_hash, &spend.utxo.blinding)?;
@@ -307,15 +309,6 @@ pub(crate) fn assemble_inputs(
 
         let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
 
-        let utxo_inputs = UtxoInputs::new(
-            &owner_field,
-            &spend.utxo.asset,
-            spend.utxo.amount,
-            &spend.utxo.blinding,
-            &data_hash,
-            &zone_data_hash,
-            &spend.utxo.zone_program_id,
-        )?;
         let state = &proof.state;
         let nf = &proof.nullifier;
         check_path_length(state.path.len(), STATE_TREE_HEIGHT)?;
@@ -385,7 +378,7 @@ pub(crate) fn assemble_outputs(outputs: &[OutputUtxo]) -> Result<AssembledOutput
             ),
         };
         assembled.push(TransferOutput {
-            utxo: UtxoInputs::from_output(output)?,
+            utxo: ProofInputUtxo::try_from(output)?,
             is_dummy: if is_dummy {
                 BigUint::from(1u8)
             } else {

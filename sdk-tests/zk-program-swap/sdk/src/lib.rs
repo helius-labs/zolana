@@ -2,7 +2,6 @@ pub mod discover;
 pub mod instructions;
 pub mod order;
 pub mod prover;
-pub mod witness;
 
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
@@ -11,12 +10,15 @@ pub use swap_program::{
         cancel::{CancelIxData, CancelProof},
         create_swap::{CreateProof, CreateSwapIxData, MarkerData},
         fill::{FillIxData, FillProof},
-        fill_verifiable_encryption::{FillVerifiableEncryptionIxData, FillVerifiableEncryptionProof},
+        fill_verifiable_encryption::{
+            FillVerifiableEncryptionIxData, FillVerifiableEncryptionProof,
+        },
     },
     tag, ESCROW_AUTHORITY_PDA_SEED,
 };
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 
+// TODO:   remove and use swap_program::ID Pubkey == Address type it is an alias
 pub(crate) fn program_id_pubkey() -> Pubkey {
     Pubkey::new_from_array(*swap_program::ID.as_array())
 }
@@ -29,7 +31,7 @@ pub fn escrow_authority_pda() -> Pubkey {
         Pubkey::find_program_address(&[ESCROW_AUTHORITY_PDA_SEED], &program_id_pubkey());
     pda
 }
-
+// TODO: inline and remove
 pub(crate) fn spp_program_meta() -> AccountMeta {
     AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false)
 }

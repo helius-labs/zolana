@@ -11,12 +11,10 @@ use swap_program::{
     },
     verifying_keys::create::VERIFYINGKEY,
 };
-use swap_prover::{
-    CircuitId, CreateProofInputs, OrderTermsFieldElements, FILL_MODE_DERIVED,
-};
-use swap_sdk::witness::{escrow_owner_hash, order_data_hash, PlainUtxo};
+use swap_prover::{CircuitId, CreateProofInputs, OrderTermsProofInput, FILL_MODE_DERIVED};
+use swap_sdk::order::{escrow_owner_hash, DataHash};
 use zolana_keypair::hash::hash_field;
-use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
+use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/create")
@@ -46,11 +44,11 @@ fn blinding(byte: u8) -> Blinding {
     out
 }
 
-fn sample_order() -> OrderTermsFieldElements {
+fn sample_order() -> OrderTermsProofInput {
     let mut maker_viewing_pk = [0u8; 33];
     maker_viewing_pk[0] = 2;
     maker_viewing_pk[32] = 55;
-    OrderTermsFieldElements {
+    OrderTermsProofInput {
         destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,
         maker_owner_hash: fe(99),
@@ -65,23 +63,24 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> CreateProofInput
     let mut order = sample_order();
     order.destination_amount = destination_amount;
     let source_mint = Address::new_from_array([1u8; 32]);
-    let escrow = PlainUtxo {
-        owner_hash: escrow_owner_hash(&fe(42)).expect("escrow owner hash"),
-        mint: source_mint,
-        amount: 1_000,
-        blinding: blinding(7),
-        data_hash: order_data_hash(&order).expect("order data hash"),
-    };
-    let change = PlainUtxo {
-        owner_hash: order.maker_owner_hash,
-        mint: source_mint,
-        amount: change_amount,
-        blinding: blinding(6),
-        data_hash: [0u8; 32],
-    };
+    let escrow = ProofInputUtxo::new(
+        escrow_owner_hash(&fe(42)).expect("escrow owner hash"),
+        &source_mint,
+        1_000,
+        &blinding(7),
+    )
+    .expect("escrow utxo")
+    .with_data_hash(order.data_hash().expect("order data hash"));
+    let change = ProofInputUtxo::new(
+        order.maker_owner_hash,
+        &source_mint,
+        change_amount,
+        &blinding(6),
+    )
+    .expect("change utxo");
     let source_input_hash = fe(5);
     let external_data_hash = fe(8);
-    let change_output_hash = if change.amount == 0 {
+    let change_output_hash = if change_amount == 0 {
         [0u8; 32]
     } else {
         change.hash().expect("change hash")
@@ -96,8 +95,8 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> CreateProofInput
     CreateProofInputs {
         private_tx_hash,
         order,
-        escrow: escrow.field_elements().expect("escrow fields"),
-        change: change.field_elements().expect("change fields"),
+        escrow,
+        change,
         source_input_hash,
         external_data_hash,
     }
@@ -205,7 +204,13 @@ fn create_rejects_tampered_public_input() {
     tampered[31] ^= 0x01;
 
     assert!(
-        !verify_with_generated_vk(&vk, &proof.proof_a, &proof.proof_b, &proof.proof_c, tampered),
+        !verify_with_generated_vk(
+            &vk,
+            &proof.proof_a,
+            &proof.proof_b,
+            &proof.proof_c,
+            tampered
+        ),
         "verification must fail for a tampered public input"
     );
 }

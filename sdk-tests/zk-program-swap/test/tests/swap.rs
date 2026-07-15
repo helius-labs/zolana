@@ -7,12 +7,10 @@ use shared::{send_v0_with_lookup_table, setup, TestEnv, DESTINATION_AMOUNT, SOUR
 use swap_sdk::{
     discover::discover_orders,
     instructions::{
-        create_swap::{
-            input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes,
-        },
+        create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
         fill::{Fill, FillProofInputParams},
     },
-    order::{OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
+    order::{input_sum, OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};

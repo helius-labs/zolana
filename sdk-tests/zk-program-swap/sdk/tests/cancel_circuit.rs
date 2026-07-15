@@ -11,10 +11,10 @@ use swap_program::{
     },
     verifying_keys::cancel::VERIFYINGKEY,
 };
-use swap_prover::{CancelProofInputs, CircuitId, OrderTermsFieldElements, FILL_MODE_DERIVED};
-use swap_sdk::witness::{escrow_owner_hash, order_data_hash, PlainUtxo};
+use swap_prover::{CancelProofInputs, CircuitId, OrderTermsProofInput, FILL_MODE_DERIVED};
+use swap_sdk::order::{escrow_owner_hash, DataHash};
 use zolana_keypair::hash::{hash_field, poseidon};
-use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
+use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/cancel")
@@ -52,7 +52,7 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
     let mut maker_viewing_pk = [0u8; 33];
     maker_viewing_pk[0] = 2;
     maker_viewing_pk[32] = 55;
-    let order = OrderTermsFieldElements {
+    let order = OrderTermsProofInput {
         destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,
         maker_owner_hash,
@@ -62,20 +62,17 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
         fill_mode: FILL_MODE_DERIVED,
     };
     let source_mint = Address::new_from_array([1u8; 32]);
-    let escrow = PlainUtxo {
-        owner_hash: escrow_owner_hash(&fe(42)).expect("escrow owner hash"),
-        mint: source_mint,
-        amount: 1_000,
-        blinding: blinding(7),
-        data_hash: order_data_hash(&order).expect("order data hash"),
-    };
-    let source_output = PlainUtxo {
-        owner_hash: source_output_owner,
-        mint: source_mint,
-        amount: 1_000,
-        blinding: blinding(11),
-        data_hash: [0u8; 32],
-    };
+    let escrow = ProofInputUtxo::new(
+        escrow_owner_hash(&fe(42)).expect("escrow owner hash"),
+        &source_mint,
+        1_000,
+        &blinding(7),
+    )
+    .expect("escrow utxo")
+    .with_data_hash(order.data_hash().expect("order data hash"));
+    let source_output =
+        ProofInputUtxo::new(source_output_owner, &source_mint, 1_000, &blinding(11))
+            .expect("source output utxo");
     let external_data_hash = fe(8);
     let private_tx_hash = PrivateTxHash::new(
         &[escrow.hash().expect("escrow hash")],
@@ -97,8 +94,8 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
         order,
         maker_owner_pk_field,
         maker_nullifier_pk,
-        escrow: escrow.field_elements().expect("escrow fields"),
-        source_output: source_output.field_elements().expect("source output fields"),
+        escrow,
+        source_output,
         external_data_hash,
     }
 }
@@ -213,7 +210,13 @@ fn cancel_rejects_tampered_public_input() {
     tampered[31] ^= 0x01;
 
     assert!(
-        !verify_with_generated_vk(&vk, &proof.proof_a, &proof.proof_b, &proof.proof_c, tampered),
+        !verify_with_generated_vk(
+            &vk,
+            &proof.proof_a,
+            &proof.proof_b,
+            &proof.proof_c,
+            tampered
+        ),
         "verification must fail for a tampered public input"
     );
 }

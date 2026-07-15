@@ -16,7 +16,7 @@ pub use transact_core::{
 };
 use zolana_client::{
     prover::field::{be, right_align_slice},
-    TransferInput, TransferInputs, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT,
+    ProofInputUtxo, TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT,
 };
 use zolana_hasher::{hash_chain::create_hash_chain_from_slice, Poseidon};
 use zolana_interface::instruction::{
@@ -183,15 +183,13 @@ pub struct SpendInputArgs<'a> {
 pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
     let (utxo_root, nullifier_root) = args.roots;
     Ok(TransferInput {
-        utxo: UtxoInputs::new(
-            args.owner_field,
+        utxo: ProofInputUtxo::new(
+            *args.owner_field,
             &args.utxo.asset,
             args.utxo.amount,
             &args.utxo.blinding,
-            &[0u8; 32],
-            &[0u8; 32],
-            &args.utxo.zone_program_id,
-        )?,
+        )?
+        .with_zone([0u8; 32], &args.utxo.zone_program_id)?,
         is_dummy: be(&fe(0)),
         state_path_elements: args.state_path.iter().map(be).collect(),
         state_path_index: be(&fe(args.state_path_index)),
@@ -215,7 +213,7 @@ pub fn transfer_output(output: &OutputUtxo) -> Result<TransferOutput> {
     let hash = output.hash()?;
     let zero = [0u8; 32];
     Ok(TransferOutput {
-        utxo: UtxoInputs::from_output(output)?,
+        utxo: ProofInputUtxo::try_from(output)?,
         is_dummy: be(&fe(0)),
         hash: be(&hash),
         owner_pk_hash: be(&zero),

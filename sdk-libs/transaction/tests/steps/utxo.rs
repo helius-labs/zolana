@@ -5,7 +5,7 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     data::Data,
-    utxo::{utxo_hash, Utxo, UTXO_DOMAIN},
+    utxo::{ProofInputUtxo, Utxo, UTXO_DOMAIN},
     Address,
 };
 
@@ -82,15 +82,13 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
     ])
     .expect("expected UTXO hash");
     assert_eq!(actual, expected);
-    let from_helper = utxo_hash(
-        utxo.asset,
-        utxo.amount,
-        &data_hash,
-        &zone_data_hash,
-        utxo.zone_program_id,
-        &owner_utxo_hash,
-    )
-    .expect("UTXO hash helper");
+    let from_helper = ProofInputUtxo::new(owner, &utxo.asset, utxo.amount, &utxo.blinding)
+        .expect("proof input utxo")
+        .with_data_hash(data_hash)
+        .with_zone(zone_data_hash, &utxo.zone_program_id)
+        .expect("zone fields")
+        .hash()
+        .expect("UTXO hash helper");
     assert_eq!(actual, from_helper);
 }
 

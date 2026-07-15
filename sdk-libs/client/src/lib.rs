@@ -28,7 +28,8 @@ pub use prover::{
     MergeZoneProofResult, MergeZoneProver, MergeZoneWitness, P256Owner, Proof, ProofCompressed,
     ProverClient, PublicAmounts, Shape, TransferInput, TransferInputs, TransferOutput,
     TransferP256Inputs, TransferP256ProofResult, TransferP256Prover, TransferProofResult,
-    TransferProver, TransferSpendInput, UtxoInputs, ZoneAuthorityProofResult, ZoneAuthorityProver,
+    ProofInputUtxo, TransferProver, TransferSpendInput, ZoneAuthorityProofResult,
+    ZoneAuthorityProver,
     ZoneAuthorityWitness, ZoneTransferP256ProofResult, ZoneTransferP256Prover,
     ZoneTransferProofResult, ZoneTransferProver, SUPPORTED_SHAPES,
 };

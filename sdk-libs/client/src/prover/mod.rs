@@ -12,8 +12,9 @@ pub mod zone_authority;
 pub use client::{spawn_prover, ProverClient, PROVE_PATH, SERVER_ADDRESS};
 pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-    TransferP256Inputs, UtxoInputs,
+    TransferP256Inputs,
 };
+pub use zolana_transaction::ProofInputUtxo;
 pub use merge::{MergeProofResult, MergeProver};
 pub use merge_zone::{MergeZoneProofResult, MergeZoneProver, MergeZoneWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};

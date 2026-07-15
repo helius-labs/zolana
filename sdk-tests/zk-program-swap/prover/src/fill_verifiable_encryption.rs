@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 
+use zolana_transaction::ProofInputUtxo;
+
 use crate::{
     bytes_to_decimal_string, ffi,
     proof::{negate_and_compress_proof_with_commitment, OrderProof, ProofError},
-    CircuitId, OrderTermsFieldElements, UtxoFieldElements,
+    utxo::utxo_witness_entries,
+    CircuitId, OrderTermsProofInput,
 };
 
 pub const FILL_ENC_KDF_DOMAIN: u64 = 0x5357_4150_4649_4c4c;
@@ -12,12 +15,12 @@ pub const FILL_ENC_KDF_DOMAIN: u64 = 0x5357_4150_4649_4c4c;
 pub struct FillVerifiableEncryptionProofInputs {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub order: OrderTermsFieldElements,
+    pub order: OrderTermsProofInput,
     pub taker_nullifier_pk: [u8; 32],
-    pub escrow: UtxoFieldElements,
-    pub taker_in: UtxoFieldElements,
-    pub source_output: UtxoFieldElements,
-    pub destination_output: UtxoFieldElements,
+    pub escrow: ProofInputUtxo,
+    pub taker_in: ProofInputUtxo,
+    pub source_output: ProofInputUtxo,
+    pub destination_output: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
 }
 
@@ -37,13 +40,16 @@ impl FillVerifiableEncryptionProofInputs {
             .order
             .witness_entries("Core_Order")
             .into_iter()
-            .chain(self.escrow.witness_entries("Core_Escrow"))
-            .chain(self.taker_in.witness_entries("Core_TakerIn"))
-            .chain(self.source_output.witness_entries("Core_SourceOutput"))
-            .chain(
-                self.destination_output
-                    .witness_entries("Core_DestinationOutput"),
-            )
+            .chain(utxo_witness_entries(&self.escrow, "Core_Escrow"))
+            .chain(utxo_witness_entries(&self.taker_in, "Core_TakerIn"))
+            .chain(utxo_witness_entries(
+                &self.source_output,
+                "Core_SourceOutput",
+            ))
+            .chain(utxo_witness_entries(
+                &self.destination_output,
+                "Core_DestinationOutput",
+            ))
         {
             map.insert(key, value);
         }

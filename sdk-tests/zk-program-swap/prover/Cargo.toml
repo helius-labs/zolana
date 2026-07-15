@@ -19,6 +19,7 @@ swap-program = { path = "../program" }
 serde_json = { workspace = true }
 solana-bn254 = { workspace = true }
 thiserror = { workspace = true }
+zolana-transaction = { workspace = true }
 
 [build-dependencies]
 bindgen = "0.70"

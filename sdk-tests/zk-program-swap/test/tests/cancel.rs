@@ -8,11 +8,9 @@ use swap_sdk::{
     discover::discover_own_orders,
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
-        create_swap::{
-            input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes,
-        },
+        create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
     },
-    order::{OrderTerms, OrderUtxo, SOL_ASSET_ID},
+    order::{input_sum, OrderTerms, OrderUtxo, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
 use zolana_client::{ensure_registered, Rpc};
@@ -175,7 +173,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .pop()
             .ok_or_else(|| anyhow!("no own swap order discovered"))?;
         let escrow = order.escrow;
-        let taker_viewing_pk = order.taker_viewing_pk;
+        let taker_viewing_pubkey = order.taker_viewing_pubkey;
 
         let source_output = escrow.source_output(maker_address, random_blinding());
         let source_output_hash = source_output
@@ -214,7 +212,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
 
         let cancel_inputs = CancelProofInputParams {
             escrow: escrow.clone(),
-            taker_viewing_pk,
+            taker_viewing_pubkey,
             source_output,
             external_data_hash: cancel_spp_proof_inputs
                 .external_data

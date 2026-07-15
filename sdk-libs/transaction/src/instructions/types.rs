@@ -6,7 +6,7 @@ use zolana_keypair::{
 use crate::{
     data::Data,
     error::TransactionError,
-    utxo::{owner_utxo_hash, utxo_hash, Utxo},
+    utxo::{ProofInputUtxo, Utxo},
 };
 
 #[derive(Clone)]
@@ -59,25 +59,7 @@ impl SppProofInputUtxo {
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        // A dummy's zeroed owner is not a parseable key; it contributes a zero
-        // owner hash instead. The circuit skips ownership for dummies, so the
-        // value only pads the hash chain.
-        if self.is_dummy() {
-            return utxo_hash(
-                self.utxo.asset,
-                self.utxo.amount,
-                &self.data_hash.unwrap_or_default(),
-                &self.zone_data_hash.unwrap_or_default(),
-                self.utxo.zone_program_id,
-                &owner_utxo_hash(&[0u8; 32], &self.utxo.blinding)?,
-            );
-        }
-        let nullifier_pubkey = self.nullifier_key.pubkey()?;
-        self.utxo.hash(
-            &nullifier_pubkey,
-            &self.data_hash.unwrap_or_default(),
-            &self.zone_data_hash.unwrap_or_default(),
-        )
+        ProofInputUtxo::try_from(self)?.hash()
     }
 
     pub fn nullifier(&self) -> Result<[u8; 32], TransactionError> {
@@ -85,6 +67,31 @@ impl SppProofInputUtxo {
         Ok(self
             .nullifier_key
             .nullifier(&utxo_hash, &self.utxo.blinding)?)
+    }
+}
+
+impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
+    type Error = TransactionError;
+
+    // A dummy's zeroed owner is not a parseable key; it contributes a zero
+    // owner hash instead. The circuit skips ownership for dummies.
+    fn try_from(spend: &SppProofInputUtxo) -> Result<Self, Self::Error> {
+        let owner_hash = if spend.is_dummy() {
+            [0u8; 32]
+        } else {
+            zolana_keypair::hash::owner_hash(&spend.utxo.owner, &spend.nullifier_key.pubkey()?)?
+        };
+        ProofInputUtxo::new(
+            owner_hash,
+            &spend.utxo.asset,
+            spend.utxo.amount,
+            &spend.utxo.blinding,
+        )?
+        .with_data_hash(spend.data_hash.unwrap_or_default())
+        .with_zone(
+            spend.zone_data_hash.unwrap_or_default(),
+            &spend.utxo.zone_program_id,
+        )
     }
 }
 

@@ -26,7 +26,7 @@ pub use instructions::transact::{
 };
 pub use serialization::{scheme::EncryptedScheme, DecodeCx, OwnerCx, UtxoSerialization};
 pub use solana_address::Address;
-pub use utxo::{derive_blinding, owner_utxo_hash, utxo_hash, Blinding, Utxo};
+pub use utxo::{derive_blinding, owner_utxo_hash, Blinding, ProofInputUtxo, Utxo};
 pub use wallet::{
     asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT},
     AssetBalance, Filter, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,

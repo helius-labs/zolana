@@ -6,7 +6,7 @@ pub const FILL_MODE_DERIVED: u64 = 0;
 pub const FILL_MODE_VERIFIABLE: u64 = 1;
 
 #[derive(Debug, Clone, Copy)]
-pub struct OrderTermsFieldElements {
+pub struct OrderTermsProofInput {
     pub destination_asset: [u8; 32],
     pub destination_amount: u64,
     pub maker_owner_hash: [u8; 32],
@@ -16,7 +16,7 @@ pub struct OrderTermsFieldElements {
     pub fill_mode: u64,
 }
 
-impl OrderTermsFieldElements {
+impl OrderTermsProofInput {
     pub fn witness_entries(&self, prefix: &str) -> Vec<(String, Vec<String>)> {
         let scalars: [(&str, [u8; 32]); 6] = [
             ("DestinationAsset", self.destination_asset),
@@ -37,7 +37,10 @@ impl OrderTermsFieldElements {
             .collect();
         entries.push((
             format!("{prefix}_MakerViewingPk"),
-            self.maker_viewing_pk.iter().map(|b| b.to_string()).collect(),
+            self.maker_viewing_pk
+                .iter()
+                .map(|b| b.to_string())
+                .collect(),
         ));
         entries
     }

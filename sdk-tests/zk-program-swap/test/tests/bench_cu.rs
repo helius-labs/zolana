@@ -23,15 +23,13 @@ use swap_prover::{preload, CircuitId};
 use swap_sdk::{
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
-        create_swap::{
-            input_sum, CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes,
-        },
+        create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
         fill::{Fill, FillProofInputParams},
         fill_verifiable_encryption::{
             FillVerifiableEncryption, FillVerifiableEncryptionProofInputParams,
         },
     },
-    order::{OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
+    order::{input_sum, OrderTerms, OrderUtxo, Recipient, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
 use zolana_client::{
@@ -901,7 +899,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let maker = keypair_from_payer(&maker_payer);
     let maker_recipient = maker.shielded_address().expect("maker address");
     let taker = ShieldedKeypair::from_seed_ed25519(&[0x4d; 32]).expect("taker keypair");
-    let taker_viewing_pk = taker
+    let taker_viewing_pubkey = taker
         .shielded_address()
         .expect("taker address")
         .viewing_pubkey;
@@ -975,7 +973,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
 
     let cancel_inputs = CancelProofInputParams {
         escrow: escrow.clone(),
-        taker_viewing_pk,
+        taker_viewing_pubkey,
         source_output,
         external_data_hash: spp_proof_inputs
             .external_data

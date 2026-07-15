@@ -3,8 +3,8 @@
 use anyhow::{anyhow, Result};
 use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{
-    prover::field::be, spawn_prover, Proof, ProofCompressed, ProverClient, TransferInput,
-    TransferInputs, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    prover::field::be, spawn_prover, Proof, ProofCompressed, ProofInputUtxo, ProverClient,
+    TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::{
@@ -172,9 +172,9 @@ pub fn dummy_input(
     let zero = [0u8; 32];
     TransferInput {
         // A circuit-dummy input carries a chosen `nullifier`; the circuit skips its
-        // ownership/inclusion/nullifier-derivation checks, so the utxo blinding is
-        // unused here.
-        utxo: UtxoInputs::new_dummy(be(&zero)),
+        // ownership/inclusion/nullifier-derivation checks, so an all-zero utxo slot
+        // satisfies the padding constraints (amount, owner, data_hash zero).
+        utxo: ProofInputUtxo::default(),
         is_dummy: be(&fe(1)),
         state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
         state_path_index: be(&zero),
@@ -260,7 +260,8 @@ pub fn dummy_transfer_output(blinding: &[u8; 31]) -> Result<(TransferOutput, [u8
     let hash = output
         .hash()
         .map_err(|e| anyhow!("dummy output hash: {e:?}"))?;
-    let utxo = UtxoInputs::from_output(&output).map_err(|e| anyhow!("dummy output utxo: {e:?}"))?;
+    let utxo =
+        ProofInputUtxo::try_from(&output).map_err(|e| anyhow!("dummy output utxo: {e:?}"))?;
     let zero = [0u8; 32];
     Ok((
         TransferOutput {

@@ -1,110 +1,11 @@
-use anyhow::{bail, Result};
-use solana_address::Address;
+use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use swap_prover::CreateProofInputs;
 use zolana_interface::instruction::instruction_data::transact::{OutputData, TransactIxData};
 use zolana_keypair::ShieldedAddress;
-use zolana_transaction::{
-    instructions::{
-        transact::{OutputUtxo, PrivateTxHash, SppProofInputs},
-        types::SppProofInputUtxo,
-    },
-    TransactionError,
-};
+use zolana_transaction::TransactionError;
 
-use crate::{
-    err, escrow_authority_pda,
-    order::OrderUtxo,
-    program_id_pubkey, spp_program_meta, tag,
-    witness::{escrow_owner_hash, order_data_hash, PlainUtxo},
-    CreateProof, CreateSwapIxData, MarkerData,
-};
-
-pub struct SppTxHashes {
-    pub source_input_hash: [u8; 32],
-    pub external_data_hash: [u8; 32],
-}
-
-impl SppTxHashes {
-    pub fn new(spp_proof_inputs: &SppProofInputs) -> Result<Self> {
-        let source_input = spp_proof_inputs
-            .input_utxos
-            .first()
-            .ok_or_else(|| err("missing source input"))?;
-        Ok(Self {
-            source_input_hash: source_input.hash().map_err(err)?,
-            external_data_hash: spp_proof_inputs.external_data.hash().map_err(err)?,
-        })
-    }
-}
-
-pub struct CreateSwapProofInputParams {
-    pub escrow: OrderUtxo,
-    pub change: OutputUtxo,
-    pub spp_tx_hashes: SppTxHashes,
-}
-
-impl CreateSwapProofInputParams {
-    pub fn to_proof_inputs(&self) -> Result<CreateProofInputs> {
-        let terms = &self.escrow.terms;
-        if self.change.owner_address != Some(terms.destination) {
-            bail!("change owner does not match order destination");
-        }
-        if self.change.asset != self.escrow.source_mint {
-            bail!("change asset does not match order source mint");
-        }
-        if self.change.data_hash.is_some()
-            || self.change.zone_data_hash.is_some()
-            || self.change.zone_program_id.is_some()
-        {
-            bail!("change output must not carry data or zone commitments");
-        }
-        let order = terms.field_elements()?;
-        let escrow = PlainUtxo {
-            owner_hash: escrow_owner_hash(escrow_authority_pda().as_array())?,
-            mint: self.escrow.source_mint,
-            amount: self.escrow.source_amount,
-            blinding: self.escrow.blinding,
-            data_hash: order_data_hash(&order)?,
-        };
-        let change = PlainUtxo {
-            owner_hash: order.maker_owner_hash,
-            mint: self.escrow.source_mint,
-            amount: self.change.amount,
-            blinding: self.change.blinding,
-            data_hash: [0u8; 32],
-        };
-        let change_output_hash = if change.amount == 0 {
-            [0u8; 32]
-        } else {
-            change.hash()?
-        };
-        let private_tx_hash = PrivateTxHash::new(
-            &[self.spp_tx_hashes.source_input_hash, [0u8; 32]],
-            &[change_output_hash, escrow.hash()?],
-            &self.spp_tx_hashes.external_data_hash,
-        )
-        .hash()
-        .map_err(err)?;
-        Ok(CreateProofInputs {
-            private_tx_hash,
-            order,
-            escrow: escrow.field_elements()?,
-            change: change.field_elements()?,
-            source_input_hash: self.spp_tx_hashes.source_input_hash,
-            external_data_hash: self.spp_tx_hashes.external_data_hash,
-        })
-    }
-}
-
-pub fn input_sum(inputs: &[SppProofInputUtxo], asset: &Address) -> i128 {
-    inputs
-        .iter()
-        .filter(|spend| &spend.utxo.asset == asset)
-        .map(|spend| i128::from(spend.utxo.amount))
-        .sum()
-}
+use crate::{err, program_id_pubkey, spp_program_meta, tag, CreateProof, CreateSwapIxData, MarkerData};
 
 pub struct OrderMarker {
     pub escrow_utxo_hash: [u8; 32],
@@ -169,6 +70,7 @@ impl CreateSwap {
 
 #[cfg(test)]
 mod tests {
+    use solana_address::Address;
     use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedKeypair};
     use zolana_transaction::{
         instructions::{

@@ -31,7 +31,7 @@ use zolana_client::{
     EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
     NonInclusionProof as IndexedNonInclusionProof, ProverClient, ProverInputs, Rpc,
     ShieldedTransaction, SolanaRpc, SpendProof, SppProofInputUtxo, Transfer, TransferInput,
-    TransferOutput, UtxoInputs, ZolanaIndexer,
+    ProofInputUtxo, TransferOutput, ZolanaIndexer,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
@@ -1070,15 +1070,13 @@ struct IndexedSpendInputArgs<'a> {
 
 fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferInput> {
     Ok(TransferInput {
-        utxo: UtxoInputs::new(
-            args.owner_field,
+        utxo: ProofInputUtxo::new(
+            *args.owner_field,
             &args.utxo.asset,
             args.utxo.amount,
             &args.utxo.blinding,
-            &[0u8; 32],
-            &[0u8; 32],
-            &args.utxo.zone_program_id,
-        )?,
+        )?
+        .with_zone([0u8; 32], &args.utxo.zone_program_id)?,
         is_dummy: be(&fe(0)),
         state_path_elements: args.state_proof.path.iter().map(be).collect(),
         state_path_index: be(&fe(args.state_proof.leaf_index)),

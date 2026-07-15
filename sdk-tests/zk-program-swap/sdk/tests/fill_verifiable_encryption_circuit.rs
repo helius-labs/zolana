@@ -14,16 +14,18 @@ use swap_program::{
     verifying_keys::fill_verifiable_encryption::VERIFYINGKEY,
 };
 use swap_prover::{
-    CircuitId, FillVerifiableEncryptionProofInputs, OrderProof, OrderTermsFieldElements,
+    CircuitId, FillVerifiableEncryptionProofInputs, OrderProof, OrderTermsProofInput,
     FILL_MODE_VERIFIABLE,
 };
-use swap_sdk::witness::{
-    decrypt_destination, destination_ciphertext_with_hash, escrow_owner_hash, order_data_hash,
-    PlainUtxo,
+use swap_sdk::{
+    instructions::fill_verifiable_encryption::{
+        decrypt_destination, destination_ciphertext_with_hash,
+    },
+    order::{escrow_owner_hash, DataHash},
 };
 use zolana_interface::merge_utils::ciphertext_hash;
 use zolana_keypair::hash::{hash_field, poseidon};
-use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
+use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -54,11 +56,11 @@ fn blinding(byte: u8) -> Blinding {
     out
 }
 
-fn sample_order() -> OrderTermsFieldElements {
+fn sample_order() -> OrderTermsProofInput {
     let mut maker_viewing_pk = [0u8; 33];
     maker_viewing_pk[0] = 2;
     maker_viewing_pk[32] = 55;
-    OrderTermsFieldElements {
+    OrderTermsProofInput {
         destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,
         maker_owner_hash: fe(99),
@@ -69,7 +71,7 @@ fn sample_order() -> OrderTermsFieldElements {
     }
 }
 
-fn taker_owner_hash(order: &OrderTermsFieldElements) -> [u8; 32] {
+fn taker_owner_hash(order: &OrderTermsProofInput) -> [u8; 32] {
     poseidon(&[&order.taker_pk_fe, &fe(200)]).expect("taker owner hash")
 }
 
@@ -93,34 +95,30 @@ fn build_inputs(overrides: SampleOverrides) -> FillVerifiableEncryptionProofInpu
     let destination_amount = overrides
         .destination_amount
         .unwrap_or(order.destination_amount);
-    let escrow = PlainUtxo {
-        owner_hash: escrow_owner_hash(&fe(42)).expect("escrow owner hash"),
-        mint: source_mint,
-        amount: 1_000,
-        blinding: blinding(7),
-        data_hash: order_data_hash(&order).expect("order data hash"),
-    };
-    let taker_in = PlainUtxo {
-        owner_hash: taker_owner,
-        mint: destination_mint,
-        amount: order.destination_amount,
-        blinding: blinding(13),
-        data_hash: [0u8; 32],
-    };
-    let source_output = PlainUtxo {
-        owner_hash: taker_owner,
-        mint: source_mint,
-        amount: escrow.amount,
-        blinding: blinding(31),
-        data_hash: [0u8; 32],
-    };
-    let destination_output = PlainUtxo {
-        owner_hash: destination_owner,
-        mint: destination_mint,
-        amount: destination_amount,
-        blinding: blinding(21),
-        data_hash: [0u8; 32],
-    };
+    let escrow = ProofInputUtxo::new(
+        escrow_owner_hash(&fe(42)).expect("escrow owner hash"),
+        &source_mint,
+        1_000,
+        &blinding(7),
+    )
+    .expect("escrow utxo")
+    .with_data_hash(order.data_hash().expect("order data hash"));
+    let taker_in = ProofInputUtxo::new(
+        taker_owner,
+        &destination_mint,
+        order.destination_amount,
+        &blinding(13),
+    )
+    .expect("taker input utxo");
+    let source_output = ProofInputUtxo::new(taker_owner, &source_mint, 1_000, &blinding(31))
+        .expect("source output utxo");
+    let destination_output = ProofInputUtxo::new(
+        destination_owner,
+        &destination_mint,
+        destination_amount,
+        &blinding(21),
+    )
+    .expect("destination output utxo");
     let external_data_hash = fe(8);
     let private_tx_hash = PrivateTxHash::new(
         &[
@@ -148,17 +146,15 @@ fn build_inputs(overrides: SampleOverrides) -> FillVerifiableEncryptionProofInpu
         private_tx_hash,
         order,
         taker_nullifier_pk: fe(200),
-        escrow: escrow.field_elements().expect("escrow fields"),
-        taker_in: taker_in.field_elements().expect("taker input fields"),
-        source_output: source_output.field_elements().expect("source output fields"),
-        destination_output: destination_output
-            .field_elements()
-            .expect("destination output fields"),
+        escrow,
+        taker_in,
+        source_output,
+        destination_output,
         external_data_hash,
     }
 }
 
-fn sample_ciphertext(order: &OrderTermsFieldElements) -> (Vec<u8>, [u8; 32]) {
+fn sample_ciphertext(order: &OrderTermsProofInput) -> (Vec<u8>, [u8; 32]) {
     destination_ciphertext_with_hash(
         &blinding(7),
         &Address::new_from_array([2u8; 32]),
@@ -287,8 +283,8 @@ fn fill_prove_verify_and_round_trip() {
         .expect("program fill verify must accept a valid proof");
     }
 
-    let (asset, amount) = decrypt_destination(&blinding(7), &ciphertext)
-        .expect("decrypt destination ciphertext");
+    let (asset, amount) =
+        decrypt_destination(&blinding(7), &ciphertext).expect("decrypt destination ciphertext");
     assert_eq!(
         (asset, amount),
         (

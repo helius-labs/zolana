@@ -8,6 +8,7 @@ use zolana_client::{resolve_registered_address, sync_wallet, Rpc};
 use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::{P256Pubkey, ShieldedAddress};
 use zolana_transaction::{
+    instructions::transact::OutputSlot,
     serialization::{
         confidential::TransferRecipientPlaintext, confidential_unified::ConfidentialUnified,
     },
@@ -45,15 +46,34 @@ fn resolve_mint(registry: &AssetRegistry, asset_id: u64) -> Result<Address> {
     registry.resolve(asset_id).map_err(err)
 }
 
-/// Decryption slot index of the output slot at `position`: ciphertext slots are
-/// indexed over data-bearing slots only.
-fn encrypted_slot_index(tx: &ShieldedTransaction, position: usize) -> u32 {
-    tx.output_slots
+/// Unified confidential ciphertext slots with their decryption slot index:
+/// ciphertext slots are indexed over data-bearing slots only.
+fn unified_slots(tx: &ShieldedTransaction) -> impl Iterator<Item = (u32, &OutputSlot, Vec<u8>)> {
+    let mut next_index = 0u32;
+    tx.output_slots.iter().filter_map(move |slot| {
+        let output_data = slot.output_data()?;
+        let slot_index = next_index;
+        next_index += 1;
+        let OutputDataEncoding::Encrypted(mut blob) = output_data else {
+            return None;
+        };
+        let scheme = EncryptedScheme::from_byte(*blob.first()?).ok()?;
+        (scheme == EncryptedScheme::ConfidentialUnified).then(|| {
+            blob.drain(..1);
+            (slot_index, slot, blob)
+        })
+    })
+}
+
+fn parse_order_data(records: &[DataRecord]) -> Result<PlainTextData> {
+    let order_bytes = records
         .iter()
-        .take(position + 1)
-        .filter(|slot| slot.output_data().is_some())
-        .count()
-        .saturating_sub(1) as u32
+        .find_map(|record| match record {
+            DataRecord::UtxoData(bytes) => Some(bytes.as_slice()),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("escrow plaintext carries no utxo data record"))?;
+    PlainTextData::deserialize(order_bytes)
 }
 
 pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<OrderCandidate>> {
@@ -71,41 +91,14 @@ pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Or
     };
     let marker = MarkerData::try_from_slice(&marker_message.data)
         .map_err(|e| anyhow!("marker payload: {e}"))?;
-    let Some((escrow_position, escrow_slot)) = tx
-        .output_slots
-        .iter()
-        .enumerate()
-        .find(|(_, slot)| slot.output_context.hash == marker.escrow_utxo_hash)
+    let Some((slot_index, _, body)) = unified_slots(tx)
+        .find(|(_, slot, _)| slot.output_context.hash == marker.escrow_utxo_hash)
     else {
-        bail!("marker without an escrow slot in the same transaction");
+        bail!("marker without a unified escrow ciphertext in the same transaction");
     };
-    let Some(OutputDataEncoding::Encrypted(blob)) = escrow_slot.output_data() else {
-        bail!("escrow slot payload is not encrypted");
-    };
-    let (scheme_byte, body) = blob
-        .split_first()
-        .ok_or_else(|| anyhow!("empty escrow slot payload"))?;
-    if EncryptedScheme::from_byte(*scheme_byte).map_err(err)?
-        != EncryptedScheme::ConfidentialUnified
-    {
-        bail!("escrow slot is not a unified confidential ciphertext");
-    }
-    let cx = DecodeCx::for_slot(
-        &wallet.keypair.viewing_key,
-        tx,
-        encrypted_slot_index(tx, escrow_position),
-    );
-    let escrow_plaintext = ConfidentialUnified::decode(body, &cx).map_err(err)?;
-    let order_bytes = escrow_plaintext
-        .data
-        .records
-        .iter()
-        .find_map(|record| match record {
-            DataRecord::UtxoData(bytes) => Some(bytes.as_slice()),
-            _ => None,
-        })
-        .ok_or_else(|| anyhow!("escrow plaintext carries no utxo data record"))?;
-    let order_data = PlainTextData::deserialize(order_bytes)?;
+    let cx = DecodeCx::for_slot(&wallet.keypair.viewing_key, tx, slot_index);
+    let escrow_plaintext = ConfidentialUnified::decode(&body, &cx).map_err(err)?;
+    let order_data = parse_order_data(&escrow_plaintext.data.records)?;
     Ok(Some(OrderCandidate {
         source_amount: escrow_plaintext.amount,
         source_mint: resolve_mint(&wallet.registry, escrow_plaintext.asset_id)?,
@@ -154,62 +147,81 @@ impl OrderCandidate {
 
 const DISCOVER_POLL: Duration = Duration::from_millis(500);
 
-pub fn discover_orders<I: Rpc, R: Rpc>(
+fn discover_until<I: Rpc, T>(
     wallet: &mut Wallet,
     indexer: &I,
-    rpc: &R,
     timeout: Duration,
-) -> Result<Vec<DiscoveredOrder>> {
+    what: &str,
+    mut collect: impl FnMut(&Wallet) -> Result<Vec<T>>,
+) -> Result<Vec<T>> {
     let deadline = Instant::now() + timeout;
     loop {
         sync_wallet(wallet, indexer).map_err(err)?;
-        let orders = collect_orders(wallet, indexer, rpc)?;
-        if !orders.is_empty() {
-            return Ok(orders);
+        let found = collect(wallet)?;
+        if !found.is_empty() {
+            return Ok(found);
         }
         if Instant::now() >= deadline {
-            bail!("timed out discovering orders");
+            bail!("timed out discovering {what}");
         }
         std::thread::sleep(DISCOVER_POLL);
     }
 }
 
-fn collect_orders<I: Rpc, R: Rpc>(
+fn collect_tagged<I: Rpc, T>(
     wallet: &Wallet,
     indexer: &I,
-    rpc: &R,
-) -> Result<Vec<DiscoveredOrder>> {
+    mut scan: impl FnMut(&ShieldedTransaction) -> Result<Option<T>>,
+) -> Result<Vec<T>> {
     let owner_tag = wallet
         .keypair
         .signing_pubkey()
         .confidential_view_tag()
         .map_err(err)?;
-    let taker_viewing_pubkey = wallet.keypair.viewing_pubkey();
-    let mut orders = Vec::new();
+    let mut found = Vec::new();
     let mut cursor = None;
     loop {
         let page = indexer
             .get_shielded_transactions_by_tags(vec![owner_tag], cursor, None)
             .map_err(err)?;
         for tx in &page.transactions {
-            let Some(candidate) = scan_order(tx, wallet)? else {
-                continue;
-            };
-            let maker = resolve_registered_address(rpc, candidate.maker_pubkey).map_err(err)?;
-            orders.push(candidate.into_order(maker.address, taker_viewing_pubkey)?);
+            if let Some(item) = scan(tx)? {
+                found.push(item);
+            }
         }
         let Some(next) = page.next_cursor else {
-            return Ok(orders);
+            return Ok(found);
         };
         cursor = Some(next);
     }
+}
+
+pub fn discover_orders<I: Rpc, R: Rpc>(
+    wallet: &mut Wallet,
+    indexer: &I,
+    rpc: &R,
+    timeout: Duration,
+) -> Result<Vec<DiscoveredOrder>> {
+    discover_until(wallet, indexer, timeout, "orders", |wallet| {
+        let taker_viewing_pubkey = wallet.keypair.viewing_pubkey();
+        collect_tagged(wallet, indexer, |tx| {
+            let Some(candidate) = scan_order(tx, wallet)? else {
+                return Ok(None);
+            };
+            let maker_resolved_address =
+                resolve_registered_address(rpc, candidate.maker_pubkey).map_err(err)?;
+            candidate
+                .into_order(maker_resolved_address.address, taker_viewing_pubkey)
+                .map(Some)
+        })
+    })
 }
 
 /// An order rediscovered by its maker from her own create transaction.
 #[derive(Debug)]
 pub struct OwnOrder {
     pub escrow: OrderUtxo,
-    pub taker_viewing_pk: P256Pubkey,
+    pub taker_viewing_pubkey: P256Pubkey,
 }
 
 /// Maker-side order rediscovery: the per-transaction viewing key re-derives
@@ -222,7 +234,7 @@ pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Optio
     let (Some(tx_viewing_pk), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
         return Ok(None);
     };
-    let Some(tx_key) = tx.nullifiers.iter().find_map(|nullifier| {
+    let Some(tx_viewing_key) = tx.nullifiers.iter().find_map(|nullifier| {
         wallet
             .keypair
             .get_transaction_viewing_key(nullifier)
@@ -232,35 +244,23 @@ pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Optio
         return Ok(None);
     };
     let maker_address = wallet.keypair.shielded_address().map_err(err)?;
-    for (position, slot) in tx.output_slots.iter().enumerate() {
-        let Some(OutputDataEncoding::Encrypted(blob)) = slot.output_data() else {
+    for (slot_index, slot, body) in unified_slots(tx) {
+        let Ok(taker_viewing_pubkey) = ConfidentialUnified::embedded_viewing_pk(&body) else {
             continue;
         };
-        let Some((scheme_byte, body)) = blob.split_first() else {
-            continue;
-        };
-        if EncryptedScheme::from_byte(*scheme_byte).ok()
-            != Some(EncryptedScheme::ConfidentialUnified)
-        {
-            continue;
-        }
-        let Ok(taker_viewing_pk) = ConfidentialUnified::embedded_viewing_pk(body) else {
-            continue;
-        };
-        let slot_index = encrypted_slot_index(tx, position);
         let Ok(plaintext) =
-            ConfidentialUnified::decrypt_with_tx_key(&tx_key, body, salt, slot_index)
+            ConfidentialUnified::decrypt_with_tx_key(&tx_viewing_key, &body, salt, slot_index)
         else {
             continue;
         };
         let Some(order) =
-            own_order_candidate(&wallet.registry, maker_address, plaintext, taker_viewing_pk)
+            own_order_candidate(&wallet.registry, maker_address, plaintext, taker_viewing_pubkey)
         else {
             continue;
         };
         let Ok(escrow_utxo_hash) = order
             .escrow
-            .output_utxo(taker_viewing_pk)
+            .output_utxo(taker_viewing_pubkey)
             .and_then(|output| output.hash().map_err(err))
         else {
             continue;
@@ -277,17 +277,9 @@ fn own_order_candidate(
     registry: &AssetRegistry,
     maker_address: ShieldedAddress,
     plaintext: TransferRecipientPlaintext,
-    taker_viewing_pk: P256Pubkey,
+    taker_viewing_pubkey: P256Pubkey,
 ) -> Option<OwnOrder> {
-    let order_bytes = plaintext
-        .data
-        .records
-        .iter()
-        .find_map(|record| match record {
-            DataRecord::UtxoData(bytes) => Some(bytes.as_slice()),
-            _ => None,
-        })?;
-    let order_data = PlainTextData::deserialize(order_bytes).ok()?;
+    let order_data = parse_order_data(&plaintext.data.records).ok()?;
     let source_mint = resolve_mint(registry, plaintext.asset_id).ok()?;
     let destination_mint = resolve_mint(registry, order_data.destination_asset_id).ok()?;
     Some(OwnOrder {
@@ -305,7 +297,7 @@ fn own_order_candidate(
             source_amount: plaintext.amount,
             destination_asset_id: order_data.destination_asset_id,
         },
-        taker_viewing_pk,
+        taker_viewing_pubkey,
     })
 }
 
@@ -314,42 +306,9 @@ pub fn discover_own_orders<I: Rpc>(
     indexer: &I,
     timeout: Duration,
 ) -> Result<Vec<OwnOrder>> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        sync_wallet(wallet, indexer).map_err(err)?;
-        let orders = collect_own_orders(wallet, indexer)?;
-        if !orders.is_empty() {
-            return Ok(orders);
-        }
-        if Instant::now() >= deadline {
-            bail!("timed out discovering own orders");
-        }
-        std::thread::sleep(DISCOVER_POLL);
-    }
-}
-
-fn collect_own_orders<I: Rpc>(wallet: &Wallet, indexer: &I) -> Result<Vec<OwnOrder>> {
-    let owner_tag = wallet
-        .keypair
-        .signing_pubkey()
-        .confidential_view_tag()
-        .map_err(err)?;
-    let mut orders = Vec::new();
-    let mut cursor = None;
-    loop {
-        let page = indexer
-            .get_shielded_transactions_by_tags(vec![owner_tag], cursor, None)
-            .map_err(err)?;
-        for tx in &page.transactions {
-            if let Some(order) = scan_own_order(tx, wallet)? {
-                orders.push(order);
-            }
-        }
-        let Some(next) = page.next_cursor else {
-            return Ok(orders);
-        };
-        cursor = Some(next);
-    }
+    discover_until(wallet, indexer, timeout, "own orders", |wallet| {
+        collect_tagged(wallet, indexer, |tx| scan_own_order(tx, wallet))
+    })
 }
 
 #[cfg(test)]
@@ -370,7 +329,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::instructions::create_swap::{input_sum, OrderMarker};
+    use crate::{instructions::create_swap::OrderMarker, order::input_sum};
 
     struct OrderFixture {
         tx: ShieldedTransaction,
@@ -554,7 +513,7 @@ mod tests {
             .expect("scan")
             .expect("own order");
         assert_eq!(
-            (order.escrow, order.taker_viewing_pk),
+            (order.escrow, order.taker_viewing_pubkey),
             (fixture.escrow, fixture.wallet.keypair.viewing_pubkey())
         );
     }

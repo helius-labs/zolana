@@ -8223,6 +8223,7 @@ dependencies = [
  "solana-bn254 3.2.1",
  "swap-program",
  "thiserror 2.0.18",
+ "zolana-transaction",
 ]
 
 [[package]]

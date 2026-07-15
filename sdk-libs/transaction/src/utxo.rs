@@ -80,33 +80,77 @@ pub fn owner_utxo_hash(
     poseidon(&[owner_hash, &blinding])
 }
 
-pub fn utxo_hash(
-    asset: Address,
-    amount: u64,
-    data_hash: &[u8; 32],
-    zone_data_hash: &[u8; 32],
-    zone_program_id: Option<Address>,
-    owner_utxo_hash: &[u8; 32],
-) -> Result<[u8; 32], TransactionError> {
-    let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
-    let asset =
-        zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)?;
-    let amount = right_align(&amount.to_be_bytes());
-    let zone_hash = poseidon(&[zone_data_hash, &program_id_field(&zone_program_id)?])?;
-    poseidon(&[
-        &domain,
-        &asset,
-        &amount,
-        data_hash,
-        &zone_hash,
-        owner_utxo_hash,
-    ])
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ProofInputUtxo {
+    pub domain: [u8; 32],
+    pub owner_hash: [u8; 32],
+    pub asset: [u8; 32],
+    pub amount: [u8; 32],
+    pub blinding: [u8; 32],
+    pub data_hash: [u8; 32],
+    pub zone_data_hash: [u8; 32],
+    pub zone_program_id: [u8; 32],
+}
+
+impl ProofInputUtxo {
+    pub fn new(
+        owner_hash: [u8; 32],
+        asset: &Address,
+        amount: u64,
+        blinding: &Blinding,
+    ) -> Result<Self, TransactionError> {
+        Ok(Self {
+            domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
+            owner_hash,
+            asset: zolana_keypair::hash::hash_field(asset.as_array())?,
+            amount: right_align(&amount.to_be_bytes()),
+            blinding: right_align(blinding),
+            data_hash: [0u8; 32],
+            zone_data_hash: [0u8; 32],
+            zone_program_id: [0u8; 32],
+        })
+    }
+
+    pub fn with_data_hash(mut self, data_hash: [u8; 32]) -> Self {
+        self.data_hash = data_hash;
+        self
+    }
+
+    pub fn with_zone(
+        mut self,
+        zone_data_hash: [u8; 32],
+        zone_program_id: &Option<Address>,
+    ) -> Result<Self, TransactionError> {
+        self.zone_data_hash = zone_data_hash;
+        self.zone_program_id = program_id_field(zone_program_id)?;
+        Ok(self)
+    }
+
+    pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
+        let zone_hash = poseidon(&[&self.zone_data_hash, &self.zone_program_id])?;
+        let owner_utxo_hash = poseidon(&[&self.owner_hash, &self.blinding])?;
+        poseidon(&[
+            &self.domain,
+            &self.asset,
+            &self.amount,
+            &self.data_hash,
+            &zone_hash,
+            &owner_utxo_hash,
+        ])
+    }
 }
 
 impl Utxo {
-    pub fn owner_utxo_hash(&self, nullifier_pk: &[u8; 32]) -> Result<[u8; 32], TransactionError> {
+    pub fn proof_input(
+        &self,
+        nullifier_pk: &[u8; 32],
+        data_hash: &[u8; 32],
+        zone_data_hash: &[u8; 32],
+    ) -> Result<ProofInputUtxo, TransactionError> {
         let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
-        owner_utxo_hash(&owner_hash, &self.blinding)
+        ProofInputUtxo::new(owner_hash, &self.asset, self.amount, &self.blinding)?
+            .with_data_hash(*data_hash)
+            .with_zone(*zone_data_hash, &self.zone_program_id)
     }
 
     pub fn hash(
@@ -115,14 +159,8 @@ impl Utxo {
         data_hash: &[u8; 32],
         zone_data_hash: &[u8; 32],
     ) -> Result<[u8; 32], TransactionError> {
-        utxo_hash(
-            self.asset,
-            self.amount,
-            data_hash,
-            zone_data_hash,
-            self.zone_program_id,
-            &self.owner_utxo_hash(nullifier_pk)?,
-        )
+        self.proof_input(nullifier_pk, data_hash, zone_data_hash)?
+            .hash()
     }
 
     pub fn nullifier(

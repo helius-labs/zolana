@@ -1,20 +1,23 @@
 use std::collections::HashMap;
 
+use zolana_transaction::ProofInputUtxo;
+
 use crate::{
     bytes_to_decimal_string, ffi,
     proof::{negate_and_compress_proof, OrderProof, ProofError},
-    CircuitId, OrderTermsFieldElements, UtxoFieldElements,
+    utxo::utxo_witness_entries,
+    CircuitId, OrderTermsProofInput,
 };
 
 #[derive(Debug, Clone)]
 pub struct CancelProofInputs {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub order: OrderTermsFieldElements,
+    pub order: OrderTermsProofInput,
     pub maker_owner_pk_field: [u8; 32],
     pub maker_nullifier_pk: [u8; 32],
-    pub escrow: UtxoFieldElements,
-    pub source_output: UtxoFieldElements,
+    pub escrow: ProofInputUtxo,
+    pub source_output: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
 }
 
@@ -35,8 +38,8 @@ impl CancelProofInputs {
             .order
             .witness_entries("Order")
             .into_iter()
-            .chain(self.escrow.witness_entries("Escrow"))
-            .chain(self.source_output.witness_entries("SourceOutput"))
+            .chain(utxo_witness_entries(&self.escrow, "Escrow"))
+            .chain(utxo_witness_entries(&self.source_output, "SourceOutput"))
         {
             map.insert(key, value);
         }

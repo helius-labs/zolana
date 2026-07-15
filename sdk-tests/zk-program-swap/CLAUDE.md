@@ -39,8 +39,9 @@ witnesses and proves.
 - `build.rs` compiles the Go package to a c-archive; `src/ffi.rs` exposes
   `setup` / `preload` / `prove` over bindgen.
 - Per-circuit `*ProofInputs` structs are pure field-element containers
-  (`OrderTermsFieldElements`, `UtxoFieldElements` slots, precomputed hashes);
-  their only logic is witness-map encoding and `prove() -> OrderProof`.
+  (`OrderTermsProofInput`, `zolana_transaction::ProofInputUtxo` slots,
+  precomputed hashes); their only logic is witness-map encoding and
+  `prove() -> OrderProof`.
 - No hashing or domain logic lives here; all transformation is in the sdk. The
   crate exports the circuit constants (`FILL_MODE_*`, KDF/blinding domains).
 - `swap-prover-setup` bin regenerates proving/verifying keys and the Rust vk
@@ -52,15 +53,18 @@ witnesses and proves.
 Client library for building and discovering swaps; owns all data
 transformation between domain types and prover witnesses.
 
-- `instructions/`: builder structs per instruction; `*ProofInputParams`
-  validate the payout and derive the prover's field-element inputs
-  (`into_proof_inputs()`), including `private_tx_hash` and the public input
-  hash (via the program's `*PublicInput::hash()`).
+- `instructions/`: one directory per instruction, each with a private
+  `instruction.rs` (builder struct + account/wire assembly) and `proof.rs`
+  (`*ProofInputParams::to_proof_inputs()`: payout validation, `ProofInputUtxo`
+  slots from the canonical `TryFrom` conversions, `private_tx_hash`, and the
+  public input hash via the program's `*PublicInput::hash()`); the module's
+  `mod.rs` only `pub use`s the public items. `fill/` also owns
+  `derive_destination_blinding`; `fill_verifiable_encryption/encryption.rs`
+  owns the verifiable-encryption ciphertext codec.
 - `order.rs`: client-side order model — `OrderTerms`, the escrow `OrderUtxo`
-  (output and spend forms), recipient plaintext encoding.
-- `witness.rs`: witness assembly — `PlainUtxo` (field elements + canonical
-  `zolana-transaction` UTXO hash), escrow owner hash, order-terms `data_hash`,
-  derived destination blinding, verifiable-encryption ciphertext.
+  (output and spend forms), recipient plaintext encoding, `input_sum`,
+  `escrow_owner_hash`, `maker_address_fe`, and the order-terms `DataHash`
+  impls.
 - `discover.rs`: taker-side order discovery — wallet sync, marker decoding,
   maker resolution via the user registry, escrow opening recovery.
 - `prover.rs`: `SwapProverClient`, mirroring `zolana_client::ProverClient` —

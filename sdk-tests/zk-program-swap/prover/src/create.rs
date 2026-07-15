@@ -1,17 +1,20 @@
 use std::collections::HashMap;
 
+use zolana_transaction::ProofInputUtxo;
+
 use crate::{
     bytes_to_decimal_string, ffi,
     proof::{negate_and_compress_proof, OrderProof, ProofError},
-    CircuitId, OrderTermsFieldElements, UtxoFieldElements,
+    utxo::utxo_witness_entries,
+    CircuitId, OrderTermsProofInput,
 };
 
 #[derive(Debug, Clone)]
 pub struct CreateProofInputs {
     pub private_tx_hash: [u8; 32],
-    pub order: OrderTermsFieldElements,
-    pub escrow: UtxoFieldElements,
-    pub change: UtxoFieldElements,
+    pub order: OrderTermsProofInput,
+    pub escrow: ProofInputUtxo,
+    pub change: ProofInputUtxo,
     pub source_input_hash: [u8; 32],
     pub external_data_hash: [u8; 32],
 }
@@ -31,8 +34,8 @@ impl CreateProofInputs {
             .order
             .witness_entries("Order")
             .into_iter()
-            .chain(self.escrow.witness_entries("Escrow"))
-            .chain(self.change.witness_entries("Change"))
+            .chain(utxo_witness_entries(&self.escrow, "Escrow"))
+            .chain(utxo_witness_entries(&self.change, "Change"))
         {
             map.insert(key, value);
         }

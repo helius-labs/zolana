@@ -8,7 +8,7 @@ use super::external_data::ExternalData;
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
-    utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo},
+    utxo::{Blinding, ProofInputUtxo, Utxo},
 };
 
 /// Canonical ordering key for data records: `ZoneData` < `UtxoData` < `Memo`,
@@ -116,18 +116,29 @@ impl OutputUtxo {
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        utxo_hash(
-            self.asset,
-            self.amount,
-            &self.data_hash.unwrap_or_default(),
-            &self.zone_data_hash.unwrap_or_default(),
-            self.zone_program_id,
-            &owner_utxo_hash(&self.owner_hash()?, &self.blinding)?,
-        )
+        ProofInputUtxo::try_from(self)?.hash()
     }
 
     pub fn is_dummy(&self) -> bool {
         self.owner_address.is_none()
+    }
+}
+
+impl TryFrom<&OutputUtxo> for ProofInputUtxo {
+    type Error = TransactionError;
+
+    fn try_from(output: &OutputUtxo) -> Result<Self, Self::Error> {
+        ProofInputUtxo::new(
+            output.owner_hash()?,
+            &output.asset,
+            output.amount,
+            &output.blinding,
+        )?
+        .with_data_hash(output.data_hash.unwrap_or_default())
+        .with_zone(
+            output.zone_data_hash.unwrap_or_default(),
+            &output.zone_program_id,
+        )
     }
 }
 
