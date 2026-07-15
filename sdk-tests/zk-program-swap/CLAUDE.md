@@ -1,93 +1,64 @@
-# ZK Program Swap Example
+# ZK Program Example Layout
 
-An SPP ZK program: a confidential swap between a maker and a designated taker.
-The program verifies a small Groth16 proof of the swap rules and CPIs SPP
-`transact` for the confidential transfer; it stores no state and owns no
-accounts.
+An example ZK program is a small Solana program that verifies a Groth16 proof
+of its rules and CPIs SPP `transact`; it stores no state and owns no accounts.
+Each example has a design doc as its source of truth for the privacy model,
+instructions, and circuits.
 
-`swap_program.md` is the source of truth for the privacy model, order terms,
-instructions, and circuits. `BENCHMARK.md` holds CU and proving-time numbers
-(regenerate with `just bench-swap`).
+## What Goes Where
 
-## Crates
+- `program`: the Pinocchio program. Instruction processors, proof
+  verification, verifying-key constants, instruction data, tags, errors, and
+  the canonical public-input hashing. No separate interface crate; the sdk
+  re-exports from here.
+- `prover`: in-process proving engine. Go gnark circuits, ffi bindings, proof
+  input struct definitions for the prover, circuit constants, and the
+  key-generation binary. Takes prepared proof inputs and proves; hashing and
+  domain logic belong in the sdk.
+- `sdk`: client library. State definitions, instruction data builders, proof
+  input builders, utxo data definitions and hashing, discovery, encryption
+  codecs, and the prover client. Owns all transformation between domain types
+  and proof inputs. Per-circuit prove/verify tests live here.
+- `test`: localnet end-to-end tests and CU benchmarks.
 
-### `program` (`swap-program`)
+## Patterns
 
-The on-chain Pinocchio program.
+- program: one file per instruction under `src/instructions/`; each verifies
+  its proof against the public-input hash, then CPIs SPP `transact` with the
+  program authority PDA flipped to a signer. Public-input hash impls live next
+  to the instruction and are reused by the sdk. Host-side unit tests
+  (error-code stability, boundary checks) in `tests/`.
+- prover: `build.rs` compiles the Go package to a c-archive, exposed as
+  `setup` / `preload` / `prove` over bindgen. Proof input structs are pure
+  containers whose only logic is witness-map encoding and a `prove()` method.
+- sdk: one directory per instruction with `instruction.rs` (builder struct
+  with a consuming `instruction()` method, not free functions) and
+  `proof.rs` (a params struct with `to_proof_inputs()` doing validation and
+  hashing); `mod.rs` only re-exports. Shared helpers in `shared.rs`. The
+  prover client mirrors `zolana_client::ProverClient`: one `prove_*` method
+  per circuit, no data processing.
+- test: cucumber end-to-end flows against localnet + photon + prover; mollusk
+  CU profiling that regenerates the benchmark doc.
 
-- Four instructions, one file each under `src/instructions/`: `create_swap`,
-  `fill`, `fill_verifiable_encryption`, `cancel`.
-- Each instruction verifies its Groth16 proof (constants in
-  `src/verifying_keys/`) against `private_tx_hash`, then CPIs SPP `transact`
-  with the escrow-authority PDA flipped to a signer.
-- Owns the instruction data structs, proof types, tags, and errors; there is no
-  separate interface crate, the sdk re-exports from here.
-- The per-instruction modules hold the canonical public-input hash
-  implementations (`FillPublicInput::hash()`, `CancelPublicInput::hash()`, ...);
-  the sdk reuses them when assembling proof inputs.
-- `tests/`: host-side unit tests (error-code stability, fill/cancel window
-  boundaries).
+## Dependencies
 
-### `prover` (`swap-prover`)
-
-In-process proving engine for the swap circuits; no prover server. Mirrors the
-main prover server's role: it does not process data — it takes prepared
-witnesses and proves.
-
-- Go gnark circuits in `circuits/` (`create`, `fill`,
-  `fill_verifiable_encryption`, `cancel`).
-- `build.rs` compiles the Go package to a c-archive; `src/ffi.rs` exposes
-  `setup` / `preload` / `prove` over bindgen.
-- Per-circuit `*ProofInputs` structs are pure field-element containers
-  (`OrderTermsProofInput`, `zolana_transaction::ProofInputUtxo` slots,
-  precomputed hashes); their only logic is witness-map encoding and
-  `prove() -> OrderProof`.
-- No hashing or domain logic lives here; all transformation is in the sdk. The
-  crate exports the circuit constants (`FILL_MODE_*`, KDF/blinding domains).
-- `swap-prover-setup` bin regenerates proving/verifying keys and the Rust vk
-  constants in the program crate.
-- The per-circuit proof tests live in `sdk/tests/`.
-
-### `sdk` (`swap-sdk`)
-
-Client library for building and discovering swaps; owns all data
-transformation between domain types and prover witnesses.
-
-- `instructions/`: one directory per instruction, each with a private
-  `instruction.rs` (builder struct + account/wire assembly) and `proof.rs`
-  (`*ProofInputParams::to_proof_inputs()`: payout validation, `ProofInputUtxo`
-  slots from the canonical `TryFrom` conversions, `private_tx_hash`, and the
-  public input hash via the program's `*PublicInput::hash()`); the module's
-  `mod.rs` only `pub use`s the public items. `fill/` also owns
-  `derive_destination_blinding`; `fill_verifiable_encryption/encryption.rs`
-  owns the verifiable-encryption ciphertext codec.
-- `state/order.rs`: the client-side order state — `OrderTerms` (with its
-  `OrderTermsProofInput` conversion and `DataHash` impls), the `PlainTextData`
-  note payload, and the escrow `OrderUtxo` (output and spend forms). Impl
-  blocks are grouped and commented by the instructions that use them.
-- `shared.rs`: helpers shared across the instruction modules and tests
-  (`input_sum`, `check_output_utxo`, `to_blinding_array`).
-- `discover.rs`: taker-side order discovery — wallet sync, marker decoding,
-  maker resolution via the user registry, escrow opening recovery.
-- `prover.rs`: `SwapProverClient`, mirroring `zolana_client::ProverClient` —
-  one `prove_*(&*ProofInputs) -> OrderProof` per circuit, no data processing.
-  The SPP transfer proof comes from `ProverClient::prove_transact` directly.
-- `tests/`: per-circuit prove/verify tests against the generated and program
-  verifying keys, including program-side public-input recomputation;
-  `tests/shared/` holds test-only helpers (`escrow_owner_hash`).
-
-### `test` (`swap-test-validator`)
-
-Localnet integration tests and benchmarks.
-
-- `tests/swap.rs`, `tests/cancel.rs`: cucumber end-to-end flows
-  (create -> discover -> fill / cancel) against localnet + photon + prover.
-- `tests/bench_cu.rs`: mollusk CU profiling that regenerates `BENCHMARK.md`.
-- `tests/shared.rs`: common environment setup.
+- program: `pinocchio` (+`cpi`), `zolana-interface`, `zolana-account-checks`,
+  `zolana-hasher` (+`poseidon`), `groth16-solana` (+`bsb22`) for verification,
+  `wincode`/`borsh` for instruction data, `thiserror` +
+  `solana-program-error` for errors. Never sdk crates.
+- prover: `groth16-solana` (+`bsb22`) and `solana-bn254` for proof types,
+  `zolana-transaction` for proof input slots, the program crate for shared
+  types.
+- sdk: `zolana-client`, `zolana-keypair`, `zolana-transaction`,
+  `solana-instruction`/`solana-address` for wire types, plus the program and
+  prover crates.
+- test: `zolana-program-test` + `zolana-test-utils` for the harness,
+  `zolana-client` (+`indexer-api`, `solana-rpc`), `cucumber`, `mollusk-svm` +
+  `light-program-profiler` for benchmarks.
 
 ## Key Artifacts
 
-- `build/gnark/<circuit>/{pk,vk}.bin`: proving/verifying keys, produced by
-  `swap-prover-setup`; pinned by `swap-keys.CHECKSUM`.
-- `program/src/verifying_keys/`: committed Rust vk constants; regenerate with
-  the keys, they must match.
+- `build/gnark/<circuit>/{pk,vk}.bin`: generated proving/verifying keys,
+  pinned by checksum.
+- `program/src/verifying_keys/`: committed Rust vk constants; must match the
+  generated keys.
