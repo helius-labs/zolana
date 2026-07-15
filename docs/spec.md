@@ -12,6 +12,10 @@
   - [Concurrency & Balance Fragmentation](#concurrency--balance-fragmentation)
   - [Default Zone](#default-zone)
   - [Policy Zones](#policy-zones)
+<!-- TOC entries for the new Trust Assumptions / Constants / Permission Matrix sections. -->
+- [Trust Assumptions](#trust-assumptions)
+- [Constants](#constants)
+- [Permission Matrix](#permission-matrix)
 - [Glossary](#glossary)
 - [Shielded Address](#shielded-address)
 - [Signing Key](#signing-key)
@@ -44,6 +48,8 @@
 - [Merge Proof - Merge ZK Proof](#merge-proof---merge-zk-proof)
 - [SPP - Solana Privacy Program](#spp---solana-privacy-program)
   - [Accounts](#accounts)
+    <!-- TOC entries for the new Nullifier queue and zone_transact / zone_authority_transact sections. -->
+    - [Nullifier queue](#nullifier-queue)
     - [Authority Governance](#authority-governance)
     - [Zone Accounts](#zone-accounts)
   - [Instructions](#instructions)
@@ -52,6 +58,8 @@
     - [zone_deposit](#zone_deposit)
     - [merge_transact](#merge_transact)
     - [merge_zone](#merge_zone)
+    - [zone_transact](#zone_transact)
+    - [zone_authority_transact](#zone_authority_transact)
 - [Zone Program Interface](#zone-program-interface)
 - [ZK Program Interface](#zk-program-interface)
 - [RPC](#rpc)
@@ -62,6 +70,8 @@
     - [get_merkle_proofs](#get_merkle_proofs)
     - [get_non_inclusion_proofs](#get_non_inclusion_proofs)
   - [Prover](#prover)
+    <!-- TOC entry for the new Prover trust subsection. -->
+    - [Prover trust](#prover-trust)
   - [Relayer](#relayer)
   - [Zone RPC](#zone-rpc)
     - [get_decrypted_utxos_by_owner](#get_decrypted_utxos_by_owner)
@@ -86,7 +96,7 @@
 
 ## Abstract
 
-The solana privacy protocol (TSPP) enables programmable, UTXO-based confidential transfers that execute directly on Solana, and supports private DeFi and institutional compliance. UTXO balances are backed by SPL and Token-2022 tokens, viewing keys provide selective disclosure, and owner tagging enables wallet sync at Solana speed. Policy zones add anonymity.
+The Solana privacy protocol (TSPP) enables programmable, UTXO-based confidential transfers that execute directly on Solana, and supports private DeFi and institutional compliance. UTXO balances are backed by SPL and Token-2022 tokens, viewing keys provide selective disclosure, and owner tagging enables wallet sync at Solana speed. Policy zones add anonymity.
 
 Confidential transfers are performed by a minimal Solana Privacy Program (SPP) that enforces UTXO state transitions with a zero knowledge proof (ZKP). To enable private DeFi, third-party programs run custom private logic in a separate ZKP over user-owned UTXOs that hold arbitrary `utxo_data`, authorized by the owner's signature. For tailored compliance, institutions can implement zones with custom zone programs, for example with configurable auditors, authorities, freeze authority, co-signer, permanent delegate, and anonymity.
 
@@ -183,19 +193,19 @@ Optional merge services and sync delegates can be used to improve UX.
 ```mermaid
 sequenceDiagram
     participant Client as Client<br>(Wallet + Swaps)
-    participant ZoneRPC as Zone RPC<br>(Photon / Prover)
-    participant System as System Program<br>(Shielded Pool)
+    participant Indexer as Indexer<br>(Photon)
+    participant SPP as SPP<br>(Shielded Pool Program)
     participant Trees as Tree accounts
 
     Note over Client: Build transaction
-    Client->>ZoneRPC: fetch_encrypted_utxos
-    ZoneRPC-->>Client: encrypted UTXOs
+    Client->>Indexer: fetch_encrypted_utxos
+    Indexer-->>Client: encrypted UTXOs
     Note over Client: 1. decrypt UTXOs <br> 2. select UTXOs (in) <br> 3. create new UTXOs (out) <br> 4. sign in and out utxos
-    Client->>System: submit tx<br>transact
+    Client->>SPP: submit tx<br>transact
 
-    Note over System: verify ZKP
-    System-->>Trees: update trees
-    System-->>ZoneRPC: index encrypted UTXOs
+    Note over SPP: verify ZKP
+    SPP-->>Trees: update trees
+    SPP-->>Indexer: index encrypted UTXOs
 ```
 
 ## Policy Zones
@@ -231,18 +241,86 @@ sequenceDiagram
 ```
 
 
+<!-- adding the trust-assumptions section the spec lacked. The single-key forester liveness dependency was nowhere stated. -->
+# Trust Assumptions
+
+Who is trusted for what. Correctness and privacy do not depend on any operator;
+liveness and governance do.
+
+| Party | Trusted for | Not trusted for | Notes |
+| --- | --- | --- | --- |
+| Forester | Liveness (folding the [nullifier queue](#nullifier-queue) into the tree) | Correctness, censoring one user | A single `forester_authority` key. If it halts, the queue fills and spends stop pool-wide; the batch circuit processes queued values in order, so it can halt everyone but not single one victim out. |
+| Protocol / tree / zone authorities | Governance (config, tree creation, pause) | Moving or seeing user funds | Squads multisig vaults (see [Authority Governance](#authority-governance)); `protocol_authority` can [`pause_tree`](#instructions). |
+| Prover (server-side) | Nothing for soundness | Privacy | Receives the full witness including `nullifier_secret`; cannot spend. See [Prover trust](#prover-trust). |
+| Relayer | Nothing | Everything | Pays the Solana fee and submits; the proof binds all parameters. Adds sender privacy on withdraw. |
+| Indexer (Photon) | Performance | Correctness, availability | Every UTXO ciphertext is an on-chain event; a wallet can self-index and re-verify UTXO hashes. |
+| Zone program / auditor | The policy of its own zone only | The default zone or other zones | A zone authority's reach is bounded by the [zone-authority instantiation](#circuit-combinations): value cannot leave the zone. |
+
+A spend is final at submission: the user's own `transact` appends outputs and inserts
+nullifiers atomically. The forester is not a per-transaction dependency. The residual
+centralization is the single `forester_authority` (liveness), the `pause_tree`
+authority (governance), and the `merge_view_tag` per-user grief vector.
+
+<!-- pulling the magic numbers (bloom params, tree heights, proof sizes) into one named table, from constants.rs / tree.rs / builder.rs. -->
+# Constants
+
+| Name | Value | Unit | Purpose |
+| --- | --- | --- | --- |
+| `NULLIFIER_TREE_HEIGHT` | 40 | levels | Batched indexed Merkle nullifier tree. |
+| `UTXO_TREE_HEIGHT` | 32 | levels | Sparse Merkle UTXO tree. |
+| `UTXO_TREE_ROOT_HISTORY` | 200 | roots | Cyclic UTXO-tree root cache. |
+| `NULLIFIER_TREE_ROOT_HISTORY` | 120 | roots | Cyclic nullifier-tree root cache. |
+| `NUM_BATCHES` | 2 | batches | Alternating input-queue batches. |
+| `BATCH_SIZE` | 30 000 | nullifiers | Values per queue batch. |
+| `ZKP_BATCH_SIZE` | 250 | nullifiers | Values per forester ZKP sub-batch. |
+| `BLOOM_FILTER_CAPACITY` | 4 603 072 | bits | Per-batch bloom filter (≈ 1e-12 FP at `BATCH_SIZE`). |
+| `BLOOM_FILTER_NUM_HASHES` | 10 | probes | Keccak probes per bloom insert/query. |
+| `SENDER_SLOT_COUNT` | 2 | slots | Leading change positions (SPL, SOL) per transfer. |
+| `MERGE_INPUT_COUNT` | 8 | inputs | Merge shape (8-in / 1-out). |
+| `MERGE_ENCRYPTED_UTXO_LEN` | 110 | bytes | `borsh(OutputData::VerifiablyEncrypted(scheme+tx_viewing_pk+ciphertext))`. |
+| Transact proof (eddsa) | 128 | bytes | Vanilla Groth16. |
+| Transact / merge proof (P256 / merge) | 192 | bytes | BSB22-committed Groth16. |
+| `TSPP_COIN_TYPE` | 1445561917' | — | BIP-44 coin type (placeholder; see [Signing Key](#signing-key)). |
+
+# Permission Matrix
+
+Every privileged call and its authorized caller. Governance roles are Squads
+multisig vaults (see [Authority Governance](#authority-governance)); SPP checks only
+that the vault PDA signed.
+
+| Action | Component | Authorized caller |
+| --- | --- | --- |
+| `create_tree` | SPP | `tree_creation_authority`, or any signer if `tree_creation_is_permissionless` |
+| `pause_tree` | SPP | `protocol_authority` |
+| `create_protocol_config` | SPP | the `protocol_authority` it writes |
+| `update_protocol_config` | SPP | `protocol_authority` |
+| `create_spl_interface` / `create_asset_counter` | SPP | `protocol_authority`, or any signer if `spl_interface_creation_is_permissionless` |
+| `batch_update_nullifier_tree` | SPP | `forester_authority` |
+| `create_zone_config` | SPP | `zone_creation_authority`, or any signer if `zone_creation_is_permissionless` |
+| `update_zone_config` / `update_zone_config_owner` | SPP | the `zone_config.authority` |
+| `zone_transact` / `zone_authority_transact` / `merge_zone` / `zone_deposit` | SPP | the zone's `zone_config` PDA (signed by the zone program) |
+| `merge_transact` | SPP | any caller, gated on the owner's `merging_enabled` |
+| `set_merging_enabled` / `set_delegate` / `register` | Registry | the record `owner` |
+| `rotate_sync_delegate_key` | Registry | the current delegate |
+| `revoke_sync_delegate` | Registry | the `owner` or the current delegate |
+
+- `merge_transact` needs no per-user authority: the proof binds the output to the owner's registered keys, so an unfed caller cannot act (see [Merge Service](#merge-service-1)).
+- Zone instructions are authorized by the `zone_config` signature plus an owner + discriminator check, never by re-deriving the PDA (see [Zone Accounts](#zone-accounts)).
+
 # Glossary
 
 Type aliases used in the `struct` definitions throughout this spec. Each is defined once here and referenced by name elsewhere.
 
 | Type | Definition | Description |
 | --- | --- | --- |
-| `PublicKey` | `[u8; 34]` | 1-byte scheme prefix + 33-byte body: a P256 SEC1-compressed point, or an Ed25519 public key. The protocol's scheme-tagged key, used wherever a key may be either curve — UTXO owners (`signing_pk` / `owner_pubkey`). |
+<!-- spelling out the Ed25519 padding: the code enforces a trailing zero byte (pubkey.rs:84-118), which the old "33-byte body" left out. -->
+| `PublicKey` | `[u8; 34]` | 1-byte scheme prefix + 33-byte body: `0x00 ‖ SEC1(33)` for P256, or the canonical `0x01 ‖ key(32) ‖ 0x00` for Ed25519 (the 32-byte key left-justified, the trailing pad byte MUST be `0`). The protocol's scheme-tagged key, used wherever a key may be either curve — UTXO owners (`signing_pk` / `owner_pubkey`). |
 | `P256Pubkey` | `[u8; 33]` | P256 public key, SEC1-compressed. No scheme prefix; used where the key is P256 by construction — viewing / ECDH keys (`tx_viewing_pk`, registry `viewing_pk` / `sync_pk`). |
 | `P256Keypair` | — | A P256 `(secret, public)` keypair; its public half is a `P256Pubkey`. |
 | `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
 | `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
-| `SPPProof` | `[u8; 192]` | Compressed Groth16 proof with commitment. |
+<!-- the transact proof is a rail-tagged enum (transact.rs:5-28): 128 bytes for eddsa, 192 for P256. The flat "[u8;192]" hid the smaller eddsa proof. -->
+| `SPPProof` | tagged / `[u8; 192]` | Compressed Groth16 proof. The `transact` proof is a rail-tagged enum (see [Circuit Combinations](#circuit-combinations)): the Solana-only eddsa rail is vanilla Groth16, 128 bytes (`a[32] ‖ b[64] ‖ c[32]`); the P256 rail adds the BSB22 commitment, 192 bytes (`… ‖ commitment[32] ‖ commitment_pok[32]`). The `merge` proof is a fixed 192-byte blob. |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
@@ -283,7 +361,8 @@ P256's extra `y_is_odd` layer means the two encodings cannot collide except via 
 owner_hash := Poseidon(pk_field(signing_pk), nullifier_pk)
 ```
 
-The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Solana / Ed25519 inputs, SPP supplies it from the verified signer account.
+<!-- pinning nullifier_pk as an opaque field element keeps a future v2 nullifier a one-field swap, instead of an owner_hash change that ripples through every circuit. -->
+The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Solana / Ed25519 inputs, SPP supplies it from the verified signer account. `nullifier_pk` enters `owner_hash` as a single opaque field element: no circuit that hashes an owner unpacks it, so a future [nullifier scheme](#nullifier-key) MAY commit a different key type through one field element without changing this formula, its arity, or any circuit that consumes an owner.
 
 # Signing Key
 
@@ -302,9 +381,12 @@ The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Sol
 
 - `sign(msg) -> Signature` — P256 signature for shielded wallets; Ed25519 signature delegated to the host Solana wallet for Solana-only owners. Used to authorize `private_tx_hash` in the SPP proof (P256: checked by the proof; Ed25519: verified by SPP).
 
+<!-- documents the current scheme and why every prover must hold nullifier_secret (the nullifier is verified by recomputing a hash of it). DOM_SEP_NF_* is reserved for a possible future scheme that would remove that. -->
 # Nullifier Key
 
-Symmetric key to derive nullifiers.
+Symmetric key to derive nullifiers. This is the only scheme implemented. If another
+is ever added (a possible future option), it would be selected by the [registry
+record's](#record) account discriminator, so no record field changes.
 
 `nullifier_secret := HKDF-SHA256(salt=∅, IKM=signing_sk_bytes, info="TSPP/nullifier", L=31)`
 
@@ -314,6 +396,15 @@ Symmetric key to derive nullifiers.
 
 - `nullifier_pk() -> [u8; 32]` — returns `nullifier_pk` (defined above).
 - `nullifier(utxo) -> [u8; 32]` — the UTXO's [nullifier](#nullifier).
+
+**Trust boundary.** Because `nullifier = Poseidon(utxo_hash, blinding,
+nullifier_secret)` is verified by recomputation, every circuit that proves a
+nullifier witnesses `nullifier_secret`. A [server-side prover](#prover-trust) or a
+merge service therefore receives it. `nullifier_pk` does not rotate within a
+[record](#record), so a leak is durable. The domain separators `DOM_SEP_NF_*` are
+reserved for a possible future delegatable scheme (not committed) — a DH-VRF
+nullifier with a DLEQ proof — that would keep the secret in the wallet. See [Prover
+trust](#prover-trust).
 
 # ViewingKey
 
@@ -334,9 +425,15 @@ Secrets derive from `view_root`, an ECDH-derived root, so the viewing key can st
 
 ## Transaction Viewing Key
 
-The transaction viewing key is a single use keypair (ephemeral key) that is deterministically derived for every private transaction.
-Every ciphertext in a transaction is encrypted with HPKE between the transaction viewing key and the ciphertext owner's viewing key.
-This way the transaction viewing key can decrypt both the sender's change and recipient UTXOs of the transaction.
+<!-- merge uses a fresh random ephemeral, not the deterministic derivation (merge.rs:73-78), so the "every private transaction" claim was too broad. -->
+The transaction viewing key is a single-use keypair (ephemeral key). For an
+owner-built [`transact`](#transact) it is deterministically derived per transaction
+(below); the [`merge`](#merge) scheme instead uses a fresh random ephemeral (no
+salt), so this derivation is `transact`-scoped, not universal.
+Each ciphertext in a `transact` is encrypted with the transact scheme (ECDH ->
+HKDF-SHA256 -> AES-256-CTR) between the transaction viewing key and the ciphertext
+owner's viewing key. This way the transaction viewing key can decrypt both the
+sender's change and recipient UTXOs of the transaction.
 
 TODO: evaluate to adapt derivation so that the viewing key can never repeat even in edge cases.
 
@@ -359,7 +456,8 @@ Policy zones hide the recipient, so a wallet cannot find its outputs by owner pu
 
 A recipients wallet cannot pre-derive shared tags for every possible sender. Therefore the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (no coordination required). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use a shared tag (`recipient_shared_view_tag`) to find transaction. `sender → recipient` and `recipient → sender` produce disjoint tags.
 
-**Uniqueness.** View tags should not be reused. `merge_view_tag` (used only by [`merge_zone`](#merge_zone)) is inserted into the nullifier tree by the SPP. For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
+<!-- the tag goes into the queue, not the tree (merge_zone/processor.rs:78), and sharing the nullifier namespace unbound to the proof is the grief vector noted below. -->
+**Uniqueness.** View tags should not be reused. `merge_view_tag` (used only by [`merge_zone`](#merge_zone)) is inserted into the [nullifier queue](#nullifier-queue) by the SPP, sharing the nullifier namespace, so the bloom filter rejects a same-batch duplicate. It is not otherwise bound to the proof (a caller-chosen value sharing the nullifier namespace — a known griefing vector). For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
 
 **Encoding.**  all view tags are constant length 32 bytes. Shorter view tags are prefixed with 0s.
 
@@ -406,8 +504,10 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
     - Derived by: the owner (wallet) and its [sync delegate](#sync-delegate), independently — both derive from `view_root` (see [Derived secrets](#derived-secrets)); the merge service holds no keys and is handed pre-derived values (see [Merge Service](#merge-service-1)).
     - Tx sent by: the zone program (`merge_zone`).
     - Indexed by: the owner.
-    - Counter: a single per-user `merge_count` (`wallet.merge_count`), advanced on every `merge_zone`.
-    - Uniqueness: enforced single-use by SPP — inserted into the nullifier tree on `merge_zone`.
+    <!-- merge_count is per viewing key (viewing_key.rs:172 keys the tag off each key's secret), not a single wallet-wide counter. -->
+    - Counter: a per-viewing-key `merge_count` (on the wallet's `ViewingKeyEntry`, keyed off that key's `merge_view_tag_secret`), advanced on every `merge_zone`. Persistent tracking is not yet built.
+    <!-- again: queue, not tree, matching merge_zone Check 6. -->
+    - Uniqueness: enforced single-use by SPP — inserted into the [nullifier queue](#nullifier-queue) on `merge_zone` (bloom-filter duplicate rejection).
     - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="TSPP/merge_view_tag/" || u64_be(merge_count), L=31)`. The secret `merge_view_tag_secret` already scopes the tag stream per user, so no per-service domain separator is needed; each user enables merging on their registry record.
 
 ### View Tag Selection
@@ -425,18 +525,21 @@ flowchart TD
 
 ## Methods
 
-1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — AES-CTR decryption with key `KDF(ECDH(viewing_sk, tx_viewing_pk))`.
-2. `get_sender_view_tag(tx_count)` — policy-zone anonymous transfers only; tags the sender's own change UTXOs. The default zone tags change by the sender's owner pubkey.
-3. `get_recipient_request_view_tag(request_count)` — used by the recipient to create a view tag for a `PaymentRequest` shared with the sender out-of-band.
-4. `get_send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
-5. `get_recipient_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
-6. `get_merge_view_tag(merge_count)` — used by the merge service when submitting [`merge_zone`](#merge_zone) and by the owner during sync to find those merged outputs.
-7. `get_transaction_viewing_key(first_nullifier: [u8; 32]) -> P256Keypair` — per-transaction P-256 keypair for ECDH encryption to recipients.
+<!-- sync picks the decrypt routine from the scheme byte (sync.rs:606-636). One generic "decrypt" would mis-handle merge outputs, so decrypt_verifiable is listed too. -->
+1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — transact-scheme decryption: AES-256-CTR with key `HKDF-SHA256(ECDH(viewing_sk, tx_viewing_pk), salt, slot)` (see [AES Key derivation](#aes-key-derivation)). Applies to `OutputData::Encrypted` slots.
+2. `decrypt_verifiable(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — merge-scheme decryption: AES-256-CTR with a Poseidon-KDF key (no salt), matching the in-circuit [verifiable encryption](#merge-proof---merge-zk-proof). Applies to `OutputData::VerifiablyEncrypted` slots. Sync dispatches on the `OutputData` scheme discriminator: `Encrypted -> decrypt`, `VerifiablyEncrypted -> decrypt_verifiable`, `Plaintext -> no decryption`; a slot decrypted with the wrong scheme fails the `utxo_hash` recomputation and is skipped.
+3. `get_sender_view_tag(tx_count)` — policy-zone anonymous transfers only; tags the sender's own change UTXOs. The default zone tags change by the sender's owner pubkey.
+4. `get_recipient_request_view_tag(request_count)` — used by the recipient to create a view tag for a `PaymentRequest` shared with the sender out-of-band.
+5. `get_send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
+6. `get_recipient_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
+7. `get_merge_view_tag(merge_count)` — used by the merge service when submitting [`merge_zone`](#merge_zone) and by the owner during sync to find those merged outputs.
+8. `get_transaction_viewing_key(first_nullifier: [u8; 32]) -> P256Keypair` — per-transaction P-256 keypair for ECDH encryption to recipients.
 
 # UTXO
 
 A UTXO (unspent transaction output) represents an amount of an asset in the shielded pool that its owner can spend. 
-UTXO hashes are appended to the UTXO Merkle tree at creation and nullifiers are inserted into the Nullifier tree when a UTXO is spent to prevent double spending. A nullifier can only be inserted once into the nullifier tree.
+<!-- the double-spend guard during the queue window is the bloom filter, not the tree. The old wording skipped that window. -->
+UTXO hashes are appended to the UTXO Merkle tree at creation and nullifiers are inserted into the [nullifier queue](#nullifier-queue) when a UTXO is spent, then folded into the nullifier tree by the forester. A nullifier can be inserted only once: the queue's bloom filters reject a duplicate during the queue window, and the tree holds it thereafter.
 
 Example: Alice transfers 10 USDC to Bob. Alice's starting balance is one 20 USDC UTXO and one 1 SOL UTXO. Fee is 0.0001 SOL.
 
@@ -498,7 +601,8 @@ The SPP proof commits to `utxo_hash` for every input and output. `owner` is the 
 
 ## Nullifier
 
-A nullifier deterministically derives from a UTXO and the recipient's [NullifierKey](#nullifierkey). Insertion into the nullifier tree must succeed only once.
+<!-- says where "insert once" is actually enforced: the queue bloom filter, then the tree. The property was stated with no mechanism. -->
+A nullifier deterministically derives from a UTXO and the recipient's [NullifierKey](#nullifierkey). Insertion must succeed only once, enforced at the [nullifier queue](#nullifier-queue) (bloom-filter duplicate rejection) and then by the tree.
 
 ```
 nullifier    := Poseidon(utxo_hash, utxo_blinding, nullifier_secret)
@@ -530,8 +634,13 @@ dummy: it contributes `0` to the output hash chain. Padding slots beyond the
 sender's change and recipients are dummies too; they hold no value, so their
 `blinding` is freshly random rather than position-derived.
 
-The confidential default zone reveals recipients, so `output_ciphertexts` holds
-only the sender bundle and real recipient slots; dummy output slots get no ciphertext.
+<!-- dummy recipient slots get a same-length random ciphertext (builder.rs:604-618), which hides the real recipient count. The old text said dummies get no ciphertext. -->
+The confidential default zone reveals the recipients that are present but not
+their count: `output_ciphertexts` is fixed-length per shape (`1 +
+(M - SENDER_SLOT_COUNT)`), so a dummy recipient slot carries a same-length random
+dummy ciphertext under a random `view_tag`, aligned to its dummy output. A wallet
+never decrypts it (the `utxo_hash` recomputation fails), but it makes the real
+recipient count indistinguishable from the padded shape.
 
 # Output UTXO Serialization
 
@@ -539,10 +648,13 @@ Output UTXO serialization is the per-output ciphertext layout for shielded
 transactions. Each output's ciphertext lives in its own
 [`OutputUtxo.data`](#transact) slot; SPP does not parse `data`. Serialization is a
 default-zone convention; policy zones can define their own.
-UTXOs are encrypted with ECDH AES-256-CTR, except in the Plaintext Transfer scheme.
-The shared `tx_viewing_pk` and `salt` are transaction-level fields of the
-[transact](#transact) instruction, not part of any per-output payload. Each output
-slot is tagged by its `owner` pubkey.
+<!-- two separate schemes exist — transact (HKDF) and merge (Poseidon-KDF), OutputData tags 0/1/2 in proofless.rs — which the blanket "ECDH AES-256-CTR" ran together. -->
+The `transact` schemes encrypt with ECDH AES-256-CTR (Transfer, UTXO Split), except
+the Plaintext Transfer scheme, which is unencrypted. The [Merge](#merge) scheme uses
+a distinct Poseidon-KDF verifiable encryption, verified in-circuit (see [Merge
+Proof](#merge-proof---merge-zk-proof)). The shared `tx_viewing_pk` and `salt` are
+transaction-level fields of the [transact](#transact) instruction, not part of any
+per-output payload. Each output slot is tagged by its `view_tag`.
 
 Schemes:
 
@@ -653,85 +765,63 @@ struct TransferSenderPlaintext {
 
 ### Instruction Data Layout
 
-The sender serializes a `TransferEncryptedUtxos` bundle, then spreads its
-ciphertexts across the [transact](#transact) instruction's per-output `data`
-slots. `tx_viewing_pk` and `salt` are transaction-level fields of `TransactIxData`,
-shared by every slot. Fields are packed in declaration order; byte vectors are
-prefixed with a `u16_le` length, every other vector with a `u8` count.
-
-```rust
-/// `sender_ciphertext` is a 57-byte plaintext for confidential transfers (when
-/// `data` fields are empty). Each populated data record grows its ciphertext by
-/// `3 + len` bytes. See [UTXO Data](#utxo-data).
-struct TransferEncryptedUtxos {
-    /// Discriminator (TRANSFER).
-    type_prefix: u8,
-    tx_viewing_pk: P256Pubkey,
-    /// Per-transaction CSPRNG salt.
-    salt: [u8; 16],
-    /// Sender change bundle ciphertext. Tagged by the sender's `owner` pubkey
-    /// in the transact instruction data.
-    sender_ciphertext: Vec<u8>,
-    /// One per recipient.
-    recipient_slots: Vec<RecipientSlot>,
-}
-```
-
-#### Recipient slot
-
-```rust
-/// `ciphertext` is a 48-byte recipient plaintext for confidential transfers
-/// (plus `3 + len` per populated data record).
-struct RecipientSlot {
-    /// Recipient's signing pubkey — the indexing tag. The confidential proof
-    /// binds it to the output UTXO; the anonymous proof leaves it free (a view tag).
-    owner: [u8; 32],
-    ciphertext: Vec<u8>,
-}
-```
+<!-- there is no TransferEncryptedUtxos type. tx_viewing_pk and salt live on TransactIxData (transact.rs:77,81), not per output as the old struct implied. -->
+The sender encrypts each plaintext directly into
+the `data` field of an [`OutputCiphertext`](#transact) and places the slots in
+`TransactIxData.output_ciphertexts`: `[0]` is the sender change bundle (a 57-byte
+plaintext when both `data` fields are empty), `[1 + i]` is recipient `i` (a 48-byte
+plaintext) or a dummy. `tx_viewing_pk` and `salt` are transaction-level fields of
+`TransactIxData`, shared by every slot. The per-slot
+`view_tag` is the indexing tag: the confidential proof binds it to the output UTXO;
+the anonymous proof leaves it free. Each populated data record grows its ciphertext
+by `3 + len` bytes (see [UTXO Data](#utxo-data)).
 
 #### Output slot mapping
 
 The output commitments and the ciphertexts travel in two separate transact vectors.
+<!-- output_ciphertexts is fixed-length with dummy padding (builder.rs:604). The old "length 1+R" leaked the recipient count. This also fixes the dead #aes-nonce-derivation link. -->
 `output_utxo_hashes` holds one `utxo_hash` per output position in tree-append order
 (`0` SPL change, `1` SOL change, `2 + i` recipient `i`/dummy). `output_ciphertexts` is
-the ciphertext side, length `1 + R` for `R` real recipients. `SENDER_SLOT_COUNT = 2`
+the ciphertext side, fixed length `1 + MAX_RECIPIENTS`. `SENDER_SLOT_COUNT = 2`
 is the number of leading change positions the bundle covers (SPL + SOL change), and
 `MAX_RECIPIENTS = M - SENDER_SLOT_COUNT` is the number of recipient slots the shape
 allows:
 
-- `output_ciphertexts[0]` is `sender_ciphertext` under the sender's `owner` pubkey (AES
+- `output_ciphertexts[0]` is `sender_ciphertext` under the sender's `view_tag` (AES
   slot index `0`); the bundle covers both change outputs (positions
   `0..SENDER_SLOT_COUNT`), so the SOL change has no ciphertext of its own.
 - `output_ciphertexts[1 + i]` is the slot for output position `SENDER_SLOT_COUNT + i`
-  (AES slot index `1 + i`; see [AES Nonce derivation](#aes-nonce-derivation)): a real
-  recipient ciphertext under its own `owner` pubkey. Dummy output positions get no
-  ciphertext, so the vector length is `1 + R` for `R` real recipients.
+  (AES slot index `1 + i`; see [AES Key derivation](#aes-key-derivation)): a real
+  recipient ciphertext under its own `view_tag`, or, for a dummy output position, a
+  same-length random dummy ciphertext under a random `view_tag`. The vector length is
+  therefore constant per shape (`1 + MAX_RECIPIENTS`) and does not reveal the real
+  recipient count.
 
 The logged `GeneralEvent` keeps one entry per output position, pairing
 `output_utxo_hashes[i]` with the ciphertext that covers position `i` (the bundle for
-`0`, empty for the remaining change positions and for dummy recipient positions,
-`output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for a real recipient at
-`i >= SENDER_SLOT_COUNT`).
+`0`, empty for the remaining change positions,
+`output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for each recipient position at
+`i >= SENDER_SLOT_COUNT`, real or dummy).
 
 #### Sizes
 
-`R` = number of real recipient slots. An encrypted transfer carries one slot per real
-recipient (no dummy padding), so its on-instruction size grows with `R`.
-The table below gives the size as a function of the slot count `R`.
+<!-- padding makes the size fixed per shape, so "grows with R" was wrong. It is 110+82·MAX_RECIPIENTS. -->
+Dummy recipient slots are padded to the same length as real ones (above), so the
+confidential transfer's on-instruction size is fixed per circuit shape and `MAX_RECIPIENTS = M - SENDER_SLOT_COUNT` is the
+recipient-slot count of the shape.
 
-Total: `110 + 82·R` bytes. Example with a single recipient slot: `R = 1`, total `192`.
+Total: `110 + 82·MAX_RECIPIENTS` bytes for confidential transfers with every `data`
+field empty (`count = 0`). Each populated record adds `3 + len` bytes (u8 tag +
+u16_le len + payload) to its plaintext and the same to the ciphertext.
 
-Blob size by slot count:
+Blob size by shape (`MAX_RECIPIENTS`):
 
-| R | Bytes |
+| MAX_RECIPIENTS | Bytes |
 | --- | --- |
 | 1 | 192 |
 | 2 | 274 |
 | 4 | 438 |
 | 8 | 766 |
-
-Sizes assume confidential transfers with every `data` field empty (`count = 0`). Each populated record adds `3 + len` bytes (u8 tag + u16_le len + payload) to its plaintext and the same to the ciphertext.
 
 ## Plaintext Transfer
 
@@ -925,7 +1015,8 @@ output_ciphertext(c) := c.owner || u16_be(c.data.len()) || c.data
 | Check | Description |
 | --- | --- |
 | Owner hash binding (per input) | The recomputed `owner_hash` (see [Shielded Address](#shielded-address)) must equal the input's `owner`, the value hashed into `utxo_hash` for the inclusion check. |
-| UTXO Ownership | Spent input UTXOs must be authorized by their owner. `solana_owner_pk_hashes[i]` selects the input's path: `0` → owner binds to `pk_field(signing_pk)`, authorized by the one P256 signature over `private_tx_hash`; non-zero → owner binds to the entry, and SPP verifies the account named in `in_utxo_signer_indices` is a transaction signer. Ed25519 owners may differ per input; P256-owned inputs share the one witnessed `signing_pk`. The Solana-only [variant](#circuit-variants) forces every real input onto the non-zero path. See [UTXO Ownership Check](#utxo-ownership-check). |
+| UTXO Ownership | Spent input UTXOs must be authorized by their owner. `solana_owner_pk_hashes[i]` selects the input's path: `0` → owner binds to `pk_field(signing_pk)`, authorized by the one P256 signature over `private_tx_hash`; <!-- the field is InputUtxo.eddsa_signer_index (transact.rs:49). in_utxo_signer_indices doesn't exist. -->
+non-zero → owner binds to the entry, and SPP verifies the account named by the input's `eddsa_signer_index` is a transaction signer. Ed25519 owners may differ per input; P256-owned inputs share the one witnessed `signing_pk`. The Solana-only [variant](#circuit-variants) forces every real input onto the non-zero path. See [UTXO Ownership Check](#utxo-ownership-check). |
 | Inclusion | Each spent input UTXO must be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
 | Nullifier secret binding (per input) | The input's `nullifier_pk` (see [Nullifier Key](#nullifier-key)) is recomputed from its `nullifier_secret` witness and enters the input's recomputed [owner hash](#shielded-address). |
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
@@ -935,12 +1026,13 @@ output_ciphertext(c) := c.owner || u16_be(c.data.len()) || c.data
 | Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals and fees. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, address utxo hash chain, external data hash)`. Dummy inputs and outputs contribute `0` to the input and output chains, so the hash covers only real state; their real hashes still enter the public `output_utxo_hashes` and nullifier inputs. The address chain contains each address slot's `utxo_hash` (`0` elsewhere).<br>The owner signs this value; the ECDSA message digest `SHA-256(private_tx_hash)` is computed outside the circuit and bound by the `private_tx_hash_digest` public input (see [UTXO Ownership Check](#utxo-ownership-check)). SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
 | UTXO data | There is no program ownership: every real input takes the owner-signature path. `utxo_data` may sit on any UTXO; `data_hash` enters `utxo_hash` unchecked, so the owner signature over `private_tx_hash` authorizes any output that sets it. Zone programs additionally authorize spends of their zone (`zone_program_id`) via a PDA signer; policy proofs are checked by the zone program before CPI into SPP. |
-| Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. A dummy has `owner = 0` (an input's owner key, an output's `owner_hash`): permanently unspendable, so a real spend never has it. Ownership, inclusion, nullifier-secret-binding, nullifier, and balance checks are skipped for dummy UTXOs. The fixed shape is public — SPP inserts every input nullifier into the nullifier tree and appends every output hash to the UTXO tree — so a dummy's nullifier and `utxo_hash` must be indistinguishable from a real UTXO's and pairwise distinct, hiding the real input and output counts. A dummy output is an [empty UTXO](#empty-utxo) and gets no ciphertext (see [Empty UTXO](#empty-utxo)). A dummy input derives its [nullifier](#nullifier) over a random `blinding` with `nullifier_secret = 0`, the blinding being its sole source of unpredictability.<br>An input dummy with a non-zero `data_hash` is instead an **address slot**: an owner-signed account whose nullifier is its address. It sets `owner = owner_hash` rather than `0`, pins `amount` and the non-seed fields to `0`, and derives and constrains its nullifier (over the owner's `nullifier_secret`) like a real spend; SPP inserts it, so the nullifier tree enforces uniqueness. Unlike a padding dummy, it contributes its `utxo_hash` to the `private_tx_hash` address chain, so the owner signature covers it.<br>A padding dummy input's public `nullifier` and `utxo_tree_root` / `nullifier_tree_root` are **not** covered by the owner signature: the checks above are skipped and it contributes `0` to `private_tx_hash`, so the signed digest `SHA-256(private_tx_hash)` excludes them. The sender fixes them when signing; they are part of the signed transaction, and SPP still inserts the nullifier and reads each root by index. This holds because the sender builds the whole proof witness; no untrusted party sits between signing and proving. A re-prover can at most swap one random dummy nullifier for another (every real input, output, amount, and recipient stays signed); the worst case is a self-reverting duplicate-nullifier insertion, which cannot change real state. |
+| Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. A dummy has `owner = 0` (an input's owner key, an output's `owner_hash`): permanently unspendable, so a real spend never has it. Ownership, inclusion, nullifier-secret-binding, nullifier, and balance checks are skipped for dummy UTXOs. The fixed shape is public — SPP inserts every input nullifier into the nullifier tree and appends every output hash to the UTXO tree — so a dummy's nullifier and `utxo_hash` must be indistinguishable from a real UTXO's and pairwise distinct, hiding the real input and output counts. A dummy output is an [empty UTXO](#empty-utxo) and gets no ciphertext (see [Empty UTXO](#empty-utxo)). A dummy input derives its [nullifier](#nullifier) over a random `blinding` with `nullifier_secret = 0`, the blinding being its sole source of unpredictability.<br>An input dummy with a non-zero `data_hash` is instead an **address slot**: an owner-signed account whose nullifier is its address. It sets `owner = owner_hash` rather than `0`, pins `amount` and the non-seed fields to `0`, and derives and constrains its nullifier (over the owner's `nullifier_secret`) like a real spend; SPP inserts it, so the nullifier tree enforces uniqueness. Unlike a padding dummy, it contributes its `utxo_hash` to the `private_tx_hash` address chain, so the owner signature covers it.<br>A padding dummy input's public `nullifier` and `utxo_tree_root` / `nullifier_tree_root` are **not** covered by the owner signature: the checks above are skipped and it contributes `0` to `private_tx_hash`, so the signed digest `SHA-256(private_tx_hash)` excludes them. The sender fixes them when signing; they are part of the signed transaction, and SPP still inserts the nullifier and reads each root by index. <!-- with server-side proving there is a party between signing and submission, so this is scoped to client-side, and the prover's reach is bounded anyway. -->
+When the sender builds the whole proof witness (client-side proving) no other party is involved; a [server-side prover](#prover-trust) does sit between signing and submission, but even it can at most swap one random dummy nullifier for another (every real input, output, amount, and recipient stays signed), and the worst case is a self-reverting duplicate-nullifier insertion, which cannot change real state. |
 
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
 1. P256 signature over `private_tx_hash` verified in the SPP proof; the same point recomputes `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). The hash covers every input, every output, and the external-data hash, so the proof cannot be replayed with different state. The SHA-256 message digest is computed **outside** the circuit: SPP recomputes `private_tx_hash_digest = SHA-256(private_tx_hash)` on-chain from the `private_tx_hash` public input and feeds it to the proof, which verifies the ECDSA signature against the digest using only EC arithmetic. Binding holds across the public inputs — the proof recomputes `private_tx_hash` from the private input/output hash chains and asserts it equals the `private_tx_hash` public input, SPP asserts `private_tx_hash_digest = SHA-256(private_tx_hash)`, and the proof asserts the signature verifies against `private_tx_hash_digest`.
-2. Ed25519 Solana signer checked by SPP. The non-zero entry in the public `solana_pk_hashes` array tells the circuit to skip the P256 signature check on the input and bind the input's owner to the SPP-derived `pk_field`; SPP separately reads `in_utxo_signer_indices` from instruction data and verifies the named 32-byte Solana account is a signer of the transaction. The nullifier-secret binding is still checked by the proof for these inputs.
+2. Ed25519 Solana signer checked by SPP. The non-zero entry in the public `solana_pk_hashes` array tells the circuit to skip the P256 signature check on the input and bind the input's owner to the SPP-derived `pk_field`; SPP separately reads each input's `eddsa_signer_index` from instruction data and verifies the named 32-byte Solana account is a signer of the transaction. <!-- same field-name fix. --> The nullifier-secret binding is still checked by the proof for these inputs.
 
 <a id="circuit-variants"></a>
 **Circuit Combinations**
@@ -951,18 +1043,34 @@ Each is instantiated again on an owner-tag axis: a confidential variant that exp
 
 A third axis selects a zone-capable instantiation at compile time. The non-zone (default) variant pins every UTXO's zone fields to `0`. The zone variant binds each non-dummy input and output UTXO to the public `zone_program_id` when set: a UTXO whose `zone_program_id` is non-zero must equal the public `zone_program_id`, while a bare UTXO with `zone_program_id = 0` is exempt. The `zone_program_id` binding and non-zero `zone_data` are gated to the zone variant. Policy zones are anonymous, hiding the recipient behind a view tag, so there is no confidential zone variant: zone pairs only with the anonymous owner-tag variant.
 
+<!-- reserving a nullifier-scheme axis next to the rail / owner-tag / zone axes, so a v2 scheme drops in as another compile-time variant. -->
+A nullifier-scheme axis is reserved in case it is ever needed. Every current
+instantiation uses the [Poseidon nullifier](#nullifier-key). A possible future
+delegatable scheme — an option, not a committed plan — would add a variant, selected
+by the spending note's [record discriminator](#record), that verifies a DH-VRF
+nullifier via an in-circuit DLEQ check instead of recomputing the Poseidon hash from
+`nullifier_secret`.
+
 | Circuit | Use | Shape | Variants |
 | --- | --- | --- | --- |
 | 1 in 1 out | Re-randomize a single UTXO | 1 input UTXO, 1 output UTXO of the same owner, asset, and amount with fresh blinding; transaction fees are paid by the payer | P256, Solana-only |
-| 1 in 2 out | Single-input transfer | 1 sender input UTXO, 1 recipient output, 1 change output; transaction fees are paid by the payer | P256, Solana-only |
+<!-- all ten shapes are implemented (shape.go:21-32), so "2-in-3-out only" was stale. And 1-in-2-out has no recipient slot (M=2 = SENDER_SLOT_COUNT), so it isn't a transfer. -->
+| 1 in 2 out | Single-input, no recipient | 1 sender input UTXO, 2 change outputs (SPL, SOL); no recipient slot (see note). Transaction fees are paid by the payer | P256, Solana-only |
 | 2 in 2 out | Deposit with merge | 1 SOL fee UTXO + 1 existing SPL UTXO in; 1 SPL output (existing balance + new deposit), 1 SOL change output | P256, Solana-only |
-| 2 in 3 out | Single-input transfer with fee UTXO (currently the only implemented shape) | 1 SOL fee UTXO, 1 sender input UTXO, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
+| 2 in 3 out | Single-input transfer with fee UTXO | 1 SOL fee UTXO, 1 sender input UTXO, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 3 in 3 out | Standard transfer | 1 SOL fee UTXO, 2 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 4 in 3 out | Multi-input transfer | 1 SOL fee UTXO, 3 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 4 in 4 out | Multi-input transfer, two recipients | 1 SOL fee UTXO, 3 sender input UTXOs, 2 recipient outputs, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 5 in 3 out | Higher concurrency | 1 SOL fee UTXO, 4 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 5 in 4 out | Higher concurrency, two recipients | 1 SOL fee UTXO, 4 sender input UTXOs, 2 recipient outputs, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 1 in 8 out | Split UTXO | Split 1 UTXO into up to 8 equal parts; equal parts reduce encrypted data | P256, Solana-only |
+
+All ten shapes are implemented (both rails). The circuit is slot-agnostic, but the
+SDK output-slot convention reserves positions `0`/`1` for SPL/SOL change
+(`SENDER_SLOT_COUNT = 2`), so recipient outputs start at position `2` and a shape
+carries `MAX_RECIPIENTS = M - SENDER_SLOT_COUNT` recipient slots. Shapes with
+`M <= 2` (`1 in 2 out`, `2 in 2 out`) therefore carry no recipient under the current
+SDK and are used for deposit/merge/re-randomize flows, not transfers.
 
 **Zone-authority instantiation.** A separate instantiation proves no owner authorization at all: it is the Solana-only zone variant (no P256 gadget, no in-circuit signature) and keeps every input owner `pk_field` private (omitted from the public input hash). Each input owner is an opaque field element hashed into `owner_hash` exactly like the merge circuit, so both P256- and Ed25519-owned UTXOs can be spent — the prover supplies the owner `pk_field` directly and the proof never checks ownership. The only in-circuit binding is `nullifier_secret` knowledge through `owner_hash`; authorization is the `zone_config` PDA signer plus the zone program's own policy, requiring `zone_authority_transact_is_enabled` set (instruction `zone_authority_transact`). It pairs only with the anonymous owner-tag variant. Because owners do not authorize the spend, value cannot leave the zone here: the public `zone_program_id` is pinned non-zero and **every** non-dummy input *and* output `zone_program_id` must equal it (strict binding, no zero exemption). A default-zone UTXO can neither be spent nor created, so the authority cannot move funds out of the policy zone without an owner-signed path. Supported shapes:
 
@@ -978,7 +1086,14 @@ A third axis selects a zone-capable instantiation at compile time. The non-zone 
 
 ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. The proof references no authority; the SPP program only checks that the user's registry record has `merging_enabled == true` (see [`merge_transact`](#merge_transact)).
 
-**Requirement.** The circuit must NOT take any wallet secret as a witness input.
+<!-- the merge circuit does witness the nullifier secret (spp_merge/circuit.go:64), so "no wallet secret" contradicted the code. Changed to no signing secret. -->
+**Requirement.** The circuit MUST NOT take a *signing* secret as a witness (there
+is no in-circuit signature on either rail; only the owner's public signing key point
+is witnessed). It does witness the `nullifier_secret`, because the current nullifier
+scheme derives from it (see [Nullifier Key](#nullifier-key)); whoever builds the
+merge proof therefore holds that secret. That trust boundary is documented under
+[Prover trust](#prover-trust), and a future scheme that removes the requirement is
+noted there.
 
 **Public Inputs**
 
@@ -990,8 +1105,10 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
 | private_tx_hash | instruction data |
 | external_data_hash | instruction data. SPP recomputes it from the `merge_transact` instruction and checks it matches this public input. Its own public input for the same reason as in the [SPP Proof](#spp-proof---solana-privacy-zk-proof): SPP cannot recompute `private_tx_hash` (it covers the private input UTXO hashes), so the proof must expose `external_data_hash` to bind it to the instruction. |
-| pk_field(user_signing_pk) | owner identity; derived by SPP from the registry record by the rail the `merge_transact` `eddsa_owner` flag selects: `pk_field(owner_p256)` for a P256 owner, or `pk_field` of the registry account `owner` (the ed25519 signing key) for a Solana owner. The proof computes the same `pk_field` in its public input hash, so it fails unless they match. Stands in for `owner_hash` as the public identifier. |
-| pk_field(user_viewing_pk) | derived by SPP from `user_record.viewing_pubkey`. The proof computes the same `pk_field`, so the output is provably encrypted to the owner's registered viewing key. |
+<!-- on the merge_zone path SPP folds zone_program_id instead of these two pk_field rows (merge_zone/processor.rs:57-68, separate VK), so they're scoped to merge_transact. -->
+| pk_field(user_signing_pk) | **`merge_transact` only.** Owner identity; derived by SPP from the registry record by the rail the `eddsa_owner` flag selects: `pk_field(owner_p256)` for a P256 owner, or `pk_field` of the registry account `owner` (the ed25519 signing key) for a Solana owner. The proof computes the same `pk_field` in its public input hash, so it fails unless they match. Stands in for `owner_hash` as the public identifier. On [`merge_zone`](#merge_zone) SPP supplies neither `pk_field` row; owner identity comes only from the witnessed signing key binding the inputs' `owner`, and `zone_program_id` is folded instead (separate verifying key). |
+| pk_field(user_viewing_pk) | **`merge_transact` only.** Derived by SPP from `user_record.viewing_pubkey`. The proof computes the same `pk_field`, so the output is provably encrypted to the owner's registered viewing key. |
+| zone_program_id | **[`merge_zone`](#merge_zone) only.** `pk_field` of the CPI caller's zone program (from the signing `zone_config`), folded into the public-input hash in place of the two `pk_field` rows above. |
 | tx_viewing_pk | instruction data (from the merge ciphertext blob) |
 | ciphertext_hash | `Poseidon` over the ciphertext, recomputed by SPP from the blob's `ciphertext`. Replaces exposing the raw ciphertext and is the integrity binding in place of a tag. |
 
@@ -1037,7 +1154,8 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Input cleanliness — zone fields | For `merge_transact` (default-zone merge service): each non-dummy input UTXO additionally has `zone_program_id = 0` and `zone_data_hash = 0`. For [`merge_zone`](#merge_zone) (policy-CPI merge): the non-dummy inputs share a `zone_program_id` that matches the CPI caller; `zone_data` is constrained by the zone program's own logic, not by SPP. |
 | Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_owner_hash`, `data_hash = 0`. For `merge_transact`: `zone_program_id = 0` and `zone_data_hash = 0`. For `merge_zone`: `zone_program_id` matches the CPI caller and `zone_data` is the value the zone program sets (constrained by its own proof). |
 | Private transaction hash | `private_tx_hash` as defined in [SPP Proof](#spp-proof---solana-privacy-zk-proof). It covers every input, the output, and the external-data hash, so the proof cannot be replayed with different state. |
-| Plaintext binding | `Poseidon(plaintext) == output_utxo_hash`. |
+<!-- the binding is by shared witness (spp_merge/encryption.go:44,63-70), not a Poseidon(plaintext)==hash equation. The old formula was a bad shorthand. -->
+| Plaintext binding | The encrypted plaintext (`amount`, `asset`, `blinding`) is laid out from the same witness variables that feed `output_utxo_hash`, so a passing proof binds the ciphertext to the output UTXO without a separate `Poseidon(plaintext)` equation. |
 | Keypair consistency | `tx_viewing_pk == tx_viewing_sk · G_P256`. |
 | Verifiable encryption | The public `ciphertext_hash` equals `Poseidon` over `ciphertext = AES-256-CTR(aes_key, nonce, plaintext)`, where `(aes_key, nonce)` are derived by the Poseidon KDF below from `tx_viewing_sk` and `user_viewing_pk`. There is no tag; integrity comes from `ciphertext_hash` plus the plaintext-to-output binding. |
 
@@ -1091,7 +1209,8 @@ The merged output's hash and ciphertext carry no merge-service fields; the outpu
 
 | Account | Description |
 | --- | --- |
-| Tree account | Contains the nullifier tree (`light-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=26). |
+<!-- the UTXO tree is H=32 (POOL_UTXO_HEIGHT / STATE_HEIGHT), not H=26. And there is a single tree today, so tree_index is reserved. -->
+| Tree account | Co-locates the nullifier tree (`light-batched-merkle-tree`, H=40), its input queue (see [Nullifier queue](#nullifier-queue)), and the UTXO tree (sparse Merkle tree, H=32). The protocol currently runs a single Tree account; `InputUtxo.tree_index` is [reserved](#transact). |
 | SPL interface vault | Per-mint SPL / Token-22 vault holding all shielded SPL tokens. |
 | Asset registry | PDA derived from the mint, set at `create_spl_interface` time. Stores the `asset_id: u64` assigned to that mint (used as the compact asset identifier inside UTXOs and ciphertexts). `asset_id = 1` is reserved for native SOL and has no `Asset registry` entry; SPL mints get `asset_id ≥ 2`. |
 | Asset counter | One global account per program, holding the monotonic `next_asset_id: u64`. Initialized to `2` (since `1` is reserved for SOL) and incremented on each `create_spl_interface`. |
@@ -1121,6 +1240,46 @@ struct ProtocolConfig {
 When a `*_is_permissionless` flag is set, any signer may call the corresponding
 creation instruction; otherwise the transaction signer must equal the matching
 creation authority.
+
+<!-- the word "bloom" appeared nowhere in the spec, yet this filter (batch.rs:289-320, bloom-filter/src/lib.rs, merkle_tree.rs zero_out_roots) is what every replay/dummy argument quietly depends on. -->
+### Nullifier queue
+
+The nullifier tree (H=40) is updated only in batches by the forester
+([`batch_update_nullifier_tree`](#instructions)), so a freshly spent nullifier is
+not yet in any tree root when the next transaction is built. The **input queue**
+closes that window. It is inherited verbatim from
+[`light-batched-merkle-tree`](https://github.com/Lightprotocol/light-protocol/tree/main/program-libs/batched-merkle-tree)
+and is the protocol's double-spend guard between a spend and its fold into the tree.
+
+The queue holds two alternating batches (`NUM_BATCHES = 2`), each with an inline
+keccak **bloom filter** (`BLOOM_FILTER_CAPACITY = 4_603_072` bits,
+`BLOOM_FILTER_NUM_HASHES = 10`, `BATCH_SIZE = 30_000`; false-positive rate ≈ 1e-12).
+On every spend SPP inserts each nullifier into the current batch's filter:
+
+1. Insertion MUST fail if the value is already present in the current batch (all
+   probed bits set → `BloomFilterError::Full`) or in the other batch
+   (`check_non_inclusion` → `NonInclusionCheckFailed`). Either failure aborts the
+   whole instruction, so Solana rolls back the outputs already appended.
+2. The circuit's nullifier non-inclusion check proves absence only against a *tree*
+   root (the already-folded set); the queue's bloom filters cover the not-yet-folded
+   set. Together they leave no gap.
+
+**Bloom-zeroing / root ordering.** A batch's filter can be reused only after its
+values are folded into the tree and the stale roots that could still prove their
+non-inclusion are gone. The forester enforces this order: it zeroes every
+root-history entry old enough to prove a folded nullifier's non-inclusion **before**
+zeroing that batch's filter (`zero_out_roots` runs inside
+`zero_out_previous_batch_bloom_filter`), and root lookup rejects a zeroed root. There
+is therefore never a moment when a nullifier is both un-guarded by a filter and
+provable-absent against a live root.
+
+**What is NOT enforced.** Bloom rejection is probabilistic in the false-positive
+direction only: an honest, never-spent nullifier MAY be spuriously rejected
+(~ 1e-12 per spend), a liveness event the client retries; a truly-spent nullifier is
+never accepted, so soundness is unconditional. Reuse of a *view tag* inserted into
+the queue ([`merge_view_tag`](#merge-view-tag)) after its filter is zeroed is
+accepted on-chain and instead surfaces as a forester liveness failure (the batcth ZKP
+becomes unprovable).
 
 ### Authority Governance
 
@@ -1180,8 +1339,8 @@ Usage by instruction:
 | --- | --- |
 | transact | Tag 0; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
 | deposit | Tag 1; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`deposit`](#deposit). |
+<!-- dropped the stale "zone_deposit Tag 1" row that collided with deposit. The real zone_deposit is Tag 15 (tag.rs). -->
 | zone_transact | Tag 2; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the zone auditor key and the recipient keys named in the policy proof |
-| zone_deposit | Tag 1; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`deposit`](#deposit). |
 | zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
 | create_spl_interface | Tag 4; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
 | create_tree | Tag 5; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
@@ -1195,6 +1354,9 @@ Usage by instruction:
 | merge_zone | Tag 13; CPI from a zone program; consolidates N input UTXOs (same owner, same asset, same `zone_program_id`) into one output UTXO that preserves `zone_program_id`. Mirrors `merge_transact` for policy-zone UTXOs. The zone program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | emit_event | Tag 14; no-op carrying event bytes in instruction data; SPP self-CPI only. |
 | zone_deposit | Tag 15; policy-zone analog of `deposit`; public deposit creating a zone-owned UTXO, authorized by the zone's `zone_config` signer. See [`zone_deposit`](#zone_deposit). |
+<!-- the table stopped at 15. Adding create_asset_counter=16 and batch_update_nullifier_tree=51 (tag.rs:19,21), where 51 is deliberately outside 0..16. -->
+| create_asset_counter | Tag 16; initializes the global `Asset counter` (`next_asset_id`), a prerequisite for `create_spl_interface`. |
+| batch_update_nullifier_tree | Tag 51; forester-only (gated by `protocol_config.forester_authority`); folds a full input-queue batch into the nullifier tree with a ZKP and zeroes the spent batch's bloom filter. Tag is deliberately outside the `0..=16` range. See [Nullifier queue](#nullifier-queue). |
 
 ### `transact`
 
@@ -1208,36 +1370,25 @@ Usage by instruction:
 | --- | --- | --- | --- | --- |
 | 1 | payer |   | x | user, or an optional relayer (transfer/withdraw) |
 | 2 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
+<!-- the table listed only payer+tree. Adding the conditional settlement accounts and the trailing program account for the emit_event self-CPI (transact/account.rs). -->
+| 3.. | settlement (conditional) | x/  |   | present only when the tx carries a public amount. SOL: `sol_interface` (writable custody PDA), `recipient` (writable), `system_program`. SPL: `cpi_authority` (withdraw only), `vault`/`spl_token_interface` (writable per-mint PDA), `recipient`, `user_token_account`, `token_program` |
+| last | program_id |   |   | the SPP program account, for the [`emit_event`](#instructions) self-CPI |
+
+A pure shielded transfer passes only `payer`, `tree_account`, and `program_id`. Ed25519 owners additionally appear as transaction signers, referenced by each input's `eddsa_signer_index`.
 
 **Instruction data**
 
 `M` = number of output UTXOs, `N` = number of spent inputs.
 
 ```rust
-struct InputUtxo {
-    /// Nullifier of the spent input; inserted into the nullifier queue.
-    nullifier_hash: [u8;32],
-    /// Index into the root cache of the input's nullifier tree.
-    nullifier_tree_root_index: u16,
-    /// Index into the root cache of the input's UTXO tree.
-    utxo_tree_root_index: u16,
-    /// Account index of the input's tree; 255 means the output tree.
-    tree_index: u8,
-    /// Account index of the input's Ed25519 signer; 255 when P256-owned.
-    eddsa_signer_index: u8,
-}
-
-struct OutputCiphertext {
-    /// Owner's signing pubkey — the indexing tag. The confidential proof binds
-    /// it to the output UTXO; the anonymous proof leaves it free (a view tag).
-    owner: [u8;32],
-    /// Not parsed by the program. Layout per Output UTXO Serialization,
-    /// encrypted or [Plaintext Transfer](#plaintext-transfer).
-    data: Vec<u8>,
-}
-
+// From transact.rs:63-106. Proof is a TransactProof enum. Amounts are signed
+// i64, where the sign is the direction, since u64 can't express a withdraw. It
+// adds the p256_signing_pk_field the spec omitted, uses view_tag not owner, and
+// makes output_ciphertexts fixed-length.
+/// Fields are packed in wincode declaration order. Element vectors (`inputs`,
+/// `output_utxo_hashes`, `output_ciphertexts`) carry a `u8` length prefix; the
+/// per-ciphertext `data` byte vector carries a `u16` prefix.
 struct TransactIxData {
-    proof: SPPProof,
     /// Unix timestamp in seconds.
     expiry_unix_ts: u64,
     /// Zero on deposit (payer = user).
@@ -1246,38 +1397,74 @@ struct TransactIxData {
     /// SPP cannot recompute it (it covers the private input UTXO hashes), so it
     /// is supplied directly rather than derived on-chain.
     private_tx_hash: [u8; 32],
+    /// Confidential P256 variant: the shared owner `pk_field` of the P256
+    /// signing key, exposed as a public input so the circuit routes P256-owned
+    /// inputs by equality. `None` on the eddsa rail (folded as `0`).
+    p256_signing_pk_field: Option<[u8; 32]>,
+    /// Shared `tx_viewing_pk` for every output ciphertext. Copied verbatim into
+    /// the logged `GeneralEvent` so an indexer need not parse the per-output
+    /// `data`. Always present.
+    tx_viewing_pk: P256Pubkey,
+    /// Shared AES `salt` for every output ciphertext (see [AES Key
+    /// derivation](#aes-key-derivation)). Stored at the transaction level
+    /// alongside `tx_viewing_pk` and copied verbatim into the logged
+    /// `GeneralEvent`, so a wallet derives the per-slot key/nonce without parsing
+    /// the per-output `data`. Always present.
+    salt: [u8; 16],
+    /// Rail-tagged Groth16 proof (see [`SPPProof`](#glossary)): 128-byte eddsa
+    /// or 192-byte P256 form.
+    proof: TransactProof,
     inputs: Vec<InputUtxo>,
-    /// `Some` for deposit/withdraw SOL, `None` for shielded transfer.
-    public_sol_amount: Option<u64>,
-    /// `Some` for deposit/withdraw SPL, `None` for shielded transfer.
-    public_spl_amount: Option<u64>,
+    /// Signed public amount: positive is a deposit into the pool, negative a
+    /// withdraw. `None` for a pure shielded transfer. The sign conveys the
+    /// direction, and the magnitude is proof-bound (see [`transact`](#transact)).
+    public_sol_amount: Option<i64>,
+    public_spl_amount: Option<i64>,
     /// `None` for default-zone `transact`; a zone or co-proof sets a tx-level
     /// digest of its inputs, hashed into `external_data_hash` (see
     /// [external_data_hash](#external_data_hash)). Not the per-UTXO fields of the
     /// same name in [`utxo_hash`](#utxo-hash).
     data_hash: Option<[u8; 32]>,
     zone_data_hash: Option<[u8; 32]>,
-    /// Shared `tx_viewing_pk` for every output ciphertext. Copied verbatim into
-    /// the logged `GeneralEvent` so an indexer need not parse the per-output
-    /// `data`. Always present.
-    tx_viewing_pk: P256Pubkey,
-    /// Shared AES `salt` for every output ciphertext (see [AES Nonce
-    /// derivation](#aes-nonce-derivation)). Stored at the transaction level
-    /// alongside `tx_viewing_pk` and copied verbatim into the logged
-    /// `GeneralEvent`, so a wallet derives the per-slot key/nonce without parsing
-    /// the per-output `data`. Always present.
-    salt: [u8; 16],
     /// All `M` output UTXO commitments in tree-append order (SPL change, SOL
     /// change, then recipients / dummies). Appended to the UTXO tree and folded
     /// into the proof's output hash chain. Dummy outputs carry a real-looking
     /// hash, so this vector does not reveal the recipient count.
     output_utxo_hashes: Vec<[u8; 32]>,
-    /// Length `1 + R` for `R` real recipients. `[0]` is the sender bundle (covers
-    /// the change positions `0..SENDER_SLOT_COUNT`); its `owner` is the sender's
-    /// signing pubkey, bound to the change outputs by the proof. `[1..]` are the
-    /// slots for the real recipients at positions `SENDER_SLOT_COUNT..`, each a
-    /// recipient ciphertext under its `owner` pubkey (see [Sender](#sender)).
+    /// Fixed length `1 + (M - SENDER_SLOT_COUNT)`. `[0]` is the sender bundle
+    /// (covers change positions `0..SENDER_SLOT_COUNT`). `[1..]` are the
+    /// recipient slots, each a real recipient ciphertext or a same-length dummy
+    /// under a random `view_tag`, so the vector length is constant per shape and
+    /// the real recipient count is hidden (see [Sender](#sender), [Empty
+    /// UTXO](#empty-utxo)).
     output_ciphertexts: Vec<OutputCiphertext>,
+}
+
+struct InputUtxo {
+    /// Nullifier of the spent input; inserted into the nullifier queue.
+    nullifier_hash: [u8;32],
+    /// Index into the root cache of the input's nullifier tree.
+    nullifier_tree_root_index: u16,
+    /// Index into the root cache of the input's UTXO tree.
+    utxo_tree_root_index: u16,
+    // processor.rs:98 runs a single tree. tree_index is parsed but never read, so it's reserved (not "255 = output tree").
+    /// Reserved. The protocol currently runs a single tree, so every input
+    /// resolves against the one `tree_account`. See [Tree
+    /// account](#accounts).
+    tree_index: u8,
+    /// Account index of the input's Ed25519 signer; 255 when P256-owned.
+    eddsa_signer_index: u8,
+}
+
+// transact.rs:52-61 names this field view_tag, not owner.
+struct OutputCiphertext {
+    /// The indexing tag for this output slot (default zone: the owner's signing
+    /// pubkey; anonymous zone or dummy: a view tag). The confidential proof
+    /// binds it to the output UTXO, and the anonymous proof leaves it free.
+    view_tag: [u8;32],
+    /// Not parsed by the program (`u16`-prefixed). Layout per Output UTXO
+    /// Serialization, encrypted or [Plaintext Transfer](#plaintext-transfer).
+    data: Vec<u8>,
 }
 ```
 
@@ -1297,20 +1484,22 @@ Total transaction size by circuit shape. Computed by `cargo run -p xtask -- tx-s
 
 **Checks**
 
-1. `current_unix_ts <= expiry_unix_ts` (Solana `Clock.unix_timestamp`)
-2. Each input's `utxo_tree_root_index` and `nullifier_tree_root_index` reference a non-stale root.
+<!-- verify.rs:149-188 / processor.rs:134: roots come from the on-chain cache, the public amounts are proof-bound, and verification runs before settlement. Check 6 now states queue duplicate rejection (it was only stated for merge). -->
+1. `current_unix_ts <= expiry_unix_ts` (Solana `Clock.unix_timestamp`).
+2. Each input's `utxo_tree_root_index` and `nullifier_tree_root_index` reference a non-stale root. SPP reads the cached root value at each index from the on-chain tree account (instruction data carries only the `u16` indices, never root values) and folds it into the Groth16 public-input hash, so the proof verifies only if the circuit's roots equal the just-read cache entries.
 3. `tree_account` is not paused.
-4. Proof verifies against public inputs.
+4. Proof verifies against the public-input hash SPP assembles on-chain — from the cache-resolved roots (check 2), the recomputed [`external_data_hash`](#external_data_hash), and the same signed `public_sol_amount` / `public_spl_amount` fields settled in checks 8–9. Verification precedes settlement, so "prove for 1, withdraw 1,000,000" is impossible.
 5. Append each `output_utxo_hashes[i]` (in order) to the UTXO sparse Merkle tree.
-6. Insert each input's `nullifier_hash` into the nullifier queue.
-7. The sender bundle needs no nullifier-tree insertion: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
-8. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (deposit: payer → pool; withdraw: pool → recipient). The `relayer_fee` portion compensates the relayer.
-9. If `public_spl_amount` is `Some`, CPI the token program to transfer SPL between the user and the vault token account (deposit: user → vault; withdraw: vault → recipient).
+6. Insert each input's `nullifier_hash` into the [nullifier queue](#nullifier-queue). The queue rejects a value already present in either bloom-filter batch, so an input cannot be double-spent within the queue window; a rejection aborts the instruction. This is the on-chain replay guard that complements the circuit's non-inclusion check.
+7. The sender bundle needs no nullifier insertion of its own: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
+8. If `public_sol_amount` is `Some`, transfer its magnitude of SOL between `payer` and the pool; the sign is the direction (positive: payer → pool deposit; negative: pool → recipient withdraw). (Spec/code discrepancy: this section historically said `public_sol_amount + relayer_fee`, but `settle_sol` transfers only the public amount and adds no fee.)
+9. If `public_spl_amount` is `Some`, CPI the token program to transfer its magnitude of SPL between the user and the vault token account (positive: user → vault deposit; negative: vault → recipient withdraw).
 10. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
 11. `utxo_data` needs no special authorization: the transaction owner signature over `private_tx_hash` covers any output that sets it, and spending an input that holds it uses the normal owner-signed path. SPP enforces no program ownership.
 
 **Event**
 
+<!-- event.rs:75-89: salt is populated (the snippet omitted it), owner is view_tag, and a both-amounts instruction settles SPL via .or() rather than hitting unreachable!(). -->
 The event records the values assigned at execution (input queue sequence numbers, output leaf indices) together with the instruction-data fields an indexer needs. For a transact the [`GeneralEvent`](#general-event) is populated as:
 
 ```rust
@@ -1329,47 +1518,48 @@ GeneralEvent {
     // One `OutputUtxo` per output position, reconstructed from the two
     // instruction vectors (the logged event keeps its per-output shape). The
     // ciphertext for position `i` is: `output_ciphertexts[0]` (the bundle) for
-    // `i == 0`; empty for `1 <= i < SENDER_SLOT_COUNT` (sender change covered by
-    // the bundle); `output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for
-    // `i >= SENDER_SLOT_COUNT`.
+    // `i == 0`; empty for `1 <= i < SENDER_SLOT_COUNT` (SOL change covered by the
+    // bundle); `output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for every
+    // recipient position `i >= SENDER_SLOT_COUNT` (real or padded dummy).
     outputs: (0..instruction_data.output_utxo_hashes.len())
         .map(|i| {
             let ct = output_ciphertext_for_position(i, &instruction_data.output_ciphertexts);
             OutputUtxo {
-                owner: ct.map_or([0u8; 32], |c| c.owner),
+                view_tag: ct.map_or([0u8; 32], |c| c.view_tag),
                 utxo_hash: instruction_data.output_utxo_hashes[i],
                 data: ct.map_or(Vec::new(), |c| c.data.clone()),
             }
         })
         .collect(),
     // Shared across every output ciphertext; supplied in instruction data.
-    tx_viewing_pk: Some(instruction_data.tx_viewing_pk),
+    tx_viewing_pk: instruction_data.tx_viewing_pk,
+    salt: instruction_data.salt,
     first_output_leaf_index,
     output_tree: tree_account,
     // None on deposit (payer = user), Some on relayed transfer/withdraw.
     relay_fee: (instruction_data.relayer_fee != 0)
         .then_some(instruction_data.relayer_fee as u64),
-    // Some for deposit/withdraw, None for shielded transfer. is_deposit = true
-    // when value enters the pool (deposit).
-    deposit_withdraw: match (
-        instruction_data.public_sol_amount,
-        instruction_data.public_spl_amount,
-    ) {
-        (Some(amount), None) => Some(DepositWithdraw { is_deposit, amount, asset: None }),
-        (None, Some(amount)) => Some(DepositWithdraw { is_deposit, amount, asset: Some(mint) }),
-        (None, None) => None,
-        // Checks reject a deposit that is both SOL and SPL.
-        (Some(_), Some(_)) => unreachable!(),
-    },
+    // Signed amount: SPL takes precedence, then SOL; direction is the sign
+    // (is_deposit = amount > 0). None for a pure shielded transfer.
+    deposit_withdraw: instruction_data
+        .public_spl_amount
+        .or(instruction_data.public_sol_amount)
+        .map(|amount| DepositWithdraw {
+            is_deposit: amount > 0,
+            amount: amount.unsigned_abs(),
+            // Some(mint) when the SPL amount was taken, else None (native SOL).
+            asset: instruction_data.public_spl_amount.map(|_| mint),
+        }),
 }
 ```
 
-`input_queue_seqs` and `first_output_leaf_index` are assigned when the nullifiers and output hashes are inserted; `input_tree` resolves a `tree_index` to its account (`255` = the output tree); `mint` comes from the SPL accounts; and `is_deposit` is the public-amount direction proven by the proof (`true` for a deposit).
+`input_queue_seqs` and `first_output_leaf_index` are assigned when the nullifiers and output hashes are inserted; `input_tree` resolves an input to its tree account (currently the single `tree_account`; `tree_index` is [reserved](#accounts)); `mint` comes from the SPL accounts; and `is_deposit` is the public-amount direction (`true` when value enters the pool). An instruction that sets both public amounts settles SPL only; there is no reject for that case.
 
 ### `deposit`
 
 **Discriminator:** 1
 
+<!-- deposit.rs:18-40 has view_tag, one owner (the owner_hash), one public_amount (asset inferred from the accounts) and a memo — not the spec's separate owner/owner_hash, two amount options, and "exactly one Some" check. -->
 **Description.** Public deposit without a proof; deposits dynamic amounts and assets, e.g. the output of a swap. The depositor sends the recipient `owner` (its `owner_hash` from [Shielded Address](#shielded-address)) and a fresh `blinding` in the clear, and the program recomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)). The depositor needs only the recipient's public [Shielded Address](#shielded-address), so a third party can deposit to a recipient it shares no secret with; the recipient is not hidden on this rail.
 
 **Accounts**
@@ -1383,23 +1573,34 @@ GeneralEvent {
 
 ```rust
 struct DepositIxData {
-    /// Recipient's signing pubkey (eddsa: the 32-byte key; P256: the
-    /// X-coordinate); the indexing tag for the single output slot.
+    /// Indexing tag for the single output slot; chosen per [View Tag
+    /// Selection](#view-tag-selection) (default zone: the recipient's signing
+    /// pubkey — eddsa 32-byte key or P256 X-coordinate).
+    view_tag: [u8; 32],
+    /// Recipient `owner_hash` (see [Shielded Address](#shielded-address)), nested
+    /// with `blinding` into the UTXO's `owner_utxo_hash` (see [UTXO
+    /// Hash](#utxo-hash)).
     owner: [u8; 32],
-    /// Recipient `owner_hash`; nested with `blinding` into the UTXO's
-    /// `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
-    owner_hash: [u8; 32],
     /// Fresh CSPRNG per deposit, sent in the clear; the recipient spends it
     /// directly.
     blinding: [u8; 31],
-    /// `Some` for a SOL deposit.
-    public_sol_amount: Option<u64>,
-    /// `Some` for an SPL deposit.
-    public_spl_amount: Option<u64>,
-    /// Data hash; authorized by the `payer` signer.
-    data_hash: Option<[u8; 32]>,
-    /// Preimage of `data_hash`.
-    utxo_data: Option<Vec<u8>>,
+    /// Deposited amount, unsigned since `deposit` is deposit-only. The asset
+    /// (native SOL vs SPL mint) is inferred from the settlement accounts the
+    /// caller passes, not from a per-asset field.
+    public_amount: Option<u64>,
+    /// Application data committed into the UTXO's `data_hash`, authorized by the
+    /// `payer` signer. `None` for a plain user deposit.
+    utxo_data: Option<UtxoData>,
+    /// Free-form memo emitted in the clear with the proofless output. Not
+    /// committed into any hash; informational only.
+    memo: Option<Vec<u8>>,
+}
+
+/// Application data for a proofless deposit.
+struct UtxoData {
+    data_hash: [u8; 32],
+    /// Preimage of `data_hash` (`u16`-prefixed).
+    data: Vec<u8>,
 }
 ```
 
@@ -1410,10 +1611,11 @@ the instruction data. It is not derived; the recipient reads it back from the
 
 **Checks**
 
+<!-- aligned wording with how code works now -->
 1. `tree_account` is not paused.
-2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
-3. `data_hash` and `utxo_data` are either both set or both absent; when set, the `payer` signer authorizes them. SPP commits the hash unchecked.
-4. Compute `owner_utxo_hash = Poseidon(owner_hash, blinding)`, then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `data_hash` from instruction data or `0`, `zone_program_id` is `0`, `zone_data_hash` is `0`.
+2. `public_amount` MUST be `Some`; the asset is determined by the settlement accounts the caller passes (SOL interface vs a per-mint SPL vault).
+3. When `utxo_data` is set, the `payer` signer authorizes it; SPP commits `utxo_data.data_hash` unchecked.
+4. Compute `owner_utxo_hash = Poseidon(owner, blinding)` (the `owner` field is the recipient `owner_hash`), then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `data_hash` from `utxo_data` or `0`, `zone_program_id` is `0`, `zone_data_hash` is `0`.
 5. Append the hash to the UTXO tree.
 6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
 7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
@@ -1424,19 +1626,19 @@ The event lets an indexer index the created UTXO: its hash and mint do not
 exist in instruction data. For a proofless deposit the
 [`GeneralEvent`](#general-event) is populated as:
 
+<!-- proofless.rs: the payload is OutputData::Plaintext(borsh(ProoflessOutput)), not ::Proofless. view_tag replaces owner, salt/tx_viewing_pk are zeroed rather than None, and there is a memo plus the EventKind prefix. -->
 ```rust
 GeneralEvent {
     // No UTXOs are spent.
     inputs: vec![],
     outputs: vec![OutputUtxo {
-        // The recipient's signing pubkey; lets them index the deposit by their
-        // own pubkey.
-        owner,
+        // The recipient's fetch tag; lets them index the deposit.
+        view_tag,
         utxo_hash,
-        // owner_hash and blinding are public; the recipient spends from them directly.
-        // zone_data_hash and zone_data only set by zone_deposit.
-        data: serialize(OutputData::Proofless(ProoflessOutput {
-            owner_hash,
+        // owner (owner_hash) and blinding are public; the recipient spends from
+        // them directly. zone_* only set by zone_deposit; memo informational.
+        data: encode_output_data(ProoflessOutput {
+            owner,
             blinding,
             asset,
             amount,
@@ -1445,10 +1647,12 @@ GeneralEvent {
             zone_program_id,
             zone_data_hash,
             zone_data,
-        })),
+            memo,
+        }),  // wraps as OutputData::Plaintext(0x00 || borsh(ProoflessOutput))
     }],
-    // No ciphertext: owner and blinding travel in the clear.
-    tx_viewing_pk: None,
+    // No ciphertext: nothing to decrypt, so the shared fields are zeroed.
+    tx_viewing_pk: [0; 33],
+    salt: [0; 16],
     first_output_leaf_index,
     output_tree: tree_account,
     // The depositor funds the deposit directly.
@@ -1458,11 +1662,12 @@ GeneralEvent {
 }
 ```
 
-`data_hash` and `utxo_data` are set when the payer attaches them,
-else `None`. `zone_program_id`, `zone_data_hash`, and `zone_data` are set only by
-[`zone_deposit`](#zone_deposit). SPP does not interpret
-`utxo_data`; it copies the hash and preimage from instruction data into the event
-unchecked.
+`data_hash` (inside `utxo_data`) is set when the payer attaches data, else `None`.
+`zone_program_id`, `zone_data_hash`, and `zone_data` are set only by
+[`zone_deposit`](#zone_deposit). SPP does not interpret `utxo_data`; it copies the
+hash and preimage from instruction data into the event unchecked. The event is
+emitted as `[EMIT_EVENT, EventKind::Deposit, borsh(GeneralEvent)]`; the
+`EventKind` prefix lets an indexer dispatch the body without trial-parsing.
 
 
 ### General Event
@@ -1472,55 +1677,63 @@ instructions. It records the queue sequence numbers and leaf indices assigned at
 execution, which are absent from instruction data, so an indexer can reconstruct
 nullifier insertions and UTXO appends.
 
+<!-- event/src/lib.rs: tx_viewing_pk/salt are plain [u8;33]/[u8;16] (zeroed on deposit), OutputUtxo.owner is view_tag, OutputData is Plaintext/Encrypted/VerifiablyEncrypted, and ProoflessOutput uses owner plus a memo. -->
 ```rust
 struct GeneralEvent {
     inputs: Vec<Input>,
     outputs: Vec<OutputUtxo>,
     /// Shared `tx_viewing_pk` for every output ciphertext, so an indexer can
-    /// decrypt without parsing the per-output `data`. Always set by `transact`;
-    /// `None` for a proofless deposit (nothing to decrypt).
-    tx_viewing_pk: Option<P256Pubkey>,
+    /// decrypt without parsing the per-output `data`. Set by `transact`; zeroed
+    /// (`[0; 33]`) for a proofless deposit, which has nothing to decrypt.
+    tx_viewing_pk: [u8; 33],
     /// Shared AES `salt` for every output ciphertext, copied from the transact
-    /// instruction. `None` for a proofless deposit (nothing to decrypt).
-    salt: Option<[u8; 16]>,
+    /// instruction. Zeroed (`[0; 16]`) for a proofless deposit.
+    salt: [u8; 16],
     /// Leaf index of `outputs[0]`; later outputs append sequentially.
     first_output_leaf_index: u64,
-    output_tree: Pubkey,
+    output_tree: [u8; 32],
     relay_fee: Option<u64>,
     /// `Some` for deposit/withdraw, `None` for shielded transfer.
     deposit_withdraw: Option<DepositWithdraw>,
 }
 
-/// One spent input. Inputs may originate from different trees.
+/// One spent input. `tree` is the input's tree account (currently always the
+/// single `tree_account`, with per-input trees reserved).
+// "Inputs may originate from different trees" implied a multi-tree model that isn't built.
 struct Input {
-    tree: Pubkey,
+    tree: [u8; 32],
     input_queue_seq: u64,
     nullifier: [u8; 32],
 }
 
 struct OutputUtxo {
-    /// Fetch tag: the recipient's `owner` pubkey (a policy-zone view tag in an
-    /// anonymous zone).
-    owner: [u8; 32],
+    /// Fetch tag: the recipient's owner pubkey (a policy-zone view tag in an
+    /// anonymous zone), or a random tag for a dummy slot.
+    view_tag: [u8; 32],
     utxo_hash: [u8; 32],
-    /// Serialized `OutputData`. Proofless deposit: SPP serializes
-    /// `OutputData::Proofless`; otherwise the client serializes.
+    /// Serialized [`OutputData`](#general-event) (`u16`-prefixed). Proofless
+    /// deposit: SPP serializes `OutputData::Plaintext(borsh(ProoflessOutput))`;
+    /// otherwise the client serializes.
     data: Vec<u8>,
 }
 
-/// Output payload. SPP does not parse it except for proofless deposit.
+/// Output payload discriminator. SPP does not parse it except for proofless
+/// deposit; a wallet dispatches decryption on the variant (see [Methods](#methods)).
 enum OutputData {
-    /// Opaque to SPP: a client-serialized [encrypted transfer](#transfer-2) or
-    /// [plaintext transfer](#plaintext-transfer) blob.
-    Unknown(Vec<u8>),
-    Proofless(ProoflessOutput),
+    /// Unencrypted: a [plaintext transfer](#plaintext-transfer) slot or, for a
+    /// proofless deposit, `borsh(ProoflessOutput)`.
+    Plaintext(Vec<u8>),      // tag 0
+    /// Transact-scheme ciphertext (ECDH -> HKDF -> AES-256-CTR).
+    Encrypted(Vec<u8>),      // tag 1
+    /// Merge-scheme ciphertext (Poseidon KDF, in-circuit verifiable encryption).
+    VerifiablyEncrypted(Vec<u8>),  // tag 2
 }
 
-/// Proofless output. Carries the recipient `owner` and `blinding` in the
-/// clear; the recipient spends from them directly.
+/// Proofless output. Carries the recipient `owner` (its `owner_hash`) and
+/// `blinding` in the clear; the recipient spends from them directly.
 struct ProoflessOutput {
     /// Recipient `owner_hash`; see [UTXO Hash](#utxo-hash).
-    owner_hash: [u8; 32],
+    owner: [u8; 32],
     blinding: [u8; 31],
     /// Deposited mint; SOL is `Address::default()`.
     asset: [u8; 32],
@@ -1530,9 +1743,11 @@ struct ProoflessOutput {
     data_hash: Option<[u8; 32]>,
     utxo_data: Option<Vec<u8>>,
     /// `zone_*` set only by [`zone_deposit`](#zone_deposit).
-    zone_program_id: Option<Address>,
+    zone_program_id: Option<[u8; 32]>,
     zone_data_hash: Option<[u8; 32]>,
     zone_data: Option<Vec<u8>>,
+    /// Free-form memo emitted in the clear; not committed into any hash.
+    memo: Option<Vec<u8>>,
 }
 
 /// Public token movement accompanying the transaction.
@@ -1540,7 +1755,7 @@ struct DepositWithdraw {
     is_deposit: bool,
     amount: u64,
     /// `None` = native SOL, `Some` = SPL mint.
-    asset: Option<Address>,
+    asset: Option<[u8; 32]>,
 }
 ```
 
@@ -1561,37 +1776,43 @@ struct DepositWithdraw {
 **Instruction data**
 
 ```rust
+// deposit.rs: one public_amount:Option<u64>. zone_data_hash and zone_data are non-optional, utxo_data is Option<UtxoData>, plus a memo.
 struct ZoneDepositIxData {
     /// Indexing tag for the output slot; a policy-zone view tag in an anonymous
-    /// zone, or the recipient `owner` pubkey otherwise.
+    /// zone, or the recipient owner pubkey otherwise.
     view_tag: [u8; 32],
+    /// Recipient `owner_hash`.
     owner: [u8; 32],
     blinding: [u8; 31],
-    public_sol_amount: Option<u64>,
-    public_spl_amount: Option<u64>,
-    /// Zone-defined data hash. The zone `program_id` is not in instruction data;
-    /// it is read from the signing `zone_config` account.
-    zone_data_hash: Option<[u8; 32]>,
-    /// Preimage of `zone_data_hash`.
-    zone_data: Option<Vec<u8>>,
-    /// Program-defined data hash.
-    data_hash: Option<[u8; 32]>,
-    /// Preimage of `data_hash`.
-    utxo_data: Option<Vec<u8>>,
+    /// Deposited amount, unsigned (deposit-only). Asset inferred from the
+    /// settlement accounts, as in [`deposit`](#deposit).
+    public_amount: Option<u64>,
+    /// Zone-defined data committed into `zone_hash`. Always present (not
+    /// optional). The zone `program_id` is not in instruction data; it is read
+    /// from the signing `zone_config` account.
+    zone_data_hash: [u8; 32],
+    /// Preimage of `zone_data_hash` (`u16`-prefixed).
+    zone_data: Vec<u8>,
+    /// Application data committed into the UTXO's `data_hash`, authorized by the
+    /// `zone_config` account; `None` if the zone deposit carries none.
+    utxo_data: Option<UtxoData>,
+    /// Free-form memo, informational only.
+    memo: Option<Vec<u8>>,
 }
 ```
 
-`blinding` is a fresh CSPRNG value sent in the clear, as in [`deposit`](#blinding-derivation).
+`blinding` is a fresh CSPRNG value sent in the clear, as in [`deposit`](#blinding-derivation). `UtxoData` is defined under [`deposit`](#deposit).
 
 **Checks**
 
+<!-- same single-amount correction as deposit. -->
 1. `tree_account` is not paused.
-2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
+2. `public_amount` MUST be `Some`; the asset is determined by the settlement accounts the zone forwards.
 3. The `zone_config` account must sign; SPP loads it by owner + discriminator (see [Zone Accounts](#zone-accounts)).
-4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `data_hash` and `zone_data_hash` from instruction data or `0`, `zone_program_id` from `zone_config.program_id`, `owner_utxo_hash` from instruction data.
+4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `data_hash` from `utxo_data` or `0`, `zone_data_hash` from instruction data, `zone_program_id` from `zone_config.program_id`, `owner_utxo_hash` from instruction data.
 5. Append the hash to the UTXO tree.
 6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
-7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, as in [`deposit`](#deposit) but with the output's `OutputData::Proofless` payload carrying `zone_program_id`, `zone_data_hash`, `data_hash`, `utxo_data`, and `zone_data`.
+7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, as in [`deposit`](#deposit) but with the output's `OutputData::Plaintext(borsh(ProoflessOutput))` payload carrying `zone_program_id`, `zone_data_hash`, `data_hash`, `utxo_data`, and `zone_data`.
 
 ### `merge_transact`
 
@@ -1615,7 +1836,9 @@ struct ZoneDepositIxData {
 struct MergeTransactIxData {
     /// Unix timestamp in seconds.
     expiry_unix_ts: u64,
-    proof: SPPProof,
+    // merge_transact.rs:20: the proof is a fixed [u8;192], not 256.
+    /// Fixed 192-byte merge proof (see [`SPPProof`](#glossary)).
+    proof: [u8; 192],
     /// One output UTXO hash; appended to the UTXO tree.
     output_utxo_hash: [u8; 32],
     /// Input nullifiers, length N. Inserted into the nullifier queue and part of
@@ -1642,7 +1865,8 @@ struct MergeTransactIxData {
 **Checks**
 
 1. `current_unix_ts <= expiry_unix_ts`.
-2. Each `utxo_tree_root_index[i]` references a non-stale UTXO-tree root, and each `nullifier_tree_root_index[i]` references a non-stale nullifier-tree root.
+<!-- merge resolves roots from the on-chain cache by index (merge/verify.rs:98-121). The spec never said who resolves them, which left forged non-inclusion open on a naive read. -->
+2. Each `utxo_tree_root_index[i]` references a non-stale UTXO-tree root, and each `nullifier_tree_root_index[i]` references a non-stale nullifier-tree root. As in [`transact`](#transact), SPP reads the cached root values on-chain and folds them into the public-input hash; instruction data carries only the indices.
 3. `tree_account` is not paused.
 4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
 5. SPP derives `pk_field(user_record.viewing_pubkey)` and, by the `eddsa_owner` flag, the signing `pk_field` (from `owner_p256` or the registry account `owner`), and uses them as the proof's owner public inputs, so the proof verifies only if it encrypted the output to the owner's registered viewing key. The merged output is tagged in the [`GeneralEvent`](#general-event) by the owner's signing pubkey — the confidential [default-zone](#default-zone) owner-pubkey tag — so the owner finds it on sync; the proof binds that signing `pk_field` to the output.
@@ -1650,10 +1874,18 @@ struct MergeTransactIxData {
 7. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
 8. Insert each input nullifier into the nullifier queue. Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of a single-use view tag. SPP does not parse `encrypted_utxo` beyond hashing it; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.
 
-Total instruction data: `8 + 256 (proof) + 32 + 32·N + 4·N + 32 + 105` bytes (the
-owner `pk_field`s come from `user_record`, not the instruction). At the full `N =
-8` shape that is `≈ 721 B`, plus `~206 B` tx overhead (see the `transact` size
-table) `≈ 927 B`.
+<!-- recomputed from merge_transact.rs + builders/merge_transact.rs:22 (leading dispatch tag): proof 192 (not 256), encrypted_utxo 110 (not 105), plus the eddsa_owner byte and the u8/u16 length prefixes. The dispatch tag is counted in ix data to match the transact table's convention (xtask counts it there too). -->
+Total instruction data: `1 (tag) + 8 + 192 (proof) + 32 + (1 + 32·N) + (1 + 2·N)
++ (1 + 2·N) + 32 + (2 + 110) + 1` bytes — the leading byte is the
+`merge_transact` dispatch tag; the `nullifiers` vector and the two root-index
+vectors carry a `u8` length prefix, `encrypted_utxo` a `u16` prefix, and
+`eddsa_owner` one byte; the owner `pk_field`s come from `user_record`, not the
+instruction. `N` is fixed at 8: `validate_shape` requires all three vectors to be
+length `MERGE_INPUT_COUNT = 8`, so a merge with fewer real inputs pads the rest
+with dummies rather than shrinking. Every `merge_transact` is therefore a constant
+`669 B`, plus `~205 B` Solana framing overhead (see the `transact` size table)
+`≈ 874 B`. There is no byte-level padding: wincode is packed and the `71`-byte
+ciphertext is AES-256-CTR (stream cipher, no block padding or tag).
 
 ### `merge_zone`
 
@@ -1688,6 +1920,34 @@ cleanliness and output-well-formed rules.
 5. Insert each input nullifier into the nullifier queue.
 6. Insert `merge_view_tag` into the nullifier queue, single-use (rejects on duplicate).
 
+<!-- #zone_transact and #zone_authority_transact were dead links. Both instructions exist (tags 2/3, dispatched lib.rs:53,55), so these short sections give the anchors a home. -->
+### `zone_transact`
+
+**Discriminator:** 2
+
+**Description.** Policy-zone analog of [`transact`](#transact): a zone program CPIs
+into SPP with its [`zone_config`](#zone-accounts) signer to settle a shielded
+transfer, deposit, or withdraw over zone UTXOs. SPP runs the same proof
+verification, nullifier insertion, and UTXO append as `transact`, under the anonymous
+circuit [variant](#circuit-combinations); the zone program enforces its policy
+(auditor encryption, recipient keys) before CPI. The instruction data mirrors
+[`TransactIxData`](#transact); `zone_config` signs and supplies the UTXO
+`zone_program_id`.
+
+### `zone_authority_transact`
+
+**Discriminator:** 3
+
+**Description.** A zone authority moves zone UTXOs without any owner signature,
+subject to the zone program's policy (freeze, thaw, permanent-delegate transfer). SPP
+requires the [`zone_config`](#zone-accounts) to sign and
+`zone_authority_transact_is_enabled == true`, and verifies the zone-authority proof
+[instantiation](#circuit-combinations): no in-circuit signature, every non-dummy
+input and output pinned to the caller's non-zero `zone_program_id` (strict binding),
+so value cannot leave the zone on this path. See the [zone-authority
+instantiation](#circuit-combinations) for the supported shapes and the
+nullifier-knowledge requirement on permanent-delegate transfers.
+
 # Zone Program Interface
 
 **Accounts**
@@ -1707,7 +1967,8 @@ A zone program is free to implement the following instructions, a subset or supe
 | --- | --- |
 | transact | Tag 0; verify policy proof, CPI SPP `zone_transact` |
 | deposit | Tag 1; public deposit; no encryption; CPI SPP `zone_deposit` |
-| merge_transact | Tag 2; run policy authorization, CPI SPP `zone_merge_transact` to consolidate the user's zone UTXOs |
+<!-- canonical name is merge_zone. zone_merge_transact only survives as the legacy tag constant. -->
+| merge_transact | Tag 2; run policy authorization, CPI SPP [`merge_zone`](#merge_zone) to consolidate the user's zone UTXOs |
 | authority_transact | Tag 3; proves correctness of a state transition by a zone authority (freeze, thaw, transaction with permanent delegate, ...). Merge UTXOs on behalf of the user. Zone authority has full access to all UTXOs owned by the zone. The access is constrained by the zone program implementation. CPI SPP `zone_authority_transact` |
 | create_zone_config | Tag 4; admin: creates account for a zone; the config is public, sets auditor P256 key, zone authority, freeze authority, permanent authority, co-signer |
 | update_zone_config | Tag 5; admin: zone authority updates the zone config |
@@ -1741,7 +2002,8 @@ struct Context {
 }
 
 struct MerkleContext {
-    /// Tree kind: UTXO tree, nullifier tree, merge authority tree, etc.
+    // merkle-tree-metadata/src/lib.rs:70-83 has only StateV2/AddressV2. There is no "merge authority tree".
+    /// Tree kind: UTXO tree (`StateV2`) or nullifier tree (`AddressV2`).
     tree_type: u16,
     /// On-chain tree account.
     tree: Address,
@@ -1830,7 +2092,8 @@ struct SubscribeToTagsRequest {
 
 ### `get_merkle_proofs`
 
-Returns inclusion proofs for leaves against the given tree (UTXO tree, merge authority tree, etc.), plus the root + `root_seq` needed by the consuming instruction.
+<!-- dropped the non-existent "merge authority tree". -->
+Returns inclusion proofs for leaves against the given UTXO tree, plus the root + `root_seq` needed by the consuming instruction.
 
 ```rust
 struct GetMerkleProofsRequest {
@@ -1862,7 +2125,8 @@ struct MerkleProof {
 
 ### `get_non_inclusion_proofs`
 
-Returns non-inclusion proofs for leaves against the given tree (nullifier tree, merge authority tree, etc.), plus the root + `root_seq` for the consuming instruction.
+<!-- dropped the non-existent "merge authority tree". -->
+Returns non-inclusion proofs for leaves against the given nullifier tree, plus the root + `root_seq` for the consuming instruction.
 
 ```rust
 struct GetNonInclusionProofsRequest {
@@ -1902,6 +2166,45 @@ struct NonInclusionProof {
 ## Prover
 
 Generates SPP proofs server-side for clients that opt into server-side proving instead of building proofs locally.
+
+<!-- server.go:1235 / json.rs:59 send nullifier_secret to the prover (Redis-stored for async jobs). The section presented remote proving as routine with no trust note. It isn't spending authority, but it is durable linkability. -->
+### Prover trust
+
+Server-side proving trades a privacy boundary for UX. Building a proof requires the
+full witness: input and output plaintexts (blindings included) and the
+[`nullifier_secret`](#nullifier-key). A remote prover that runs
+`generate_spp_proof` therefore receives them, and an async job store holds the
+request until the proof is built. What this does and does not grant:
+
+- **Not spending authority.** A spend still needs the owner's signature — the
+  in-circuit P256 ECDSA over `private_tx_hash` on the P256 rail, or the runtime
+  Ed25519 signer check on the Solana rail (see [UTXO Ownership
+  Check](#utxo-ownership-check)). A prover holding the witness cannot redirect
+  value.
+- **Durable linkability.** With `nullifier_secret` and a note's `blinding` the
+  prover can compute that note's nullifier and link the spend graph it proves.
+  Because `nullifier_pk` does not rotate within a [record](#record), the linkage
+  survives switching providers; a new record plus migration stops future linkage,
+  not past. On the [deposit](#deposit) and [plaintext transfer](#plaintext-transfer)
+  rails `blinding` is already public, so the secret alone tracks those notes — the
+  "secret + blinding" two-factor gate holds only on encrypted rails.
+- **Owner-preserving merge / targeted DoS.** A prover fed a note can run a
+  value-preserving [`merge_transact`](#merge_transact) for that owner, or precompute
+  a future nullifier and combine it with the `merge_view_tag` channel to block a
+  note's later spend.
+
+**Mitigation.** Run proving client-side (the Solana-only rail is fast; the P256 rail
+is the slow case), or run the remote prover in a TEE so the operator does not see the
+witness. A TEE narrows exposure to an enclave compromise, but paired with the
+non-rotating `nullifier_secret` any such compromise is durable and unrecoverable —
+which is the motivation behind a possible future delegatable nullifier scheme (not
+committed), under which the prover would receive only nullifiers and a correctness
+proof and the secret would never leave the wallet. `default`
+CLI deployments point the client at a loopback prover, so this boundary is crossed
+only when the endpoint is remote or a separate trust domain.
+
+`SppProofInputs` (the request payload) is the full proof witness; its exact layout is
+defined by the prover client, not normatively here.
 
 ### `generate_spp_proof`
 
@@ -2040,7 +2343,8 @@ UTXOs with `utxo_data` set (non-zero `data_hash`) cannot be merged since they ar
 
 ## Registry
 
-Out-of-protocol service. For each user's Solana pubkey, the registry publishes their [ShieldedAddress](#shielded-address) and current sync delegate. Can be implemented as a Solana program or server.
+<!-- merge requires the record to be owned by the registry program (merge/account.rs:50-80), so "a Solana program or server" was false for the merge path. -->
+For each user's Solana pubkey, the registry publishes their [ShieldedAddress](#shielded-address) and current sync delegate. It is an on-chain Solana program (`user-registry`): [`merge_transact`](#merge_transact) loads the `UserRecord` account, requires it be owned by the registry program, and reads `merging_enabled` / `owner` / `viewing_pubkey` from it, so a server-only registry cannot satisfy the merge path.
 
 ### Record
 
@@ -2051,6 +2355,9 @@ struct Record {
     /// Static. The P256 signing pk.
     /// `None` for Solana-only signing keys.
     owner_p256: Option<P256Pubkey>,
+    // 32 bytes fits both the current Poseidon image and a future compressed Baby
+    // Jubjub point, so the field never changes. The scheme is carried by the
+    // record's account discriminator, not a per-field byte (see below).
     nullifier_pk: [u8; 32],
     /// Static. The wallet's ECDH viewing pubkey (see [ViewingKey](#viewingkey)),
     /// published to senders while no delegate is set.
@@ -2086,6 +2393,16 @@ Invariants:
 - `entries` is append-only: never modified or removed.
 - `nullifier_pk` is wallet-wide and does not rotate. There is no operation to replace it; rotation requires creating a new Record.
 - Once created, a record account is permanent: there is no close or delete operation. Rent remains locked for the lifetime of the account.
+
+**Nullifier-scheme versioning.** The record already begins with an account
+discriminator (`= 1` today), read before any field, so it is already the scheme
+selector. This is only a hook, not a plan: *if* a delegatable-nullifier scheme is
+ever adopted (a possible future option, not committed), it could take a new
+discriminator (`= 2`) whose 32-byte `nullifier_pk` slot holds a compressed Baby
+Jubjub point instead of a Poseidon image. No field would be added or migrated, and a
+v1-only reader rejects such a record instead of misreading it. Discriminators `>= 2`
+are reserved for this. It would tag only *new* records — existing v1 UTXOs stay bound
+to the Poseidon scheme by their `owner_hash` and cannot be retrofitted.
 
 The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects from the record:
 
@@ -2185,7 +2502,8 @@ A sync delegate can optionally be set up by a wallet.The sync delegate holds a s
 1. The current entry's `viewing_sk` — both sides derive it via `ECDH`. To scan history the wallet may also share prior keys `[(key_index, viewing_sk_k)]` (**hand-over**); otherwise the delegate scans only the current entry and the wallet keeps decrypting earlier ones (**forward-only**). From each shared `viewing_sk` the delegate derives that epoch's `view_root` and its self-rooted secrets (see [Derived secrets](#derived-secrets)).
 2. The [NullifierKey](#nullifierkey).
 
-**Rotation considerations.** `nullifier_pk` is wallet-wide and does not rotate. A former delegate can retain the `nullifier_secret`, but computing a [nullifier](#nullifier) also requires `blinding`. The delegate only has `blinding` for UTXOs whose ciphertext it decrypted. After `set_delegate` / `rotate_sync_delegate_key` / `revoke_sync_delegate` the wallet should migrate existing UTXOs via normal `transact`. For UTXOs that were not migrated, the revoked sync delegate can check whether those UTXOs are spent.
+<!-- the "secret + blinding" guard fails on the deposit/plaintext rails where blinding is public. The original text implied it always holds. -->
+**Rotation considerations.** `nullifier_pk` is wallet-wide and does not rotate. A former delegate can retain the `nullifier_secret`, but computing a [nullifier](#nullifier) also requires `blinding`. The delegate only has `blinding` for UTXOs whose ciphertext it decrypted (encrypted rails); on the [deposit](#deposit) and [plaintext transfer](#plaintext-transfer) rails `blinding` is public, so a retained secret tracks those regardless. After `set_delegate` / `rotate_sync_delegate_key` / `revoke_sync_delegate` the wallet should migrate existing UTXOs via normal `transact`. For UTXOs that were not migrated, the revoked sync delegate can check whether those UTXOs are spent.
 
 # User Flows
 
@@ -2222,7 +2540,7 @@ Wallet {
     1. Obtain a `SigningKey`.
     2. Call `registry.get_record(solana_pubkey)`.
     3. For each registry entry in chronological order, construct a `ViewingKey` (see [ViewingKey](#viewingkey)) and append a fresh `ViewingKeyEntry` to `viewing_history`, copying `created_at` from the registry entry.
-    4. If `entries` is empty, append a single `ViewingKeyEntry` whose `ViewingKey` is the wallet's viewing keypair (see [ViewingKey](#viewingkey)).
+    4. If `entries` is empty, append a single `ViewingKeyEntry` whose `ViewingKey` is the wallet's viewing keypair (see [ViewingKey](#viewingkey)). 
 
 2. **Default-zone sync, anonymous-zone sync, and merge sync run as independent parallel branches.**
 
@@ -2318,7 +2636,8 @@ Scenario X from the single and advanced flows maps to the respective scenario in
 **Single player** cover user flows that are backwards compatible with any Solana wallets.
 **Advanced** cover ideal user flows between private wallets.
 **Registry** maps Solana public keys to a shielded pubkey.
-**ShieldedAddress**(signing P256 Pubkey, viewing P256 Pubkey) the signing key and the viewing key can be the same key, for example for a cypherpunk user. A user who has a shared key with an auditor would use different keys, a user owned signing key and a shared viewing key.
+<!-- shielded.rs:12-16 is a three-key struct with either-rail signing. The prose dropped nullifier_pk and ruled out Ed25519. -->
+**ShieldedAddress**`(signing_pk, nullifier_pk, viewing_pk)` — the three-key address of [Shielded Address](#shielded-address). `signing_pk` is P256 or Ed25519 (Solana-only owners); `viewing_pk` is P256. The signing and viewing keys can be the same key, for example for a cypherpunk user; a user who shares a viewing key with an auditor uses a user-owned signing key and a shared viewing key.
 
 **Single Player flows:**
 
@@ -2362,7 +2681,9 @@ Sender and recipient wallets both support shielded transfers.
 | 2 | **Single player** · sender supports shielded · registry hit · sender has shielded funds | Confidential shielded transfer | Public | Public | Private | Private | Yes |
 | 3 | **Single player** · sender supports shielded · registry hit · sender has shielded funds · transfers via a policy zone | Anonymous shielded transfer | Private | Private | Private | Private | No |
 | 4 | **Single player** · sender supports shielded · registry hit · sender has no shielded funds | Proofless deposit to recipient | Public | Public | Public | Public | Yes |
-| 5 | **Single player** · sender supports shielded · registry miss · sender has shielded funds | Withdraw to recipient | Private | Public | Public | Public | Partial — recipient visible exiting pool |
+<!-- withdraw binds payer_pubkey_hash (processor.rs:128), so the sender is visible unless a relayer pays. The matrix said "Private". -->
+| 5 | **Single player** · sender supports shielded · registry miss · sender has shielded funds | Withdraw to recipient | Public (relayer: Private) | Public | Public | Public | Partial — recipient visible exiting pool |
 | 6 | **Single player** · sender supports shielded · registry miss · sender has no shielded funds | SPL transfer | Public | Public | Public | Public | Yes |
 | 7 | **Advanced** · both wallets shielded · sender has shielded funds · transfers via a policy zone | Anonymous shielded transfer | Private | Private | Private | Private | No |
-| 8 | **Advanced** · both wallets shielded · sender has no shielded funds | Deposit to recipient (with proof) | Public | Private | Public | Public | Partial — sender visible entering pool |
+<!-- the default-zone recipient is tagged by owner pubkey (builder.rs:358), so it is visible. The matrix said "Private". -->
+| 8 | **Advanced** · both wallets shielded · sender has no shielded funds | Deposit to recipient (with proof) | Public | Public (default zone; Private only via a policy zone) | Public | Public | Partial — sender visible entering pool |
