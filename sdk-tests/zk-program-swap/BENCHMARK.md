@@ -28,7 +28,7 @@ Regenerate with `just bench-swap`.
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total |
 | ------------------ | ------------------ | ----- |
-|              57 ms |              15 ms | 73 ms |
+|              66 ms |              17 ms | 84 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx | v0 + ALT Tx |
@@ -41,12 +41,12 @@ Regenerate with `just bench-swap`.
 | ---------------------------------------------- | ---------- | ---------- |
 | `verify_create_zk_proof`                       |     93,368 |     93,368 |
 | `cpi_spp_transact`                             |    162,992 |    162,992 |
-| `process_create_swap`                          |    258,848 |      2,488 |
+| `process_create_swap`                          |    258,876 |      2,516 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             114 ms |              17 ms | 132 ms |
+|             126 ms |              19 ms | 146 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
@@ -65,7 +65,7 @@ Regenerate with `just bench-swap`.
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             119 ms |              27 ms | 146 ms |
+|             119 ms |              28 ms | 148 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
@@ -77,14 +77,14 @@ Regenerate with `just bench-swap`.
 | Function                                       |   Total CU |     Net CU |
 | ---------------------------------------------- | ---------- | ---------- |
 | `fill_verifiable_encryption_public_input_hash` |      3,721 |      3,721 |
-| `verify_fill_verifiable_encryption_zk_proof`   |    224,958 |    224,958 |
+| `verify_fill_verifiable_encryption_zk_proof`   |    224,942 |    224,942 |
 | `cpi_spp_transact_signed`                      |    164,702 |    164,702 |
-| `process_fill_verifiable_encryption`           |    394,459 |      1,078 |
+| `process_fill_verifiable_encryption`           |    394,443 |      1,078 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             110 ms |             132 ms | 242 ms |
+|             111 ms |             129 ms | 241 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
