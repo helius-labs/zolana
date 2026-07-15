@@ -16,10 +16,10 @@ fn main() {
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--rust-vk" => {
-                let p = args
+                let rust_vk_arg = args
                     .next()
                     .unwrap_or_else(|| usage_and_exit("--rust-vk missing value"));
-                rust_vk_path = Some(PathBuf::from(p));
+                rust_vk_path = Some(PathBuf::from(rust_vk_arg));
             }
             other => usage_and_exit(&format!("unexpected arg {other:?}")),
         }

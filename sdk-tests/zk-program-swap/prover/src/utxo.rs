@@ -1,5 +1,4 @@
 use swap_program::instructions::shared::u64_to_field;
-use zolana_keypair::{hash::poseidon, KeypairError};
 
 use crate::bytes_to_decimal_string;
 
@@ -35,19 +34,6 @@ impl UtxoFieldElements {
             zone_data_hash: [0u8; 32],
             zone_program_id: [0u8; 32],
         }
-    }
-
-    pub fn hash(&self) -> Result<[u8; 32], KeypairError> {
-        let owner_utxo_hash = poseidon(&[&self.owner, &self.blinding])?;
-        let zone_hash = poseidon(&[&self.zone_data_hash, &self.zone_program_id])?;
-        poseidon(&[
-            &self.domain,
-            &self.asset,
-            &self.amount,
-            &self.data_hash,
-            &zone_hash,
-            &owner_utxo_hash,
-        ])
     }
 
     pub fn witness_entries(&self, prefix: &str) -> Vec<(String, Vec<String>)> {

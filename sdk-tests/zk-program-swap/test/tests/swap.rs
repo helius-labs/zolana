@@ -62,7 +62,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
         mut taker,
         spl_mint,
     } = setup()?;
-    let swap_prover_client = SwapProverClient::new_ffi();
+    let swap_prover_client = SwapProverClient::new();
     {
         ensure_registered(&rpc, &maker.keypair.to_solana_keypair()?, &maker.keypair)
             .map_err(|e| anyhow!("register maker: {e:?}"))?;
@@ -163,13 +163,13 @@ fn create_and_fill_swap_inline() -> Result<()> {
         };
 
         let create_swap_proof = swap_prover_client
-            .prove_create_swap(&create_swap_proof_inputs)
+            .prove_create_swap(&create_swap_proof_inputs.to_proof_inputs()?)
             .map_err(|e| anyhow!("create proof: {e:?}"))?;
 
         let create_swap_ix = CreateSwap {
             payer: maker_address.solana_address()?,
             tree,
-            create_swap_proof: create_swap_proof.proof.into(),
+            create_swap_proof: create_swap_proof.into(),
             spp_proof,
         }
         .instruction()?;
@@ -219,7 +219,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("destination output hash: {e:?}"))?;
 
         let escrow_input = escrow
-            .into_input_utxo()
+            .to_input_utxo()
             .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
         let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair);
 
@@ -265,13 +265,13 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("fill transact proof: {e:?}"))?;
 
         let fill_proof = swap_prover_client
-            .prove_fill(&fill_inputs)
+            .prove_fill(&fill_inputs.to_proof_inputs()?)
             .map_err(|e| anyhow!("fill proof: {e:?}"))?;
 
         let fill_ix = Fill {
             payer: taker_address.solana_address()?,
             tree,
-            fill_proof: fill_proof.proof.into(),
+            fill_proof: fill_proof.into(),
             spp_proof,
         }
         .instruction()?;

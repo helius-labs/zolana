@@ -8,7 +8,7 @@ use crate::{
     },
     verifying_keys::create,
 };
-
+// TODO: inline and remove this file
 #[profile]
 pub fn verify_create_zk_proof(proof: &CreateProof, private_tx_hash: [u8; 32]) -> ProgramResult {
     verify_groth16(

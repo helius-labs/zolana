@@ -2,6 +2,7 @@ pub mod discover;
 pub mod instructions;
 pub mod order;
 pub mod prover;
+pub mod witness;
 
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;

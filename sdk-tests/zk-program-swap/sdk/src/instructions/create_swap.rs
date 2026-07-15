@@ -7,7 +7,7 @@ use zolana_interface::instruction::instruction_data::transact::{OutputData, Tran
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{
     instructions::{
-        transact::{OutputUtxo, SppProofInputs},
+        transact::{OutputUtxo, PrivateTxHash, SppProofInputs},
         types::SppProofInputUtxo,
     },
     TransactionError,
@@ -15,8 +15,10 @@ use zolana_transaction::{
 
 use crate::{
     err, escrow_authority_pda,
-    order::{BlindingField, DataHash, OrderUtxo},
-    program_id_pubkey, spp_program_meta, tag, CreateProof, CreateSwapIxData, MarkerData,
+    order::OrderUtxo,
+    program_id_pubkey, spp_program_meta, tag,
+    witness::{escrow_owner_hash, order_data_hash, PlainUtxo},
+    CreateProof, CreateSwapIxData, MarkerData,
 };
 
 pub struct SppTxHashes {
@@ -44,7 +46,7 @@ pub struct CreateSwapProofInputParams {
 }
 
 impl CreateSwapProofInputParams {
-    pub fn into_proof_inputs(&self) -> Result<CreateProofInputs> {
+    pub fn to_proof_inputs(&self) -> Result<CreateProofInputs> {
         let terms = &self.escrow.terms;
         if self.change.owner_address != Some(terms.destination) {
             bail!("change owner does not match order destination");
@@ -58,22 +60,40 @@ impl CreateSwapProofInputParams {
         {
             bail!("change output must not carry data or zone commitments");
         }
+        let order = terms.field_elements()?;
+        let escrow = PlainUtxo {
+            owner_hash: escrow_owner_hash(escrow_authority_pda().as_array())?,
+            mint: self.escrow.source_mint,
+            amount: self.escrow.source_amount,
+            blinding: self.escrow.blinding,
+            data_hash: order_data_hash(&order)?,
+        };
+        let change = PlainUtxo {
+            owner_hash: order.maker_owner_hash,
+            mint: self.escrow.source_mint,
+            amount: self.change.amount,
+            blinding: self.change.blinding,
+            data_hash: [0u8; 32],
+        };
+        let change_output_hash = if change.amount == 0 {
+            [0u8; 32]
+        } else {
+            change.hash()?
+        };
+        let private_tx_hash = PrivateTxHash::new(
+            &[self.spp_tx_hashes.source_input_hash, [0u8; 32]],
+            &[change_output_hash, escrow.hash()?],
+            &self.spp_tx_hashes.external_data_hash,
+        )
+        .hash()
+        .map_err(err)?;
         Ok(CreateProofInputs {
-            source_mint: *self.escrow.source_mint.as_array(),
-            source_amount: self.escrow.source_amount,
-            escrow_authority: *escrow_authority_pda().as_array(),
-            escrow_blinding: self.escrow.blinding.to_field(),
-            destination_mint: *terms.destination_mint.as_array(),
-            destination_amount: terms.destination_amount,
-            maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
-            maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
-            expiry: terms.expiry,
-            taker_pk_fe: terms.taker.data_hash()?,
-            fill_mode: terms.fill_mode,
-            external_data_hash: self.spp_tx_hashes.external_data_hash,
+            private_tx_hash,
+            order,
+            escrow: escrow.field_elements()?,
+            change: change.field_elements()?,
             source_input_hash: self.spp_tx_hashes.source_input_hash,
-            change_amount: self.change.amount,
-            change_blinding: self.change.blinding.to_field(),
+            external_data_hash: self.spp_tx_hashes.external_data_hash,
         })
     }
 }

@@ -528,18 +528,18 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     };
 
     let prover = ProverClient::local();
-    let swap_prover_client = SwapProverClient::new_ffi();
+    let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let create_result = swap_prover_client
-        .prove_create_swap(&create_inputs)
+        .prove_create_swap(&create_inputs.to_proof_inputs().expect("create proof inputs"))
         .expect("swap create prove");
     let swap_dur = t1.elapsed();
 
     let ix = CreateSwap {
         payer: payer.pubkey(),
         tree,
-        create_swap_proof: create_result.proof.into(),
+        create_swap_proof: create_result.into(),
         spp_proof: transact,
     }
     .instruction()
@@ -610,7 +610,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         .derived_destination_output(maker_recipient)
         .expect("destination output");
 
-    let escrow_input = escrow.into_input_utxo().expect("escrow spend");
+    let escrow_input = escrow.to_input_utxo().expect("escrow spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: SOL_MINT,
@@ -680,18 +680,18 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     };
 
     let prover = ProverClient::local();
-    let swap_prover_client = SwapProverClient::new_ffi();
+    let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let fill_result = swap_prover_client
-        .prove_fill(&fill_shared)
+        .prove_fill(&fill_shared.to_proof_inputs().expect("fill proof inputs"))
         .expect("swap fill prove");
     let swap_dur = t1.elapsed();
 
     let ix = Fill {
         payer: taker_payer.pubkey(),
         tree,
-        fill_proof: fill_result.proof.into(),
+        fill_proof: fill_result.into(),
         spp_proof: transact,
     }
     .instruction()
@@ -761,7 +761,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         .destination_ciphertext(&destination_output)
         .expect("destination ciphertext");
 
-    let escrow_input = escrow.into_input_utxo().expect("escrow spend");
+    let escrow_input = escrow.to_input_utxo().expect("escrow spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: SOL_MINT,
@@ -843,18 +843,18 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     };
 
     let prover = ProverClient::local();
-    let swap_prover_client = SwapProverClient::new_ffi();
+    let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let fill_result = swap_prover_client
-        .prove_fill_verifiable_encryption(&fill_shared)
+        .prove_fill_verifiable_encryption(&fill_shared.to_proof_inputs().expect("fill proof inputs"))
         .expect("swap fill prove");
     let swap_dur = t1.elapsed();
 
     let ix = FillVerifiableEncryption {
         payer: taker_payer.pubkey(),
         tree,
-        fill_proof: fill_result.proof.into(),
+        fill_proof: fill_result.into(),
         spp_proof: transact,
     }
     .instruction()
@@ -920,7 +920,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
 
     let source_output = escrow.source_output(maker_recipient, source_output_blinding);
 
-    let escrow_input = escrow.into_input_utxo().expect("escrow spend");
+    let escrow_input = escrow.to_input_utxo().expect("escrow spend");
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
@@ -980,11 +980,11 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     };
 
     let prover = ProverClient::local();
-    let swap_prover_client = SwapProverClient::new_ffi();
+    let swap_prover_client = SwapProverClient::new();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
     let t1 = Instant::now();
     let cancel_result = swap_prover_client
-        .prove_cancel(&cancel_inputs)
+        .prove_cancel(&cancel_inputs.to_proof_inputs().expect("cancel proof inputs"))
         .expect("swap cancel prove");
     let swap_dur = t1.elapsed();
 
@@ -998,7 +998,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         maker: maker_signer,
         payer: maker_payer.pubkey(),
         tree,
-        cancel_proof: cancel_result.proof.into(),
+        cancel_proof: cancel_result.into(),
         order_expiry: escrow.terms.expiry,
         spp_proof: transact,
     }

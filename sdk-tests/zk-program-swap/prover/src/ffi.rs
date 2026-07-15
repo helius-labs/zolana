@@ -68,14 +68,14 @@ pub fn setup(circuit: CircuitId, out_dir: &Path) -> Result<()> {
     }
 }
 
-fn load_keys(circuit: CircuitId, pk_path: &Path, vk_path: &Path) -> Result<()> {
-    let pk = path_to_cstring(pk_path)?;
-    let vk = path_to_cstring(vk_path)?;
+fn load_keys(circuit: CircuitId, proving_key_path: &Path, verifying_key_path: &Path) -> Result<()> {
+    let proving_key_cstr = path_to_cstring(proving_key_path)?;
+    let verifying_key_cstr = path_to_cstring(verifying_key_path)?;
     let err = unsafe {
         bind::LoadKeys(
             circuit as i32,
-            pk.as_ptr() as *mut c_char,
-            vk.as_ptr() as *mut c_char,
+            proving_key_cstr.as_ptr() as *mut c_char,
+            verifying_key_cstr.as_ptr() as *mut c_char,
         )
     };
     if err.is_null() {
@@ -90,12 +90,12 @@ pub fn preload(circuit: CircuitId) -> Result<()> {
         return Ok(());
     }
     let dir = build_dir(circuit);
-    let pk = dir.join("pk.bin");
-    let vk = dir.join("vk.bin");
-    if !pk.exists() || !vk.exists() {
+    let proving_key_path = dir.join("pk.bin");
+    let verifying_key_path = dir.join("vk.bin");
+    if !proving_key_path.exists() || !verifying_key_path.exists() {
         return Err(Error::MissingKeys(dir.display().to_string()));
     }
-    load_keys(circuit, &pk, &vk)?;
+    load_keys(circuit, &proving_key_path, &verifying_key_path)?;
     circuit_once(circuit).call_once(|| {});
     Ok(())
 }
@@ -106,28 +106,28 @@ pub fn prove(circuit: CircuitId, witness: &WitnessMap) -> Result<ProveOutput> {
     let json = serde_json::to_string(witness)?;
     let json_c = CString::new(json)?;
 
-    let result = unsafe { bind::Prove(circuit as i32, json_c.as_ptr() as *mut c_char) };
-    if result.is_null() {
+    let prove_result_ptr = unsafe { bind::Prove(circuit as i32, json_c.as_ptr() as *mut c_char) };
+    if prove_result_ptr.is_null() {
         return Err(Error::Go("Prove returned NULL".into()));
     }
 
-    let r = unsafe { &*result };
-    if !r.error.is_null() {
-        let msg = unsafe { ptr_to_string_cloned(r.error) };
-        unsafe { bind::FreeProveResult(result) };
+    let prove_result = unsafe { &*prove_result_ptr };
+    if !prove_result.error.is_null() {
+        let msg = unsafe { ptr_to_string_cloned(prove_result.error) };
+        unsafe { bind::FreeProveResult(prove_result_ptr) };
         return Err(Error::Go(msg));
     }
 
-    let out = ProveOutput {
-        proof_a: r.proof_a,
-        proof_b: r.proof_b,
-        proof_c: r.proof_c,
-        public_input_hash: r.public_input,
-        proof_commitment: r.proof_commitment,
-        proof_commitment_pok: r.proof_commitment_pok,
+    let output = ProveOutput {
+        proof_a: prove_result.proof_a,
+        proof_b: prove_result.proof_b,
+        proof_c: prove_result.proof_c,
+        public_input_hash: prove_result.public_input,
+        proof_commitment: prove_result.proof_commitment,
+        proof_commitment_pok: prove_result.proof_commitment_pok,
     };
-    unsafe { bind::FreeProveResult(result) };
-    Ok(out)
+    unsafe { bind::FreeProveResult(prove_result_ptr) };
+    Ok(output)
 }
 
 fn build_dir(circuit: CircuitId) -> PathBuf {
@@ -160,10 +160,10 @@ fn circuit_once(circuit: CircuitId) -> &'static Once {
 fn ensure_keys_loaded(circuit: CircuitId) {
     circuit_once(circuit).call_once(|| {
         let dir = build_dir(circuit);
-        let pk = dir.join("pk.bin");
-        let vk = dir.join("vk.bin");
-        if pk.exists() && vk.exists() {
-            if let Err(e) = load_keys(circuit, &pk, &vk) {
+        let proving_key_path = dir.join("pk.bin");
+        let verifying_key_path = dir.join("vk.bin");
+        if proving_key_path.exists() && verifying_key_path.exists() {
+            if let Err(e) = load_keys(circuit, &proving_key_path, &verifying_key_path) {
                 eprintln!(
                     "prover: failed to lazy-load keys for {circuit:?} from {}: {e}",
                     dir.display()

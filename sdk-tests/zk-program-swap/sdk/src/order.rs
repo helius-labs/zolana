@@ -1,9 +1,10 @@
 use anyhow::Result;
 use solana_address::Address;
+use swap_prover::OrderTermsFieldElements;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::{
-    constants::BLINDING_LEN, hash::hash_field, CompressedShieldedAddress, NullifierKey, P256Pubkey,
-    PublicKey, ShieldedAddress,
+    constants::BLINDING_LEN, hash::hash_field, NullifierKey, P256Pubkey, PublicKey,
+    ShieldedAddress,
 };
 pub use zolana_transaction::SOL_ASSET_ID;
 use zolana_transaction::{
@@ -56,22 +57,22 @@ impl OrderTerms {
     // 2. how many tokens of the mint we want to swap into
     // 3. which shielded pubkey the swap settlement will go to
     pub fn data_hash(&self) -> Result<[u8; 32]> {
-        swap_prover::OrderTerms {
-            destination_asset: self.destination_mint,
-            destination_amount: self.destination_amount,
-            destination: CompressedShieldedAddress::try_from(&self.destination)
-                .map_err(err)?
-                .hash()
-                .map_err(err)?,
-            taker: self.taker.data_hash()?,
-            expiry: self.expiry,
-            fill_mode: self.fill_mode,
-        }
-        .data_hash()
-        .map_err(err)
+        crate::witness::order_data_hash(&self.field_elements()?)
     }
 
-    pub fn into_plaintext(&self, destination_asset_id: u64) -> PlainTextData {
+    pub fn field_elements(&self) -> Result<OrderTermsFieldElements> {
+        Ok(OrderTermsFieldElements {
+            destination_asset: hash_field(self.destination_mint.as_array()).map_err(err)?,
+            destination_amount: self.destination_amount,
+            maker_owner_hash: self.destination.owner_hash().map_err(err)?,
+            maker_viewing_pk: *self.destination.viewing_pubkey.as_bytes(),
+            expiry: self.expiry,
+            taker_pk_fe: self.taker.data_hash()?,
+            fill_mode: self.fill_mode,
+        })
+    }
+
+    pub fn to_plaintext(&self, destination_asset_id: u64) -> PlainTextData {
         PlainTextData {
             destination_asset_id,
             destination_amount: self.destination_amount,
@@ -145,7 +146,7 @@ impl OrderUtxo {
         }
         .with_utxo_data(
             self.terms
-                .into_plaintext(self.destination_asset_id)
+                .to_plaintext(self.destination_asset_id)
                 .serialize()?,
             data_hash,
         ))
@@ -153,7 +154,7 @@ impl OrderUtxo {
 
     /// The escrow input spend: the opening (terms + blinding) is the full spend
     /// capability; the swap program signs for the PDA via `invoke_signed`.
-    pub fn into_input_utxo(&self) -> Result<SppProofInputUtxo> {
+    pub fn to_input_utxo(&self) -> Result<SppProofInputUtxo> {
         let utxo = Utxo {
             owner: Self::pda_owner(),
             asset: self.source_mint,
@@ -194,21 +195,17 @@ impl OrderUtxo {
     }
 
     pub fn derived_destination_blinding(&self) -> Result<Blinding> {
-        let field =
-            swap_prover::derive_destination_blinding(&self.blinding.to_field()).map_err(err)?;
-        let mut blinding = [0u8; BLINDING_LEN];
-        blinding.copy_from_slice(field.get(1..32).ok_or_else(|| err("blinding tail"))?);
-        Ok(blinding)
+        crate::witness::derive_destination_blinding(&self.blinding)
     }
 
     pub fn destination_ciphertext(&self, destination_output: &OutputUtxo) -> Result<Vec<u8>> {
-        swap_prover::destination_ciphertext(
-            &self.blinding.to_field(),
-            self.terms.destination_mint.as_array(),
+        Ok(crate::witness::destination_ciphertext_with_hash(
+            &self.blinding,
+            &self.terms.destination_mint,
             self.terms.destination_amount,
-            &destination_output.blinding.to_field(),
-        )
-        .map_err(err)
+            &destination_output.blinding,
+        )?
+        .0)
     }
 }
 

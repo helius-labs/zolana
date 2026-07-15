@@ -1,16 +1,19 @@
 use anyhow::{bail, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
+use swap_program::instructions::cancel::verify::CancelPublicInput;
 use swap_prover::CancelProofInputs;
 use wincode::SchemaWrite;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::P256Pubkey;
-use zolana_transaction::instructions::transact::OutputUtxo;
+use zolana_transaction::instructions::transact::{OutputUtxo, PrivateTxHash};
 
 use crate::{
     err, escrow_authority_pda,
-    order::{ensure_payout, BlindingField, DataHash, OrderUtxo},
-    program_id_pubkey, spp_program_meta, tag, CancelProof,
+    order::{ensure_payout, OrderUtxo},
+    program_id_pubkey, spp_program_meta, tag,
+    witness::{escrow_owner_hash, order_data_hash, PlainUtxo},
+    CancelProof,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaWrite)]
@@ -33,7 +36,7 @@ pub struct CancelProofInputParams {
 }
 
 impl CancelProofInputParams {
-    pub fn into_proof_inputs(&self) -> Result<CancelProofInputs> {
+    pub fn to_proof_inputs(&self) -> Result<CancelProofInputs> {
         let terms = &self.escrow.terms;
         let maker = ensure_payout(
             "source_output",
@@ -44,21 +47,44 @@ impl CancelProofInputParams {
         if maker != terms.destination {
             bail!("source output owner does not match the order destination");
         }
-        Ok(CancelProofInputs {
-            source_mint: *self.escrow.source_mint.as_array(),
-            source_amount: self.escrow.source_amount,
-            escrow_authority: *escrow_authority_pda().as_array(),
-            escrow_blinding: self.escrow.blinding.to_field(),
-            destination_mint: *terms.destination_mint.as_array(),
-            destination_amount: terms.destination_amount,
-            maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
-            maker_owner_pk_field: maker.signing_pubkey.owner_pk_field().map_err(err)?,
-            maker_nullifier_pk: maker.nullifier_pubkey,
-            maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
+        let order = terms.field_elements()?;
+        let maker_owner_pk_field = maker.signing_pubkey.owner_pk_field().map_err(err)?;
+        let escrow = PlainUtxo {
+            owner_hash: escrow_owner_hash(escrow_authority_pda().as_array())?,
+            mint: self.escrow.source_mint,
+            amount: self.escrow.source_amount,
+            blinding: self.escrow.blinding,
+            data_hash: order_data_hash(&order)?,
+        };
+        let source_output = PlainUtxo {
+            owner_hash: order.maker_owner_hash,
+            mint: self.escrow.source_mint,
+            amount: self.escrow.source_amount,
+            blinding: self.source_output.blinding,
+            data_hash: [0u8; 32],
+        };
+        let private_tx_hash = PrivateTxHash::new(
+            &[escrow.hash()?],
+            &[source_output.hash()?],
+            &self.external_data_hash,
+        )
+        .hash()
+        .map_err(err)?;
+        let public_input_hash = CancelPublicInput {
+            private_tx_hash: &private_tx_hash,
             expiry: terms.expiry,
-            taker_pk_fe: terms.taker.data_hash()?,
-            fill_mode: terms.fill_mode,
-            source_output_blinding: self.source_output.blinding.to_field(),
+            maker_owner_pk_field: &maker_owner_pk_field,
+        }
+        .hash()
+        .map_err(err)?;
+        Ok(CancelProofInputs {
+            public_input_hash,
+            private_tx_hash,
+            order,
+            maker_owner_pk_field,
+            maker_nullifier_pk: maker.nullifier_pubkey,
+            escrow: escrow.field_elements()?,
+            source_output: source_output.field_elements()?,
             external_data_hash: self.external_data_hash,
         })
     }

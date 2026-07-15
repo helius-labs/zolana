@@ -28,9 +28,6 @@ zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-interface = { workspace = true, features = ["solana"] }
 
-[dev-dependencies]
-swap-prover = { path = "../prover" }
-
 [lints.rust.unexpected_cfgs]
 level = "allow"
 check-cfg = [

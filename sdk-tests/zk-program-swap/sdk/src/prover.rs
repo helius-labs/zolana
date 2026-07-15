@@ -1,51 +1,43 @@
 use anyhow::{bail, Result};
 use swap_prover::{
-    CancelProofResult, CreateProofResult, FillProofResult, FillVerifiableEncryptionProofResult,
+    CancelProofInputs, CreateProofInputs, FillProofInputs, FillVerifiableEncryptionProofInputs,
+    OrderProof,
 };
 use zolana_client::{assemble, Proof, ProofCompressed, ProverClient, ProverInputs, SpendProof};
 use zolana_interface::instruction::instruction_data::transact::{TransactIxData, TransactProof};
 use zolana_transaction::instructions::transact::SppProofInputs;
 
-use crate::{
-    err,
-    instructions::{
-        cancel::CancelProofInputParams, create_swap::CreateSwapProofInputParams,
-        fill::FillProofInputParams,
-        fill_verifiable_encryption::FillVerifiableEncryptionProofInputParams,
-    },
-};
+use crate::err;
 
+#[derive(Default)]
 pub struct SwapProverClient;
 
 impl SwapProverClient {
-    pub fn new_ffi() -> Self {
+    pub fn new() -> Self {
         Self
     }
 
-    pub fn prove_create_swap(
-        &self,
-        inputs: &CreateSwapProofInputParams,
-    ) -> Result<CreateProofResult> {
-        inputs.into_proof_inputs()?.prove().map_err(err)
+    pub fn prove_create_swap(&self, inputs: &CreateProofInputs) -> Result<OrderProof> {
+        inputs.prove().map_err(err)
     }
 
-    pub fn prove_fill(&self, inputs: &FillProofInputParams) -> Result<FillProofResult> {
-        inputs.into_proof_inputs()?.prove().map_err(err)
+    pub fn prove_fill(&self, inputs: &FillProofInputs) -> Result<OrderProof> {
+        inputs.prove().map_err(err)
     }
 
-    pub fn prove_cancel(&self, inputs: &CancelProofInputParams) -> Result<CancelProofResult> {
-        inputs.into_proof_inputs()?.prove().map_err(err)
+    pub fn prove_cancel(&self, inputs: &CancelProofInputs) -> Result<OrderProof> {
+        inputs.prove().map_err(err)
     }
 
     pub fn prove_fill_verifiable_encryption(
         &self,
-        inputs: &FillVerifiableEncryptionProofInputParams,
-    ) -> Result<FillVerifiableEncryptionProofResult> {
-        inputs.into_proof_inputs()?.prove().map_err(err)
+        inputs: &FillVerifiableEncryptionProofInputs,
+    ) -> Result<OrderProof> {
+        inputs.prove().map_err(err)
     }
 }
 
-pub fn pack_transact_proof(proof: &Proof) -> Result<TransactProof> {
+pub fn compress_transact_proof(proof: &Proof) -> Result<TransactProof> {
     Ok(ProofCompressed::try_from(*proof)
         .map_err(err)?
         .to_transact_proof())
@@ -61,5 +53,5 @@ pub fn prove_transact(
         ProverInputs::Eddsa(inputs) => prover.prove_transfer(inputs).map_err(err)?,
         ProverInputs::P256(_) => bail!("order lifecycle instructions use the eddsa rail"),
     };
-    Ok(assembled.with_proof(pack_transact_proof(&proof)?))
+    Ok(assembled.with_proof(compress_transact_proof(&proof)?))
 }

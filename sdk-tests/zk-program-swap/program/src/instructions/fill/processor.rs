@@ -34,6 +34,7 @@ pub fn process_fill(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult 
     let mut iter = AccountIterator::new(accounts);
     let _payer = iter.next_signer_mut("payer")?;
 
+    // TODO: can we make the data deserialization cleaner?
     let mut cursor = Cursor::new(data);
     let proof: FillProof =
         wincode::deserialize_from(&mut cursor).map_err(|_| SwapError::InvalidInstructionData)?;

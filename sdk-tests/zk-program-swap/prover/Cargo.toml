@@ -17,39 +17,16 @@ groth16-solana = { workspace = true, features = ["bsb22"] }
 num-bigint = { workspace = true }
 swap-program = { path = "../program" }
 serde_json = { workspace = true }
-solana-address = { workspace = true }
 solana-bn254 = { workspace = true }
 thiserror = { workspace = true }
-zolana-hasher = { workspace = true, features = ["poseidon"] }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }
 
 [build-dependencies]
 bindgen = "0.70"
 
 [dev-dependencies]
 ark-bn254 = { workspace = true }
-ark-ff = "0.5"
-groth16-solana = { workspace = true, features = ["bsb22"] }
 light-poseidon = { workspace = true }
-swap-program = { path = "../program" }
 
 [[test]]
 name = "stub_circuit"
 path = "tests/stub_circuit.rs"
-
-[[test]]
-name = "create_circuit"
-path = "tests/create_circuit.rs"
-
-[[test]]
-name = "cancel_circuit"
-path = "tests/cancel_circuit.rs"
-
-[[test]]
-name = "fill_circuit"
-path = "tests/fill_circuit.rs"
-
-[[test]]
-name = "fill_verifiable_encryption_circuit"
-path = "tests/fill_verifiable_encryption_circuit.rs"

@@ -8205,7 +8205,6 @@ dependencies = [
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=862df52dd8c6099c11f795553514c654f3c2c459)",
  "pinocchio 0.11.2",
  "solana-program-error 3.0.1",
- "swap-prover",
  "thiserror 2.0.18",
  "wincode",
  "zolana-account-checks",
@@ -8218,19 +8217,14 @@ name = "swap-prover"
 version = "0.1.0"
 dependencies = [
  "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
  "bindgen",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
  "light-poseidon 0.4.0",
  "num-bigint 0.4.6",
  "serde_json",
- "solana-address 2.6.1",
  "solana-bn254 3.2.1",
  "swap-program",
  "thiserror 2.0.18",
- "zolana-hasher",
- "zolana-keypair",
- "zolana-transaction",
 ]
 
 [[package]]
@@ -8239,6 +8233,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "borsh 1.6.1",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
  "solana-address 2.6.1",
  "solana-instruction 3.4.0",
  "solana-pubkey 4.2.0",

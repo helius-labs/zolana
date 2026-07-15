@@ -21,11 +21,13 @@ impl CancelPublicInput<'_> {
         cancel_public_input_hash(self)
     }
 
+    // TODO: inline and remove this fn
     pub fn verify(&self, proof: &CancelProof) -> ProgramResult {
         verify_cancel_zk_proof(proof, self.hash()?)
     }
 }
 
+// TODO: inline and remove this fn
 #[profile]
 pub fn cancel_public_input_hash(input: &CancelPublicInput<'_>) -> Result<[u8; 32], ProgramError> {
     poseidon3(
@@ -35,6 +37,7 @@ pub fn cancel_public_input_hash(input: &CancelPublicInput<'_>) -> Result<[u8; 32
     )
 }
 
+// TODO: inline and remove this fn
 #[profile]
 pub fn verify_cancel_zk_proof(proof: &CancelProof, public_input_hash: [u8; 32]) -> ProgramResult {
     verify_groth16(

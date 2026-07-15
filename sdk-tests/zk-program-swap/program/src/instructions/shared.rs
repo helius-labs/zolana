@@ -12,12 +12,14 @@ use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::error::SwapError;
 
+// TODO: check whether we have this in the spp interface crate
 pub fn u64_to_field(value: u64) -> [u8; 32] {
     let mut bytes = [0u8; 32];
     bytes[24..32].copy_from_slice(&value.to_be_bytes());
     bytes
 }
 
+// TODO: check whether we have this in the spp interface crate
 fn pack33(bytes: &[u8; 33]) -> ([u8; 32], [u8; 32]) {
     let mut lo = [0u8; 32];
     lo[1..32].copy_from_slice(&bytes[0..31]);
@@ -26,7 +28,7 @@ fn pack33(bytes: &[u8; 33]) -> ([u8; 32], [u8; 32]) {
     hi[31] = bytes[32];
     (lo, hi)
 }
-
+// TODO: remove this is only used in a test
 pub fn maker_address_fe(
     owner_hash: &[u8; 32],
     viewing_pk: &[u8; 33],

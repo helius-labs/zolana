@@ -1,15 +1,18 @@
 use anyhow::{bail, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use swap_prover::FillProofInputs;
+use swap_program::instructions::fill::verify::FillPublicInput;
+use swap_prover::{FillProofInputs, FILL_MODE_DERIVED};
 use wincode::SchemaWrite;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
-use zolana_transaction::instructions::transact::OutputUtxo;
+use zolana_transaction::instructions::transact::{OutputUtxo, PrivateTxHash};
 
 use crate::{
     err, escrow_authority_pda,
-    order::{ensure_payout, BlindingField, DataHash, OrderUtxo},
-    program_id_pubkey, spp_program_meta, tag, FillProof,
+    order::{ensure_payout, OrderUtxo},
+    program_id_pubkey, spp_program_meta, tag,
+    witness::{escrow_owner_hash, order_data_hash, PlainUtxo},
+    FillProof,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaWrite)]
@@ -27,7 +30,7 @@ pub struct FillProofInputParams {
 }
 
 impl FillProofInputParams {
-    pub fn into_proof_inputs(&self) -> Result<FillProofInputs> {
+    pub fn to_proof_inputs(&self) -> Result<FillProofInputs> {
         let terms = &self.escrow.terms;
         let taker = ensure_payout(
             "taker_in",
@@ -56,20 +59,60 @@ impl FillProofInputParams {
         if self.destination_output.blinding != self.escrow.derived_destination_blinding()? {
             bail!("destination output blinding does not match the derived blinding");
         }
-        Ok(FillProofInputs {
-            source_mint: *self.escrow.source_mint.as_array(),
-            source_amount: self.escrow.source_amount,
-            escrow_authority: *escrow_authority_pda().as_array(),
-            escrow_blinding: self.escrow.blinding.to_field(),
-            destination_mint: *terms.destination_mint.as_array(),
-            destination_amount: terms.destination_amount,
-            maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
-            maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
+        if terms.fill_mode != FILL_MODE_DERIVED {
+            bail!("order fill_mode does not authorize the derived fill");
+        }
+        let order = terms.field_elements()?;
+        let taker_owner_hash = taker.owner_hash().map_err(err)?;
+        let escrow = PlainUtxo {
+            owner_hash: escrow_owner_hash(escrow_authority_pda().as_array())?,
+            mint: self.escrow.source_mint,
+            amount: self.escrow.source_amount,
+            blinding: self.escrow.blinding,
+            data_hash: order_data_hash(&order)?,
+        };
+        let taker_in = PlainUtxo {
+            owner_hash: taker_owner_hash,
+            mint: terms.destination_mint,
+            amount: terms.destination_amount,
+            blinding: self.taker_in.blinding,
+            data_hash: [0u8; 32],
+        };
+        let source_output = PlainUtxo {
+            owner_hash: taker_owner_hash,
+            mint: self.escrow.source_mint,
+            amount: self.escrow.source_amount,
+            blinding: self.source_output.blinding,
+            data_hash: [0u8; 32],
+        };
+        let destination_output = PlainUtxo {
+            owner_hash: order.maker_owner_hash,
+            mint: terms.destination_mint,
+            amount: terms.destination_amount,
+            blinding: self.destination_output.blinding,
+            data_hash: [0u8; 32],
+        };
+        let private_tx_hash = PrivateTxHash::new(
+            &[escrow.hash()?, taker_in.hash()?],
+            &[source_output.hash()?, destination_output.hash()?],
+            &self.external_data_hash,
+        )
+        .hash()
+        .map_err(err)?;
+        let public_input_hash = FillPublicInput {
+            private_tx_hash: &private_tx_hash,
             expiry: terms.expiry,
-            taker_pk_fe: terms.taker.data_hash()?,
-            taker_address: taker.owner_hash().map_err(err)?,
-            taker_in_blinding: self.taker_in.blinding.to_field(),
-            source_output_blinding: self.source_output.blinding.to_field(),
+        }
+        .hash()
+        .map_err(err)?;
+        Ok(FillProofInputs {
+            public_input_hash,
+            private_tx_hash,
+            order,
+            escrow: escrow.field_elements()?,
+            taker_in: taker_in.field_elements()?,
+            source_output: source_output.field_elements()?,
+            destination_output: destination_output.field_elements()?,
             external_data_hash: self.external_data_hash,
         })
     }

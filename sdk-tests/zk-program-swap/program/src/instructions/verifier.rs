@@ -9,10 +9,12 @@ use crate::error::SwapError;
 
 const PROOF_ERR: SwapError = SwapError::ProofVerificationFailed;
 
+// TODO: inline and remove this fn
 pub fn poseidon2(a: &[u8; 32], b: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     Poseidon::hashv(&[a.as_slice(), b.as_slice()]).map_err(|_| PROOF_ERR.into())
 }
 
+// TODO: inline and remove this fn and implement proper error conversion
 pub fn poseidon3(a: &[u8; 32], b: &[u8; 32], c: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     Poseidon::hashv(&[a.as_slice(), b.as_slice(), c.as_slice()]).map_err(|_| PROOF_ERR.into())
 }

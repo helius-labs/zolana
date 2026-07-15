@@ -43,25 +43,23 @@ pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> Program
     } = wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;
 
     verify_create_zk_proof(&proof, transact.private_tx_hash)?;
-
-    if transact.messages.len() != 1 {
-        return Err(SwapError::InvalidMarkerMessage.into());
-    }
     let escrow_utxo_hash = transact
         .outputs
         .get(ESCROW_OUTPUT_INDEX)
         .ok_or(SwapError::InvalidInstructionData)?
         .utxo_hash;
+    let [marker_message] = transact.messages.as_mut_slice() else {
+        return Err(SwapError::InvalidMarkerMessage.into());
+    };
+    if !marker_message.data.is_empty() {
+        return Err(SwapError::MarkerDataNotEmpty.into());
+    }
     let marker = MarkerData {
         escrow_utxo_hash,
         maker_pubkey,
     };
-    let marker_bytes = borsh::to_vec(&marker).map_err(|_| SwapError::InvalidInstructionData)?;
-    transact
-        .messages
-        .first_mut()
-        .ok_or(SwapError::InvalidMarkerMessage)?
-        .data = marker_bytes;
+    marker_message.data =
+        borsh::to_vec(&marker).map_err(|_| SwapError::InvalidInstructionData)?;
     let transact_bytes = transact
         .serialize()
         .map_err(|_| SwapError::InvalidInstructionData)?;
