@@ -1,9 +1,10 @@
 use anyhow::{bail, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use swap_program::instructions::fill_verifiable_encryption::verify::FillVerifiableEncryptionPublicInput;
+use swap_program::instructions::fill_verifiable_encryption::{
+    FillVerifiableEncryptionIxData, FillVerifiableEncryptionPublicInput,
+};
 use swap_prover::{FillVerifiableEncryptionProofInputs, FILL_MODE_VERIFIABLE};
-use wincode::SchemaWrite;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_transaction::instructions::transact::{OutputUtxo, PrivateTxHash};
 
@@ -14,12 +15,6 @@ use crate::{
     witness::{destination_ciphertext_with_hash, escrow_owner_hash, order_data_hash, PlainUtxo},
     FillVerifiableEncryptionProof,
 };
-
-#[derive(Clone, Debug, PartialEq, Eq, SchemaWrite)]
-pub struct FillVerifiableEncryptionIxData {
-    pub proof: FillVerifiableEncryptionProof,
-    pub transact: TransactIxData,
-}
 
 pub struct FillVerifiableEncryptionProofInputParams {
     pub escrow: OrderUtxo,

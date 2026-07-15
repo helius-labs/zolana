@@ -1,9 +1,8 @@
 use anyhow::{bail, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use swap_program::instructions::cancel::verify::CancelPublicInput;
+use swap_program::instructions::cancel::{CancelIxData, CancelPublicInput};
 use swap_prover::CancelProofInputs;
-use wincode::SchemaWrite;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::instructions::transact::{OutputUtxo, PrivateTxHash};
@@ -15,18 +14,6 @@ use crate::{
     witness::{escrow_owner_hash, order_data_hash, PlainUtxo},
     CancelProof,
 };
-
-#[derive(Clone, Debug, PartialEq, Eq, SchemaWrite)]
-pub struct CancelIxData {
-    pub proof: CancelProof,
-    /// The committed order `expiry` the cancel proof reveals as a public input.
-    /// Carried separately from `transact.expiry_unix_ts` (the SPP relayer
-    /// deadline): cancel requires `now > order_expiry`, which is necessarily in
-    /// the past, whereas SPP rejects a `transact` whose `expiry_unix_ts` is in the
-    /// past. The proof binds `order_expiry` to the escrow's committed terms.
-    pub order_expiry: u64,
-    pub transact: TransactIxData,
-}
 
 pub struct CancelProofInputParams {
     pub escrow: OrderUtxo,

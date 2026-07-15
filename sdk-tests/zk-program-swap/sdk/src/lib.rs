@@ -8,17 +8,17 @@ use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 pub use swap_program::{
     instructions::{
-        cancel::CancelProof,
+        cancel::{CancelIxData, CancelProof},
         create_swap::{CreateProof, CreateSwapIxData, MarkerData},
-        fill::FillProof,
-        fill_verifiable_encryption::FillVerifiableEncryptionProof,
+        fill::{FillIxData, FillProof},
+        fill_verifiable_encryption::{FillVerifiableEncryptionIxData, FillVerifiableEncryptionProof},
     },
-    tag, ESCROW_AUTHORITY_PDA_SEED, SWAP_PROGRAM_ID,
+    tag, ESCROW_AUTHORITY_PDA_SEED,
 };
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 
 pub(crate) fn program_id_pubkey() -> Pubkey {
-    Pubkey::new_from_array(*SWAP_PROGRAM_ID.as_array())
+    Pubkey::new_from_array(*swap_program::ID.as_array())
 }
 
 /// The escrow-authority PDA the swap program signs with (`invoke_signed`) to spend

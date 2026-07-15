@@ -12,30 +12,10 @@ use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::error::SwapError;
 
-// TODO: check whether we have this in the spp interface crate
 pub fn u64_to_field(value: u64) -> [u8; 32] {
     let mut bytes = [0u8; 32];
     bytes[24..32].copy_from_slice(&value.to_be_bytes());
     bytes
-}
-
-// TODO: check whether we have this in the spp interface crate
-fn pack33(bytes: &[u8; 33]) -> ([u8; 32], [u8; 32]) {
-    let mut lo = [0u8; 32];
-    lo[1..32].copy_from_slice(&bytes[0..31]);
-    let mut hi = [0u8; 32];
-    hi[30] = bytes[31];
-    hi[31] = bytes[32];
-    (lo, hi)
-}
-// TODO: remove this is only used in a test
-pub fn maker_address_fe(
-    owner_hash: &[u8; 32],
-    viewing_pk: &[u8; 33],
-) -> Result<[u8; 32], ProgramError> {
-    let (lo, hi) = pack33(viewing_pk);
-    Poseidon::hashv(&[owner_hash.as_slice(), lo.as_slice(), hi.as_slice()])
-        .map_err(|_| SwapError::ProofVerificationFailed.into())
 }
 
 /// `owner_pk_field` for an ed25519 owner: `Poseidon(value[16..32], value[0..16])`
@@ -48,7 +28,25 @@ pub fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     let mut high = [0u8; 32];
     high[16..].copy_from_slice(&value[0..16]);
     Poseidon::hashv(&[low.as_slice(), high.as_slice()])
-        .map_err(|_| SwapError::ProofVerificationFailed.into())
+        .map_err(|_| SwapError::HashingFailed.into())
+}
+
+#[inline(always)]
+pub fn check_within_window(now: i64, expiry_unix_ts: u64) -> ProgramResult {
+    if now >= 0 && (now as u64) <= expiry_unix_ts {
+        Ok(())
+    } else {
+        Err(SwapError::Expired.into())
+    }
+}
+
+#[inline(always)]
+pub fn check_after_window(now: i64, expiry_unix_ts: u64) -> ProgramResult {
+    if now >= 0 && (now as u64) > expiry_unix_ts {
+        Ok(())
+    } else {
+        Err(SwapError::NotYetExpired.into())
+    }
 }
 
 #[inline(never)]
@@ -137,42 +135,4 @@ pub fn cpi_spp_transact_signed(
     _transact_bytes: &[u8],
 ) -> ProgramResult {
     unimplemented!("cpi_spp_transact_signed requires Solana runtime syscalls")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pack33_layout() {
-        let mut bytes = [0u8; 33];
-        for (i, b) in bytes.iter_mut().enumerate() {
-            *b = i as u8;
-        }
-        let (lo, hi) = pack33(&bytes);
-
-        let mut expected_lo = [0u8; 32];
-        expected_lo[1..32].copy_from_slice(&bytes[0..31]);
-        let mut expected_hi = [0u8; 32];
-        expected_hi[30] = bytes[31];
-        expected_hi[31] = bytes[32];
-
-        assert_eq!(lo, expected_lo);
-        assert_eq!(hi, expected_hi);
-    }
-
-    #[test]
-    fn maker_address_fe_matches_poseidon_of_packed_inputs() {
-        let owner_hash = [7u8; 32];
-        let mut viewing_pk = [0u8; 33];
-        viewing_pk[0] = 2;
-        viewing_pk[32] = 9;
-        let (lo, hi) = pack33(&viewing_pk);
-        let expected =
-            Poseidon::hashv(&[owner_hash.as_slice(), lo.as_slice(), hi.as_slice()]).unwrap();
-        assert_eq!(
-            maker_address_fe(&owner_hash, &viewing_pk).unwrap(),
-            expected
-        );
-    }
 }

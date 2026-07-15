@@ -20,32 +20,12 @@ pub enum SwapError {
     InvalidMarkerMessage = 8014,
     #[error("create-swap marker message data must be empty")]
     MarkerDataNotEmpty = 8015,
+    #[error("hashing failed")]
+    HashingFailed = 8016,
 }
 
 impl From<SwapError> for ProgramError {
     fn from(error: SwapError) -> Self {
         ProgramError::Custom(error as u32)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::SwapError::*;
-
-    #[test]
-    fn error_codes_are_stable() {
-        let table = [
-            (Expired as u32, 8005),
-            (NotYetExpired as u32, 8006),
-            (ProofVerificationFailed as u32, 8007),
-            (InvalidPda as u32, 8010),
-            (InvalidInstructionData as u32, 8011),
-            (MissingEscrowAuthority as u32, 8013),
-            (InvalidMarkerMessage as u32, 8014),
-            (MarkerDataNotEmpty as u32, 8015),
-        ];
-        for (got, want) in table {
-            assert_eq!(got, want, "error code drifted");
-        }
     }
 }

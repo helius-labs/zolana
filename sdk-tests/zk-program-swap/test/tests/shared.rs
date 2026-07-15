@@ -55,7 +55,7 @@ pub fn setup() -> Result<TestEnv> {
     let photon_port =
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
 
-    let swap_program_id = swap_program::SWAP_PROGRAM_ID.to_string();
+    let swap_program_id = swap_program::ID.to_string();
     let swap_program_so = std::env::var("SWAP_PROGRAM_SO")
         .unwrap_or_else(|_| format!("{root}/target/deploy/swap_program.so"));
     let spp_program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID).to_string();
@@ -100,7 +100,7 @@ pub fn setup() -> Result<TestEnv> {
 
     let spp_program = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     rpc.assert_executable(&spp_program)?;
-    let swap_program = Pubkey::new_from_array(*swap_program::SWAP_PROGRAM_ID.as_array());
+    let swap_program = Pubkey::new_from_array(*swap_program::ID.as_array());
     rpc.assert_executable(&swap_program)?;
 
     let payer = Keypair::new();

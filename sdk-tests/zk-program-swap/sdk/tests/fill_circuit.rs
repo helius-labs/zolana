@@ -5,7 +5,11 @@ use groth16_solana::{
 };
 use solana_address::Address;
 use swap_program::{
-    instructions::fill::verify::FillPublicInput, verifying_keys::fill::VERIFYINGKEY,
+    instructions::{
+        fill::{FillProof, FillPublicInput},
+        verifier::{verify_groth16, CompressedGroth16Proof},
+    },
+    verifying_keys::fill::VERIFYINGKEY,
 };
 use swap_prover::{CircuitId, FillProofInputs, OrderTermsFieldElements, FILL_MODE_DERIVED};
 use swap_sdk::witness::{
@@ -200,11 +204,23 @@ fn fill_prove_verify() {
     );
 
     if keys_in_sync(&vk) {
-        FillPublicInput {
+        let public_input_hash = FillPublicInput {
             private_tx_hash: &inputs.private_tx_hash,
             expiry: inputs.order.expiry,
         }
-        .verify(&proof.into())
+        .hash()
+        .expect("program fill public input hash");
+        let proof: FillProof = proof.into();
+        verify_groth16(
+            CompressedGroth16Proof {
+                a: &proof.proof_a,
+                b: &proof.proof_b,
+                c: &proof.proof_c,
+                commitment: None,
+            },
+            public_input_hash,
+            &VERIFYINGKEY,
+        )
         .expect("program fill verify must accept a valid proof");
     }
 }

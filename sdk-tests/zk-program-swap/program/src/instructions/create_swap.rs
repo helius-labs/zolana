@@ -7,7 +7,11 @@ use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
     error::SwapError,
-    instructions::{create_swap::verify::verify_create_zk_proof, shared::cpi_spp_transact},
+    instructions::{
+        shared::cpi_spp_transact,
+        verifier::{verify_groth16, CompressedGroth16Proof},
+    },
+    verifying_keys::create,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -42,7 +46,16 @@ pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> Program
         mut transact,
     } = wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;
 
-    verify_create_zk_proof(&proof, transact.private_tx_hash)?;
+    verify_groth16(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: None,
+        },
+        transact.private_tx_hash,
+        &create::VERIFYINGKEY,
+    )?;
     let escrow_utxo_hash = transact
         .outputs
         .get(ESCROW_OUTPUT_INDEX)

@@ -5,7 +5,11 @@ use groth16_solana::{
 };
 use solana_address::Address;
 use swap_program::{
-    instructions::cancel::verify::CancelPublicInput, verifying_keys::cancel::VERIFYINGKEY,
+    instructions::{
+        cancel::{CancelProof, CancelPublicInput},
+        verifier::{verify_groth16, CompressedGroth16Proof},
+    },
+    verifying_keys::cancel::VERIFYINGKEY,
 };
 use swap_prover::{CancelProofInputs, CircuitId, OrderTermsFieldElements, FILL_MODE_DERIVED};
 use swap_sdk::witness::{escrow_owner_hash, order_data_hash, PlainUtxo};
@@ -175,12 +179,24 @@ fn cancel_prove_verify() {
     );
 
     if keys_in_sync(&vk) {
-        CancelPublicInput {
+        let public_input_hash = CancelPublicInput {
             private_tx_hash: &inputs.private_tx_hash,
             expiry: inputs.order.expiry,
             maker_owner_pk_field: &inputs.maker_owner_pk_field,
         }
-        .verify(&proof.into())
+        .hash()
+        .expect("program cancel public input hash");
+        let proof: CancelProof = proof.into();
+        verify_groth16(
+            CompressedGroth16Proof {
+                a: &proof.proof_a,
+                b: &proof.proof_b,
+                c: &proof.proof_c,
+                commitment: None,
+            },
+            public_input_hash,
+            &VERIFYINGKEY,
+        )
         .expect("program cancel verify must accept a valid proof");
     }
 }

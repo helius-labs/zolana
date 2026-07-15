@@ -368,7 +368,7 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
 fn bench_cu_swap() {
     std::env::set_var("SBF_OUT_DIR", PROFILING_SBF_DIR);
 
-    let swap_id = MolluskPubkey::new_from_array(*swap_program::SWAP_PROGRAM_ID.as_array());
+    let swap_id = MolluskPubkey::new_from_array(*swap_program::ID.as_array());
     let spp_id = MolluskPubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
 
     let mut mollusk = Mollusk::default();

@@ -91,7 +91,7 @@ fn print_program_ids() {
     );
     println!(
         "SWAP_PROGRAM_ID={}",
-        bs58::encode(swap_program::SWAP_PROGRAM_ID).into_string()
+        bs58::encode(swap_program::ID).into_string()
     );
 }
 

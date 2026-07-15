@@ -1,6 +1,6 @@
 use anyhow::Result;
 use solana_address::Address;
-use swap_program::instructions::shared::{maker_address_fe, u64_to_field};
+use swap_program::instructions::shared::u64_to_field;
 use swap_prover::{
     OrderTermsFieldElements, UtxoFieldElements, DESTINATION_BLINDING_DOMAIN, FILL_ENC_KDF_DOMAIN,
 };
@@ -10,6 +10,7 @@ use zolana_keypair::{
     merge::{merge_ciphertext_hash, symmetric_apply, MERGE_INFO},
     NullifierKey,
 };
+use zolana_interface::merge_utils::pack33;
 use zolana_transaction::utxo::{owner_utxo_hash, utxo_hash, Blinding};
 
 use crate::{err, order::BlindingField};
@@ -54,9 +55,13 @@ impl PlainUtxo {
     }
 }
 
+pub fn maker_address_fe(owner_hash: &[u8; 32], viewing_pk: &[u8; 33]) -> Result<[u8; 32]> {
+    let (lo, hi) = pack33(viewing_pk);
+    poseidon(&[owner_hash, &lo, &hi]).map_err(err)
+}
+
 pub fn order_data_hash(order: &OrderTermsFieldElements) -> Result<[u8; 32]> {
-    let maker_address =
-        maker_address_fe(&order.maker_owner_hash, &order.maker_viewing_pk).map_err(err)?;
+    let maker_address = maker_address_fe(&order.maker_owner_hash, &order.maker_viewing_pk)?;
     poseidon(&[
         &order.destination_asset,
         &u64_to_field(order.destination_amount),

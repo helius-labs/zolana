@@ -6,8 +6,10 @@ use groth16_solana::{
 use solana_address::Address;
 use swap_program::{
     instructions::{
-        fill_verifiable_encryption::verify::FillVerifiableEncryptionPublicInput,
-        verifier::ciphertext_hash,
+        fill_verifiable_encryption::{
+            FillVerifiableEncryptionProof, FillVerifiableEncryptionPublicInput,
+        },
+        verifier::{verify_groth16, CompressedGroth16Proof},
     },
     verifying_keys::fill_verifiable_encryption::VERIFYINGKEY,
 };
@@ -19,6 +21,7 @@ use swap_sdk::witness::{
     decrypt_destination, destination_ciphertext_with_hash, escrow_owner_hash, order_data_hash,
     PlainUtxo,
 };
+use zolana_interface::merge_utils::ciphertext_hash;
 use zolana_keypair::hash::{hash_field, poseidon};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
 
@@ -263,12 +266,24 @@ fn fill_prove_verify_and_round_trip() {
     );
 
     if keys_in_sync(&vk) {
-        FillVerifiableEncryptionPublicInput {
+        let public_input_hash = FillVerifiableEncryptionPublicInput {
             private_tx_hash: &inputs.private_tx_hash,
             expiry: inputs.order.expiry,
             destination_ciphertext: &ciphertext,
         }
-        .verify(&proof.into())
+        .hash()
+        .expect("program fill public input hash");
+        let proof: FillVerifiableEncryptionProof = proof.into();
+        verify_groth16(
+            CompressedGroth16Proof {
+                a: &proof.proof_a,
+                b: &proof.proof_b,
+                c: &proof.proof_c,
+                commitment: Some((&proof.commitment, &proof.commitment_pok)),
+            },
+            public_input_hash,
+            &VERIFYINGKEY,
+        )
         .expect("program fill verify must accept a valid proof");
     }
 

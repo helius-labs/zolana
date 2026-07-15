@@ -5,7 +5,11 @@ use groth16_solana::{
 };
 use solana_address::Address;
 use swap_program::{
-    instructions::create_swap::verify::verify_create_zk_proof, verifying_keys::create::VERIFYINGKEY,
+    instructions::{
+        create_swap::CreateProof,
+        verifier::{verify_groth16, CompressedGroth16Proof},
+    },
+    verifying_keys::create::VERIFYINGKEY,
 };
 use swap_prover::{
     CircuitId, CreateProofInputs, OrderTermsFieldElements, FILL_MODE_DERIVED,
@@ -174,8 +178,18 @@ fn create_prove_verify() {
     );
 
     if keys_in_sync(&vk) {
-        verify_create_zk_proof(&proof.into(), inputs.private_tx_hash)
-            .expect("program verify_create_zk_proof must accept a valid proof");
+        let proof: CreateProof = proof.into();
+        verify_groth16(
+            CompressedGroth16Proof {
+                a: &proof.proof_a,
+                b: &proof.proof_b,
+                c: &proof.proof_c,
+                commitment: None,
+            },
+            inputs.private_tx_hash,
+            &VERIFYINGKEY,
+        )
+        .expect("program verify_groth16 must accept a valid proof");
     }
 }
 

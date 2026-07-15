@@ -24,8 +24,6 @@ mod entrypoint {
 
 pinocchio::address::declare_id!("US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx");
 
-pub const SWAP_PROGRAM_ID: Address = crate::ID; // TODO: remove
-
 pub fn process_instruction(
     program_id: &Address,
     accounts: &mut [AccountView],

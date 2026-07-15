@@ -15,16 +15,18 @@ instructions, and circuits. `BENCHMARK.md` holds CU and proving-time numbers
 
 The on-chain Pinocchio program.
 
-- Four instructions under `src/instructions/`: `create_swap`, `fill`,
-  `fill_verifiable_encryption`, `cancel`.
+- Four instructions, one file each under `src/instructions/`: `create_swap`,
+  `fill`, `fill_verifiable_encryption`, `cancel`.
 - Each instruction verifies its Groth16 proof (constants in
   `src/verifying_keys/`) against `private_tx_hash`, then CPIs SPP `transact`
   with the escrow-authority PDA flipped to a signer.
 - Owns the instruction data structs, proof types, tags, and errors; there is no
   separate interface crate, the sdk re-exports from here.
-- The per-instruction `verify` modules hold the canonical public-input hash
-  implementations (`FillPublicInput`, `CancelPublicInput`, ...); the sdk reuses
-  them when assembling proof inputs.
+- The per-instruction modules hold the canonical public-input hash
+  implementations (`FillPublicInput::hash()`, `CancelPublicInput::hash()`, ...);
+  the sdk reuses them when assembling proof inputs.
+- `tests/`: host-side unit tests (error-code stability, fill/cancel window
+  boundaries).
 
 ### `prover` (`swap-prover`)
 
@@ -54,7 +56,7 @@ transformation between domain types and prover witnesses.
 - `instructions/`: builder structs per instruction; `*ProofInputParams`
   validate the payout and derive the prover's field-element inputs
   (`into_proof_inputs()`), including `private_tx_hash` and the public input
-  hash (via the program's `verify` helpers).
+  hash (via the program's `*PublicInput::hash()`).
 - `order.rs`: client-side order model — `OrderTerms`, the escrow `OrderUtxo`
   (output and spend forms), recipient plaintext encoding.
 - `witness.rs`: witness assembly — `PlainUtxo` (field elements + canonical

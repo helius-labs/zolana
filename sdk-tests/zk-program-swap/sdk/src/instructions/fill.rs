@@ -1,9 +1,8 @@
 use anyhow::{bail, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use swap_program::instructions::fill::verify::FillPublicInput;
+use swap_program::instructions::fill::{FillIxData, FillPublicInput};
 use swap_prover::{FillProofInputs, FILL_MODE_DERIVED};
-use wincode::SchemaWrite;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_transaction::instructions::transact::{OutputUtxo, PrivateTxHash};
 
@@ -14,12 +13,6 @@ use crate::{
     witness::{escrow_owner_hash, order_data_hash, PlainUtxo},
     FillProof,
 };
-
-#[derive(Clone, Debug, PartialEq, Eq, SchemaWrite)]
-pub struct FillIxData {
-    pub proof: FillProof,
-    pub transact: TransactIxData,
-}
 
 pub struct FillProofInputParams {
     pub escrow: OrderUtxo,
