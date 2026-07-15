@@ -64,6 +64,9 @@ impl OrderTerms {
     // 1. the mint we want to swap into
     // 2. how many tokens of the mint we want to swap into
     // 3. which shielded pubkey the swap settlement will go to
+    // 4. the order expiry
+    // 5. the taker allowed to fill
+    // 6. the fill mode
     pub fn data_hash(&self) -> Result<[u8; 32]> {
         OrderTermsProofInput::try_from(self)?.data_hash()
     }
@@ -121,7 +124,7 @@ impl OrderUtxo {
         PublicKey::from_ed25519(crate::escrow_authority_pda().as_array())
     }
 
-    /// Constant nullifier key so that both counter parties can spend this utxo.
+    /// Constant nullifier key so that both counterparties can spend this utxo.
     fn nullifier_key() -> NullifierKey {
         NullifierKey::from_secret([0u8; BLINDING_LEN])
     }

@@ -20,7 +20,7 @@ pub fn u64_to_field(value: u64) -> [u8; 32] {
 
 /// `owner_pk_field` for an ed25519 owner: `Poseidon(value[16..32], value[0..16])`
 /// with each half right-aligned into a field element. Matches
-/// `zolana_keypair::hash::hash_field` so the maker's on-chain signer pubkey maps
+/// `zolana_keypair::hash::hash_field` so the maker's Solana signer pubkey maps
 /// to the `owner_pk_field` committed in the escrow's `maker_owner_hash`.
 pub fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     let mut low = [0u8; 32];

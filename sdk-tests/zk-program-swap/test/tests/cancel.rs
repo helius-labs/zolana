@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use shared::{send_v0_with_lookup_table, setup, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT};
 use swap_sdk::{
-    index::discover_own_orders,
+    index::index_maker,
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
         create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
@@ -29,7 +29,7 @@ use zolana_transaction::{
 
 // The committed order expiry is already in the past, so the maker can cancel
 // immediately: the swap program requires `now > order_expiry`. The SPP relayer
-// deadline on the cancel transact must still be in the future, so it rides a
+// deadline on the cancel transact must still be in the future, so it uses a
 // separate constant.
 const EXPIRY: u64 = 1_000_000;
 const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
@@ -41,7 +41,7 @@ const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 //   1. Fund (in setup): maker shields 1.0 SPL, taker shields 0.25 SOL.
 //   2. Create: identical to swap.rs, but the order expiry is already in the past.
 //   3. Discover: the maker rediscovers the order opening from the indexer
-//      (`discover_own_orders`), decrypting the escrow slot from the sender side.
+//      (`index_maker`), decrypting the escrow slot from the sender side.
 //   4. Cancel: the maker spends the escrow (0.4 SPL, escrow-authority-owned) ->
 //      source output 0.4 SPL back to the maker. ZK cancel proof, v0 tx.
 //   5. Assert the returned source output is indexed.
@@ -67,7 +67,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let taker_authorization_address = taker_address
             .solana_address()
             .map_err(|e| anyhow!("taker solana address: {e:?}"))?;
-        // The order opening (terms + escrow blinding) the maker holds off-chain.
+        // The order opening (terms + escrow blinding) the maker keeps locally.
         let terms = OrderTerms {
             destination_mint: SOL_MINT,
             destination_amount: DESTINATION_AMOUNT,
@@ -141,7 +141,6 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .prove_transact(tree, spp_proof_inputs.clone())
             .map_err(|e| anyhow!("create transact proof: {e:?}"))?;
 
-        // Custom proof
         let create_swap_proof_inputs = CreateSwapProofInputParams {
             escrow,
             change,
@@ -166,11 +165,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
     {
         let maker_address = maker.keypair.shielded_address()?;
 
-        // The maker rediscovers her own order from the chain instead of retaining
-        // the opening in memory: the create transaction's sender bundle plus the
-        // re-derived per-transaction viewing key decrypt the taker-addressed
-        // escrow slot from the sender side.
-        let order = discover_own_orders(&mut maker, &indexer, Duration::from_secs(60))?
+        let order = index_maker(&mut maker, &indexer, Duration::from_secs(60))?
             .pop()
             .ok_or_else(|| anyhow!("no own swap order discovered"))?;
         let escrow = order.escrow;

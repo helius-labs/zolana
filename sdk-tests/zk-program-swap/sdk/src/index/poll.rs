@@ -6,9 +6,9 @@ use zolana_transaction::{ShieldedTransaction, Wallet};
 
 use crate::err;
 
-const DISCOVER_POLL: Duration = Duration::from_millis(500);
+const INDEX_POLL: Duration = Duration::from_millis(500);
 
-pub(crate) fn discover_until<I: Rpc, T>(
+pub(crate) fn index_until<I: Rpc, T>(
     wallet: &mut Wallet,
     indexer: &I,
     timeout: Duration,
@@ -25,7 +25,7 @@ pub(crate) fn discover_until<I: Rpc, T>(
         if Instant::now() >= deadline {
             bail!("timed out discovering {what}");
         }
-        std::thread::sleep(DISCOVER_POLL);
+        std::thread::sleep(INDEX_POLL);
     }
 }
 

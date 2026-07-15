@@ -60,9 +60,6 @@ use zolana_transaction::{
 };
 use zolana_tree::TreeAccount;
 
-// Dedicated dir for the profiling build so it never clobbers the plain
-// `target/deploy/swap_program.so` that validator tests load -- the profiling
-// build calls a profiler syscall the test validator does not register.
 const PROFILING_SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../target/swap-bench");
 const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../BENCHMARK.md");
 const PROVER_KEYS_DIR: &str = concat!(
@@ -105,12 +102,6 @@ fn system_owned_account(lamports: u64) -> MolluskAccount {
     }
 }
 
-// Build the shielded-pool tree account exactly as the program's `create_tree`
-// does (`TreeAccount::init` with the canonical params), then append the input
-// utxo hashes directly so their state-inclusion proofs verify against the
-// account's utxo root. The nullifier sub-tree stays empty. Returns the mollusk
-// fixture plus the utxo/nullifier roots and the utxo root-history index the
-// appends advanced to (one per leaf, from the empty root at index 0).
 fn build_tree_fixture(
     tree: &Pubkey,
     leaves: &[[u8; 32]],
@@ -145,8 +136,6 @@ fn build_tree_fixture(
     (fixture, utxo_root, nullifier_root, root_index)
 }
 
-// A local append-only tree mirroring the on-chain utxo tree, used only to read
-// back merkle inclusion proofs (the on-chain SMT stores subtrees, not proofs).
 fn local_state_tree(leaves: &[[u8; 32]]) -> MerkleTree<Poseidon> {
     let mut tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     for leaf in leaves {
@@ -155,9 +144,6 @@ fn local_state_tree(leaves: &[[u8; 32]]) -> MerkleTree<Poseidon> {
     tree
 }
 
-// An empty indexed nullifier tree matching the on-chain initial state (single
-// [0, BN254_MODULUS-1] range element), so a fresh nullifier's non-inclusion proof
-// carries the low/high adjacency the program checks.
 fn nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
     let modulus_minus_one =
         BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).expect("parse bn254 modulus") - 1u32;
@@ -169,10 +155,6 @@ fn nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
     .expect("nullifier tree")
 }
 
-// Build the `SpendProof` (state inclusion + nullifier non-inclusion) the SDK
-// `assemble` consumes for each real input, from the local trees. Every input
-// proves against the same final utxo root at `root_index`; the nullifier root
-// stays at history index 0.
 fn build_spend_proofs(
     tree: &Pubkey,
     state_tree: &MerkleTree<Poseidon>,
@@ -224,10 +206,6 @@ fn build_spend_proofs(
         .collect()
 }
 
-// Map the swap instruction's account metas onto mollusk fixtures: the SPP program
-// (self-CPI target) to its program account, the system program to mollusk's
-// builtin, the tree/payer to the built fixtures, and everything else (the
-// escrow-authority PDA the program signs for) to an empty system-owned account.
 fn assemble_accounts(
     ix: &Instruction,
     spp_id: &MolluskPubkey,
@@ -254,8 +232,6 @@ fn assemble_accounts(
         .collect()
 }
 
-// Derive the SPP-signing party's shielded keypair from its Solana keypair seed,
-// so its ed25519 signing pubkey is the SPP payer (eddsa signer index 0).
 fn keypair_from_payer(payer: &Keypair) -> ShieldedKeypair {
     let seed: [u8; 32] = payer.to_bytes()[..32]
         .try_into()
@@ -263,11 +239,6 @@ fn keypair_from_payer(payer: &Keypair) -> ShieldedKeypair {
     ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("keypair from payer")
 }
 
-// Prove the SPP transfer, timing steady-state proving rather than the prover
-// server's first-request per-shape key load: prove once to warm the shape, then
-// time a second prove. `preload` only warms the in-process swap gnark circuits,
-// not the SPP server's transfer keys, so this warm-up is what makes the SPP
-// column deterministic across runs.
 fn prove_transact_timed(
     proof_inputs: SppProofInputs,
     spend_proofs: &[SpendProof],
@@ -307,12 +278,6 @@ fn proving_time_table(spp: Duration, swap: Duration) -> SectionTable {
     }
 }
 
-// Serialized on-chain transaction size for a single swap instruction, prefixed
-// with a compute-budget limit ix (as the real client sends it). `legacy` is the
-// plain v0-less transaction; `v0 + ALT` compiles a v0 message that sinks every
-// non-signer account plus the program id into one address lookup table, the
-// layout that lets these proof-carrying instructions fit under the 1232-byte
-// packet limit.
 fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
     let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
 
@@ -399,8 +364,6 @@ fn bench_cu_swap() {
         ..Default::default()
     });
 
-    // Warm the SPP prover so `create swap`'s SPP time is not inflated by the
-    // server's lazy first-request key load.
     start_prover();
     preload(CircuitId::Create).expect("preload create keys");
     preload(CircuitId::Fill).expect("preload fill keys");
@@ -415,7 +378,6 @@ fn bench_cu_swap() {
     bench.generate().expect("write BENCHMARK.md");
 }
 
-// create_swap: 1 real input (maker source SOL) -> change + escrow + marker (2x3).
 fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const INPUT_AMOUNT: u64 = 1_000_000;
     const SOURCE_AMOUNT: u64 = 400_000;
@@ -569,10 +531,6 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     bench.add_table("create swap", tx_size_table(&ix, &payer.pubkey()));
 }
 
-// fill (derived blinding): escrow + taker destination inputs -> source (to taker)
-// + destination (to maker, blinding derived from the escrow blinding) (2x2).
-// Permissionless: any opening holder fills; the maker recomputes the derived
-// blinding without a ciphertext.
 fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const DESTINATION_AMOUNT: u64 = 250;
@@ -712,9 +670,6 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     bench.add_table("fill", tx_size_table(&ix, &taker_payer.pubkey()));
 }
 
-// fill: escrow + taker destination inputs -> source (to taker) + destination (to
-// maker, verifiably encrypted) (2x2). The escrow is spent via the opening; the
-// swap program signs for the escrow-authority PDA via invoke_signed.
 fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const DESTINATION_AMOUNT: u64 = 250;
@@ -880,9 +835,6 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     );
 }
 
-// cancel: escrow input -> source output back to the maker (1x1), after the order
-// expiry. The SPP transact carries a future relayer deadline; the committed order
-// expiry rides the cancel ix and proof, checked on-chain as `now > order_expiry`.
 fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const ORDER_EXPIRY: u64 = 1_000_000;
@@ -1005,8 +957,6 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     .instruction()
     .expect("cancel instruction");
 
-    // The swap program requires `now > order_expiry`; SPP requires its own
-    // relayer deadline (u64::MAX) to be in the future. Sit the clock between them.
     mollusk.sysvars.clock.unix_timestamp = ORDER_EXPIRY as i64 + 1;
 
     let fixtures = vec![

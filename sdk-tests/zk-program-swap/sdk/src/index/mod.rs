@@ -7,5 +7,5 @@ mod scan;
 #[cfg(test)]
 mod fixture;
 
-pub use maker::{discover_own_orders, scan_own_order, OwnOrder};
-pub use taker::{discover_orders, scan_order, DiscoveredOrder, OrderCandidate};
+pub use maker::{index_maker, scan_maker, MakerOrder};
+pub use taker::{index_taker, scan_taker, TakerOrder, TakerOrderCandidate};

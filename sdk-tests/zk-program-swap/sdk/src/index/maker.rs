@@ -11,7 +11,7 @@ use zolana_transaction::{
 };
 
 use super::{
-    poll::{collect_tagged, discover_until},
+    poll::{collect_tagged, index_until},
     scan::{parse_order_data, resolve_mint, unified_slots},
 };
 use crate::{
@@ -19,20 +19,20 @@ use crate::{
     state::{OrderTerms, OrderUtxo},
 };
 
-/// An order rediscovered by its maker from her own create transaction.
+/// An order rediscovered by its maker from its own create transaction.
 #[derive(Debug)]
-pub struct OwnOrder {
+pub struct MakerOrder {
     pub escrow: OrderUtxo,
     pub taker_viewing_pubkey: P256Pubkey,
 }
 
 /// Maker-side order rediscovery: the per-transaction viewing key re-derives
-/// from her viewing key and the first input's nullifier (a match against
-/// `tx_viewing_pk` proves she authored the transaction). Each unified slot
+/// from the maker's viewing key and the first input's nullifier (a match against
+/// `tx_viewing_pk` proves the maker authored the transaction). Each unified slot
 /// embeds its recipient viewing pubkey, so that key decrypts every slot from
 /// the sender side directly; the opening is accepted only if the reconstructed
 /// escrow utxo hash matches the slot's committed leaf.
-pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<OwnOrder>> {
+pub fn scan_maker(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<MakerOrder>> {
     let (Some(tx_viewing_pk), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
         return Ok(None);
     };
@@ -55,7 +55,7 @@ pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Optio
         else {
             continue;
         };
-        let Some(order) = own_order_candidate(
+        let Some(order) = maker_order_candidate(
             &wallet.registry,
             maker_address,
             plaintext,
@@ -78,16 +78,16 @@ pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Optio
     Ok(None)
 }
 
-fn own_order_candidate(
+fn maker_order_candidate(
     registry: &AssetRegistry,
     maker_address: ShieldedAddress,
     plaintext: TransferRecipientPlaintext,
     taker_viewing_pubkey: P256Pubkey,
-) -> Option<OwnOrder> {
+) -> Option<MakerOrder> {
     let order_data = parse_order_data(&plaintext.data.records).ok()?;
     let source_mint = resolve_mint(registry, plaintext.asset_id).ok()?;
     let destination_mint = resolve_mint(registry, order_data.destination_asset_id).ok()?;
-    Some(OwnOrder {
+    Some(MakerOrder {
         escrow: OrderUtxo {
             terms: OrderTerms {
                 destination_mint,
@@ -106,13 +106,13 @@ fn own_order_candidate(
     })
 }
 
-pub fn discover_own_orders<I: Rpc>(
+pub fn index_maker<I: Rpc>(
     wallet: &mut Wallet,
     indexer: &I,
     timeout: Duration,
-) -> Result<Vec<OwnOrder>> {
-    discover_until(wallet, indexer, timeout, "own orders", |wallet| {
-        collect_tagged(wallet, indexer, |tx| scan_own_order(tx, wallet))
+) -> Result<Vec<MakerOrder>> {
+    index_until(wallet, indexer, timeout, "maker orders", |wallet| {
+        collect_tagged(wallet, indexer, |tx| scan_maker(tx, wallet))
     })
 }
 
@@ -122,9 +122,9 @@ mod tests {
     use crate::index::fixture::order_fixture;
 
     #[test]
-    fn scan_own_order_reconstructs_the_opening_from_the_makers_side() {
+    fn scan_maker_reconstructs_the_opening_from_the_makers_side() {
         let fixture = order_fixture();
-        let order = scan_own_order(&fixture.tx, &fixture.maker_wallet)
+        let order = scan_maker(&fixture.tx, &fixture.maker_wallet)
             .expect("scan")
             .expect("own order");
         assert_eq!(
@@ -134,9 +134,9 @@ mod tests {
     }
 
     #[test]
-    fn scan_own_order_ignores_transactions_of_other_makers() {
+    fn scan_maker_ignores_transactions_of_other_makers() {
         let fixture = order_fixture();
-        assert!(scan_own_order(&fixture.tx, &fixture.wallet)
+        assert!(scan_maker(&fixture.tx, &fixture.wallet)
             .expect("scan")
             .is_none());
     }

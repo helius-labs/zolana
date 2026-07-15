@@ -28,10 +28,11 @@ pub struct CancelProof {
 pub struct CancelIxData {
     pub proof: CancelProof,
     /// The committed order `expiry` the cancel proof reveals as a public input.
-    /// Carried separately from `transact.expiry_unix_ts` (the SPP relayer
-    /// deadline): cancel requires `now > order_expiry`, which is necessarily in
-    /// the past, whereas SPP rejects a `transact` whose `expiry_unix_ts` is in the
-    /// past. The proof binds `order_expiry` to the escrow's committed terms.
+    /// Separate from `transact.expiry_unix_ts` (the SPP relayer deadline): cancel
+    /// requires `now > order_expiry`, which is necessarily in the past, whereas
+    /// SPP rejects a `transact` whose `expiry_unix_ts` is in the past. The
+    /// escrow's committed terms hash includes `order_expiry`; the proof
+    /// recomputes it.
     pub order_expiry: u64,
     pub transact: TransactIxData,
 }
@@ -58,9 +59,9 @@ impl CancelPublicInput<'_> {
 pub fn process_cancel(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     let _payer = iter.next_signer_mut("payer")?;
-    // The maker signs the cancel; the escrow's committed maker_owner_hash binds
-    // this pubkey (owner_pk_field) in the cancel proof, so only the maker can
-    // cancel and the maker knows the refund blinding it chose.
+    // The maker signs the cancel; the cancel proof recomputes the escrow's
+    // committed maker_owner_hash from this pubkey (owner_pk_field), so only the
+    // maker can cancel and the maker knows the refund blinding it chose.
     let maker_owner_pk_field = hash_field(iter.next_signer("maker")?.address().as_array())?;
 
     let CancelIxData {

@@ -10,7 +10,7 @@ use crate::{err, escrow_authority_pda, tag, CancelProof};
 
 pub struct Cancel {
     /// The maker's ed25519 pubkey, a dedicated readonly signer the swap program
-    /// binds the cancel proof's committed maker to.
+    /// checks against the cancel proof's committed maker.
     pub maker: Pubkey,
     pub payer: Pubkey,
     pub tree: Pubkey,
@@ -48,7 +48,7 @@ impl Cancel {
         .map_err(err)?;
 
         // The maker is a dedicated readonly signer after the fee payer; the swap
-        // program reads its pubkey to bind the cancel proof to the escrow's maker.
+        // program checks its pubkey against the cancel proof's committed maker.
         let accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new_readonly(maker, true),

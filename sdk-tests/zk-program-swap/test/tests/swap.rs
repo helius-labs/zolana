@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use shared::{send_v0_with_lookup_table, setup, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT};
 use swap_sdk::{
-    index::discover_orders,
+    index::index_taker,
     instructions::{
         create_swap::{CreateSwap, CreateSwapProofInputParams, OrderMarker, SppTxHashes},
         fill::{Fill, FillProofInputParams},
@@ -31,13 +31,12 @@ const EXPIRY: u64 = 2_000_000_000;
 
 // Confidential SOL<->SPL swap on the shielded pool -- create then derived fill --
 // driven against a real localnet (validator + Photon indexer + prover) that
-// `setup()` spins up, including registering an SPL asset with the pool.
+// `setup()` starts, including registering an SPL asset with the pool.
 //
 // The maker escrows an SPL token and wants SOL; the taker pays SOL and receives the
-// SPL -- i.e. the taker swaps SOL for the SPL token. Destination is SOL, so the
-// derived fill rail applies; the SPL source rides the shielded UTXOs (the SPP
-// transact is asset-generic for a purely-shielded spend, and the create/fill
-// flows denominate change in the escrow asset).
+// SPL. Destination is SOL, so the derived fill rail applies; the SPL source stays
+// in shielded UTXOs (the SPP transact is asset-generic for a purely-shielded
+// spend, and the create/fill flows denominate change in the escrow asset).
 //
 // Flow:
 //   1. Fund (in setup): maker shields 1.0 SPL, taker shields 0.25 SOL; each wallet
@@ -150,7 +149,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
         );
 
         let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
-        // 7. create spp proof.
+        // 5. create spp proof.
         let spp_proof = indexer
             .prove_transact(tree, spp_proof_inputs)
             .map_err(|e| anyhow!("create transact proof: {e:?}"))?;
@@ -178,7 +177,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
 
     {
         let taker_address = taker.keypair.shielded_address()?;
-        let order = discover_orders(&mut taker, &indexer, &rpc, Duration::from_secs(60))?
+        let order = index_taker(&mut taker, &indexer, &rpc, Duration::from_secs(60))?
             .pop()
             .ok_or_else(|| anyhow!("no swap order discovered"))?;
         let escrow = order.escrow;

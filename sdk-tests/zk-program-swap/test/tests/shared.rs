@@ -37,7 +37,7 @@ pub const SOURCE_AMOUNT: u64 = 400_000_000;
 pub const DESTINATION_AMOUNT: u64 = 250_000_000;
 
 // Each actor is one ed25519 identity: the wallet's signing key doubles as the
-// Solana fee payer (`to_solana_keypair`), and the wallet carries the asset
+// Solana fee payer (`to_solana_keypair`), and the wallet holds the asset
 // registry and the synced spendable notes.
 pub struct TestEnv {
     pub rpc: SolanaRpc,
@@ -239,7 +239,7 @@ pub fn setup() -> Result<TestEnv> {
     // Fund the actors: shield the maker's SPL (the source it escrows) and the
     // taker's SOL (what it pays). Then discover the notes through each party's
     // wallet, which scans the indexer for its view tags and decrypts its own
-    // outputs. Photon lags the validator, so poll sync until both notes land.
+    // outputs. Photon lags the validator, so poll sync until both notes appear.
     Deposit::new(CreateDeposit {
         recipient: &maker_shielded.shielded_address()?,
         asset: spl_mint,

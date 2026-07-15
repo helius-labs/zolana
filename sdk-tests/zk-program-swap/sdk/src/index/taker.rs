@@ -12,7 +12,7 @@ use zolana_transaction::{
 };
 
 use super::{
-    poll::{collect_tagged, discover_until},
+    poll::{collect_tagged, index_until},
     scan::{parse_order_data, resolve_mint, unified_slots},
 };
 use crate::{
@@ -22,12 +22,12 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct DiscoveredOrder {
+pub struct TakerOrder {
     pub escrow: OrderUtxo,
     pub maker_pubkey: Pubkey,
 }
 
-pub struct OrderCandidate {
+pub struct TakerOrderCandidate {
     pub source_amount: u64,
     pub source_mint: Address,
     pub destination_mint: Address,
@@ -37,7 +37,7 @@ pub struct OrderCandidate {
     pub escrow_utxo_hash: [u8; 32],
 }
 
-pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<OrderCandidate>> {
+pub fn scan_taker(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<TakerOrderCandidate>> {
     let taker_tag = wallet
         .keypair
         .signing_pubkey()
@@ -60,7 +60,7 @@ pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Or
     let cx = DecodeCx::for_slot(&wallet.keypair.viewing_key, tx, slot_index);
     let escrow_plaintext = ConfidentialUnified::decode(&body, &cx).map_err(err)?;
     let order_data = parse_order_data(&escrow_plaintext.data.records)?;
-    Ok(Some(OrderCandidate {
+    Ok(Some(TakerOrderCandidate {
         source_amount: escrow_plaintext.amount,
         source_mint: resolve_mint(&wallet.registry, escrow_plaintext.asset_id)?,
         destination_mint: resolve_mint(&wallet.registry, order_data.destination_asset_id)?,
@@ -71,12 +71,12 @@ pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Or
     }))
 }
 
-impl OrderCandidate {
+impl TakerOrderCandidate {
     pub fn into_order(
         self,
         destination: ShieldedAddress,
         taker_viewing_pubkey: P256Pubkey,
-    ) -> Result<DiscoveredOrder> {
+    ) -> Result<TakerOrder> {
         let terms = OrderTerms {
             destination_mint: self.destination_mint,
             destination_amount: self.order_data.destination_amount,
@@ -99,23 +99,23 @@ impl OrderCandidate {
         if escrow_utxo_hash != self.escrow_utxo_hash {
             bail!("reconstructed escrow utxo hash does not match the committed leaf");
         }
-        Ok(DiscoveredOrder {
+        Ok(TakerOrder {
             escrow,
             maker_pubkey: self.maker_pubkey,
         })
     }
 }
 
-pub fn discover_orders<I: Rpc, R: Rpc>(
+pub fn index_taker<I: Rpc, R: Rpc>(
     wallet: &mut Wallet,
     indexer: &I,
     rpc: &R,
     timeout: Duration,
-) -> Result<Vec<DiscoveredOrder>> {
-    discover_until(wallet, indexer, timeout, "orders", |wallet| {
+) -> Result<Vec<TakerOrder>> {
+    index_until(wallet, indexer, timeout, "taker orders", |wallet| {
         let taker_viewing_pubkey = wallet.keypair.viewing_pubkey();
         collect_tagged(wallet, indexer, |tx| {
-            let Some(candidate) = scan_order(tx, wallet)? else {
+            let Some(candidate) = scan_taker(tx, wallet)? else {
                 return Ok(None);
             };
             let maker_resolved_address =
@@ -135,9 +135,9 @@ mod tests {
     use crate::index::fixture::order_fixture;
 
     #[test]
-    fn scan_order_reconstructs_terms_from_the_transaction() {
+    fn scan_taker_reconstructs_terms_from_the_transaction() {
         let fixture = order_fixture();
-        let candidate = scan_order(&fixture.tx, &fixture.wallet)
+        let candidate = scan_taker(&fixture.tx, &fixture.wallet)
             .expect("scan")
             .expect("order candidate");
         let order = candidate
@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn into_order_rejects_a_wrong_maker_address() {
         let fixture = order_fixture();
-        let candidate = scan_order(&fixture.tx, &fixture.wallet)
+        let candidate = scan_taker(&fixture.tx, &fixture.wallet)
             .expect("scan")
             .expect("order candidate");
         let taker_address = fixture
@@ -172,12 +172,12 @@ mod tests {
     }
 
     #[test]
-    fn scan_order_ignores_transactions_for_other_takers() {
+    fn scan_taker_ignores_transactions_for_other_takers() {
         let fixture = order_fixture();
         let other_keypair = ShieldedKeypair::from_seed_ed25519(&[21u8; 32]).expect("other keypair");
         let other_wallet =
             Wallet::new(other_keypair, fixture.wallet.registry.clone()).expect("other wallet");
-        assert!(scan_order(&fixture.tx, &other_wallet)
+        assert!(scan_taker(&fixture.tx, &other_wallet)
             .expect("scan")
             .is_none());
     }
