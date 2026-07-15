@@ -89,3 +89,4 @@ zolana-tree = { workspace = true }
 
 [dev-dependencies]
 serde_norway = { workspace = true }
+zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["tree", "borsh"] }

@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
@@ -10,7 +11,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::{EventKind, Input},
     instruction::{
-        instruction_data::transact::{ExternalDataHash, TransactIxDataRef},
+        instruction_data::transact::{ExternalDataHash, ResolvedOutput, TransactIxDataRef},
         tag::TRANSACT,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
@@ -19,8 +20,8 @@ use zolana_tree::{TreeAccount, TreeError};
 
 use super::{
     account::TransactAccounts,
-    event::{build_transact_event, owner_view_tag, sender_slot_count, TreeWrite},
-    verify::P256_OWNED_SIGNER,
+    event::{build_transact_event, TreeWrite},
+    verify::{MAX_OUTPUTS, P256_OWNED_SIGNER},
 };
 use crate::instructions::{
     event::emit_general_event,
@@ -40,7 +41,8 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
 
-    let mut proof_inputs = prepare_proof_inputs::<false, false>(accounts, &ix)?;
+    let resolved_outputs = resolve_outputs(accounts, &ix)?;
+    let mut proof_inputs = prepare_proof_inputs::<false, false>(accounts, &ix, &resolved_outputs)?;
     let transact_accounts = TransactAccounts::validate_and_parse(accounts, &ix)?;
 
     process_transact_core::<false, false>(
@@ -49,7 +51,25 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
         transact_accounts,
         clock.slot,
         TRANSACT,
+        &resolved_outputs,
     )
+}
+
+#[inline(never)]
+pub(crate) fn resolve_outputs<'a>(
+    accounts: &[AccountView],
+    ix: &TransactIxDataRef<'a>,
+) -> Result<ArrayVec<ResolvedOutput<'a>, MAX_OUTPUTS>, ProgramError> {
+    let mut outputs = ArrayVec::new();
+    for output in &ix.outputs {
+        let resolved = output.into_resolved(ix.p256_signing_pk_x.as_ref(), |i| {
+            accounts.get(usize::from(i)).map(|a| a.address().to_bytes())
+        })?;
+        outputs
+            .try_push(resolved)
+            .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
+    }
+    Ok(outputs)
 }
 
 /// Derive the proof inputs that come from the raw account slice and instruction
@@ -68,14 +88,21 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
 pub(crate) fn prepare_proof_inputs<const IS_ZONE: bool, const IS_AUTHORITY: bool>(
     accounts: &[AccountView],
     ix: &TransactIxDataRef<'_>,
+    resolved_outputs: &[ResolvedOutput],
 ) -> Result<TransactProofInputs, ProgramError> {
     let mut proof_inputs = TransactProofInputs::default();
+    // Hash the raw P256 signing key x-coordinate into its field element once (one
+    // Poseidon syscall), before `check_input_signers` folds it for P256-owned
+    // inputs. Absent on the eddsa rail (folded as the `0` sentinel).
+    proof_inputs.p256_signing_pk_field = match ix.p256_signing_pk_x {
+        Some(x) => verifier::hash_field(&x, ShieldedPoolError::TransactProofVerificationFailed)?,
+        None => [0u8; 32],
+    };
     if !IS_AUTHORITY {
         check_input_signers::<IS_ZONE>(accounts, ix, &mut proof_inputs)?;
     }
-    proof_inputs.p256_signing_pk_field = ix.p256_signing_pk_field.unwrap_or([0u8; 32]);
     if !IS_ZONE {
-        fill_output_owner_pk_hashes(ix, &mut proof_inputs)?;
+        fill_output_owner_pk_hashes(resolved_outputs, &mut proof_inputs)?;
     }
     Ok(proof_inputs)
 }
@@ -92,6 +119,7 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
     transact_accounts: TransactAccounts<'_>,
     current_slot: u64,
     discriminator: u8,
+    resolved_outputs: &[ResolvedOutput],
 ) -> ProgramResult {
     // The parser picks one settlement branch, so both amounts set would move only
     // SPL while the proven SOL leg never settles: an unbacked note. Reject first.
@@ -125,8 +153,8 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
         spl_token_interface: &spl_token_interface,
         data_hash: ix.data_hash,
         zone_data_hash: ix.zone_data_hash,
-        output_utxo_hashes: &ix.output_utxo_hashes,
-        output_ciphertexts: &ix.output_ciphertexts,
+        outputs: resolved_outputs,
+        messages: &ix.messages,
     }
     .hash()
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
@@ -136,7 +164,7 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
 
     proof_inputs.spl_mint = transact_accounts.spl_mint;
 
-    let event = build_transact_event(ix, proof_inputs, tree_write);
+    let event = build_transact_event(ix, proof_inputs, tree_write, resolved_outputs);
     TransactProof::new(ix, proof_inputs).verify::<IS_ZONE, IS_AUTHORITY>()?;
 
     match transact_accounts.settlement.as_ref() {
@@ -200,7 +228,8 @@ fn apply_tree(
 
     // Leaf index the first output lands at; the rest follow sequentially.
     let first_output_leaf_index = tree.utxo_tree().next_index();
-    tree.utxo_tree().append_batch(ix.output_utxo_hashes.iter());
+    tree.utxo_tree()
+        .append_batch(ix.outputs.iter().map(|o| o.utxo_hash));
     Ok(TreeWrite {
         inputs,
         first_output_leaf_index,
@@ -220,7 +249,8 @@ fn tree_error(e: TreeError) -> ProgramError {
 // Ed25519 inputs must have their owner account as a signer and use its
 // `solana_pk_hash` (every variant). P256-owned inputs differ by variant: the
 // confidential rail folds the shared P256 signing key's `pk_field`
-// (`ix.p256_signing_pk_field`) so the circuit routes ownership by equality,
+// (`proof_inputs.p256_signing_pk_field`, hashed once in `prepare_proof_inputs`)
+// so the circuit routes ownership by equality,
 // while the anonymous policy-zone rail (`IS_ZONE`) keeps P256 owners private and
 // folds the `0` sentinel -- the circuit proves P256 ownership internally from the
 // signature, so the public input carries no owner identity (matching
@@ -231,7 +261,7 @@ fn check_input_signers<const IS_ZONE: bool>(
     ix: &TransactIxDataRef<'_>,
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<(), ProgramError> {
-    let p256_signing_pk_field = ix.p256_signing_pk_field.unwrap_or([0u8; 32]);
+    let p256_signing_pk_field = proof_inputs.p256_signing_pk_field;
     for (i, input) in ix.inputs.iter().enumerate() {
         let pk_hash = if input.eddsa_signer_index == P256_OWNED_SIGNER {
             if IS_ZONE {
@@ -254,24 +284,18 @@ fn check_input_signers<const IS_ZONE: bool>(
     Ok(())
 }
 
-// Derive each output owner's `pk_field` from the per-output view_tag using the
-// OWNER mapping (`owner_view_tag`): the leading change positions all map to the
-// sender bundle ciphertext, each tail position to its own ciphertext.
 #[profile]
 fn fill_output_owner_pk_hashes(
-    ix: &TransactIxDataRef<'_>,
+    resolved_outputs: &[ResolvedOutput],
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<(), ProgramError> {
     let error = ShieldedPoolError::InvalidTransactShape;
-    let n_outputs = ix.output_utxo_hashes.len();
-    let n_ciphertexts = ix.output_ciphertexts.len();
-    let sender_slots = sender_slot_count(n_outputs, n_ciphertexts);
-    for i in 0..n_outputs {
-        let view_tag = owner_view_tag(&ix.output_ciphertexts, sender_slots, i).ok_or(error)?;
-        *proof_inputs
-            .output_owner_pk_hashes
-            .get_mut(i)
-            .ok_or(error)? = verifier::hash_field(view_tag, error)?;
+    for (slot, output) in proof_inputs
+        .output_owner_pk_hashes
+        .iter_mut()
+        .zip(resolved_outputs.iter())
+    {
+        *slot = verifier::hash_field(&output.owner_tag, error)?;
     }
     Ok(())
 }

@@ -30,7 +30,10 @@ use solana_transaction_status_client_types::{
 };
 use zolana_event::{InstructionGroup, ParsedInstruction};
 use zolana_interface::{
-    instruction::{instruction_data::transact::TransactIxData, tag},
+    instruction::{
+        instruction_data::transact::{fetch_tag, TransactIxData},
+        tag,
+    },
     SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -75,13 +78,21 @@ pub fn transact_output_view_tags_from_instruction_groups(
         if *instruction_tag != tag::TRANSACT {
             continue;
         }
-        let transact_data = TransactIxData::deserialize(&outer.data[1..])
+        let payload = outer.data.get(1..).ok_or_else(|| {
+            ClientError::Rpc("transact instruction data is missing its payload".into())
+        })?;
+        let transact_data = TransactIxData::deserialize(payload)
             .map_err(|err| ClientError::Rpc(format!("decode transact instruction data: {err}")))?;
-        let tags = transact_data
-            .output_ciphertexts
-            .iter()
-            .map(|slot| slot.view_tag)
-            .collect::<BTreeSet<_>>();
+        let mut tags = BTreeSet::new();
+        for output in &transact_data.outputs {
+            let tag = fetch_tag(
+                &output.owner_tag,
+                transact_data.p256_signing_pk_x.as_ref(),
+                |i| outer.accounts.get(usize::from(i)).map(|pk| pk.to_bytes()),
+            )
+            .map_err(|err| ClientError::Rpc(format!("resolve output owner tag: {err}")))?;
+            tags.insert(tag);
+        }
         return Ok(tags.into_iter().collect());
     }
     Err(ClientError::Rpc(

@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_client::{
-    ClientError, InputCommitment, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed,
-    ProveResult, ProverClient, ProverInputs, Rpc, SignedTransaction, SpendProof,
+    ClientError, InputUtxoContext, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed,
+    ProveResult, ProverClient, ProverInputs, Rpc, SpendProof, SppProofInputs,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use zolana_transaction::instructions::transact::signed_transaction::BN254_MODULUS_DEC;
+use zolana_transaction::instructions::transact::spp_proof_inputs::BN254_MODULUS_DEC;
 
 fn test_merkle_context() -> MerkleContext {
     MerkleContext {
@@ -57,7 +57,7 @@ impl TestIndexer {
     }
 
     /// Build the state-inclusion + nullifier-non-inclusion proof for one input.
-    fn input_merkle_proof(&self, commitment: &InputCommitment) -> Result<SpendProof, ClientError> {
+    fn input_merkle_proof(&self, commitment: &InputUtxoContext) -> Result<SpendProof, ClientError> {
         let leaf_index = *self
             .leaf_index
             .get(&commitment.utxo_hash)
@@ -107,7 +107,7 @@ impl Default for TestIndexer {
 impl Rpc for TestIndexer {
     fn get_input_merkle_proofs(
         &self,
-        input_utxo_commitments: &[InputCommitment],
+        input_utxo_commitments: &[InputUtxoContext],
     ) -> Result<Vec<SpendProof>, ClientError> {
         input_utxo_commitments
             .iter()
@@ -115,10 +115,10 @@ impl Rpc for TestIndexer {
             .collect()
     }
 
-    fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
-        let commitments = transaction.input_commitments()?;
+    fn prove(&self, proof_inputs: SppProofInputs) -> Result<ProveResult, ClientError> {
+        let commitments = proof_inputs.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments)?;
-        let assembled = zolana_client::assemble(transaction, &input_merkle_proofs)?;
+        let assembled = zolana_client::assemble(proof_inputs, &input_merkle_proofs)?;
         // circuit_id has no formal registry yet: 1 = P256 rail, 0 = eddsa rail.
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (ProverClient::local().prove_transfer_p256(inputs)?, 1),

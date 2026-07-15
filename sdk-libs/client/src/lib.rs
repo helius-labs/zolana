@@ -57,12 +57,12 @@ pub use prover::{
     transact::{assemble, into_prover, AssembledTransfer, CircuitType, ProverInputs, SpendProof},
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
     CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProofResult, MergeZoneProver,
-    MergeZoneWitness, P256Owner, Proof, ProofCompressed, ProverClient, PublicAmounts, Shape,
-    TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, TransferP256ProofResult,
-    TransferP256Prover, TransferProofResult, TransferProver, TransferSpendInput, UtxoInputs,
-    ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness,
+    MergeZoneWitness, P256Owner, Proof, ProofCompressed, ProofInputUtxo, ProverClient,
+    PublicAmounts, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
+    TransferP256ProofResult, TransferP256Prover, TransferProofResult, TransferProver,
+    TransferSpendInput, ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness,
     ZoneTransferP256ProofResult, ZoneTransferP256Prover, ZoneTransferProofResult,
-    ZoneTransferProver, SUPPORTED_SHAPES,
+    ZoneTransferProver, SPP_SUPPORTED_SHAPES,
 };
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
@@ -82,8 +82,8 @@ pub use user_registry::{
     validate_registered_keypair,
 };
 pub use wallet_authority::{
-    AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
-    LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
+    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, LocalWalletAuthority,
+    P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
 pub use wallet_sync::{
     get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_async,
@@ -93,8 +93,8 @@ pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
         merge_zone::{MergeZone, PreparedMergeZone},
-        transact::{SignedTransaction, Transaction, WithdrawalTarget},
-        types::{InputCommitment, SpendUtxo},
+        transact::{ConfidentialTransfer, SppProofInputs, WithdrawalTarget},
+        types::{InputUtxoContext, SppProofInputUtxo},
         zone_authority::PreparedZoneAuthority,
     },
     AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,

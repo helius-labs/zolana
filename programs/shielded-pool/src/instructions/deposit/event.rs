@@ -45,6 +45,7 @@ pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) ->
             utxo_hash: ctx.utxo_hash,
             data: output_data,
         }],
+        messages: Vec::new(),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         first_output_leaf_index: ctx.first_output_leaf_index,

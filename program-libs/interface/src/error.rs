@@ -69,6 +69,10 @@ pub enum ShieldedPoolError {
     ZoneAuthorityTransactDisabled = 7022,
     #[error("transact sets both public_sol_amount and public_spl_amount; at most one is allowed")]
     BothPublicAmountsSet = 7023,
+    #[error("output owner tag references the p256 signing key but p256_signing_pk_x is absent")]
+    MissingP256SigningKey = 7024,
+    #[error("output owner tag account index is out of range")]
+    OwnerTagAccountMissing = 7025,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -129,6 +133,8 @@ mod tests {
             (MismatchedTransactProofRail as u32, 7021),
             (ZoneAuthorityTransactDisabled as u32, 7022),
             (BothPublicAmountsSet as u32, 7023),
+            (MissingP256SigningKey as u32, 7024),
+            (OwnerTagAccountMissing as u32, 7025),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

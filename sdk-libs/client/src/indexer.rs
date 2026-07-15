@@ -1,5 +1,10 @@
 //! Blocking RPC adapter for the Zolana indexer API.
 
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
 use async_trait::async_trait;
 use solana_address::Address;
 #[cfg(test)]
@@ -8,10 +13,13 @@ use zolana_api::{
     Base64String, BlockingZolanaApi, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot,
     SerializablePubkey, ZolanaApi,
 };
+use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
+use zolana_transaction::instructions::transact::SppProofInputs;
 
 use crate::{
     error::ClientError,
+    prover::{transact::SpendProof, ProverClient},
     rpc::{
         AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
@@ -19,6 +27,9 @@ use crate::{
         OutputContext, OutputSlot, Rpc, ShieldedTransaction,
     },
 };
+
+const MERKLE_PROOF_POLL_TIMEOUT: Duration = Duration::from_secs(60);
+const MERKLE_PROOF_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Debug)]
 pub struct ZolanaIndexer {
@@ -48,6 +59,42 @@ impl ZolanaIndexer {
 
     pub fn api(&self) -> &BlockingZolanaApi {
         &self.api
+    }
+
+    pub fn prove_transact(
+        &self,
+        tree: Address,
+        proof_inputs: SppProofInputs,
+    ) -> Result<TransactIxData, ClientError> {
+        let spend_proofs = self.spend_proofs(tree, &proof_inputs)?;
+        ProverClient::local().prove_transact(proof_inputs, &spend_proofs)
+    }
+
+    fn spend_proofs(
+        &self,
+        tree: Address,
+        proof_inputs: &SppProofInputs,
+    ) -> Result<Vec<SpendProof>, ClientError> {
+        let inputs = proof_inputs.input_utxo_hashes()?;
+        let state_proofs = self
+            .get_merkle_proofs(tree, inputs.iter().map(|c| c.utxo_hash).collect())?
+            .proofs;
+        let nullifier_proofs = self
+            .get_non_inclusion_proofs(tree, inputs.iter().map(|c| c.nullifier).collect())?
+            .proofs;
+        if state_proofs.len() != inputs.len() || nullifier_proofs.len() != inputs.len() {
+            return Err(ClientError::Rpc(format!(
+                "indexer returned {} state and {} nullifier proofs for {} inputs",
+                state_proofs.len(),
+                nullifier_proofs.len(),
+                inputs.len()
+            )));
+        }
+        Ok(state_proofs
+            .into_iter()
+            .zip(nullifier_proofs)
+            .map(|(state, nullifier)| SpendProof { state, nullifier })
+            .collect())
     }
 }
 
@@ -132,22 +179,39 @@ impl Rpc for ZolanaIndexer {
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        let response = self
-            .api
-            .get_merkle_proofs(
-                encode_pubkey(tree_account),
-                leaves.into_iter().map(encode_hash).collect(),
-            )
-            .map_err(indexer_error)?;
-
-        Ok(GetMerkleProofsResponse {
-            context: convert_context(response.context),
-            proofs: response
-                .proofs
-                .into_iter()
-                .map(convert_merkle_proof)
-                .collect(),
-        })
+        let expected = leaves.len();
+        let started = Instant::now();
+        let mut last_error = None;
+        loop {
+            let attempt: Result<GetMerkleProofsResponse, ClientError> = self
+                .api
+                .get_merkle_proofs(
+                    encode_pubkey(tree_account),
+                    leaves.clone().into_iter().map(encode_hash).collect(),
+                )
+                .map_err(indexer_error)
+                .map(|response| GetMerkleProofsResponse {
+                    context: convert_context(response.context),
+                    proofs: response
+                        .proofs
+                        .into_iter()
+                        .map(convert_merkle_proof)
+                        .collect(),
+                });
+            match attempt {
+                Ok(response) if response.proofs.len() >= expected => return Ok(response),
+                Ok(_) => {}
+                Err(error) => last_error = Some(error),
+            }
+            if started.elapsed() >= MERKLE_PROOF_POLL_TIMEOUT {
+                return Err(last_error.unwrap_or_else(|| {
+                    ClientError::Rpc(format!(
+                        "merkle proofs for {expected} leaves not indexed within {MERKLE_PROOF_POLL_TIMEOUT:?}"
+                    ))
+                }));
+            }
+            sleep(MERKLE_PROOF_POLL_INTERVAL);
+        }
     }
 
     fn get_non_inclusion_proofs(
@@ -321,6 +385,14 @@ fn convert_shielded_transaction(
             .output_slots
             .into_iter()
             .map(convert_output_slot)
+            .collect(),
+        messages: item
+            .messages
+            .into_iter()
+            .map(|message| zolana_event::MessageData {
+                view_tag: message.view_tag.into(),
+                data: message.payload.into(),
+            })
             .collect(),
         nullifiers: item.nullifiers.into_iter().map(Into::into).collect(),
         proofless: item.proofless,
@@ -548,6 +620,7 @@ mod tests {
                     },
                     "payload": STANDARD.encode([21, 22]),
                 }],
+                "messages": [],
                 "nullifiers": [encode_hash_string(nullifier)],
                 "proofless": true,
             }],
@@ -590,6 +663,7 @@ mod tests {
                     }],
                     nullifiers: vec![nullifier],
                     proofless: true,
+                    messages: vec![],
                 }],
                 next_cursor: Some(vec![23]),
             }
@@ -600,7 +674,6 @@ mod tests {
     fn get_merkle_proofs_encodes_tree_and_maps_root_metadata() {
         let tree = Address::new_from_array(bytes32(31));
         let leaf_a = bytes32(32);
-        let leaf_b = bytes32(33);
         let path = vec![bytes32(34), bytes32(35)];
         let root = bytes32(36);
         let response = rpc_result(json!({
@@ -622,7 +695,7 @@ mod tests {
         let indexer = ZolanaIndexer::new(server.url());
 
         let got = indexer
-            .get_merkle_proofs(tree, vec![leaf_a, leaf_b])
+            .get_merkle_proofs(tree, vec![leaf_a])
             .expect("merkle proofs");
         let request = server.request();
 
@@ -632,7 +705,7 @@ mod tests {
             request.body["params"],
             json!({
                 "tree_account": encode_pubkey_string(tree),
-                "leaves": [encode_hash_string(leaf_a), encode_hash_string(leaf_b)],
+                "leaves": [encode_hash_string(leaf_a)],
             })
         );
         assert_eq!(
@@ -755,6 +828,7 @@ mod tests {
                     },
                     "payload": STANDARD.encode([1]),
                 }],
+                "messages": [],
                 "nullifiers": [],
                 "proofless": true,
             }],

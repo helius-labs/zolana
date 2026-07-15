@@ -23,15 +23,18 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::TransferOutput;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_interface::instruction::{instruction_data::transact::TransactIxData, Transact};
+use zolana_interface::instruction::{
+    instruction_data::transact::{OwnerTag, TransactIxData},
+    Transact,
+};
 use zolana_keypair::hash::hash_field;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::instructions::transact::{no_address_hashes, private_tx_hash};
+use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, output_owner_pk_hashes,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
     prove_and_verify_transfer, public_input_hash, set_output_owner_tags, start_prover,
     TransferProverInputsArgs,
 };
@@ -95,27 +98,24 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
 
     // Instruction data; `proof` and `private_tx_hash` are filled in once the
     // external-data hash (which excludes both) is known. The eddsa rail carries no
-    // P256 owner, so `p256_signing_pk_field` is `None`.
+    // P256 owner, so `p256_signing_pk_x` is `None`. Each output carries its own
+    // `Inline` owner tag.
+    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
             .map(|nullifier| eddsa_input_utxo(*nullifier, 0))
             .collect(),
         None,
-        output_hashes.clone(),
-        vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
-        ],
+        inline_outputs(&output_hashes, &view_tags),
         None,
     );
 
     // Confidential owner tags: the program reconstructs each output's owner
-    // `pk_field` as `hash_field(view_tag)` via the bundle-replication mapping. All
-    // three outputs are dummies, so their owner is unconstrained (nullifier_pk 0).
+    // `pk_field` as `hash_field(resolved_owner_tag)` per position. All three
+    // outputs are dummies, so their owner is unconstrained (nullifier_pk 0).
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.output_ciphertexts, output_hashes.len())
-            .expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
 
     // external_data_hash via the shared interface struct: the program computes
@@ -124,13 +124,9 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
         external_data_hash(&transact_ix_data, &zero).expect("external data hash");
 
     // Dummy inputs and outputs contribute zero hashes to private_tx_hash.
-    let private_tx = private_tx_hash(
-        &[zero, zero],
-        &[zero, zero, zero],
-        &no_address_hashes(2),
-        &external_data_hash,
-    )
-    .expect("private tx hash");
+    let private_tx = PrivateTxHash::new(&[zero, zero], &[zero, zero, zero], &external_data_hash)
+        .hash()
+        .expect("private tx hash");
 
     // Values the program reconstructs from accounts[0] (the payer).
     let owner_hash = hash_field(&payer_bytes).expect("owner hash");
@@ -194,10 +190,11 @@ fn transact_sends_valid_proof() {
     assert!(result.is_ok(), "transact failed: {result:?}");
 }
 
-/// A tampered output `view_tag` (changed after proving, so `hash_field(view_tag)`
-/// no longer matches the proof's committed output-owner chain) must be rejected:
-/// the program reconstructs the owner tags from the instruction's ciphertexts and
-/// the resulting public input no longer matches the proof.
+/// A tampered output owner tag (changed after proving, so
+/// `hash_field(resolved_owner_tag)` no longer matches the proof's committed
+/// output-owner chain) must be rejected: the program reconstructs the owner tags
+/// from the instruction's outputs and the resulting public input no longer
+/// matches the proof.
 #[test]
 fn transact_rejects_tampered_output_view_tag() {
     let Some(mut env) = TransactEnv::boot() else {
@@ -207,13 +204,11 @@ fn transact_rejects_tampered_output_view_tag() {
     let payer = env.rpc.payer.pubkey();
     let mut transact_ix_data = build_valid_transact_ix(&env);
 
-    // Flip a recipient ciphertext's view_tag. The proof committed to the original
-    // `hash_field(view_tag)`, so the program's reconstruction now disagrees.
-    let tampered = transact_ix_data
-        .output_ciphertexts
-        .get_mut(1)
-        .expect("second output ciphertext");
-    tampered.view_tag = [0xAAu8; 32];
+    // Flip a recipient output's owner tag. The proof committed to the original
+    // `hash_field(resolved_owner_tag)`, so the program's reconstruction now
+    // disagrees.
+    let tampered = transact_ix_data.outputs.get_mut(1).expect("second output");
+    tampered.owner_tag = OwnerTag::Inline([0xAAu8; 32]);
 
     let ix = Transact {
         payer,

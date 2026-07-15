@@ -1,10 +1,14 @@
+pub mod output_data;
 pub mod output_utxo;
 pub mod proofless;
 pub mod tag;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use output_data::MessageData;
 pub use output_utxo::OutputUtxo;
-pub use proofless::{encode_output_data, encode_verifiably_encrypted, OutputData, ProoflessOutput};
+pub use proofless::{
+    encode_output_data, encode_verifiably_encrypted, OutputDataEncoding, ProoflessOutput,
+};
 
 /// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing
 /// instructions (spec: General Event). It records the queue sequence numbers and
@@ -14,6 +18,9 @@ pub use proofless::{encode_output_data, encode_verifiably_encrypted, OutputData,
 pub struct GeneralEvent {
     pub inputs: Vec<Input>,
     pub outputs: Vec<OutputUtxo>,
+    /// Published data slots bound to no output position, republished from
+    /// `TransactIxData::messages`.
+    pub messages: Vec<MessageData>,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext, so an
     /// indexer can decrypt without parsing the per-output `data`. Zeroed for
     /// proofless deposits, which have no shared viewing key.

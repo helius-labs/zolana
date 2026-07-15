@@ -32,15 +32,12 @@ use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
     single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
 };
-use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    Data, Utxo, SOL_MINT,
-};
+use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, nullifier_tree,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_sol_field,
     real_output, set_output_owner_tags, spend_input, start_prover, transfer_output, SpendInputArgs,
     TransferProverInputsArgs,
@@ -217,26 +214,25 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
-    // One ciphertext per output (1:1 owner mapping); each real output's view_tag is
-    // its owner's `confidential_view_tag` so the program's `hash_field(view_tag)`
-    // matches that owner's `owner_pk_field`.
+    // Each real output's owner tag is its owner's `confidential_view_tag` so the
+    // program's `hash_field(resolved_owner_tag)` matches that owner's
+    // `owner_pk_field`.
     let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
+    let transfer_view_tags = [change_view_tag, recipient_view_tag, [3u8; 32]];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(payer_nullifier, 1),
             eddsa_input_utxo(transfer_dummy_nullifier, 1),
         ],
         None,
-        vec![change_hash, recipient_hash, transfer_dummy_hash],
-        vec![
-            ix_output_ciphertext(change_view_tag),
-            ix_output_ciphertext(recipient_view_tag),
-            ix_output_ciphertext([3u8; 32]),
-        ],
+        inline_outputs(
+            &[change_hash, recipient_hash, transfer_dummy_hash],
+            &transfer_view_tags,
+        ),
         None,
     );
-    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.output_ciphertexts, 3)
+    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.outputs, None)
         .map_err(|err| anyhow!("transfer output owner pk hashes: {err}"))?;
     let mut transfer_outputs = vec![
         transfer_output(&change_output)?,
@@ -249,12 +245,12 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         &[payer_nullifier_pk, recipient_nullifier_pk, zero],
     );
     let transfer_external_hash = external_data_hash(&transfer_ix_data, &zero)?;
-    let transfer_private_tx = private_tx_hash(
+    let transfer_private_tx = PrivateTxHash::new(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
-        &no_address_hashes(2),
         &transfer_external_hash,
-    )?;
+    )
+    .hash()?;
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
     let transfer_public_input_hash = public_input_hash(
         &[payer_nullifier, transfer_dummy_nullifier],
@@ -370,24 +366,18 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         .map(|(out, _)| out)
         .collect();
 
+    let withdraw_view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(recipient_nullifier, 4),
             eddsa_input_utxo(withdraw_dummy_nullifier, 4),
         ],
         Some(-(TRANSFER_AMOUNT as i64)),
-        withdraw_output_hashes.clone(),
-        vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
-        ],
+        inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
         None,
     );
-    let withdraw_owner_pk_hashes = output_owner_pk_hashes(
-        &withdraw_ix_data.output_ciphertexts,
-        withdraw_output_hashes.len(),
-    )
-    .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
+    let withdraw_owner_pk_hashes = output_owner_pk_hashes(&withdraw_ix_data.outputs, None)
+        .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
     set_output_owner_tags(
         &mut withdraw_outputs,
         &withdraw_owner_pk_hashes,
@@ -395,12 +385,12 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     );
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())?;
-    let withdraw_private_tx = private_tx_hash(
+    let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[zero, zero, zero],
-        &no_address_hashes(2),
         &withdraw_external_hash,
-    )?;
+    )
+    .hash()?;
     let public_sol_field = public_sol_field(withdraw_ix_data.public_sol_amount);
     let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes)?;
     let withdraw_public_input_hash = public_input_hash(

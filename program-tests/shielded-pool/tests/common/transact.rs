@@ -10,15 +10,15 @@ use solana_address::Address;
 #[allow(unused_imports)]
 pub use transact_core::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, output_owner_pk_hashes,
-    pack_proof, prove_and_verify_transfer, public_input_hash, set_output_owner_tags, start_prover,
-    TransferProverInputsArgs,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
+    pack_proof, prove_and_verify_transfer, public_input_hash, resolve_outputs,
+    set_output_owner_tags, start_prover, TransferProverInputsArgs,
 };
 use zolana_client::{
-    prover::field::{be, hash_chain, right_align_slice},
-    TransferInput, TransferInputs, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT,
+    prover::field::{be, right_align_slice},
+    ProofInputUtxo, TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon;
+use zolana_hasher::{hash_chain::create_hash_chain_from_slice, Poseidon};
 use zolana_interface::instruction::{
     instruction_data::transact::{ExternalDataHash, TransactIxData},
     tag,
@@ -28,8 +28,8 @@ use zolana_keypair::{
 };
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_transaction::{
-    instructions::transact::signed_transaction::{signed_to_field, BN254_MODULUS_DEC},
-    OutputUtxo, Utxo,
+    instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
+    SppProofOutputUtxo, Utxo,
 };
 
 /// A fixed dummy viewing pubkey for real test outputs: the proof math
@@ -53,8 +53,8 @@ pub fn real_output(
     asset: Address,
     amount: u64,
     blinding: [u8; 31],
-) -> OutputUtxo {
-    OutputUtxo {
+) -> SppProofOutputUtxo {
+    SppProofOutputUtxo {
         asset,
         amount,
         blinding,
@@ -87,10 +87,10 @@ pub fn public_input_hash_spl(
 ) -> [u8; 32] {
     let zero = [0u8; 32];
     let chain = [
-        hash_chain(nullifiers).expect("nullifier chain"),
-        hash_chain(output_hashes).expect("output chain"),
-        hash_chain(utxo_roots).expect("utxo root chain"),
-        hash_chain(nullifier_tree_roots).expect("nullifier root chain"),
+        create_hash_chain_from_slice(nullifiers).expect("nullifier chain"),
+        create_hash_chain_from_slice(output_hashes).expect("output chain"),
+        create_hash_chain_from_slice(utxo_roots).expect("utxo root chain"),
+        create_hash_chain_from_slice(nullifier_tree_roots).expect("nullifier root chain"),
         *private_tx,
         hash_field(&zero).expect("p256 message field"),
         *external_data_hash,
@@ -99,11 +99,11 @@ pub fn public_input_hash_spl(
         hash_field(mint).expect("public spl asset pubkey"),
         zero, // zone_program_id
         *payer_pubkey_hash,
-        hash_chain(input_owner_pk_hashes).expect("input owner chain"),
-        hash_chain(output_owner_pk_hashes).expect("output owner chain"),
+        create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
+        create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
         *p256_signing_pk_field,
     ];
-    hash_chain(&chain).expect("public input hash spl")
+    create_hash_chain_from_slice(&chain).expect("public input hash spl")
 }
 
 /// Mirror of `build_transfer_prover_inputs` for the SPL rail: the witness carries
@@ -139,6 +139,7 @@ pub fn external_data_hash_spl(
     spl_token_interface: &[u8; 32],
 ) -> Result<[u8; 32]> {
     let zero = [0u8; 32];
+    let outputs = resolve_outputs(transact_ix_data)?;
     Ok(ExternalDataHash {
         spp_instruction_discriminator: tag::TRANSACT,
         expiry_unix_ts: transact_ix_data.expiry_unix_ts,
@@ -150,8 +151,8 @@ pub fn external_data_hash_spl(
         spl_token_interface,
         data_hash: None,
         zone_data_hash: None,
-        output_utxo_hashes: &transact_ix_data.output_utxo_hashes,
-        output_ciphertexts: &transact_ix_data.output_ciphertexts,
+        outputs: &outputs,
+        messages: &transact_ix_data.messages,
     }
     .hash()?)
 }
@@ -182,15 +183,13 @@ pub struct SpendInputArgs<'a> {
 pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
     let (utxo_root, nullifier_root) = args.roots;
     Ok(TransferInput {
-        utxo: UtxoInputs::new(
-            args.owner_field,
+        utxo: ProofInputUtxo::new(
+            *args.owner_field,
             &args.utxo.asset,
             args.utxo.amount,
             &args.utxo.blinding,
-            &[0u8; 32],
-            &[0u8; 32],
-            &args.utxo.zone_program_id,
-        )?,
+        )?
+        .with_zone([0u8; 32], &args.utxo.zone_program_id)?,
         is_dummy: be(&fe(0)),
         state_path_elements: args.state_path.iter().map(be).collect(),
         state_path_index: be(&fe(args.state_path_index)),
@@ -210,11 +209,11 @@ pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
 /// (`owner_pk_hash`) and `nullifier_pk` are left zero here and stamped by
 /// [`set_output_owner_tags`] once the per-output view_tag mapping is known.
 #[allow(dead_code)]
-pub fn transfer_output(output: &OutputUtxo) -> Result<TransferOutput> {
+pub fn transfer_output(output: &SppProofOutputUtxo) -> Result<TransferOutput> {
     let hash = output.hash()?;
     let zero = [0u8; 32];
     Ok(TransferOutput {
-        utxo: UtxoInputs::from_output(output)?,
+        utxo: ProofInputUtxo::try_from(output)?,
         is_dummy: be(&fe(0)),
         hash: be(&hash),
         owner_pk_hash: be(&zero),
@@ -223,7 +222,5 @@ pub fn transfer_output(output: &OutputUtxo) -> Result<TransferOutput> {
 }
 
 pub fn public_sol_field(amount: Option<i64>) -> [u8; 32] {
-    amount
-        .map(|amount| signed_to_field(amount as i128))
-        .unwrap_or_default()
+    amount.map(signed_to_field).unwrap_or_default()
 }

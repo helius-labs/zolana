@@ -88,6 +88,17 @@ pub enum RingsOutputPayloads {
 }
 
 #[derive(Copy, Clone, Iden)]
+pub enum RingsMessages {
+    Table,
+    MessageId,
+    RingsTxId,
+    Slot,
+    MessageIndex,
+    ViewTag,
+    Payload,
+}
+
+#[derive(Copy, Clone, Iden)]
 pub enum RingsTxNullifiers {
     Table,
     NullifierId,

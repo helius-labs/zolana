@@ -1,13 +1,18 @@
 use num_bigint::BigUint;
 use serde::Serialize;
+use zolana_transaction::ProofInputUtxo;
 
 use crate::prover::inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-    TransferP256Inputs, UtxoInputs,
+    TransferP256Inputs,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
     format!("0x{}", value.to_str_radix(16))
+}
+
+fn fe_to_string(bytes: &[u8; 32]) -> String {
+    big_uint_to_string(&BigUint::from_bytes_be(bytes))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -148,16 +153,16 @@ pub(crate) struct TransferInputsJson {
     pub public_input_hash: String,
 }
 
-fn utxo_to_json(utxo: &UtxoInputs) -> UtxoParamsJson {
+fn utxo_to_json(utxo: &ProofInputUtxo) -> UtxoParamsJson {
     UtxoParamsJson {
-        domain: big_uint_to_string(&utxo.domain),
-        owner: big_uint_to_string(&utxo.owner),
-        asset: big_uint_to_string(&utxo.asset),
-        amount: big_uint_to_string(&utxo.amount),
-        blinding: big_uint_to_string(&utxo.blinding),
-        data_hash: big_uint_to_string(&utxo.data_hash),
-        zone_data_hash: big_uint_to_string(&utxo.zone_data_hash),
-        zone_program_id: big_uint_to_string(&utxo.zone_program_id),
+        domain: fe_to_string(&utxo.domain),
+        owner: fe_to_string(&utxo.owner_hash),
+        asset: fe_to_string(&utxo.asset),
+        amount: fe_to_string(&utxo.amount),
+        blinding: fe_to_string(&utxo.blinding),
+        data_hash: fe_to_string(&utxo.data_hash),
+        zone_data_hash: fe_to_string(&utxo.zone_data_hash),
+        zone_program_id: fe_to_string(&utxo.zone_program_id),
     }
 }
 
@@ -419,16 +424,22 @@ mod merge_tests {
     use super::*;
     use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
 
-    fn sample_utxo() -> UtxoInputs {
-        UtxoInputs {
-            domain: BigUint::from(1u8),
-            owner: BigUint::from(2u8),
-            asset: BigUint::from(1u8),
-            amount: BigUint::from(5u8),
-            blinding: BigUint::from(7u8),
-            data_hash: BigUint::ZERO,
-            zone_data_hash: BigUint::ZERO,
-            zone_program_id: BigUint::ZERO,
+    fn fe(byte: u8) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        out[31] = byte;
+        out
+    }
+
+    fn sample_utxo() -> ProofInputUtxo {
+        ProofInputUtxo {
+            domain: fe(1),
+            owner_hash: fe(2),
+            asset: fe(1),
+            amount: fe(5),
+            blinding: fe(7),
+            data_hash: [0u8; 32],
+            zone_data_hash: [0u8; 32],
+            zone_program_id: [0u8; 32],
         }
     }
 

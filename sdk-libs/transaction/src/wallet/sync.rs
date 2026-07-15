@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_event::OutputData;
+use zolana_event::OutputDataEncoding;
 use zolana_keypair::{
     viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey, ViewingKey,
 };
@@ -13,10 +13,10 @@ use super::state::{
 };
 use crate::{
     error::TransactionError,
-    instructions::transact::{OutputContext, ShieldedTransaction},
+    instructions::transact::{OutputContext, ShieldedTransaction, SENDER_SLOT_COUNT},
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle},
-        confidential::{ConfidentialRecipient, ConfidentialSenderBundle},
+        confidential::Confidential,
         merge::Merge,
         plaintext::PlaintextTransfer,
         proofless::Proofless,
@@ -41,9 +41,9 @@ impl TxIndex {
             for (slot_index, slot) in tx.output_slots.iter().enumerate() {
                 let blob = match slot.output_data() {
                     Some(
-                        OutputData::Encrypted(blob)
-                        | OutputData::VerifiablyEncrypted(blob)
-                        | OutputData::Plaintext(blob),
+                        OutputDataEncoding::Encrypted(blob)
+                        | OutputDataEncoding::VerifiablyEncrypted(blob)
+                        | OutputDataEncoding::Plaintext(blob),
                     ) => blob,
                     None => continue,
                 };
@@ -55,7 +55,7 @@ impl TxIndex {
                 };
                 match scheme {
                     EncryptedScheme::AnonymousRecipient
-                    | EncryptedScheme::ConfidentialRecipient
+                    | EncryptedScheme::Confidential
                     | EncryptedScheme::Proofless
                     | EncryptedScheme::PlaintextTransfer
                     | EncryptedScheme::Merge => {
@@ -65,9 +65,7 @@ impl TxIndex {
                             .push((t, slot_index));
                         classified = true;
                     }
-                    EncryptedScheme::AnonymousSender
-                    | EncryptedScheme::ConfidentialSender
-                    | EncryptedScheme::Split => {
+                    EncryptedScheme::AnonymousSender | EncryptedScheme::Split => {
                         sender_sites.entry(slot.view_tag).or_default().push(t);
                         classified = true;
                     }
@@ -272,23 +270,6 @@ impl SyncCtx<'_> {
         }
     }
 
-    fn confidential_recipient_count(tx: &ShieldedTransaction) -> usize {
-        tx.output_slots
-            .iter()
-            .filter_map(|slot| slot.output_data())
-            .filter(|output_data| {
-                let blob = match output_data {
-                    OutputData::Encrypted(blob)
-                    | OutputData::VerifiablyEncrypted(blob)
-                    | OutputData::Plaintext(blob) => blob,
-                };
-                blob.first()
-                    .and_then(|b| EncryptedScheme::from_byte(*b).ok())
-                    == Some(EncryptedScheme::ConfidentialRecipient)
-            })
-            .count()
-    }
-
     fn record_split(&mut self, tx: &ShieldedTransaction, spent: HashMap<Address, u64>) {
         let mut rows = spent.into_iter().collect::<Vec<_>>();
         rows.sort_by_key(|(asset, _)| *asset);
@@ -370,11 +351,93 @@ impl SyncCtx<'_> {
         self.report.undecryptable_candidates += 1;
     }
 
-    /// Decode one candidate slot, dispatching on its scheme byte. Recipient
-    /// slots are 1:1 and verified against the slot's committed leaf; sender
-    /// bundles (passed as slot 0) store their change against the whole
-    /// transaction. The returned [`SlotOutcome`] carries the counterparty
-    /// pubkeys that drive `known_senders` / `known_recipients`.
+    /// Whether `key` is the viewing key that authored `tx`: the transaction
+    /// viewing key derived from the first nullifier reproduces the published
+    /// `tx_viewing_pk` only for the spending wallet.
+    fn authored(tx: &ShieldedTransaction, key: &ViewingKey) -> Result<bool, TransactionError> {
+        match (tx.tx_viewing_pk, tx.nullifiers.first()) {
+            (Some(published_pk), Some(first_nullifier)) => {
+                Ok(key.get_transaction_viewing_key(first_nullifier)?.pubkey() == published_pk)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// Reconstruct the outbound history of a confidential transfer the wallet
+    /// authored. The unified scheme carries no sender-side recipient list, so the
+    /// author re-derives the transaction viewing key and decrypts every output
+    /// slot with it: change slots (positions below `SENDER_SLOT_COUNT`) net the
+    /// spent inputs down; recipient slots reveal the counterparties. Dummy slots
+    /// fail the tx-key decrypt and are skipped.
+    fn record_confidential_send(
+        &mut self,
+        tx: &ShieldedTransaction,
+        t: usize,
+        key: &ViewingKey,
+        assets: &AssetRegistry,
+        known_recipients: &mut HashMap<P256Pubkey, u64>,
+    ) -> Result<(), TransactionError> {
+        let (Some(published_pk), Some(first_nullifier), Some(salt)) =
+            (tx.tx_viewing_pk, tx.nullifiers.first(), tx.salt)
+        else {
+            return Ok(());
+        };
+        let tx_key = key.get_transaction_viewing_key(first_nullifier)?;
+        if tx_key.pubkey() != published_pk {
+            return Ok(());
+        }
+        if !self.processed_outbound.insert(t) {
+            return Ok(());
+        }
+
+        let mut change = Vec::new();
+        let mut recipient_pks = Vec::new();
+        for (position, slot) in tx.output_slots.iter().enumerate() {
+            let Some(OutputDataEncoding::Encrypted(blob)) = slot.output_data() else {
+                continue;
+            };
+            let Some((&scheme_byte, body)) = blob.split_first() else {
+                continue;
+            };
+            if EncryptedScheme::from_byte(scheme_byte) != Ok(EncryptedScheme::Confidential) {
+                continue;
+            }
+            let encrypted_slot_index = position as u32;
+            let Ok(plaintext) =
+                Confidential::decrypt_with_tx_key(&tx_key, body, salt, encrypted_slot_index)
+            else {
+                continue;
+            };
+            if position < SENDER_SLOT_COUNT {
+                if let Ok(utxo) = plaintext.into_utxo(self.owner, assets) {
+                    change.push(utxo);
+                }
+            } else if let Ok(pubkey) = Confidential::embedded_viewing_pk(body) {
+                recipient_pks.push(pubkey);
+            }
+        }
+
+        let spent = self.spent_amounts(&tx.nullifiers);
+        let kind = if recipient_pks.is_empty() {
+            PrivateTransactionKind::PublicWithdrawal
+        } else {
+            PrivateTransactionKind::PrivateTransfer
+        };
+        let counterparty = (recipient_pks.len() == 1)
+            .then(|| recipient_pks.first().copied())
+            .flatten();
+        self.record_outbound_transfer(tx, spent, &change, kind, counterparty);
+        for pubkey in recipient_pks {
+            known_recipients.entry(pubkey).or_insert(0);
+        }
+        Ok(())
+    }
+
+    /// Decode one candidate slot, dispatching on its scheme byte. Recipient and
+    /// confidential slots are 1:1 and verified against the slot's committed leaf;
+    /// the anonymous/split sender bundles (passed as slot 0) store their change
+    /// against the whole transaction. The returned [`SlotOutcome`] carries the
+    /// counterparty pubkeys that drive `known_senders` / `known_recipients`.
     pub(super) fn decode_slot(
         &mut self,
         transactions: &[ShieldedTransaction],
@@ -399,13 +462,7 @@ impl SyncCtx<'_> {
             return Ok(outcome);
         };
         let output_context = slot.output_context.clone();
-        let encrypted_slot_index = tx
-            .output_slots
-            .iter()
-            .take(site.1 + 1)
-            .filter(|slot| slot.output_data().is_some())
-            .count()
-            .saturating_sub(1) as u32;
+        let encrypted_slot_index = site.1 as u32;
         let cx = DecodeCx::for_slot(key, tx, encrypted_slot_index);
         let owner_cx = OwnerCx {
             owner: self.owner,
@@ -413,7 +470,7 @@ impl SyncCtx<'_> {
             zone_program_id: None,
         };
         match output_data {
-            OutputData::Plaintext(blob) => {
+            OutputDataEncoding::Plaintext(blob) => {
                 let Some((&scheme_byte, body)) = blob.split_first() else {
                     self.report.undecryptable_candidates += 1;
                     return Ok(outcome);
@@ -468,7 +525,7 @@ impl SyncCtx<'_> {
                     }
                 }
             }
-            OutputData::Encrypted(blob) => {
+            OutputDataEncoding::Encrypted(blob) => {
                 let Some((&scheme_byte, body)) = blob.split_first() else {
                     self.report.undecryptable_candidates += 1;
                     return Ok(outcome);
@@ -499,12 +556,12 @@ impl SyncCtx<'_> {
                             }
                         }
                     }
-                    EncryptedScheme::ConfidentialRecipient => {
-                        let Ok(plaintext) = ConfidentialRecipient::decode(body, &cx) else {
+                    EncryptedScheme::Confidential => {
+                        let Ok(plaintext) = Confidential::decode(body, &cx) else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        let utxos = match ConfidentialRecipient::into_utxos(plaintext, &owner_cx) {
+                        let utxos = match Confidential::into_utxos(plaintext, &owner_cx) {
                             Ok(utxos) => utxos,
                             Err(err) => {
                                 self.note_undecryptable(&err);
@@ -513,8 +570,14 @@ impl SyncCtx<'_> {
                         };
                         if self.store_recipient_utxos(utxos.clone(), &output_context, None, None)? {
                             self.processed_slots.insert(site);
-                            if let Some(utxo) = utxos.first() {
-                                self.record_received(tx, site.1, None, utxo);
+                            // A slot the wallet itself authored is its own change or
+                            // self-send output; its outbound history is recorded once
+                            // per transaction by `record_confidential_send`, so
+                            // it must not also be logged here as an inbound receipt.
+                            if !Self::authored(tx, key)? {
+                                if let Some(utxo) = utxos.first() {
+                                    self.record_received(tx, site.1, None, utxo);
+                                }
                             }
                         }
                     }
@@ -532,39 +595,6 @@ impl SyncCtx<'_> {
                                 return Ok(outcome);
                             }
                         };
-                        for utxo in &change {
-                            self.store_in_tx(utxo.clone(), tx)?;
-                        }
-                        self.processed_slots.insert(site);
-                        outcome.recipients = pks.clone();
-                        if self.processed_outbound.insert(site.0) {
-                            let spent = self.spent_amounts(&tx.nullifiers);
-                            let kind = if real_recipient_count == 0 {
-                                PrivateTransactionKind::PublicWithdrawal
-                            } else {
-                                PrivateTransactionKind::PrivateTransfer
-                            };
-                            let counterparty = (real_recipient_count == 1)
-                                .then(|| pks.first().copied())
-                                .flatten();
-                            self.record_outbound_transfer(tx, spent, &change, kind, counterparty);
-                        }
-                    }
-                    EncryptedScheme::ConfidentialSender => {
-                        let Ok(plaintext) = ConfidentialSenderBundle::decode(body, &cx) else {
-                            self.report.undecryptable_candidates += 1;
-                            return Ok(outcome);
-                        };
-                        let pks = plaintext.recipient_viewing_pks.clone();
-                        let real_recipient_count = Self::confidential_recipient_count(tx);
-                        let change =
-                            match ConfidentialSenderBundle::into_utxos(plaintext, &owner_cx) {
-                                Ok(change) => change,
-                                Err(err) => {
-                                    self.note_undecryptable(&err);
-                                    return Ok(outcome);
-                                }
-                            };
                         for utxo in &change {
                             self.store_in_tx(utxo.clone(), tx)?;
                         }
@@ -609,7 +639,7 @@ impl SyncCtx<'_> {
                     }
                 }
             }
-            OutputData::VerifiablyEncrypted(blob) => {
+            OutputDataEncoding::VerifiablyEncrypted(blob) => {
                 let Some((&scheme_byte, body)) = blob.split_first() else {
                     self.report.undecryptable_candidates += 1;
                     return Ok(outcome);
@@ -750,10 +780,11 @@ impl Wallet {
                     }
                 }
             }
-            // Confidential default-zone scan: every confidential output is tagged by
-            // the owner signing pubkey. Recipient slots and merge outputs live in
-            // `recipient_sites`; the owner's own change rides the sender bundle in
-            // `sender_sites` (decoded at slot 0).
+            // Confidential default-zone scan: a confidential output is tagged by the
+            // owner signing pubkey, so the owner's own change, received recipient
+            // slots, and merge outputs all live in `recipient_sites` under that tag.
+            // A split bundle the wallet created is tagged the same way and sits in
+            // `sender_sites`, decoded at slot 0.
             if let Some(sites) = index.recipient_sites.get(&owner_tag) {
                 for site in sites {
                     ctx.decode_slot(transactions, key, assets, *site)?;
@@ -824,6 +855,10 @@ impl Wallet {
                 if let Some(m) = max {
                     known_senders.insert(s, m + 1);
                 }
+            }
+
+            for (t, tx) in transactions.iter().enumerate() {
+                ctx.record_confidential_send(tx, t, key, assets, known_recipients)?;
             }
 
             let recipients: Vec<P256Pubkey> = known_recipients.keys().copied().collect();

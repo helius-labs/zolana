@@ -1,5 +1,6 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
+use zolana_hasher::HasherError;
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;
 
@@ -11,8 +12,8 @@ pub enum ClientError {
     #[error("transaction error: {0}")]
     Transaction(#[from] TransactionError),
 
-    #[error("poseidon hash error: {0}")]
-    Hasher(String),
+    #[error("hasher error: {0}")]
+    Hasher(#[from] HasherError),
 
     #[error("no supported circuit shape holds {n_in} inputs and {n_out} outputs")]
     UnsupportedShape { n_in: usize, n_out: usize },

@@ -58,6 +58,10 @@ impl SigningKey {
         }
     }
 
+    pub fn is_ed25519(&self) -> bool {
+        matches!(self.inner, SigningKeyInner::Ed25519(_))
+    }
+
     pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
         match &self.inner {
             SigningKeyInner::P256(sk) => {

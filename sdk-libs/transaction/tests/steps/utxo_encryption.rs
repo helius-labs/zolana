@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use cucumber::then;
-use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
+use zolana_event::MessageData;
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt, PublicKey};
 use zolana_transaction::{
     data::{Data, DataRecord},
@@ -9,7 +9,7 @@ use zolana_transaction::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
             AnonymousSenderEncode, AnonymousTransferSenderPlaintext,
         },
-        confidential::TransferRecipientPlaintext,
+        confidential::ConfidentialOutputPlaintext,
         split::{Split, SplitBundlePlaintext, SplitEncode},
         DecodeCx, OwnerCx, UtxoSerialization,
     },
@@ -40,12 +40,12 @@ fn input_utxo(owner: PublicKey, asset: Address, amount: u64, seed: u8) -> Utxo {
     }
 }
 
-fn body(ciphertext: &OutputCiphertext) -> Vec<u8> {
-    let output_data = zolana_event::OutputData::try_from_slice(&ciphertext.data).unwrap();
+fn body(ciphertext: &MessageData) -> Vec<u8> {
+    let output_data = zolana_event::OutputDataEncoding::try_from_slice(&ciphertext.data).unwrap();
     let blob = match output_data {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob,
+        zolana_event::OutputDataEncoding::Encrypted(blob)
+        | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
+        | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
     };
     blob.get(1..).expect("scheme byte").to_vec()
 }
@@ -191,7 +191,7 @@ fn zone_owned_with_data_round_trips(world: &mut TransactionWorld, name: String) 
         zone_program_id,
         data: Data::new(vec![DataRecord::ZoneData(vec![4, 5, 6])]),
     };
-    let pt = utxo.to_recipient_plaintext(&registry).unwrap();
+    let pt = utxo.to_confidential_output_plaintext(&registry).unwrap();
     assert_eq!(pt.into_utxo(kp.signing_pubkey(), &registry).unwrap(), utxo);
 }
 
@@ -199,7 +199,7 @@ fn zone_owned_with_data_round_trips(world: &mut TransactionWorld, name: String) 
 fn zone_data_without_id_rejected(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
-    let pt = TransferRecipientPlaintext {
+    let pt = ConfidentialOutputPlaintext {
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
@@ -217,7 +217,7 @@ fn zone_id_carried_onto_utxo(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
     let zone_program_id = Some(Address::new_from_array([9u8; 32]));
-    let pt = TransferRecipientPlaintext {
+    let pt = ConfidentialOutputPlaintext {
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
@@ -280,8 +280,8 @@ fn split_round_trips(world: &mut TransactionWorld, name: String) {
 
     let nf = [11u8; 32];
     let salt = random_salt();
-    let tx = owner.viewing_key.get_transaction_viewing_key(&nf).unwrap();
-    let tx_viewing_pk = tx.pubkey();
+    let transaction_viewing_key = owner.viewing_key.get_transaction_viewing_key(&nf).unwrap();
+    let tx_viewing_pk = transaction_viewing_key.pubkey();
     let owner_cx = OwnerCx {
         owner: owner.signing_pubkey(),
         assets: &registry,
@@ -292,7 +292,7 @@ fn split_round_trips(world: &mut TransactionWorld, name: String) {
         &owner_cx,
         owner.get_sender_view_tag(0).unwrap(),
         &SplitEncode {
-            tx: tx.clone(),
+            tx: transaction_viewing_key.clone(),
             recipient_pubkey: owner.viewing_pubkey(),
             salt,
             slot_index: 0,

@@ -28,7 +28,7 @@ use zolana_smart_account_client::execute_sync_ix;
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{Data, SppProofOutputUtxo, Utxo, SOL_MINT};
 use zolana_user_registry_interface::{
     instruction::{register, set_merging_enabled, RegisterData},
     user_record_pda,
@@ -175,7 +175,7 @@ impl LifecycleWorld {
         // The single consolidated output, owned by the merger, with a fresh random
         // blinding the owner recovers by decrypting the published merge ciphertext.
         let output_blinding = random_blinding();
-        let output = OutputUtxo {
+        let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
             amount: total,

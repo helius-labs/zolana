@@ -10,12 +10,12 @@ use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{
     prover::merge_zone::MergeZoneProver, spawn_prover, MergeZone, MergeZoneWitness, ProverClient,
-    Rpc, SpendUtxo, MERGE_INPUTS,
+    Rpc, SppProofInputUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_zone_8_1;
 use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::signed_transaction::asset_field, Data, OutputUtxo, Utxo,
+    instructions::transact::spp_proof_inputs::asset_field, Data, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{test_indexer::TestIndexer, world::MergeZoneWorld};
@@ -79,7 +79,7 @@ impl MergeZoneWorld {
                 .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
                 .expect("utxo hash");
             indexer.add_utxo(utxo_hash);
-            inputs.push(SpendUtxo::from_keypair(utxo, &sender));
+            inputs.push(SppProofInputUtxo::new(utxo, &sender));
         }
 
         // The plan derives the merged zone-owned output and owner identity; preparing
@@ -89,7 +89,7 @@ impl MergeZoneWorld {
             .expect("build merge-zone plan")
             .with_expiry(0);
         let prepared = merge.prepare();
-        let commitments = prepared.input_commitments().expect("input commitments");
+        let commitments = prepared.input_utxo_hashes().expect("input commitments");
         let proofs = indexer
             .get_input_merkle_proofs(&commitments)
             .expect("merkle proofs");
@@ -138,7 +138,7 @@ impl MergeZoneWorld {
             asset_field(&asset).expect("asset field"),
             "recovered asset field",
         );
-        let reconstructed = OutputUtxo {
+        let reconstructed = SppProofOutputUtxo {
             owner_address: Some(sender.shielded_address().expect("shielded address")),
             asset,
             amount,

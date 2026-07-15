@@ -10,15 +10,15 @@ spec disagree, treat the code or tests as suspect first.
 
 program-libs
 - libraries used in programs
-- are publised as crates
+- are published as crates
 
 programs
 - must not depend on sdk libs
 - are not published as crates
 
 program-tests
-- integration test (programs) for programs 
-- are not publised as crates
+- integration tests for programs
+- are not published as crates
 
 sdk-libs
 - libraries to interact with programs
@@ -33,13 +33,13 @@ prover
 
 ## Workspace Shape
 
-- `programs/shielded-pool`: on-chain SPP program.
+- `programs/shielded-pool`: the SPP Solana program.
 - `program-libs/interface`: shared instruction data, tags, constants, and layout
   helpers.
 - `program-tests`: internal test crates and test-only SBF programs.
 - `sdk-libs`: externally useful Rust SDK crates.
 - `cli`: local developer/operator tooling.
-- `forester`: compileable forester skeleton for future nullifier-tree
+- `forester`: compilable forester skeleton for future nullifier-tree
   maintenance work.
 - `prover`: proof client and prover server.
 
@@ -134,6 +134,23 @@ port. Running `cargo test` directly (not via `just`) does not auto-load `.env`
 - Prefer small, explicit helpers over broad abstractions.
 - Comments should explain invariants, security constraints, or non-obvious
   layout decisions. Remove comments that only narrate the code.
+- Never add `#[allow(clippy::too_many_arguments)]`. Restructure with the
+  method-patterns skill instead: an operation struct holding all inputs plus a
+  consuming method that takes only the signer/context (e.g.
+  `EscrowSettle { .. }.sign(keypair, assets)`).
+- Do not leak prover/circuit-internal terminology ("field element(s)",
+  "witness") into public API names (types, methods, fields, modules of
+  sdk-libs and sdk crates). SDK users think in proofs and their inputs: name
+  such surfaces in that vocabulary (`ProofInputUtxo`, `proof_inputs`,
+  `to_proof_inputs()`). Internal prover code (prover crates, Go circuits,
+  private helpers) may keep the ZK terms.
+
+## Testing
+
+- Do not add tests that only exercise derived serialization, e.g. a borsh or
+  wincode `serialize` -> `deserialize` round-trip asserting equality. They test
+  the derive macro, not our code. Test behavior we actually implement
+  (validation, field mapping, encode/decode logic, state transitions) instead.
 
 ## Testing
 
@@ -280,7 +297,7 @@ pub fn create_pool_tree(payer: Pubkey, tree: Pubkey, data: CreatePoolTreeData) -
 ### Instruction data
 
 1. use [instruction-decoder](https://github.com/helius-labs/privacy-program-libs/tree/main/crates/instruction-decoder)
-1. default light-zero-copy
+2. default light-zero-copy
 3. if not hot path can use borsh
 
 ### wincode length prefixes (zolana-transaction)
@@ -289,18 +306,16 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 - `Vec<u8>` (byte vectors: ciphertexts, program/zone data, can exceed 255 bytes) use `FixIntLen<u16>`.
 - every other vector (element counts: records, recipient slots, recipient viewing keys; always small) use `FixIntLen<u8>`.
 
-Rule of thumb: `Vec<u8>` -> `u16`, otherwise -> `u8`.
-
 ### Accounts
 
-1. if lamports are transferred accounts must have fee payer account else must not have a fee payer account
-2. no need to verify pda derivation for initialized accounts, checking discriminator and program ownership is enough if access control checks dont rely on the derivation itself, if access control relies on the derivation check store the bump in the account data or send it in instruction data, account data is cleaner if the account has data
+1. instructions that transfer lamports take a fee payer account; instructions that do not must not take one
+2. no need to verify pda derivation for initialized accounts: checking discriminator and program ownership is enough if access control does not rely on the derivation itself. If access control relies on the derivation, store the bump in the account data or send it in instruction data; account data is cleaner if the account has data
 3. Every account that is read or written to must be accessed with a load prefixed function that is defined in a loader.rs file
 4. PDA creation must use canonical bumps derived via `find_program_address` (verify_pda), never accept bumps from instruction data for account creation
 5. init pattern:
     - must use a param struct with an init method `pub fn init(self, account: &AccountView) -> ProgramResult {`
     - must check that account is not already initialized
-    - no program id necessary the svm will not allow to write to an account owned by another program
+    - no program id check necessary; the SVM does not allow writes to an account owned by another program
     - all account struct fields must be initialized
     - account size must match the account struct size exactly
 6. Recovery and owner encryption keys
@@ -311,25 +326,25 @@ Rule of thumb: `Vec<u8>` -> `u16`, otherwise -> `u8`.
 
 ### Crate hierarchy
 
-1. the program must only depend on the interface crate and possibly other low level crates that pull in as few dependencies as possible it must not depend on its own sdks
-2. sdks must not depend on test-utils not in deps or dev-deps
+1. the program must only depend on the interface crate and possibly other low level crates that pull in as few dependencies as possible; it must not depend on its own sdks
+2. sdks must not depend on test-utils, neither in deps nor dev-deps
 
 ### Proof generation for tests
 
 1. Loading proving keys for big circuits takes a lot of time
 2. tests should start a prover server if not started yet
-3. The prover server should be lazy it should not load any proving keys on startup it should load them when a proof for that key is requested and then keep it loaded so that the key doesnt need to be loaded again
+3. The prover server should be lazy: load no proving keys on startup, load a key when a proof for it is first requested, then keep it loaded
 
 ## SPP Transaction Proving Keys & Verifying Keys
 
 The `transfer` (eddsa, Solana-only rail) and `transfer_p256` (P256 ownership
 rail) circuits live in `prover/server/circuits/spp_transaction/`. Their proving
-systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is the
-single source of truth duplicated in four places that MUST stay in sync:
+systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is
+duplicated in four places that MUST stay in sync:
 `sdk-libs/client/src/shape.rs` (the client may use a subset), Go
 `prover-test/spp/protocol/shape.go` (`SupportedShapes`), Go
 `prover/common/lazy_key_manager.go` (`transferSupportedShapes`), and the
-on-chain verifier when it exists (`transact/proof.rs`).
+shielded-pool verifier when it exists (`transact/proof.rs`).
 
 ### Generate proving keys (`.key`)
 
@@ -387,9 +402,9 @@ regenerated. The codegen lives in the `xtask` crate, which depends on the
 
 - **transfer_p256 (P256):** the emulated-P256 gadget adds one BSB22 commitment over
   private wires. Its vk has `vk_commitment_g2: Some(..)` and `vk_ic.len() ==
-  public_inputs + 2`. Proofs carry `proof_commitment` + `proof_commitment_pok`.
+  public_inputs + 2`. Proofs include `proof_commitment` + `proof_commitment_pok`.
   Verify with `Groth16Verifier::new_with_commitment`.
-- **transfer (eddsa, Solana-only):** vanilla Groth16, zero commitments. Its vk
+- **transfer (eddsa, Solana-only):** standard Groth16, zero commitments. Its vk
   has `vk_commitment_g2: None` and `vk_ic.len() == public_inputs + 1`. Verify
   with `Groth16Verifier::new`.
 
@@ -397,14 +412,14 @@ Both verify in one binary built with the `bsb22` feature: `verify_common` runs
 the standard Groth16 pairing for every proof and only adds the Pedersen PoK
 pairing when a commitment is present. Dispatch on `vk.vk_commitment_g2.is_some()`
 (or the rail). The Go prover marshals `proof_commitment` as `omitempty`, so it is
-absent for the vanilla rail and present for the P256 rail automatically.
+absent for the eddsa rail and present for the P256 rail.
 
 NOTE: the parser/verifier support a single commitment over **private** wires
 only (empty `committed_wires`). Committing a **public** input (e.g.
 `committer.Commit(c.PublicInputHash)`) records that wire in
 `PublicAndCommitmentCommitted` and the parser rejects it with
-`Bsb22UnsupportedMultiCommitment`. The Solana rail must therefore stay vanilla
-(no explicit `Commit`), not force a public-wire commitment.
+`Bsb22UnsupportedMultiCommitment`. The eddsa rail must therefore stay standard
+Groth16 (no explicit `Commit`), not force a public-wire commitment.
 
 ## Releasing Photon
 

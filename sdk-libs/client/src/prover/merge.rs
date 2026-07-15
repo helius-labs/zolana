@@ -5,6 +5,7 @@
 
 use num_bigint::BigUint;
 use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::instruction::instruction_data::merge_transact::{
     MergeExternalDataHash, MergeTransactIxData,
 };
@@ -15,16 +16,16 @@ use zolana_keypair::{
 use zolana_transaction::{
     instructions::{
         merge::PreparedMerge,
-        transact::{no_address_hashes, private_tx_hash, signed_transaction::asset_field},
-        types::SpendUtxo,
+        transact::{spp_proof_inputs::asset_field, PrivateTxHash},
+        types::SppProofInputUtxo,
     },
-    EncryptedScheme, OutputUtxo,
+    EncryptedScheme, SppProofOutputUtxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
-        field::{be, hash_chain},
+        field::be,
         transact::{
             p256_and_eddsa::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
             witness::SpendProof,
@@ -41,7 +42,7 @@ use crate::{
 /// there is exactly one real output.
 pub struct MergeProver {
     pub inputs: Vec<TransferSpendInput>,
-    pub output: OutputUtxo,
+    pub output: SppProofOutputUtxo,
     /// Validity deadline; bound into `external_data_hash`, which the circuit treats
     /// as opaque and `merge_transact` recomputes from the instruction.
     pub expiry_unix_ts: u64,
@@ -139,15 +140,14 @@ impl MergeProver {
             output_utxo_hash: &output_hash,
             encrypted_utxo: &encrypted_utxo,
         }
-        .hash()
-        .map_err(|e| ClientError::Hasher(e.to_string()))?;
+        .hash()?;
 
-        let private_tx = private_tx_hash(
+        let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
-        )?;
+        )
+        .hash()?;
 
         // Owner identity public inputs (pk_field of the signing and viewing keys).
         // SPP checks both against the owner's registry record; the owner recombines
@@ -155,11 +155,11 @@ impl MergeProver {
         // the owner need not be carried in the ciphertext.
         let user_signing_pk_hash = self.signing_pubkey.owner_pk_field()?;
         let user_viewing_pk_hash = PublicKey::from_p256(&self.user_viewing_pk).hash()?;
-        let public_input = hash_chain(&[
-            hash_chain(&assembled_inputs.nullifiers)?,
+        let public_input = create_hash_chain_from_slice(&[
+            create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
-            hash_chain(&assembled_inputs.utxo_roots)?,
-            hash_chain(&assembled_inputs.nullifier_tree_roots)?,
+            create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
+            create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             external_data_hash,
             user_signing_pk_hash,
@@ -230,7 +230,7 @@ impl MergeProver {
 }
 
 /// Assembles the on-instruction `encrypted_utxo` payload in the unified output
-/// encoding `borsh(OutputData::VerifiablyEncrypted([EncryptedScheme::Merge,
+/// encoding `borsh(MessageData::VerifiablyEncrypted([EncryptedScheme::Merge,
 /// tx_viewing_pk(33), ciphertext]))`, the same form transact emits and
 /// `Wallet::sync` decodes.
 pub fn merge_encrypted_utxo(tx_viewing_pk: &P256Pubkey, ciphertext: &[u8]) -> Vec<u8> {
@@ -243,7 +243,7 @@ pub fn merge_encrypted_utxo(tx_viewing_pk: &P256Pubkey, ciphertext: &[u8]) -> Ve
 
 /// The merge bundle plaintext: amount (u64, 8 BE bytes) || asset field (32 BE
 /// bytes) || blinding (31 BE bytes), all read from the merged output.
-pub(crate) fn merge_plaintext(output: &OutputUtxo) -> Result<Vec<u8>, ClientError> {
+pub(crate) fn merge_plaintext(output: &SppProofOutputUtxo) -> Result<Vec<u8>, ClientError> {
     let mut pt = Vec::with_capacity(8 + 32 + 31);
     pt.extend_from_slice(&output.amount.to_be_bytes());
     pt.extend_from_slice(&asset_field(&output.asset)?);
@@ -330,7 +330,7 @@ impl TryFrom<MergeWitness> for MergeProver {
         let mut spends = Vec::with_capacity(inputs.len());
         let mut real_index = 0;
         for spend in inputs {
-            let SpendUtxo {
+            let SppProofInputUtxo {
                 utxo,
                 nullifier_key,
                 ..

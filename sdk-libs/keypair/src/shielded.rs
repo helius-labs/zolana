@@ -1,7 +1,7 @@
 use crate::{
     constants::{BLINDING_LEN, SALT_LEN},
     error::KeypairError,
-    hash::owner_hash,
+    hash::{owner_hash, pack33, poseidon},
     nullifier_key::NullifierKey,
     pubkey::{P256Pubkey, PublicKey},
     signing_key::SigningKey,
@@ -19,12 +19,25 @@ impl ShieldedAddress {
     pub fn owner_hash(&self) -> Result<[u8; 32], KeypairError> {
         owner_hash(&self.signing_pubkey, &self.nullifier_pubkey)
     }
+
+    pub fn solana_address(&self) -> Result<solana_address::Address, KeypairError> {
+        Ok(solana_address::Address::new_from_array(
+            self.signing_pubkey.as_ed25519()?,
+        ))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CompressedShieldedAddress {
     pub owner_hash: [u8; 32],
     pub viewing_pubkey: P256Pubkey,
+}
+
+impl CompressedShieldedAddress {
+    pub fn hash(&self) -> Result<[u8; 32], KeypairError> {
+        let (lo, hi) = pack33(self.viewing_pubkey.as_bytes());
+        poseidon(&[&self.owner_hash, &lo, &hi])
+    }
 }
 
 impl TryFrom<&ShieldedAddress> for CompressedShieldedAddress {
@@ -43,6 +56,12 @@ pub struct ShieldedKeypair {
     pub signing_key: SigningKey,
     pub nullifier_key: NullifierKey,
     pub viewing_key: ViewingKey,
+}
+
+impl AsRef<NullifierKey> for ShieldedKeypair {
+    fn as_ref(&self) -> &NullifierKey {
+        &self.nullifier_key
+    }
 }
 
 impl ShieldedKeypair {
@@ -87,8 +106,23 @@ impl ShieldedKeypair {
         })
     }
 
+    pub fn from_solana_keypair(keypair: &solana_keypair::Keypair) -> Result<Self, KeypairError> {
+        let signing_secret = keypair.secret_bytes();
+        let viewing_key = ViewingKey::from_seed(signing_secret, 0)?;
+        Self::from_ed25519(signing_secret, viewing_key)
+    }
+
     pub fn signing_pubkey(&self) -> PublicKey {
         self.signing_key.pubkey()
+    }
+
+    pub fn to_solana_keypair(&self) -> Result<solana_keypair::Keypair, KeypairError> {
+        if !self.signing_key.is_ed25519() {
+            return Err(KeypairError::NotEd25519);
+        }
+        Ok(solana_keypair::Keypair::new_from_array(
+            *self.signing_key.secret_bytes(),
+        ))
     }
 
     pub fn viewing_pubkey(&self) -> P256Pubkey {

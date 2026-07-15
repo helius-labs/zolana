@@ -15,7 +15,7 @@ use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_keypair::P256Pubkey;
-use zolana_transaction::instructions::{transact::SignedTransaction, types::InputCommitment};
+use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 
 use crate::{
@@ -307,7 +307,7 @@ pub trait Rpc {
     /// input UTXO commitment, returned in the same order as the commitments.
     fn get_input_merkle_proofs(
         &self,
-        input_utxo_commitments: &[InputCommitment],
+        input_utxo_commitments: &[InputUtxoContext],
     ) -> Result<Vec<SpendProof>, ClientError> {
         Err(unsupported("get_input_merkle_proofs"))
     }
@@ -315,8 +315,12 @@ pub trait Rpc {
     // ===== Proving =====
 
     /// Build the SPP proof for a signed transaction (server-side proving).
-    fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
+    fn prove(&self, proof_inputs: SppProofInputs) -> Result<ProveResult, ClientError> {
         Err(unsupported("prove"))
+    }
+
+    fn send_and_prove(&self, proof_inputs: SppProofInputs) -> Result<Signature, ClientError> {
+        Err(unsupported("send_and_prove"))
     }
 }
 
@@ -479,12 +483,12 @@ pub trait AsyncRpc: Send + Sync {
 
     async fn get_input_merkle_proofs(
         &self,
-        input_utxo_commitments: &[InputCommitment],
+        input_utxo_commitments: &[InputUtxoContext],
     ) -> Result<Vec<SpendProof>, ClientError> {
         Err(unsupported("get_input_merkle_proofs"))
     }
 
-    async fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
+    async fn prove(&self, proof_inputs: SppProofInputs) -> Result<ProveResult, ClientError> {
         Err(unsupported("prove"))
     }
 }

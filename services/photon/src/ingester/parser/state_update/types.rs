@@ -40,6 +40,13 @@ pub struct RingsOutputUpdate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RingsMessageUpdate {
+    pub message_index: i16,
+    pub view_tag: [u8; 32],
+    pub payload: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RingsNullifierUpdate {
     pub input_index: i16,
     pub nullifier_tree: [u8; 32],
@@ -70,6 +77,7 @@ pub struct RingsTransactionUpdate {
     pub raw_event: Option<Vec<u8>>,
     pub parse_version: i16,
     pub outputs: Vec<RingsOutputUpdate>,
+    pub messages: Vec<RingsMessageUpdate>,
     pub nullifiers: Vec<RingsNullifierUpdate>,
 }
 

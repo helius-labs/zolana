@@ -1,8 +1,10 @@
+#[cfg(feature = "borsh")]
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytemuck::{Pod, Zeroable};
 use solana_address::Address;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize, Pod, Zeroable)]
+#[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct CreateProtocolConfigData {
     pub protocol_authority: Address,
@@ -14,7 +16,8 @@ pub struct CreateProtocolConfigData {
     pub spl_interface_creation_is_permissionless: u8,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UpdateProtocolConfigData {
     ProtocolAuthority(Address),
     TreeCreationAuthority(Address),
@@ -25,7 +28,8 @@ pub enum UpdateProtocolConfigData {
     SplInterfaceCreationPermissionless(bool),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize, Pod, Zeroable)]
+#[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct PauseTreeData {
     pub paused: u8,

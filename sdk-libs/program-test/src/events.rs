@@ -39,6 +39,7 @@ impl DepositOutput {
                 utxo_hash: self.utxo_hash,
                 data: zolana_event::encode_output_data(self.output.clone()),
             }],
+            messages: Vec::new(),
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
             first_output_leaf_index: self.leaf_index,

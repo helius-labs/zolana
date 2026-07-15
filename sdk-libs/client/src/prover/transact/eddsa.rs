@@ -1,25 +1,22 @@
 use num_bigint::BigUint;
-use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    ExternalData, OutputUtxo,
-};
+use zolana_transaction::{instructions::transact::PrivateTxHash, ExternalData, SppProofOutputUtxo};
 
 use crate::{
     error::ClientError,
     prover::{
         field::be,
-        shape::{resolve_shape, Shape},
+        resolve_shape,
         transact::p256_and_eddsa::{
             assemble_inputs, assemble_outputs, OwnerMode, PublicAmounts, PublicInputs,
             TransferSpendInput,
         },
-        TransferInputs,
+        Shape, TransferInputs,
     },
 };
 
 pub struct TransferProver {
     pub inputs: Vec<TransferSpendInput>,
-    pub outputs: Vec<OutputUtxo>,
+    pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
@@ -45,12 +42,12 @@ impl TransferProver {
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(
+        let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
-        )?;
+        )
+        .hash()?;
         let p256_message_hash = [0u8; 32];
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,

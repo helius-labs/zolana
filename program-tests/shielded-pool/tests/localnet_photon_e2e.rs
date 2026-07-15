@@ -26,12 +26,12 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{
     prover::field::{be, right_align_slice},
-    EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
-    NonInclusionProof as IndexedNonInclusionProof, ProverClient, ProverInputs, Rpc,
-    ShieldedTransaction, SolanaRpc, SpendProof, SpendUtxo, Transaction as ClientTransaction,
-    TransferInput, TransferOutput, UtxoInputs, ZolanaIndexer,
+    ConfidentialTransfer, EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
+    NonInclusionProof as IndexedNonInclusionProof, ProofInputUtxo, ProverClient, ProverInputs, Rpc,
+    ShieldedTransaction, SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, TransferOutput,
+    ZolanaIndexer,
 };
-use zolana_event::OutputData;
+use zolana_event::OutputDataEncoding;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::{
     instruction::{
@@ -54,9 +54,8 @@ use zolana_program_test::{
 use zolana_smart_account_client::{execute_sync_ix, SMART_ACCOUNT_PROGRAM_ID};
 use zolana_test_utils::smart_account::{self, StandardSigners};
 use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
-    utxo::derive_blinding,
+    instructions::transact::PrivateTxHash,
+    serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     AssetRegistry, Data, LocalWalletAuthority, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
     SOL_MINT,
 };
@@ -64,7 +63,7 @@ use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, output_owner_pk_hashes,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
     pack_proof, prove_and_verify_transfer, public_input_hash, public_sol_field, real_output,
     set_output_owner_tags, start_prover, transfer_output, TransferProverInputsArgs,
 };
@@ -289,26 +288,25 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
-    // One ciphertext per output (1:1 owner mapping); each real output's view_tag is
-    // its owner's `confidential_view_tag` so the program's `hash_field(view_tag)`
-    // matches that owner's `owner_pk_field`.
+    // Each real output's owner tag is its owner's `confidential_view_tag` so the
+    // program's `hash_field(resolved_owner_tag)` matches that owner's
+    // `owner_pk_field`.
     let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
+    let transfer_view_tags = [change_view_tag, recipient_view_tag, [3u8; 32]];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(payer_nullifier, payer_state_proof.root_index),
             eddsa_input_utxo(transfer_dummy_nullifier, payer_state_proof.root_index),
         ],
         None,
-        vec![change_hash, recipient_hash, transfer_dummy_hash],
-        vec![
-            ix_output_ciphertext(change_view_tag),
-            ix_output_ciphertext(recipient_view_tag),
-            ix_output_ciphertext([3u8; 32]),
-        ],
+        inline_outputs(
+            &[change_hash, recipient_hash, transfer_dummy_hash],
+            &transfer_view_tags,
+        ),
         None,
     );
-    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.output_ciphertexts, 3)
+    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.outputs, None)
         .map_err(|err| anyhow!("transfer output owner pk hashes: {err}"))?;
     let mut transfer_outputs = vec![
         transfer_output(&change_output)?,
@@ -321,12 +319,12 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &[payer_nullifier_pk, recipient_nullifier_pk, zero],
     );
     let transfer_external_hash = external_data_hash(&transfer_ix_data, &zero)?;
-    let transfer_private_tx = private_tx_hash(
+    let transfer_private_tx = PrivateTxHash::new(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
-        &no_address_hashes(2),
         &transfer_external_hash,
-    )?;
+    )
+    .hash()?;
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
     let transfer_public_input_hash = public_input_hash(
         &[payer_nullifier, transfer_dummy_nullifier],
@@ -459,24 +457,18 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         .map(|(out, _)| out)
         .collect();
 
+    let withdraw_view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(recipient_nullifier, recipient_state_proof.root_index),
             eddsa_input_utxo(withdraw_dummy_nullifier, recipient_state_proof.root_index),
         ],
         Some(-(TRANSFER_AMOUNT as i64)),
-        withdraw_output_hashes.clone(),
-        vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
-        ],
+        inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
         None,
     );
-    let withdraw_owner_pk_hashes = output_owner_pk_hashes(
-        &withdraw_ix_data.output_ciphertexts,
-        withdraw_output_hashes.len(),
-    )
-    .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
+    let withdraw_owner_pk_hashes = output_owner_pk_hashes(&withdraw_ix_data.outputs, None)
+        .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
     set_output_owner_tags(
         &mut withdraw_outputs,
         &withdraw_owner_pk_hashes,
@@ -484,12 +476,12 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     );
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())?;
-    let withdraw_private_tx = private_tx_hash(
+    let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[zero, zero, zero],
-        &no_address_hashes(2),
         &withdraw_external_hash,
-    )?;
+    )
+    .hash()?;
     let public_sol_field = public_sol_field(withdraw_ix_data.public_sol_amount);
     let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes)?;
     let withdraw_public_input_hash = public_input_hash(
@@ -544,11 +536,10 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &[&payer, &recipient_owner],
     )?;
     print_signature("unshield", &withdraw_sig);
-    let indexed_withdraw = wait_for_indexed_transaction(&indexer, [0u8; 32], withdraw_sig)?;
+    let indexed_withdraw = wait_for_indexed_transaction(&indexer, [1u8; 32], withdraw_sig)?;
     assert_eq!(indexed_withdraw.nullifiers.len(), 2);
     let first_page = wait_for("paginated indexed transactions", || {
-        let response =
-            indexer.get_shielded_transactions_by_tags(vec![[2u8; 32], [0u8; 32]], None, Some(1))?;
+        let response = indexer.get_shielded_transactions_by_tags(vec![[3u8; 32]], None, Some(1))?;
         if response.transactions.len() == 1 && response.next_cursor.is_some() {
             Ok(Some(response))
         } else {
@@ -556,7 +547,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         }
     })?;
     let second_page = indexer.get_shielded_transactions_by_tags(
-        vec![[2u8; 32], [0u8; 32]],
+        vec![[3u8; 32]],
         first_page.next_cursor,
         Some(1),
     )?;
@@ -925,23 +916,23 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         }
 
         let wait_tag = payer_public_key.confidential_view_tag()?;
-        let mut tx = ClientTransaction::new(
+        let mut transfer = ConfidentialTransfer::new(
             sender_address,
             vec![
-                SpendUtxo::from_keypair(first_note.utxo.clone(), &sender),
-                SpendUtxo::from_keypair(second_note.utxo.clone(), &sender),
+                SppProofInputUtxo::new(first_note.utxo.clone(), &sender),
+                SppProofInputUtxo::new(second_note.utxo.clone(), &sender),
             ],
             payer_address,
         );
-        tx.send(&sender_address, SOL_MINT, TRANSFER_AMOUNT)?;
-        let signed = tx.sign(&sender, &assets)?;
-        let commitments = signed.input_commitments()?;
+        transfer.send(&sender_address, SOL_MINT, TRANSFER_AMOUNT)?;
+        let proof_inputs = transfer.sign(&sender, &assets)?;
+        let commitments = proof_inputs.input_utxo_hashes()?;
         assert_eq!(commitments.len(), 2);
         assert_eq!(commitments[0].nullifier, first_note.nullifier);
         assert_eq!(commitments[1].nullifier, second_note.nullifier);
 
         let assembled = zolana_client::assemble(
-            signed,
+            proof_inputs,
             &[
                 SpendProof {
                     state: first_state_proof,
@@ -985,11 +976,11 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         assert!(indexed.salt.is_some());
         assert!(
             !indexed.output_slots[0].payload.is_empty(),
-            "sender bundle should carry encrypted change data"
+            "SPL change slot should carry a payload"
         );
         assert!(
-            indexed.output_slots[1].payload.is_empty(),
-            "SOL change commitment is covered by the sender bundle"
+            !indexed.output_slots[1].payload.is_empty(),
+            "SOL change output should carry an encrypted UTXO payload"
         );
         assert!(
             !indexed.output_slots[2].payload.is_empty(),
@@ -1006,37 +997,46 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             .first()
             .ok_or_else(|| anyhow!("queue tx missing input commitment"))?
             .nullifier;
-        let sender_slot = indexed
-            .output_slots
-            .first()
-            .ok_or_else(|| anyhow!("indexed queue tx missing sender slot"))?;
-        let sender_blob = match sender_slot
-            .output_data()
-            .ok_or_else(|| anyhow!("sender slot is not decodable output data"))?
-        {
-            OutputData::Encrypted(blob)
-            | OutputData::VerifiablyEncrypted(blob)
-            | OutputData::Plaintext(blob) => blob,
+        // Every output slot carries its own ciphertext; the author re-derives the
+        // transaction viewing key and decrypts the SOL change (slot 1) and the
+        // recipient (slot 2) directly, reading each committed blinding back out.
+        let tx_key = sender
+            .viewing_key
+            .get_transaction_viewing_key(&first_nullifier)?;
+        if tx_key.pubkey() != tx_viewing_pk {
+            return Err(anyhow!("sender did not author the indexed queue tx"));
+        }
+        let decode_output = |slot_index: usize| -> TestResult<ConfidentialOutputPlaintext> {
+            let slot = indexed
+                .output_slots
+                .get(slot_index)
+                .ok_or_else(|| anyhow!("indexed queue tx missing output slot {slot_index}"))?;
+            let blob = match slot
+                .output_data()
+                .ok_or_else(|| anyhow!("output slot {slot_index} is not decodable output data"))?
+            {
+                OutputDataEncoding::Encrypted(blob)
+                | OutputDataEncoding::VerifiablyEncrypted(blob)
+                | OutputDataEncoding::Plaintext(blob) => blob,
+            };
+            let (_scheme, body) = blob
+                .split_first()
+                .ok_or_else(|| anyhow!("output slot {slot_index} missing scheme byte"))?;
+            Ok(Confidential::decrypt_with_tx_key(
+                &tx_key,
+                body,
+                salt,
+                slot_index as u32,
+            )?)
         };
-        let (_scheme, sender_ciphertext) = sender_blob
-            .split_first()
-            .ok_or_else(|| anyhow!("sender bundle missing scheme byte"))?;
-        let sender_plaintext = ConfidentialSenderBundle::decode(
-            sender_ciphertext,
-            &DecodeCx {
-                viewing_key: &sender.viewing_key,
-                tx_viewing_pk: Some(tx_viewing_pk),
-                salt: Some(salt),
-                slot_index: 0,
-                first_nullifier: Some(first_nullifier),
-            },
-        )?;
+        let change_plaintext = decode_output(1)?;
+        let recipient_plaintext = decode_output(2)?;
 
         let change_note = Utxo {
             owner: payer_public_key,
             asset: SOL_MINT,
             amount: total_amount - TRANSFER_AMOUNT,
-            blinding: derive_blinding(&sender_plaintext.blinding_seed, 1),
+            blinding: change_plaintext.blinding,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -1044,7 +1044,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             owner: payer_public_key,
             asset: SOL_MINT,
             amount: TRANSFER_AMOUNT,
-            blinding: derive_blinding(&sender_plaintext.blinding_seed, 2),
+            blinding: recipient_plaintext.blinding,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -1194,15 +1194,13 @@ struct IndexedSpendInputArgs<'a> {
 
 fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferInput> {
     Ok(TransferInput {
-        utxo: UtxoInputs::new(
-            args.owner_field,
+        utxo: ProofInputUtxo::new(
+            *args.owner_field,
             &args.utxo.asset,
             args.utxo.amount,
             &args.utxo.blinding,
-            &[0u8; 32],
-            &[0u8; 32],
-            &args.utxo.zone_program_id,
-        )?,
+        )?
+        .with_zone([0u8; 32], &args.utxo.zone_program_id)?,
         is_dummy: be(&fe(0)),
         state_path_elements: args.state_proof.path.iter().map(be).collect(),
         state_path_index: be(&fe(args.state_proof.leaf_index)),
@@ -1611,16 +1609,16 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
-        spends.push(SpendUtxo::from_keypair(utxo, &sender));
+        spends.push(SppProofInputUtxo::new(utxo, &sender));
     }
 
     // ---- build the encrypted transfer with the high-level client builder ----
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let mut tx = ClientTransaction::new(sender.shielded_address()?, spends, payer_address);
-    tx.send(&recipient_address, SOL_MINT, TRANSFER_AMOUNT)?;
-    let signed = tx.sign(&sender, &assets)?;
+    let mut transfer = ConfidentialTransfer::new(sender.shielded_address()?, spends, payer_address);
+    transfer.send(&recipient_address, SOL_MINT, TRANSFER_AMOUNT)?;
+    let proof_inputs = transfer.sign(&sender, &assets)?;
 
-    let commitments = signed.input_commitments()?;
+    let commitments = proof_inputs.input_utxo_hashes()?;
     let mut spend_proofs = Vec::new();
     for commitment in &commitments {
         let state = wait_for_merkle_proof(&indexer, tree_address, commitment.utxo_hash)?;
@@ -1628,7 +1626,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         spend_proofs.push(SpendProof { state, nullifier });
     }
 
-    let assembled = zolana_client::assemble(signed, &spend_proofs)?;
+    let assembled = zolana_client::assemble(proof_inputs, &spend_proofs)?;
     let proof = match (&assembled.prover_inputs, expected_rail) {
         (ProverInputs::P256(inputs), SpendRail::P256) => {
             ProverClient::local().prove_transfer_p256(inputs)?
@@ -1693,40 +1691,39 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         .ok_or_else(|| anyhow!("no input commitment"))?
         .nullifier;
 
-    // Independently reconstruct the expected recipient UTXO: the sender bundle in
-    // slot 0 decrypts to the shared blinding seed, from which the recipient's
-    // blinding (output position 2 = first recipient slot) derives. Each slot's
-    // borsh `OutputData` carries a scheme byte plus the per-scheme ciphertext body.
-    let sender_slot = indexed
+    // Independently reconstruct the expected recipient UTXO: the author re-derives
+    // the transaction viewing key and decrypts the recipient slot (output position
+    // 2) directly, reading its committed blinding out. Each slot's borsh
+    // `OutputDataEncoding` carries a scheme byte plus the per-scheme ciphertext
+    // body.
+    let tx_key = sender
+        .viewing_key
+        .get_transaction_viewing_key(&first_nullifier)?;
+    if tx_key.pubkey() != tx_viewing_pk {
+        return Err(anyhow!("sender did not author the indexed transfer"));
+    }
+    let recipient_slot = indexed
         .output_slots
-        .first()
-        .ok_or_else(|| anyhow!("indexed transfer missing sender slot"))?;
-    let sender_blob = match sender_slot
+        .get(2)
+        .ok_or_else(|| anyhow!("indexed transfer missing recipient slot"))?;
+    let recipient_blob = match recipient_slot
         .output_data()
-        .ok_or_else(|| anyhow!("sender slot is not decodable output data"))?
+        .ok_or_else(|| anyhow!("recipient slot is not decodable output data"))?
     {
-        OutputData::Encrypted(blob)
-        | OutputData::VerifiablyEncrypted(blob)
-        | OutputData::Plaintext(blob) => blob,
+        OutputDataEncoding::Encrypted(blob)
+        | OutputDataEncoding::VerifiablyEncrypted(blob)
+        | OutputDataEncoding::Plaintext(blob) => blob,
     };
-    let (_scheme, sender_ciphertext) = sender_blob
+    let (_scheme, recipient_ciphertext) = recipient_blob
         .split_first()
-        .ok_or_else(|| anyhow!("sender bundle missing scheme byte"))?;
-    let sender_plaintext = ConfidentialSenderBundle::decode(
-        sender_ciphertext,
-        &DecodeCx {
-            viewing_key: &sender.viewing_key,
-            tx_viewing_pk: Some(tx_viewing_pk),
-            salt: Some(salt),
-            slot_index: 0,
-            first_nullifier: Some(first_nullifier),
-        },
-    )?;
+        .ok_or_else(|| anyhow!("recipient slot missing scheme byte"))?;
+    let recipient_plaintext =
+        Confidential::decrypt_with_tx_key(&tx_key, recipient_ciphertext, salt, 2)?;
     let expected_utxo = Utxo {
         owner: recipient_address.signing_pubkey,
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
-        blinding: derive_blinding(&sender_plaintext.blinding_seed, 2),
+        blinding: recipient_plaintext.blinding,
         zone_program_id: None,
         data: Data::default(),
     };

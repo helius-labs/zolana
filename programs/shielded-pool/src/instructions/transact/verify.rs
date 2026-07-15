@@ -129,7 +129,7 @@ impl<'a> TransactProof<'a> {
     }
 
     fn n_outputs(&self) -> usize {
-        self.ix.output_utxo_hashes.len()
+        self.ix.outputs.len()
     }
 
     fn is_p256(&self) -> bool {
@@ -213,13 +213,13 @@ impl<'a> TransactProof<'a> {
     }
 
     fn output_chain(&self) -> Result<[u8; 32], ProgramError> {
-        let mut iter = self.ix.output_utxo_hashes.iter();
+        let mut iter = self.ix.outputs.iter();
         let Some(first) = iter.next() else {
             return Ok([0u8; 32]);
         };
-        let mut acc = *first;
-        for utxo_hash in iter {
-            acc = poseidon2(&acc, utxo_hash)?;
+        let mut acc = *first.utxo_hash;
+        for output in iter {
+            acc = poseidon2(&acc, output.utxo_hash)?;
         }
         Ok(acc)
     }

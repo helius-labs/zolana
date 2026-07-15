@@ -12,11 +12,14 @@ use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputCommitment, P256Owner, ProverClient, PublicAmounts, Rpc, Shape,
+    spawn_prover, InputUtxoContext, P256Owner, ProverClient, PublicAmounts, Rpc, Shape,
     TransferSpendInput, ZoneTransferP256Prover, ZoneTransferProver,
 };
 use zolana_interface::{
-    instruction::{instruction_data::transact::OutputCiphertext, tag::ZONE_TRANSACT},
+    instruction::{
+        instruction_data::transact::{OwnerTag, TransactOutput},
+        tag::ZONE_TRANSACT,
+    },
     verifying_keys::{
         transfer_p256_zone_1_1, transfer_p256_zone_1_2, transfer_p256_zone_1_8,
         transfer_p256_zone_2_2, transfer_p256_zone_2_3, transfer_p256_zone_3_3,
@@ -29,7 +32,7 @@ use zolana_interface::{
 use zolana_keypair::{
     hash::sha256, random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey,
 };
-use zolana_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT};
 
 use crate::{
     test_indexer::TestIndexer,
@@ -306,7 +309,7 @@ fn build_real_inputs(
             .nullifier(&utxo_hash, &kp.nullifier_key)
             .expect("nullifier");
         indexer.add_utxo(utxo_hash);
-        commitments.push(InputCommitment {
+        commitments.push(InputUtxoContext {
             index,
             utxo_hash,
             nullifier,
@@ -334,8 +337,8 @@ fn build_real_inputs(
 /// A real zone-owned recipient output: the recipient owns it via its `owner_hash`
 /// (the zone circuit leaves the output owner unconstrained / anonymous), bound to
 /// the shared zone program.
-fn real_output(recipient: &ShieldedKeypair, amount: u64) -> OutputUtxo {
-    OutputUtxo {
+fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
+    SppProofOutputUtxo {
         owner_address: Some(recipient.shielded_address().expect("shielded address")),
         asset: SOL_MINT,
         amount,
@@ -349,8 +352,8 @@ fn real_output(recipient: &ShieldedKeypair, amount: u64) -> OutputUtxo {
 }
 
 /// A padding output: zero owner hash, random blinding (the circuit leaves it free).
-fn dummy_output() -> OutputUtxo {
-    OutputUtxo {
+fn dummy_output() -> SppProofOutputUtxo {
+    SppProofOutputUtxo {
         blinding: random_blinding(),
         ..Default::default()
     }
@@ -393,13 +396,15 @@ fn zone_external_data(n_out: usize) -> ExternalData {
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        output_utxo_hashes: vec![[0u8; 32]; n_out],
-        output_ciphertexts: (0..n_out)
-            .map(|_| OutputCiphertext {
-                view_tag: [0u8; 32],
-                data: Vec::new(),
+        outputs: (0..n_out)
+            .map(|_| TransactOutput {
+                utxo_hash: [0u8; 32],
+                owner_tag: OwnerTag::Inline([0u8; 32]),
+                data: None,
             })
             .collect(),
+        resolved_owner_tags: vec![[0u8; 32]; n_out],
+        messages: Vec::new(),
     }
 }
 

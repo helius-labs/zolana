@@ -1,20 +1,15 @@
 use solana_address::Address;
-use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::{
-    constants::{BLINDING_LEN, SALT_LEN},
+    constants::{BLINDING_LEN, P256_PUBKEY_LEN, SALT_LEN},
     P256Pubkey, PublicKey, ViewingKey,
 };
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
-use crate::{
-    data::Data,
-    error::TransactionError,
-    utxo::{derive_blinding, resolve_zone_program_id, Utxo},
-    AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SOL_MINT,
-};
+use crate::{data::Data, error::TransactionError, utxo::Utxo, AssetRegistry, EncryptedScheme};
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
-pub struct TransferRecipientPlaintext {
+pub struct ConfidentialOutputPlaintext {
     pub asset_id: u64,
     pub amount: u64,
     pub blinding: [u8; BLINDING_LEN],
@@ -22,7 +17,7 @@ pub struct TransferRecipientPlaintext {
     pub data: Data,
 }
 
-impl TransferRecipientPlaintext {
+impl ConfidentialOutputPlaintext {
     pub fn serialize(&self) -> Result<Vec<u8>, TransactionError> {
         self.data.validate()?;
         Ok(wincode::serialize(self)?)
@@ -53,96 +48,67 @@ impl TransferRecipientPlaintext {
     }
 }
 
-#[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
-pub struct TransferSenderPlaintext {
-    #[wincode(with = "PublicKeySchema")]
-    pub owner_pubkey: PublicKey, // TODO: remove see spec.md
-    pub spl_asset_id: u64,
-    pub spl_amount: u64,
-    pub sol_amount: u64,
-    pub blinding_seed: [u8; BLINDING_LEN],
-    #[wincode(with = "containers::Vec<P256PubkeySchema, FixIntLen<u8>>")]
-    pub recipient_viewing_pks: Vec<P256Pubkey>,
-    pub spl_data: Data,
-    pub sol_data: Data,
-}
-
-impl TransferSenderPlaintext {
-    pub fn serialize(&self) -> Result<Vec<u8>, TransactionError> {
-        self.spl_data.validate()?;
-        self.sol_data.validate()?;
-        Ok(wincode::serialize(self)?)
-    }
-
-    pub fn deserialize(bytes: &[u8]) -> Result<Self, TransactionError> {
-        let parsed: Self = wincode::deserialize_exact(bytes)?;
-        parsed.spl_data.validate()?;
-        parsed.sol_data.validate()?;
-        Ok(parsed)
-    }
-
-    pub fn into_utxos(
-        self,
-        assets: &AssetRegistry,
-        zone_program_id: Option<Address>,
-    ) -> Result<Vec<Utxo>, TransactionError> {
-        if self.spl_amount == 0 && !self.spl_data.is_empty() {
-            return Err(TransactionError::DataWithoutOutput);
-        }
-        if self.sol_amount == 0 && !self.sol_data.is_empty() {
-            return Err(TransactionError::DataWithoutOutput);
-        }
-        let mut utxos = Vec::new();
-        if self.spl_amount > 0 {
-            utxos.push(Utxo {
-                owner: self.owner_pubkey,
-                asset: assets.resolve(self.spl_asset_id)?,
-                amount: self.spl_amount,
-                blinding: derive_blinding(&self.blinding_seed, 0),
-                zone_program_id: resolve_zone_program_id(zone_program_id, &self.spl_data)?,
-                data: self.spl_data,
-            });
-        }
-        if self.sol_amount > 0 {
-            utxos.push(Utxo {
-                owner: self.owner_pubkey,
-                asset: SOL_MINT,
-                amount: self.sol_amount,
-                blinding: derive_blinding(&self.blinding_seed, 1),
-                zone_program_id: resolve_zone_program_id(zone_program_id, &self.sol_data)?,
-                data: self.sol_data,
-            });
-        }
-        Ok(utxos)
-    }
-}
-
-pub struct ConfidentialRecipientEncode {
+pub struct ConfidentialEncode {
     pub tx: ViewingKey,
     pub recipient_pubkey: P256Pubkey,
     pub salt: [u8; SALT_LEN],
     pub slot_index: u32,
 }
 
-pub struct ConfidentialRecipient;
+pub struct Confidential;
 
-impl UtxoSerialization for ConfidentialRecipient {
-    const SCHEME: EncryptedScheme = EncryptedScheme::ConfidentialRecipient;
-    type Plaintext = TransferRecipientPlaintext;
-    type EncodeCx = ConfidentialRecipientEncode;
+fn split_embedded_pk(body: &[u8]) -> Result<(P256Pubkey, &[u8]), TransactionError> {
+    let (prefix, rest) =
+        body.split_at_checked(P256_PUBKEY_LEN)
+            .ok_or(TransactionError::InvalidLength {
+                expected: P256_PUBKEY_LEN,
+                actual: body.len(),
+            })?;
+    let bytes: [u8; P256_PUBKEY_LEN] =
+        prefix
+            .try_into()
+            .map_err(|_| TransactionError::InvalidLength {
+                expected: P256_PUBKEY_LEN,
+                actual: prefix.len(),
+            })?;
+    Ok((P256Pubkey::from_bytes(bytes)?, rest))
+}
+
+impl Confidential {
+    pub fn embedded_viewing_pk(body: &[u8]) -> Result<P256Pubkey, TransactionError> {
+        Ok(split_embedded_pk(body)?.0)
+    }
+
+    pub fn decrypt_with_tx_key(
+        tx: &ViewingKey,
+        body: &[u8],
+        salt: [u8; SALT_LEN],
+        slot_index: u32,
+    ) -> Result<ConfidentialOutputPlaintext, TransactionError> {
+        let (recipient_pubkey, rest) = split_embedded_pk(body)?;
+        let bytes = tx.decrypt_slot_ephemeral(&recipient_pubkey, rest, salt, slot_index)?;
+        ConfidentialOutputPlaintext::deserialize(&bytes)
+    }
+}
+
+impl UtxoSerialization for Confidential {
+    const SCHEME: EncryptedScheme = EncryptedScheme::Confidential;
+    type Plaintext = ConfidentialOutputPlaintext;
+    type EncodeCx = ConfidentialEncode;
 
     fn decrypt(body: &[u8], cx: &DecodeCx) -> Result<Vec<u8>, TransactionError> {
         let tx_viewing_pk = cx
             .tx_viewing_pk
             .ok_or(TransactionError::MissingEncryptionContext)?;
         let salt = cx.salt.ok_or(TransactionError::MissingEncryptionContext)?;
+        let (_, rest) = split_embedded_pk(body)?;
         Ok(cx
             .viewing_key
-            .decrypt_utxo(body, &tx_viewing_pk, salt, cx.slot_index)?)
+            .decrypt_utxo(rest, &tx_viewing_pk, salt, cx.slot_index)?)
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self::Plaintext, TransactionError> {
-        TransferRecipientPlaintext::deserialize(bytes)
+        ConfidentialOutputPlaintext::deserialize(bytes)
     }
 
     fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
@@ -155,7 +121,7 @@ impl UtxoSerialization for ConfidentialRecipient {
         _cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
         let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
-        Ok(TransferRecipientPlaintext {
+        Ok(ConfidentialOutputPlaintext {
             asset_id: owner.assets.asset_id(&first.asset)?,
             amount: first.amount,
             blinding: first.blinding,
@@ -169,90 +135,117 @@ impl UtxoSerialization for ConfidentialRecipient {
     }
 
     fn encrypt(bytes: &[u8], cx: &Self::EncodeCx) -> Result<Vec<u8>, TransactionError> {
-        Ok(cx
+        let ciphertext = cx
             .tx
-            .encrypt_slot(&cx.recipient_pubkey, bytes, cx.salt, cx.slot_index)?)
+            .encrypt_slot(&cx.recipient_pubkey, bytes, cx.salt, cx.slot_index)?;
+        let mut body = Vec::with_capacity(P256_PUBKEY_LEN + ciphertext.len());
+        body.extend_from_slice(cx.recipient_pubkey.as_bytes());
+        body.extend_from_slice(&ciphertext);
+        Ok(body)
     }
 }
 
-pub struct ConfidentialSenderEncode {
-    pub tx: ViewingKey,
-    pub self_pubkey: P256Pubkey,
-    pub salt: [u8; SALT_LEN],
-    pub slot_index: u32,
-    pub blinding_seed: [u8; BLINDING_LEN],
-    pub recipient_viewing_pks: Vec<P256Pubkey>,
-}
+#[cfg(test)]
+mod tests {
+    use borsh::BorshDeserialize;
+    use zolana_event::OutputDataEncoding;
+    use zolana_keypair::constants::BLINDING_LEN;
 
-pub struct ConfidentialSenderBundle;
+    use super::*;
+    use crate::{data::Data, SOL_ASSET_ID};
 
-impl UtxoSerialization for ConfidentialSenderBundle {
-    const SCHEME: EncryptedScheme = EncryptedScheme::ConfidentialSender;
-    type Plaintext = TransferSenderPlaintext;
-    type EncodeCx = ConfidentialSenderEncode;
+    const SALT: [u8; SALT_LEN] = [9u8; SALT_LEN];
+    const SLOT_INDEX: u32 = 2;
 
-    fn decrypt(body: &[u8], cx: &DecodeCx) -> Result<Vec<u8>, TransactionError> {
-        let tx_viewing_pk = cx
-            .tx_viewing_pk
-            .ok_or(TransactionError::MissingEncryptionContext)?;
-        let salt = cx.salt.ok_or(TransactionError::MissingEncryptionContext)?;
-        Ok(cx
-            .viewing_key
-            .decrypt_utxo(body, &tx_viewing_pk, salt, cx.slot_index)?)
-    }
-
-    fn deserialize(bytes: &[u8]) -> Result<Self::Plaintext, TransactionError> {
-        TransferSenderPlaintext::deserialize(bytes)
-    }
-
-    fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
-        plaintext.into_utxos(cx.assets, cx.zone_program_id)
-    }
-
-    fn from_utxos(
-        utxos: &[Utxo],
-        owner: &OwnerCx,
-        cx: &Self::EncodeCx,
-    ) -> Result<Self::Plaintext, TransactionError> {
-        let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
-        let owner_pubkey = first.owner;
-
-        let mut spl_asset_id = 0u64;
-        let mut spl_amount = 0u64;
-        let mut spl_data = Data::default();
-        let mut sol_amount = 0u64;
-        let mut sol_data = Data::default();
-
-        for utxo in utxos {
-            if utxo.asset == SOL_MINT {
-                sol_amount = utxo.amount;
-                sol_data = utxo.data.clone();
-            } else {
-                spl_asset_id = owner.assets.asset_id(&utxo.asset)?;
-                spl_amount = utxo.amount;
-                spl_data = utxo.data.clone();
-            }
+    fn plaintext() -> ConfidentialOutputPlaintext {
+        ConfidentialOutputPlaintext {
+            asset_id: SOL_ASSET_ID,
+            amount: 42,
+            blinding: [7u8; BLINDING_LEN],
+            zone_program_id: None,
+            data: Data::default(),
         }
-
-        Ok(TransferSenderPlaintext {
-            owner_pubkey,
-            spl_asset_id,
-            spl_amount,
-            sol_amount,
-            blinding_seed: cx.blinding_seed,
-            recipient_viewing_pks: cx.recipient_viewing_pks.clone(),
-            spl_data,
-            sol_data,
-        })
     }
 
-    fn serialize(plaintext: &Self::Plaintext) -> Result<Vec<u8>, TransactionError> {
-        plaintext.serialize()
+    fn encoded_body(tx: &ViewingKey, recipient: &ViewingKey) -> Vec<u8> {
+        let ciphertext = Confidential::encode_plaintext(
+            &plaintext(),
+            [0u8; 32],
+            &ConfidentialEncode {
+                tx: tx.clone(),
+                recipient_pubkey: recipient.pubkey(),
+                salt: SALT,
+                slot_index: SLOT_INDEX,
+            },
+        )
+        .expect("encode");
+        let OutputDataEncoding::Encrypted(blob) =
+            OutputDataEncoding::try_from_slice(&ciphertext.data).expect("output data")
+        else {
+            panic!("expected encrypted output data");
+        };
+        let (&scheme_byte, body) = blob.split_first().expect("scheme byte");
+        assert_eq!(scheme_byte, EncryptedScheme::Confidential.as_byte());
+        body.to_vec()
     }
 
-    fn encrypt(bytes: &[u8], cx: &Self::EncodeCx) -> Result<Vec<u8>, TransactionError> {
-        Ok(cx
-            .tx
-            .encrypt_slot(&cx.self_pubkey, bytes, cx.salt, cx.slot_index)?)
+    #[test]
+    fn recipient_and_tx_key_both_decrypt_the_slot() {
+        let tx = ViewingKey::new();
+        let recipient = ViewingKey::new();
+        let body = encoded_body(&tx, &recipient);
+
+        let cx = DecodeCx {
+            viewing_key: &recipient,
+            tx_viewing_pk: Some(tx.pubkey()),
+            salt: Some(SALT),
+            slot_index: SLOT_INDEX,
+            first_nullifier: None,
+        };
+        assert_eq!(
+            (
+                Confidential::decode(&body, &cx).expect("recipient decode"),
+                Confidential::decrypt_with_tx_key(&tx, &body, SALT, SLOT_INDEX)
+                    .expect("tx key decode"),
+            ),
+            (plaintext(), plaintext())
+        );
+    }
+
+    #[test]
+    fn embedded_viewing_pk_is_the_recipient_pk() {
+        let tx = ViewingKey::new();
+        let recipient = ViewingKey::new();
+        let body = encoded_body(&tx, &recipient);
+        assert_eq!(
+            Confidential::embedded_viewing_pk(&body).expect("embedded pk"),
+            recipient.pubkey()
+        );
+    }
+
+    #[test]
+    fn short_body_fails_with_invalid_length() {
+        let short = [1u8; 10];
+        let expected = TransactionError::InvalidLength {
+            expected: P256_PUBKEY_LEN,
+            actual: short.len(),
+        };
+        let tx = ViewingKey::new();
+        let recipient = ViewingKey::new();
+        let cx = DecodeCx {
+            viewing_key: &recipient,
+            tx_viewing_pk: Some(tx.pubkey()),
+            salt: Some(SALT),
+            slot_index: SLOT_INDEX,
+            first_nullifier: None,
+        };
+        assert_eq!(
+            (
+                Confidential::decrypt(&short, &cx).unwrap_err(),
+                Confidential::embedded_viewing_pk(&short).unwrap_err(),
+                Confidential::decrypt_with_tx_key(&tx, &short, SALT, SLOT_INDEX).unwrap_err(),
+            ),
+            (expected.clone(), expected.clone(), expected)
+        );
     }
 }

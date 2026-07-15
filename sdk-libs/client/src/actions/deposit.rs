@@ -13,7 +13,7 @@ use zolana_interface::{
     pda, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{random_blinding, ShieldedAddress};
-use zolana_transaction::{owner_utxo_hash, utxo_hash, SOL_MINT};
+use zolana_transaction::{ProofInputUtxo, SOL_MINT};
 
 use crate::{
     error::ClientError,
@@ -49,15 +49,8 @@ impl Deposit {
         let owner = request.recipient.owner_hash()?;
         let blinding = random_blinding();
         let view_tag = request.recipient.viewing_pubkey.x();
-        let owner_utxo_hash = owner_utxo_hash(&owner, &blinding)?;
-        let utxo_hash = utxo_hash(
-            request.asset,
-            request.amount,
-            &[0u8; 32],
-            &[0u8; 32],
-            None,
-            &owner_utxo_hash,
-        )?;
+        let utxo_hash =
+            ProofInputUtxo::new(owner, &request.asset, request.amount, &blinding)?.hash()?;
         let spl = spl_accounts(request.asset, request.spl_token_account)?;
         Ok(Self {
             data: DepositIxData {

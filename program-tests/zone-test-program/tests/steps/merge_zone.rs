@@ -33,7 +33,7 @@ use zolana_test_utils::test_validator_asserts::{
     assert_merge_zone, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_non_inclusion_proof, MergeZoneAssertArgs,
 };
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{Data, SppProofOutputUtxo, Utxo, SOL_MINT};
 
 use crate::{
     localnet::{pack_proof, send_transaction, ZERO},
@@ -126,7 +126,7 @@ impl ZoneLifecycleWorld {
         // fresh random blinding the owner recovers by decrypting the published
         // merge ciphertext. `MergeZoneProver::build` stamps the shared zone on it.
         let output_blinding = random_blinding();
-        let output = OutputUtxo {
+        let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
             amount: total,
@@ -313,7 +313,7 @@ impl ZoneLifecycleWorld {
             });
         }
 
-        let output = OutputUtxo {
+        let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
             amount: total,

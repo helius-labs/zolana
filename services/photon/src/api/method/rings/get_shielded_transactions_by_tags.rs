@@ -14,7 +14,7 @@ use sea_orm::{
 };
 use solana_signature::SIGNATURE_BYTES;
 use zolana_indexer_api::{
-    Base64String, GetRingsByTagsRequest, GetShieldedTransactionsByTagsResponse, Hash,
+    Base64String, GetRingsByTagsRequest, GetShieldedTransactionsByTagsResponse, Hash, RingsMessage,
     RingsOutputSlot, ShieldedTransaction,
 };
 
@@ -37,6 +37,14 @@ struct RingsOutputRow {
     output_tree: Vec<u8>,
     leaf_index: i64,
     utxo_hash: Vec<u8>,
+    payload: Vec<u8>,
+}
+
+#[derive(FromQueryResult, Debug)]
+struct RingsMessageRow {
+    rings_tx_id: i64,
+    message_index: i16,
+    view_tag: Vec<u8>,
     payload: Vec<u8>,
 }
 
@@ -80,6 +88,7 @@ pub async fn get_shielded_transactions_by_tags(
         .collect::<Vec<_>>();
 
     let output_rows = fetch_rings_outputs(&tx, &rings_tx_ids).await?;
+    let message_rows = fetch_rings_messages(&tx, &rings_tx_ids).await?;
     let nullifier_rows = fetch_rings_nullifiers(&tx, &rings_tx_ids).await?;
 
     let mut outputs_by_tx: BTreeMap<i64, Vec<RingsOutputSlot>> = BTreeMap::new();
@@ -94,6 +103,17 @@ pub async fn get_shielded_transactions_by_tags(
                 row.leaf_index,
                 row.payload,
             )?);
+    }
+
+    let mut messages_by_tx: BTreeMap<i64, Vec<RingsMessage>> = BTreeMap::new();
+    for row in message_rows {
+        messages_by_tx
+            .entry(row.rings_tx_id)
+            .or_default()
+            .push(RingsMessage {
+                view_tag: hash_from_vec(row.view_tag)?,
+                payload: Base64String(row.payload),
+            });
     }
 
     let mut nullifiers_by_tx: BTreeMap<i64, Vec<Hash>> = BTreeMap::new();
@@ -113,6 +133,7 @@ pub async fn get_shielded_transactions_by_tags(
                 tx_viewing_pk: row.tx_viewing_pk.map(Base64String),
                 salt: row.salt.map(Base64String),
                 output_slots: outputs_by_tx.remove(&row.rings_tx_id).unwrap_or_default(),
+                messages: messages_by_tx.remove(&row.rings_tx_id).unwrap_or_default(),
                 nullifiers: nullifiers_by_tx
                     .remove(&row.rings_tx_id)
                     .unwrap_or_default(),
@@ -139,6 +160,7 @@ async fn fetch_matching_rings_transactions(
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
     let tag_filter = tags_sql(tags, backend, &mut params);
+    let message_tag_filter = tags_sql(tags, backend, &mut params);
     let cursor_filter = cursor
         .map(|cursor| shielded_tx_cursor_sql(cursor, backend, &mut params))
         .transpose()?
@@ -155,11 +177,19 @@ async fn fetch_matching_rings_transactions(
             pt.salt AS salt,
             pt.proofless AS proofless
          FROM rings_transactions pt
-         WHERE EXISTS (
-             SELECT 1
-             FROM rings_outputs po
-             WHERE po.rings_tx_id = pt.rings_tx_id
-             AND po.view_tag IN ({tag_filter})
+         WHERE (
+             EXISTS (
+                 SELECT 1
+                 FROM rings_outputs po
+                 WHERE po.rings_tx_id = pt.rings_tx_id
+                 AND po.view_tag IN ({tag_filter})
+             )
+             OR EXISTS (
+                 SELECT 1
+                 FROM rings_messages pm
+                 WHERE pm.rings_tx_id = pt.rings_tx_id
+                 AND pm.view_tag IN ({message_tag_filter})
+             )
          )
          {cursor_filter}
          ORDER BY pt.slot ASC, pt.signature ASC, pt.event_index ASC
@@ -207,6 +237,38 @@ async fn fetch_rings_outputs(
         .map(|row| RingsOutputRow::from_query_result(&row, ""))
         .collect::<Result<Vec<_>, _>>()?;
     rows.sort_by_key(|row| (row.rings_tx_id, row.output_index));
+    Ok(rows)
+}
+
+async fn fetch_rings_messages(
+    tx: &DatabaseTransaction,
+    rings_tx_ids: &[i64],
+) -> Result<Vec<RingsMessageRow>, PhotonApiError> {
+    if rings_tx_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let backend = tx.get_database_backend();
+    let mut params = Vec::new();
+    let ids = int_list_sql(rings_tx_ids, backend, &mut params);
+    let sql = format!(
+        "SELECT
+            pm.rings_tx_id AS rings_tx_id,
+            pm.message_index AS message_index,
+            pm.view_tag AS view_tag,
+            pm.payload AS payload
+         FROM rings_messages pm
+         WHERE pm.rings_tx_id IN ({ids})
+         ORDER BY pm.rings_tx_id ASC, pm.message_index ASC"
+    );
+
+    let mut rows = tx
+        .query_all(Statement::from_sql_and_values(backend, sql, params))
+        .await?
+        .into_iter()
+        .map(|row| RingsMessageRow::from_query_result(&row, ""))
+        .collect::<Result<Vec<_>, _>>()?;
+    rows.sort_by_key(|row| (row.rings_tx_id, row.message_index));
     Ok(rows)
 }
 

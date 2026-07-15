@@ -18,6 +18,7 @@ test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
 
 [dependencies]
+arrayvec = { workspace = true }
 ark-bn254 = { version = "0.5", default-features = false }
 ark-ff = { version = "0.5", default-features = false }
 borsh = { workspace = true }
@@ -29,7 +30,7 @@ light-program-profiler = { workspace = true }
 pinocchio-system = { workspace = true }
 pinocchio = { workspace = true }
 tinyvec = { workspace = true }
-zolana-interface = { workspace = true }
+zolana-interface = { workspace = true, features = ["borsh"] }
 zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
 

@@ -23,8 +23,9 @@ mod tests {
     use solana_signature::SIGNATURE_BYTES;
     use zolana_indexer_api::{
         Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-        GetMerkleProofsRequest, Hash, MerkleContext, NonInclusionProof, RingsOutputContext,
-        RingsOutputSlot, SerializablePubkey, SerializableSignature, ShieldedTransaction,
+        GetMerkleProofsRequest, Hash, MerkleContext, NonInclusionProof, RingsMessage,
+        RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
+        ShieldedTransaction,
     };
 
     fn hash(value: u8) -> Hash {
@@ -132,6 +133,10 @@ mod tests {
                 },
                 payload: Base64String(vec![7, 8, 9]),
             }],
+            messages: vec![RingsMessage {
+                view_tag: hash(8),
+                payload: Base64String(vec![10, 11, 12]),
+            }],
             nullifiers: vec![hash(7)],
             proofless: true,
         })
@@ -140,8 +145,13 @@ mod tests {
         assert!(value.get("tx_signature").is_some());
         assert!(value.get("tx_viewing_pk").is_some());
         assert!(value.get("output_slots").is_some());
+        assert!(value.get("messages").is_some());
         assert!(value.get("txSignature").is_none());
         assert!(value.get("outputSlots").is_none());
+
+        let message = &value["messages"][0];
+        assert!(message.get("view_tag").is_some());
+        assert!(message.get("payload").is_some());
 
         let slot = &value["output_slots"][0];
         assert!(slot.get("view_tag").is_some());

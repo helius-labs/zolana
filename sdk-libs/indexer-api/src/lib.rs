@@ -532,6 +532,14 @@ pub struct RingsOutputSlot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingsMessage {
+    pub view_tag: Hash,
+    pub payload: Base64String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ShieldedTransaction {
     pub slot: u64,
     pub tx_signature: SerializableSignature,
@@ -539,6 +547,8 @@ pub struct ShieldedTransaction {
     /// Transaction-level AES salt shared by every output ciphertext.
     pub salt: Option<Base64String>,
     pub output_slots: Vec<RingsOutputSlot>,
+    /// Published data slots bound to no output commitment, republished verbatim.
+    pub messages: Vec<RingsMessage>,
     pub nullifiers: Vec<Hash>,
     /// True when at least one output in this transaction is proofless.
     pub proofless: bool,

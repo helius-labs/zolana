@@ -26,7 +26,7 @@ use solana_transaction::{versioned::VersionedTransaction, Transaction as SolanaT
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_interface::instruction::Transact;
 use zolana_keypair::hash::sha256_be;
-use zolana_transaction::instructions::{transact::SignedTransaction, types::InputCommitment};
+use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 
 use crate::{
     actions::SignedPrivateTransaction,
@@ -195,7 +195,7 @@ impl<R: Rpc> ZolanaClient<R> {
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
-        let commitments = signed.transaction.input_commitments()?;
+        let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs = fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments)?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
         let proof = match &assembled.prover_inputs {
@@ -224,7 +224,7 @@ impl<R: Rpc> ZolanaClient<R> {
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
-        let commitments = signed.transaction.input_commitments()?;
+        let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs = fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments)?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
         let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
@@ -261,7 +261,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
-        let commitments = signed.transaction.input_commitments()?;
+        let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
             fetch_spend_proofs_async(&self.async_indexer, self.tree, &commitments).await?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
@@ -474,13 +474,13 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
 
     async fn get_input_merkle_proofs(
         &self,
-        input_utxo_commitments: &[InputCommitment],
+        input_utxo_commitments: &[InputUtxoContext],
     ) -> Result<Vec<SpendProof>, ClientError> {
         fetch_spend_proofs_async(&self.async_indexer, self.tree, input_utxo_commitments).await
     }
 
-    async fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
-        let commitments = transaction.input_commitments()?;
+    async fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
+        let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments).await?;
         let assembled = assemble(transaction, &input_merkle_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
@@ -654,13 +654,13 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
 
     fn get_input_merkle_proofs(
         &self,
-        input_utxo_commitments: &[InputCommitment],
+        input_utxo_commitments: &[InputUtxoContext],
     ) -> Result<Vec<SpendProof>, ClientError> {
         fetch_spend_proofs(self.blocking_indexer(), self.tree, input_utxo_commitments)
     }
 
-    fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
-        let commitments = transaction.input_commitments()?;
+    fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
+        let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments)?;
         let assembled = assemble(transaction, &input_merkle_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
@@ -741,7 +741,7 @@ fn submit_instructions(
 fn fetch_spend_proofs(
     indexer: &ZolanaIndexer,
     tree: Address,
-    commitments: &[InputCommitment],
+    commitments: &[InputUtxoContext],
 ) -> Result<Vec<SpendProof>, ClientError> {
     let leaves = commitments
         .iter()
@@ -764,7 +764,7 @@ fn fetch_spend_proofs(
 async fn fetch_spend_proofs_async(
     indexer: &AsyncZolanaIndexer,
     tree: Address,
-    commitments: &[InputCommitment],
+    commitments: &[InputUtxoContext],
 ) -> Result<Vec<SpendProof>, ClientError> {
     let leaves = commitments
         .iter()
@@ -788,7 +788,7 @@ async fn fetch_spend_proofs_async(
 
 fn validate_spend_proofs(
     tree: Address,
-    commitments: &[InputCommitment],
+    commitments: &[InputUtxoContext],
     state_proofs: Vec<crate::rpc::MerkleProof>,
     nullifier_proofs: Vec<crate::rpc::NonInclusionProof>,
 ) -> Result<Vec<SpendProof>, ClientError> {
@@ -987,7 +987,7 @@ mod tests {
             &authority,
         )
         .expect("sign");
-        let commitment = shielded.transaction.input_commitments().unwrap().remove(0);
+        let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);
         let signature = Signature::from([5u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
             merkle_response(tree, commitment.utxo_hash),
@@ -1066,7 +1066,7 @@ mod tests {
     #[test]
     fn spend_proofs_are_bound_to_requested_commitments_and_tree() {
         let tree = Address::new_from_array([8u8; 32]);
-        let commitment = InputCommitment {
+        let commitment = InputUtxoContext {
             index: 0,
             utxo_hash: [1u8; 32],
             nullifier: [2u8; 32],
@@ -1314,6 +1314,7 @@ mod tests {
                 "tx_signature": signature.to_string(),
                 "tx_viewing_pk": null,
                 "output_slots": [],
+                "messages": [],
                 "nullifiers": [],
                 "proofless": false,
             }],

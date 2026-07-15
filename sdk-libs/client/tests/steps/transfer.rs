@@ -2,27 +2,28 @@
 //!
 //! `TransferWorld::prove_and_verify` builds the transfer from the accumulated
 //! plan, asserts the exact output UTXOs (independently recomputed) and that the
-//! encrypted bundle decrypts back to them, resolves proofs via `TestIndexer`, and
+//! encrypted slots decrypt back to them, resolves proofs via `TestIndexer`, and
 //! verifies the proof against the committed vk for whichever rail the inputs
 //! select.
 
 use borsh::BorshDeserialize;
 use cucumber::{then, when};
 use solana_address::Address;
-use zolana_client::{CircuitType, PublicAmounts, Rpc, SpendUtxo, Transaction, WithdrawalTarget};
-use zolana_event::OutputData;
-use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
+use zolana_client::{
+    CircuitType, ConfidentialTransfer, PublicAmounts, Rpc, SppProofInputUtxo, WithdrawalTarget,
+};
+use zolana_event::OutputDataEncoding;
+use zolana_keypair::{
+    constants::BLINDING_LEN, shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey,
+};
 use zolana_transaction::{
-    instructions::transact::signed_transaction::{asset_field, signed_to_field},
-    serialization::{
-        confidential::{
-            ConfidentialRecipient, ConfidentialSenderBundle, TransferRecipientPlaintext,
-            TransferSenderPlaintext,
-        },
-        DecodeCx, UtxoSerialization,
+    instructions::transact::{
+        spp_proof_inputs::{asset_field, signed_to_field},
+        SENDER_SLOT_COUNT,
     },
+    serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::derive_blinding,
-    AssetRegistry, Data, ExternalData, OutputUtxo, Utxo, SOL_MINT,
+    AssetRegistry, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
 use crate::{
@@ -57,7 +58,7 @@ fn then_proof_verifies(world: &mut TransferWorld) {
 
 impl TransferWorld {
     /// Build the transfer described by the plan, assert its output UTXOs and
-    /// encrypted bundle, prove it, and verify the proof. The rail is inferred from
+    /// encrypted slots, prove it, and verify the proof. The rail is inferred from
     /// input ownership: any P256-owned input takes the P256 rail (signed),
     /// all-Solana inputs take the eddsa rail (unsigned).
     pub(crate) fn prove_and_verify(&self) {
@@ -66,7 +67,7 @@ impl TransferWorld {
         let sender = ShieldedKeypair::new().expect("sender keypair");
         let assets = AssetRegistry::new([(SPL_ASSET_ID, spl_mint())]).expect("asset registry");
 
-        let inputs: Vec<SpendUtxo> = plan
+        let inputs: Vec<SppProofInputUtxo> = plan
             .inputs
             .iter()
             .map(|input| {
@@ -83,10 +84,10 @@ impl TransferWorld {
                     data: Data::default(),
                 };
                 match input.owner {
-                    crate::world::Owner::P256 => SpendUtxo::from_keypair(utxo, &sender),
-                    crate::world::Owner::Solana => SpendUtxo::from_nullifier_key(
+                    crate::world::Owner::P256 => SppProofInputUtxo::new(utxo, &sender),
+                    crate::world::Owner::Solana => SppProofInputUtxo::new(
                         utxo,
-                        &NullifierKey::from_secret(random_blinding(&mut rng)),
+                        NullifierKey::from_secret(random_blinding(&mut rng)),
                     ),
                 }
             })
@@ -99,21 +100,23 @@ impl TransferWorld {
             .map(|_| ShieldedKeypair::new().expect("recipient keypair"))
             .collect();
 
-        let mut tx = Transaction::new(
+        let mut transfer = ConfidentialTransfer::new(
             sender.shielded_address().expect("sender address"),
             inputs,
             Address::default(),
         );
         if plan.declared_shape {
-            tx = tx.with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
+            transfer =
+                transfer.with_shape(zolana_transaction::instructions::transact::Shape::IN2_OUT3);
         }
         for (recipient, send) in recipients.iter().zip(&plan.sends) {
-            tx.send(
-                &recipient.shielded_address().expect("recipient address"),
-                asset_addr(send.asset),
-                send.amount,
-            )
-            .expect("send");
+            transfer
+                .send(
+                    &recipient.shielded_address().expect("recipient address"),
+                    asset_addr(send.asset),
+                    send.amount,
+                )
+                .expect("send");
         }
         if let Some(withdraw) = &plan.withdraw {
             let target = match withdraw.asset {
@@ -125,13 +128,15 @@ impl TransferWorld {
                     spl_token_interface: Address::new_from_array([9u8; 32]),
                 },
             };
-            tx.withdraw(asset_addr(withdraw.asset), withdraw.amount, target)
+            transfer
+                .withdraw(asset_addr(withdraw.asset), withdraw.amount, target)
                 .expect("withdraw");
         }
 
-        let signed = tx.sign(&sender, &assets).expect("sign");
+        let seed = transfer.blinding_seed;
+        let proof_inputs = transfer.sign(&sender, &assets).expect("sign");
 
-        let commitments = signed.input_commitments().expect("input commitments");
+        let commitments = proof_inputs.input_utxo_hashes().expect("input commitments");
         let first_nullifier = commitments.first().expect("at least one input").nullifier;
         let mut indexer = TestIndexer::new();
         for commitment in &commitments {
@@ -141,7 +146,7 @@ impl TransferWorld {
         let input_merkle_proofs = indexer
             .get_input_merkle_proofs(&commitments)
             .expect("input merkle proofs");
-        match zolana_client::into_prover(signed, &input_merkle_proofs)
+        match zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
             .expect("into prover")
             .circuit
         {
@@ -154,6 +159,7 @@ impl TransferWorld {
                     &sender,
                     &recipients,
                     &first_nullifier,
+                    seed,
                 );
                 prove_and_verify_p256(&prover.build().expect("build"));
             }
@@ -166,6 +172,7 @@ impl TransferWorld {
                     &sender,
                     &recipients,
                     &first_nullifier,
+                    seed,
                 );
                 prove_and_verify_eddsa(&prover.build().expect("build"));
             }
@@ -174,17 +181,18 @@ impl TransferWorld {
 }
 
 /// Recompute the expected output UTXOs from the plan and assert the builder
-/// produced exactly those, and that the encrypted bundle decrypts back to the same
+/// produced exactly those, and that the encrypted slots decrypt back to the same
 /// sender change and recipients.
 #[allow(clippy::too_many_arguments)]
 fn assert_outputs(
-    outputs: &[OutputUtxo],
+    outputs: &[SppProofOutputUtxo],
     public_amounts: &PublicAmounts,
     external_data: &ExternalData,
     plan: &TransferPlan,
     sender: &ShieldedKeypair,
     recipients: &[ShieldedKeypair],
     first_nullifier: &[u8; 32],
+    seed: [u8; BLINDING_LEN],
 ) {
     let net_public = |asset: Asset| -> i128 {
         match &plan.withdraw {
@@ -209,56 +217,44 @@ fn assert_outputs(
     let change =
         |asset: Asset| -> u64 { (input_sum(asset) + net_public(asset) - send_sum(asset)) as u64 };
 
-    // `output_ciphertexts` is the ix shape ([bundle, recipients / dummies]) with no
-    // empty change placeholder, so the bundle covers one leading slot here. Each
-    // slot's borsh `OutputData` carries a scheme byte plus the per-scheme ciphertext
-    // body; the sender bundle (slot 0) is decoded with the sender's viewing key, and
-    // each recipient slot with that recipient's viewing key.
-    let tx_viewing_pk = P256Pubkey::from_bytes(external_data.tx_viewing_pk).unwrap();
-    let slot_body = |slot_index: usize| -> Vec<u8> {
-        let slot = external_data.output_ciphertexts.get(slot_index).unwrap();
-        let output_data = OutputData::try_from_slice(&slot.data).unwrap();
+    // Every output position carries its own ciphertext sealed to that output's
+    // viewing pubkey, so the transaction author re-derives the transaction viewing
+    // key and decrypts every slot at `slot_index == output position`. Change slots
+    // (positions below `SENDER_SLOT_COUNT`) that decode are the sender's own
+    // outputs; recipient slots reveal their embedded viewing pubkey. Zero-value
+    // change and dummy padding are length-matched random ciphertexts and fail the
+    // decrypt.
+    let tx_key = sender
+        .viewing_key
+        .get_transaction_viewing_key(first_nullifier)
+        .unwrap();
+    let mut sender_change: Vec<ConfidentialOutputPlaintext> = Vec::new();
+    let mut recipients_pt: Vec<(P256Pubkey, ConfidentialOutputPlaintext)> = Vec::new();
+    for (position, output) in external_data.outputs.iter().enumerate() {
+        let Some(data) = output.data.as_ref() else {
+            continue;
+        };
+        let Ok(output_data) = OutputDataEncoding::try_from_slice(data) else {
+            continue;
+        };
         let blob = match output_data {
-            OutputData::Encrypted(blob)
-            | OutputData::VerifiablyEncrypted(blob)
-            | OutputData::Plaintext(blob) => blob,
+            OutputDataEncoding::Encrypted(blob)
+            | OutputDataEncoding::VerifiablyEncrypted(blob)
+            | OutputDataEncoding::Plaintext(blob) => blob,
         };
         let (_scheme, body) = blob.split_first().expect("scheme byte plus body");
-        body.to_vec()
-    };
-
-    let sender_body = slot_body(0);
-    let sender_pt = ConfidentialSenderBundle::decode(
-        &sender_body,
-        &DecodeCx {
-            viewing_key: &sender.viewing_key,
-            tx_viewing_pk: Some(tx_viewing_pk),
-            salt: Some(external_data.salt),
-            slot_index: 0,
-            first_nullifier: Some(*first_nullifier),
-        },
-    )
-    .unwrap();
-    let recipients_pt: Vec<TransferRecipientPlaintext> = recipients
-        .iter()
-        .enumerate()
-        .map(|(i, recipient)| {
-            let slot_index = i + 1;
-            let body = slot_body(slot_index);
-            ConfidentialRecipient::decode(
-                &body,
-                &DecodeCx {
-                    viewing_key: &recipient.viewing_key,
-                    tx_viewing_pk: Some(tx_viewing_pk),
-                    salt: Some(external_data.salt),
-                    slot_index: slot_index as u32,
-                    first_nullifier: Some(*first_nullifier),
-                },
-            )
-            .unwrap()
-        })
-        .collect();
-    let seed = sender_pt.blinding_seed;
+        let Ok(plaintext) =
+            Confidential::decrypt_with_tx_key(&tx_key, body, external_data.salt, position as u32)
+        else {
+            continue;
+        };
+        if position < SENDER_SLOT_COUNT {
+            sender_change.push(plaintext);
+        } else {
+            let recipient_pubkey = Confidential::embedded_viewing_pk(body).unwrap();
+            recipients_pt.push((recipient_pubkey, plaintext));
+        }
+    }
 
     let owner_addr = sender.shielded_address().unwrap();
     let mut expected = Vec::new();
@@ -266,7 +262,7 @@ fn assert_outputs(
     // kept, otherwise an empty (owner = None) UTXO whose blinding still derives from
     // its fixed position.
     expected.push(if change(Asset::Spl) > 0 {
-        OutputUtxo {
+        SppProofOutputUtxo {
             owner_address: Some(owner_addr),
             asset: spl_mint(),
             amount: change(Asset::Spl),
@@ -274,14 +270,14 @@ fn assert_outputs(
             ..Default::default()
         }
     } else {
-        OutputUtxo {
+        SppProofOutputUtxo {
             blinding: derive_blinding(&seed, 0),
             owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
             ..Default::default()
         }
     });
     expected.push(if change(Asset::Sol) > 0 {
-        OutputUtxo {
+        SppProofOutputUtxo {
             owner_address: Some(owner_addr),
             asset: SOL_MINT,
             amount: change(Asset::Sol),
@@ -289,14 +285,14 @@ fn assert_outputs(
             ..Default::default()
         }
     } else {
-        OutputUtxo {
+        SppProofOutputUtxo {
             blinding: derive_blinding(&seed, 1),
             owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
             ..Default::default()
         }
     });
     for (i, (recipient, send)) in recipients.iter().zip(&plan.sends).enumerate() {
-        expected.push(OutputUtxo {
+        expected.push(SppProofOutputUtxo {
             owner_address: Some(recipient.shielded_address().unwrap()),
             asset: asset_addr(send.asset),
             amount: send.amount,
@@ -319,8 +315,12 @@ fn assert_outputs(
     assert_eq!(
         public_amounts,
         &PublicAmounts {
-            sol: signed_to_field(net_public(Asset::Sol)),
-            spl: signed_to_field(net_public(Asset::Spl)),
+            sol: signed_to_field(
+                i64::try_from(net_public(Asset::Sol)).expect("public amount fits i64")
+            ),
+            spl: signed_to_field(
+                i64::try_from(net_public(Asset::Spl)).expect("public amount fits i64")
+            ),
             asset: if net_public(Asset::Spl) != 0 {
                 asset_field(&spl_mint()).unwrap()
             } else {
@@ -361,55 +361,60 @@ fn assert_outputs(
             zone_data_hash: None,
             tx_viewing_pk: external_data.tx_viewing_pk,
             salt: external_data.salt,
-            output_utxo_hashes: external_data.output_utxo_hashes.clone(),
-            output_ciphertexts: external_data.output_ciphertexts.clone(),
+            outputs: external_data.outputs.clone(),
+            resolved_owner_tags: external_data.resolved_owner_tags.clone(),
+            messages: external_data.messages.clone(),
         }
     );
+    // The sender's change slot sits at output 0; its resolved owner tag is the
+    // sender's view tag regardless of how the wire `OwnerTag` encodes it.
     assert_eq!(
-        external_data.output_ciphertexts.first().unwrap().view_tag,
-        sender.signing_pubkey().confidential_view_tag().unwrap()
+        external_data.resolved_owner_tags.first().copied(),
+        Some(sender.signing_pubkey().confidential_view_tag().unwrap())
     );
 
-    // The encrypted bundle decrypts to the same sender change and recipients.
-    let has_spl = plan.inputs.iter().any(|i| i.asset == Asset::Spl)
-        || plan.sends.iter().any(|s| s.asset == Asset::Spl)
-        || matches!(plan.withdraw, Some(w) if w.asset == Asset::Spl);
-    assert_eq!(
-        sender_pt,
-        TransferSenderPlaintext {
-            owner_pubkey: sender.signing_pubkey(),
-            spl_asset_id: if has_spl { SPL_ASSET_ID } else { 0 },
-            spl_amount: change(Asset::Spl),
-            sol_amount: change(Asset::Sol),
-            blinding_seed: seed,
-            // Padded to MAX_RECIPIENTS (1 for the (2,3) shape) with the sender's own
-            // viewing key so the bundle is fixed-size and hides the recipient count.
-            recipient_viewing_pks: {
-                const MAX_RECIPIENTS: usize = 1;
-                let mut pks: Vec<P256Pubkey> =
-                    recipients.iter().map(|r| r.viewing_pubkey()).collect();
-                while pks.len() < MAX_RECIPIENTS {
-                    pks.push(sender.viewing_pubkey());
-                }
-                pks
-            },
-            spl_data: Data::default(),
-            sol_data: Data::default(),
-        }
-    );
-    let expected_recipients: Vec<TransferRecipientPlaintext> = plan
-        .sends
-        .iter()
-        .enumerate()
-        .map(|(i, send)| TransferRecipientPlaintext {
-            asset_id: match send.asset {
-                Asset::Sol => zolana_transaction::SOL_ASSET_ID,
-                Asset::Spl => SPL_ASSET_ID,
-            },
-            amount: send.amount,
-            blinding: derive_blinding(&seed, 2 + i as u8),
+    // The encrypted slots decrypt to the same sender change and recipients. A
+    // change slot decodes on the sender side only when its change is non-zero;
+    // zero-value change slots are indistinguishable random dummies.
+    let mut expected_change: Vec<ConfidentialOutputPlaintext> = Vec::new();
+    if change(Asset::Spl) > 0 {
+        expected_change.push(ConfidentialOutputPlaintext {
+            asset_id: SPL_ASSET_ID,
+            amount: change(Asset::Spl),
+            blinding: derive_blinding(&seed, 0),
             zone_program_id: None,
             data: Data::default(),
+        });
+    }
+    if change(Asset::Sol) > 0 {
+        expected_change.push(ConfidentialOutputPlaintext {
+            asset_id: zolana_transaction::SOL_ASSET_ID,
+            amount: change(Asset::Sol),
+            blinding: derive_blinding(&seed, 1),
+            zone_program_id: None,
+            data: Data::default(),
+        });
+    }
+    assert_eq!(sender_change, expected_change);
+
+    let expected_recipients: Vec<(P256Pubkey, ConfidentialOutputPlaintext)> = recipients
+        .iter()
+        .zip(&plan.sends)
+        .enumerate()
+        .map(|(i, (recipient, send))| {
+            (
+                recipient.viewing_pubkey(),
+                ConfidentialOutputPlaintext {
+                    asset_id: match send.asset {
+                        Asset::Sol => zolana_transaction::SOL_ASSET_ID,
+                        Asset::Spl => SPL_ASSET_ID,
+                    },
+                    amount: send.amount,
+                    blinding: derive_blinding(&seed, 2 + i as u8),
+                    zone_program_id: None,
+                    data: Data::default(),
+                },
+            )
         })
         .collect();
     assert_eq!(recipients_pt, expected_recipients);
