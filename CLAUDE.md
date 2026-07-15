@@ -138,6 +138,12 @@ port. Running `cargo test` directly (not via `just`) does not auto-load `.env`
   method-patterns skill instead: an operation struct holding all inputs plus a
   consuming method that takes only the signer/context (e.g.
   `EscrowSettle { .. }.sign(keypair, assets)`).
+- Do not leak prover/circuit-internal terminology ("field element(s)",
+  "witness") into public API names (types, methods, fields, modules of
+  sdk-libs and sdk crates). SDK users think in proofs and their inputs: name
+  such surfaces in that vocabulary (`ProofInputUtxo`, `proof_inputs`,
+  `to_proof_inputs()`). Internal prover code (prover crates, Go circuits,
+  private helpers) may keep the ZK terms.
 
 ## Testing
 
