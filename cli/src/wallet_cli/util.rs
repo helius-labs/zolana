@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use anyhow::{bail, Context, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
@@ -5,11 +7,22 @@ use zolana_transaction::{Address, SOL_MINT};
 
 use crate::cli_config::CliConfigFile;
 
+const PRIVATE_TRANSACTION_TTL_SECS: u64 = 15 * 60;
+
 pub(super) fn ensure_positive(amount: u64) -> Result<()> {
     if amount == 0 {
         bail!("amount must be greater than zero");
     }
     Ok(())
+}
+
+pub(super) fn private_transaction_expiry() -> Result<u64> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is before the Unix epoch")?
+        .as_secs();
+    now.checked_add(PRIVATE_TRANSACTION_TTL_SECS)
+        .context("private transaction expiry overflow")
 }
 
 pub(super) fn parse_address(value: &str) -> Result<Address> {

@@ -17,7 +17,7 @@ use zolana_user_registry_interface::{
 use crate::{
     actions::ResolvedAddress,
     error::ClientError,
-    rpc::{AsyncRpc, Rpc},
+    rpc::{AsyncRpc, Rpc, SignableTransaction},
 };
 
 /// Derive the on-chain registry record fields from a shielded keypair: the
@@ -96,18 +96,17 @@ pub async fn build_registration_transaction<R: AsyncRpc>(
     rpc: &R,
     owner: Pubkey,
     address: &ShieldedAddress,
-) -> Result<Option<SolanaTransaction>, ClientError> {
+) -> Result<Option<SignableTransaction>, ClientError> {
     let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked_async(rpc, owner).await?;
     let Some(instruction) = registration_instruction(owner, data, existing) else {
         return Ok(None);
     };
-    let (blockhash, _) = rpc.get_latest_blockhash().await?;
-    Ok(Some(unsigned_registration_transaction(
-        owner,
-        instruction,
-        blockhash,
-    )))
+    let (blockhash, last_valid_block_height) = rpc.get_latest_blockhash().await?;
+    Ok(Some(SignableTransaction {
+        transaction: unsigned_registration_transaction(owner, instruction, blockhash),
+        last_valid_block_height,
+    }))
 }
 
 /// Blocking adapter for building an unsigned register/update transaction.
@@ -115,18 +114,17 @@ pub fn build_registration_transaction_sync<R: Rpc>(
     rpc: &R,
     owner: Pubkey,
     address: &ShieldedAddress,
-) -> Result<Option<SolanaTransaction>, ClientError> {
+) -> Result<Option<SignableTransaction>, ClientError> {
     let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked(rpc, owner)?;
     let Some(instruction) = registration_instruction(owner, data, existing) else {
         return Ok(None);
     };
-    let (blockhash, _) = rpc.get_latest_blockhash()?;
-    Ok(Some(unsigned_registration_transaction(
-        owner,
-        instruction,
-        blockhash,
-    )))
+    let (blockhash, last_valid_block_height) = rpc.get_latest_blockhash()?;
+    Ok(Some(SignableTransaction {
+        transaction: unsigned_registration_transaction(owner, instruction, blockhash),
+        last_valid_block_height,
+    }))
 }
 
 fn registration_instruction(
@@ -509,12 +507,16 @@ mod tests {
         .expect("build registration")
         .expect("registration required");
 
-        assert_eq!(transaction.message.account_keys[0], owner);
+        assert_eq!(transaction.transaction.message.account_keys[0], owner);
         assert_eq!(
-            transaction.message.recent_blockhash,
+            transaction.transaction.message.recent_blockhash,
             solana_hash::Hash::new_from_array([9u8; 32])
         );
-        assert_eq!(transaction.signatures, vec![Signature::default()]);
+        assert_eq!(
+            transaction.transaction.signatures,
+            vec![Signature::default()]
+        );
+        assert_eq!(transaction.last_valid_block_height, 1);
     }
 
     #[tokio::test]
@@ -532,8 +534,12 @@ mod tests {
             .expect("build registration")
             .expect("registration required");
 
-        assert_eq!(transaction.message.account_keys[0], owner);
-        assert_eq!(transaction.signatures, vec![Signature::default()]);
+        assert_eq!(transaction.transaction.message.account_keys[0], owner);
+        assert_eq!(
+            transaction.transaction.signatures,
+            vec![Signature::default()]
+        );
+        assert_eq!(transaction.last_valid_block_height, 1);
     }
 
     #[test]

@@ -1,4 +1,5 @@
 pub use zolana_transaction::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, LocalWalletAuthority,
-    P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
+    AnonymousRecipientSlot, ApprovalAction, ApprovalInput, ApprovalRequest, EncryptedTransfer,
+    LocalWalletAuthority, P256Signature, SyncWalletAuthority, TransactionAuthorization,
+    WalletAuthority, WalletSyncMaterial,
 };

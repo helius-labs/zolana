@@ -1,4 +1,4 @@
-use std::pin::Pin;
+use std::{collections::HashSet, pin::Pin};
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -26,6 +26,60 @@ use crate::{
 
 pub const STATE_TREE_HEIGHT: usize = 32;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
+pub(crate) const DEFAULT_MAX_PAGINATION_PAGES: usize = 10_000;
+
+/// Unsigned native transaction plus the RPC-provided lifetime needed by an
+/// external signer to decide whether submission or retry is still safe.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignableTransaction {
+    pub transaction: Transaction,
+    pub last_valid_block_height: u64,
+}
+
+impl SignableTransaction {
+    pub fn into_transaction(self) -> Transaction {
+        self.transaction
+    }
+}
+
+pub(crate) struct PaginationGuard {
+    seen: HashSet<Vec<u8>>,
+    pages: usize,
+    max_pages: usize,
+}
+
+impl PaginationGuard {
+    pub(crate) fn new() -> Self {
+        Self {
+            seen: HashSet::new(),
+            pages: 0,
+            max_pages: DEFAULT_MAX_PAGINATION_PAGES,
+        }
+    }
+
+    pub(crate) fn next_page(&mut self) -> Result<(), ClientError> {
+        self.pages += 1;
+        if self.pages > self.max_pages {
+            return Err(ClientError::PaginationPageLimit {
+                max_pages: self.max_pages,
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn advance(
+        &mut self,
+        next_cursor: Option<Vec<u8>>,
+    ) -> Result<Option<Vec<u8>>, ClientError> {
+        let Some(next_cursor) = next_cursor else {
+            return Ok(None);
+        };
+        if !self.seen.insert(next_cursor.clone()) {
+            return Err(ClientError::PaginationCycle);
+        }
+        Ok(Some(next_cursor))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Context {
@@ -169,6 +223,17 @@ pub trait Rpc {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         Err(unsupported("get_signature_statuses"))
+    }
+
+    fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        Err(unsupported("get_signature_statuses_with_history"))
+    }
+
+    fn is_blockhash_valid(&self, blockhash: Hash) -> Result<bool, ClientError> {
+        Err(unsupported("is_blockhash_valid"))
     }
 
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
@@ -375,6 +440,17 @@ pub trait AsyncRpc: Send + Sync {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         Err(unsupported("get_signature_statuses"))
+    }
+
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        Err(unsupported("get_signature_statuses_with_history"))
+    }
+
+    async fn is_blockhash_valid(&self, blockhash: Hash) -> Result<bool, ClientError> {
+        Err(unsupported("is_blockhash_valid"))
     }
 
     async fn get_minimum_balance_for_rent_exemption(

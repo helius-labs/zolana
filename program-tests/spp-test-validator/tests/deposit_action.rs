@@ -63,7 +63,7 @@ impl Deposit<'_> {
         // secret; the recipient re-derives the note from the deposit event.
         let owner = self.recipient.owner_hash()?;
         let blinding = random_blinding();
-        let view_tag = self.recipient.viewing_pubkey.x();
+        let view_tag = self.recipient.signing_pubkey.confidential_view_tag()?;
 
         let sender_account = rpc.get_account(Address::new_from_array(self.sender.to_bytes()))?;
         let system_owned = sender_account

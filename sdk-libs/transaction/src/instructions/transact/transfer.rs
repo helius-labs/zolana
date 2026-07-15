@@ -1,8 +1,9 @@
+use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::MessageData;
+use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{
-    constants::{BLINDING_LEN, SALT_LEN, VIEW_TAG_LEN},
+    constants::{BLINDING_LEN, P256_PUBKEY_LEN, SALT_LEN, VIEW_TAG_LEN},
     hash::sha256_be,
     random_salt,
     shielded::ShieldedAddress,
@@ -25,7 +26,7 @@ use crate::{
         UtxoSerialization,
     },
     utxo::derive_blinding,
-    AssetRegistry, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, EncryptedScheme, SOL_ASSET_ID, SOL_MINT,
 };
 
 const SPL_CHANGE_POSITION: u8 = 0;
@@ -43,6 +44,7 @@ pub struct PreparedTransfer {
     pub first_nullifier: [u8; 32],
     pub shape: Shape,
     pub payer_pubkey_hash: [u8; 32],
+    pub expiry_unix_ts: u64,
     pub public_sol_amount: Option<i64>,
     pub public_spl_amount: Option<i64>,
     pub user_sol_account: Address,
@@ -81,6 +83,7 @@ pub struct ConfidentialTransfer {
     pub payer_pubkey_hash: [u8; 32],
     pub blinding_seed: [u8; BLINDING_LEN],
     pub shape: Option<Shape>,
+    pub expiry_unix_ts: u64,
 }
 
 impl ConfidentialTransfer {
@@ -93,11 +96,17 @@ impl ConfidentialTransfer {
             payer_pubkey_hash: sha256_be(payer.as_array()),
             blinding_seed: random_blinding(),
             shape: None,
+            expiry_unix_ts: u64::MAX,
         }
     }
 
     pub fn with_shape(mut self, shape: Shape) -> Self {
         self.shape = Some(shape);
+        self
+    }
+
+    pub fn with_expiry(mut self, expiry_unix_ts: u64) -> Self {
+        self.expiry_unix_ts = expiry_unix_ts;
         self
     }
 
@@ -145,6 +154,9 @@ impl ConfidentialTransfer {
         keypair: &K,
         assets: &AssetRegistry,
     ) -> Result<SppProofInputs, TransactionError> {
+        if keypair.shielded_address()? != self.owner {
+            return Err(TransactionError::SignerAddressMismatch);
+        }
         let mut signed = self.assemble(keypair, assets)?;
         if keypair.curve()? == SignatureType::P256 {
             signed.sign_p256(keypair)?;
@@ -229,6 +241,7 @@ impl ConfidentialTransfer {
             first_nullifier,
             shape,
             payer_pubkey_hash: self.payer_pubkey_hash,
+            expiry_unix_ts: self.expiry_unix_ts,
             public_sol_amount: (public_sol != 0).then_some(public_sol as i64),
             public_spl_amount: (public_spl != 0).then_some(public_spl as i64),
             user_sol_account,
@@ -322,12 +335,14 @@ impl PreparedTransfer {
         salt: [u8; SALT_LEN],
         slots: Vec<Option<MessageData>>,
     ) -> Result<SppProofInputs, TransactionError> {
+        self.validate_encrypted_slots(&slots)?;
         let PreparedTransfer {
             owner,
             mut inputs,
             mut outputs,
             shape,
             payer_pubkey_hash,
+            expiry_unix_ts,
             public_sol_amount,
             public_spl_amount,
             user_sol_account,
@@ -417,6 +432,7 @@ impl PreparedTransfer {
             resolved_owner_tags,
             vec![],
         );
+        external_data.expiry_unix_ts = expiry_unix_ts;
         if let Some(amount) = public_sol_amount {
             external_data = external_data.with_public_sol(amount, user_sol_account)?;
         }
@@ -433,6 +449,119 @@ impl PreparedTransfer {
             p256_signature: None,
         })
     }
+
+    fn validate_encrypted_slots(
+        &self,
+        slots: &[Option<MessageData>],
+    ) -> Result<(), TransactionError> {
+        if slots.len() != self.outputs.len() {
+            return Err(TransactionError::EncryptedTransferSlotCountMismatch {
+                expected: self.outputs.len(),
+                actual: slots.len(),
+            });
+        }
+
+        for (index, (slot, output)) in slots.iter().zip(&self.outputs).enumerate() {
+            match (slot, output.owner_address) {
+                (None, None) => {}
+                (Some(slot), Some(address)) => {
+                    validate_encrypted_slot(slot, index, output, address)?;
+                }
+                (None, Some(_)) => {
+                    return Err(TransactionError::InvalidEncryptedTransferSlot {
+                        index,
+                        reason: "missing ciphertext for a real output".to_string(),
+                    });
+                }
+                (Some(_), None) => {
+                    return Err(TransactionError::InvalidEncryptedTransferSlot {
+                        index,
+                        reason: "unexpected ciphertext for an empty output".to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_encrypted_slot(
+    slot: &MessageData,
+    index: usize,
+    output: &SppProofOutputUtxo,
+    address: ShieldedAddress,
+) -> Result<(), TransactionError> {
+    let expected_view_tag = address.signing_pubkey.confidential_view_tag()?;
+    if slot.view_tag != expected_view_tag {
+        return Err(TransactionError::InvalidEncryptedTransferSlot {
+            index,
+            reason: "view tag does not match the prepared output".to_string(),
+        });
+    }
+
+    let output_data = OutputDataEncoding::try_from_slice(&slot.data).map_err(|_| {
+        TransactionError::InvalidEncryptedTransferSlot {
+            index,
+            reason: "payload is not canonical output data".to_string(),
+        }
+    })?;
+    let OutputDataEncoding::Encrypted(blob) = output_data else {
+        return Err(TransactionError::InvalidEncryptedTransferSlot {
+            index,
+            reason: "payload is not marked encrypted".to_string(),
+        });
+    };
+    let Some((&scheme, body)) = blob.split_first() else {
+        return Err(TransactionError::InvalidEncryptedTransferSlot {
+            index,
+            reason: "encrypted payload is empty".to_string(),
+        });
+    };
+    if scheme != EncryptedScheme::Confidential.as_byte() {
+        return Err(TransactionError::InvalidEncryptedTransferSlot {
+            index,
+            reason: format!(
+                "expected {:?} scheme, got discriminator {scheme}",
+                EncryptedScheme::Confidential
+            ),
+        });
+    }
+
+    let embedded_viewing_pk = Confidential::embedded_viewing_pk(body).map_err(|_| {
+        TransactionError::InvalidEncryptedTransferSlot {
+            index,
+            reason: "ciphertext has an invalid recipient viewing key".to_string(),
+        }
+    })?;
+    if embedded_viewing_pk != address.viewing_pubkey {
+        return Err(TransactionError::InvalidEncryptedTransferSlot {
+            index,
+            reason: "ciphertext recipient does not match the prepared output".to_string(),
+        });
+    }
+
+    let plaintext_len = ConfidentialOutputPlaintext {
+        asset_id: 0,
+        amount: output.amount,
+        blinding: output.blinding,
+        zone_program_id: output.zone_program_id,
+        data: output.data.clone(),
+    }
+    .serialize()?
+    .len();
+    let expected_body_len = P256_PUBKEY_LEN + plaintext_len;
+    if body.len() != expected_body_len {
+        return Err(TransactionError::InvalidEncryptedTransferSlot {
+            index,
+            reason: format!(
+                "ciphertext length mismatch: expected {expected_body_len}, got {}",
+                body.len()
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 /// The sender's output owner tag and its resolved 32-byte value. The resolved

@@ -17,7 +17,10 @@ use zolana_transaction::{
 use crate::{
     error::ClientError,
     retry::{IndexerPollConfig, IndexerRpcConfig},
-    rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
+    rpc::{
+        AsyncRpc, EncryptedUtxoMatch, PaginationGuard, Rpc,
+        ShieldedTransaction as RpcShieldedTransaction,
+    },
 };
 
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
@@ -86,6 +89,7 @@ where
     let mut report = SyncReport::default();
     let mut stored_utxos = 0usize;
     let mut txs: Vec<ShieldedTransaction> = Vec::new();
+    let mut converged = false;
 
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
@@ -120,9 +124,11 @@ where
         report = round_report;
 
         if before == (transactions.len(), proofless_deposits.len()) {
+            converged = true;
             break;
         }
     }
+    report.discovery_truncated = !converged;
 
     // Lazy registry backfill: if decode hit asset ids the wallet's registry did
     // not know, refresh the id->mint map from the on-chain SplAssetRegistry
@@ -135,6 +141,7 @@ where
             wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
         stored_utxos = stored_utxos.saturating_add(refresh_report.stored_utxos);
         refresh_report.stored_utxos = stored_utxos;
+        refresh_report.discovery_truncated = report.discovery_truncated;
         report = refresh_report;
     }
 
@@ -171,6 +178,7 @@ where
     let mut report = SyncReport::default();
     let mut stored_utxos = 0usize;
     let mut txs = Vec::new();
+    let mut converged = false;
 
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
@@ -207,9 +215,11 @@ where
         report = round_report;
 
         if before == (transactions.len(), proofless_deposits.len()) {
+            converged = true;
             break;
         }
     }
+    report.discovery_truncated = !converged;
 
     if !report.unknown_asset_ids.is_empty()
         && refresh_registry_from_chain_async(wallet, indexer).await? > 0
@@ -218,6 +228,7 @@ where
             wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
         stored_utxos = stored_utxos.saturating_add(refresh_report.stored_utxos);
         refresh_report.stored_utxos = stored_utxos;
+        refresh_report.discovery_truncated = report.discovery_truncated;
         report = refresh_report;
     }
 
@@ -376,10 +387,12 @@ fn fetch_shielded_transactions<I: Rpc>(
 ) -> Result<(), ClientError> {
     for chunk in tags.chunks(config.tag_query_chunk) {
         let mut cursor = None;
+        let mut pagination = PaginationGuard::new();
         loop {
+            pagination.next_page()?;
             let response = indexer.get_shielded_transactions_by_tags(
                 chunk.to_vec(),
-                cursor,
+                cursor.clone(),
                 Some(config.page_limit),
                 rpc_config,
             )?;
@@ -397,7 +410,7 @@ fn fetch_shielded_transactions<I: Rpc>(
                 let key = tx.tx_signature.to_string();
                 out.entry(key).or_insert(convert_sync_transaction(tx)?);
             }
-            cursor = response.next_cursor;
+            cursor = pagination.advance(response.next_cursor)?;
             if cursor.is_none() {
                 break;
             }
@@ -415,11 +428,13 @@ async fn fetch_shielded_transactions_async<I: AsyncRpc>(
 ) -> Result<(), ClientError> {
     for chunk in tags.chunks(config.tag_query_chunk) {
         let mut cursor = None;
+        let mut pagination = PaginationGuard::new();
         loop {
+            pagination.next_page()?;
             let response = indexer
                 .get_shielded_transactions_by_tags(
                     chunk.to_vec(),
-                    cursor,
+                    cursor.clone(),
                     Some(config.page_limit),
                     rpc_config,
                 )
@@ -434,7 +449,7 @@ async fn fetch_shielded_transactions_async<I: AsyncRpc>(
                 let key = tx.tx_signature.to_string();
                 out.entry(key).or_insert(convert_sync_transaction(tx)?);
             }
-            cursor = response.next_cursor;
+            cursor = pagination.advance(response.next_cursor)?;
             if cursor.is_none() {
                 break;
             }
@@ -472,10 +487,12 @@ where
 {
     for chunk in tags.chunks(config.tag_query_chunk) {
         let mut cursor = None;
+        let mut pagination = PaginationGuard::new();
         loop {
+            pagination.next_page()?;
             let response = indexer.get_encrypted_utxos_by_tags(
                 chunk.to_vec(),
-                cursor,
+                cursor.clone(),
                 Some(config.page_limit),
                 rpc_config,
             )?;
@@ -494,7 +511,7 @@ where
                     out.insert(key, view);
                 }
             }
-            cursor = response.next_cursor;
+            cursor = pagination.advance(response.next_cursor)?;
             if cursor.is_none() {
                 break;
             }
@@ -512,11 +529,13 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
 ) -> Result<(), ClientError> {
     for chunk in tags.chunks(config.tag_query_chunk) {
         let mut cursor = None;
+        let mut pagination = PaginationGuard::new();
         loop {
+            pagination.next_page()?;
             let response = indexer
                 .get_encrypted_utxos_by_tags(
                     chunk.to_vec(),
-                    cursor,
+                    cursor.clone(),
                     Some(config.page_limit),
                     rpc_config,
                 )
@@ -536,7 +555,7 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                     out.insert(key, view);
                 }
             }
-            cursor = response.next_cursor;
+            cursor = pagination.advance(response.next_cursor)?;
             if cursor.is_none() {
                 break;
             }
@@ -763,6 +782,35 @@ mod tests {
 
         assert_eq!(report.stored_utxos, 1);
         assert_eq!(wallet.utxos.len(), 1);
+    }
+
+    #[test]
+    fn sync_reports_when_discovery_round_limit_truncates_growth() {
+        let assets = AssetRegistry::default();
+        let alice = ShieldedKeypair::new().expect("alice");
+        let bob = ShieldedKeypair::new().expect("bob");
+        let funding = confidential_transfer_tx(&bob, &alice, SOL_MINT, 100, 1, &assets);
+        let indexer = MockIndexer {
+            transactions: vec![funding],
+            matches: Vec::new(),
+            program_accounts: Vec::new(),
+        };
+        let mut wallet = Wallet::new(alice.shielded_address().expect("shielded address"), assets)
+            .expect("wallet");
+
+        let report = sync_wallet_with_config(
+            &mut wallet,
+            &local_authority(&alice),
+            &indexer,
+            SyncWalletConfig {
+                rounds: 1,
+                ..SyncWalletConfig::default()
+            },
+        )
+        .expect("bounded sync");
+
+        assert!(report.discovery_truncated);
+        assert_eq!(report.stored_utxos, 1);
     }
 
     #[test]

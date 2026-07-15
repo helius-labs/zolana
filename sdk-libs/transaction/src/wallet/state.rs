@@ -121,6 +121,10 @@ pub struct SyncReport {
     pub stored_utxos: usize,
     pub unparsed_transactions: usize,
     pub undecryptable_candidates: usize,
+    /// True when sync exhausted its configured discovery rounds while each
+    /// round was still finding new transactions. Callers must not treat this
+    /// report as a complete wallet view until a later sync converges.
+    pub discovery_truncated: bool,
     /// Compact asset ids that failed to decode because the wallet's registry
     /// did not know them (SPL assets registered after the registry was built).
     /// The client sync layer uses this to lazily backfill the registry from

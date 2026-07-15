@@ -121,6 +121,21 @@ pub enum TransactionError {
     #[error("wallet authority identity does not match the wallet")]
     WalletAuthorityMismatch,
 
+    #[error("transaction signer address does not match the transaction owner")]
+    SignerAddressMismatch,
+
+    #[error("encrypted transfer slot count mismatch: expected {expected}, got {actual}")]
+    EncryptedTransferSlotCountMismatch { expected: usize, actual: usize },
+
+    #[error("invalid encrypted transfer slot {index}: {reason}")]
+    InvalidEncryptedTransferSlot { index: usize, reason: String },
+
+    #[error("P256 wallet authority approved without returning the required signature")]
+    MissingP256Authorization,
+
+    #[error("non-P256 wallet authority returned an unexpected P256 signature")]
+    UnexpectedP256Authorization,
+
     #[error("wallet authority did not provide its current viewing key")]
     MissingCurrentViewingKey,
 

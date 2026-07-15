@@ -10,7 +10,9 @@ use super::{
     material::WalletMaterial,
     resolve::get_network,
     sync::sync_context,
-    util::{ensure_positive, format_address, parse_address, parse_pubkey},
+    util::{
+        ensure_positive, format_address, parse_address, parse_pubkey, private_transaction_expiry,
+    },
 };
 use crate::args::TransferOptions;
 
@@ -36,6 +38,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
         recipient,
         asset,
         amount: opts.amount,
+        expiry_unix_ts: private_transaction_expiry()?,
     })?;
     let transaction = sign_private_transaction_sync(
         transfer.transaction,

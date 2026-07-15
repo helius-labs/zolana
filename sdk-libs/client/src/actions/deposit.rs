@@ -17,7 +17,7 @@ use zolana_transaction::{ProofInputUtxo, SOL_MINT};
 
 use crate::{
     error::ClientError,
-    rpc::{AsyncRpc, Rpc},
+    rpc::{AsyncRpc, Rpc, SignableTransaction},
 };
 
 /// Prepared direct proofless SOL shield.
@@ -48,7 +48,7 @@ impl Deposit {
         // needs no shared secret and the recipient spends the note directly.
         let owner = request.recipient.owner_hash()?;
         let blinding = random_blinding();
-        let view_tag = request.recipient.viewing_pubkey.x();
+        let view_tag = request.recipient.signing_pubkey.confidential_view_tag()?;
         let utxo_hash =
             ProofInputUtxo::new(owner, &request.asset, request.amount, &blinding)?.hash()?;
         let spl = spl_accounts(request.asset, request.spl_token_account)?;
@@ -78,7 +78,7 @@ impl Deposit {
         payer: Pubkey,
         tree: Pubkey,
         depositor: Pubkey,
-    ) -> Result<SolanaTransaction, ClientError> {
+    ) -> Result<SignableTransaction, ClientError> {
         build_deposit_transaction(rpc, payer, tree, depositor, self).await
     }
 
@@ -89,7 +89,7 @@ impl Deposit {
         payer: Pubkey,
         tree: Pubkey,
         depositor: Pubkey,
-    ) -> Result<SolanaTransaction, ClientError> {
+    ) -> Result<SignableTransaction, ClientError> {
         build_deposit_transaction_sync(rpc, payer, tree, depositor, self)
     }
 
@@ -118,13 +118,16 @@ pub async fn build_deposit_transaction<R: AsyncRpc>(
     tree: Pubkey,
     depositor: Pubkey,
     deposit: &Deposit,
-) -> Result<SolanaTransaction, ClientError> {
-    let (blockhash, _) = rpc.get_latest_blockhash().await?;
-    Ok(unsigned_deposit_transaction(
-        payer,
-        deposit.instruction(tree, depositor),
-        blockhash,
-    ))
+) -> Result<SignableTransaction, ClientError> {
+    let (blockhash, last_valid_block_height) = rpc.get_latest_blockhash().await?;
+    Ok(SignableTransaction {
+        transaction: unsigned_deposit_transaction(
+            payer,
+            deposit.instruction(tree, depositor),
+            blockhash,
+        ),
+        last_valid_block_height,
+    })
 }
 
 pub fn build_deposit_transaction_sync<R: Rpc>(
@@ -133,13 +136,16 @@ pub fn build_deposit_transaction_sync<R: Rpc>(
     tree: Pubkey,
     depositor: Pubkey,
     deposit: &Deposit,
-) -> Result<SolanaTransaction, ClientError> {
-    let (blockhash, _) = rpc.get_latest_blockhash()?;
-    Ok(unsigned_deposit_transaction(
-        payer,
-        deposit.instruction(tree, depositor),
-        blockhash,
-    ))
+) -> Result<SignableTransaction, ClientError> {
+    let (blockhash, last_valid_block_height) = rpc.get_latest_blockhash()?;
+    Ok(SignableTransaction {
+        transaction: unsigned_deposit_transaction(
+            payer,
+            deposit.instruction(tree, depositor),
+            blockhash,
+        ),
+        last_valid_block_height,
+    })
 }
 
 /// Build and send a direct (non-zone) proofless shield: a public deposit
@@ -299,7 +305,13 @@ mod tests {
         })
         .expect("prepared deposit");
 
-        assert_eq!(prepared.data.view_tag, recipient.viewing_pubkey().x());
+        assert_eq!(
+            prepared.data.view_tag,
+            recipient
+                .signing_pubkey()
+                .confidential_view_tag()
+                .expect("owner view tag")
+        );
         assert_eq!(prepared.data.amount, 1_000);
         assert_ne!(prepared.data.blinding, [0u8; 31]);
         assert_ne!(prepared.data.owner, [0u8; 32]);
@@ -325,12 +337,16 @@ mod tests {
         }
         let transaction = assert_send(future).await.expect("unsigned deposit");
 
-        assert_eq!(transaction.message.account_keys[0], payer);
+        assert_eq!(transaction.transaction.message.account_keys[0], payer);
         assert_eq!(
-            transaction.message.recent_blockhash,
+            transaction.transaction.message.recent_blockhash,
             Hash::new_from_array([7u8; 32])
         );
-        assert_eq!(transaction.signatures, vec![Signature::default()]);
+        assert_eq!(
+            transaction.transaction.signatures,
+            vec![Signature::default()]
+        );
+        assert_eq!(transaction.last_valid_block_height, 1);
     }
 
     #[test]

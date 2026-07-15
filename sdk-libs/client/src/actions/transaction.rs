@@ -1,4 +1,7 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use p256::ecdsa::{signature::hazmat::PrehashVerifier, Signature as EcdsaSignature, VerifyingKey};
 use solana_pubkey::Pubkey;
@@ -24,8 +27,14 @@ use crate::{
     error::ClientError,
     rpc::{AsyncRpc, Rpc},
     user_registry::{try_resolve_registered_address, try_resolve_registered_address_async},
-    wallet_authority::{ApprovalRequest, SyncWalletAuthority, WalletAuthority},
+    wallet_authority::{
+        ApprovalAction, ApprovalInput, ApprovalRequest, SyncWalletAuthority,
+        TransactionAuthorization, WalletAuthority,
+    },
 };
+
+#[cfg(feature = "indexer-api")]
+use crate::rpc::SignableTransaction;
 
 #[cfg(feature = "indexer-api")]
 use crate::client::ZolanaClient;
@@ -92,7 +101,7 @@ pub struct UnsignedPrivateTransaction {
     inputs: Vec<UnsignedSpendInput>,
     action: PrivateTransactionAction,
     withdrawal: Option<TransactWithdrawal>,
-    approval_summary: String,
+    expiry_unix_ts: u64,
 }
 
 impl UnsignedPrivateTransaction {
@@ -106,6 +115,10 @@ impl UnsignedPrivateTransaction {
 
     pub fn input_count(&self) -> usize {
         self.inputs.len()
+    }
+
+    pub fn expiry_unix_ts(&self) -> u64 {
+        self.expiry_unix_ts
     }
 }
 
@@ -139,6 +152,7 @@ pub struct TransferParams<'a, R> {
     pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
+    pub expiry_unix_ts: u64,
 }
 
 pub struct WithdrawalParams<'a> {
@@ -147,6 +161,7 @@ pub struct WithdrawalParams<'a> {
     pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
+    pub expiry_unix_ts: u64,
 }
 
 pub async fn create_transfer<R: AsyncRpc>(
@@ -167,6 +182,9 @@ fn create_transfer_with_recipient<R>(
     request: TransferParams<'_, R>,
     recipient: Option<ResolvedAddress>,
 ) -> Result<CreatedTransfer, ClientError> {
+    if request.amount == 0 {
+        return Err(ClientError::InvalidAmount);
+    }
     let tree = resolve_spend_tree(request.wallet, request.asset)?;
     let Some(recipient) = recipient else {
         let withdrawal = create_withdrawal(WithdrawalParams {
@@ -175,6 +193,7 @@ fn create_transfer_with_recipient<R>(
             recipient: request.recipient,
             asset: request.asset,
             amount: request.amount,
+            expiry_unix_ts: request.expiry_unix_ts,
         })?;
         return Ok(CreatedTransfer {
             transaction: withdrawal.transaction,
@@ -196,16 +215,16 @@ fn create_transfer_with_recipient<R>(
                 amount: request.amount,
             },
             withdrawal: None,
-            approval_summary: format!(
-                "private transaction transfer of {} to {}",
-                request.amount, request.recipient
-            ),
+            expiry_unix_ts: request.expiry_unix_ts,
         },
         recipient: TransferRecipient::Registered(recipient),
     })
 }
 
 pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdrawal, ClientError> {
+    if request.amount == 0 {
+        return Err(ClientError::InvalidAmount);
+    }
     let tree = resolve_spend_tree(request.wallet, request.asset)?;
     let inputs = select_inputs(request.wallet, tree, request.asset, request.amount)?;
     let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
@@ -220,10 +239,7 @@ pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdra
                 target,
             },
             withdrawal: Some(withdrawal),
-            approval_summary: format!(
-                "private transaction withdrawal of {} to {}",
-                request.amount, request.recipient
-            ),
+            expiry_unix_ts: request.expiry_unix_ts,
         },
         withdrawal,
     })
@@ -236,7 +252,7 @@ pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>
     authority: &A,
     client: &ZolanaClient<R>,
     fee_payer: Pubkey,
-) -> Result<SolanaTransaction, ClientError> {
+) -> Result<SignableTransaction, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     client
         .finish_submission_unsigned(&shielded, fee_payer)
@@ -252,14 +268,15 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     fee_payer: &dyn Signer,
 ) -> Result<SolanaTransaction, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
-    let mut native = client
+    let mut signable = client
         .finish_submission_unsigned(&shielded, fee_payer.pubkey())
         .await?;
+    let native = &mut signable.transaction;
     let blockhash = native.message.recent_blockhash;
     native
         .try_sign(&[fee_payer], blockhash)
         .map_err(|err| ClientError::SolanaTransactionSigning(err.to_string()))?;
-    Ok(native)
+    Ok(signable.transaction)
 }
 
 #[cfg(feature = "indexer-api")]
@@ -269,7 +286,7 @@ pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     authority: &A,
     client: &ZolanaClient<R>,
     fee_payer: Pubkey,
-) -> Result<SolanaTransaction, ClientError> {
+) -> Result<SignableTransaction, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
     client.finish_submission_unsigned_sync(&shielded, fee_payer)
 }
@@ -283,12 +300,13 @@ pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     fee_payer: &dyn Signer,
 ) -> Result<SolanaTransaction, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
-    let mut native = client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey())?;
+    let mut signable = client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey())?;
+    let native = &mut signable.transaction;
     let blockhash = native.message.recent_blockhash;
     native
         .try_sign(&[fee_payer], blockhash)
         .map_err(|err| ClientError::SolanaTransactionSigning(err.to_string()))?;
-    Ok(native)
+    Ok(signable.transaction)
 }
 
 #[doc(hidden)]
@@ -297,7 +315,16 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     wallet: &Wallet,
     authority: &A,
 ) -> Result<SignedPrivateTransaction, ClientError> {
-    validate_unsigned_inputs(wallet, transaction.tree, &transaction.inputs)?;
+    let UnsignedPrivateTransaction {
+        payer,
+        tree,
+        inputs,
+        action,
+        withdrawal,
+        expiry_unix_ts,
+    } = transaction;
+    ensure_not_expired(expiry_unix_ts)?;
+    validate_unsigned_inputs(wallet, tree, &inputs)?;
     let address = authority.shielded_address().await?;
     if address != wallet.identity {
         return Err(zolana_transaction::TransactionError::WalletAuthorityMismatch.into());
@@ -306,8 +333,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     if nullifier_key.pubkey()? != address.nullifier_pubkey {
         return Err(zolana_transaction::TransactionError::WalletAuthorityMismatch.into());
     }
-    let inputs = transaction
-        .inputs
+    let inputs = inputs
         .into_iter()
         .map(|input| SppProofInputUtxo {
             utxo: input.utxo,
@@ -316,8 +342,9 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
             zone_data_hash: input.zone_data_hash,
         })
         .collect();
-    let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
-    match transaction.action {
+    let approval_action = approval_action(&action);
+    let mut tx = ConfidentialTransfer::new(address, inputs, payer).with_expiry(expiry_unix_ts);
+    match action {
         PrivateTransactionAction::Transfer {
             recipient,
             asset,
@@ -339,13 +366,15 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
         &address,
         authority,
         &wallet.registry,
-        transaction.approval_summary,
+        payer,
+        tree,
+        approval_action,
     )
     .await?;
     Ok(SignedPrivateTransaction {
         transaction: signed,
-        withdrawal: transaction.withdrawal,
-        tree: transaction.tree,
+        withdrawal,
+        tree,
     })
 }
 
@@ -363,32 +392,112 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
     address: &ShieldedAddress,
     authority: &A,
     assets: &AssetRegistry,
-    approval_summary: String,
+    payer: Address,
+    tree: Address,
+    action: ApprovalAction,
 ) -> Result<SppProofInputs, ClientError> {
     let encrypted = authority
         .encrypt_confidential_transfer(&prepared.first_nullifier, &prepared.outputs, assets)
         .await?;
-    authority
-        .request_user_approval(ApprovalRequest {
-            solana_pubkey: authority.solana_pubkey(),
-            summary: approval_summary,
-        })
-        .await?;
     let mut proof_inputs =
         prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.slots)?;
-    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
-        let message_hash = proof_inputs.message_hash()?;
-        let sig = authority.sign_p256(&message_hash).await?;
-        if sig.pubkey != address.signing_pubkey.as_p256()? {
-            return Err(zolana_transaction::TransactionError::WalletAuthorityMismatch.into());
+    ensure_not_expired(proof_inputs.external_data.expiry_unix_ts)?;
+    let message_hash = proof_inputs.message_hash()?;
+    let inputs = proof_inputs
+        .input_utxo_hashes()?
+        .into_iter()
+        .map(|input| ApprovalInput {
+            utxo_hash: input.utxo_hash,
+            nullifier: input.nullifier,
+        })
+        .collect();
+    let output_commitments = proof_inputs
+        .output_utxos
+        .iter()
+        .map(|output| output.hash())
+        .collect::<Result<Vec<_>, _>>()?;
+    let authorization = authority
+        .authorize_private_transaction(&ApprovalRequest {
+            action,
+            solana_pubkey: authority.solana_pubkey(),
+            payer,
+            tree,
+            expiry_unix_ts: proof_inputs.external_data.expiry_unix_ts,
+            inputs,
+            output_commitments,
+            message_hash,
+        })
+        .await?;
+    match (address.signing_pubkey.signature_type()?, authorization) {
+        (SignatureType::P256, TransactionAuthorization::P256(sig)) => {
+            if sig.pubkey != address.signing_pubkey.as_p256()? {
+                return Err(zolana_transaction::TransactionError::WalletAuthorityMismatch.into());
+            }
+            let mut bytes = [0u8; 64];
+            bytes[..32].copy_from_slice(&sig.sig_r);
+            bytes[32..].copy_from_slice(&sig.sig_s);
+            verify_p256_signature(&sig.pubkey, &message_hash, &bytes)?;
+            proof_inputs.p256_signature = Some(bytes);
         }
-        let mut bytes = [0u8; 64];
-        bytes[..32].copy_from_slice(&sig.sig_r);
-        bytes[32..].copy_from_slice(&sig.sig_s);
-        verify_p256_signature(&sig.pubkey, &message_hash, &bytes)?;
-        proof_inputs.p256_signature = Some(bytes);
+        (SignatureType::P256, TransactionAuthorization::Approved) => {
+            return Err(zolana_transaction::TransactionError::MissingP256Authorization.into());
+        }
+        (_, TransactionAuthorization::P256(_)) => {
+            return Err(zolana_transaction::TransactionError::UnexpectedP256Authorization.into());
+        }
+        (_, TransactionAuthorization::Approved) => {}
     }
     Ok(proof_inputs)
+}
+
+fn approval_action(action: &PrivateTransactionAction) -> ApprovalAction {
+    match action {
+        PrivateTransactionAction::Transfer {
+            recipient,
+            asset,
+            amount,
+        } => ApprovalAction::Transfer {
+            recipient: *recipient,
+            asset: *asset,
+            amount: *amount,
+        },
+        PrivateTransactionAction::Withdrawal {
+            asset,
+            amount,
+            target,
+        } => {
+            let (user_sol_account, user_spl_token, spl_token_interface) = match target {
+                WithdrawalTarget::Sol { user_sol_account } => {
+                    (*user_sol_account, Address::default(), Address::default())
+                }
+                WithdrawalTarget::Spl {
+                    user_spl_token,
+                    spl_token_interface,
+                } => (Address::default(), *user_spl_token, *spl_token_interface),
+            };
+            ApprovalAction::Withdrawal {
+                asset: *asset,
+                amount: *amount,
+                user_sol_account,
+                user_spl_token,
+                spl_token_interface,
+            }
+        }
+    }
+}
+
+fn ensure_not_expired(expiry_unix_ts: u64) -> Result<(), ClientError> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| ClientError::Clock(err.to_string()))?
+        .as_secs();
+    if now > expiry_unix_ts {
+        return Err(ClientError::PrivateTransactionExpired {
+            expiry_unix_ts,
+            now_unix_ts: now,
+        });
+    }
+    Ok(())
 }
 
 fn verify_p256_signature(
@@ -626,6 +735,7 @@ mod tests {
             recipient: owner,
             asset: SOL_MINT,
             amount: 1,
+            expiry_unix_ts: u64::MAX,
         })
         .expect("transfer");
 
@@ -673,6 +783,7 @@ mod tests {
             recipient: owner,
             asset: SOL_MINT,
             amount: 1,
+            expiry_unix_ts: u64::MAX,
         })
         .await
         .expect("async transfer");
@@ -697,6 +808,7 @@ mod tests {
             recipient,
             asset: SOL_MINT,
             amount: 1,
+            expiry_unix_ts: u64::MAX,
         })
         .expect("public withdrawal fallback");
 
@@ -726,6 +838,7 @@ mod tests {
             recipient,
             asset,
             amount: 1,
+            expiry_unix_ts: u64::MAX,
         })
         .expect("public withdrawal fallback");
 
@@ -756,6 +869,7 @@ mod tests {
             recipient,
             asset,
             amount: 1,
+            expiry_unix_ts: u64::MAX,
         })
         .expect("withdrawal");
 
@@ -783,6 +897,7 @@ mod tests {
             recipient: Pubkey::new_unique(),
             asset: SOL_MINT,
             amount: 1,
+            expiry_unix_ts: u64::MAX,
         })
         .expect("withdrawal")
         .transaction;
@@ -827,6 +942,7 @@ mod tests {
             recipient: Pubkey::new_unique(),
             asset: SOL_MINT,
             amount: 1,
+            expiry_unix_ts: u64::MAX,
         })
         .unwrap()
         .transaction;
@@ -852,6 +968,7 @@ mod tests {
             recipient: Pubkey::new_unique(),
             asset: SOL_MINT,
             amount: 8,
+            expiry_unix_ts: u64::MAX,
         })
         .expect("tree with enough balance");
 
@@ -903,6 +1020,7 @@ mod tests {
             recipient: Pubkey::new_unique(),
             asset: SOL_MINT,
             amount: 1,
+            expiry_unix_ts: u64::MAX,
         })
         .expect("withdrawal");
 

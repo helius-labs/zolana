@@ -1,6 +1,6 @@
 //! Async and blocking transports for the Zolana indexer JSON-RPC contract.
 
-use std::{error::Error as StdError, fmt};
+use std::{error::Error as StdError, fmt, time::Duration};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zolana_indexer_api::{
@@ -23,6 +23,8 @@ pub use zolana_indexer_api::{
 
 const JSON_RPC_VERSION: &str = "2.0";
 const REQUEST_ID: &str = "test-account";
+const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug)]
 pub struct ZolanaApi {
@@ -136,7 +138,11 @@ impl ZolanaApi {
         Self {
             base_path,
             api_key,
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(DEFAULT_CONNECT_TIMEOUT)
+                .timeout(DEFAULT_REQUEST_TIMEOUT)
+                .build()
+                .expect("static Zolana HTTP client configuration is valid"),
             trace_http: false,
         }
     }
@@ -274,7 +280,11 @@ impl BlockingZolanaApi {
         Self {
             base_path,
             api_key,
-            client: reqwest::blocking::Client::new(),
+            client: reqwest::blocking::Client::builder()
+                .connect_timeout(DEFAULT_CONNECT_TIMEOUT)
+                .timeout(DEFAULT_REQUEST_TIMEOUT)
+                .build()
+                .expect("static blocking Zolana HTTP client configuration is valid"),
             trace_http: false,
         }
     }

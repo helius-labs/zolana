@@ -58,6 +58,17 @@ impl AssetRegistry {
         }
         Ok(None)
     }
+
+    /// Deterministic registry export for durable wallet snapshots.
+    pub fn entries(&self) -> Vec<(u64, Address)> {
+        let mut entries = self
+            .0
+            .iter()
+            .map(|(asset_id, mint)| (*asset_id, *mint))
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|(asset_id, _)| *asset_id);
+        entries
+    }
 }
 
 impl Default for AssetRegistry {

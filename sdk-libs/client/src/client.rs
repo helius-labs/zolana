@@ -5,12 +5,17 @@
 //! Submit that transaction through the client's RPC adapter, then confirm on-chain and wait
 //! for Photon indexing with [`ZolanaClient::confirm_private_transaction`].
 
-use std::{sync::OnceLock, thread::sleep, time::Duration};
+use std::{
+    sync::OnceLock,
+    thread::sleep,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use async_trait::async_trait;
 use solana_account::Account;
 use solana_address::Address;
 use solana_clock::Slot;
+use solana_commitment_config::CommitmentConfig;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
@@ -35,8 +40,8 @@ use crate::{
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, ProveResult, Rpc,
-        ShieldedTransactionStream,
+        GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, PaginationGuard,
+        ProveResult, Rpc, ShieldedTransactionStream, SignableTransaction,
     },
 };
 
@@ -196,7 +201,8 @@ impl<R: Rpc> ZolanaClient<R> {
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
-    ) -> Result<SolanaTransaction, ClientError> {
+    ) -> Result<SignableTransaction, ClientError> {
+        ensure_private_transaction_not_expired(&signed.transaction)?;
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
         let commitments = signed.transaction.input_utxo_hashes()?;
@@ -208,16 +214,20 @@ impl<R: Rpc> ZolanaClient<R> {
             ProverInputs::Eddsa(inputs) => self.blocking_prover().prove_transfer(inputs)?,
         };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-        let recent_blockhash = self.rpc.get_latest_blockhash()?.0;
-        build_unsigned_solana_transaction(
-            self.cu_limit,
-            self.cu_price_micro_lamports,
-            fee_payer,
-            signed.tree,
-            signed.withdrawal,
-            assembled.with_proof(proof),
-            recent_blockhash,
-        )
+        ensure_private_transaction_not_expired(&signed.transaction)?;
+        let (recent_blockhash, last_valid_block_height) = self.rpc.get_latest_blockhash()?;
+        Ok(SignableTransaction {
+            transaction: build_unsigned_solana_transaction(
+                self.cu_limit,
+                self.cu_price_micro_lamports,
+                fee_payer,
+                signed.tree,
+                signed.withdrawal,
+                assembled.with_proof(proof),
+                recent_blockhash,
+            )?,
+            last_valid_block_height,
+        })
     }
 
     #[cfg(test)]
@@ -251,7 +261,46 @@ impl<R: Rpc> ZolanaClient<R> {
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
-        wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
+        self.confirm_private_transaction_inner_sync(signature, None, CommitmentConfig::confirmed())
+    }
+
+    pub fn confirm_private_transaction_with_validity_sync(
+        &self,
+        signature: Signature,
+        last_valid_block_height: u64,
+    ) -> Result<(), ClientError> {
+        self.confirm_private_transaction_inner_sync(
+            signature,
+            Some(last_valid_block_height),
+            CommitmentConfig::confirmed(),
+        )
+    }
+
+    pub fn confirm_private_transaction_finalized_sync(
+        &self,
+        signature: Signature,
+        last_valid_block_height: u64,
+    ) -> Result<(), ClientError> {
+        self.confirm_private_transaction_inner_sync(
+            signature,
+            Some(last_valid_block_height),
+            CommitmentConfig::finalized(),
+        )
+    }
+
+    fn confirm_private_transaction_inner_sync(
+        &self,
+        signature: Signature,
+        last_valid_block_height: Option<u64>,
+        commitment: CommitmentConfig,
+    ) -> Result<(), ClientError> {
+        wait_for_rpc_confirmation(
+            self.rpc(),
+            signature,
+            self.indexer_config.poll,
+            last_valid_block_height,
+            commitment,
+        )?;
         let tags = self
             .rpc()
             .transact_output_view_tags_from_signature(signature)?;
@@ -269,7 +318,8 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
-    ) -> Result<SolanaTransaction, ClientError> {
+    ) -> Result<SignableTransaction, ClientError> {
+        ensure_private_transaction_not_expired(&signed.transaction)?;
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
         let commitments = signed.transaction.input_utxo_hashes()?;
@@ -281,16 +331,20 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             ProverInputs::Eddsa(inputs) => self.async_prover.prove_transfer(inputs).await?,
         };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-        let recent_blockhash = self.rpc.get_latest_blockhash().await?.0;
-        build_unsigned_solana_transaction(
-            self.cu_limit,
-            self.cu_price_micro_lamports,
-            fee_payer,
-            signed.tree,
-            signed.withdrawal,
-            assembled.with_proof(proof),
-            recent_blockhash,
-        )
+        ensure_private_transaction_not_expired(&signed.transaction)?;
+        let (recent_blockhash, last_valid_block_height) = self.rpc.get_latest_blockhash().await?;
+        Ok(SignableTransaction {
+            transaction: build_unsigned_solana_transaction(
+                self.cu_limit,
+                self.cu_price_micro_lamports,
+                fee_payer,
+                signed.tree,
+                signed.withdrawal,
+                assembled.with_proof(proof),
+                recent_blockhash,
+            )?,
+            last_valid_block_height,
+        })
     }
 
     /// Wait until the transaction is confirmed on-chain and Photon has indexed it.
@@ -298,7 +352,50 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
-        wait_for_rpc_confirmation_async(self.rpc(), signature, self.indexer_config.poll).await?;
+        self.confirm_private_transaction_inner(signature, None, CommitmentConfig::confirmed())
+            .await
+    }
+
+    pub async fn confirm_private_transaction_with_validity(
+        &self,
+        signature: Signature,
+        last_valid_block_height: u64,
+    ) -> Result<(), ClientError> {
+        self.confirm_private_transaction_inner(
+            signature,
+            Some(last_valid_block_height),
+            CommitmentConfig::confirmed(),
+        )
+        .await
+    }
+
+    pub async fn confirm_private_transaction_finalized(
+        &self,
+        signature: Signature,
+        last_valid_block_height: u64,
+    ) -> Result<(), ClientError> {
+        self.confirm_private_transaction_inner(
+            signature,
+            Some(last_valid_block_height),
+            CommitmentConfig::finalized(),
+        )
+        .await
+    }
+
+    async fn confirm_private_transaction_inner(
+        &self,
+        signature: Signature,
+        last_valid_block_height: Option<u64>,
+        commitment: CommitmentConfig,
+    ) -> Result<(), ClientError> {
+        wait_for_rpc_confirmation_async(
+            self.rpc(),
+            signature,
+            self.indexer_config.poll,
+            last_valid_block_height,
+            commitment,
+        )
+        .await?;
         let tags = self
             .rpc()
             .transact_output_view_tags_from_signature(signature)
@@ -358,6 +455,19 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         self.rpc.get_signature_statuses(signatures).await
+    }
+
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.rpc
+            .get_signature_statuses_with_history(signatures)
+            .await
+    }
+
+    async fn is_blockhash_valid(&self, blockhash: Hash) -> Result<bool, ClientError> {
+        self.rpc.is_blockhash_valid(blockhash).await
     }
 
     async fn get_minimum_balance_for_rent_exemption(
@@ -587,6 +697,17 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         self.rpc.get_signature_statuses(signatures)
     }
 
+    fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.rpc.get_signature_statuses_with_history(signatures)
+    }
+
+    fn is_blockhash_valid(&self, blockhash: Hash) -> Result<bool, ClientError> {
+        self.rpc.is_blockhash_valid(blockhash)
+    }
+
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
         self.rpc.get_minimum_balance_for_rent_exemption(data_len)
     }
@@ -767,6 +888,21 @@ fn build_unsigned_solana_transaction(
     Ok(SolanaTransaction::new_unsigned(message))
 }
 
+fn ensure_private_transaction_not_expired(transaction: &SppProofInputs) -> Result<(), ClientError> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| ClientError::Clock(err.to_string()))?
+        .as_secs();
+    let expiry_unix_ts = transaction.external_data.expiry_unix_ts;
+    if now > expiry_unix_ts {
+        return Err(ClientError::PrivateTransactionExpired {
+            expiry_unix_ts,
+            now_unix_ts: now,
+        });
+    }
+    Ok(())
+}
+
 fn validate_fee_payer_pubkey(
     expected_payer_hash: &[u8; 32],
     fee_payer: Pubkey,
@@ -900,36 +1036,81 @@ fn wait_for_rpc_confirmation<R: Rpc>(
     rpc: &R,
     signature: Signature,
     retry: IndexerPollConfig,
+    last_valid_block_height: Option<u64>,
+    commitment: CommitmentConfig,
 ) -> Result<(), ClientError> {
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
             sleep(delay);
         }
-        if rpc.confirm_transaction(signature)? {
-            return Ok(());
+        let status = rpc
+            .get_signature_statuses(vec![signature])?
+            .into_iter()
+            .next()
+            .flatten();
+        if let Some(status) = status {
+            if let Some(error) = status.err {
+                return Err(ClientError::SolanaExecutionFailed {
+                    signature,
+                    error: format!("{error:?}"),
+                });
+            }
+            if status.satisfies_commitment(commitment) {
+                return Ok(());
+            }
+        }
+        if let Some(last_valid_block_height) = last_valid_block_height {
+            let current_block_height = rpc.get_block_height()?;
+            if current_block_height > last_valid_block_height {
+                return Err(ClientError::BlockhashExpired {
+                    last_valid_block_height,
+                    current_block_height,
+                });
+            }
         }
     }
-    Err(ClientError::Rpc(format!(
-        "signature not confirmed: {signature}"
-    )))
+    Err(ClientError::RpcConfirmationTimeout { signature })
 }
 
 async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
     rpc: &R,
     signature: Signature,
     retry: IndexerPollConfig,
+    last_valid_block_height: Option<u64>,
+    commitment: CommitmentConfig,
 ) -> Result<(), ClientError> {
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
         }
-        if rpc.confirm_transaction(signature).await? {
-            return Ok(());
+        let status = rpc
+            .get_signature_statuses(vec![signature])
+            .await?
+            .into_iter()
+            .next()
+            .flatten();
+        if let Some(status) = status {
+            if let Some(error) = status.err {
+                return Err(ClientError::SolanaExecutionFailed {
+                    signature,
+                    error: format!("{error:?}"),
+                });
+            }
+            if status.satisfies_commitment(commitment) {
+                return Ok(());
+            }
+        }
+        if let Some(last_valid_block_height) = last_valid_block_height {
+            let current_block_height = rpc.get_block_height().await?;
+            if current_block_height > last_valid_block_height {
+                return Err(ClientError::BlockhashExpired {
+                    last_valid_block_height,
+                    current_block_height,
+                });
+            }
         }
     }
-    Err(ClientError::Rpc(format!(
-        "signature not confirmed: {signature}"
-    )))
+    Err(ClientError::RpcConfirmationTimeout { signature })
 }
 
 /// Poll the indexer until the sent transaction is visible under any output
@@ -952,7 +1133,9 @@ fn wait_for_indexed_transaction(
             sleep(delay);
         }
         let mut cursor = None;
+        let mut pagination = PaginationGuard::new();
         loop {
+            pagination.next_page()?;
             let response = indexer.get_shielded_transactions_by_tags(
                 tags.to_vec(),
                 cursor.clone(),
@@ -966,9 +1149,9 @@ fn wait_for_indexed_transaction(
             {
                 return Ok(());
             }
-            match response.next_cursor {
-                Some(next) if cursor.as_ref() != Some(&next) => cursor = Some(next),
-                _ => break,
+            cursor = pagination.advance(response.next_cursor)?;
+            if cursor.is_none() {
+                break;
             }
         }
     }
@@ -991,14 +1174,11 @@ async fn wait_for_indexed_transaction_async(
             tokio::time::sleep(delay).await;
         }
         let mut cursor = None;
+        let mut pagination = PaginationGuard::new();
         loop {
+            pagination.next_page()?;
             let response = indexer
-                .get_shielded_transactions_by_tags(
-                    tags.to_vec(),
-                    cursor.clone(),
-                    Some(50),
-                    None,
-                )
+                .get_shielded_transactions_by_tags(tags.to_vec(), cursor.clone(), Some(50), None)
                 .await?;
             if response
                 .transactions
@@ -1007,9 +1187,9 @@ async fn wait_for_indexed_transaction_async(
             {
                 return Ok(());
             }
-            match response.next_cursor {
-                Some(next) if cursor.as_ref() != Some(&next) => cursor = Some(next),
-                _ => break,
+            cursor = pagination.advance(response.next_cursor)?;
+            if cursor.is_none() {
+                break;
             }
         }
     }
@@ -1072,6 +1252,7 @@ mod tests {
                 recipient,
                 asset: SOL_MINT,
                 amount: 4,
+                expiry_unix_ts: u64::MAX,
             })
             .expect("create")
             .transaction,
@@ -1254,7 +1435,7 @@ mod tests {
         let signature = Signature::from([10u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
             rpc_result(json!({
-                "context": { "slot": 12 },
+                "context": { "block_time": 12 },
                 "transactions": [],
                 "next_cursor": "AQ==",
             })),
@@ -1266,10 +1447,7 @@ mod tests {
             &indexer,
             &[[1u8; 32]],
             signature,
-            IndexerPollConfig {
-                timeout: Duration::from_millis(50),
-                poll_interval: Duration::ZERO,
-            },
+            IndexerPollConfig::new(0, 0, 0),
         )
         .expect("signature on the second page");
 
@@ -1287,7 +1465,7 @@ mod tests {
         let signature = Signature::from([11u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
             rpc_result(json!({
-                "context": { "slot": 12 },
+                "context": { "block_time": 12 },
                 "transactions": [],
                 "next_cursor": "Ag==",
             })),
@@ -1299,10 +1477,7 @@ mod tests {
             &indexer,
             &[[2u8; 32]],
             signature,
-            IndexerPollConfig {
-                timeout: Duration::from_millis(50),
-                poll_interval: Duration::ZERO,
-            },
+            IndexerPollConfig::new(0, 0, 0),
         )
         .await
         .expect("signature on the second page");
@@ -1411,8 +1586,19 @@ mod tests {
             Ok(self.signature)
         }
 
-        fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
-            Ok(true)
+        fn get_signature_statuses(
+            &self,
+            _signatures: Vec<Signature>,
+        ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+            Ok(vec![Some(TransactionStatus {
+                slot: 1,
+                confirmations: Some(1),
+                status: Ok(()),
+                err: None,
+                confirmation_status: Some(
+                    solana_transaction_status_client_types::TransactionConfirmationStatus::Confirmed,
+                ),
+            })])
         }
 
         fn transact_output_view_tags_from_signature(

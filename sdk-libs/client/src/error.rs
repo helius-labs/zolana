@@ -27,6 +27,20 @@ pub enum ClientError {
     #[error("insufficient balance for asset: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 
+    #[error("transaction amount must be greater than zero")]
+    InvalidAmount,
+
+    #[error(
+        "private transaction authorization expired at {expiry_unix_ts}; current time is {now_unix_ts}"
+    )]
+    PrivateTransactionExpired {
+        expiry_unix_ts: u64,
+        now_unix_ts: u64,
+    },
+
+    #[error("system clock error: {0}")]
+    Clock(String),
+
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 
@@ -148,6 +162,31 @@ pub enum ClientError {
         latest: i64,
         attempts: u32,
     },
+
+    #[error("Solana signature {signature} did not reach the requested commitment before timeout")]
+    RpcConfirmationTimeout {
+        signature: solana_signature::Signature,
+    },
+
+    #[error("Solana transaction {signature} failed: {error}")]
+    SolanaExecutionFailed {
+        signature: solana_signature::Signature,
+        error: String,
+    },
+
+    #[error(
+        "transaction blockhash expired at block height {last_valid_block_height}; current height is {current_block_height}"
+    )]
+    BlockhashExpired {
+        last_valid_block_height: u64,
+        current_block_height: u64,
+    },
+
+    #[error("indexer pagination cursor repeated; refusing to loop")]
+    PaginationCycle,
+
+    #[error("indexer pagination exceeded the safe page limit of {max_pages}")]
+    PaginationPageLimit { max_pages: usize },
 
     #[error("proof path has {got} elements, expected {expected}")]
     ProofPathLength { got: usize, expected: usize },

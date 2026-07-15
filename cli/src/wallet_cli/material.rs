@@ -12,8 +12,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, LocalWalletAuthority,
-    P256Signature, SolanaRpc, SyncWalletAuthority,
+    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, LocalWalletAuthority, SolanaRpc,
+    SyncWalletAuthority, TransactionAuthorization,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
@@ -103,21 +103,14 @@ impl SyncWalletAuthority for WalletMaterial {
         )
     }
 
-    fn request_user_approval(
+    fn authorize_private_transaction(
         &self,
-        request: ApprovalRequest,
-    ) -> std::result::Result<(), TransactionError> {
+        request: &ApprovalRequest,
+    ) -> std::result::Result<TransactionAuthorization, TransactionError> {
         debug_assert_eq!(request.solana_pubkey, self.solana_pubkey());
-        Ok(())
-    }
-
-    fn sign_p256(
-        &self,
-        message_hash: &[u8; 32],
-    ) -> std::result::Result<P256Signature, TransactionError> {
-        SyncWalletAuthority::sign_p256(
+        SyncWalletAuthority::authorize_private_transaction(
             &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
-            message_hash,
+            request,
         )
     }
 
@@ -296,6 +289,27 @@ mod tests {
         assert_eq!(material.solana_pubkey(), material.funding.pubkey());
         material.shielded_address().expect("shielded address");
         material.spend_nullifier_key().expect("nullifier key");
-        material.sign_p256(&message_hash).expect("P256 signature");
+        let request = ApprovalRequest {
+            action: zolana_client::ApprovalAction::Withdrawal {
+                asset: zolana_transaction::SOL_MINT,
+                amount: 1,
+                user_sol_account: material.solana_pubkey(),
+                user_spl_token: Address::default(),
+                spl_token_interface: Address::default(),
+            },
+            solana_pubkey: material.solana_pubkey(),
+            payer: material.solana_pubkey(),
+            tree: Address::default(),
+            expiry_unix_ts: u64::MAX,
+            inputs: Vec::new(),
+            output_commitments: Vec::new(),
+            message_hash,
+        };
+        assert!(matches!(
+            material
+                .authorize_private_transaction(&request)
+                .expect("P256 authorization"),
+            TransactionAuthorization::P256(_)
+        ));
     }
 }

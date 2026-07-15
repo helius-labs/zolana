@@ -29,11 +29,11 @@ pub use solana_address::Address;
 pub use utxo::{derive_blinding, owner_utxo_hash, Blinding, ProofInputUtxo, Utxo};
 pub use wallet::{
     asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT},
-    AnonymousRecipientSlot, ApprovalRequest, AssetBalance, Balances, EncryptedTransfer, Filter,
-    LocalWalletAuthority, P256Signature, PrivateTransaction, PrivateTransactionDirection,
-    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, SyncReport,
-    SyncWalletAuthority, ViewingKeyEntry, Wallet, WalletAuthority, WalletSyncMaterial, WalletUtxo,
-    DEFAULT_TAG_WINDOW,
+    AnonymousRecipientSlot, ApprovalAction, ApprovalInput, ApprovalRequest, AssetBalance, Balances,
+    EncryptedTransfer, Filter, LocalWalletAuthority, P256Signature, PrivateTransaction,
+    PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,
+    PrivateTransactionStatus, SyncReport, SyncWalletAuthority, TransactionAuthorization,
+    ViewingKeyEntry, Wallet, WalletAuthority, WalletSyncMaterial, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use wallet::{decrypt_transactions, decrypt_transactions_with_config, SyncConfig};
 pub use zolana_keypair::constants::VIEW_TAG_LEN;

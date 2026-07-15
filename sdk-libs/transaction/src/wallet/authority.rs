@@ -25,12 +25,6 @@ pub struct P256Signature {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ApprovalRequest {
-    pub solana_pubkey: Address,
-    pub summary: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousRecipientSlot {
     pub view_tag: ViewTag,
     pub recipient_pubkey: P256Pubkey,
@@ -42,6 +36,51 @@ pub struct EncryptedTransfer {
     pub tx_viewing_pk: P256Pubkey,
     pub salt: Salt,
     pub slots: Vec<Option<MessageData>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ApprovalAction {
+    Transfer {
+        recipient: ShieldedAddress,
+        asset: Address,
+        amount: u64,
+    },
+    Withdrawal {
+        asset: Address,
+        amount: u64,
+        user_sol_account: Address,
+        user_spl_token: Address,
+        spl_token_interface: Address,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ApprovalInput {
+    pub utxo_hash: [u8; 32],
+    pub nullifier: [u8; 32],
+}
+
+/// Exact private-transaction intent presented to an owner authority.
+///
+/// `message_hash` is the digest the P256 rail must sign. Keeping approval and
+/// signing in one authority call prevents a service from approving one intent
+/// and subsequently requesting a signature for another digest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApprovalRequest {
+    pub action: ApprovalAction,
+    pub solana_pubkey: Address,
+    pub payer: Address,
+    pub tree: Address,
+    pub expiry_unix_ts: u64,
+    pub inputs: Vec<ApprovalInput>,
+    pub output_commitments: Vec<[u8; 32]>,
+    pub message_hash: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransactionAuthorization {
+    Approved,
+    P256(P256Signature),
 }
 
 /// Ephemeral key material required by a wallet scan.
@@ -92,14 +131,10 @@ pub trait WalletAuthority: Send + Sync {
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError>;
 
-    async fn request_user_approval(
+    async fn authorize_private_transaction(
         &self,
-        _request: ApprovalRequest,
-    ) -> Result<(), TransactionError> {
-        Ok(())
-    }
-
-    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError>;
+        request: &ApprovalRequest,
+    ) -> Result<TransactionAuthorization, TransactionError>;
 
     async fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError>;
 }
@@ -138,11 +173,10 @@ pub trait SyncWalletAuthority: Send + Sync {
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError>;
 
-    fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), TransactionError> {
-        Ok(())
-    }
-
-    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError>;
+    fn authorize_private_transaction(
+        &self,
+        request: &ApprovalRequest,
+    ) -> Result<TransactionAuthorization, TransactionError>;
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError>;
 }
@@ -193,15 +227,11 @@ where
         )
     }
 
-    async fn request_user_approval(
+    async fn authorize_private_transaction(
         &self,
-        request: ApprovalRequest,
-    ) -> Result<(), TransactionError> {
-        SyncWalletAuthority::request_user_approval(self, request)
-    }
-
-    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        SyncWalletAuthority::sign_p256(self, message_hash)
+        request: &ApprovalRequest,
+    ) -> Result<TransactionAuthorization, TransactionError> {
+        SyncWalletAuthority::authorize_private_transaction(self, request)
     }
 
     async fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
@@ -315,23 +345,32 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
         })
     }
 
-    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
+    fn authorize_private_transaction(
+        &self,
+        request: &ApprovalRequest,
+    ) -> Result<TransactionAuthorization, TransactionError> {
+        if request.solana_pubkey != self.solana_pubkey {
+            return Err(TransactionError::WalletAuthorityMismatch);
+        }
+        if self.keypair.signing_pubkey().signature_type()? != zolana_keypair::SignatureType::P256 {
+            return Ok(TransactionAuthorization::Approved);
+        }
         let signer =
             EcdsaSigningKey::from_slice(self.keypair.signing_key.secret_bytes().as_slice())
                 .map_err(|e| TransactionError::P256(e.to_string()))?;
         let signature: Signature = signer
-            .sign_prehash(message_hash)
+            .sign_prehash(&request.message_hash)
             .map_err(|e| TransactionError::P256(e.to_string()))?;
         let bytes = signature.to_bytes();
         let mut sig_r = [0u8; 32];
         let mut sig_s = [0u8; 32];
         sig_r.copy_from_slice(&bytes[..32]);
         sig_s.copy_from_slice(&bytes[32..]);
-        Ok(P256Signature {
+        Ok(TransactionAuthorization::P256(P256Signature {
             pubkey: self.keypair.signing_pubkey().as_p256()?,
             sig_r,
             sig_s,
-        })
+        }))
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
@@ -423,22 +462,14 @@ impl SyncWalletAuthority for ShieldedKeypair {
         })
     }
 
-    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        let signer = EcdsaSigningKey::from_slice(self.signing_key.secret_bytes().as_slice())
-            .map_err(|e| TransactionError::P256(e.to_string()))?;
-        let signature: Signature = signer
-            .sign_prehash(message_hash)
-            .map_err(|e| TransactionError::P256(e.to_string()))?;
-        let bytes = signature.to_bytes();
-        let mut sig_r = [0u8; 32];
-        let mut sig_s = [0u8; 32];
-        sig_r.copy_from_slice(&bytes[..32]);
-        sig_s.copy_from_slice(&bytes[32..]);
-        Ok(P256Signature {
-            pubkey: self.signing_pubkey().as_p256()?,
-            sig_r,
-            sig_s,
-        })
+    fn authorize_private_transaction(
+        &self,
+        request: &ApprovalRequest,
+    ) -> Result<TransactionAuthorization, TransactionError> {
+        SyncWalletAuthority::authorize_private_transaction(
+            &LocalWalletAuthority::new(SyncWalletAuthority::solana_pubkey(self), self),
+            request,
+        )
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {

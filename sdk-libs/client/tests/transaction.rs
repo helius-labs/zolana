@@ -5,7 +5,10 @@
 #[path = "test_indexer.rs"]
 mod test_indexer;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
+};
 
 use borsh::BorshDeserialize;
 use p256::{
@@ -21,11 +24,11 @@ use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
     create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
-    ApprovalRequest, AsyncRpc, CircuitType, ClientError, ConfidentialTransfer, EncryptedTransfer,
-    LocalWalletAuthority, MerkleContext, MerkleProof, NonInclusionProof, P256Signature,
+    ApprovalAction, ApprovalRequest, AsyncRpc, CircuitType, ClientError, ConfidentialTransfer,
+    EncryptedTransfer, LocalWalletAuthority, MerkleContext, MerkleProof, NonInclusionProof,
     PublicAmounts, Rpc, SpendProof, SppProofInputUtxo, SppProofInputs, SyncWalletAuthority,
-    TransferP256Prover, TransferParams, WalletAuthority, WithdrawalParams, WithdrawalTarget,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    TransactionAuthorization, TransferP256Prover, TransferParams, WalletAuthority,
+    WithdrawalParams, WithdrawalTarget, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_interface::instruction::instruction_data::transact::{
@@ -103,6 +106,8 @@ struct AsyncTestAuthority {
     p256_signatures: AtomicUsize,
     nullifier_override: Option<NullifierKey>,
     corrupt_signature: bool,
+    corrupt_slots: bool,
+    approval_request: Mutex<Option<ApprovalRequest>>,
 }
 
 #[async_trait::async_trait]
@@ -130,12 +135,22 @@ impl WalletAuthority for AsyncTestAuthority {
         outputs: &[SppProofOutputUtxo],
         assets: &AssetRegistry,
     ) -> Result<EncryptedTransfer, TransactionError> {
-        SyncWalletAuthority::encrypt_confidential_transfer(
+        let mut encrypted = SyncWalletAuthority::encrypt_confidential_transfer(
             &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             outputs,
             assets,
-        )
+        )?;
+        if self.corrupt_slots {
+            let slot = encrypted
+                .slots
+                .iter_mut()
+                .flatten()
+                .next()
+                .expect("prepared transaction has a real encrypted output");
+            slot.view_tag[0] ^= 1;
+        }
+        Ok(encrypted)
     }
 
     async fn encrypt_anonymous_transfer(
@@ -154,26 +169,26 @@ impl WalletAuthority for AsyncTestAuthority {
         )
     }
 
-    async fn request_user_approval(
+    async fn authorize_private_transaction(
         &self,
-        request: ApprovalRequest,
-    ) -> Result<(), TransactionError> {
+        request: &ApprovalRequest,
+    ) -> Result<TransactionAuthorization, TransactionError> {
         assert_eq!(request.solana_pubkey, self.solana_pubkey());
-        assert!(request.summary.contains("private transaction"));
+        *self.approval_request.lock().unwrap() = Some(request.clone());
         self.approvals.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-
-    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
         self.p256_signatures.fetch_add(1, Ordering::SeqCst);
-        let mut signature = SyncWalletAuthority::sign_p256(
+        let mut authorization = SyncWalletAuthority::authorize_private_transaction(
             &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
-            message_hash,
+            request,
         )?;
         if self.corrupt_signature {
+            let TransactionAuthorization::P256(mut signature) = authorization else {
+                return Err(TransactionError::MissingP256Authorization);
+            };
             signature.sig_r[0] ^= 1;
+            authorization = TransactionAuthorization::P256(signature);
         }
-        Ok(signature)
+        Ok(authorization)
     }
 
     async fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
@@ -411,6 +426,23 @@ fn transfer_round_trip_outputs_and_slots() {
             }
         )]
     );
+}
+
+#[test]
+fn low_level_signing_rejects_a_different_shielded_address() {
+    let mut rng = rand::thread_rng();
+    let sender = ShieldedKeypair::new().unwrap();
+    let other = ShieldedKeypair::new().unwrap();
+    let tx = ConfidentialTransfer::new(
+        sender.shielded_address().unwrap(),
+        vec![p256_input(&sender, 100, &mut rng)],
+        Address::default(),
+    );
+
+    assert!(matches!(
+        tx.sign(&other, &registry()),
+        Err(TransactionError::SignerAddressMismatch)
+    ));
 }
 
 /// A change-only transfer (recipient slot is a dummy) and a one-recipient transfer
@@ -816,6 +848,8 @@ fn async_authority_signs_p256_and_invokes_approval() {
         p256_signatures: AtomicUsize::new(0),
         nullifier_override: None,
         corrupt_signature: false,
+        corrupt_slots: false,
+        approval_request: Mutex::new(None),
     };
     let wallet = wallet_with_p256_balance(&sender, 100);
     let unsigned = create_withdrawal(WithdrawalParams {
@@ -824,6 +858,7 @@ fn async_authority_signs_p256_and_invokes_approval() {
         recipient: Pubkey::new_unique(),
         asset: SOL_MINT,
         amount: 60,
+        expiry_unix_ts: u64::MAX,
     })
     .expect("created")
     .transaction;
@@ -833,6 +868,33 @@ fn async_authority_signs_p256_and_invokes_approval() {
 
     assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
     assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 1);
+    let expected_message_hash = signed.transaction.message_hash().unwrap();
+    let request = authority
+        .approval_request
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("approval request");
+    assert_eq!(request.message_hash, expected_message_hash);
+    assert_eq!(request.expiry_unix_ts, u64::MAX);
+    assert_eq!(
+        request.output_commitments,
+        signed
+            .transaction
+            .external_data
+            .outputs
+            .iter()
+            .map(|output| output.utxo_hash)
+            .collect::<Vec<_>>()
+    );
+    assert!(matches!(
+        request.action,
+        ApprovalAction::Withdrawal {
+            asset: SOL_MINT,
+            amount: 60,
+            ..
+        }
+    ));
     let prover = prover_of(signed.transaction);
     let owner = prover.p256_owner.clone();
     let built = prover.build().unwrap();
@@ -850,6 +912,84 @@ fn async_authority_signs_p256_and_invokes_approval() {
 }
 
 #[test]
+fn expired_private_transaction_is_rejected_before_authority_work() {
+    let sender = ShieldedKeypair::new().unwrap();
+    let authority = AsyncTestAuthority {
+        keypair: sender.clone(),
+        approvals: AtomicUsize::new(0),
+        p256_signatures: AtomicUsize::new(0),
+        nullifier_override: None,
+        corrupt_signature: false,
+        corrupt_slots: false,
+        approval_request: Mutex::new(None),
+    };
+    let wallet = wallet_with_p256_balance(&sender, 100);
+    let unsigned = create_withdrawal(WithdrawalParams {
+        wallet: &wallet,
+        payer: Address::default(),
+        recipient: Pubkey::new_unique(),
+        asset: SOL_MINT,
+        amount: 60,
+        expiry_unix_ts: 0,
+    })
+    .expect("created")
+    .transaction;
+
+    let error =
+        match futures::executor::block_on(sign_shielded_transaction(unsigned, &wallet, &authority))
+        {
+            Err(error) => error,
+            Ok(_) => panic!("expired intent must fail"),
+        };
+
+    assert!(matches!(
+        error,
+        ClientError::PrivateTransactionExpired { .. }
+    ));
+    assert_eq!(authority.approvals.load(Ordering::SeqCst), 0);
+    assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn malformed_remote_ciphertext_is_rejected_before_approval() {
+    let sender = ShieldedKeypair::new().unwrap();
+    let authority = AsyncTestAuthority {
+        keypair: sender.clone(),
+        approvals: AtomicUsize::new(0),
+        p256_signatures: AtomicUsize::new(0),
+        nullifier_override: None,
+        corrupt_signature: false,
+        corrupt_slots: true,
+        approval_request: Mutex::new(None),
+    };
+    let wallet = wallet_with_p256_balance(&sender, 100);
+    let unsigned = create_withdrawal(WithdrawalParams {
+        wallet: &wallet,
+        payer: Address::default(),
+        recipient: Pubkey::new_unique(),
+        asset: SOL_MINT,
+        amount: 60,
+        expiry_unix_ts: u64::MAX,
+    })
+    .expect("created")
+    .transaction;
+
+    let error =
+        match futures::executor::block_on(sign_shielded_transaction(unsigned, &wallet, &authority))
+        {
+            Err(error) => error,
+            Ok(_) => panic!("malformed ciphertext must fail"),
+        };
+
+    assert!(matches!(
+        error,
+        ClientError::Transaction(TransactionError::InvalidEncryptedTransferSlot { .. })
+    ));
+    assert_eq!(authority.approvals.load(Ordering::SeqCst), 0);
+    assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn async_signing_rejects_authority_for_another_wallet() {
     let sender = ShieldedKeypair::new().expect("sender");
     let other = ShieldedKeypair::new().expect("other");
@@ -859,6 +999,8 @@ fn async_signing_rejects_authority_for_another_wallet() {
         p256_signatures: AtomicUsize::new(0),
         nullifier_override: None,
         corrupt_signature: false,
+        corrupt_slots: false,
+        approval_request: Mutex::new(None),
     };
     let wallet = wallet_with_p256_balance(&sender, 100);
     let unsigned = create_withdrawal(WithdrawalParams {
@@ -867,6 +1009,7 @@ fn async_signing_rejects_authority_for_another_wallet() {
         recipient: Pubkey::new_unique(),
         asset: SOL_MINT,
         amount: 60,
+        expiry_unix_ts: u64::MAX,
     })
     .expect("created")
     .transaction;
@@ -896,6 +1039,8 @@ fn async_signing_rejects_mismatched_nullifier_material() {
         p256_signatures: AtomicUsize::new(0),
         nullifier_override: Some(other.nullifier_key),
         corrupt_signature: false,
+        corrupt_slots: false,
+        approval_request: Mutex::new(None),
     };
     let wallet = wallet_with_p256_balance(&sender, 100);
     let unsigned = create_withdrawal(WithdrawalParams {
@@ -904,6 +1049,7 @@ fn async_signing_rejects_mismatched_nullifier_material() {
         recipient: Pubkey::new_unique(),
         asset: SOL_MINT,
         amount: 60,
+        expiry_unix_ts: u64::MAX,
     })
     .expect("created")
     .transaction;
@@ -932,6 +1078,8 @@ fn async_signing_verifies_remote_p256_signatures() {
         p256_signatures: AtomicUsize::new(0),
         nullifier_override: None,
         corrupt_signature: true,
+        corrupt_slots: false,
+        approval_request: Mutex::new(None),
     };
     let wallet = wallet_with_p256_balance(&sender, 100);
     let unsigned = create_withdrawal(WithdrawalParams {
@@ -940,6 +1088,7 @@ fn async_signing_verifies_remote_p256_signatures() {
         recipient: Pubkey::new_unique(),
         asset: SOL_MINT,
         amount: 60,
+        expiry_unix_ts: u64::MAX,
     })
     .expect("created")
     .transaction;
@@ -1119,6 +1268,7 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
         recipient,
         asset: SOL_MINT,
         amount: 1,
+        expiry_unix_ts: u64::MAX,
     })
     .await
     .expect("async create transfer");

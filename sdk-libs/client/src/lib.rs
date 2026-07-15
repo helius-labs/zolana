@@ -70,7 +70,8 @@ pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse,
     MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ProveResult, Rpc,
-    ShieldedTransaction, ShieldedTransactionStream, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    ShieldedTransaction, ShieldedTransactionStream, SignableTransaction, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
@@ -84,8 +85,9 @@ pub use user_registry::{
     validate_registered_keypair,
 };
 pub use wallet_authority::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, LocalWalletAuthority,
-    P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
+    AnonymousRecipientSlot, ApprovalAction, ApprovalInput, ApprovalRequest, EncryptedTransfer,
+    LocalWalletAuthority, P256Signature, SyncWalletAuthority, TransactionAuthorization,
+    WalletAuthority, WalletSyncMaterial,
 };
 pub use wallet_sync::{
     get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_async,

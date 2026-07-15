@@ -510,6 +510,22 @@ impl Rpc for SolanaRpc {
             .map_err(|err| ClientError::Rpc(format!("get_signature_statuses: {err}")))
     }
 
+    fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.client
+            .get_signature_statuses_with_history(&signatures)
+            .map(|response| response.value)
+            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses_with_history: {err}")))
+    }
+
+    fn is_blockhash_valid(&self, blockhash: Hash) -> Result<bool, ClientError> {
+        self.client
+            .is_blockhash_valid(&blockhash, CommitmentConfig::confirmed())
+            .map_err(|err| ClientError::Rpc(format!("is_blockhash_valid: {err}")))
+    }
+
     fn health(&self) -> Result<(), ClientError> {
         self.client
             .get_health()
@@ -518,7 +534,7 @@ impl Rpc for SolanaRpc {
 
     fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
         self.client
-            .send_and_confirm_transaction(transaction)
+            .send_transaction(transaction)
             .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
     }
 
@@ -528,11 +544,7 @@ impl Rpc for SolanaRpc {
         config: solana_rpc_client_api::config::RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
         self.client
-            .send_and_confirm_transaction_with_spinner_and_config(
-                transaction,
-                CommitmentConfig::confirmed(),
-                config,
-            )
+            .send_transaction_with_config(transaction, config)
             .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
     }
 
@@ -646,6 +658,24 @@ impl AsyncRpc for AsyncSolanaRpc {
             .map_err(|err| ClientError::Rpc(format!("get_signature_statuses: {err}")))
     }
 
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.client
+            .get_signature_statuses_with_history(&signatures)
+            .await
+            .map(|response| response.value)
+            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses_with_history: {err}")))
+    }
+
+    async fn is_blockhash_valid(&self, blockhash: Hash) -> Result<bool, ClientError> {
+        self.client
+            .is_blockhash_valid(&blockhash, CommitmentConfig::confirmed())
+            .await
+            .map_err(|err| ClientError::Rpc(format!("is_blockhash_valid: {err}")))
+    }
+
     async fn health(&self) -> Result<(), ClientError> {
         self.client
             .get_health()
@@ -655,7 +685,7 @@ impl AsyncRpc for AsyncSolanaRpc {
 
     async fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
         self.client
-            .send_and_confirm_transaction(transaction)
+            .send_transaction(transaction)
             .await
             .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
     }
@@ -666,11 +696,7 @@ impl AsyncRpc for AsyncSolanaRpc {
         config: solana_rpc_client_api::config::RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
         self.client
-            .send_and_confirm_transaction_with_config(
-                transaction,
-                CommitmentConfig::confirmed(),
-                config,
-            )
+            .send_transaction_with_config(transaction, config)
             .await
             .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
     }

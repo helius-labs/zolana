@@ -1,4 +1,5 @@
 use hkdf::Hkdf;
+use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
@@ -21,6 +22,14 @@ impl AsRef<NullifierKey> for NullifierKey {
 }
 
 impl NullifierKey {
+    pub fn new() -> Self {
+        let mut secret = Zeroizing::new([0u8; BLINDING_LEN]);
+        while secret.iter().all(|byte| *byte == 0) {
+            OsRng.fill_bytes(secret.as_mut_slice());
+        }
+        Self { secret }
+    }
+
     pub fn from_signing_key(signing_key: &SigningKey) -> Result<Self, KeypairError> {
         Self::from_signing_secret_key_bytes(signing_key.secret_bytes().as_slice())
     }
@@ -43,6 +52,10 @@ impl NullifierKey {
         &self.secret
     }
 
+    pub fn secret_bytes(&self) -> Zeroizing<[u8; BLINDING_LEN]> {
+        Zeroizing::new(*self.secret)
+    }
+
     pub fn pubkey(&self) -> Result<[u8; 32], KeypairError> {
         let secret_fe = fe_right_align(self.secret.as_slice())?;
         poseidon(&[&secret_fe])
@@ -56,5 +69,11 @@ impl NullifierKey {
         let blinding_fe = fe_right_align(blinding)?;
         let secret_fe = fe_right_align(self.secret.as_slice())?;
         poseidon(&[utxo_hash, &blinding_fe, &secret_fe])
+    }
+}
+
+impl Default for NullifierKey {
+    fn default() -> Self {
+        Self::new()
     }
 }

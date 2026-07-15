@@ -6,6 +6,21 @@ use zolana_transaction::{
 };
 
 fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTransaction {
+    self_consistent_deposit_with_tag(
+        keypair,
+        amount,
+        keypair
+            .signing_pubkey()
+            .confidential_view_tag()
+            .expect("owner view tag"),
+    )
+}
+
+fn self_consistent_deposit_with_tag(
+    keypair: &ShieldedKeypair,
+    amount: u64,
+    view_tag: [u8; 32],
+) -> ShieldedTransaction {
     let blinding = [9u8; BLINDING_LEN];
     let data_hash = [14u8; 32];
     let owner = keypair.owner_hash().expect("owner hash");
@@ -34,7 +49,7 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTr
         tx_viewing_pk: None,
         salt: None,
         output_slots: vec![OutputSlot {
-            view_tag: keypair.recipient_bootstrap_view_tag(),
+            view_tag,
             output_context: OutputContext {
                 hash: utxo_hash,
                 tree: Address::new_from_array([0u8; 32]),
@@ -118,4 +133,29 @@ fn sync_discovers_and_spends_proofless_deposit() {
         wallet.utxos.first().expect("spent utxo").spent,
         "deposit spent by its nullifier"
     );
+}
+
+#[test]
+fn sync_keeps_legacy_bootstrap_tagged_deposits_recoverable() {
+    let keypair = ShieldedKeypair::new().expect("shielded keypair");
+    let authority = LocalWalletAuthority::new(Address::default(), &keypair);
+    let mut wallet = Wallet::new(
+        keypair.shielded_address().expect("shielded address"),
+        AssetRegistry::default(),
+    )
+    .expect("wallet");
+    let deposit =
+        self_consistent_deposit_with_tag(&keypair, 42, keypair.recipient_bootstrap_view_tag());
+
+    wallet
+        .sync(
+            &authority,
+            std::slice::from_ref(&deposit),
+            1,
+            DEFAULT_TAG_WINDOW,
+        )
+        .expect("sync legacy deposit");
+
+    assert_eq!(wallet.utxos.len(), 1);
+    assert_eq!(wallet.utxos[0].utxo.amount, 42);
 }
