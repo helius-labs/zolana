@@ -2,14 +2,18 @@ use anyhow::{bail, Result};
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
+use zolana_wallet::ensure_registered;
 use zolana_transaction::Address;
 use zolana_user_registry_interface::{instruction::set_merging_enabled, user_record_pda};
 
 use super::{
-    material::{load_sender_from_resolved_sync, WalletMaterial},
+    material::{load_existing_wallet, load_sender_from_resolved_sync, WalletMaterial},
     resolve::resolve_sync,
 };
-use crate::args::MergeOptions;
+use crate::{
+    args::{MergeOptions, RegisterOptions},
+    cli_config::{resolve_keypair_path, resolve_rpc_url, CliConfigFile},
+};
 
 pub(super) fn register_wallet_on_chain(
     rpc: &SolanaRpc,
@@ -17,11 +21,38 @@ pub(super) fn register_wallet_on_chain(
 ) -> Result<Option<Signature>> {
     // Idempotent register-or-update lives in the SDK; the CLI just supplies its
     // keypair + funding key.
-    Ok(zolana_wallet::ensure_registered(
+    Ok(ensure_registered(
         rpc,
         &material.funding,
         &material.keypair,
     )?)
+}
+
+/// Publish the wallet's shielded keys under its Solana pubkey. Registration is
+/// what makes the pubkey payable: senders resolve it through the registry, and
+/// without a record a `transfer` to it degrades to a public withdrawal.
+/// `ensure_registered` is idempotent: it registers if absent, updates on key
+/// change, and no-ops when the on-chain record already matches.
+pub(crate) fn run_register(opts: RegisterOptions) -> Result<()> {
+    let config = CliConfigFile::load()?;
+    let path = resolve_keypair_path(opts.wallet.keypair.keypair.as_deref(), &config);
+    if !path.exists() {
+        bail!(
+            "wallet not found at {}; create it with `zolana wallet new --outfile {}`",
+            path.display(),
+            path.display()
+        );
+    }
+    let material = load_existing_wallet(&path)?;
+    let rpc = SolanaRpc::new(resolve_rpc_url(opts.wallet.rpc_url.as_deref(), &config));
+    let owner = material.funding.pubkey();
+    match ensure_registered(&rpc, &material.funding, &material.keypair)? {
+        Some(signature) => {
+            println!("ok register owner={owner} record=written signature={signature}")
+        }
+        None => println!("ok register owner={owner} record=current status=unchanged"),
+    }
+    Ok(())
 }
 
 pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {

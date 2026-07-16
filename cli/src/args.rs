@@ -166,10 +166,22 @@ pub(crate) struct ConfigAddAssetOptions {
 #[derive(Debug, Subcommand, Clone)]
 pub(crate) enum WalletCommand {
     #[command(
-        name = "init",
-        about = "Create a filesystem private keypair and register it on-chain"
+        name = "new",
+        about = "Create a local ed25519 wallet keypair and register it on-chain"
     )]
-    Init(InitOptions),
+    New(NewWalletOptions),
+
+    #[command(
+        name = "address",
+        about = "Print the selected wallet's shielded owner hash (or its funding pubkey)"
+    )]
+    Address(AddressOptions),
+
+    #[command(
+        name = "register",
+        about = "Publish the wallet's shielded keys on-chain so its Solana pubkey is payable"
+    )]
+    Register(RegisterOptions),
 }
 
 #[derive(Debug)]
@@ -372,13 +384,20 @@ pub(crate) struct WalletKeypairOptions {
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
-pub(crate) struct InitOptions {
+pub(crate) struct NewWalletOptions {
     #[arg(
-        long = "path",
-        help = "Output path for generated keypair (default: ~/.config/zolana/pid.json)",
+        long = "outfile",
+        help = "Output wallet file (default: configured keypair path or ~/.config/zolana/pid.json)",
         value_name = "PATH"
     )]
-    pub(crate) path: Option<String>,
+    pub(crate) outfile: Option<String>,
+
+    #[arg(
+        long = "funding-keypair",
+        help = "Use an existing Solana keypair file (e.g. ~/.config/solana/id.json) as the wallet identity and fee payer instead of generating a new one",
+        value_name = "PATH"
+    )]
+    pub(crate) funding_keypair: Option<String>,
 
     #[arg(
         long = "rpc-url",
@@ -391,6 +410,36 @@ pub(crate) struct InitOptions {
         help = "Request a localnet airdrop for the wallet funding key before registering"
     )]
     pub(crate) airdrop_lamports: Option<u64>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct AddressOptions {
+    #[command(flatten)]
+    pub(crate) keypair: WalletKeypairOptions,
+
+    #[arg(
+        long,
+        help = "Print the wallet's public funding/fee-payer pubkey instead"
+    )]
+    pub(crate) funding: bool,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct RegisterOptions {
+    #[command(flatten)]
+    pub(crate) wallet: RpcWalletOptions,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct RpcWalletOptions {
+    #[command(flatten)]
+    pub(crate) keypair: WalletKeypairOptions,
+
+    #[arg(
+        long = "rpc-url",
+        help = "Solana RPC URL (default: configured value or http://127.0.0.1:8899)"
+    )]
+    pub(crate) rpc_url: Option<String>,
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
@@ -711,7 +760,9 @@ mod tests {
             ["zolana", "config", "asset", "add", "--help"].as_slice(),
             ["zolana", "config", "asset", "path", "--help"].as_slice(),
             ["zolana", "wallet", "--help"].as_slice(),
-            ["zolana", "wallet", "init", "--help"].as_slice(),
+            ["zolana", "wallet", "new", "--help"].as_slice(),
+            ["zolana", "wallet", "address", "--help"].as_slice(),
+            ["zolana", "wallet", "register", "--help"].as_slice(),
             ["zolana", "sync", "--help"].as_slice(),
             ["zolana", "balance", "--help"].as_slice(),
             ["zolana", "deposit", "--help"].as_slice(),
@@ -877,22 +928,59 @@ mod tests {
     }
 
     #[test]
-    fn parses_wallet_init_options() {
-        let WalletCommand::Init(opts) = parse_wallet(&[
-            "init",
-            "--path",
+    fn parses_wallet_new_options() {
+        let WalletCommand::New(opts) = parse_wallet(&[
+            "new",
+            "--outfile",
             "/tmp/alice.pid.json",
+            "--funding-keypair",
+            "/tmp/solana.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
             "--airdrop-lamports",
             "1000000000",
-        ]);
-        let expected = InitOptions {
-            path: Some("/tmp/alice.pid.json".to_string()),
+        ]) else {
+            panic!("expected wallet new command");
+        };
+        let expected = NewWalletOptions {
+            outfile: Some("/tmp/alice.pid.json".to_string()),
+            funding_keypair: Some("/tmp/solana.json".to_string()),
             rpc_url: Some("http://127.0.0.1:8900".to_string()),
             airdrop_lamports: Some(1_000_000_000),
         };
         assert_eq!(opts, expected);
+    }
+
+    #[test]
+    fn parses_wallet_address_options() {
+        let WalletCommand::Address(opts) =
+            parse_wallet(&["address", "--keypair", "/tmp/alice.pid.json", "--funding"])
+        else {
+            panic!("expected wallet address command");
+        };
+        assert_eq!(opts.keypair.keypair.as_deref(), Some("/tmp/alice.pid.json"));
+        assert!(opts.funding);
+    }
+
+    #[test]
+    fn parses_wallet_register_options() {
+        let WalletCommand::Register(opts) = parse_wallet(&[
+            "register",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--rpc-url",
+            "http://127.0.0.1:8900",
+        ]) else {
+            panic!("expected wallet register command");
+        };
+        assert_eq!(
+            opts.wallet.keypair.keypair.as_deref(),
+            Some("/tmp/alice.pid.json")
+        );
+        assert_eq!(
+            opts.wallet.rpc_url.as_deref(),
+            Some("http://127.0.0.1:8900")
+        );
     }
 
     #[test]
