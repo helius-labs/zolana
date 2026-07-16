@@ -47,6 +47,9 @@ pub(crate) enum CliCommand {
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
 
+    #[command(name = "utxos", about = "List spendable private notes")]
+    Utxos(UtxosOptions),
+
     #[command(name = "deposit", about = "Deposit into private wallet")]
     Deposit(DepositOptions),
 
@@ -615,6 +618,15 @@ pub(crate) struct BalanceOptions {
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct UtxosOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct MergeOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
@@ -805,6 +817,7 @@ mod tests {
             ["zolana", "wallet", "register", "--help"].as_slice(),
             ["zolana", "sync", "--help"].as_slice(),
             ["zolana", "balance", "--help"].as_slice(),
+            ["zolana", "utxos", "--help"].as_slice(),
             ["zolana", "deposit", "--help"].as_slice(),
             ["zolana", "transfer", "--help"].as_slice(),
             ["zolana", "withdraw", "--help"].as_slice(),
