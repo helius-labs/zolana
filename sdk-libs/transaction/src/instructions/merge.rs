@@ -47,15 +47,34 @@ impl Merge {
 
         let asset = inputs.first().ok_or(TransactionError::NoInputs)?.utxo.asset;
         // The proof binds every input to one shared owner identity, so the merge
-        // rail is the owner's rail and every input must match it.
+        // rail is the owner's rail and every input must match it. It also proves
+        // ownership from one nullifier secret and never consumes program/zone data,
+        // so every input must carry exactly the keypair's owner and nullifier key
+        // and be a plain, unbound note.
+        let owner = keypair.signing_pubkey();
         let owner_rail = keypair.curve()?;
+        let nullifier_pubkey = keypair.nullifier_key().pubkey()?;
         let mut total = 0u64;
         for (index, spend) in inputs.iter().enumerate() {
             if spend.utxo.owner.signature_type()? != owner_rail {
                 return Err(TransactionError::MergeInputRailMismatch { index });
             }
+            if spend.utxo.owner != owner {
+                return Err(TransactionError::MergeInputOwnerMismatch { index });
+            }
+            if spend.nullifier_key.pubkey()? != nullifier_pubkey {
+                return Err(TransactionError::MergeInputNullifierKeyMismatch { index });
+            }
             if spend.utxo.asset != asset {
                 return Err(TransactionError::MergeInputAssetMismatch { index });
+            }
+            // The default merge only consolidates plain notes, so no input may be
+            // bound to a zone.
+            if spend.utxo.zone_program_id.is_some() {
+                return Err(TransactionError::MergeInputZoneMismatch { index });
+            }
+            if has_data(spend) {
+                return Err(TransactionError::MergeInputHasData { index });
             }
             total = total
                 .checked_add(spend.utxo.amount)
@@ -147,5 +166,145 @@ impl PreparedMerge {
                 })
             })
             .collect()
+    }
+}
+
+/// Whether an input carries program or zone data: an external `data_hash`,
+/// `zone_data_hash`, or inline UTXO data. Merge consolidates only plain notes, so
+/// any of these disqualifies the input.
+pub(crate) fn has_data(spend: &SppProofInputUtxo) -> bool {
+    spend.data_hash.unwrap_or_default() != [0u8; 32]
+        || spend.zone_data_hash.unwrap_or_default() != [0u8; 32]
+        || !spend.utxo.data.is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_address::Address;
+    use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair, ViewingKey};
+
+    use super::*;
+    use crate::{data::DataRecord, utxo::Utxo, Data};
+
+    fn plain_input(keypair: &ShieldedKeypair, asset: Address, amount: u64) -> SppProofInputUtxo {
+        let utxo = Utxo {
+            owner: keypair.signing_pubkey(),
+            asset,
+            amount,
+            blinding: random_blinding(),
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        SppProofInputUtxo::new(utxo, keypair)
+    }
+
+    #[test]
+    fn accepts_matching_plain_inputs_and_pads_to_shape() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let inputs = vec![
+            plain_input(&keypair, Address::default(), 10),
+            plain_input(&keypair, Address::default(), 20),
+        ];
+
+        let prepared = Merge::new(&keypair, inputs).expect("merge plan").prepare();
+
+        assert_eq!(prepared.inputs.len(), MERGE_INPUTS);
+        assert_eq!(prepared.output.amount, 30);
+    }
+
+    #[test]
+    fn rejects_input_owned_by_a_different_key() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let other = ShieldedKeypair::new().expect("other keypair");
+        // Same rail (both P256), different owner: the exact-owner check fires.
+        let mut input = plain_input(&keypair, Address::default(), 10);
+        input.utxo.owner = other.signing_pubkey();
+
+        let Err(error) = Merge::new(&keypair, vec![input]) else {
+            panic!("foreign owner must be rejected");
+        };
+
+        assert_eq!(
+            error,
+            TransactionError::MergeInputOwnerMismatch { index: 0 }
+        );
+    }
+
+    #[test]
+    fn rejects_input_with_a_different_nullifier_key() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let other = ShieldedKeypair::new().expect("other keypair");
+        let utxo = Utxo {
+            owner: keypair.signing_pubkey(),
+            asset: Address::default(),
+            amount: 10,
+            blinding: random_blinding(),
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let input = SppProofInputUtxo::new(utxo, &other);
+
+        let Err(error) = Merge::new(&keypair, vec![input]) else {
+            panic!("foreign nullifier key must be rejected");
+        };
+
+        assert_eq!(
+            error,
+            TransactionError::MergeInputNullifierKeyMismatch { index: 0 }
+        );
+    }
+
+    #[test]
+    fn rejects_zone_bound_input() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let mut input = plain_input(&keypair, Address::default(), 10);
+        input.utxo.zone_program_id = Some(Address::new_from_array([3u8; 32]));
+
+        let Err(error) = Merge::new(&keypair, vec![input]) else {
+            panic!("zone-bound input must be rejected");
+        };
+
+        assert_eq!(error, TransactionError::MergeInputZoneMismatch { index: 0 });
+    }
+
+    #[test]
+    fn rejects_input_carrying_inline_data() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let mut input = plain_input(&keypair, Address::default(), 10);
+        input.utxo.data = Data::new(vec![DataRecord::Memo(b"note".to_vec())]);
+
+        let Err(error) = Merge::new(&keypair, vec![input]) else {
+            panic!("input carrying data must be rejected");
+        };
+
+        assert_eq!(error, TransactionError::MergeInputHasData { index: 0 });
+    }
+
+    #[test]
+    fn rejects_input_carrying_a_committed_data_hash() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let input = plain_input(&keypair, Address::default(), 10).with_data_hash([1u8; 32]);
+
+        let Err(error) = Merge::new(&keypair, vec![input]) else {
+            panic!("committed data hash must be rejected");
+        };
+
+        assert_eq!(error, TransactionError::MergeInputHasData { index: 0 });
+    }
+
+    #[test]
+    fn rejects_input_on_a_different_rail() {
+        let mut seed = [0u8; 32];
+        seed[1..].copy_from_slice(&random_blinding());
+        let eddsa = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa keypair");
+        let p256 = ShieldedKeypair::new().expect("p256 keypair");
+        // A P256-owned input under an ed25519 merging keypair mismatches the rail.
+        let input = plain_input(&p256, Address::default(), 10);
+
+        let Err(error) = Merge::new(&eddsa, vec![input]) else {
+            panic!("rail mismatch must be rejected");
+        };
+
+        assert_eq!(error, TransactionError::MergeInputRailMismatch { index: 0 });
     }
 }

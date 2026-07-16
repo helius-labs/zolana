@@ -26,11 +26,12 @@ pub mod wallet_sync;
 pub use actions::transaction::{sign_shielded_transaction, sign_shielded_transaction_sync};
 pub use actions::{
     build_deposit_transaction, build_deposit_transaction_sync, build_private_transaction,
-    build_private_transaction_sync, create_associated_token_account, create_deposit, create_split,
-    create_transfer, create_transfer_sync, create_withdrawal, sign_private_transaction,
-    sign_private_transaction_sync, CreatedSplit, CreatedTransfer, CreatedWithdrawal, Deposit,
-    DepositParams, ResolvedAddress, SplitParams, TransferParams, TransferRecipient,
-    UnsignedPrivateTransaction, WithdrawalParams,
+    build_private_transaction_sync, create_associated_token_account, create_deposit, create_merge,
+    create_split, create_transfer, create_transfer_sync, create_withdrawal,
+    sign_private_transaction, sign_private_transaction_sync, submit_merge_transaction,
+    CreatedMerge, CreatedSplit, CreatedTransfer, CreatedWithdrawal, Deposit, DepositParams,
+    MergeParams, ResolvedAddress, SplitParams, SubmitMergeTransaction, SubmittedMerge,
+    TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalParams,
 };
 pub use user_registry::{
     build_registration_transaction, build_registration_transaction_sync,

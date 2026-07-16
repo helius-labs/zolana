@@ -21,10 +21,10 @@ use crate::args::WalletCommand;
 // transfer/withdraw) and the pool setup commands under `dev pool`.
 pub(crate) use balance::run_balance;
 pub(crate) use deposit::run_deposit;
-pub(crate) use registry::run_merge;
+pub(crate) use registry::run_set_merging;
 pub(crate) use sync::run_sync;
 pub(crate) use test_mint::run_test_mint;
-pub(crate) use transaction::{run_split, run_transfer};
+pub(crate) use transaction::{run_merge, run_split, run_transfer};
 pub(crate) use tree::run_create_tree;
 pub(crate) use withdraw::run_withdraw;
 

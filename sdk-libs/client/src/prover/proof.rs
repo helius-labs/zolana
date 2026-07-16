@@ -92,6 +92,25 @@ impl ProofCompressed {
             },
         }
     }
+
+    /// Pack the 192-byte `merge_transact` proof: `a(32) || b(64) || c(32) ||
+    /// commitment(32) || commitment_pok(32)`. The merge circuit is the P256 BSB22
+    /// rail, so the commitment is mandatory; a proof without one is not a valid
+    /// merge proof and is rejected here rather than silently packed as zeros.
+    pub fn to_merge_proof(&self) -> Result<[u8; 192], ClientError> {
+        let commitment = self.commitment.ok_or_else(|| {
+            ClientError::ProofParse(
+                "merge proof is missing its BSB22 commitment (wrong rail?)".to_string(),
+            )
+        })?;
+        let mut proof = [0u8; 192];
+        proof[0..32].copy_from_slice(&self.a);
+        proof[32..96].copy_from_slice(&self.b);
+        proof[96..128].copy_from_slice(&self.c);
+        proof[128..160].copy_from_slice(&commitment.commitment);
+        proof[160..192].copy_from_slice(&commitment.commitment_pok);
+        Ok(proof)
+    }
 }
 
 fn compress_g1(point: &[u8; 64], name: &str) -> Result<[u8; 32], ClientError> {
@@ -166,4 +185,48 @@ pub(crate) fn proof_from_gnark_json(json_str: &str) -> Option<Proof> {
         c,
         commitment,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proof_with_commitment() -> ProofCompressed {
+        ProofCompressed {
+            a: [1u8; 32],
+            b: [2u8; 64],
+            c: [3u8; 32],
+            commitment: Some(CompressedCommitments {
+                commitment: [4u8; 32],
+                commitment_pok: [5u8; 32],
+            }),
+        }
+    }
+
+    #[test]
+    fn to_merge_proof_packs_a_b_c_and_commitment() {
+        let packed = proof_with_commitment()
+            .to_merge_proof()
+            .expect("merge proof packs");
+
+        assert_eq!(packed.get(0..32), Some([1u8; 32].as_slice()));
+        assert_eq!(packed.get(32..96), Some([2u8; 64].as_slice()));
+        assert_eq!(packed.get(96..128), Some([3u8; 32].as_slice()));
+        assert_eq!(packed.get(128..160), Some([4u8; 32].as_slice()));
+        assert_eq!(packed.get(160..192), Some([5u8; 32].as_slice()));
+    }
+
+    #[test]
+    fn to_merge_proof_rejects_a_proof_without_a_commitment() {
+        let vanilla = ProofCompressed {
+            commitment: None,
+            ..proof_with_commitment()
+        };
+
+        let error = vanilla
+            .to_merge_proof()
+            .expect_err("a vanilla proof is not a merge proof");
+
+        assert!(matches!(error, ClientError::ProofParse(_)));
+    }
 }
