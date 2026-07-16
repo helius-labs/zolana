@@ -100,9 +100,12 @@ impl ViewingKey {
     }
 
     /// P-256 viewing key at the SLIP-0010 path
-    /// `m/44'/TSPP_COIN_TYPE'/account'/1'/0'` over `wallet_seed` — the signing
-    /// path's sibling under change index `1'`.
-    pub fn from_seed(wallet_seed: &[u8], account: u32) -> Result<Self, KeypairError> {
+    /// `m/44'/TSPP_COIN_TYPE'/account'/1'/0'` over the 64-byte `wallet_seed` — the
+    /// signing path's sibling under change index `1'`.
+    pub fn from_seed(
+        wallet_seed: &[u8; crate::constants::WALLET_SEED_LEN],
+        account: u32,
+    ) -> Result<Self, KeypairError> {
         let secret =
             crate::slip10::derive_secret_key(wallet_seed, &crate::seed::viewing_path(account)?)?;
         Ok(Self::from_secret_key(secret))

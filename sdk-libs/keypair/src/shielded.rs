@@ -14,6 +14,10 @@ use crate::{
 const ADDRESS_VERSION: u8 = 1;
 pub const SHIELDED_ADDRESS_LEN: usize = PUBLIC_KEY_LEN + 32 + P256_PUBKEY_LEN;
 const ADDRESS_PAYLOAD_LEN: usize = 1 + SHIELDED_ADDRESS_LEN;
+/// Upper bound on an encoded address (Base58Check inflates ~1.37x; 2x the
+/// version+payload+checksum comfortably exceeds any valid string). Reject longer
+/// input before decoding so a huge string cannot force proportional work.
+const MAX_ENCODED_ADDRESS_LEN: usize = (ADDRESS_PAYLOAD_LEN + 4) * 2;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ShieldedAddress {
@@ -77,6 +81,9 @@ impl FromStr for ShieldedAddress {
     type Err = KeypairError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.len() > MAX_ENCODED_ADDRESS_LEN {
+            return Err(KeypairError::InvalidAddressEncoding);
+        }
         let bytes = bs58::decode(value)
             .with_check(Some(ADDRESS_VERSION))
             .into_vec()
@@ -159,7 +166,7 @@ impl ShieldedKeypair {
         let signing_key = SigningKey::from_ed25519(signing_secret);
         let nullifier_key = NullifierKey::from_signing_secret_key_bytes(signing_secret)?;
         let wallet_seed = wallet_seed_from_ed25519(signing_secret)?;
-        let viewing_key = ViewingKey::from_seed(wallet_seed.as_slice(), 0)?;
+        let viewing_key = ViewingKey::from_seed(&wallet_seed, 0)?;
         Ok(Self {
             signing_key,
             nullifier_key,

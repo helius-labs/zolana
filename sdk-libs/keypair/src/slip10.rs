@@ -20,8 +20,9 @@ const CURVE_SEED_KEY: &[u8] = b"Nist256p1 seed";
 /// Hardened-index bit per BIP-32 / SLIP-0010.
 pub const HARDENED: u32 = 0x8000_0000;
 
-/// A retry triggers with probability ~2^-224 per round; the bound exists only
-/// to turn an implementation bug into an error instead of a hang.
+/// A retry triggers with probability ~2^-32 per round (SLIP-0010's P-256 bound),
+/// so eight consecutive failures are ~2^-256; the bound exists only to turn an
+/// implementation bug into an error instead of a hang.
 const MAX_RETRIES: usize = 8;
 
 fn hmac_sha512(key: &[u8], parts: &[&[u8]]) -> Zeroizing<[u8; 64]> {
