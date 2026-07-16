@@ -22,7 +22,10 @@ pub(crate) const INFO_NULLIFIER: &[u8] = b"TSPP/nullifier";
 
 /// BIP-44 coin type for TSPP shielded keys:
 /// `SHA-256("luminous.TSPP.v1")[0..4]` as a big-endian `u32`, masked to
-/// 31 bits. Pinned; a provenance test enforces the formula.
+/// 31 bits. A provenance test locks the value to this formula so it cannot
+/// drift, but the coin type is still a placeholder: it is not finalized or
+/// SLIP-0044-registered. Changing it re-derives every identity, so identities
+/// derived under it are disposable until it is finalized for production.
 pub const TSPP_COIN_TYPE: u32 = 1_392_955_331;
 
 /// `wallet_seed` length in bytes, matching a BIP-39 seed.

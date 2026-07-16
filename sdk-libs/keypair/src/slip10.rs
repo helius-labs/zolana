@@ -77,8 +77,10 @@ fn child(
         parent_bytes.copy_from_slice(&parent.to_repr());
         hmac_sha512(chain_code, &[&[0u8], parent_bytes.as_slice(), &index_bytes])
     } else {
-        let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(*parent))
-            .ok_or(KeypairError::ZeroScalar)?;
+        let nonzero = Zeroizing::new(
+            Option::<NonZeroScalar>::from(NonZeroScalar::new(*parent))
+                .ok_or(KeypairError::ZeroScalar)?,
+        );
         let point = P256PublicKey::from_secret_scalar(&nonzero).to_encoded_point(true);
         hmac_sha512(chain_code, &[point.as_bytes(), &index_bytes])
     };
@@ -115,9 +117,10 @@ fn derive(
 /// `SLIP-0010-P256(seed, path)` as a P-256 secret key.
 pub(crate) fn derive_secret_key(seed: &[u8], path: &[u32]) -> Result<SecretKey, KeypairError> {
     let (key, _) = derive(seed, path)?;
-    let nonzero =
-        Option::<NonZeroScalar>::from(NonZeroScalar::new(*key)).ok_or(KeypairError::ZeroScalar)?;
-    Ok(SecretKey::from(nonzero))
+    let nonzero = Zeroizing::new(
+        Option::<NonZeroScalar>::from(NonZeroScalar::new(*key)).ok_or(KeypairError::ZeroScalar)?,
+    );
+    Ok(SecretKey::from(&*nonzero))
 }
 
 #[cfg(test)]

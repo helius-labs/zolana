@@ -57,9 +57,11 @@ mod tests {
 
     use super::*;
 
-    /// `TSPP_COIN_TYPE` is pinned; this test enforces the derivation formula
-    /// the constant claims (`SHA-256("luminous.TSPP.v1")[0..4]` big-endian,
-    /// masked to 31 bits) so constant and formula cannot drift apart.
+    /// `TSPP_COIN_TYPE` is a placeholder locked to a derivation formula; this
+    /// test enforces the formula the constant claims
+    /// (`SHA-256("luminous.TSPP.v1")[0..4]` big-endian, masked to 31 bits) so
+    /// constant and formula cannot drift apart. Finalizing the coin type for
+    /// production is a separate decision.
     #[test]
     fn tspp_coin_type_matches_its_derivation_formula() {
         let digest = Sha256::digest(b"luminous.TSPP.v1");
