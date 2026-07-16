@@ -13,7 +13,7 @@ use zolana_client::{
     Rpc, SpendUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_zone_8_1;
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedKeypair};
 use zolana_transaction::{
     instructions::transact::signed_transaction::asset_field, Data, OutputUtxo, Utxo,
 };
@@ -52,7 +52,7 @@ impl MergeZoneWorld {
         let sender = if self.plan.eddsa {
             let mut seed = [0u8; 32];
             seed[1..].copy_from_slice(&random_blinding());
-            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa sender keypair")
+            ShieldedKeypair::from_ed25519(&seed).expect("eddsa sender keypair")
         } else {
             ShieldedKeypair::new().expect("sender keypair")
         };

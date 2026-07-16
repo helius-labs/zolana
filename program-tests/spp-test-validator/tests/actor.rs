@@ -6,7 +6,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_interface::instruction::DepositIxData;
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 
 /// What a deposit's action recorded, so the separate assert step can verify it
@@ -70,7 +70,7 @@ impl Actor {
         let seed: [u8; 32] = signer.to_bytes()[..32]
             .try_into()
             .expect("ed25519 seed is the first 32 bytes");
-        let keypair = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?;
+        let keypair = ShieldedKeypair::from_ed25519(&seed)?;
         let mut actor = Self::with_keypair(keypair)?;
         actor.solana_signer = Some(signer);
         Ok(actor)
