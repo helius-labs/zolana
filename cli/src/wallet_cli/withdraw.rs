@@ -10,7 +10,10 @@ use super::{
     resolve::get_network,
     sync::sync_context,
     transaction::maybe_airdrop,
-    util::{ensure_positive, format_address, parse_address, parse_pubkey},
+    util::{
+        ensure_owner_spl_token_account, ensure_positive, format_address, parse_address,
+        parse_pubkey,
+    },
 };
 use crate::args::WithdrawOptions;
 
@@ -28,6 +31,11 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         Address::new_from_array(network.tree.to_bytes()),
     );
     let recipient = parse_pubkey(&opts.to)?;
+
+    // An SPL withdrawal settles into the recipient's associated token account,
+    // which the on-chain settlement validates, so create it first (no-op for
+    // SOL). The funding wallet pays for the account.
+    ensure_owner_spl_token_account(&client, &ctx.material.funding, recipient, asset)?;
 
     let withdrawal = create_withdrawal(WithdrawalParams {
         wallet: &ctx.wallet,

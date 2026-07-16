@@ -1,31 +1,17 @@
 use anyhow::{bail, Result};
-use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ensure_registered, Rpc, SolanaRpc};
 use zolana_transaction::Address;
 use zolana_user_registry_interface::{instruction::set_merging_enabled, user_record_pda};
 
 use super::{
-    material::{load_existing_wallet, load_sender_from_resolved_sync, WalletMaterial},
+    material::{load_existing_wallet, load_sender_from_resolved_sync},
     resolve::resolve_sync,
 };
 use crate::{
     args::{RegisterOptions, SetMergingOptions},
     cli_config::{resolve_keypair_path, resolve_rpc_url, CliConfigFile},
 };
-
-pub(super) fn register_wallet_on_chain(
-    rpc: &SolanaRpc,
-    material: &WalletMaterial,
-) -> Result<Option<Signature>> {
-    // Idempotent register-or-update lives in the SDK; the CLI just supplies its
-    // keypair + funding key.
-    Ok(ensure_registered(
-        rpc,
-        &material.funding,
-        &material.keypair,
-    )?)
-}
 
 /// Publish the wallet's shielded keys under its Solana pubkey. Registration is
 /// what makes the pubkey payable: senders resolve it through the registry, and

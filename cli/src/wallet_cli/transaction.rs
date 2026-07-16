@@ -14,7 +14,7 @@ use super::{
     sync::{sync_context, wait_for_indexed_leaf},
     util::{ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey},
 };
-use crate::args::{MergeOptions, SplitOptions, TransferOptions};
+use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
 
 pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
@@ -61,6 +61,41 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
         mode,
         signature
     );
+    Ok(())
+}
+
+/// List the wallet's spendable notes for one asset. The printed hashes are the
+/// `--input` values for `wallet split` / `wallet merge`; `kind` flags which
+/// notes those actions accept (only `plain` notes can be split or merged).
+pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
+    let asset = parse_address(&opts.mint)?;
+    let ctx = sync_context(&opts.sync)?;
+    let mut count = 0usize;
+    for entry in ctx
+        .wallet
+        .utxos
+        .iter()
+        .filter(|entry| !entry.spent && entry.utxo.asset == asset)
+    {
+        count += 1;
+        let kind = if entry.utxo.zone_program_id.is_some() {
+            "zone"
+        } else if entry.data_hash.unwrap_or_default() != [0u8; 32]
+            || entry.zone_data_hash.unwrap_or_default() != [0u8; 32]
+        {
+            "data"
+        } else {
+            "plain"
+        };
+        println!(
+            "ok utxo hash={} amount={} mint={} kind={}",
+            hex::encode(entry.output_context.hash),
+            entry.utxo.amount,
+            format_address(asset),
+            kind
+        );
+    }
+    println!("ok utxos mint={} count={count}", format_address(asset));
     Ok(())
 }
 
