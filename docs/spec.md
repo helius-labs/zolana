@@ -298,6 +298,8 @@ The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Sol
 - BIP-39: `wallet_seed := PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" || passphrase, c=2048, dkLen=64)`.
 - Solana-only owners deriving their shielded identity from the Solana keypair: `wallet_seed := HKDF-SHA256(salt=∅, IKM=ed25519_sk, info="TSPP/wallet_seed", L=64)`. One-way — the derived shielded keys never expose the Solana secret — and anchored to the ed25519 secret itself, so a raw Solana keypair file recovers the wallet without a mnemonic.
 
+**Recovery.** Each source matches a rail. A P-256 wallet recovers straight from its BIP-39 phrase (the first source). A Solana-only (ed25519) wallet has no separate phrase: recover the Solana key exactly as the Solana wallet derives it — BIP-39 → SLIP-0010 over Ed25519 at `m/44'/501'/account'/0'/0'` (coin type `501`) — then the ed25519 bridge (the second source) reconstructs the shielded identity. So a Solana mnemonic recovers the shielded wallet *through* the Solana key, not through the BIP-39 shielded path.
+
 **Constructors:**
 
 - `SigningKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/0'/0')`.
