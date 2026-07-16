@@ -37,9 +37,9 @@ pub mod wallet_sync;
 pub use actions::transaction::{sign_shielded_transaction, sign_shielded_transaction_sync};
 pub use actions::{
     build_deposit_transaction, build_deposit_transaction_sync, create_associated_token_account,
-    create_deposit, create_transfer, create_transfer_sync, create_withdrawal, CreatedTransfer,
-    CreatedWithdrawal, Deposit, DepositParams, ResolvedAddress, TransferParams, TransferRecipient,
-    UnsignedPrivateTransaction, WithdrawalParams,
+    create_deposit, create_split, create_transfer, create_transfer_sync, create_withdrawal,
+    CreatedSplit, CreatedTransfer, CreatedWithdrawal, Deposit, DepositParams, ResolvedAddress,
+    SplitParams, TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalParams,
 };
 #[cfg(feature = "indexer-api")]
 pub use actions::{
@@ -84,8 +84,8 @@ pub use user_registry::{
     validate_registered_keypair,
 };
 pub use wallet_authority::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, LocalWalletAuthority,
-    P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
+    AnonymousRecipientSlot, ApprovalRequest, EncryptedSplit, EncryptedTransfer,
+    LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
 pub use wallet_sync::{
     get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_async,

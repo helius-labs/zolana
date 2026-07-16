@@ -112,6 +112,27 @@ pub enum TransactionError {
     #[error("merge input {index} carries program or zone data, which is not supported")]
     MergeInputHasData { index: usize },
 
+    #[error("split part count {num_outputs} is out of range (2..=8)")]
+    SplitInvalidPartCount { num_outputs: u8 },
+
+    #[error("split input asset does not match the requested split asset")]
+    SplitInputAssetMismatch,
+
+    #[error("split input carries program or utxo data, which is not supported")]
+    SplitInputHasData,
+
+    #[error("split input is bound to a zone, which is not supported")]
+    SplitInputZoneMismatch,
+
+    #[error(
+        "split amount mismatch: {num_outputs} parts of {per_output} do not sum to input {input}"
+    )]
+    SplitAmountMismatch {
+        input: u64,
+        num_outputs: u8,
+        per_output: u64,
+    },
+
     #[error("p256 error: {0}")]
     P256(String),
 
