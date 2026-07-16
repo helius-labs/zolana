@@ -193,19 +193,19 @@ Optional merge services and sync delegates can be used to improve UX.
 ```mermaid
 sequenceDiagram
     participant Client as Client<br>(Wallet + Swaps)
-    participant Indexer as Indexer<br>(Photon)
-    participant SPP as SPP<br>(Shielded Pool Program)
+    participant ZoneRPC as Zone RPC<br>(Photon / Prover)
+    participant System as System Program<br>(Shielded Pool)
     participant Trees as Tree accounts
 
     Note over Client: Build transaction
-    Client->>Indexer: fetch_encrypted_utxos
-    Indexer-->>Client: encrypted UTXOs
+    Client->>ZoneRPC: fetch_encrypted_utxos
+    ZoneRPC-->>Client: encrypted UTXOs
     Note over Client: 1. decrypt UTXOs <br> 2. select UTXOs (in) <br> 3. create new UTXOs (out) <br> 4. sign in and out utxos
-    Client->>SPP: submit tx<br>transact
+    Client->>System: submit tx<br>transact
 
-    Note over SPP: verify ZKP
-    SPP-->>Trees: update trees
-    SPP-->>Indexer: index encrypted UTXOs
+    Note over System: verify ZKP
+    System-->>Trees: update trees
+    System-->>ZoneRPC: index encrypted UTXOs
 ```
 
 ## Policy Zones
