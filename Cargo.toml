@@ -211,6 +211,7 @@ ed25519-dalek = "2.2.0"
 aes = { version = "0.8", default-features = false }
 ctr = { version = "0.9", default-features = false }
 hkdf = "0.12"
+hmac = "0.12"
 zeroize = "1"
 criterion = "0.5"
 proptest = "1"

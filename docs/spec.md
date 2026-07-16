@@ -289,14 +289,20 @@ The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Sol
 
 `(signing_sk, signing_pk)` — the spend-authorizing keypair. P256 for shielded users; Ed25519 for Solana-only owners whose ownership rails through SPP's Ed25519 signer check (see [UTXO Ownership Check](#utxo-ownership-check)).
 
-**Coin type.** `TSPP_COIN_TYPE = 1445561917'` (placeholder), derived as `SHA-256("luminous.TSPP.v1")[0..4] as u32 & 0x7FFF_FFFF`.
+**Coin type.** `TSPP_COIN_TYPE = 1392955331'`, derived as `SHA-256("luminous.TSPP.v1")[0..4]` as a big-endian `u32` masked to 31 bits (`& 0x7FFF_FFFF`).
 
 **Derivation path.** `m / 44' / TSPP_COIN_TYPE' / account' / 0' / 0'`
 
+**Wallet seed.** `wallet_seed` (64 B) — the root of the SLIP-0010 derivations. Sources:
+
+- BIP-39: `wallet_seed := PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" || passphrase, c=2048, dkLen=64)`.
+- Solana-only owners deriving their shielded identity from the Solana keypair: `wallet_seed := HKDF-SHA256(salt=∅, IKM=ed25519_sk, info="TSPP/wallet_seed", L=64)`. One-way — the derived shielded keys never expose the Solana secret — and anchored to the ed25519 secret itself, so a raw Solana keypair file recovers the wallet without a mnemonic.
+
 **Constructors:**
 
-- `SigningKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/0'/0')` on the BIP-39 seed `wallet_seed := PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" || passphrase, c=2048, dkLen=64)`.
+- `SigningKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/0'/0')`.
 - `SigningKey::from_sk(signing_sk)` — direct injection.
+- `SigningKey::from_ed25519(ed25519_sk)` — Solana-only owners: the Ed25519 secret is the signing key directly. Its [Nullifier Key](#nullifier-key) derives from the same secret and its [ViewingKey](#viewingkey) from the `wallet_seed` bridged off that secret (Wallet seed, above), so `ShieldedKeypair::from_ed25519` reconstructs the whole shielded wallet from a Solana keypair.
 
 **Methods:**
 
@@ -319,7 +325,7 @@ Symmetric key to derive nullifiers.
 
 `(viewing_sk, viewing_pk)` — P-256 keypair, used for HPKE encryption and to derive view-tag secrets. While a sync delegate is set the epoch uses a shared P256 key (see [Sync Delegate](#sync-delegate)). Viewing keys can rotate.
 
-**Constructor:** `ViewingKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/1'/0')` on the same BIP-39 `wallet_seed` as the [Signing Key](#signing-key); a sibling of the signing path under change index `1'`, recoverable from the mnemonic.
+**Constructor:** `ViewingKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/1'/0')` on the same `wallet_seed` as the [Signing Key](#signing-key); a sibling of the signing path under change index `1'`. Recoverable from whichever root produced the `wallet_seed`: the mnemonic, or the Solana keypair for Solana-only owners.
 
 ## Derived secrets
 

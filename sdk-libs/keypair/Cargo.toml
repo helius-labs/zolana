@@ -7,11 +7,13 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+bs58 = { workspace = true, features = ["check"] }
 p256 = { workspace = true }
 ed25519-dalek = { workspace = true }
 aes = { workspace = true }
 ctr = { workspace = true }
 hkdf = { workspace = true }
+hmac = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "std"] }

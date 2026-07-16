@@ -2,6 +2,18 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum KeypairError {
+    #[error("invalid shielded address encoding")]
+    InvalidAddressEncoding,
+
+    #[error("invalid shielded address length: expected {expected} bytes, got {actual}")]
+    InvalidAddressLength { expected: usize, actual: usize },
+
+    #[error("unsupported shielded address version: {0}")]
+    UnsupportedAddressVersion(u8),
+
+    #[error("invalid shielded address checksum")]
+    InvalidAddressChecksum,
+
     #[error("invalid public key")]
     InvalidPublicKey,
 
@@ -16,6 +28,12 @@ pub enum KeypairError {
 
     #[error("HKDF expansion failed")]
     Hkdf,
+
+    #[error("SLIP-0010 derivation failed")]
+    Slip10Derivation,
+
+    #[error("derivation account index {0} exceeds the hardened-index range")]
+    InvalidDerivationAccount(u32),
 
     #[error("poseidon hash failed (code {0})")]
     Poseidon(u32),
