@@ -25,9 +25,7 @@ use zolana_wallet::{
     LocalWalletAuthority, P256Signature, SyncWalletAuthority,
 };
 
-use super::{
-    registry::register_wallet_on_chain, resolve::ResolvedSyncOptions, util::parse_hex_array,
-};
+use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};
 use crate::{
     args::{AddressOptions, NewWalletOptions},
     cli_config::{resolve_keypair_path as config_keypair_path, resolve_rpc_url, CliConfigFile},
@@ -181,13 +179,14 @@ pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
     save_wallet(&path, &keypair, &funding)?;
     let material = WalletMaterial { keypair, funding };
 
-    let mut rpc = SolanaRpc::new(resolve_rpc_url(opts.rpc_url.as_deref(), &config));
+    // `wallet new` is offline: it only writes the wallet file. Publishing the
+    // shielded keys on chain is the explicit `wallet register` command, and
+    // funding is left to the operator; `--airdrop-lamports` is a localnet
+    // convenience that reaches the RPC only when explicitly requested.
     if let Some(lamports) = opts.airdrop_lamports {
+        let mut rpc = SolanaRpc::new(resolve_rpc_url(opts.rpc_url.as_deref(), &config));
         let signature = rpc.airdrop(&material.funding.pubkey(), lamports)?;
         println!("ok airdrop signature={signature}");
-    }
-    if let Some(signature) = register_wallet_on_chain(&rpc, &material)? {
-        println!("ok user_registry signature={signature}");
     }
 
     println!(
