@@ -85,6 +85,18 @@ pub enum ClientError {
     #[error("merge input {index} has a different asset; merge requires a single shared asset")]
     MergeInputAssetMismatch { index: usize },
 
+    #[error("split amount {amount} is not divisible into {parts} equal parts")]
+    SplitNotDivisible { amount: u64, parts: u8 },
+
+    #[error("split input note {hash:?} is not available in the wallet")]
+    InputNoteUnavailable { hash: [u8; 32] },
+
+    #[error("split input note {hash:?} carries program or utxo data, which is not supported")]
+    SplitInputHasData { hash: [u8; 32] },
+
+    #[error("split input note {hash:?} is bound to a zone, which is not supported")]
+    SplitInputZoneMismatch { hash: [u8; 32] },
+
     #[error("p256 signature error: {0}")]
     P256Signature(String),
 

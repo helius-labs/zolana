@@ -24,7 +24,7 @@ pub(crate) use deposit::run_deposit;
 pub(crate) use registry::run_merge;
 pub(crate) use sync::run_sync;
 pub(crate) use test_mint::run_test_mint;
-pub(crate) use transaction::run_transfer;
+pub(crate) use transaction::{run_split, run_transfer};
 pub(crate) use tree::run_create_tree;
 pub(crate) use withdraw::run_withdraw;
 

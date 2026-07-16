@@ -10,6 +10,7 @@
 pub mod external_data;
 pub mod shape;
 pub mod slots;
+pub mod split;
 pub mod spp_proof_inputs;
 pub mod transfer;
 pub mod types;
@@ -17,6 +18,7 @@ pub mod types;
 pub use external_data::ExternalData;
 pub use shape::{canonical_shape, resolve_shape, Shape, SPP_SUPPORTED_SHAPES};
 pub use slots::{encode_confidential_slots, encrypt_transaction_data, EncryptedTransactionData};
+pub use split::{ConfidentialSplit, PreparedSplit};
 pub use spp_proof_inputs::{
     first_nullifier, get_transaction_viewing_key, inputs_require_p256, signed_to_field,
     PublicAmounts, SppProofInputs,

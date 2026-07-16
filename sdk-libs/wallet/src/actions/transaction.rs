@@ -8,7 +8,10 @@ use zolana_interface::{
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, SignatureType};
 use zolana_transaction::{
     instructions::{
-        transact::{ConfidentialTransfer, PreparedTransfer, SppProofInputs, WithdrawalTarget},
+        transact::{
+            ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
+            SppProofInputs, WithdrawalTarget,
+        },
         types::SppProofInputUtxo,
     },
     Address, AssetRegistry, Utxo, Wallet, SOL_MINT,
@@ -121,6 +124,11 @@ enum PrivateTransactionAction {
         amount: u64,
         target: WithdrawalTarget,
     },
+    Split {
+        asset: Address,
+        num_outputs: u8,
+        per_output_amount: u64,
+    },
 }
 
 pub struct TransferParams<'a, R> {
@@ -220,6 +228,116 @@ pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdra
     })
 }
 
+#[derive(Clone)]
+pub struct CreatedSplit {
+    pub transaction: UnsignedPrivateTransaction,
+    pub num_outputs: u8,
+    pub per_output_amount: u64,
+}
+
+pub struct SplitParams<'a> {
+    pub wallet: &'a Wallet,
+    pub payer: Address,
+    pub asset: Address,
+    pub parts: u8,
+    pub input: Option<[u8; 32]>,
+}
+
+/// Build a 1-input -> N-output self-split: spend one plain note and re-mint it
+/// as `parts` equal self-owned notes. The input note is chosen by explicit
+/// commitment hash or, when omitted, as the largest unspent plain note of the
+/// asset on the single spend tree. The note must be plain (no zone binding, no
+/// attached data) and its amount evenly divisible into `parts`.
+pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientError> {
+    let tree = resolve_spend_tree(request.wallet, request.asset)?;
+    let (input, per_output_amount) = select_split_note(
+        request.wallet,
+        tree,
+        request.asset,
+        request.parts,
+        request.input,
+    )?;
+    let num_outputs = request.parts;
+    Ok(CreatedSplit {
+        transaction: UnsignedPrivateTransaction {
+            payer: request.payer,
+            tree,
+            inputs: vec![input],
+            action: PrivateTransactionAction::Split {
+                asset: request.asset,
+                num_outputs,
+                per_output_amount,
+            },
+            withdrawal: None,
+            approval_summary: format!(
+                "private transaction split into {num_outputs} notes of {per_output_amount}"
+            ),
+        },
+        num_outputs,
+        per_output_amount,
+    })
+}
+
+/// Select and validate the single input note a split spends, returning it with
+/// the per-output amount. Rejects notes carrying zone bindings or data, and
+/// amounts that do not divide evenly into `parts`.
+fn select_split_note(
+    wallet: &Wallet,
+    tree: Address,
+    asset: Address,
+    parts: u8,
+    input: Option<[u8; 32]>,
+) -> Result<(UnsignedSpendInput, u64), ClientError> {
+    let candidate = match input {
+        Some(hash) => wallet
+            .utxos
+            .iter()
+            .find(|entry| {
+                !entry.spent
+                    && entry.utxo.asset == asset
+                    && entry.output_context.tree == tree
+                    && entry.output_context.hash == hash
+            })
+            .ok_or(ClientError::InputNoteUnavailable { hash })?,
+        None => wallet
+            .utxos
+            .iter()
+            .filter(|entry| {
+                !entry.spent && entry.utxo.asset == asset && entry.output_context.tree == tree
+            })
+            .max_by_key(|entry| entry.utxo.amount)
+            .ok_or(ClientError::InsufficientBalance {
+                requested: 1,
+                available: 0,
+            })?,
+    };
+
+    let hash = candidate.output_context.hash;
+    if candidate.utxo.zone_program_id.is_some() || candidate.zone_data_hash.is_some() {
+        return Err(ClientError::SplitInputZoneMismatch { hash });
+    }
+    if !candidate.utxo.data.is_empty() || candidate.data_hash.is_some() {
+        return Err(ClientError::SplitInputHasData { hash });
+    }
+
+    let amount = candidate.utxo.amount;
+    let parts_u64 = u64::from(parts);
+    if parts == 0 || amount % parts_u64 != 0 {
+        return Err(ClientError::SplitNotDivisible { amount, parts });
+    }
+
+    Ok((
+        UnsignedSpendInput {
+            utxo: candidate.utxo.clone(),
+            utxo_hash: hash,
+            nullifier: candidate.nullifier,
+            data_hash: candidate.data_hash,
+            zone_data_hash: candidate.zone_data_hash,
+        },
+        amount / parts_u64,
+    ))
+}
+
 pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
@@ -300,32 +418,66 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
             zone_data_hash: input.zone_data_hash,
         })
         .collect();
-    let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
-    match transaction.action {
+    let signed = match transaction.action {
         PrivateTransactionAction::Transfer {
             recipient,
             asset,
             amount,
         } => {
+            let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
             tx.send(&recipient, asset, amount)?;
+            let prepared = tx.prepare()?;
+            sign_prepared(
+                prepared,
+                &address,
+                authority,
+                &wallet.registry,
+                transaction.approval_summary,
+            )
+            .await?
         }
         PrivateTransactionAction::Withdrawal {
             asset,
             amount,
             target,
         } => {
+            let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
             tx.withdraw(asset, amount, target)?;
+            let prepared = tx.prepare()?;
+            sign_prepared(
+                prepared,
+                &address,
+                authority,
+                &wallet.registry,
+                transaction.approval_summary,
+            )
+            .await?
         }
-    }
-    let prepared = tx.prepare()?;
-    let signed = sign_prepared(
-        prepared,
-        &address,
-        authority,
-        &wallet.registry,
-        transaction.approval_summary,
-    )
-    .await?;
+        PrivateTransactionAction::Split {
+            asset,
+            num_outputs,
+            per_output_amount,
+        } => {
+            let input = inputs.into_iter().next().ok_or(ClientError::NoInputs)?;
+            let split = ConfidentialSplit::new(
+                address,
+                input,
+                asset,
+                num_outputs,
+                per_output_amount,
+                transaction.payer,
+            )?;
+            let prepared = split.prepare()?;
+            sign_prepared_split(
+                prepared,
+                &address,
+                authority,
+                &wallet.registry,
+                transaction.approval_summary,
+            )
+            .await?
+        }
+    };
     Ok(SignedPrivateTransaction {
         transaction: signed,
         withdrawal: transaction.withdrawal,
@@ -360,6 +512,37 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
         .await?;
     let mut proof_inputs =
         prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.slots)?;
+    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
+        let message_hash = proof_inputs.message_hash()?;
+        let sig = authority.sign_p256(&message_hash).await?;
+        let mut bytes = [0u8; 64];
+        bytes[..32].copy_from_slice(&sig.sig_r);
+        bytes[32..].copy_from_slice(&sig.sig_s);
+        proof_inputs.p256_signature = Some(bytes);
+    }
+    Ok(proof_inputs)
+}
+
+async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
+    prepared: PreparedSplit,
+    address: &ShieldedAddress,
+    authority: &A,
+    assets: &AssetRegistry,
+    approval_summary: String,
+) -> Result<SppProofInputs, ClientError> {
+    let bundle = prepared.bundle_plaintext(assets)?;
+    let view_tag = prepared.owner_view_tag()?;
+    let encrypted = authority
+        .encrypt_split(&prepared.first_nullifier, view_tag, &bundle)
+        .await?;
+    authority
+        .request_user_approval(ApprovalRequest {
+            solana_pubkey: authority.solana_pubkey(),
+            summary: approval_summary,
+        })
+        .await?;
+    let mut proof_inputs =
+        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.bundle)?;
     if address.signing_pubkey.signature_type()? == SignatureType::P256 {
         let message_hash = proof_inputs.message_hash()?;
         let sig = authority.sign_p256(&message_hash).await?;
@@ -479,7 +662,7 @@ mod tests {
     use borsh::to_vec;
     use solana_account::Account;
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{Data, Utxo, WalletUtxo};
+    use zolana_transaction::{Data, DataRecord, Utxo, WalletUtxo};
     use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
     use super::*;
@@ -873,5 +1056,93 @@ mod tests {
         .expect("withdrawal");
 
         assert_eq!(created.transaction.tree(), Address::default());
+    }
+
+    #[test]
+    fn create_split_accepts_plain_divisible_note() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_sol(sender, 800);
+
+        let created = create_split(SplitParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            asset: SOL_MINT,
+            parts: 8,
+            input: None,
+        })
+        .expect("split");
+
+        assert_eq!(created.num_outputs, 8);
+        assert_eq!(created.per_output_amount, 100);
+        assert_eq!(created.transaction.input_count(), 1);
+    }
+
+    #[test]
+    fn create_split_rejects_indivisible_amount() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_sol(sender, 10);
+
+        let error = match create_split(SplitParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            asset: SOL_MINT,
+            parts: 3,
+            input: None,
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("an indivisible amount must be rejected"),
+        };
+
+        assert!(matches!(
+            error,
+            ClientError::SplitNotDivisible {
+                amount: 10,
+                parts: 3
+            }
+        ));
+    }
+
+    #[test]
+    fn create_split_rejects_note_carrying_data() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let mut wallet = wallet_with_sol(sender, 800);
+        if let Some(entry) = wallet.utxos.first_mut() {
+            entry.utxo.data = Data::new(vec![DataRecord::Memo(b"note".to_vec())]);
+        }
+
+        let error = match create_split(SplitParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            asset: SOL_MINT,
+            parts: 8,
+            input: None,
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("a note carrying data must be rejected"),
+        };
+
+        assert!(matches!(error, ClientError::SplitInputHasData { .. }));
+    }
+
+    #[test]
+    fn create_split_rejects_zone_bound_note() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let mut wallet = wallet_with_sol(sender, 800);
+        if let Some(entry) = wallet.utxos.first_mut() {
+            entry.utxo.zone_program_id = Some(Address::new_from_array([3u8; 32]));
+        }
+
+        let error = match create_split(SplitParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            asset: SOL_MINT,
+            parts: 8,
+            input: None,
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("a zone-bound note must be rejected"),
+        };
+
+        assert!(matches!(error, ClientError::SplitInputZoneMismatch { .. }));
     }
 }

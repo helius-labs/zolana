@@ -56,6 +56,12 @@ pub(crate) enum CliCommand {
     #[command(name = "withdraw", about = "Withdraw to public address")]
     Withdraw(WithdrawOptions),
 
+    #[command(
+        name = "split",
+        about = "Split a private note into equal self-owned notes"
+    )]
+    Split(SplitOptions),
+
     #[command(name = "merge", about = "Enable or disable merging for this wallet")]
     Merge(MergeOptions),
 }
@@ -575,6 +581,28 @@ pub(crate) struct WithdrawOptions {
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct SplitOptions {
+    #[command(flatten)]
+    pub(crate) network: NetworkWalletOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u8).range(2..=8),
+        help = "Number of equal output notes to produce (2-8)"
+    )]
+    pub(crate) parts: u8,
+
+    #[arg(
+        long,
+        help = "Optional input note commitment hash (hex); defaults to the largest plain note"
+    )]
+    pub(crate) input: Option<String>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct BalanceOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
@@ -768,6 +796,7 @@ mod tests {
             ["zolana", "deposit", "--help"].as_slice(),
             ["zolana", "transfer", "--help"].as_slice(),
             ["zolana", "withdraw", "--help"].as_slice(),
+            ["zolana", "split", "--help"].as_slice(),
             ["zolana", "merge", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
@@ -1194,6 +1223,62 @@ mod tests {
             disable: true,
         };
         assert_eq!(opts, expected);
+    }
+
+    #[test]
+    fn parses_split_options() {
+        let Some(CliCommand::Split(split)) = parse_cli(&[
+            "split",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+            "--mint",
+            "SOL",
+            "--parts",
+            "4",
+            "--input",
+            "0101010101010101010101010101010101010101010101010101010101010101",
+        ])
+        .command
+        else {
+            panic!("expected split command");
+        };
+        let expected = SplitOptions {
+            network: NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        keypair: Some("/tmp/alice.pid.json".to_string()),
+                    },
+                    rpc_url: None,
+                    indexer_url: None,
+                },
+                tree: Some("Tree111111111111111111111111111111111111111".to_string()),
+                prover_url: None,
+                airdrop_lamports: None,
+            },
+            mint: "SOL".to_string(),
+            parts: 4,
+            input: Some(
+                "0101010101010101010101010101010101010101010101010101010101010101".to_string(),
+            ),
+        };
+        assert_eq!(split, expected);
+    }
+
+    #[test]
+    fn split_part_count_is_range_limited() {
+        for parts in ["1", "9"] {
+            assert!(Cli::try_parse_from([
+                "zolana",
+                "split",
+                "--keypair",
+                "/tmp/alice.pid.json",
+                "--parts",
+                parts,
+            ])
+            .is_err());
+        }
     }
 
     #[test]

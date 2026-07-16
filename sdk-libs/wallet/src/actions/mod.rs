@@ -16,7 +16,7 @@ pub use transaction::{
     sign_private_transaction_sync,
 };
 pub use transaction::{
-    create_transfer, create_transfer_sync, create_withdrawal, CreatedTransfer, CreatedWithdrawal,
-    ResolvedAddress, TransferParams, TransferRecipient, UnsignedPrivateTransaction,
-    WithdrawalParams,
+    create_split, create_transfer, create_transfer_sync, create_withdrawal, CreatedSplit,
+    CreatedTransfer, CreatedWithdrawal, ResolvedAddress, SplitParams, TransferParams,
+    TransferRecipient, UnsignedPrivateTransaction, WithdrawalParams,
 };
