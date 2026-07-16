@@ -8,23 +8,46 @@
 
 #[path = "../common/setup.rs"]
 mod common;
-#[path = "../common/transact.rs"]
-mod transact_common;
 
 use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_interface::{
-    instruction::{Transact, TransactSplWithdrawal, TransactWithdrawal},
+    instruction::{
+        instruction_data::transact::{InputUtxo, OutputCiphertext, TransactIxData, TransactProof},
+        Transact, TransactSplWithdrawal, TransactWithdrawal,
+    },
     pda,
 };
 use zolana_program_test::ZolanaProgramTest;
 
-use crate::transact_common::{eddsa_input_utxo, fe, ix_output_ciphertext, new_transact_ix_data};
-
 /// Error code for `ShieldedPoolError::BothPublicAmountsSet`.
 const BOTH_PUBLIC_AMOUNTS_SET: u32 = 7023;
+
+/// A field element holding `value` in its low 8 bytes (big-endian).
+fn fe(value: u64) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[24..].copy_from_slice(&value.to_be_bytes());
+    out
+}
+
+fn input(nullifier_hash: [u8; 32]) -> InputUtxo {
+    InputUtxo {
+        nullifier_hash,
+        nullifier_tree_root_index: 0,
+        utxo_tree_root_index: 0,
+        tree_index: 0,
+        eddsa_signer_index: 0,
+    }
+}
+
+fn ciphertext(view_tag: [u8; 32]) -> OutputCiphertext {
+    OutputCiphertext {
+        view_tag,
+        data: Vec::new(),
+    }
+}
 
 fn send_raw(
     rpc: &mut ZolanaProgramTest,
@@ -66,18 +89,26 @@ fn both_public_amounts_are_rejected() {
     rpc.mint_to(&mint, &attacker_ata, 1_000).expect("mint dust");
 
     // Both amounts set: +1 SOL and +1000 SPL.
-    let mut ix_data = new_transact_ix_data(
-        vec![eddsa_input_utxo(fe(101), 0), eddsa_input_utxo(fe(102), 0)],
-        Some(1_000_000_000),
-        vec![[1u8; 32], [2u8; 32], [3u8; 32]],
-        vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
-            ix_output_ciphertext([3u8; 32]),
+    let ix_data = TransactIxData {
+        proof: TransactProof::zeroed_eddsa(),
+        expiry_unix_ts: u64::MAX,
+        relayer_fee: 0,
+        private_tx_hash: [0u8; 32],
+        p256_signing_pk_field: None,
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        inputs: vec![input(fe(101)), input(fe(102))],
+        public_sol_amount: Some(1_000_000_000),
+        public_spl_amount: Some(1_000),
+        data_hash: None,
+        zone_data_hash: None,
+        output_utxo_hashes: vec![[1u8; 32], [2u8; 32], [3u8; 32]],
+        output_ciphertexts: vec![
+            ciphertext([1u8; 32]),
+            ciphertext([2u8; 32]),
+            ciphertext([3u8; 32]),
         ],
-        None,
-    );
-    ix_data.public_spl_amount = Some(1_000);
+    };
 
     let ix = Transact {
         payer: attacker.pubkey(),
