@@ -120,6 +120,20 @@ impl WalletAuthority for AsyncTestAuthority {
         )
     }
 
+    async fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: [u8; 32],
+        bundle: &zolana_transaction::serialization::split::SplitBundlePlaintext,
+    ) -> Result<zolana_client::EncryptedSplit, TransactionError> {
+        SyncWalletAuthority::encrypt_split(
+            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            first_nullifier,
+            view_tag,
+            bundle,
+        )
+    }
+
     async fn request_user_approval(
         &self,
         request: ApprovalRequest,

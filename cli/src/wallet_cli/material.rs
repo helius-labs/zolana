@@ -12,16 +12,16 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, LocalWalletAuthority,
-    P256Signature, SolanaRpc, SyncWalletAuthority,
+    AnonymousRecipientSlot, ApprovalRequest, EncryptedSplit, EncryptedTransfer,
+    LocalWalletAuthority, P256Signature, SolanaRpc, SyncWalletAuthority,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
     ViewingKey,
 };
 use zolana_transaction::{
-    serialization::anonymous::AnonymousTransferSenderPlaintext, Address, AssetRegistry,
-    SppProofOutputUtxo, TransactionError,
+    serialization::{anonymous::AnonymousTransferSenderPlaintext, split::SplitBundlePlaintext},
+    Address, AssetRegistry, SppProofOutputUtxo, TransactionError,
 };
 
 use super::{
@@ -117,6 +117,20 @@ impl SyncWalletAuthority for WalletMaterial {
             sender_view_tag,
             sender,
             recipients,
+        )
+    }
+
+    fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> std::result::Result<EncryptedSplit, TransactionError> {
+        SyncWalletAuthority::encrypt_split(
+            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            first_nullifier,
+            view_tag,
+            bundle,
         )
     }
 

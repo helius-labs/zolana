@@ -10,9 +10,13 @@ use zolana_keypair::{
 
 use crate::{
     instructions::transact::slots::encode_confidential_slots,
-    serialization::anonymous::{
-        AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle, AnonymousSenderEncode,
-        AnonymousTransferRecipientPlaintext, AnonymousTransferSenderPlaintext,
+    serialization::{
+        anonymous::{
+            AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
+            AnonymousSenderEncode, AnonymousTransferRecipientPlaintext,
+            AnonymousTransferSenderPlaintext,
+        },
+        split::{Split, SplitBundlePlaintext, SplitEncode},
     },
     AssetRegistry, SppProofOutputUtxo, TransactionError, UtxoSerialization,
 };
@@ -42,6 +46,16 @@ pub struct EncryptedTransfer {
     pub tx_viewing_pk: P256Pubkey,
     pub salt: Salt,
     pub slots: Vec<Option<MessageData>>,
+}
+
+/// The sealed slot-0 `Split` bundle plus the transaction context needed to
+/// finalize the split proof inputs. Unlike [`EncryptedTransfer`], a split emits
+/// a single ciphertext covering every real output rather than one per slot.
+#[derive(Clone, Debug)]
+pub struct EncryptedSplit {
+    pub tx_viewing_pk: P256Pubkey,
+    pub salt: Salt,
+    pub bundle: MessageData,
 }
 
 /// Ephemeral key material required by a wallet scan.
@@ -92,6 +106,13 @@ pub trait WalletAuthority: Send + Sync {
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError>;
 
+    async fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError>;
+
     async fn request_user_approval(
         &self,
         _request: ApprovalRequest,
@@ -137,6 +158,13 @@ pub trait SyncWalletAuthority: Send + Sync {
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError>;
+
+    fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError>;
 
     fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), TransactionError> {
         Ok(())
@@ -191,6 +219,15 @@ where
             sender,
             recipients,
         )
+    }
+
+    async fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError> {
+        SyncWalletAuthority::encrypt_split(self, first_nullifier, view_tag, bundle)
     }
 
     async fn request_user_approval(
@@ -312,6 +349,35 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
             tx_viewing_pk: tx.pubkey(),
             salt,
             slots,
+        })
+    }
+
+    fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError> {
+        let tx = self
+            .keypair
+            .viewing_key
+            .get_transaction_viewing_key(first_nullifier)?;
+        let salt = random_salt();
+        let message = Split::encode_plaintext(
+            bundle,
+            view_tag,
+            &SplitEncode {
+                tx: tx.clone(),
+                recipient_pubkey: self.keypair.viewing_key.pubkey(),
+                salt,
+                slot_index: 0,
+                blinding_seed: bundle.blinding_seed,
+            },
+        )?;
+        Ok(EncryptedSplit {
+            tx_viewing_pk: tx.pubkey(),
+            salt,
+            bundle: message,
         })
     }
 
