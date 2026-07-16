@@ -13,7 +13,7 @@ use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, Shield
 use crate::{
     error::TransactionError,
     instructions::{
-        merge::MERGE_INPUTS,
+        merge::{has_data, MERGE_INPUTS},
         types::{InputUtxoContext, SppProofInputUtxo},
     },
     SppProofOutputUtxo,
@@ -54,12 +54,23 @@ impl MergeZone {
 
         let asset = inputs.first().ok_or(TransactionError::NoInputs)?.utxo.asset;
         // The proof binds every input to one shared owner identity, so the merge
-        // rail is the owner's rail and every input must match it.
+        // rail is the owner's rail and every input must match it. It also proves
+        // ownership from one nullifier secret and never consumes program data, so
+        // every input must carry exactly the keypair's owner and nullifier key and
+        // attach no program/zone data.
+        let owner = keypair.signing_pubkey();
         let owner_rail = keypair.curve()?;
+        let nullifier_pubkey = keypair.nullifier_key().pubkey()?;
         let mut total = 0u64;
         for (index, spend) in inputs.iter().enumerate() {
             if spend.utxo.owner.signature_type()? != owner_rail {
                 return Err(TransactionError::MergeInputRailMismatch { index });
+            }
+            if spend.utxo.owner != owner {
+                return Err(TransactionError::MergeInputOwnerMismatch { index });
+            }
+            if spend.nullifier_key.pubkey()? != nullifier_pubkey {
+                return Err(TransactionError::MergeInputNullifierKeyMismatch { index });
             }
             if spend.utxo.asset != asset {
                 return Err(TransactionError::MergeInputAssetMismatch { index });
@@ -68,6 +79,9 @@ impl MergeZone {
             // calling zone, so every input must carry exactly this zone_program_id.
             if spend.utxo.zone_program_id != Some(zone_program_id) {
                 return Err(TransactionError::MergeInputZoneMismatch { index });
+            }
+            if has_data(spend) {
+                return Err(TransactionError::MergeInputHasData { index });
             }
             total = total
                 .checked_add(spend.utxo.amount)
@@ -165,5 +179,126 @@ impl PreparedMergeZone {
                 })
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair};
+
+    use super::*;
+    use crate::{utxo::Utxo, Data};
+
+    const ZONE: [u8; 32] = [3u8; 32];
+
+    fn zone_input(keypair: &ShieldedKeypair, amount: u64) -> SppProofInputUtxo {
+        let utxo = Utxo {
+            owner: keypair.signing_pubkey(),
+            asset: Address::default(),
+            amount,
+            blinding: random_blinding(),
+            zone_program_id: Some(Address::new_from_array(ZONE)),
+            data: Data::default(),
+        };
+        SppProofInputUtxo::new(utxo, keypair)
+    }
+
+    #[test]
+    fn accepts_matching_zone_inputs_and_preserves_zone_on_output() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let zone = Address::new_from_array(ZONE);
+        let inputs = vec![zone_input(&keypair, 10), zone_input(&keypair, 20)];
+
+        let prepared = MergeZone::new(&keypair, inputs, zone)
+            .expect("merge-zone plan")
+            .prepare();
+
+        assert_eq!(prepared.inputs.len(), MERGE_INPUTS);
+        assert_eq!(prepared.output.amount, 30);
+        assert_eq!(prepared.zone_program_id, zone);
+    }
+
+    #[test]
+    fn rejects_input_bound_to_a_different_zone() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let zone = Address::new_from_array(ZONE);
+        let mut input = zone_input(&keypair, 10);
+        input.utxo.zone_program_id = Some(Address::new_from_array([9u8; 32]));
+
+        let Err(error) = MergeZone::new(&keypair, vec![input], zone) else {
+            panic!("zone mismatch must be rejected");
+        };
+
+        assert_eq!(error, TransactionError::MergeInputZoneMismatch { index: 0 });
+    }
+
+    #[test]
+    fn rejects_unbound_input() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let zone = Address::new_from_array(ZONE);
+        let mut input = zone_input(&keypair, 10);
+        input.utxo.zone_program_id = None;
+
+        let Err(error) = MergeZone::new(&keypair, vec![input], zone) else {
+            panic!("unbound input must be rejected");
+        };
+
+        assert_eq!(error, TransactionError::MergeInputZoneMismatch { index: 0 });
+    }
+
+    #[test]
+    fn rejects_input_owned_by_a_different_key() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let other = ShieldedKeypair::new().expect("other keypair");
+        let zone = Address::new_from_array(ZONE);
+        let mut input = zone_input(&keypair, 10);
+        input.utxo.owner = other.signing_pubkey();
+
+        let Err(error) = MergeZone::new(&keypair, vec![input], zone) else {
+            panic!("foreign owner must be rejected");
+        };
+
+        assert_eq!(
+            error,
+            TransactionError::MergeInputOwnerMismatch { index: 0 }
+        );
+    }
+
+    #[test]
+    fn rejects_input_with_a_different_nullifier_key() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let other = ShieldedKeypair::new().expect("other keypair");
+        let zone = Address::new_from_array(ZONE);
+        let utxo = Utxo {
+            owner: keypair.signing_pubkey(),
+            asset: Address::default(),
+            amount: 10,
+            blinding: random_blinding(),
+            zone_program_id: Some(zone),
+            data: Data::default(),
+        };
+        let input = SppProofInputUtxo::new(utxo, &other);
+
+        let Err(error) = MergeZone::new(&keypair, vec![input], zone) else {
+            panic!("foreign nullifier key must be rejected");
+        };
+
+        assert_eq!(
+            error,
+            TransactionError::MergeInputNullifierKeyMismatch { index: 0 }
+        );
+    }
+
+    #[test]
+    fn rejects_input_carrying_a_committed_zone_data_hash() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let zone = Address::new_from_array(ZONE);
+        let input = zone_input(&keypair, 10).with_zone_data_hash([1u8; 32]);
+
+        let Err(error) = MergeZone::new(&keypair, vec![input], zone) else {
+            panic!("committed zone data hash must be rejected");
+        };
+
+        assert_eq!(error, TransactionError::MergeInputHasData { index: 0 });
     }
 }

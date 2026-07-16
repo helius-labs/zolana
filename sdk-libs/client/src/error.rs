@@ -85,6 +85,24 @@ pub enum ClientError {
     #[error("merge input {index} has a different asset; merge requires a single shared asset")]
     MergeInputAssetMismatch { index: usize },
 
+    #[error("owner {owner} has not enabled the merge service on its user-registry record")]
+    MergeDisabled { owner: Pubkey },
+
+    #[error("nothing to merge for asset {asset:?}: fewer than two plain notes are available")]
+    NothingToMerge { asset: solana_address::Address },
+
+    #[error("merge input note {hash:?} was named more than once")]
+    DuplicateInputNote { hash: [u8; 32] },
+
+    #[error("merging keypair signing key does not match the owner's registry record")]
+    MergeSigningKeyMismatch,
+
+    #[error("merging keypair nullifier key does not match the owner's registry record")]
+    MergeNullifierKeyMismatch,
+
+    #[error("merging keypair viewing key does not match the registry record for {owner}")]
+    MergeViewingKeyMismatch { owner: Pubkey },
+
     #[error("split amount {amount} is not divisible into {parts} equal parts")]
     SplitNotDivisible { amount: u64, parts: u8 },
 

@@ -5,16 +5,19 @@ use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
     pda, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, SignatureType};
+use zolana_keypair::{
+    shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair, SignatureType,
+};
 use zolana_transaction::{
     instructions::{
+        merge::{Merge, PreparedMerge, MERGE_INPUTS},
         transact::{
             ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
             SppProofInputs, WithdrawalTarget,
         },
         types::SppProofInputUtxo,
     },
-    Address, AssetRegistry, Utxo, Wallet, SOL_MINT,
+    Address, AssetRegistry, Utxo, Wallet, WalletUtxo, SOL_MINT,
 };
 
 #[cfg(feature = "indexer-api")]
@@ -344,6 +347,148 @@ fn select_split_note(
         },
         amount / parts_u64,
     ))
+}
+
+/// A prepared merge plus what a caller needs to report the outcome: how many real
+/// notes are consolidated, their summed amount, and the single spend tree the
+/// merge binds.
+pub struct CreatedMerge {
+    pub prepared: PreparedMerge,
+    pub num_inputs: usize,
+    pub merged_amount: u64,
+    pub tree: Address,
+}
+
+pub struct MergeParams<'a> {
+    pub wallet: &'a Wallet,
+    pub keypair: &'a ShieldedKeypair,
+    pub asset: Address,
+    /// Explicit input note commitment hashes, or `None` to auto-sweep the wallet's
+    /// smallest plain notes of `asset`.
+    pub inputs: Option<Vec<[u8; 32]>>,
+}
+
+/// Build an up-to-8-in/1-out consolidation of same-owner, same-asset plain notes
+/// on one spend tree. Unlike a transfer, merge proves ownership in-circuit from
+/// the keypair's nullifier secret and encrypts the single output to the owner's
+/// viewing key, so it does not build an [`UnsignedPrivateTransaction`] or take an
+/// authority signing step; the keypair is threaded straight to submission.
+pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientError> {
+    let tree = resolve_spend_tree(request.wallet, request.asset)?;
+    let inputs = select_merge_inputs(
+        request.wallet,
+        tree,
+        request.asset,
+        request.keypair,
+        request.inputs,
+    )?;
+    let num_inputs = inputs.len();
+    let merged_amount = inputs.iter().try_fold(0u64, |total, spend| {
+        total
+            .checked_add(spend.utxo.amount)
+            .ok_or(ClientError::SelectedBalanceOverflow)
+    })?;
+    // `Merge::new` re-validates every input against the keypair (owner, nullifier
+    // key, rail, asset) and rejects zone-bound or data-carrying notes.
+    let prepared = Merge::new(request.keypair, inputs)?.prepare();
+    Ok(CreatedMerge {
+        prepared,
+        num_inputs,
+        merged_amount,
+        tree,
+    })
+}
+
+/// Whether a wallet note is plain: no zone binding and no attached data. Only
+/// plain notes are mergeable; building a spend input drops the note's committed
+/// data hashes, which would desync the commitment from the tree otherwise.
+fn is_plain_note(entry: &WalletUtxo) -> bool {
+    entry.utxo.zone_program_id.is_none()
+        && entry.zone_data_hash.is_none()
+        && entry.data_hash.is_none()
+        && entry.utxo.data.is_empty()
+}
+
+/// Build the spend input for a wallet note, preserving any committed data hashes
+/// so `Merge::new` can reject a non-plain note by hash rather than silently
+/// mismatching the tree commitment.
+fn merge_spend_input(entry: &WalletUtxo, keypair: &ShieldedKeypair) -> SppProofInputUtxo {
+    let mut spend = SppProofInputUtxo::new(entry.utxo.clone(), keypair);
+    if let Some(data_hash) = entry.data_hash {
+        spend = spend.with_data_hash(data_hash);
+    }
+    if let Some(zone_data_hash) = entry.zone_data_hash {
+        spend = spend.with_zone_data_hash(zone_data_hash);
+    }
+    spend
+}
+
+/// Select the notes a merge consolidates on `tree`. `None` auto-sweeps up to
+/// [`MERGE_INPUTS`] of the smallest plain notes of `asset` (ascending, dust
+/// first). `Some(hashes)` takes exactly the named notes: 2..=8 distinct, unspent
+/// notes of `asset` on `tree`; a non-plain named note is left for `Merge::new` to
+/// reject with a precise reason.
+fn select_merge_inputs(
+    wallet: &Wallet,
+    tree: Address,
+    asset: Address,
+    keypair: &ShieldedKeypair,
+    inputs: Option<Vec<[u8; 32]>>,
+) -> Result<Vec<SppProofInputUtxo>, ClientError> {
+    match inputs {
+        None => {
+            let mut candidates: Vec<&WalletUtxo> = wallet
+                .utxos
+                .iter()
+                .filter(|entry| {
+                    !entry.spent
+                        && entry.utxo.asset == asset
+                        && entry.output_context.tree == tree
+                        && is_plain_note(entry)
+                })
+                .collect();
+            // Smallest first: a sweep clears dust and leaves large notes intact.
+            candidates.sort_by_key(|entry| entry.utxo.amount);
+            candidates.truncate(MERGE_INPUTS);
+            if candidates.len() < 2 {
+                return Err(ClientError::NothingToMerge { asset });
+            }
+            Ok(candidates
+                .into_iter()
+                .map(|entry| merge_spend_input(entry, keypair))
+                .collect())
+        }
+        Some(hashes) => {
+            if hashes.len() > MERGE_INPUTS {
+                return Err(ClientError::TooManyInputs {
+                    got: hashes.len(),
+                    max: MERGE_INPUTS,
+                });
+            }
+            if hashes.len() < 2 {
+                return Err(ClientError::NothingToMerge { asset });
+            }
+            let mut seen = BTreeSet::new();
+            let mut selected = Vec::with_capacity(hashes.len());
+            for hash in hashes {
+                if !seen.insert(hash) {
+                    return Err(ClientError::DuplicateInputNote { hash });
+                }
+                let entry = wallet
+                    .utxos
+                    .iter()
+                    .find(|entry| {
+                        !entry.spent
+                            && entry.utxo.asset == asset
+                            && entry.output_context.tree == tree
+                            && entry.output_context.hash == hash
+                    })
+                    .ok_or(ClientError::InputNoteUnavailable { hash })?;
+                selected.push(merge_spend_input(entry, keypair));
+            }
+            Ok(selected)
+        }
+    }
 }
 
 #[cfg(feature = "indexer-api")]
@@ -1156,5 +1301,251 @@ mod tests {
         };
 
         assert!(matches!(error, ClientError::SplitInputZoneMismatch { .. }));
+    }
+
+    fn sol_wallet(keypair: &ShieldedKeypair) -> Wallet {
+        Wallet::new(
+            keypair.shielded_address().expect("shielded address"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet")
+    }
+
+    /// Push a plain SOL note of `amount` (distinct `blinding` keeps commitments
+    /// unique) and return its commitment hash.
+    fn push_note(
+        wallet: &mut Wallet,
+        keypair: &ShieldedKeypair,
+        amount: u64,
+        blinding: [u8; 31],
+    ) -> [u8; 32] {
+        let utxo = Utxo {
+            owner: keypair.signing_pubkey(),
+            asset: SOL_MINT,
+            amount,
+            blinding,
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
+        let hash = utxo
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+            .expect("utxo hash");
+        let nullifier = utxo
+            .nullifier(&hash, &keypair.nullifier_key)
+            .expect("nullifier");
+        wallet.utxos.push(WalletUtxo {
+            utxo,
+            output_context: zolana_transaction::instructions::transact::types::OutputContext {
+                hash,
+                tree: Address::default(),
+                leaf_index: 0,
+            },
+            nullifier,
+            data_hash: None,
+            zone_data_hash: None,
+            spent: false,
+        });
+        hash
+    }
+
+    fn amounts(selected: &[SppProofInputUtxo]) -> Vec<u64> {
+        selected.iter().map(|spend| spend.utxo.amount).collect()
+    }
+
+    #[test]
+    fn merge_auto_sweep_selects_smallest_plain_notes_ascending() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for (index, amount) in [50u64, 10, 30].into_iter().enumerate() {
+            push_note(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);
+        }
+
+        let selected =
+            select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
+
+        assert_eq!(amounts(&selected), vec![10, 30, 50]);
+    }
+
+    #[test]
+    fn merge_auto_sweep_caps_at_shape_keeping_the_smallest_notes() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for step in 1..=9u64 {
+            push_note(&mut wallet, &keypair, step * 10, [step as u8; 31]);
+        }
+
+        let selected =
+            select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
+
+        assert_eq!(selected.len(), MERGE_INPUTS);
+        assert_eq!(amounts(&selected), vec![10, 20, 30, 40, 50, 60, 70, 80]);
+    }
+
+    #[test]
+    fn merge_auto_sweep_skips_zone_and_data_notes() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_note(&mut wallet, &keypair, 10, [1u8; 31]);
+        push_note(&mut wallet, &keypair, 20, [2u8; 31]);
+        // A zone-bound note and a data-carrying note must not be swept.
+        push_note(&mut wallet, &keypair, 30, [3u8; 31]);
+        if let Some(entry) = wallet.utxos.last_mut() {
+            entry.utxo.zone_program_id = Some(Address::new_from_array([9u8; 32]));
+        }
+        push_note(&mut wallet, &keypair, 40, [4u8; 31]);
+        if let Some(entry) = wallet.utxos.last_mut() {
+            entry.data_hash = Some([7u8; 32]);
+        }
+
+        let selected =
+            select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
+
+        assert_eq!(amounts(&selected), vec![10, 20]);
+    }
+
+    #[test]
+    fn merge_auto_sweep_needs_at_least_two_notes() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_note(&mut wallet, &keypair, 10, [1u8; 31]);
+
+        let error = match select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None)
+        {
+            Err(error) => error,
+            Ok(_) => panic!("a single note cannot be merged"),
+        };
+
+        assert!(matches!(error, ClientError::NothingToMerge { asset } if asset == SOL_MINT));
+    }
+
+    #[test]
+    fn merge_explicit_selection_takes_exactly_the_named_notes() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let a = push_note(&mut wallet, &keypair, 10, [1u8; 31]);
+        let b = push_note(&mut wallet, &keypair, 20, [2u8; 31]);
+        push_note(&mut wallet, &keypair, 30, [3u8; 31]);
+
+        let selected = select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(vec![a, b]),
+        )
+        .unwrap();
+
+        assert_eq!(amounts(&selected), vec![10, 20]);
+    }
+
+    #[test]
+    fn merge_explicit_selection_rejects_duplicate_notes() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let a = push_note(&mut wallet, &keypair, 10, [1u8; 31]);
+
+        let error = match select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(vec![a, a]),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("a repeated note must be rejected"),
+        };
+
+        assert!(matches!(error, ClientError::DuplicateInputNote { hash } if hash == a));
+    }
+
+    #[test]
+    fn merge_explicit_selection_rejects_more_than_the_shape() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let wallet = sol_wallet(&keypair);
+        let hashes: Vec<[u8; 32]> = (0..9u8).map(|i| [i; 32]).collect();
+
+        let error = match select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(hashes),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("more than 8 inputs must be rejected"),
+        };
+
+        assert!(matches!(
+            error,
+            ClientError::TooManyInputs {
+                got: 9,
+                max: MERGE_INPUTS
+            }
+        ));
+    }
+
+    #[test]
+    fn merge_explicit_selection_needs_at_least_two_notes() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let a = push_note(&mut wallet, &keypair, 10, [1u8; 31]);
+
+        let error = match select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(vec![a]),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("a single named note cannot be merged"),
+        };
+
+        assert!(matches!(error, ClientError::NothingToMerge { asset } if asset == SOL_MINT));
+    }
+
+    #[test]
+    fn merge_explicit_selection_rejects_an_unknown_note() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let a = push_note(&mut wallet, &keypair, 10, [1u8; 31]);
+        let missing = [0xabu8; 32];
+
+        let error = match select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(vec![a, missing]),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("an unknown note must be rejected"),
+        };
+
+        assert!(matches!(error, ClientError::InputNoteUnavailable { hash } if hash == missing));
+    }
+
+    #[test]
+    fn create_merge_auto_sweep_reports_count_amount_and_tree() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for (index, amount) in [10u64, 20, 30].into_iter().enumerate() {
+            push_note(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);
+        }
+
+        let created = create_merge(MergeParams {
+            wallet: &wallet,
+            keypair: &keypair,
+            asset: SOL_MINT,
+            inputs: None,
+        })
+        .expect("merge");
+
+        assert_eq!(created.num_inputs, 3);
+        assert_eq!(created.merged_amount, 60);
+        assert_eq!(created.tree, Address::default());
+        assert_eq!(created.prepared.inputs.len(), MERGE_INPUTS);
+        assert_eq!(created.prepared.output.amount, 60);
     }
 }

@@ -62,8 +62,17 @@ pub(crate) enum CliCommand {
     )]
     Split(SplitOptions),
 
-    #[command(name = "merge", about = "Enable or disable merging for this wallet")]
+    #[command(
+        name = "merge",
+        about = "Consolidate several private notes into one (up to 8 in, 1 out)"
+    )]
     Merge(MergeOptions),
+
+    #[command(
+        name = "set-merging",
+        about = "Enable or disable the merge service for this wallet"
+    )]
+    SetMerging(SetMergingOptions),
 }
 
 #[derive(Debug, Subcommand)]
@@ -606,26 +615,42 @@ pub(crate) struct BalanceOptions {
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct MergeOptions {
+    #[command(flatten)]
+    pub(crate) network: NetworkWalletOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(
+        long = "input",
+        help = "Input note commitment hash (hex); repeat to name each note. Omit to auto-sweep the smallest plain notes.",
+        value_name = "HASH"
+    )]
+    pub(crate) input: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
 #[command(group(
     clap::ArgGroup::new("merge_toggle")
         .required(true)
         .args(["enable", "disable"])
 ))]
-pub(crate) struct MergeOptions {
+pub(crate) struct SetMergingOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
 
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Enable merging for this wallet"
+        help = "Enable the merge service for this wallet"
     )]
     pub(crate) enable: bool,
 
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Disable merging for this wallet"
+        help = "Disable the merge service for this wallet"
     )]
     pub(crate) disable: bool,
 }
@@ -785,6 +810,7 @@ mod tests {
             ["zolana", "withdraw", "--help"].as_slice(),
             ["zolana", "split", "--help"].as_slice(),
             ["zolana", "merge", "--help"].as_slice(),
+            ["zolana", "set-merging", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
@@ -1150,6 +1176,56 @@ mod tests {
             "merge",
             "--keypair",
             "/tmp/alice.pid.json",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+            "--mint",
+            "SOL",
+            "--input",
+            "0101010101010101010101010101010101010101010101010101010101010101",
+            "--input",
+            "0202020202020202020202020202020202020202020202020202020202020202",
+        ])
+        .command
+        else {
+            panic!("expected merge command");
+        };
+
+        let expected = MergeOptions {
+            network: NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        keypair: Some("/tmp/alice.pid.json".to_string()),
+                    },
+                    rpc_url: None,
+                    indexer_url: None,
+                },
+                tree: Some("Tree111111111111111111111111111111111111111".to_string()),
+                prover_url: None,
+                airdrop_lamports: None,
+            },
+            mint: "SOL".to_string(),
+            input: vec![
+                "0101010101010101010101010101010101010101010101010101010101010101".to_string(),
+                "0202020202020202020202020202020202020202020202020202020202020202".to_string(),
+            ],
+        };
+        assert_eq!(opts, expected);
+
+        // Auto-sweep: no --input.
+        let Some(CliCommand::Merge(opts)) =
+            parse_cli(&["merge", "--keypair", "/tmp/alice.pid.json"]).command
+        else {
+            panic!("expected merge command");
+        };
+        assert!(opts.input.is_empty());
+    }
+
+    #[test]
+    fn parses_set_merging_options() {
+        let Some(CliCommand::SetMerging(opts)) = parse_cli(&[
+            "set-merging",
+            "--keypair",
+            "/tmp/alice.pid.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
             "--indexer-url",
@@ -1158,10 +1234,10 @@ mod tests {
         ])
         .command
         else {
-            panic!("expected merge command");
+            panic!("expected set-merging command");
         };
 
-        let expected = MergeOptions {
+        let expected = SetMergingOptions {
             sync: SyncOptions {
                 keypair: WalletKeypairOptions {
                     keypair: Some("/tmp/alice.pid.json".to_string()),
@@ -1174,13 +1250,18 @@ mod tests {
         };
         assert_eq!(opts, expected);
 
-        let Some(CliCommand::Merge(opts)) =
-            parse_cli(&["merge", "--keypair", "/tmp/alice.pid.json", "--disable"]).command
+        let Some(CliCommand::SetMerging(opts)) = parse_cli(&[
+            "set-merging",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--disable",
+        ])
+        .command
         else {
-            panic!("expected merge command");
+            panic!("expected set-merging command");
         };
 
-        let expected = MergeOptions {
+        let expected = SetMergingOptions {
             sync: SyncOptions {
                 keypair: WalletKeypairOptions {
                     keypair: Some("/tmp/alice.pid.json".to_string()),

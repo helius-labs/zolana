@@ -1,7 +1,9 @@
 use anyhow::Result;
+use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    create_split, create_transfer_sync, sign_private_transaction_sync, Rpc, SolanaRpc, SplitParams,
+    create_merge, create_split, create_transfer_sync, sign_private_transaction_sync,
+    submit_merge_transaction, MergeParams, Rpc, SolanaRpc, SplitParams, SubmitMergeTransaction,
     TransferParams, ZolanaClient,
 };
 use zolana_transaction::Address;
@@ -9,10 +11,10 @@ use zolana_transaction::Address;
 use super::{
     material::WalletMaterial,
     resolve::get_network,
-    sync::sync_context,
+    sync::{sync_context, wait_for_indexed_leaf},
     util::{ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey},
 };
-use crate::args::{SplitOptions, TransferOptions};
+use crate::args::{MergeOptions, SplitOptions, TransferOptions};
 
 pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
@@ -104,6 +106,72 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
         per_output,
         format_address(asset),
         signature
+    );
+    Ok(())
+}
+
+pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
+    let asset = parse_address(&opts.mint)?;
+    let network = get_network(&opts.network)?;
+    let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
+    let ctx = sync_context(&opts.network.sync)?;
+    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
+
+    // No `--input` auto-sweeps the smallest plain notes; explicit hashes name the
+    // exact notes to consolidate.
+    let inputs = if opts.input.is_empty() {
+        None
+    } else {
+        Some(
+            opts.input
+                .iter()
+                .map(|hash| parse_hex_array::<32>(hash))
+                .collect::<Result<Vec<_>>>()?,
+        )
+    };
+
+    let created = create_merge(MergeParams {
+        wallet: &ctx.wallet,
+        keypair: &ctx.material.keypair,
+        asset,
+        inputs,
+    })?;
+    let num_inputs = created.num_inputs;
+    let merged_amount = created.merged_amount;
+    let tree = created.tree;
+
+    // Bind the client (and its indexer) to the resolved spend tree so input Merkle
+    // proofs and the appended-output lookup query the right tree.
+    let client = ZolanaClient::from_urls(
+        rpc,
+        network.sync.indexer_url.clone(),
+        network.prover_url.clone(),
+        Address::new_from_array(tree.to_bytes()),
+    );
+    let submitted = submit_merge_transaction(SubmitMergeTransaction {
+        rpc: &client,
+        indexer: &client,
+        owner: ctx.material.funding.pubkey(),
+        payer: &ctx.material.funding,
+        keypair: &ctx.material.keypair,
+        tree: Pubkey::new_from_array(tree.to_bytes()),
+        prover_url: &network.prover_url,
+        prepared: created.prepared,
+    })?;
+    // `merge_transact` output is off the view-tag confirmation path, so wait for
+    // the consolidated leaf before returning.
+    wait_for_indexed_leaf(
+        &client,
+        Address::new_from_array(tree.to_bytes()),
+        submitted.output_hash,
+    )?;
+
+    println!(
+        "ok merge inputs={} amount={} mint={} signature={}",
+        num_inputs,
+        merged_amount,
+        format_address(asset),
+        submitted.signature
     );
     Ok(())
 }
