@@ -11268,6 +11268,7 @@ dependencies = [
  "p256",
  "rand 0.8.7",
  "sha2 0.10.9",
+ "solana-keypair",
  "thiserror 2.0.18",
  "tokio",
  "zeroize",

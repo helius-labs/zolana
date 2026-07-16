@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 bs58 = { workspace = true, features = ["check"] }
+solana-keypair = { workspace = true }
 p256 = { workspace = true }
 ed25519-dalek = { workspace = true }
 aes = { workspace = true }

@@ -167,6 +167,13 @@ impl ShieldedKeypair {
         })
     }
 
+    /// Reconstruct the shielded wallet from a Solana keypair (its Ed25519 secret
+    /// is the signing key; nullifier and viewing keys derive from it — see
+    /// [`Self::from_ed25519`]). The Solana keypair alone recovers the wallet.
+    pub fn from_solana_keypair(keypair: &solana_keypair::Keypair) -> Result<Self, KeypairError> {
+        Self::from_ed25519(keypair.secret_bytes())
+    }
+
     pub fn signing_pubkey(&self) -> PublicKey {
         self.signing_key.pubkey()
     }
