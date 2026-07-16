@@ -10,7 +10,7 @@ use super::{
     resolve::resolve_sync,
 };
 use crate::{
-    args::{MergeOptions, RegisterOptions},
+    args::{RegisterOptions, SetMergingOptions},
     cli_config::{resolve_keypair_path, resolve_rpc_url, CliConfigFile},
 };
 
@@ -54,7 +54,10 @@ pub(crate) fn run_register(opts: RegisterOptions) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
+/// Toggle the wallet's `merging_enabled` flag on its user-registry record. This is
+/// the opt-in the merge service requires; the actual note consolidation is the
+/// `merge` command.
+pub(crate) fn run_set_merging(opts: SetMergingOptions) -> Result<()> {
     let sync = resolve_sync(&opts.sync)?;
     let rpc = SolanaRpc::new(sync.rpc_url.clone());
     let material = load_sender_from_resolved_sync(&sync)?;
@@ -74,6 +77,6 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         &[&material.funding],
     )?;
 
-    println!("ok merge owner={owner} enabled={enabled} signature={signature}");
+    println!("ok set_merging owner={owner} enabled={enabled} signature={signature}");
     Ok(())
 }

@@ -100,6 +100,12 @@ pub enum TransactionError {
     #[error("merge input {index} has a different owner rail")]
     MergeInputRailMismatch { index: usize },
 
+    #[error("merge input {index} has a different owner than the merging keypair")]
+    MergeInputOwnerMismatch { index: usize },
+
+    #[error("merge input {index} has a different nullifier key than the merging keypair")]
+    MergeInputNullifierKeyMismatch { index: usize },
+
     #[error("merge input {index} has a different asset")]
     MergeInputAssetMismatch { index: usize },
 

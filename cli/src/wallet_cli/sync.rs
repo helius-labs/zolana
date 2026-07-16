@@ -1,9 +1,12 @@
-use std::{thread::sleep, time::SystemTime};
+use std::{
+    thread::sleep,
+    time::{Instant, SystemTime},
+};
 
 use anyhow::{bail, Result};
 use solana_signature::Signature;
 use zolana_client::{sync_wallet as client_sync_wallet, Rpc, ZolanaIndexer};
-use zolana_transaction::Wallet;
+use zolana_transaction::{Address, Wallet};
 
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},
@@ -66,6 +69,37 @@ pub(super) fn wait_for_indexed_utxo(
         }
         if started.elapsed().unwrap_or_default() >= INDEXER_TIMEOUT {
             bail!("timed out waiting for Photon to index {signature}");
+        }
+        sleep(INDEXER_POLL);
+    }
+}
+
+/// Poll the indexer until `leaf` is present in `tree`. Merge's `merge_transact`
+/// output is not on the view-tag confirmation path a transfer uses, so a caller
+/// that reads the consolidated note back immediately must wait for its state leaf
+/// to be appended. Uses a monotonic [`Instant`] deadline and keeps the last
+/// transient error to report on timeout.
+pub(super) fn wait_for_indexed_leaf<R: Rpc>(rpc: &R, tree: Address, leaf: [u8; 32]) -> Result<()> {
+    let started = Instant::now();
+    let mut last_error: Option<String> = None;
+    loop {
+        match rpc.get_merkle_proofs(tree, vec![leaf]) {
+            Ok(response) => {
+                if response
+                    .proofs
+                    .iter()
+                    .any(|proof| proof.leaf == leaf && proof.merkle_context.tree == tree)
+                {
+                    return Ok(());
+                }
+            }
+            Err(error) => last_error = Some(error.to_string()),
+        }
+        if started.elapsed() >= INDEXER_TIMEOUT {
+            match last_error {
+                Some(error) => bail!("timed out waiting for Photon to index leaf: {error}"),
+                None => bail!("timed out waiting for Photon to index leaf"),
+            }
         }
         sleep(INDEXER_POLL);
     }
