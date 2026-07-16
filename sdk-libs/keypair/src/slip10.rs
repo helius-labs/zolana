@@ -48,14 +48,14 @@ fn chain_code_from_slice(bytes: &[u8]) -> Zeroizing<[u8; 32]> {
 
 /// Master extended key: `I = HMAC-SHA512("Nist256p1 seed", seed)`; retry with
 /// `seed := I` while `I_L` is zero or not a valid scalar.
-fn master(seed: &[u8]) -> Result<(Scalar, Zeroizing<[u8; 32]>), KeypairError> {
+fn master(seed: &[u8]) -> Result<(Zeroizing<Scalar>, Zeroizing<[u8; 32]>), KeypairError> {
     let mut data = Zeroizing::new(seed.to_vec());
     for _ in 0..MAX_RETRIES {
         let i = hmac_sha512(CURVE_SEED_KEY, &[data.as_slice()]);
         let (il, ir) = i.split_at(32);
         if let Some(key) = scalar_from_slice(il) {
             if !bool::from(key.is_zero()) {
-                return Ok((key, chain_code_from_slice(ir)));
+                return Ok((Zeroizing::new(key), chain_code_from_slice(ir)));
             }
         }
         data = Zeroizing::new(i.to_vec());
@@ -70,7 +70,7 @@ fn child(
     parent: &Scalar,
     chain_code: &[u8; 32],
     index: u32,
-) -> Result<(Scalar, Zeroizing<[u8; 32]>), KeypairError> {
+) -> Result<(Zeroizing<Scalar>, Zeroizing<[u8; 32]>), KeypairError> {
     let index_bytes = index.to_be_bytes();
     let mut i = if index >= HARDENED {
         let mut parent_bytes = Zeroizing::new([0u8; 32]);
@@ -85,7 +85,8 @@ fn child(
     for _ in 0..MAX_RETRIES {
         let (il, ir) = i.split_at(32);
         if let Some(tweak) = scalar_from_slice(il) {
-            let key = tweak + parent;
+            let tweak = Zeroizing::new(tweak);
+            let key = Zeroizing::new(*tweak + parent);
             if !bool::from(key.is_zero()) {
                 return Ok((key, chain_code_from_slice(ir)));
             }
@@ -98,7 +99,10 @@ fn child(
 
 /// The extended private key at `path` over `seed`; indices carry the hardened
 /// bit themselves.
-fn derive(seed: &[u8], path: &[u32]) -> Result<(Scalar, Zeroizing<[u8; 32]>), KeypairError> {
+fn derive(
+    seed: &[u8],
+    path: &[u32],
+) -> Result<(Zeroizing<Scalar>, Zeroizing<[u8; 32]>), KeypairError> {
     let (mut key, mut chain_code) = master(seed)?;
     for &index in path {
         let (child_key, child_chain) = child(&key, &chain_code, index)?;
@@ -112,7 +116,7 @@ fn derive(seed: &[u8], path: &[u32]) -> Result<(Scalar, Zeroizing<[u8; 32]>), Ke
 pub(crate) fn derive_secret_key(seed: &[u8], path: &[u32]) -> Result<SecretKey, KeypairError> {
     let (key, _) = derive(seed, path)?;
     let nonzero =
-        Option::<NonZeroScalar>::from(NonZeroScalar::new(key)).ok_or(KeypairError::ZeroScalar)?;
+        Option::<NonZeroScalar>::from(NonZeroScalar::new(*key)).ok_or(KeypairError::ZeroScalar)?;
     Ok(SecretKey::from(nonzero))
 }
 
@@ -127,7 +131,7 @@ mod tests {
         let (key, chain_code) = derive(&seed, path).expect("derive");
         assert_eq!(hex::encode(chain_code.as_slice()), chain_hex, "chain code");
         assert_eq!(hex::encode(key.to_repr()), key_hex, "private key");
-        let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(key)).expect("non-zero");
+        let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(*key)).expect("non-zero");
         let public = P256PublicKey::from_secret_scalar(&nonzero);
         assert_eq!(
             hex::encode(public.to_encoded_point(true).as_bytes()),
