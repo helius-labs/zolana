@@ -289,7 +289,7 @@ The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Sol
 
 `(signing_sk, signing_pk)` — the spend-authorizing keypair. P256 for shielded users; Ed25519 for Solana-only owners whose ownership rails through SPP's Ed25519 signer check (see [UTXO Ownership Check](#utxo-ownership-check)).
 
-**Coin type.** `TSPP_COIN_TYPE = 1392955331'`, derived as `SHA-256("luminous.TSPP.v1")[0..4]` as a big-endian `u32` masked to 31 bits (`& 0x7FFF_FFFF`).
+**Coin type.** `TSPP_COIN_TYPE = 1392955331'` (placeholder), derived as `SHA-256("luminous.TSPP.v1")[0..4]` as a big-endian `u32` masked to 31 bits (`& 0x7FFF_FFFF`).
 
 **Derivation path.** `m / 44' / TSPP_COIN_TYPE' / account' / 0' / 0'`
 

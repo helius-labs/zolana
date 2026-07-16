@@ -1,5 +1,3 @@
-use std::{fmt, str::FromStr};
-
 use crate::{
     constants::{BLINDING_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN, SALT_LEN},
     error::KeypairError,
@@ -11,13 +9,7 @@ use crate::{
     viewing_key::ViewingKey,
 };
 
-const ADDRESS_VERSION: u8 = 1;
 pub const SHIELDED_ADDRESS_LEN: usize = PUBLIC_KEY_LEN + 32 + P256_PUBKEY_LEN;
-const ADDRESS_PAYLOAD_LEN: usize = 1 + SHIELDED_ADDRESS_LEN;
-/// Upper bound on an encoded address (Base58Check inflates ~1.37x; 2x the
-/// version+payload+checksum comfortably exceeds any valid string). Reject longer
-/// input before decoding so a huge string cannot force proportional work.
-const MAX_ENCODED_ADDRESS_LEN: usize = (ADDRESS_PAYLOAD_LEN + 4) * 2;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ShieldedAddress {
@@ -60,47 +52,6 @@ impl ShieldedAddress {
         };
         address.owner_hash()?;
         Ok(address)
-    }
-}
-
-/// A versioned Base58Check, self-contained shielded recipient address.
-///
-/// The encoded payload contains the signing, nullifier, and viewing public keys;
-/// no on-chain registry lookup is required to send to it.
-impl fmt::Display for ShieldedAddress {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(
-            &bs58::encode(self.to_bytes())
-                .with_check_version(ADDRESS_VERSION)
-                .into_string(),
-        )
-    }
-}
-
-impl FromStr for ShieldedAddress {
-    type Err = KeypairError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        if value.len() > MAX_ENCODED_ADDRESS_LEN {
-            return Err(KeypairError::InvalidAddressEncoding);
-        }
-        let bytes = bs58::decode(value)
-            .with_check(Some(ADDRESS_VERSION))
-            .into_vec()
-            .map_err(|error| match error {
-                bs58::decode::Error::InvalidChecksum { .. } => KeypairError::InvalidAddressChecksum,
-                bs58::decode::Error::InvalidVersion { ver, .. } => {
-                    KeypairError::UnsupportedAddressVersion(ver)
-                }
-                _ => KeypairError::InvalidAddressEncoding,
-            })?;
-        if bytes.len() != ADDRESS_PAYLOAD_LEN {
-            return Err(KeypairError::InvalidAddressLength {
-                expected: ADDRESS_PAYLOAD_LEN,
-                actual: bytes.len(),
-            });
-        }
-        Self::from_bytes(bytes[1..].try_into().expect("validated address length"))
     }
 }
 
@@ -291,25 +242,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shielded_address_string_round_trips() {
-        let address = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
-        let encoded = address.to_string();
-
-        assert_eq!(encoded.parse::<ShieldedAddress>().unwrap(), address);
-    }
-
-    #[test]
-    fn ed25519_shielded_address_string_round_trips() {
-        let keypair = ShieldedKeypair::from_ed25519(&[7u8; 32]).unwrap();
-        let address = keypair.shielded_address().unwrap();
-
-        assert_eq!(
-            address.to_string().parse::<ShieldedAddress>().unwrap(),
-            address
-        );
-    }
-
-    #[test]
     fn ed25519_keypair_is_deterministic_from_the_solana_secret() {
         let secret = [7u8; 32];
         let first = ShieldedKeypair::from_ed25519(&secret).unwrap();
@@ -339,73 +271,5 @@ mod tests {
             hex::encode(keypair.viewing_pubkey().as_bytes()),
             "029186d9897fc6b2877220a3aca216eb24162ac6ebb6cbcc710b7e9a491548383f"
         );
-    }
-
-    #[test]
-    fn shielded_address_rejects_invalid_base58() {
-        assert_eq!(
-            "not-an-address".parse::<ShieldedAddress>().unwrap_err(),
-            KeypairError::InvalidAddressEncoding
-        );
-    }
-
-    #[test]
-    fn shielded_address_rejects_bad_checksum() {
-        let address = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
-        let encoded = address.to_string();
-        let mut bytes = bs58::decode(encoded).into_vec().unwrap();
-        bytes[1 + PUBLIC_KEY_LEN] ^= 1;
-        let corrupted = bs58::encode(bytes).into_string();
-
-        assert_eq!(
-            corrupted.parse::<ShieldedAddress>().unwrap_err(),
-            KeypairError::InvalidAddressChecksum
-        );
-    }
-
-    #[test]
-    fn shielded_address_rejects_unsupported_version() {
-        let address = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
-        let unsupported = bs58::encode(address.to_bytes())
-            .with_check_version(ADDRESS_VERSION + 1)
-            .into_string();
-
-        assert_eq!(
-            unsupported.parse::<ShieldedAddress>().unwrap_err(),
-            KeypairError::UnsupportedAddressVersion(ADDRESS_VERSION + 1)
-        );
-    }
-
-    #[test]
-    fn shielded_address_rejects_wrong_payload_length() {
-        // Valid Base58Check (correct checksum + supported version) but a payload of
-        // the wrong length must be rejected, not silently truncated.
-        let short = bs58::encode([0u8; 10])
-            .with_check_version(ADDRESS_VERSION)
-            .into_string();
-        assert_eq!(
-            short.parse::<ShieldedAddress>().unwrap_err(),
-            KeypairError::InvalidAddressLength {
-                expected: ADDRESS_PAYLOAD_LEN,
-                actual: 11,
-            }
-        );
-    }
-
-    #[test]
-    fn shielded_address_encoding_is_stable() {
-        let p256 = P256Pubkey::from_bytes(crate::constants::P_CONST_SEC1).unwrap();
-        let address = ShieldedAddress {
-            signing_pubkey: PublicKey::from_p256(&p256),
-            nullifier_pubkey: [1u8; 32],
-            viewing_pubkey: p256,
-        };
-        let encoded = address.to_string();
-
-        assert_eq!(
-            encoded,
-            "FkYvNS9oCrskJGJVc2aXYqkdMErt96rVfudRRQwh3peWnFRdmjcs2ar17jS4ohnmbqdXAKceJUpVJvJrMk18qx3bMRVyudYaCDFdXqMTN7P2YggUxx9t5JtHHMnoLhBtRzhuXsKv55knX"
-        );
-        assert_eq!(encoded.parse::<ShieldedAddress>().unwrap(), address);
     }
 }
