@@ -245,7 +245,7 @@ sequenceDiagram
 # Trust Assumptions
 
 Who is trusted for what. Correctness and privacy do not depend on any operator;
-liveness and governance do.
+liveness and configuration do.
 
 | Party | Trusted for | Not trusted for | Notes |
 | --- | --- | --- | --- |
