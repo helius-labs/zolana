@@ -17,9 +17,6 @@ pub enum KeypairError {
     #[error("HKDF expansion failed")]
     Hkdf,
 
-    #[error("SLIP-0010 derivation failed")]
-    Slip10Derivation,
-
     #[error("derivation account index {0} exceeds the hardened-index range")]
     InvalidDerivationAccount(u32),
 

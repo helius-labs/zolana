@@ -20,11 +20,6 @@ const CURVE_SEED_KEY: &[u8] = b"Nist256p1 seed";
 /// Hardened-index bit per BIP-32 / SLIP-0010.
 pub const HARDENED: u32 = 0x8000_0000;
 
-/// A retry triggers with probability ~2^-32 per round (SLIP-0010's P-256 bound),
-/// so eight consecutive failures are ~2^-256; the bound exists only to turn an
-/// implementation bug into an error instead of a hang.
-const MAX_RETRIES: usize = 8;
-
 fn hmac_sha512(key: &[u8], parts: &[&[u8]]) -> Zeroizing<[u8; 64]> {
     let mut mac =
         <Hmac<Sha512> as Mac>::new_from_slice(key).expect("HMAC-SHA512 accepts any key length");
@@ -47,20 +42,22 @@ fn chain_code_from_slice(bytes: &[u8]) -> Zeroizing<[u8; 32]> {
 }
 
 /// Master extended key: `I = HMAC-SHA512("Nist256p1 seed", seed)`; retry with
-/// `seed := I` while `I_L` is zero or not a valid scalar.
-fn master(seed: &[u8]) -> Result<(Zeroizing<Scalar>, Zeroizing<[u8; 32]>), KeypairError> {
+/// `seed := I` while `I_L` is zero or not a valid scalar. SLIP-0010 leaves this
+/// retry unbounded; each round hashes fresh data and fails with probability
+/// ~2^-32 on P-256, so it terminates with probability 1 (no real seed has been
+/// observed to retry).
+fn master(seed: &[u8]) -> (Zeroizing<Scalar>, Zeroizing<[u8; 32]>) {
     let mut data = Zeroizing::new(seed.to_vec());
-    for _ in 0..MAX_RETRIES {
+    loop {
         let i = hmac_sha512(CURVE_SEED_KEY, &[data.as_slice()]);
         let (il, ir) = i.split_at(32);
         if let Some(key) = scalar_from_slice(il) {
             if !bool::from(key.is_zero()) {
-                return Ok((Zeroizing::new(key), chain_code_from_slice(ir)));
+                return (Zeroizing::new(key), chain_code_from_slice(ir));
             }
         }
         data = Zeroizing::new(i.to_vec());
     }
-    Err(KeypairError::Slip10Derivation)
 }
 
 /// CKDpriv: a hardened child hashes `0x00 || ser256(k_par) || ser32(i)`, a
@@ -84,7 +81,7 @@ fn child(
         let point = P256PublicKey::from_secret_scalar(&nonzero).to_encoded_point(true);
         hmac_sha512(chain_code, &[point.as_bytes(), &index_bytes])
     };
-    for _ in 0..MAX_RETRIES {
+    loop {
         let (il, ir) = i.split_at(32);
         if let Some(tweak) = scalar_from_slice(il) {
             let tweak = Zeroizing::new(tweak);
@@ -96,7 +93,6 @@ fn child(
         let retry = hmac_sha512(chain_code, &[&[1u8], ir, &index_bytes]);
         i = retry;
     }
-    Err(KeypairError::Slip10Derivation)
 }
 
 /// The extended private key at `path` over `seed`; indices carry the hardened
@@ -105,7 +101,7 @@ fn derive(
     seed: &[u8],
     path: &[u32],
 ) -> Result<(Zeroizing<Scalar>, Zeroizing<[u8; 32]>), KeypairError> {
-    let (mut key, mut chain_code) = master(seed)?;
+    let (mut key, mut chain_code) = master(seed);
     for &index in path {
         let (child_key, child_chain) = child(&key, &chain_code, index)?;
         key = child_key;
