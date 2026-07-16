@@ -67,6 +67,8 @@ pub enum ShieldedPoolError {
     MismatchedTransactProofRail = 7021,
     #[error("zone_authority_transact is disabled for this zone")]
     ZoneAuthorityTransactDisabled = 7022,
+    #[error("transact sets both public_sol_amount and public_spl_amount; at most one is allowed")]
+    BothPublicAmountsSet = 7023,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -126,6 +128,7 @@ mod tests {
             (InvalidMergeOutputScheme as u32, 7020),
             (MismatchedTransactProofRail as u32, 7021),
             (ZoneAuthorityTransactDisabled as u32, 7022),
+            (BothPublicAmountsSet as u32, 7023),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");
