@@ -256,7 +256,7 @@ liveness and configuration do.
 | Indexer (Photon) | Performance | Correctness, availability | Every UTXO ciphertext is an on-chain event; a wallet can self-index and re-verify UTXO hashes. |
 | Zone program / auditor | The policy of its own zone only | The default zone or other zones | A zone authority's reach is bounded by the [zone-authority instantiation](#circuit-combinations): value cannot leave the zone. |
 
-A spend is final at submission: the user's own `transact` appends outputs and inserts
+User transactions are final at execution: the user's own `transact` appends outputs and inserts
 nullifiers atomically. The forester is not a per-transaction dependency. The residual
 centralization is the single `forester_authority` (liveness), the `pause_tree`
 authority (governance), and the `merge_view_tag` per-user grief vector.
