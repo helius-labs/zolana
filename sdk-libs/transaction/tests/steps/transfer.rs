@@ -172,6 +172,7 @@ pub(crate) fn build_anonymous_transfer(
         tx_viewing_pk: Some(tx_viewing_pk),
         salt: Some(salt),
         output_slots,
+        messages: Vec::new(),
         nullifiers: vec![first_nullifier],
         proofless: false,
     };
@@ -301,11 +302,11 @@ fn decode_recipient(
         .get(slot_index)
         .expect("slot present")
         .payload;
-    let output_data = zolana_event::OutputData::try_from_slice(payload).unwrap();
+    let output_data = zolana_event::OutputDataEncoding::try_from_slice(payload).unwrap();
     let blob = match output_data {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob,
+        zolana_event::OutputDataEncoding::Encrypted(blob)
+        | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
+        | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
     };
     let body = blob.get(1..).expect("scheme byte");
     let cx = DecodeCx::for_slot(&world.kp(name).viewing_key, tx, slot_index as u32);
@@ -316,7 +317,7 @@ fn decode_recipient(
 fn blob_round_trips(world: &mut TransactionWorld) {
     let tx = world.transfer_tx.as_ref().unwrap();
     for slot in &tx.output_slots {
-        let parsed = zolana_event::OutputData::try_from_slice(&slot.payload).unwrap();
+        let parsed = zolana_event::OutputDataEncoding::try_from_slice(&slot.payload).unwrap();
         assert_eq!(borsh::to_vec(&parsed).unwrap(), slot.payload);
     }
 }
@@ -325,11 +326,11 @@ fn blob_round_trips(world: &mut TransactionWorld) {
 fn sender_recovers(world: &mut TransactionWorld, sender: String) {
     let tx = world.transfer_tx.as_ref().unwrap();
     let payload = &tx.output_slots.first().expect("sender slot").payload;
-    let output_data = zolana_event::OutputData::try_from_slice(payload).unwrap();
+    let output_data = zolana_event::OutputDataEncoding::try_from_slice(payload).unwrap();
     let blob = match output_data {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob,
+        zolana_event::OutputDataEncoding::Encrypted(blob)
+        | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
+        | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
     };
     let body = blob.get(1..).expect("scheme byte");
     let cx = DecodeCx::for_slot(&world.kp(&sender).viewing_key, tx, 0);
@@ -371,11 +372,11 @@ fn stranger_cannot(world: &mut TransactionWorld, name: String) {
         .get(slot_index)
         .expect("slot present")
         .payload;
-    let output_data = zolana_event::OutputData::try_from_slice(payload).unwrap();
+    let output_data = zolana_event::OutputDataEncoding::try_from_slice(payload).unwrap();
     let blob = match output_data {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob,
+        zolana_event::OutputDataEncoding::Encrypted(blob)
+        | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
+        | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
     };
     let body = blob.get(1..).expect("scheme byte");
     let stranger = ShieldedKeypair::new().unwrap();

@@ -300,6 +300,7 @@ impl Scenario {
                 tx_viewing_pk: Some(tx_viewing_pk),
                 salt: Some(salt),
                 output_slots,
+                messages: Vec::new(),
                 nullifiers: vec![first_nullifier],
                 proofless: false,
             });

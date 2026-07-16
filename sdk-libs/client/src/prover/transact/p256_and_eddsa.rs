@@ -1,21 +1,21 @@
 use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{
-    hash::{hash_field, owner_hash, sha256, split_be_128},
+    hash::{hash_field, sha256, split_be_128},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
 use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    ExternalData, OutputUtxo, Utxo,
+    instructions::transact::PrivateTxHash, ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
-        field::{be, hash_chain, right_align_slice},
-        shape::{resolve_shape, Shape},
+        field::{be, right_align_slice},
+        resolve_shape,
         transact::witness::SpendProof,
-        TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs,
+        Shape, TransferInput, TransferOutput, TransferP256Inputs,
     },
     rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
@@ -59,7 +59,7 @@ pub struct P256Owner {
 
 pub struct TransferP256Prover {
     pub inputs: Vec<TransferSpendInput>,
-    pub outputs: Vec<OutputUtxo>,
+    pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
@@ -75,10 +75,14 @@ pub struct TransferP256ProofResult {
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_hash: [u8; 32],
     pub input_root_indices: Vec<(u16, u16)>,
-    /// The shared P256 owner `pk_field` (big-endian) exposed as the `Transact`
-    /// instruction's `p256_signing_pk_field`; equals the value folded into the
-    /// confidential public-input hash.
+    /// The shared P256 owner `pk_field` (big-endian) carried in the prover
+    /// witness and folded into the confidential public-input hash. Prover-side
+    /// value only; never sent as instruction data.
     pub p256_signing_pk_field: [u8; 32],
+    /// The raw x-coordinate of the shared P256 signing key (the pre-hash
+    /// `confidential_view_tag`), carried in the `Transact` instruction's
+    /// `p256_signing_pk_x`; the program hashes it on-chain to `pk_field`.
+    pub p256_signing_pk_x: [u8; 32],
 }
 
 impl TransferP256Prover {
@@ -86,21 +90,24 @@ impl TransferP256Prover {
         resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
         // The shared P256 signing key's pk_field: the value every P256-owned input
         // exposes as its owner tag and that the circuit asserts equals its in-circuit
-        // P256 pk_field. Folded into the confidential public-input hash.
-        let p256_signing_pk_field =
-            PublicKey::from_p256(&self.p256_owner.pubkey).owner_pk_field()?;
+        // P256 pk_field. Folded into the confidential public-input hash. The raw
+        // x-coordinate is the pre-hash value the instruction carries so the program
+        // reproduces `pk_field` on-chain.
+        let signing_pubkey = PublicKey::from_p256(&self.p256_owner.pubkey);
+        let p256_signing_pk_x = signing_pubkey.confidential_view_tag()?;
+        let p256_signing_pk_field = signing_pubkey.owner_pk_field()?;
         let assembled_inputs = assemble_inputs(
             &self.inputs,
             &OwnerMode::ConfidentialP256(p256_signing_pk_field),
         )?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(
+        let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
-        )?;
+        )
+        .hash()?;
         let p256_message_hash = sha256(&private_tx);
         let signature = self.p256_owner.witness()?;
         let (p256_message_low, p256_message_high) = split_be_128(&p256_message_hash);
@@ -149,6 +156,7 @@ impl TransferP256Prover {
             private_tx_hash: private_tx,
             input_root_indices: assembled_inputs.root_indices,
             p256_signing_pk_field,
+            p256_signing_pk_x,
         })
     }
 }
@@ -276,10 +284,10 @@ pub(crate) fn assemble_inputs(
         let zone_data_hash = spend.zone_data_hash.unwrap_or([0u8; 32]);
 
         let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-        let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pubkey)?;
-        let utxo_hash = spend
+        let utxo_inputs = spend
             .utxo
-            .hash(&nullifier_pubkey, &data_hash, &zone_data_hash)?;
+            .proof_input(&nullifier_pubkey, &data_hash, &zone_data_hash)?;
+        let utxo_hash = utxo_inputs.hash()?;
         let nullifier = spend
             .nullifier_key
             .nullifier(&utxo_hash, &spend.utxo.blinding)?;
@@ -301,15 +309,6 @@ pub(crate) fn assemble_inputs(
 
         let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
 
-        let utxo_inputs = UtxoInputs::new(
-            &owner_field,
-            &spend.utxo.asset,
-            spend.utxo.amount,
-            &spend.utxo.blinding,
-            &data_hash,
-            &zone_data_hash,
-            &spend.utxo.zone_program_id,
-        )?;
         let state = &proof.state;
         let nf = &proof.nullifier;
         check_path_length(state.path.len(), STATE_TREE_HEIGHT)?;
@@ -352,7 +351,9 @@ pub(crate) fn assemble_inputs(
 /// Convert the already-padded outputs into circuit witness fields. A dummy output
 /// (`owner_hash == 0`: empty change or tail padding) still puts its real hash in the
 /// public `output_hashes` but contributes `0` to the private-tx hash chain.
-pub(crate) fn assemble_outputs(outputs: &[OutputUtxo]) -> Result<AssembledOutputs, ClientError> {
+pub(crate) fn assemble_outputs(
+    outputs: &[SppProofOutputUtxo],
+) -> Result<AssembledOutputs, ClientError> {
     let mut assembled = Vec::with_capacity(outputs.len());
     let mut hashes = Vec::with_capacity(outputs.len());
     let mut private_tx_hashes = Vec::with_capacity(outputs.len());
@@ -379,7 +380,7 @@ pub(crate) fn assemble_outputs(outputs: &[OutputUtxo]) -> Result<AssembledOutput
             ),
         };
         assembled.push(TransferOutput {
-            utxo: UtxoInputs::from_output(output)?,
+            utxo: ProofInputUtxo::try_from(output)?,
             is_dummy: if is_dummy {
                 BigUint::from(1u8)
             } else {
@@ -425,10 +426,10 @@ pub(crate) struct PublicInputs<'a> {
 impl PublicInputs<'_> {
     pub(crate) fn hash(&self) -> Result<[u8; 32], ClientError> {
         let elements = [
-            hash_chain(self.nullifiers)?,
-            hash_chain(self.output_hashes)?,
-            hash_chain(self.utxo_roots)?,
-            hash_chain(self.nullifier_tree_roots)?,
+            create_hash_chain_from_slice(self.nullifiers)?,
+            create_hash_chain_from_slice(self.output_hashes)?,
+            create_hash_chain_from_slice(self.utxo_roots)?,
+            create_hash_chain_from_slice(self.nullifier_tree_roots)?,
             *self.private_tx,
             hash_field(self.p256_message_hash)?,
             *self.external_data_hash,
@@ -437,12 +438,12 @@ impl PublicInputs<'_> {
             self.public_amounts.asset,
             *self.zone_program_id,
             *self.payer_pubkey_hash,
-            hash_chain(self.input_owner_pk_hashes)?,
+            create_hash_chain_from_slice(self.input_owner_pk_hashes)?,
             // Confidential appendix (the client always uses the confidential variant).
-            hash_chain(self.output_owner_pk_hashes)?,
+            create_hash_chain_from_slice(self.output_owner_pk_hashes)?,
             *self.p256_signing_pk_field,
         ];
-        hash_chain(&elements)
+        Ok(create_hash_chain_from_slice(&elements)?)
     }
 }
 fn check_path_length(got: usize, expected: usize) -> Result<(), ClientError> {

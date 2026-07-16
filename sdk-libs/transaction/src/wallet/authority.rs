@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use p256::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey as EcdsaSigningKey};
 use solana_address::Address;
-use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
+use zolana_event::MessageData;
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{random_salt, Salt, ViewTag},
@@ -9,18 +9,12 @@ use zolana_keypair::{
 };
 
 use crate::{
-    serialization::{
-        anonymous::{
-            AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
-            AnonymousSenderEncode, AnonymousTransferRecipientPlaintext,
-            AnonymousTransferSenderPlaintext,
-        },
-        confidential::{
-            ConfidentialRecipient, ConfidentialRecipientEncode, ConfidentialSenderBundle,
-            ConfidentialSenderEncode, TransferRecipientPlaintext, TransferSenderPlaintext,
-        },
+    instructions::transact::slots::encode_confidential_slots,
+    serialization::anonymous::{
+        AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle, AnonymousSenderEncode,
+        AnonymousTransferRecipientPlaintext, AnonymousTransferSenderPlaintext,
     },
-    TransactionError, UtxoSerialization,
+    AssetRegistry, SppProofOutputUtxo, TransactionError, UtxoSerialization,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,13 +31,6 @@ pub struct ApprovalRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ConfidentialRecipientSlot {
-    pub view_tag: ViewTag,
-    pub recipient_pubkey: P256Pubkey,
-    pub plaintext: TransferRecipientPlaintext,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousRecipientSlot {
     pub view_tag: ViewTag,
     pub recipient_pubkey: P256Pubkey,
@@ -54,7 +41,7 @@ pub struct AnonymousRecipientSlot {
 pub struct EncryptedTransfer {
     pub tx_viewing_pk: P256Pubkey,
     pub salt: Salt,
-    pub slots: Vec<OutputCiphertext>,
+    pub slots: Vec<Option<MessageData>>,
 }
 
 /// Ephemeral key material required by a wallet scan.
@@ -93,9 +80,8 @@ pub trait WalletAuthority: Send + Sync {
     async fn encrypt_confidential_transfer(
         &self,
         first_nullifier: &[u8; 32],
-        sender_tag: ViewTag,
-        sender: &TransferSenderPlaintext,
-        recipients: &[ConfidentialRecipientSlot],
+        outputs: &[SppProofOutputUtxo],
+        assets: &AssetRegistry,
     ) -> Result<EncryptedTransfer, TransactionError>;
 
     async fn encrypt_anonymous_transfer(
@@ -140,9 +126,8 @@ pub trait SyncWalletAuthority: Send + Sync {
     fn encrypt_confidential_transfer(
         &self,
         first_nullifier: &[u8; 32],
-        sender_tag: ViewTag,
-        sender: &TransferSenderPlaintext,
-        recipients: &[ConfidentialRecipientSlot],
+        outputs: &[SppProofOutputUtxo],
+        assets: &AssetRegistry,
     ) -> Result<EncryptedTransfer, TransactionError>;
 
     fn encrypt_anonymous_transfer(
@@ -186,17 +171,10 @@ where
     async fn encrypt_confidential_transfer(
         &self,
         first_nullifier: &[u8; 32],
-        sender_tag: ViewTag,
-        sender: &TransferSenderPlaintext,
-        recipients: &[ConfidentialRecipientSlot],
+        outputs: &[SppProofOutputUtxo],
+        assets: &AssetRegistry,
     ) -> Result<EncryptedTransfer, TransactionError> {
-        SyncWalletAuthority::encrypt_confidential_transfer(
-            self,
-            first_nullifier,
-            sender_tag,
-            sender,
-            recipients,
-        )
+        SyncWalletAuthority::encrypt_confidential_transfer(self, first_nullifier, outputs, assets)
     }
 
     async fn encrypt_anonymous_transfer(
@@ -270,44 +248,15 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
     fn encrypt_confidential_transfer(
         &self,
         first_nullifier: &[u8; 32],
-        sender_tag: ViewTag,
-        sender: &TransferSenderPlaintext,
-        recipients: &[ConfidentialRecipientSlot],
+        outputs: &[SppProofOutputUtxo],
+        assets: &AssetRegistry,
     ) -> Result<EncryptedTransfer, TransactionError> {
         let tx = self
             .keypair
             .viewing_key
             .get_transaction_viewing_key(first_nullifier)?;
         let salt = random_salt();
-        let self_pubkey = self.keypair.viewing_key.pubkey();
-
-        let mut slots = Vec::with_capacity(1 + recipients.len());
-        let sender_cx = ConfidentialSenderEncode {
-            tx: tx.clone(),
-            self_pubkey,
-            salt,
-            slot_index: 0,
-            blinding_seed: sender.blinding_seed,
-            recipient_viewing_pks: sender.recipient_viewing_pks.clone(),
-        };
-        slots.push(ConfidentialSenderBundle::encode_plaintext(
-            sender, sender_tag, &sender_cx,
-        )?);
-
-        for (i, recipient) in recipients.iter().enumerate() {
-            let cx = ConfidentialRecipientEncode {
-                tx: tx.clone(),
-                recipient_pubkey: recipient.recipient_pubkey,
-                salt,
-                slot_index: recipient_slot_index(i)?,
-            };
-            slots.push(ConfidentialRecipient::encode_plaintext(
-                &recipient.plaintext,
-                recipient.view_tag,
-                &cx,
-            )?);
-        }
-
+        let slots = encode_confidential_slots(outputs, assets, &tx, salt)?;
         Ok(EncryptedTransfer {
             tx_viewing_pk: tx.pubkey(),
             salt,
@@ -338,11 +287,11 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
             blinding_seed: sender.blinding_seed,
             recipient_viewing_pks: sender.recipient_viewing_pks.clone(),
         };
-        slots.push(AnonymousSenderBundle::encode_plaintext(
+        slots.push(Some(AnonymousSenderBundle::encode_plaintext(
             sender,
             sender_view_tag,
             &sender_cx,
-        )?);
+        )?));
 
         for (i, recipient) in recipients.iter().enumerate() {
             let cx = AnonymousRecipientEncode {
@@ -352,11 +301,11 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
                 salt,
                 slot_index: recipient_slot_index(i)?,
             };
-            slots.push(AnonymousRecipient::encode_plaintext(
+            slots.push(Some(AnonymousRecipient::encode_plaintext(
                 &recipient.plaintext,
                 recipient.view_tag,
                 &cx,
-            )?);
+            )?));
         }
 
         Ok(EncryptedTransfer {

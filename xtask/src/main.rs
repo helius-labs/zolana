@@ -88,6 +88,10 @@ fn print_program_ids() {
         "ZONE_TEST_PROGRAM_ID={}",
         bs58::encode(zolana_program_test::ZONE_TEST_PROGRAM_ID).into_string()
     );
+    println!(
+        "SWAP_PROGRAM_ID={}",
+        bs58::encode(swap_program::ID).into_string()
+    );
 }
 
 #[derive(Debug)]
@@ -318,7 +322,7 @@ fn tx_size(args: Vec<String>) {
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
     use zolana_interface::{
-        instruction::{tag, InputUtxo, OutputCiphertext, TransactIxData, TransactProof},
+        instruction::{tag, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof},
         SHIELDED_POOL_PROGRAM_ID,
     };
     use zolana_transaction::instructions::transact::SENDER_SLOT_COUNT;
@@ -329,7 +333,11 @@ fn tx_size(args: Vec<String>) {
     // Pre-spec recipient: owner_pk(34)+sender_pk(33)+asset(8)+amount(8)+blinding(31)+data(1) = 115 B + 16 B GCM tag
     let current_recipient_data_len = 131_usize;
 
-    // Spec-target: AES-256-CTR (no tag), owner_pubkey and sender_pubkey dropped from ciphertexts.
+    // Spec-target ciphertext lengths (the per-output `data` slot). AES-256-CTR (no
+    // tag), owner_pubkey and sender_pubkey dropped from ciphertexts. Unchanged by
+    // the TransactOutput regrouping: the sender bundle is still one ciphertext
+    // covering both change positions, so isolating this constant makes the size
+    // delta below purely structural (owner tag vs the old 32-byte view_tag).
     const OPT_SENDER_DATA_LEN: usize = 58; // type_prefix(1) + 57 B plaintext
     const OPT_RECIPIENT_DATA_LEN: usize = 48; // 48 B plaintext
 
@@ -378,12 +386,14 @@ fn tx_size(args: Vec<String>) {
         addresses: vec![tree_pk, vault_pk, recipient_pk, spp_pk],
     };
 
+    // Each output is described by its owner tag and its optional ciphertext
+    // length (`None` = a covered position carrying `data: None`). Since outputs
+    // now fold the utxo hash, owner tag, and ciphertext into one `TransactOutput`,
+    // this descriptor is all a shape needs.
     let build_ix_data = |public_spl: Option<i64>,
-                         r: usize,
-                         m: usize,
                          n: usize,
-                         sender_len: usize,
-                         recipient_len: usize|
+                         p256_signing_pk_x: Option<[u8; 32]>,
+                         outputs_spec: &[(OwnerTag, Option<usize>)]|
      -> TransactIxData {
         let inputs = (0..n)
             .map(|_| InputUtxo {
@@ -394,22 +404,20 @@ fn tx_size(args: Vec<String>) {
                 eddsa_signer_index: 255,
             })
             .collect();
-        let mut output_ciphertexts = vec![OutputCiphertext {
-            view_tag: [0u8; 32],
-            data: vec![0u8; sender_len],
-        }];
-        for _ in 0..r {
-            output_ciphertexts.push(OutputCiphertext {
-                view_tag: [0u8; 32],
-                data: vec![0u8; recipient_len],
-            });
-        }
+        let outputs = outputs_spec
+            .iter()
+            .map(|(owner_tag, data_len)| TransactOutput {
+                utxo_hash: [0u8; 32],
+                owner_tag: *owner_tag,
+                data: data_len.map(|len| vec![0u8; len]),
+            })
+            .collect();
         TransactIxData {
             proof: TransactProof::zeroed_eddsa(),
             expiry_unix_ts: 0,
             relayer_fee: 0,
             private_tx_hash: [0u8; 32],
-            p256_signing_pk_field: None,
+            p256_signing_pk_x,
             inputs,
             public_sol_amount: None,
             public_spl_amount: public_spl,
@@ -417,9 +425,50 @@ fn tx_size(args: Vec<String>) {
             zone_data_hash: None,
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
-            output_utxo_hashes: vec![[0u8; 32]; m],
-            output_ciphertexts,
+            outputs,
+            messages: vec![],
         }
+    };
+
+    // Transfer layout: the sender bundle covers the leading SENDER_SLOT_COUNT
+    // change positions (position 0 carries the ciphertext under the sender's tag,
+    // the rest carry `None`), then R recipient positions each carry their own
+    // Inline-tagged ciphertext. The sender tag varies by ownership rail
+    // (Account(0) when the owner is the payer, P256SigningKey on the P256 rail,
+    // Inline(..) for a relayed ed25519 transfer).
+    let transfer_layout = |m: usize,
+                           sender_tag: OwnerTag,
+                           sender_len: usize,
+                           recipient_len: usize|
+     -> Vec<(OwnerTag, Option<usize>)> {
+        (0..m)
+            .map(|position| {
+                if position == 0 {
+                    (sender_tag, Some(sender_len))
+                } else if position < SENDER_SLOT_COUNT {
+                    (sender_tag, None)
+                } else {
+                    (OwnerTag::Inline([0u8; 32]), Some(recipient_len))
+                }
+            })
+            .collect()
+    };
+
+    // Split layout: one bundle at position 0 covers every output, so all M
+    // positions share the Account(0) sender tag and only position 0 carries a
+    // ciphertext. Expressible only now that coverage is data-placement, not a
+    // vec-length convention.
+    let split_layout = |m: usize, sender_len: usize| -> Vec<(OwnerTag, Option<usize>)> {
+        (0..m)
+            .map(|position| {
+                let data = if position == 0 {
+                    Some(sender_len)
+                } else {
+                    None
+                };
+                (OwnerTag::Account(0), data)
+            })
+            .collect()
     };
 
     let make_ix_bytes = |data: &TransactIxData| -> Vec<u8> {
@@ -451,15 +500,13 @@ fn tx_size(args: Vec<String>) {
     // Legacy flat proof (pre-enum, always 192 B, no tag) for the baseline table.
     const LEGACY_PROOF_LEN: usize = 192;
 
-    let make_tx_sizes = |n: usize,
-                         m: usize,
-                         r: usize,
-                         sender_len: usize,
-                         recipient_len: usize,
+    let make_tx_sizes = |outputs_spec: &[(OwnerTag, Option<usize>)],
+                         n: usize,
+                         p256_signing_pk_x: Option<[u8; 32]>,
                          proof_len: usize|
      -> (usize, usize, usize, usize, usize) {
-        let transfer_data = build_ix_data(None, r, m, n, sender_len, recipient_len);
-        let shield_data = build_ix_data(Some(1000), r, m, n, sender_len, recipient_len);
+        let transfer_data = build_ix_data(None, n, p256_signing_pk_x, outputs_spec);
+        let shield_data = build_ix_data(Some(1000), n, p256_signing_pk_x, outputs_spec);
 
         let adj = proof_len as isize - FIXTURE_PROOF_SER_LEN as isize;
         let adjust = |v: usize| (v as isize + adj) as usize;
@@ -524,14 +571,13 @@ fn tx_size(args: Vec<String>) {
 
     for &(n, m) in &shapes {
         let r = m.saturating_sub(SENDER_SLOT_COUNT);
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(
-            n,
+        let spec = transfer_layout(
             m,
-            r,
+            OwnerTag::Account(0),
             current_sender_data_len(r),
             current_recipient_data_len,
-            LEGACY_PROOF_LEN,
         );
+        let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, None, LEGACY_PROOF_LEN);
         let fmt = |v: usize, show: bool| {
             if show {
                 v.to_string()
@@ -571,14 +617,13 @@ fn tx_size(args: Vec<String>) {
 
     for &(n, m) in &shapes {
         let r = m.saturating_sub(SENDER_SLOT_COUNT);
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(
-            n,
+        let spec = transfer_layout(
             m,
-            r,
+            OwnerTag::Account(0),
             OPT_SENDER_DATA_LEN,
             OPT_RECIPIENT_DATA_LEN,
-            FIXTURE_PROOF_SER_LEN,
         );
+        let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, None, FIXTURE_PROOF_SER_LEN);
         let fmt = |v: usize, show: bool| {
             if show {
                 v.to_string()
@@ -598,6 +643,70 @@ fn tx_size(args: Vec<String>) {
             sv,
         );
     }
+
+    // Sender owner-tag sensitivity. The regrouping lets the sender tag encode as
+    // Account(0) (2 B), P256SigningKey (1 B), or Inline (33 B) per change
+    // position; the old fixed 32-byte view_tag had no such choice. Held equal:
+    // eddsa proof, no shared P256 key -- this isolates the per-position tag cost.
+    // P256SigningKey additionally needs the shared `p256_signing_pk_x` field
+    // (+33 B) and runs on the P256 rail (+64 B proof); Inline is the relayed-
+    // transfer regression case.
+    println!();
+    println!("Sender owner-tag sensitivity (3 in 3 out, eddsa rail, 2 change positions):");
+    println!(
+        "| {:<16} | {:>13} | {:>11} | {:>16} | {:>13} |",
+        "sender tag", "tag B/pos", "ix data (B)", "transfer, no ALT", "transfer, ALT",
+    );
+    println!(
+        "|{:-<18}|{:-<15}|{:-<13}|{:-<18}|{:-<15}|",
+        "", "", "", "", ""
+    );
+    let sender_tag_kinds = [
+        ("Account(0)", OwnerTag::Account(0), 2usize),
+        ("P256SigningKey", OwnerTag::P256SigningKey, 1),
+        ("Inline([u8;32])", OwnerTag::Inline([0u8; 32]), 33),
+    ];
+    for &(label, tag, tag_bytes) in &sender_tag_kinds {
+        let spec = transfer_layout(3, tag, OPT_SENDER_DATA_LEN, OPT_RECIPIENT_DATA_LEN);
+        let (ix, tl, tv, _sl, _sv) = make_tx_sizes(&spec, 3, None, FIXTURE_PROOF_SER_LEN);
+        println!(
+            "| {:<16} | {:>13} | {:>11} | {:>16} | {:>13} |",
+            label, tag_bytes, ix, tl, tv,
+        );
+    }
+
+    // UTXO Split: a single bundle at position 0 covers all M outputs, so every
+    // position shares the Account(0) sender tag and only position 0 carries a
+    // ciphertext. This layout is expressible only after the regrouping.
+    println!();
+    println!("UTXO Split (single bundle covering every output, Account(0), eddsa rail):");
+    println!(
+        "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
+        "Circuit",
+        "ix data (B)",
+        "transfer, no ALT",
+        "transfer, ALT",
+        "shield, no ALT",
+        "shield, ALT",
+    );
+    println!(
+        "|{:-<16}|---|---|{:-<13}|{:-<23}|{:-<20}|{:-<21}|{:-<18}|",
+        "", "", "", "", "", ""
+    );
+    let (n, m) = (1usize, 8usize);
+    let spec = split_layout(m, OPT_SENDER_DATA_LEN);
+    let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, None, FIXTURE_PROOF_SER_LEN);
+    println!(
+        "| {:<14} | {} | {} | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
+        format!("{n} in {m} out"),
+        n,
+        m,
+        ix,
+        tl,
+        tv,
+        sl,
+        sv,
+    );
 }
 
 fn transfer_accounts(

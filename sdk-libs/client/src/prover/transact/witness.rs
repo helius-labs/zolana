@@ -2,17 +2,16 @@ use zolana_interface::instruction::instruction_data::transact::{
     InputUtxo, TransactIxData, TransactProof,
 };
 use zolana_keypair::SignatureType;
-use zolana_transaction::instructions::transact::{builder::inputs_require_p256, SignedTransaction};
+use zolana_transaction::instructions::transact::{inputs_require_p256, SppProofInputs};
 
 use crate::{
     error::ClientError,
     prover::{
-        shape::Shape,
         transact::{
             eddsa::TransferProver,
             p256_and_eddsa::{P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput},
         },
-        TransferInputs, TransferP256Inputs,
+        ProofCompressed, ProverClient, TransferInputs, TransferP256Inputs,
     },
     rpc::{MerkleProof, NonInclusionProof},
 };
@@ -70,8 +69,19 @@ impl AssembledTransfer {
     }
 }
 
-fn client_shape(shape: zolana_transaction::instructions::transact::Shape) -> Shape {
-    Shape::new(shape.n_inputs, shape.n_outputs)
+impl ProverClient {
+    pub fn prove_transact(
+        &self,
+        proof_inputs: SppProofInputs,
+        input_proofs: &[SpendProof],
+    ) -> Result<TransactIxData, ClientError> {
+        let assembled = assemble(proof_inputs, input_proofs)?;
+        let proof = match &assembled.prover_inputs {
+            ProverInputs::P256(inputs) => self.prove_transfer_p256(inputs)?,
+            ProverInputs::Eddsa(inputs) => self.prove_transfer(inputs)?,
+        };
+        Ok(assembled.with_proof(ProofCompressed::try_from(proof)?.to_transact_proof()))
+    }
 }
 
 fn client_public_amounts(
@@ -87,10 +97,12 @@ fn client_public_amounts(
 /// Recover the [`P256Owner`] witness from the stored 64-byte signature and the
 /// first P256-owned input's signing pubkey. The transaction crate keeps only the
 /// raw `r || s` bytes; the pubkey comes from the owner of a real P256 input.
-fn p256_owner(tx: &SignedTransaction) -> Result<P256Owner, ClientError> {
-    let signature = tx.p256_owner.ok_or(ClientError::MissingP256Signature)?;
-    let pubkey = tx
-        .inputs
+fn p256_owner(proof_inputs: &SppProofInputs) -> Result<P256Owner, ClientError> {
+    let signature = proof_inputs
+        .p256_signature
+        .ok_or(ClientError::MissingP256Signature)?;
+    let pubkey = proof_inputs
+        .input_utxos
         .iter()
         .filter(|spend| !spend.is_dummy())
         .map(|spend| spend.utxo.owner)
@@ -109,24 +121,24 @@ fn p256_owner(tx: &SignedTransaction) -> Result<P256Owner, ClientError> {
 }
 
 pub fn into_prover(
-    tx: SignedTransaction,
+    proof_inputs: SppProofInputs,
     input_merkle_proofs: &[SpendProof],
 ) -> Result<BuiltCircuit, ClientError> {
-    let requires_p256 = inputs_require_p256(&tx.inputs)?;
+    let requires_p256 = inputs_require_p256(&proof_inputs.input_utxos)?;
     let p256_owner = if requires_p256 {
-        Some(p256_owner(&tx)?)
+        Some(p256_owner(&proof_inputs)?)
     } else {
         None
     };
-    let SignedTransaction {
-        inputs,
-        outputs,
-        public_amounts,
+    let shape = proof_inputs.check_shape()?;
+    let public_amounts = client_public_amounts(proof_inputs.public_amounts()?);
+    let SppProofInputs {
+        input_utxos: inputs,
+        output_utxos: outputs,
         external_data,
         payer_pubkey_hash,
-        shape,
         ..
-    } = tx;
+    } = proof_inputs;
 
     let mut spends = Vec::with_capacity(inputs.len());
     let mut real_index = 0;
@@ -155,9 +167,6 @@ pub fn into_prover(
             proof,
         });
     }
-
-    let shape = client_shape(shape);
-    let public_amounts = client_public_amounts(public_amounts);
 
     let circuit = if requires_p256 {
         let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
@@ -191,16 +200,20 @@ pub fn into_prover(
 /// dummy input mirrors the first real input's signer; root indices come from each
 /// real `SpendProof`.
 pub fn assemble(
-    tx: SignedTransaction,
+    proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
 ) -> Result<AssembledTransfer, ClientError> {
-    let shape = tx.shape;
+    let shape = proof_inputs.check_shape()?;
 
     // Signer indices for the real inputs only; dummies (zero owner) inherit the
     // first real input's signer below. A zero owner reads as P256, so it must
     // never reach `signature_type`.
     let mut real_signer_indices: Vec<u8> = Vec::new();
-    for spend in tx.inputs.iter().filter(|spend| !spend.is_dummy()) {
+    for spend in proof_inputs
+        .input_utxos
+        .iter()
+        .filter(|spend| !spend.is_dummy())
+    {
         let signer = if spend.utxo.owner.signature_type()? == SignatureType::P256 {
             P256_OWNED_SIGNER
         } else {
@@ -218,49 +231,43 @@ pub fn assemble(
         zone_data_hash,
         tx_viewing_pk,
         salt,
-        output_utxo_hashes,
-        output_ciphertexts,
+        outputs,
+        messages,
         ..
-    } = tx.external_data.clone();
+    } = proof_inputs.external_data.clone();
 
-    let BuiltCircuit { circuit } = into_prover(tx, input_proofs)?;
+    let BuiltCircuit { circuit } = into_prover(proof_inputs, input_proofs)?;
 
-    let (
-        prover_inputs,
-        public_input_hash,
-        nullifiers,
-        private_tx,
-        root_indices,
-        p256_signing_pk_field,
-    ) = match circuit {
-        CircuitType::P256(prover) => {
-            let result = prover.build()?;
-            (
-                ProverInputs::P256(result.inputs),
-                result.public_input_hash,
-                result.nullifiers,
-                result.private_tx_hash,
-                result.input_root_indices,
-                Some(result.p256_signing_pk_field),
-            )
-        }
-        CircuitType::Eddsa(prover) => {
-            let result = prover.build()?;
-            (
-                ProverInputs::Eddsa(result.inputs),
-                result.public_input_hash,
-                result.nullifiers,
-                result.private_tx_hash,
-                result.input_root_indices,
-                None,
-            )
-        }
-    };
+    let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices, p256_signing_pk_x) =
+        match circuit {
+            CircuitType::P256(prover) => {
+                let result = prover.build()?;
+                (
+                    ProverInputs::P256(result.inputs),
+                    result.public_input_hash,
+                    result.nullifiers,
+                    result.private_tx_hash,
+                    result.input_root_indices,
+                    Some(result.p256_signing_pk_x),
+                )
+            }
+            CircuitType::Eddsa(prover) => {
+                let result = prover.build()?;
+                (
+                    ProverInputs::Eddsa(result.inputs),
+                    result.public_input_hash,
+                    result.nullifiers,
+                    result.private_tx_hash,
+                    result.input_root_indices,
+                    None,
+                )
+            }
+        };
 
-    if nullifiers.len() != shape.n_inputs || root_indices.len() != shape.n_inputs {
+    if nullifiers.len() != shape.n_inputs() || root_indices.len() != shape.n_inputs() {
         return Err(ClientError::WitnessInputCountMismatch {
             got: nullifiers.len(),
-            expected: shape.n_inputs,
+            expected: shape.n_inputs(),
         });
     }
 
@@ -268,20 +275,20 @@ pub fn assemble(
         .first()
         .copied()
         .unwrap_or(DEFAULT_EDDSA_SIGNER_INDEX);
-    let mut inputs = Vec::with_capacity(shape.n_inputs);
-    for i in 0..shape.n_inputs {
+    let mut inputs = Vec::with_capacity(shape.n_inputs());
+    for i in 0..shape.n_inputs() {
         let nullifier_hash = *nullifiers
             .get(i)
             .ok_or(ClientError::WitnessInputCountMismatch {
                 got: nullifiers.len(),
-                expected: shape.n_inputs,
+                expected: shape.n_inputs(),
             })?;
         let &(utxo_tree_root_index, nullifier_tree_root_index) =
             root_indices
                 .get(i)
                 .ok_or(ClientError::WitnessInputCountMismatch {
                     got: root_indices.len(),
-                    expected: shape.n_inputs,
+                    expected: shape.n_inputs(),
                 })?;
         let eddsa_signer_index = match real_signer_indices.get(i) {
             Some(&signer) => signer,
@@ -301,7 +308,7 @@ pub fn assemble(
         expiry_unix_ts,
         relayer_fee,
         private_tx_hash: private_tx,
-        p256_signing_pk_field,
+        p256_signing_pk_x,
         inputs,
         public_sol_amount,
         public_spl_amount,
@@ -309,8 +316,8 @@ pub fn assemble(
         zone_data_hash,
         tx_viewing_pk,
         salt,
-        output_utxo_hashes,
-        output_ciphertexts,
+        outputs,
+        messages,
     };
 
     Ok(AssembledTransfer {

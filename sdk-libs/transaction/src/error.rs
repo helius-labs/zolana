@@ -67,8 +67,23 @@ pub enum TransactionError {
     #[error("withdrawal already set")]
     WithdrawalAlreadySet,
 
+    #[error("public sol leg already set")]
+    PublicSolAlreadySet,
+
+    #[error("public spl leg already set")]
+    PublicSplAlreadySet,
+
+    #[error("zone hashes already set")]
+    ZoneHashesAlreadySet,
+
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
+
+    #[error("public spl amount set but no spl asset among the transaction utxos")]
+    MissingPublicSplAsset,
+
+    #[error("p256 signing requires a p256 keypair")]
+    SignerNotP256,
 
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
@@ -111,6 +126,12 @@ pub enum TransactionError {
 
     #[error("wallet authority error: {0}")]
     Authority(String),
+}
+
+impl From<zolana_hasher::HasherError> for TransactionError {
+    fn from(e: zolana_hasher::HasherError) -> Self {
+        TransactionError::Keypair(KeypairError::Poseidon(e.into()))
+    }
 }
 
 impl From<wincode::WriteError> for TransactionError {

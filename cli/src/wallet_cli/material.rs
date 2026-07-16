@@ -12,18 +12,16 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
-    LocalWalletAuthority, P256Signature, SolanaRpc, SyncWalletAuthority,
+    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, LocalWalletAuthority,
+    P256Signature, SolanaRpc, SyncWalletAuthority,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
     ViewingKey,
 };
 use zolana_transaction::{
-    serialization::{
-        anonymous::AnonymousTransferSenderPlaintext, confidential::TransferSenderPlaintext,
-    },
-    Address, TransactionError,
+    serialization::anonymous::AnonymousTransferSenderPlaintext, Address, AssetRegistry,
+    SppProofOutputUtxo, TransactionError,
 };
 
 use super::{
@@ -78,16 +76,14 @@ impl SyncWalletAuthority for WalletMaterial {
     fn encrypt_confidential_transfer(
         &self,
         first_nullifier: &[u8; 32],
-        sender_tag: ViewTag,
-        sender: &TransferSenderPlaintext,
-        recipients: &[ConfidentialRecipientSlot],
+        outputs: &[SppProofOutputUtxo],
+        assets: &AssetRegistry,
     ) -> std::result::Result<EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_confidential_transfer(
             &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
-            sender_tag,
-            sender,
-            recipients,
+            outputs,
+            assets,
         )
     }
 

@@ -789,6 +789,17 @@ components:
         value:
           $ref: '#/components/schemas/Hash'
       additionalProperties: false
+    RingsMessage:
+      type: object
+      required:
+      - view_tag
+      - payload
+      properties:
+        payload:
+          $ref: '#/components/schemas/Base64String'
+        view_tag:
+          $ref: '#/components/schemas/Hash'
+      additionalProperties: false
     RingsOutputContext:
       type: object
       required:
@@ -831,9 +842,15 @@ components:
       - slot
       - tx_signature
       - output_slots
+      - messages
       - nullifiers
       - proofless
       properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/RingsMessage'
+          description: Published data slots bound to no output commitment, republished verbatim.
         nullifiers:
           type: array
           items:

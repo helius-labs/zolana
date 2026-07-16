@@ -4,6 +4,7 @@ pub mod prelude;
 
 pub mod blocks;
 pub mod indexed_trees;
+pub mod rings_messages;
 pub mod rings_output_payloads;
 pub mod rings_outputs;
 pub mod rings_transaction_payloads;

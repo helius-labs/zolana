@@ -1,24 +1,19 @@
 use zolana_event::{encode_output_data, ProoflessOutput};
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_transaction::{
-    owner_utxo_hash, utxo_hash, Address, AssetRegistry, LocalWalletAuthority, OutputContext,
-    OutputSlot, ShieldedTransaction, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
+    Address, AssetRegistry, LocalWalletAuthority, OutputContext, OutputSlot, ProofInputUtxo,
+    ShieldedTransaction, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
 fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTransaction {
     let blinding = [9u8; BLINDING_LEN];
     let data_hash = [14u8; 32];
     let owner = keypair.owner_hash().expect("owner hash");
-    let owner_utxo_hash = owner_utxo_hash(&owner, &blinding).expect("owner UTXO hash");
-    let utxo_hash = utxo_hash(
-        SOL_MINT,
-        amount,
-        &data_hash,
-        &[0u8; 32],
-        None,
-        &owner_utxo_hash,
-    )
-    .expect("UTXO hash");
+    let utxo_hash = ProofInputUtxo::new(owner, &SOL_MINT, amount, &blinding)
+        .expect("proof input utxo")
+        .with_data_hash(data_hash)
+        .hash()
+        .expect("UTXO hash");
 
     let output = ProoflessOutput {
         owner,
@@ -47,6 +42,7 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTr
             },
             payload: encode_output_data(output),
         }],
+        messages: Vec::new(),
         nullifiers: Vec::new(),
         proofless: true,
     }
@@ -106,6 +102,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
         tx_viewing_pk: Some(keypair.viewing_pubkey()),
         salt: Some([0u8; 16]),
         output_slots: Vec::new(),
+        messages: Vec::new(),
         nullifiers: vec![nullifier],
         proofless: false,
     };

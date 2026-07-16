@@ -15,7 +15,9 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{InputUtxo, OutputCiphertext, TransactIxData, TransactProof},
+        instruction_data::transact::{
+            InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+        },
         Transact, TransactSplWithdrawal, TransactWithdrawal,
     },
     pda,
@@ -42,10 +44,11 @@ fn input(nullifier_hash: [u8; 32]) -> InputUtxo {
     }
 }
 
-fn ciphertext(view_tag: [u8; 32]) -> OutputCiphertext {
-    OutputCiphertext {
-        view_tag,
-        data: Vec::new(),
+fn output(view_tag: [u8; 32]) -> TransactOutput {
+    TransactOutput {
+        utxo_hash: view_tag,
+        owner_tag: OwnerTag::Inline(view_tag),
+        data: None,
     }
 }
 
@@ -94,7 +97,7 @@ fn both_public_amounts_are_rejected() {
         expiry_unix_ts: u64::MAX,
         relayer_fee: 0,
         private_tx_hash: [0u8; 32],
-        p256_signing_pk_field: None,
+        p256_signing_pk_x: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         inputs: vec![input(fe(101)), input(fe(102))],
@@ -102,12 +105,8 @@ fn both_public_amounts_are_rejected() {
         public_spl_amount: Some(1_000),
         data_hash: None,
         zone_data_hash: None,
-        output_utxo_hashes: vec![[1u8; 32], [2u8; 32], [3u8; 32]],
-        output_ciphertexts: vec![
-            ciphertext([1u8; 32]),
-            ciphertext([2u8; 32]),
-            ciphertext([3u8; 32]),
-        ],
+        outputs: vec![output([1u8; 32]), output([2u8; 32]), output([3u8; 32])],
+        messages: Vec::new(),
     };
 
     let ix = Transact {

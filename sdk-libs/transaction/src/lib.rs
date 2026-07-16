@@ -21,19 +21,19 @@ pub mod wallet;
 pub use data::{Data, DataRecord};
 pub use error::TransactionError;
 pub use instructions::transact::{
-    EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, OutputUtxo,
-    ShieldedTransaction,
+    EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, ShieldedTransaction,
+    SppProofOutputUtxo,
 };
 pub use serialization::{scheme::EncryptedScheme, DecodeCx, OwnerCx, UtxoSerialization};
 pub use solana_address::Address;
-pub use utxo::{derive_blinding, owner_utxo_hash, utxo_hash, Blinding, Utxo};
+pub use utxo::{derive_blinding, owner_utxo_hash, Blinding, ProofInputUtxo, Utxo};
 pub use wallet::{
     asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT},
-    AnonymousRecipientSlot, ApprovalRequest, AssetBalance, ConfidentialRecipientSlot,
-    EncryptedTransfer, LocalWalletAuthority, P256Signature, PrivateTransaction,
-    PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,
-    PrivateTransactionStatus, SyncReport, SyncWalletAuthority, ViewingKeyEntry, Wallet,
-    WalletAuthority, WalletSyncMaterial, WalletUtxo, DEFAULT_TAG_WINDOW,
+    AnonymousRecipientSlot, ApprovalRequest, AssetBalance, EncryptedTransfer, Filter,
+    LocalWalletAuthority, P256Signature, PrivateTransaction, PrivateTransactionDirection,
+    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, SyncReport,
+    SyncWalletAuthority, ViewingKeyEntry, Wallet, WalletAuthority, WalletSyncMaterial, WalletUtxo,
+    DEFAULT_TAG_WINDOW,
 };
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 

@@ -4,16 +4,16 @@
 //! signed, and proved on the confidential P256 rail
 //! (`transfer_p256_confidential_2_3`). The input is owned by a P256
 //! [`ShieldedKeypair`], so the high-level client builder signs the transaction
-//! with the P256 key, exposes the shared `p256_signing_pk_field`, and produces a
-//! BSB22-committed Groth16 proof.
+//! with the P256 key, exposes the shared P256 signing key's raw x-coordinate
+//! (`p256_signing_pk_x`), and produces a BSB22-committed Groth16 proof.
 //!
 //! Unlike the eddsa-rail tests, the witness is built by the production client
 //! (`assemble` + `prove_transfer_p256`) rather than by hand: the P256 ECDSA
 //! signature and message hash make a manual witness impractical, and reusing the
-//! client exercises the exact `p256_signing_pk_field` wiring the program checks.
+//! client exercises the exact `p256_signing_pk_x` wiring the program checks.
 //!
 //! The test asserts (1) the P256 rail is selected and the instruction exposes the
-//! sender's `owner_pk_field` as `p256_signing_pk_field`, (2) the committed proof
+//! sender's raw confidential view tag as `p256_signing_pk_x`, (2) the committed proof
 //! verifies against `transfer_p256_confidential_2_3`, and (3) the program's
 //! 17-element confidential public-input hash, reconstructed from the instruction
 //! and the on-chain tree roots/payer exactly as `transact::verify` does, equals
@@ -40,8 +40,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    assemble, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, ProverInputs,
-    SpendProof, SpendUtxo, Transaction as ClientTransaction, WithdrawalTarget, STATE_TREE_HEIGHT,
+    assemble, ConfidentialTransfer, MerkleContext, MerkleProof, NonInclusionProof, ProverClient,
+    ProverInputs, SpendProof, SppProofInputUtxo, WithdrawalTarget, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_keypair::{hash::owner_hash, shielded::ShieldedKeypair};
@@ -138,29 +138,30 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     // client builder, padded to the (2,3) P256 shape.
     let recipient = Keypair::new().pubkey();
 
-    let spend = SpendUtxo::from_keypair(utxo, &sender);
-    let mut tx = ClientTransaction::new(
+    let spend = SppProofInputUtxo::new(utxo, &sender);
+    let mut transfer = ConfidentialTransfer::new(
         sender.shielded_address().expect("sender address"),
         vec![spend],
         payer_address,
     )
-    .with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
-    tx.withdraw(
-        SOL_MINT,
-        AMOUNT,
-        WithdrawalTarget::Sol {
-            user_sol_account: Address::new_from_array(recipient.to_bytes()),
-        },
-    )
-    .expect("withdraw");
-    let signed = tx
+    .with_shape(zolana_transaction::instructions::transact::Shape::IN2_OUT3);
+    transfer
+        .withdraw(
+            SOL_MINT,
+            AMOUNT,
+            WithdrawalTarget::Sol {
+                user_sol_account: Address::new_from_array(recipient.to_bytes()),
+            },
+        )
+        .expect("withdraw");
+    let proof_inputs = transfer
         .sign(&sender, &AssetRegistry::default())
         .expect("sign p256 transaction");
 
     // One real input: build its state-inclusion + nullifier-non-inclusion proof
     // from the reference trees, with the on-chain root indices (utxo root at
     // history index 1, nullifier root at index 0).
-    let commitments = signed.input_commitments().expect("input commitments");
+    let commitments = proof_inputs.input_utxo_hashes().expect("input commitments");
     let commitment = commitments.first().expect("one input commitment");
     let state_path: Vec<[u8; 32]> = state_tree
         .get_proof_of_leaf(0, true)
@@ -199,7 +200,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         },
     };
 
-    let assembled = assemble(signed, &[spend_proof]).expect("assemble");
+    let assembled = assemble(proof_inputs, &[spend_proof]).expect("assemble");
     let expected_pi = assembled.public_input_hash;
 
     // The keypair-owned input selects the confidential P256 rail.
@@ -232,17 +233,17 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
 
     let ix_data = assembled.with_proof(pack_proof(&proof).expect("pack proof"));
 
-    // The instruction exposes the shared signing `pk_field` (the sender's
-    // `owner_pk_field`), the value the program folds into its public-input hash as
-    // `p256_signing_pk_field`.
-    let expected_field = sender
+    // The instruction exposes the raw x-coordinate of the shared P256 signing key
+    // (the sender's `confidential_view_tag`), which the program hashes on-chain to
+    // recover the `p256_signing_pk_field` it folds into its public-input hash.
+    let expected_x = sender
         .signing_pubkey()
-        .owner_pk_field()
-        .expect("sender owner pk field");
+        .confidential_view_tag()
+        .expect("sender confidential view tag");
     assert_eq!(
-        ix_data.p256_signing_pk_field,
-        Some(expected_field),
-        "exposed p256_signing_pk_field is the sender's owner pk_field"
+        ix_data.p256_signing_pk_x,
+        Some(expected_x),
+        "exposed p256_signing_pk_x is the sender's raw confidential view tag (P256 x-coordinate)"
     );
 
     // Reconstruct the program's 17-element confidential public-input hash from the
@@ -255,22 +256,41 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     // real validator by the `spp-test-validator` suite (litesvm's syscall stubs do
     // not evaluate the Pedersen-PoK pairing).
     {
-        use zolana_client::prover::field::hash_chain;
-        use zolana_hasher::{sha256::Sha256BE, Hasher};
-        use zolana_interface::instruction::{instruction_data::transact::ExternalDataHash, tag};
+        use zolana_hasher::{hash_chain::create_hash_chain_from_slice, sha256::Sha256BE, Hasher};
+        use zolana_interface::instruction::{
+            instruction_data::transact::{ExternalDataHash, ResolvedOutput},
+            tag,
+        };
         use zolana_keypair::hash::{hash_field, sha256};
-        use zolana_transaction::instructions::transact::signed_transaction::signed_to_field;
+        use zolana_transaction::instructions::transact::spp_proof_inputs::signed_to_field;
 
-        let p256_field = ix_data.p256_signing_pk_field.expect("p256 field present");
+        // The program derives the P256 public input by hashing the raw x-coordinate
+        // on-chain; mirror that here.
+        let p256_x = ix_data
+            .p256_signing_pk_x
+            .expect("p256 signing pk x present");
+        let p256_field = hash_field(&p256_x).expect("p256 signing pk field");
         let n_in = ix_data.inputs.len();
-        let n_out = ix_data.output_utxo_hashes.len();
         let nullifiers: Vec<[u8; 32]> = ix_data.inputs.iter().map(|i| i.nullifier_hash).collect();
         // Every input is P256-owned (`eddsa_signer_index == 255`), so the program
-        // routes its owner tag to the shared `p256_signing_pk_field`.
+        // routes its owner tag to the shared P256 signing key field.
         let input_owner: Vec<[u8; 32]> = vec![p256_field; n_in];
-        let output_owner =
-            crate::transact_common::output_owner_pk_hashes(&ix_data.output_ciphertexts, n_out)
-                .expect("output owner pk hashes");
+        let output_utxo_hashes: Vec<[u8; 32]> =
+            ix_data.outputs.iter().map(|o| o.utxo_hash).collect();
+        let output_owner = crate::transact_common::output_owner_pk_hashes(
+            &ix_data.outputs,
+            ix_data.p256_signing_pk_x.as_ref(),
+        )
+        .expect("output owner pk hashes");
+        let resolved_outputs: Vec<ResolvedOutput> = ix_data
+            .outputs
+            .iter()
+            .map(|output| {
+                output
+                    .into_resolved(ix_data.p256_signing_pk_x.as_ref(), |_| None)
+                    .expect("resolve owner tag")
+            })
+            .collect();
         let external_data_hash = ExternalDataHash {
             spp_instruction_discriminator: tag::TRANSACT,
             expiry_unix_ts: ix_data.expiry_unix_ts,
@@ -282,31 +302,31 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             spl_token_interface: &zero,
             data_hash: None,
             zone_data_hash: None,
-            output_utxo_hashes: &ix_data.output_utxo_hashes,
-            output_ciphertexts: &ix_data.output_ciphertexts,
+            outputs: &resolved_outputs,
+            messages: &ix_data.messages,
         }
         .hash()
         .expect("external data hash");
         let payer_pubkey_hash = Sha256BE::hash(&payer.pubkey().to_bytes()).expect("payer hash");
         let p256_message_hash = sha256(&ix_data.private_tx_hash);
         let chain = [
-            hash_chain(&nullifiers).unwrap(),
-            hash_chain(&ix_data.output_utxo_hashes).unwrap(),
-            hash_chain(&vec![utxo_root; n_in]).unwrap(),
-            hash_chain(&vec![nullifier_root; n_in]).unwrap(),
+            create_hash_chain_from_slice(&nullifiers).unwrap(),
+            create_hash_chain_from_slice(&output_utxo_hashes).unwrap(),
+            create_hash_chain_from_slice(&vec![utxo_root; n_in]).unwrap(),
+            create_hash_chain_from_slice(&vec![nullifier_root; n_in]).unwrap(),
             ix_data.private_tx_hash,
             hash_field(&p256_message_hash).unwrap(),
             external_data_hash,
-            signed_to_field(ix_data.public_sol_amount.unwrap_or(0) as i128),
-            signed_to_field(ix_data.public_spl_amount.unwrap_or(0) as i128),
+            signed_to_field(ix_data.public_sol_amount.unwrap_or(0)),
+            signed_to_field(ix_data.public_spl_amount.unwrap_or(0)),
             zero, // public_spl_asset_pubkey (no mint)
             zero, // zone_program_id
             payer_pubkey_hash,
-            hash_chain(&input_owner).unwrap(),
-            hash_chain(&output_owner).unwrap(),
+            create_hash_chain_from_slice(&input_owner).unwrap(),
+            create_hash_chain_from_slice(&output_owner).unwrap(),
             p256_field,
         ];
-        let program_public_input = hash_chain(&chain).unwrap();
+        let program_public_input = create_hash_chain_from_slice(&chain).unwrap();
         assert_eq!(
             program_public_input, expected_pi,
             "program-reconstructed public input matches the proof's"

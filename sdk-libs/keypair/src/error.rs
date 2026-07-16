@@ -14,6 +14,9 @@ pub enum KeypairError {
     #[error("invalid signature-type prefix: {0}")]
     InvalidSignatureType(u8),
 
+    #[error("signing key is not ed25519")]
+    NotEd25519,
+
     #[error("HKDF expansion failed")]
     Hkdf,
 

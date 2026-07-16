@@ -288,6 +288,7 @@ mod tests {
                 utxo_hash: [5; 32],
                 payload: vec![6],
             }],
+            messages: Vec::new(),
             nullifiers: vec![RingsNullifierUpdate {
                 input_index: 0,
                 nullifier_tree: nullifier_tree.to_bytes(),

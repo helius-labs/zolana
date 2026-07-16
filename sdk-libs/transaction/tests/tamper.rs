@@ -9,7 +9,7 @@ const BORSH_HEADER_LEN: usize = 5;
 const SCHEME_BYTE_LEN: usize = 1;
 const ASSET_ID_LEN: usize = 8;
 const AMOUNT_LEN: usize = 8;
-const RECIPIENT_SLOT: usize = 2;
+const RECIPIENT_SLOT: usize = 1;
 const AMOUNT_OFFSET: usize =
     BORSH_HEADER_LEN + SCHEME_BYTE_LEN + PUBLIC_KEY_LEN + P256_PUBKEY_LEN + ASSET_ID_LEN;
 

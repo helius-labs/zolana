@@ -22,11 +22,11 @@ use rand::RngCore;
 use solana_address::Address;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
-    spawn_prover, InputCommitment, ProverClient, PublicAmounts, Rpc, Shape, TransferProver,
+    spawn_prover, InputUtxoContext, ProverClient, PublicAmounts, Rpc, Shape, TransferProver,
     TransferSpendInput,
 };
 use zolana_interface::{
-    instruction::instruction_data::transact::OutputCiphertext,
+    instruction::instruction_data::transact::{OwnerTag, TransactOutput},
     verifying_keys::{
         transfer_confidential_1_1, transfer_confidential_1_2, transfer_confidential_1_8,
         transfer_confidential_2_2, transfer_confidential_2_3, transfer_confidential_3_3,
@@ -35,7 +35,7 @@ use zolana_interface::{
     },
 };
 use zolana_keypair::{NullifierKey, PublicKey};
-use zolana_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT};
 
 use crate::test_indexer::TestIndexer;
 
@@ -109,13 +109,15 @@ fn dummy_external_data() -> ExternalData {
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        output_utxo_hashes: vec![[0u8; 32]; 3],
-        output_ciphertexts: (0..2)
-            .map(|_| OutputCiphertext {
-                view_tag: [0u8; 32],
-                data: Vec::new(),
+        outputs: (0..3)
+            .map(|_| TransactOutput {
+                utxo_hash: [0u8; 32],
+                owner_tag: OwnerTag::Inline([0u8; 32]),
+                data: None,
             })
             .collect(),
+        resolved_owner_tags: vec![[0u8; 32]; 3],
+        messages: Vec::new(),
     }
 }
 
@@ -151,7 +153,7 @@ fn real_input() -> TransferSpendInput {
     let mut indexer = TestIndexer::new();
     indexer.add_utxo(utxo_hash);
     let proof = indexer
-        .get_input_merkle_proofs(&[InputCommitment {
+        .get_input_merkle_proofs(&[InputUtxoContext {
             index: 0,
             utxo_hash,
             nullifier,
@@ -192,10 +194,10 @@ fn dummy_input() -> TransferSpendInput {
 }
 
 /// A padding output: zero owner hash, random blinding.
-fn dummy_output() -> OutputUtxo {
+fn dummy_output() -> SppProofOutputUtxo {
     let mut blinding = [0u8; 31];
     rand::thread_rng().fill_bytes(&mut blinding);
-    OutputUtxo {
+    SppProofOutputUtxo {
         blinding,
         ..Default::default()
     }

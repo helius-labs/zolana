@@ -7,26 +7,25 @@
 //! into the hash.
 
 use solana_address::Address;
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{
     hash::{hash_field, sha256, split_be_128},
     PublicKey,
 };
 use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    utxo::program_id_field,
-    ExternalData, OutputUtxo,
+    instructions::transact::PrivateTxHash, utxo::program_id_field, ExternalData, SppProofOutputUtxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
-        field::{be, hash_chain},
-        shape::{resolve_shape, Shape},
+        field::be,
+        resolve_shape,
         transact::p256_and_eddsa::{
             assemble_inputs, assemble_outputs, OwnerMode, P256Owner, PublicAmounts,
             TransferSpendInput,
         },
-        TransferP256Inputs,
+        Shape, TransferP256Inputs,
     },
 };
 
@@ -38,7 +37,7 @@ use crate::{
 /// sentinel via [`OwnerMode::Zone`]).
 pub struct ZoneTransferP256Prover {
     pub inputs: Vec<TransferSpendInput>,
-    pub outputs: Vec<OutputUtxo>,
+    pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
@@ -57,11 +56,15 @@ pub struct ZoneTransferP256ProofResult {
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_hash: [u8; 32],
     pub input_root_indices: Vec<(u16, u16)>,
-    /// The shared P256 owner `pk_field` (big-endian) exposed as the `Transact`
-    /// instruction's `p256_signing_pk_field`. Unlike the confidential rail it is
-    /// NOT folded into the zone public-input hash, but it is still carried in the
-    /// witness so the circuit can route ownership by equality.
+    /// The shared P256 owner `pk_field` (big-endian) carried in the prover
+    /// witness so the circuit can route ownership by equality. Unlike the
+    /// confidential rail it is NOT folded into the zone public-input hash.
+    /// Prover-side value only; never sent as instruction data.
     pub p256_signing_pk_field: [u8; 32],
+    /// The raw x-coordinate of the shared P256 signing key (the pre-hash
+    /// `confidential_view_tag`), carried in the `Transact` instruction's
+    /// `p256_signing_pk_x`; the program hashes it on-chain to `pk_field`.
+    pub p256_signing_pk_x: [u8; 32],
 }
 
 impl ZoneTransferP256Prover {
@@ -69,18 +72,21 @@ impl ZoneTransferP256Prover {
         resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
         // The shared P256 signing key's pk_field: the value every P256-owned input
         // exposes as its in-circuit P256 pk_field so the circuit routes ownership by
-        // equality. Carried in the witness only; not folded into the zone hash.
-        let p256_signing_pk_field =
-            PublicKey::from_p256(&self.p256_owner.pubkey).owner_pk_field()?;
+        // equality. Carried in the witness only; not folded into the zone hash. The
+        // raw x-coordinate is the pre-hash value the instruction carries so the
+        // program reproduces `pk_field` on-chain.
+        let signing_pubkey = PublicKey::from_p256(&self.p256_owner.pubkey);
+        let p256_signing_pk_x = signing_pubkey.confidential_view_tag()?;
+        let p256_signing_pk_field = signing_pubkey.owner_pk_field()?;
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Zone)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(
+        let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
-        )?;
+        )
+        .hash()?;
         let p256_message_hash = sha256(&private_tx);
         let signature = self.p256_owner.witness()?;
         let (p256_message_low, p256_message_high) = split_be_128(&p256_message_hash);
@@ -96,11 +102,11 @@ impl ZoneTransferP256Prover {
         // p256-message position. No output-owner chain and no p256_signing_pk_field.
         // Mirrors PublicInputHash with ZoneAuthority=false, Confidential=false in
         // prover/server/prover-test/spp/protocol/public_inputs.go.
-        let public_input = hash_chain(&[
-            hash_chain(&assembled_inputs.nullifiers)?,
-            hash_chain(&assembled_outputs.output_hashes)?,
-            hash_chain(&assembled_inputs.utxo_roots)?,
-            hash_chain(&assembled_inputs.nullifier_tree_roots)?,
+        let public_input = create_hash_chain_from_slice(&[
+            create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
+            create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
+            create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
+            create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             hash_field(&p256_message_hash)?,
             external_data_hash,
@@ -109,7 +115,7 @@ impl ZoneTransferP256Prover {
             self.public_amounts.asset,
             zone_program_id,
             self.payer_pubkey_hash,
-            hash_chain(&assembled_inputs.input_owner_pk_hashes)?,
+            create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
         ])?;
 
         let inputs = TransferP256Inputs {
@@ -140,6 +146,7 @@ impl ZoneTransferP256Prover {
             private_tx_hash: private_tx,
             input_root_indices: assembled_inputs.root_indices,
             p256_signing_pk_field,
+            p256_signing_pk_x,
         })
     }
 }

@@ -10,7 +10,7 @@ use crate::{
     constants::P256_PUBKEY_LEN,
     encryption::{ctr_apply, ecdh_x},
     error::KeypairError,
-    hash::poseidon,
+    hash::{pack33, poseidon},
     pubkey::P256Pubkey,
 };
 
@@ -36,16 +36,6 @@ fn pack32(b: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
     lo[1..32].copy_from_slice(&b[0..31]);
     let mut hi = [0u8; 32];
     hi[31] = b[31];
-    (lo, hi)
-}
-
-/// pack33 mirrors Pack33To2FECircuit: lo = bytes[0..31], hi = bytes[31..33] (16-bit).
-fn pack33(b: &[u8; P256_PUBKEY_LEN]) -> ([u8; 32], [u8; 32]) {
-    let mut lo = [0u8; 32];
-    lo[1..32].copy_from_slice(&b[0..31]);
-    let mut hi = [0u8; 32];
-    hi[30] = b[31];
-    hi[31] = b[32];
     (lo, hi)
 }
 
@@ -150,6 +140,21 @@ pub fn decrypt_verifiable(
     let mut buf = ciphertext.to_vec();
     ctr_apply(&key, &nonce, &mut buf);
     Ok(buf)
+}
+
+/// Symmetric verifiable encryption: derive the AES-256-CTR key/nonce from a
+/// pre-shared `shared_secret` via the same Poseidon key schedule as the merge
+/// scheme (no ECDH), then apply the keystream. Encryption and decryption are the
+/// same operation. Mirrors feeding a Poseidon-derived seed to the circuit's
+/// `KeySchedule` + `CTREncrypt`.
+pub fn symmetric_apply(
+    shared_secret: &[u8; 32],
+    info: &[u8],
+    buf: &mut [u8],
+) -> Result<(), KeypairError> {
+    let (key, nonce) = key_schedule(shared_secret, info)?;
+    ctr_apply(&key, &nonce, buf);
+    Ok(())
 }
 
 /// The merge ciphertext's contribution to the public input hash: the two field

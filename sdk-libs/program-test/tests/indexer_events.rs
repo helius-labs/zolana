@@ -13,6 +13,7 @@ fn sample_transact_event() -> GeneralEvent {
                 n
             },
         }],
+        messages: Vec::new(),
         outputs: vec![
             zolana_event::OutputUtxo {
                 view_tag: [0x11; 32],

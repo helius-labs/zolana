@@ -10,7 +10,7 @@ use zolana_interface::state::STATE_HEIGHT;
 use zolana_keypair::P256Pubkey;
 use zolana_merkle_tree::MerkleTree;
 use zolana_transaction::{
-    owner_utxo_hash, utxo_hash, Address, OutputContext, OutputSlot, ShieldedTransaction,
+    owner_utxo_hash, Address, OutputContext, OutputSlot, ProofInputUtxo, ShieldedTransaction,
     TransactionError,
 };
 
@@ -282,6 +282,7 @@ pub fn shielded_transaction_from_general_event(
         output_slots,
         nullifiers,
         proofless,
+        messages: event.messages.clone(),
     }
 }
 
@@ -295,14 +296,16 @@ fn optional_tx_viewing_pk(bytes: &[u8; 33]) -> Option<P256Pubkey> {
 /// Recompute the UTXO commitment through the shared transaction helper.
 fn proofless_utxo_hash(event: &crate::DepositOutput) -> Result<[u8; 32], TransactionError> {
     let output = &event.output;
-    let zone_data_hash = output.zone_data_hash.unwrap_or([0u8; 32]);
-    let data_hash = output.data_hash.unwrap_or([0u8; 32]);
-    utxo_hash(
-        Address::new_from_array(output.asset),
+    ProofInputUtxo::new(
+        output.owner,
+        &Address::new_from_array(output.asset),
         output.amount,
-        &data_hash,
-        &zone_data_hash,
-        output.zone_program_id.map(Address::new_from_array),
-        &owner_utxo_hash(&output.owner, &output.blinding)?,
-    )
+        &output.blinding,
+    )?
+    .with_data_hash(output.data_hash.unwrap_or([0u8; 32]))
+    .with_zone(
+        output.zone_data_hash.unwrap_or([0u8; 32]),
+        &output.zone_program_id.map(Address::new_from_array),
+    )?
+    .hash()
 }

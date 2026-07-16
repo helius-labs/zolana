@@ -1,7 +1,7 @@
 use super::{leaf_node, MAX_SQL_INSERTS};
 use crate::dao::generated::{
-    rings_output_payloads, rings_outputs, rings_transaction_payloads, rings_transactions,
-    rings_tx_nullifiers,
+    rings_messages, rings_output_payloads, rings_outputs, rings_transaction_payloads,
+    rings_transactions, rings_tx_nullifiers,
 };
 use crate::ingester::error::IngesterError;
 use crate::ingester::parser::state_update::RingsTransactionUpdate;
@@ -78,6 +78,7 @@ pub(super) async fn persist_rings_transactions(
 
     let mut payload_models = Vec::new();
     let mut output_models = Vec::new();
+    let mut message_models = Vec::new();
     let mut nullifier_models = Vec::new();
 
     for update in rings_updates {
@@ -111,6 +112,17 @@ pub(super) async fn persist_rings_transactions(
                 )?),
                 view_tag: Set(output.view_tag.to_vec()),
                 utxo_hash: Set(output.utxo_hash.to_vec()),
+            });
+        }
+
+        for message in &update.messages {
+            message_models.push(rings_messages::ActiveModel {
+                message_id: Default::default(),
+                rings_tx_id: Set(rings_tx_id),
+                slot: Set(leaf_node::i64_from_u64(update.slot, "rings message slot")?),
+                message_index: Set(message.message_index),
+                view_tag: Set(message.view_tag.to_vec()),
+                payload: Set(message.payload.clone()),
             });
         }
 
@@ -166,6 +178,22 @@ pub(super) async fn persist_rings_transactions(
             .build(txn.get_database_backend());
         txn.execute(query).await.map_err(|e| {
             IngesterError::DatabaseError(format!("Failed to persist rings outputs: {}", e))
+        })?;
+    }
+
+    for chunk in message_models.chunks(MAX_SQL_INSERTS) {
+        let query = rings_messages::Entity::insert_many(chunk.to_vec())
+            .on_conflict(
+                OnConflict::columns([
+                    rings_messages::Column::RingsTxId,
+                    rings_messages::Column::MessageIndex,
+                ])
+                .do_nothing()
+                .to_owned(),
+            )
+            .build(txn.get_database_backend());
+        txn.execute(query).await.map_err(|e| {
+            IngesterError::DatabaseError(format!("Failed to persist rings messages: {}", e))
         })?;
     }
 

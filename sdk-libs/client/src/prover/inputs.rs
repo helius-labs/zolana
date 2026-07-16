@@ -1,84 +1,16 @@
 use num_bigint::BigUint;
-use solana_address::Address;
-use zolana_keypair::hash::poseidon;
-use zolana_transaction::{
-    instructions::transact::signed_transaction::asset_field,
-    utxo::{program_id_field, UTXO_DOMAIN},
-    OutputUtxo,
-};
+use zolana_transaction::{instructions::types::SppProofInputUtxo, ProofInputUtxo};
 
 use crate::{
     error::ClientError,
-    prover::field::{be, right_align},
+    prover::field::be,
     rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
-
-#[derive(Debug, Clone)]
-pub struct UtxoInputs {
-    pub domain: BigUint,
-    pub owner: BigUint,
-    pub asset: BigUint,
-    pub amount: BigUint,
-    pub blinding: BigUint,
-    pub data_hash: BigUint,
-    pub zone_data_hash: BigUint,
-    pub zone_program_id: BigUint,
-}
-
-impl UtxoInputs {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        owner_field: &[u8; 32],
-        asset: &Address,
-        amount: u64,
-        blinding: &[u8; 31],
-        data_hash: &[u8; 32],
-        zone_data_hash: &[u8; 32],
-        zone_program_id: &Option<Address>,
-    ) -> Result<Self, ClientError> {
-        Ok(Self {
-            domain: be(&right_align(&UTXO_DOMAIN.to_be_bytes())),
-            owner: be(owner_field),
-            asset: be(&asset_field(asset)?),
-            amount: be(&right_align(&amount.to_be_bytes())),
-            blinding: be(&right_align(blinding)),
-            data_hash: be(data_hash),
-            zone_data_hash: be(zone_data_hash),
-            zone_program_id: be(&program_id_field(zone_program_id)?),
-        })
-    }
-
-    pub fn from_output(output: &OutputUtxo) -> Result<Self, ClientError> {
-        Ok(Self {
-            domain: be(&right_align(&UTXO_DOMAIN.to_be_bytes())),
-            owner: be(&output.owner_hash()?),
-            asset: be(&asset_field(&output.asset)?),
-            amount: be(&right_align(&output.amount.to_be_bytes())),
-            blinding: be(&right_align(&output.blinding)),
-            data_hash: be(&output.data_hash.unwrap_or_default()),
-            zone_data_hash: be(&output.zone_data_hash.unwrap_or_default()),
-            zone_program_id: be(&program_id_field(&output.zone_program_id)?),
-        })
-    }
-
-    pub fn new_dummy(blinding: BigUint) -> Self {
-        Self {
-            domain: BigUint::ZERO,
-            owner: BigUint::ZERO,
-            asset: BigUint::ZERO,
-            amount: BigUint::ZERO,
-            blinding,
-            data_hash: BigUint::ZERO,
-            zone_data_hash: BigUint::ZERO,
-            zone_program_id: BigUint::ZERO,
-        }
-    }
-}
 
 /// One spend input. Mirrors txcircuit.Input.
 #[derive(Debug, Clone)]
 pub struct TransferInput {
-    pub utxo: UtxoInputs,
+    pub utxo: ProofInputUtxo,
     pub is_dummy: BigUint,
     pub state_path_elements: Vec<BigUint>,
     pub state_path_index: BigUint,
@@ -103,12 +35,12 @@ impl TransferInput {
         nullifier_tree_root: &[u8; 32],
         owner_pk_hash: &[u8; 32],
     ) -> Result<(Self, [u8; 32]), ClientError> {
-        let blinding_32 = right_align(blinding);
-        let utxo_hash = dummy_utxo_hash(&blinding_32)?;
-        let nullifier = dummy_nullifier(&utxo_hash, &blinding_32)?;
+        let mut spend = SppProofInputUtxo::new_dummy();
+        spend.utxo.blinding = *blinding;
+        let nullifier = spend.nullifier()?;
         Ok((
             Self {
-                utxo: UtxoInputs::new_dummy(be(&blinding_32)),
+                utxo: ProofInputUtxo::try_from(&spend)?,
                 is_dummy: BigUint::from(1u8),
                 state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
                 state_path_index: BigUint::ZERO,
@@ -130,7 +62,7 @@ impl TransferInput {
 /// One output. Mirrors txcircuit.Output.
 #[derive(Debug, Clone)]
 pub struct TransferOutput {
-    pub utxo: UtxoInputs,
+    pub utxo: ProofInputUtxo,
     pub is_dummy: BigUint,
     pub hash: BigUint,
     /// Confidential variant: the public owner tag (`signing_pubkey.hash()`) and
@@ -138,30 +70,6 @@ pub struct TransferOutput {
     /// Both 0 for a dummy output (the circuit leaves its owner tag unconstrained).
     pub owner_pk_hash: BigUint,
     pub nullifier_pk: BigUint,
-}
-
-fn dummy_utxo_hash(blinding_32: &[u8; 32]) -> Result<[u8; 32], ClientError> {
-    let zero = [0u8; 32];
-    let owner_utxo_hash =
-        poseidon(&[&zero, blinding_32]).map_err(|e| ClientError::Hasher(e.to_string()))?;
-    // program_hash and zone_hash over all-zero (data_hash, program_id) and
-    // (zone_data_hash, zone_program_id) pairs.
-    let program_hash = poseidon(&[&zero, &zero]).map_err(|e| ClientError::Hasher(e.to_string()))?;
-    let zone_hash = poseidon(&[&zero, &zero]).map_err(|e| ClientError::Hasher(e.to_string()))?;
-    poseidon(&[
-        &zero,
-        &zero,
-        &zero,
-        &program_hash,
-        &zone_hash,
-        &owner_utxo_hash,
-    ])
-    .map_err(|e| ClientError::Hasher(e.to_string()))
-}
-
-fn dummy_nullifier(utxo_hash: &[u8; 32], blinding_32: &[u8; 32]) -> Result<[u8; 32], ClientError> {
-    let secret = [0u8; 32];
-    poseidon(&[utxo_hash, blinding_32, &secret]).map_err(|e| ClientError::Hasher(e.to_string()))
 }
 
 /// Flat, pre-computed witness for the P256-capable spp_transaction circuit.

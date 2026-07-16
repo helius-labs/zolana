@@ -530,19 +530,19 @@ dummy: it contributes `0` to the output hash chain. Padding slots beyond the
 sender's change and recipients are dummies too; they hold no value, so their
 `blinding` is freshly random rather than position-derived.
 
-The confidential default zone reveals recipients, so `output_ciphertexts` holds
-only the sender bundle and real recipient slots; dummy output slots get no ciphertext.
+The confidential default zone reveals recipients but dummy utxos also carry cipher texts so that these are indistinguishable from real outputs.
+
 
 # Output UTXO Serialization
 
 Output UTXO serialization is the per-output ciphertext layout for shielded
 transactions. Each output's ciphertext lives in its own
-[`OutputUtxo.data`](#transact) slot; SPP does not parse `data`. Serialization is a
-default-zone convention; policy zones can define their own.
+[`TransactOutput.data`](#transact) slot; SPP does not parse `data`. Serialization is
+a default-zone convention; policy zones can define their own.
 UTXOs are encrypted with ECDH AES-256-CTR, except in the Plaintext Transfer scheme.
 The shared `tx_viewing_pk` and `salt` are transaction-level fields of the
 [transact](#transact) instruction, not part of any per-output payload. Each output
-slot is tagged by its `owner` pubkey.
+is tagged by its owner pubkey (the `owner_tag` value).
 
 Schemes:
 
@@ -555,8 +555,9 @@ Schemes:
 
 AES-CTR reuses a `(key, nonce)` pair if the same viewing key is derived twice (e.g. a failed transaction rebuilt with the same first nullifier). The `salt` prevents this. Key and nonce both derive from the single-use transaction viewing key, a per-transaction 16-byte CSPRNG `salt`, and the slot index.
 
-Per ciphertext slot `i` — the index in `output_ciphertexts` (`0` = sender bundle,
-`1 + j` = recipient `j`); a dummy slot reuses its own index but is never decrypted:
+Per ciphertext slot `i` — the ciphertext ordinal: the number of `data = Some` outputs
+preceding this one (`0` = sender bundle, `1 + j` = recipient `j` in the Transfer
+layout); `messages` continue the numbering after the last output ordinal:
 
 ```
 ikm        = ECDH_x(tx_viewing_sk, recipient_viewing_pk) || tx_viewing_pk || recipient_viewing_pk
@@ -567,7 +568,7 @@ nonce      = okm[32..44]                                    // 12 B, the AES-CTR
 ciphertext = AES-256-CTR(key, nonce, plaintext)
 ```
 
-Integrity is verified by recomputing the UTXO hash from the decrypted plaintext fields and comparing against `output_utxo_hashes[i]`. Those hashes are proof-verified on-chain commitments, so a mismatch — from a wrong decryption key or a corrupted ciphertext — is detected with overwhelming probability.
+Integrity is verified by recomputing the UTXO hash from the decrypted plaintext fields and comparing against the covered output's `utxo_hash`. Those hashes are proof-verified on-chain commitments, so a mismatch — from a wrong decryption key or a corrupted ciphertext — is detected with overwhelming probability.
 
 
 ## UTXO Data
@@ -692,33 +693,27 @@ struct RecipientSlot {
 
 #### Output slot mapping
 
-The output commitments and the ciphertexts travel in two separate transact vectors.
-`output_utxo_hashes` holds one `utxo_hash` per output position in tree-append order
-(`0` SPL change, `1` SOL change, `2 + i` recipient `i`/dummy). `output_ciphertexts` is
-the ciphertext side, length `1 + R` for `R` real recipients. `SENDER_SLOT_COUNT = 2`
-is the number of leading change positions the bundle covers (SPL + SOL change), and
-`MAX_RECIPIENTS = M - SENDER_SLOT_COUNT` is the number of recipient slots the shape
-allows:
+Each output is one [`TransactOutput`](#transact): `utxo_hash`, `owner_tag`, and
+optional `data` ciphertext, in tree-append order (`0` SPL change, `1` SOL change,
+`2 + i` recipient `i`/dummy).
 
-- `output_ciphertexts[0]` is `sender_ciphertext` under the sender's `owner` pubkey (AES
-  slot index `0`); the bundle covers both change outputs (positions
-  `0..SENDER_SLOT_COUNT`), so the SOL change has no ciphertext of its own.
-- `output_ciphertexts[1 + i]` is the slot for output position `SENDER_SLOT_COUNT + i`
-  (AES slot index `1 + i`; see [AES Nonce derivation](#aes-nonce-derivation)): a real
-  recipient ciphertext under its own `owner` pubkey. Dummy output positions get no
-  ciphertext, so the vector length is `1 + R` for `R` real recipients.
+**Coverage convention** (a default-zone serialization rule, not program-enforced): an
+output with `data = Some` covers itself plus the immediately following `data = None`
+positions. The Transfer scheme puts the sender change bundle at `outputs[0].data`
+(covering both change positions) and each real recipient ciphertext at its own
+position; a dummy position carries `Inline(random tag)` and random bytes of
+recipient-ciphertext length, indistinguishable from a real recipient. The SPP allows
+`outputs[0].data = None`; which positions bear a ciphertext is a wallet concern.
 
-The logged `GeneralEvent` keeps one entry per output position, pairing
-`output_utxo_hashes[i]` with the ciphertext that covers position `i` (the bundle for
-`0`, empty for the remaining change positions and for dummy recipient positions,
-`output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for a real recipient at
-`i >= SENDER_SLOT_COUNT`).
+The logged [`GeneralEvent`](#general-event) keeps one entry per output, 1:1 with
+`outputs`; a covered position publishes an empty `data` under the covering output's
+owner tag.
 
 #### Sizes
 
-`R` = number of real recipient slots. An encrypted transfer carries one slot per real
-recipient (no dummy padding), so its on-instruction size grows with `R`.
-The table below gives the size as a function of the slot count `R`.
+`R` = number of recipient slots (real recipients and dummies; a dummy slot holds
+random bytes of the same length), so an encrypted transfer's on-instruction size
+grows with `R`. The table below gives the size as a function of the slot count `R`.
 
 Total: `110 + 82·R` bytes. Example with a single recipient slot: `R = 1`, total `192`.
 
@@ -737,7 +732,7 @@ Sizes assume confidential transfers with every `data` field empty (`count = 0`).
 
 The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, and the AES-CTR ciphertext wrapper are absent. Output blindings derive from `blinding_seed` (formula in [Sender](#sender)): position `0` SPL change, `1` SOL change, recipient slot `i` position `2 + i`. The sender bundle and each recipient slot are indexed by their `owner_pubkey`, like the encrypted [Transfer](#transfer-2).
 
-A plaintext transfer differs from the encrypted transfer only in that amounts and asset are public; both reveal recipients and fill `output_ciphertexts` with the real slots only.
+A plaintext transfer differs from the encrypted transfer only in that amounts and asset are public; both reveal recipients. Payloads are public, so dummy slots hide nothing: only the sender bundle and real recipient outputs carry `data`.
 
 ```rust
 /// Total size: `96 + 51·R` bytes with both change outputs and every `data`
@@ -820,6 +815,11 @@ struct SplitEncryptedUtxos {
 }
 ```
 
+The bundle ciphertext sits at `outputs[0].data`; every other output sets
+`data = None` (covered under the [coverage convention](#output-slot-mapping)). Each
+`owner_tag` is `Account(i)` for a committed ed25519 signer, or `P256SigningKey` for
+a P256 owner.
+
 ## Merge
 
 One ciphertext for the single merged output.
@@ -861,7 +861,7 @@ struct MergeEncryptedUtxo {
 | Input | Source |
 | --- | --- |
 | nullifiers | derived by the proof from spent input UTXOs |
-| output_utxo_hashes | instruction data |
+| output_utxo_hashes | instruction data (`outputs[i].utxo_hash`) |
 | utxo_tree_roots (one per input UTXO) | resolved from `utxo_tree_root_index[i]` against the root cache of the input's UTXO tree |
 | nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
 | private_tx_hash | instruction data |
@@ -873,6 +873,7 @@ struct MergeEncryptedUtxo {
 | zone_program_id | single `pk_field` of the policy zone authorizing the transaction's UTXOs; `0` (non-zone / default transact) — instruction data |
 | payer_pubkey_hash | `Sha256BE(payer)` derived by SPP from the `payer` account |
 | solana_owner_pk_hashes (one per input UTXO) | `pk_field` (see [Shielded Address](#shielded-address)) of the input's Solana / Ed25519 owner; `0` for a P256-owned input. |
+| p256_signing_pk | `hash_field(p256_signing_pk_x)`, the transaction's shared P256 signing key. SPP computes it on-chain from the raw x-coordinate in instruction data (`0` on the eddsa rail); the circuit routes P256-owned inputs by equality against it. |
 
 See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
@@ -909,12 +910,18 @@ external_data_hash := Sha256BE(
     spl_token_interface.unwrap_or([0; 32])           ||
     data_hash.unwrap_or([0; 32])             ||
     zone_data_hash.unwrap_or([0; 32])                ||
-    u16_be(output_utxo_hashes.len()) || output_utxo_hashes[0] || output_utxo_hashes[1] || ... ||
-    u16_be(output_ciphertexts.len()) || output_ciphertext(output_ciphertexts[0]) || ...
+    u16_be(outputs.len())  || output(outputs[0])   || output(outputs[1])   || ... ||
+    u16_be(messages.len()) || message(messages[0])  || message(messages[1])  || ...
 )
 
-output_ciphertext(c) := c.owner || u16_be(c.data.len()) || c.data
+output(o)  := o.utxo_hash || fetch_tag(o.owner_tag) || match o.data {
+                  None    => u8(0),
+                  Some(d) => u8(1) || u16_be(d.len()) || d,
+              }
+message(m) := m.view_tag || u16_be(m.data.len()) || m.data
 ```
+
+`fetch_tag(owner_tag)` is the 32-byte value the [`OwnerTag`](#transact) carries or references. The hash covers those bytes, not the tag encoding, so an `Account` reference is fail-closed: reordering the account list changes the hash and the proof no longer verifies. Count prefixes, per-datum length prefixes, and the strict `{0, 1}` presence byte (`None` differs from `Some(&[])`) keep the preimage injective.
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
 
@@ -931,11 +938,11 @@ output_ciphertext(c) := c.owner || u16_be(c.data.len()) || c.data
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Output UTXOs | Output UTXO hashes must be well formed and match `output_utxo_hashes[i]`. The proof hashes output `owner` into `output_utxo_hashes[i]` without unpacking it. |
-| Output owner tag (confidential variant) | The confidential variant exposes each output owner's signing pubkey — the ciphertext `owner` tag — as a public input and recomputes the output `owner_hash` from it, so the tag truthfully identifies the owner and a sender cannot mistag a recipient's output. The anonymous variant omits this, leaving `owner` free for a view tag. Instruction data selects the variant. |
+| Output owner tag (confidential variant) | The confidential variant exposes each output owner's signing pubkey — the output's fetch tag — as a public input and recomputes the output `owner_hash` from it, so the tag truthfully identifies the owner and a sender cannot mistag a recipient's output. The anonymous variant omits this, leaving `owner` free for a view tag. Instruction data selects the variant. |
 | Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals and fees. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, address utxo hash chain, external data hash)`. Dummy inputs and outputs contribute `0` to the input and output chains, so the hash covers only real state; their real hashes still enter the public `output_utxo_hashes` and nullifier inputs. The address chain contains each address slot's `utxo_hash` (`0` elsewhere).<br>The owner signs this value; the ECDSA message digest `SHA-256(private_tx_hash)` is computed outside the circuit and bound by the `private_tx_hash_digest` public input (see [UTXO Ownership Check](#utxo-ownership-check)). SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
 | UTXO data | There is no program ownership: every real input takes the owner-signature path. `utxo_data` may sit on any UTXO; `data_hash` enters `utxo_hash` unchecked, so the owner signature over `private_tx_hash` authorizes any output that sets it. Zone programs additionally authorize spends of their zone (`zone_program_id`) via a PDA signer; policy proofs are checked by the zone program before CPI into SPP. |
-| Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. A dummy has `owner = 0` (an input's owner key, an output's `owner_hash`): permanently unspendable, so a real spend never has it. Ownership, inclusion, nullifier-secret-binding, nullifier, and balance checks are skipped for dummy UTXOs. The fixed shape is public — SPP inserts every input nullifier into the nullifier tree and appends every output hash to the UTXO tree — so a dummy's nullifier and `utxo_hash` must be indistinguishable from a real UTXO's and pairwise distinct, hiding the real input and output counts. A dummy output is an [empty UTXO](#empty-utxo) and gets no ciphertext (see [Empty UTXO](#empty-utxo)). A dummy input derives its [nullifier](#nullifier) over a random `blinding` with `nullifier_secret = 0`, the blinding being its sole source of unpredictability.<br>An input dummy with a non-zero `data_hash` is instead an **address slot**: an owner-signed account whose nullifier is its address. It sets `owner = owner_hash` rather than `0`, pins `amount` and the non-seed fields to `0`, and derives and constrains its nullifier (over the owner's `nullifier_secret`) like a real spend; SPP inserts it, so the nullifier tree enforces uniqueness. Unlike a padding dummy, it contributes its `utxo_hash` to the `private_tx_hash` address chain, so the owner signature covers it.<br>A padding dummy input's public `nullifier` and `utxo_tree_root` / `nullifier_tree_root` are **not** covered by the owner signature: the checks above are skipped and it contributes `0` to `private_tx_hash`, so the signed digest `SHA-256(private_tx_hash)` excludes them. The sender fixes them when signing; they are part of the signed transaction, and SPP still inserts the nullifier and reads each root by index. This holds because the sender builds the whole proof witness; no untrusted party sits between signing and proving. A re-prover can at most swap one random dummy nullifier for another (every real input, output, amount, and recipient stays signed); the worst case is a self-reverting duplicate-nullifier insertion, which cannot change real state. |
+| Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. A dummy has `owner = 0` (an input's owner key, an output's `owner_hash`): permanently unspendable, so a real spend never has it. Ownership, inclusion, nullifier-secret-binding, nullifier, and balance checks are skipped for dummy UTXOs. The fixed shape is public — SPP inserts every input nullifier into the nullifier tree and appends every output hash to the UTXO tree — so a dummy's nullifier and `utxo_hash` must be indistinguishable from a real UTXO's and pairwise distinct, hiding the real input and output counts. A dummy output is an [empty UTXO](#empty-utxo); its output entry carries a random tag and random recipient-length `data` (see [Output slot mapping](#output-slot-mapping)). A dummy input derives its [nullifier](#nullifier) over a random `blinding` with `nullifier_secret = 0`, the blinding being its sole source of unpredictability.<br>An input dummy with a non-zero `data_hash` is instead an **address slot**: an owner-signed account whose nullifier is its address. It sets `owner = owner_hash` rather than `0`, pins `amount` and the non-seed fields to `0`, and derives and constrains its nullifier (over the owner's `nullifier_secret`) like a real spend; SPP inserts it, so the nullifier tree enforces uniqueness. Unlike a padding dummy, it contributes its `utxo_hash` to the `private_tx_hash` address chain, so the owner signature covers it.<br>A padding dummy input's public `nullifier` and `utxo_tree_root` / `nullifier_tree_root` are **not** covered by the owner signature: the checks above are skipped and it contributes `0` to `private_tx_hash`, so the signed digest `SHA-256(private_tx_hash)` excludes them. The sender fixes them when signing; they are part of the signed transaction, and SPP still inserts the nullifier and reads each root by index. This holds because the sender builds the whole proof witness; no untrusted party sits between signing and proving. A re-prover can at most swap one random dummy nullifier for another (every real input, output, amount, and recipient stays signed); the worst case is a self-reverting duplicate-nullifier insertion, which cannot change real state. |
 
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
@@ -947,7 +954,7 @@ output_ciphertext(c) := c.owner || u16_be(c.data.len()) || c.data
 
 Each circuit is instantiated twice: 1. P256 & Ed25519 (Solana) 2. Ed25519 (Solana) only. The second instance omits the expensive P256 signature verification. The Ed25519 signature verification is always outsourced signature to the SPP. Therfore instance 2 has ~7× fewer constraints.
 
-Each is instantiated again on an owner-tag axis: a confidential variant that exposes each output owner's signing pubkey (the ciphertext `owner` tag) and recomputes the output `owner_hash` from it, and an anonymous variant that leaves `owner` unconstrained so a policy zone can place a view tag there. Instruction data selects the variant; the default zone always uses the confidential variant.
+Each is instantiated again on an owner-tag axis: a confidential variant that exposes each output owner's signing pubkey (the output's fetch tag) and recomputes the output `owner_hash` from it, and an anonymous variant that leaves `owner` unconstrained so a policy zone can place a view tag there. Instruction data selects the variant; the default zone always uses the confidential variant.
 
 A third axis selects a zone-capable instantiation at compile time. The non-zone (default) variant pins every UTXO's zone fields to `0`. The zone variant binds each non-dummy input and output UTXO to the public `zone_program_id` when set: a UTXO whose `zone_program_id` is non-zero must equal the public `zone_program_id`, while a bare UTXO with `zone_program_id = 0` is exempt. The `zone_program_id` binding and non-zero `zone_data` are gated to the zone variant. Policy zones are anonymous, hiding the recipient behind a view tag, so there is no confidential zone variant: zone pairs only with the anonymous owner-tag variant.
 
@@ -1227,12 +1234,31 @@ struct InputUtxo {
     eddsa_signer_index: u8,
 }
 
-struct OutputCiphertext {
-    /// Owner's signing pubkey — the indexing tag. The confidential proof binds
-    /// it to the output UTXO; the anonymous proof leaves it free (a view tag).
-    owner: [u8;32],
-    /// Not parsed by the program. Layout per Output UTXO Serialization,
-    /// encrypted or [Plaintext Transfer](#plaintext-transfer).
+/// Owner of an output as a 32-byte value: the published fetch tag and the
+/// preimage of the output's owner public input `hash_field(fetch_tag)`.
+enum OwnerTag {
+    /// The 32-byte value inline: a recipient/dummy signing pubkey or zone HKDF tag.
+    Inline([u8; 32]),
+    /// Index into the instruction's account list (as `InputUtxo.eddsa_signer_index`);
+    /// the value is that account's address.
+    Account(u8),
+    /// The value is the transaction-level `p256_signing_pk_x`.
+    P256SigningKey,
+}
+
+struct TransactOutput {
+    utxo_hash: [u8; 32],
+    owner_tag: OwnerTag,
+    /// Not parsed by the program. Layout per Output UTXO Serialization; `None`
+    /// = covered by a preceding `Some` (see [Output slot
+    /// mapping](#output-slot-mapping)).
+    data: Option<Vec<u8>>,
+}
+
+/// A ciphertext with no output position (see `TransactIxData::messages`).
+struct OutputData {
+    /// Indexing tag; copied into the event.
+    view_tag: [u8; 32],
     data: Vec<u8>,
 }
 
@@ -1246,6 +1272,10 @@ struct TransactIxData {
     /// SPP cannot recompute it (it covers the private input UTXO hashes), so it
     /// is supplied directly rather than derived on-chain.
     private_tx_hash: [u8; 32],
+    /// Raw P256 x-coordinate of the transaction's shared signing key; `None` on
+    /// the eddsa rail. SPP computes `hash_field(x)` for the P256 owner public
+    /// input; the raw value is the `P256SigningKey` fetch tag.
+    p256_signing_pk_x: Option<[u8; 32]>,
     inputs: Vec<InputUtxo>,
     /// `Some` for deposit/withdraw SOL, `None` for shielded transfer.
     public_sol_amount: Option<u64>,
@@ -1267,17 +1297,15 @@ struct TransactIxData {
     /// `GeneralEvent`, so a wallet derives the per-slot key/nonce without parsing
     /// the per-output `data`. Always present.
     salt: [u8; 16],
-    /// All `M` output UTXO commitments in tree-append order (SPL change, SOL
-    /// change, then recipients / dummies). Appended to the UTXO tree and folded
-    /// into the proof's output hash chain. Dummy outputs carry a real-looking
-    /// hash, so this vector does not reveal the recipient count.
-    output_utxo_hashes: Vec<[u8; 32]>,
-    /// Length `1 + R` for `R` real recipients. `[0]` is the sender bundle (covers
-    /// the change positions `0..SENDER_SLOT_COUNT`); its `owner` is the sender's
-    /// signing pubkey, bound to the change outputs by the proof. `[1..]` are the
-    /// slots for the real recipients at positions `SENDER_SLOT_COUNT..`, each a
-    /// recipient ciphertext under its `owner` pubkey (see [Sender](#sender)).
-    output_ciphertexts: Vec<OutputCiphertext>,
+    /// All `M` outputs in tree-append order (SPL change, SOL change, then
+    /// recipients / dummies). Each `utxo_hash` is appended to the UTXO tree and
+    /// enters the proof's output hash chain; dummies carry a real-looking hash,
+    /// so the vector does not reveal the recipient count. The `data` slots follow
+    /// the [Output slot mapping](#output-slot-mapping) coverage convention.
+    outputs: Vec<TransactOutput>,
+    /// Ciphertexts with no output position, covered by `external_data_hash` and
+    /// republished verbatim in the [`GeneralEvent`](#general-event).
+    messages: Vec<OutputData>,
 }
 ```
 
@@ -1285,11 +1313,11 @@ Total transaction size by circuit shape. Computed by `cargo run -p xtask -- tx-s
 
 | Circuit | N | M | ix data (B) | transfer, no ALT (B) | transfer, ALT (B) | deposit / withdraw, no ALT (B) | deposit / withdraw, ALT (B) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2 in 2 out | 2 | 2 | 522 | — | — | 867 | 810 |
-| 1 in 2 out | 1 | 2 | 484 | — | — | 829 | 772 |
-| 3 in 3 out | 3 | 3 | 674 | 879 | 884 | 1019 | 962 |
-| 5 in 3 out | 5 | 3 | 750 | 955 | 960 | 1095 | 1038 |
-| 1 in 8 out | 1 | 8 | 1168\* | 1373\* | 1378\* | 1513\* | 1456\* |
+| 2 in 2 out | 2 | 2 | 435 | — | — | 780 | 723 |
+| 1 in 2 out | 1 | 2 | 397 | — | — | 742 | 685 |
+| 3 in 3 out | 3 | 3 | 589 | 794 | 799 | 934 | 877 |
+| 5 in 3 out | 5 | 3 | 665 | 870 | 875 | 1010 | 953 |
+| 1 in 8 out | 1 | 8 | 1093\* | 1298\* | 1303\* | 1438\* | 1381\* |
 
 "no ALT" = Solana legacy transaction (all accounts inline). "ALT" = Solana v0 transaction with one ALT loaded before the transaction containing `tree_account` (writable), and for deposit additionally `vault` and `recipient` (writable). The program account (`program_id`) is always inline because Solana requires instruction program IDs in the static account list. A pure transfer with only one writable account moved to the ALT gains 32 B but pays 37 B (1 B v0 version prefix + 36 B ALT section), so v0+ALT is 5 B larger than legacy for transfers. Deposit moves three writable accounts and gains 57 B net (3 × 32 B saved − 39 B ALT overhead). — = shape has no recipient slots (R = M − 2 = 0) and is used only for deposit / merge, not transfer.
 
@@ -1301,7 +1329,7 @@ Total transaction size by circuit shape. Computed by `cargo run -p xtask -- tx-s
 2. Each input's `utxo_tree_root_index` and `nullifier_tree_root_index` reference a non-stale root.
 3. `tree_account` is not paused.
 4. Proof verifies against public inputs.
-5. Append each `output_utxo_hashes[i]` (in order) to the UTXO sparse Merkle tree.
+5. Append each `outputs[i].utxo_hash` (in order) to the UTXO sparse Merkle tree.
 6. Insert each input's `nullifier_hash` into the nullifier queue.
 7. The sender bundle needs no nullifier-tree insertion: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
 8. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (deposit: payer → pool; withdraw: pool → recipient). The `relayer_fee` portion compensates the relayer.
@@ -1326,22 +1354,19 @@ GeneralEvent {
             nullifier: input.nullifier_hash,
         })
         .collect(),
-    // One `OutputUtxo` per output position, reconstructed from the two
-    // instruction vectors (the logged event keeps its per-output shape). The
-    // ciphertext for position `i` is: `output_ciphertexts[0]` (the bundle) for
-    // `i == 0`; empty for `1 <= i < SENDER_SLOT_COUNT` (sender change covered by
-    // the bundle); `output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for
-    // `i >= SENDER_SLOT_COUNT`.
-    outputs: (0..instruction_data.output_utxo_hashes.len())
-        .map(|i| {
-            let ct = output_ciphertext_for_position(i, &instruction_data.output_ciphertexts);
-            OutputUtxo {
-                owner: ct.map_or([0u8; 32], |c| c.owner),
-                utxo_hash: instruction_data.output_utxo_hashes[i],
-                data: ct.map_or(Vec::new(), |c| c.data.clone()),
-            }
+    // One `OutputUtxo` per output, 1:1 with `instruction_data.outputs`; change
+    // positions publish the sender's tag rather than zeros.
+    outputs: instruction_data
+        .outputs
+        .iter()
+        .map(|out| OutputUtxo {
+            owner: fetch_tag(&out.owner_tag),
+            utxo_hash: out.utxo_hash,
+            data: out.data.clone().unwrap_or_default(),
         })
         .collect(),
+    // Republished verbatim (see [General Event](#general-event)).
+    messages: instruction_data.messages.clone(),
     // Shared across every output ciphertext; supplied in instruction data.
     tx_viewing_pk: Some(instruction_data.tx_viewing_pk),
     first_output_leaf_index,
@@ -1476,6 +1501,9 @@ nullifier insertions and UTXO appends.
 struct GeneralEvent {
     inputs: Vec<Input>,
     outputs: Vec<OutputUtxo>,
+    /// Ciphertexts with no output, republished verbatim from
+    /// `TransactIxData::messages`. Empty except on `transact`.
+    messages: Vec<OutputData>,
     /// Shared `tx_viewing_pk` for every output ciphertext, so an indexer can
     /// decrypt without parsing the per-output `data`. Always set by `transact`;
     /// `None` for a proofless deposit (nothing to decrypt).

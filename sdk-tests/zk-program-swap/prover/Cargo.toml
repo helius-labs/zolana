@@ -1,0 +1,25 @@
+[package]
+name = "swap-prover"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "swap_prover"
+path = "src/lib.rs"
+
+[[bin]]
+name = "swap-prover-setup"
+path = "src/bin/setup.rs"
+
+[dependencies]
+groth16-solana = { workspace = true, features = ["bsb22", "gnark-vk"] }
+num-bigint = { workspace = true }
+swap-program = { path = "../program" }
+serde_json = { workspace = true }
+solana-bn254 = { workspace = true }
+thiserror = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[build-dependencies]
+bindgen = "0.70"

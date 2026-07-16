@@ -14,9 +14,9 @@ use crate::{
     error::TransactionError,
     instructions::{
         merge::MERGE_INPUTS,
-        types::{InputCommitment, SpendUtxo},
+        types::{InputUtxoContext, SppProofInputUtxo},
     },
-    OutputUtxo,
+    SppProofOutputUtxo,
 };
 
 /// A policy-zone merge plan: the real UTXOs to consolidate (no Merkle proofs, no
@@ -24,8 +24,8 @@ use crate::{
 /// every input is owned by. Every input must share one owner (P256 or Solana),
 /// asset, and `zone_program_id`.
 pub struct MergeZone {
-    inputs: Vec<SpendUtxo>,
-    output: OutputUtxo,
+    inputs: Vec<SppProofInputUtxo>,
+    output: SppProofOutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
     user_viewing_pk: P256Pubkey,
@@ -39,7 +39,7 @@ impl MergeZone {
     /// keypair.
     pub fn new<K: ShieldedKeypairTrait>(
         keypair: &K,
-        inputs: Vec<SpendUtxo>,
+        inputs: Vec<SppProofInputUtxo>,
         zone_program_id: Address,
     ) -> Result<Self, TransactionError> {
         if inputs.is_empty() {
@@ -74,15 +74,9 @@ impl MergeZone {
                 .ok_or(TransactionError::SelectedBalanceOverflow)?;
         }
 
-        let output = OutputUtxo {
-            owner_address: Some(keypair.shielded_address()?),
-            asset,
-            amount: total,
-            blinding: random_blinding(),
-            // The merged output preserves zone ownership.
-            zone_program_id: Some(zone_program_id),
-            ..Default::default()
-        };
+        // The merged output preserves zone ownership.
+        let output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?
+            .with_zone_program_id(zone_program_id);
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the
         // value is both a valid P-256 scalar and a valid circuit witness.
@@ -122,7 +116,7 @@ impl MergeZone {
             zone_program_id,
         } = self;
         while inputs.len() < MERGE_INPUTS {
-            inputs.push(SpendUtxo::new_dummy());
+            inputs.push(SppProofInputUtxo::new_dummy());
         }
         PreparedMergeZone {
             inputs,
@@ -138,10 +132,10 @@ impl MergeZone {
 
 /// A policy-zone merge padded to [`MERGE_INPUTS`] (real inputs first, dummies at
 /// the tail), still proofless. Carries the shared `zone_program_id` the proof
-/// commits. [`Self::input_commitments`] yields what to fetch Merkle proofs for.
+/// commits. [`Self::input_utxo_hashes`] yields what to fetch Merkle proofs for.
 pub struct PreparedMergeZone {
-    pub inputs: Vec<SpendUtxo>,
-    pub output: OutputUtxo,
+    pub inputs: Vec<SppProofInputUtxo>,
+    pub output: SppProofOutputUtxo,
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,
     pub user_viewing_pk: P256Pubkey,
@@ -153,7 +147,7 @@ impl PreparedMergeZone {
     /// Commitments for the real inputs only; dummy padding has a zero owner and no
     /// meaningful commitment to look up. Merge assembly only supports clean inputs,
     /// so an input that committed to program or zone data is rejected.
-    pub fn input_commitments(&self) -> Result<Vec<InputCommitment>, TransactionError> {
+    pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         self.inputs
             .iter()
             .filter(|spend| !spend.is_dummy())
@@ -164,15 +158,10 @@ impl PreparedMergeZone {
                 {
                     return Err(TransactionError::MergeInputHasData { index });
                 }
-                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-                let utxo_hash = spend.utxo.hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
-                let nullifier = spend
-                    .nullifier_key
-                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                Ok(InputCommitment {
+                Ok(InputUtxoContext {
                     index,
-                    utxo_hash,
-                    nullifier,
+                    utxo_hash: spend.hash()?,
+                    nullifier: spend.nullifier()?,
                 })
             })
             .collect()

@@ -26,6 +26,8 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    #[sea_orm(has_many = "super::rings_messages::Entity")]
+    RingsMessages,
     #[sea_orm(has_many = "super::rings_outputs::Entity")]
     RingsOutputs,
     #[sea_orm(has_one = "super::rings_transaction_payloads::Entity")]
@@ -40,6 +42,12 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     Transactions,
+}
+
+impl Related<super::rings_messages::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::RingsMessages.def()
+    }
 }
 
 impl Related<super::rings_outputs::Entity> for Entity {

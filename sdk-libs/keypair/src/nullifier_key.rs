@@ -14,6 +14,12 @@ pub struct NullifierKey {
     secret: Zeroizing<[u8; BLINDING_LEN]>,
 }
 
+impl AsRef<NullifierKey> for NullifierKey {
+    fn as_ref(&self) -> &NullifierKey {
+        self
+    }
+}
+
 impl NullifierKey {
     pub fn from_signing_key(signing_key: &SigningKey) -> Result<Self, KeypairError> {
         Self::from_signing_secret_key_bytes(signing_key.secret_bytes().as_slice())

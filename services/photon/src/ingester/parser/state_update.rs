@@ -3,5 +3,6 @@ mod types;
 
 pub use types::{
     FilteredStateUpdate, IndexedTreeLeafUpdate, NullifierTreeBatchUpdate, RawIndexedElement,
-    RingsNullifierUpdate, RingsOutputUpdate, RingsTransactionUpdate, StateUpdate, Transaction,
+    RingsMessageUpdate, RingsNullifierUpdate, RingsOutputUpdate, RingsTransactionUpdate,
+    StateUpdate, Transaction,
 };

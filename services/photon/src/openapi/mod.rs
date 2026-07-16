@@ -11,7 +11,7 @@ use zolana_indexer_api::{
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
     GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
     GetShieldedTransactionsByTagsResponse, Hash, Limit, MerkleContext, MerkleProof,
-    NonInclusionProof, NullifierQueueElement, RingsOutputContext, RingsOutputSlot,
+    NonInclusionProof, NullifierQueueElement, RingsMessage, RingsOutputContext, RingsOutputSlot,
     SerializablePubkey, SerializableSignature, ShieldedTransaction,
 };
 
@@ -50,6 +50,7 @@ const RINGS_API_TEST_SPEC_FILE: &str = "rings.test.yaml";
     GetRingsByTagsRequest,
     EncryptedUtxoMatch,
     GetEncryptedUtxosByTagsResponse,
+    RingsMessage,
     RingsOutputContext,
     RingsOutputSlot,
     ShieldedTransaction,

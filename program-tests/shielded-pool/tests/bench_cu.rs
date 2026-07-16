@@ -33,10 +33,7 @@ use zolana_keypair::{
 };
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    Data, Utxo, SOL_MINT,
-};
+use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 mod common;
@@ -47,7 +44,7 @@ mod transact_common;
 use transact_common::{
     build_transfer_prover_inputs, build_transfer_prover_inputs_spl, dummy_input,
     dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe,
-    ix_output_ciphertext, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
     prove_and_verify_transfer, public_input_hash, public_input_hash_spl, public_sol_field,
     set_output_owner_tags, spend_input, start_prover, SpendInputArgs, TransferProverInputsArgs,
 };
@@ -370,32 +367,24 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
+    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
             .map(|nullifier| eddsa_input_utxo(*nullifier, 0))
             .collect(),
         None,
-        output_hashes.clone(),
-        vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
-        ],
+        inline_outputs(&output_hashes, &view_tags),
         None,
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.output_ciphertexts, output_hashes.len())
-            .expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &zero).expect("external data hash");
-    let private_tx = private_tx_hash(
-        &[zero, zero],
-        &[zero, zero, zero],
-        &no_address_hashes(2),
-        &external_data_hash,
-    )
-    .expect("private tx hash");
+    let private_tx = PrivateTxHash::new(&[zero, zero], &[zero, zero, zero], &external_data_hash)
+        .hash()
+        .expect("private tx hash");
     let owner_hash = hash_field(&payer_bytes).expect("owner hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
@@ -521,32 +510,25 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
+    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, 1),
             eddsa_input_utxo(dummy_nullifier, 1),
         ],
         Some(-(AMOUNT as i64)),
-        output_hashes.clone(),
-        vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
-        ],
+        inline_outputs(&output_hashes, &view_tags),
         None,
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.output_ciphertexts, output_hashes.len())
-            .expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &recipient.to_bytes()).expect("external data hash");
-    let private_tx = private_tx_hash(
-        &[utxo_hash, zero],
-        &[zero, zero, zero],
-        &no_address_hashes(2),
-        &external_data_hash,
-    )
-    .expect("private tx hash");
+    let private_tx =
+        PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
+            .hash()
+            .expect("private tx hash");
     let public_sol_field = public_sol_field(transact_ix_data.public_sol_amount);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
@@ -692,22 +674,18 @@ fn bench_withdrawal_spl(
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
+    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, 1),
             eddsa_input_utxo(dummy_nullifier, 1),
         ],
         None,
-        output_hashes.clone(),
-        vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
-        ],
+        inline_outputs(&output_hashes, &view_tags),
         None,
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.output_ciphertexts, output_hashes.len())
-            .expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     // SPL withdrawal carries the public amount in `public_spl_amount`; the SOL
     // amount stays `None`.
@@ -715,13 +693,10 @@ fn bench_withdrawal_spl(
     let external_data_hash =
         external_data_hash_spl(&transact_ix_data, &user_token.to_bytes(), &vault.to_bytes())
             .expect("external data hash");
-    let private_tx = private_tx_hash(
-        &[utxo_hash, zero],
-        &[zero, zero, zero],
-        &no_address_hashes(2),
-        &external_data_hash,
-    )
-    .expect("private tx hash");
+    let private_tx =
+        PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
+            .hash()
+            .expect("private tx hash");
     let public_spl_field = public_sol_field(transact_ix_data.public_spl_amount);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 

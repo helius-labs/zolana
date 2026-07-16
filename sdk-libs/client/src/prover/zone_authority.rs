@@ -7,28 +7,26 @@
 //! appendix).
 
 use solana_address::Address;
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::hash::hash_field;
 use zolana_transaction::{
-    instructions::{
-        transact::{no_address_hashes, private_tx_hash},
-        zone_authority::PreparedZoneAuthority,
-    },
+    instructions::{transact::PrivateTxHash, zone_authority::PreparedZoneAuthority},
     utxo::program_id_field,
-    ExternalData, OutputUtxo,
+    ExternalData, SppProofOutputUtxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
-        field::{be, hash_chain},
-        shape::{resolve_shape, Shape},
+        field::be,
+        resolve_shape,
         transact::{
             p256_and_eddsa::{
                 assemble_inputs, assemble_outputs, OwnerMode, PublicAmounts, TransferSpendInput,
             },
             witness::SpendProof,
         },
-        TransferInputs,
+        Shape, TransferInputs,
     },
 };
 
@@ -40,7 +38,7 @@ pub struct ZoneAuthorityProver {
     /// Input slots; a `None` proof on [`TransferSpendInput`] is a dummy. Each real
     /// input's `nullifier_key` is supplied by the zone authority.
     pub inputs: Vec<TransferSpendInput>,
-    pub outputs: Vec<OutputUtxo>,
+    pub outputs: Vec<SppProofOutputUtxo>,
     /// Transaction-level public data; its `instruction_discriminator` must be
     /// `ZONE_AUTHORITY_TRANSACT` (Tag 3) so `external_data_hash` matches on-chain.
     pub external_data: ExternalData,
@@ -71,12 +69,12 @@ impl ZoneAuthorityProver {
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ZoneAuthority)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(
+        let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
-        )?;
+        )
+        .hash()?;
 
         // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
         // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
@@ -87,11 +85,11 @@ impl ZoneAuthorityProver {
         // pk_fields kept private (no owner chain) and no confidential appendix.
         // Mirrors NewTransferZoneAuthorityCircuit's publicInputHash. hash_field(&[0;32])
         // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element.
-        let public_input = hash_chain(&[
-            hash_chain(&assembled_inputs.nullifiers)?,
-            hash_chain(&assembled_outputs.output_hashes)?,
-            hash_chain(&assembled_inputs.utxo_roots)?,
-            hash_chain(&assembled_inputs.nullifier_tree_roots)?,
+        let public_input = create_hash_chain_from_slice(&[
+            create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
+            create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
+            create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
+            create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             hash_field(&[0u8; 32])?,
             external_data_hash,
@@ -184,7 +182,7 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
             },
             payer_pubkey_hash,
             zone_program_id,
-            shape: Some(Shape::new(shape.n_inputs, shape.n_outputs)),
+            shape: Some(shape),
         })
     }
 }

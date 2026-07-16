@@ -14,7 +14,7 @@ use zolana_hasher::hash_chain::create_hash_chain_from_array;
 use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_smart_account_client::execute_sync_ix;
-use zolana_transaction::instructions::transact::signed_transaction::BN254_MODULUS_DEC;
+use zolana_transaction::instructions::transact::spp_proof_inputs::BN254_MODULUS_DEC;
 use zolana_tree::TreeAccount;
 
 type NullifierTree = IndexedMerkleTree<zolana_hasher::Poseidon, usize>;

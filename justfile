@@ -152,6 +152,78 @@ bench-shielded-pool: build-programs
         solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
     cargo test -p shielded-pool-tests --test bench_cu -- --ignored --nocapture
 
+# Profile the confidential swap create/fill/cancel instructions and record proving
+# times. The bench builds the shielded-pool tree account directly and replays one
+# swap instruction under mollusk. Only the swap program is built with profiling; the
+# shielded-pool program is built plain so its `transact` CPI runs as an
+# uninstrumented black box and its functions do not pollute the swap CU table.
+# SOL-only, so no SPL Token clone is needed. Regenerates
+# sdk-tests/zk-program-swap/BENCHMARK.md.
+# Fetch the pinned swap proving keys from the swap-keys release and verify them
+# against the committed manifest. groth16.Setup is non-deterministic, so the
+# published keys are the only set matching the committed Rust verifying keys;
+# regenerating locally (regen-swap-keys) requires publishing a new release and
+# updating swap-keys.CHECKSUM plus the committed verifying keys together.
+swap-keys-tag := "swap-keys-v3"
+
+ensure-swap-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/zk-program-swap"
+    for c in make take cancel take_verifiable_encryption; do
+        dir="$base/build/gnark/$c"
+        for kind in pk vk; do
+            if [ ! -f "$dir/$kind.bin" ]; then
+                mkdir -p "$dir"
+                gh release download "{{swap-keys-tag}}" --repo helius-labs/zolana \
+                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
+            fi
+            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/swap-keys.CHECKSUM")
+            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
+            if [ "$want" != "$got" ]; then
+                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
+                echo "refresh from the {{swap-keys-tag}} release (delete the file and rerun)," >&2
+                echo "or rotate keys with 'just regen-swap-keys' and publish a new release" >&2
+                exit 1
+            fi
+        done
+    done
+
+# Rotate the swap proving keys: regenerate every circuit, rewriting the committed
+# Rust verifying keys and the checksum manifest. Publish the new build/gnark
+# key files to a fresh swap-keys release and bump swap-keys-tag afterwards.
+regen-swap-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/zk-program-swap"
+    for c in make take cancel take_verifiable_encryption; do
+        cargo run --release -p swap-prover --bin swap-prover-setup -- \
+            "$c" "$base/build/gnark/$c" \
+            --rust-vk "$base/program/src/verifying_keys/$c.rs"
+    done
+    : > "$base/swap-keys.CHECKSUM"
+    for c in make take cancel take_verifiable_encryption; do
+        for kind in pk vk; do
+            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
+                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/swap-keys.CHECKSUM"
+        done
+    done
+
+# The profiling swap build calls a profiler syscall that solana-test-validator
+# does not register, so it must never land in target/deploy (validator/CI load
+# the plain program from there). Build the bench programs into a dedicated dir,
+# matching PROFILING_SBF_DIR in bench_cu.rs.
+bench-swap: ensure-swap-keys
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/swap-bench \
+        --manifest-path programs/shielded-pool/Cargo.toml \
+        -- --features bpf-entrypoint
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/swap-bench \
+        --manifest-path sdk-tests/zk-program-swap/program/Cargo.toml \
+        -- --features bpf-entrypoint,profile-program
+    cargo test -p swap-test-validator --test bench_cu -- --ignored --nocapture
+
 # === Local validator helpers ===
 
 # Local-validator end-to-end SOL cycle.
@@ -331,6 +403,30 @@ test-zone-validator: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p zone-test-program --test zone_lifecycle --release
+
+# Fully-inlined create+fill and create+cancel swap flows over a fresh validator
+# (sdk-tests/zk-program-swap/test/tests/{swap,cancel}.rs). Each test binary boots
+# solana-test-validator via the `zolana` CLI with the swap program, the shielded
+# pool, the user registry, and the Squads smart account loaded together, plus
+# Photon and the persistent SPP prover -- mirroring test-spp-validator. Cargo
+# runs the test binaries serially, so the second boots a fresh validator.
+test-swap-validator: ensure-swap-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SWAP_PROGRAM_ID
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p swap-test-validator --test swap --test cancel -- --nocapture
 
 install-surfpool:
     #!/usr/bin/env bash

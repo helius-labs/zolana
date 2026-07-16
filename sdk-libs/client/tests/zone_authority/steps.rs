@@ -8,11 +8,14 @@ use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputCommitment, PreparedZoneAuthority, ProverClient, PublicAmounts, Rpc, Shape,
-    SpendUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
+    spawn_prover, InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicAmounts, Rpc, Shape,
+    SppProofInputUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
 };
 use zolana_interface::{
-    instruction::{instruction_data::transact::OutputCiphertext, tag::ZONE_AUTHORITY_TRANSACT},
+    instruction::{
+        instruction_data::transact::{OwnerTag, TransactOutput},
+        tag::ZONE_AUTHORITY_TRANSACT,
+    },
     verifying_keys::{
         transfer_zone_authority_1_1, transfer_zone_authority_2_2, transfer_zone_authority_3_3,
         transfer_zone_authority_4_4,
@@ -20,8 +23,8 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::{builder::Shape as TxShape, PublicAmounts as TxPublicAmounts},
-    Data, ExternalData, OutputUtxo, Utxo, SOL_MINT,
+    instructions::transact::{shape::Shape as TxShape, PublicAmounts as TxPublicAmounts},
+    Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
 use crate::{
@@ -152,7 +155,10 @@ fn boundary_prover() -> ZoneAuthorityProver {
     indexer.add_utxo(utxo_hash);
 
     let prepared = PreparedZoneAuthority {
-        inputs: vec![SpendUtxo::from_keypair(utxo, &kp), SpendUtxo::new_dummy()],
+        inputs: vec![
+            SppProofInputUtxo::new(utxo, &kp),
+            SppProofInputUtxo::new_dummy(),
+        ],
         outputs: vec![dummy_output(), dummy_output()],
         public_amounts: TxPublicAmounts {
             sol: [0u8; 32],
@@ -162,9 +168,9 @@ fn boundary_prover() -> ZoneAuthorityProver {
         external_data: zone_external_data(2),
         payer_pubkey_hash: [0u8; 32],
         zone_program_id: Some(zone),
-        shape: TxShape::new(2, 2),
+        shape: TxShape::IN2_OUT2,
     };
-    let commitments = prepared.input_commitments().expect("input commitments");
+    let commitments = prepared.input_utxo_hashes().expect("input commitments");
     let proofs = indexer
         .get_input_merkle_proofs(&commitments)
         .expect("merkle proofs");
@@ -195,7 +201,7 @@ fn prove_and_verify(prover: ZoneAuthorityProver, n_in: usize, n_out: usize) {
 
 fn assemble_prover(
     inputs: Vec<TransferSpendInput>,
-    outputs: Vec<OutputUtxo>,
+    outputs: Vec<SppProofOutputUtxo>,
     n_in: usize,
     n_out: usize,
 ) -> ZoneAuthorityProver {
@@ -243,7 +249,7 @@ fn build_real_inputs(
             .nullifier(&utxo_hash, &kp.nullifier_key)
             .expect("nullifier");
         indexer.add_utxo(utxo_hash);
-        commitments.push(InputCommitment {
+        commitments.push(InputUtxoContext {
             index,
             utxo_hash,
             nullifier,
@@ -269,8 +275,8 @@ fn build_real_inputs(
 }
 
 /// A zone-owned real output to a recipient (used in the consolidation scenario).
-fn real_output(recipient: &ShieldedKeypair, amount: u64) -> OutputUtxo {
-    OutputUtxo {
+fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
+    SppProofOutputUtxo {
         owner_address: Some(recipient.shielded_address().expect("shielded address")),
         asset: SOL_MINT,
         amount,
@@ -284,8 +290,8 @@ fn real_output(recipient: &ShieldedKeypair, amount: u64) -> OutputUtxo {
 }
 
 /// A padding output: zero owner hash, random blinding (the circuit leaves it free).
-fn dummy_output() -> OutputUtxo {
-    OutputUtxo {
+fn dummy_output() -> SppProofOutputUtxo {
+    SppProofOutputUtxo {
         blinding: random_blinding(),
         ..Default::default()
     }
@@ -328,13 +334,15 @@ fn zone_external_data(n_out: usize) -> ExternalData {
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        output_utxo_hashes: vec![[0u8; 32]; n_out],
-        output_ciphertexts: (0..n_out)
-            .map(|_| OutputCiphertext {
-                view_tag: [0u8; 32],
-                data: Vec::new(),
+        outputs: (0..n_out)
+            .map(|_| TransactOutput {
+                utxo_hash: [0u8; 32],
+                owner_tag: OwnerTag::Inline([0u8; 32]),
+                data: None,
             })
             .collect(),
+        resolved_owner_tags: vec![[0u8; 32]; n_out],
+        messages: Vec::new(),
     }
 }
 

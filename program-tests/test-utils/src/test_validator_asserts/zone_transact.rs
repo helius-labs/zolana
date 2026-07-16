@@ -34,7 +34,7 @@ pub struct ZoneTransactAssertArgs<'a> {
 /// - the tree root advanced (the outputs were appended),
 /// - the indexed transaction's `nullifiers` equal the instruction's
 ///   `inputs[].nullifier_hash`, and its output-slot hashes equal the
-///   instruction's `output_utxo_hashes` (so the emitted event matched the data),
+///   instruction's `outputs[].utxo_hash` (so the emitted event matched the data),
 /// - photon serves a merkle inclusion proof for every appended output, each
 ///   tracking the on-chain root,
 /// - every spent nullifier is now present in the nullifier tree (its
@@ -78,13 +78,15 @@ pub fn assert_zone_transact<R: Rpc, I: Rpc>(
         .iter()
         .map(|slot| slot.output_context.hash)
         .collect();
+    let expected_output_hashes: Vec<[u8; 32]> =
+        data.outputs.iter().map(|output| output.utxo_hash).collect();
     assert_eq!(
-        indexed_output_hashes, data.output_utxo_hashes,
+        indexed_output_hashes, expected_output_hashes,
         "indexed output hashes must match the instruction output commitments"
     );
 
-    for output_hash in &data.output_utxo_hashes {
-        let proof = wait_for_merkle_proof(indexer, to_address(tree), *output_hash);
+    for output in &data.outputs {
+        let proof = wait_for_merkle_proof(indexer, to_address(tree), output.utxo_hash);
         assert_eq!(
             proof.root, root_after,
             "photon merkle root tracks the on-chain root"

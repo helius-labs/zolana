@@ -11,7 +11,7 @@
 //! (mirroring the client's `witness::assemble`); because the authority rail skips
 //! the per-owner spend signature on-chain (`prepare_proof_inputs::<_, true>`),
 //! every input's `eddsa_signer_index` stays the default 0 and
-//! `p256_signing_pk_field` is `None`.
+//! `p256_signing_pk_x` is `None`.
 //!
 //! View-tag discovery: the recipient slot's `view_tag` is the recipient actor's
 //! `signing_pubkey().confidential_view_tag()`, the exact tag the confidential
@@ -30,7 +30,7 @@ use zolana_client::{
     ProverClient, PublicAmounts, Shape, SpendProof, TransferSpendInput, ZoneAuthorityProver,
 };
 use zolana_interface::instruction::{
-    instruction_data::transact::{InputUtxo, TransactProof},
+    instruction_data::transact::{InputUtxo, OwnerTag, TransactOutput, TransactProof},
     tag::ZONE_AUTHORITY_TRANSACT,
     TransactIxData, ZoneAuthorityTransact,
 };
@@ -40,8 +40,8 @@ use zolana_test_utils::test_validator_asserts::{
     wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
 };
 use zolana_transaction::{
-    serialization::confidential::{ConfidentialRecipient, ConfidentialRecipientEncode},
-    Data, ExternalData, OutputUtxo, OwnerCx, Utxo, UtxoSerialization, SOL_MINT,
+    serialization::confidential::{Confidential, ConfidentialEncode},
+    Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization, SOL_MINT,
 };
 
 use crate::{
@@ -109,14 +109,18 @@ impl ZoneLifecycleWorld {
         )?;
         self.last_transact = Some((signature, transfer_ix));
 
-        // The recipient actor's confidential view tag is the first output
-        // ciphertext's tag; Photon indexes the transaction under it, and the
-        // confidential default-zone scan in `Wallet::sync` queries exactly this tag.
-        let fetch_view_tag = ix_data
-            .output_ciphertexts
-            .first()
-            .map(|slot| slot.view_tag)
-            .ok_or_else(|| anyhow!("zone-authority transfer produced no output ciphertext"))?;
+        // The recipient actor's confidential view tag is the first output's inline
+        // owner tag (zone flows resolve owner tags inline); Photon indexes the
+        // transaction under it, and the confidential default-zone scan in
+        // `Wallet::sync` queries exactly this tag.
+        let fetch_view_tag = match ix_data.outputs.first().map(|output| output.owner_tag) {
+            Some(OwnerTag::Inline(tag)) => tag,
+            _ => {
+                return Err(anyhow!(
+                    "zone-authority transfer produced no inline-tagged output"
+                ))
+            }
+        };
         assert_zone_transact(
             &self.rpc,
             &self.indexer,
@@ -147,16 +151,17 @@ impl ZoneLifecycleWorld {
 
     /// Assert the recipient actor's synced wallet discovered the appended zone-owned
     /// output (its leaf hash is among the synced wallet's UTXOs). The output hash is
-    /// the single entry in the instruction's `output_utxo_hashes`.
+    /// the single entry in the instruction's `outputs`.
     fn assert_zone_output_discovered(
         &self,
         recipient: &str,
         ix_data: &TransactIxData,
     ) -> Result<()> {
-        let output_hash = *ix_data
-            .output_utxo_hashes
+        let output_hash = ix_data
+            .outputs
             .first()
-            .ok_or_else(|| anyhow!("zone-authority transfer produced no output hash"))?;
+            .ok_or_else(|| anyhow!("zone-authority transfer produced no output"))?
+            .utxo_hash;
         let discovered = self
             .actor(recipient)
             .wallet
@@ -223,7 +228,7 @@ impl ZoneLifecycleWorld {
         // owner tag, the exact tag `Wallet::sync`'s confidential scan queries.
         let recipient_address = recipient_keypair.shielded_address()?;
         let recipient_view_tag = recipient_address.signing_pubkey.confidential_view_tag()?;
-        let output = OutputUtxo {
+        let output = SppProofOutputUtxo {
             owner_address: Some(recipient_address),
             asset,
             amount,
@@ -247,7 +252,7 @@ impl ZoneLifecycleWorld {
             zone_program_id: Some(zone),
         };
         // The recipient decrypts a plaintext `Utxo` (the on-chain leaf is the
-        // `OutputUtxo` above); both carry identical fields so their hashes agree.
+        // `SppProofOutputUtxo` above); both carry identical fields so their hashes agree.
         let output_plaintext = Utxo {
             owner: recipient_address.signing_pubkey,
             asset,
@@ -256,11 +261,11 @@ impl ZoneLifecycleWorld {
             zone_program_id: Some(zone),
             data: Data::default(),
         };
-        let ciphertext = ConfidentialRecipient::encode(
+        let ciphertext = Confidential::encode(
             core::slice::from_ref(&output_plaintext),
             &owner_cx,
             recipient_view_tag,
-            &ConfidentialRecipientEncode {
+            &ConfidentialEncode {
                 tx: tx.clone(),
                 recipient_pubkey: recipient_address.viewing_pubkey,
                 salt,
@@ -281,8 +286,16 @@ impl ZoneLifecycleWorld {
             zone_data_hash: None,
             tx_viewing_pk: *tx.pubkey().as_bytes(),
             salt,
-            output_utxo_hashes: vec![output_hash],
-            output_ciphertexts: vec![ciphertext],
+            // Zone flows resolve owner tags inline (the tag is the recipient's
+            // confidential view tag, not an account or the shared P256 key), so the
+            // wire tag and its resolved form are the same 32 bytes.
+            outputs: vec![TransactOutput {
+                utxo_hash: output_hash,
+                owner_tag: OwnerTag::Inline(recipient_view_tag),
+                data: Some(ciphertext.data),
+            }],
+            resolved_owner_tags: vec![recipient_view_tag],
+            messages: vec![],
         };
 
         let result = ZoneAuthorityProver {
@@ -326,7 +339,7 @@ impl ZoneLifecycleWorld {
             expiry_unix_ts: external_data.expiry_unix_ts,
             relayer_fee: external_data.relayer_fee,
             private_tx_hash: result.private_tx_hash,
-            p256_signing_pk_field: None,
+            p256_signing_pk_x: None,
             inputs,
             public_sol_amount: external_data.public_sol_amount,
             public_spl_amount: external_data.public_spl_amount,
@@ -334,8 +347,8 @@ impl ZoneLifecycleWorld {
             zone_data_hash: external_data.zone_data_hash,
             tx_viewing_pk: external_data.tx_viewing_pk,
             salt: external_data.salt,
-            output_utxo_hashes: external_data.output_utxo_hashes.clone(),
-            output_ciphertexts: external_data.output_ciphertexts.clone(),
+            outputs: external_data.outputs.clone(),
+            messages: external_data.messages.clone(),
         };
 
         // The re-owned output now belongs to the recipient; mark the consumed input
@@ -494,7 +507,7 @@ fn rejected_bad_proof(world: &mut ZoneLifecycleWorld, name: String) {
 //
 // 2. `Wallet::sync` (`sdk-libs/transaction/src/wallet/sync.rs`) reconstructs every
 //    confidential RECIPIENT candidate with a fixed `OwnerCx { zone_program_id: None }`
-//    (the only `OwnerCx` in the file), because `TransferRecipientPlaintext` does not
+//    (the only `OwnerCx` in the file), because `ConfidentialOutputPlaintext` does not
 //    carry a zone id (unlike the proofless deposit plaintext, which does and is why a
 //    zone deposit IS discoverable). `store_recipient_utxos` then verifies the
 //    reconstructed UTXO's leaf hash against the appended slot; a default-zone

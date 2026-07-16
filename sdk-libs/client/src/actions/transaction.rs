@@ -8,8 +8,8 @@ use zolana_interface::{
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, SignatureType};
 use zolana_transaction::{
     instructions::{
-        transact::{PreparedTransaction, SignedTransaction, Transaction, WithdrawalTarget},
-        types::SpendUtxo,
+        transact::{ConfidentialTransfer, PreparedTransfer, SppProofInputs, WithdrawalTarget},
+        types::SppProofInputUtxo,
     },
     Address, AssetRegistry, Utxo, Wallet, SOL_MINT,
 };
@@ -23,9 +23,7 @@ use crate::{
     error::ClientError,
     rpc::{AsyncRpc, Rpc},
     user_registry::{try_resolve_registered_address, try_resolve_registered_address_async},
-    wallet_authority::{
-        ApprovalRequest, ConfidentialRecipientSlot, SyncWalletAuthority, WalletAuthority,
-    },
+    wallet_authority::{ApprovalRequest, SyncWalletAuthority, WalletAuthority},
 };
 
 #[cfg(feature = "indexer-api")]
@@ -79,10 +77,9 @@ pub struct CreatedWithdrawal {
     pub withdrawal: TransactWithdrawal,
 }
 
-/// Shielded transaction after wallet authority encrypts and signs.
 #[doc(hidden)]
 pub struct SignedPrivateTransaction {
-    pub transaction: SignedTransaction,
+    pub transaction: SppProofInputs,
     pub withdrawal: Option<TransactWithdrawal>,
     pub tree: Address,
 }
@@ -138,8 +135,6 @@ pub struct TransferParams<'a, R> {
     pub rpc: &'a R,
     pub wallet: &'a Wallet,
     pub payer: Address,
-    /// Solana pubkey of the recipient. Resolved against the on-chain user registry
-    /// internally; unregistered owners fall back to a public withdrawal.
     pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
@@ -233,8 +228,6 @@ pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdra
     })
 }
 
-/// Encrypt, approve, sign, prove, and build an unsigned native Solana
-/// transaction for an external signer.
 #[cfg(feature = "indexer-api")]
 pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     transaction: UnsignedPrivateTransaction,
@@ -250,7 +243,6 @@ pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>
         .await
 }
 
-/// Encrypt, approve, sign, prove, and build a locally signed native Solana transaction.
 #[cfg(feature = "indexer-api")]
 pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     transaction: UnsignedPrivateTransaction,
@@ -270,7 +262,6 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     Ok(native)
 }
 
-/// Blocking adapter that builds an unsigned transaction for an external signer.
 #[cfg(feature = "indexer-api")]
 pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     transaction: UnsignedPrivateTransaction,
@@ -284,7 +275,6 @@ pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     client.finish_submission_unsigned_sync(&shielded, fee_payer, blockhash)
 }
 
-/// Blocking adapter for locally signed CLI flows.
 #[cfg(feature = "indexer-api")]
 pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     transaction: UnsignedPrivateTransaction,
@@ -303,9 +293,6 @@ pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     Ok(native)
 }
 
-/// Encrypt, approve, and P256-sign without proving. Used as the first stage of
-/// [`sign_private_transaction`] and by integration tests that only exercise wallet
-/// authority behavior.
 #[doc(hidden)]
 pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     transaction: UnsignedPrivateTransaction,
@@ -318,14 +305,14 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     let inputs = transaction
         .inputs
         .into_iter()
-        .map(|input| SpendUtxo {
+        .map(|input| SppProofInputUtxo {
             utxo: input.utxo,
             nullifier_key: nullifier_key.clone(),
             data_hash: input.data_hash,
             zone_data_hash: input.zone_data_hash,
         })
         .collect();
-    let mut tx = Transaction::new(address, inputs, transaction.payer);
+    let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
     match transaction.action {
         PrivateTransactionAction::Transfer {
             recipient,
@@ -342,7 +329,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
             tx.withdraw(asset, amount, target)?;
         }
     }
-    let prepared = tx.prepare(&wallet.registry)?;
+    let prepared = tx.prepare()?;
     let signed = sign_prepared(
         prepared,
         &address,
@@ -367,33 +354,15 @@ pub fn sign_shielded_transaction_sync<A: SyncWalletAuthority + ?Sized>(
     futures::executor::block_on(sign_shielded_transaction(transaction, wallet, authority))
 }
 
-fn recipient_slots(prepared: &PreparedTransaction) -> Vec<ConfidentialRecipientSlot> {
-    prepared
-        .recipients
-        .iter()
-        .map(|recipient| ConfidentialRecipientSlot {
-            view_tag: recipient.view_tag,
-            recipient_pubkey: recipient.recipient_pubkey,
-            plaintext: recipient.plaintext.clone(),
-        })
-        .collect()
-}
-
 async fn sign_prepared<A: WalletAuthority + ?Sized>(
-    prepared: PreparedTransaction,
+    prepared: PreparedTransfer,
     address: &ShieldedAddress,
     authority: &A,
     assets: &AssetRegistry,
     approval_summary: String,
-) -> Result<SignedTransaction, ClientError> {
-    let sender_tag = address.signing_pubkey.confidential_view_tag()?;
+) -> Result<SppProofInputs, ClientError> {
     let encrypted = authority
-        .encrypt_confidential_transfer(
-            &prepared.first_nullifier,
-            sender_tag,
-            &prepared.sender_plaintext,
-            &recipient_slots(&prepared),
-        )
+        .encrypt_confidential_transfer(&prepared.first_nullifier, &prepared.outputs, assets)
         .await?;
     authority
         .request_user_approval(ApprovalRequest {
@@ -401,21 +370,17 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
             summary: approval_summary,
         })
         .await?;
-    let mut signed = prepared.finalize(
-        encrypted.tx_viewing_pk,
-        encrypted.salt,
-        encrypted.slots,
-        assets,
-    )?;
+    let mut proof_inputs =
+        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.slots)?;
     if address.signing_pubkey.signature_type()? == SignatureType::P256 {
-        let message_hash = signed.message_hash()?;
+        let message_hash = proof_inputs.message_hash()?;
         let sig = authority.sign_p256(&message_hash).await?;
         let mut bytes = [0u8; 64];
         bytes[..32].copy_from_slice(&sig.sig_r);
         bytes[32..].copy_from_slice(&sig.sig_s);
-        signed.p256_owner = Some(bytes);
+        proof_inputs.p256_signature = Some(bytes);
     }
-    Ok(signed)
+    Ok(proof_inputs)
 }
 
 fn withdrawal_target(
@@ -799,7 +764,9 @@ mod tests {
         })
         .expect("withdrawal")
         .transaction;
-        wallet.utxos[0].spent = true;
+        if let Some(entry) = wallet.utxos.first_mut() {
+            entry.spent = true;
+        }
 
         let error = match sign_shielded_transaction_sync(unsigned, &wallet, &authority) {
             Err(error) => error,
@@ -820,16 +787,18 @@ mod tests {
         let mut wallet = wallet_with_sol(sender.clone(), 10);
         let data_hash = [13u8; 32];
         let nullifier_pubkey = sender.nullifier_key.pubkey().unwrap();
-        let hash = wallet.utxos[0]
+        let entry = wallet.utxos.first().expect("wallet utxo");
+        let hash = entry
             .utxo
             .hash(&nullifier_pubkey, &data_hash, &[0u8; 32])
             .unwrap();
-        wallet.utxos[0].output_context.hash = hash;
-        wallet.utxos[0].nullifier = wallet.utxos[0]
-            .utxo
-            .nullifier(&hash, &sender.nullifier_key)
-            .unwrap();
-        wallet.utxos[0].data_hash = Some(data_hash);
+        let nullifier = entry.utxo.nullifier(&hash, &sender.nullifier_key).unwrap();
+        {
+            let entry = wallet.utxos.first_mut().expect("wallet utxo");
+            entry.output_context.hash = hash;
+            entry.nullifier = nullifier;
+            entry.data_hash = Some(data_hash);
+        }
         let unsigned = create_withdrawal(WithdrawalParams {
             wallet: &wallet,
             payer: Address::default(),
@@ -842,10 +811,8 @@ mod tests {
 
         let signed = sign_shielded_transaction_sync(unsigned, &wallet, &authority).unwrap();
 
-        assert_eq!(
-            signed.transaction.input_commitments().unwrap()[0].utxo_hash,
-            hash
-        );
+        let inputs = signed.transaction.input_utxo_hashes().unwrap();
+        assert_eq!(inputs.first().expect("input").utxo_hash, hash);
     }
 
     #[test]
@@ -853,7 +820,9 @@ mod tests {
         let sender = ShieldedKeypair::new().unwrap();
         let second_tree = Address::new_from_array([9u8; 32]);
         let mut wallet = wallet_with_sol(sender.clone(), 10);
-        wallet.utxos[0].output_context.tree = second_tree;
+        if let Some(entry) = wallet.utxos.first_mut() {
+            entry.output_context.tree = second_tree;
+        }
 
         let created = create_withdrawal(WithdrawalParams {
             wallet: &wallet,

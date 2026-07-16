@@ -99,6 +99,20 @@ impl ViewingKey {
         Ok(Self::from_secret_key(secret))
     }
 
+    pub fn from_seed(wallet_seed: &[u8; 32], account: u32) -> Result<Self, KeypairError> {
+        let mut okm = [0u8; 48];
+        hkdf_expand(
+            None,
+            wallet_seed,
+            &[b"TSPP/seed/p256_viewing", &account.to_be_bytes()],
+            &mut okm,
+        )?;
+        let scalar = scalar_from_okm(&okm);
+        let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar))
+            .ok_or(KeypairError::ZeroScalar)?;
+        Ok(Self::from_secret_key(SecretKey::from(nonzero)))
+    }
+
     pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
         let mut out = [0u8; 32];
         out.copy_from_slice(&self.secret.to_bytes());

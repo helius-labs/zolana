@@ -1,5 +1,6 @@
 use super::state_update::{
-    RingsNullifierUpdate, RingsOutputUpdate, RingsTransactionUpdate, StateUpdate,
+    RingsMessageUpdate, RingsNullifierUpdate, RingsOutputUpdate, RingsTransactionUpdate,
+    StateUpdate,
 };
 use crate::ingester::{
     error::IngesterError,
@@ -94,6 +95,24 @@ pub fn parse_rings_events(
             })
             .collect::<Result<Vec<_>, IngesterError>>()?;
 
+        let messages = event
+            .messages
+            .iter()
+            .enumerate()
+            .map(|(message_index, message)| {
+                Ok(RingsMessageUpdate {
+                    message_index: i16::try_from(message_index).map_err(|_| {
+                        IngesterError::ParserError(format!(
+                            "Message index {} does not fit in i16",
+                            message_index
+                        ))
+                    })?,
+                    view_tag: message.view_tag,
+                    payload: message.data.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, IngesterError>>()?;
+
         let nullifiers = event
             .inputs
             .iter()
@@ -133,6 +152,7 @@ pub fn parse_rings_events(
                 raw_event: Some(event_site.payload),
                 parse_version: RINGS_PARSE_VERSION,
                 outputs,
+                messages,
                 nullifiers,
             });
     }

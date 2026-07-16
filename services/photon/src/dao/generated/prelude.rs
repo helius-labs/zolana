@@ -2,6 +2,7 @@
 
 pub use super::blocks::Entity as Blocks;
 pub use super::indexed_trees::Entity as IndexedTrees;
+pub use super::rings_messages::Entity as RingsMessages;
 pub use super::rings_output_payloads::Entity as RingsOutputPayloads;
 pub use super::rings_outputs::Entity as RingsOutputs;
 pub use super::rings_transaction_payloads::Entity as RingsTransactionPayloads;

@@ -17,13 +17,13 @@ pub struct ProoflessOutput {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub enum OutputData {
+pub enum OutputDataEncoding {
     Plaintext(Vec<u8>),
     Encrypted(Vec<u8>),
     VerifiablyEncrypted(Vec<u8>),
 }
 
-impl OutputData {
+impl OutputDataEncoding {
     pub const PLAINTEXT_TAG: u8 = 0;
     pub const ENCRYPTED_TAG: u8 = 1;
     pub const VERIFIABLY_ENCRYPTED_TAG: u8 = 2;
@@ -33,11 +33,11 @@ pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
     let mut blob = vec![0u8];
     data.serialize(&mut blob)
         .expect("shielded-pool output data serialization is infallible");
-    borsh::to_vec(&OutputData::Plaintext(blob))
+    borsh::to_vec(&OutputDataEncoding::Plaintext(blob))
         .expect("shielded-pool output data serialization is infallible")
 }
 
 pub fn encode_verifiably_encrypted(blob: Vec<u8>) -> Vec<u8> {
-    borsh::to_vec(&OutputData::VerifiablyEncrypted(blob))
+    borsh::to_vec(&OutputDataEncoding::VerifiablyEncrypted(blob))
         .expect("shielded-pool output data serialization is infallible")
 }

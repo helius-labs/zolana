@@ -11,7 +11,7 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    assemble, ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
+    assemble, ConfidentialTransfer, ProverClient, ProverInputs, SpendProof, SppProofInputUtxo,
 };
 use zolana_interface::instruction::Transact;
 use zolana_keypair::PublicKey;
@@ -19,9 +19,8 @@ use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
 use zolana_transaction::{
-    serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
-    utxo::derive_blinding,
-    Data, ShieldedTransaction, Utxo, WalletUtxo, SOL_MINT,
+    serialization::confidential::Confidential, Data, ShieldedTransaction, Utxo, WalletUtxo,
+    SOL_MINT,
 };
 
 use crate::{
@@ -139,8 +138,8 @@ impl LifecycleWorld {
     /// Build, prove (P256), and submit a transfer of `amount` of `send_asset` from
     /// `from` to `to` (or to no one, for a change-only consolidation) spending
     /// `inputs`. Records the recipient UTXO and the per-asset sender change
-    /// (decrypting the sender bundle for the blinding seed), and marks consumed
-    /// decrypted inputs spent.
+    /// (decrypting each output's own ciphertext for the blinding), and marks
+    /// consumed decrypted inputs spent.
     fn execute_transfer(
         &mut self,
         from: &str,
@@ -181,18 +180,18 @@ impl LifecycleWorld {
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
-        let spends: Vec<SpendUtxo> = inputs
+        let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SpendUtxo::from_keypair(u.clone(), &from_keypair))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair))
             .collect();
-        let mut tx =
-            ClientTransaction::new(from_keypair.shielded_address()?, spends, payer_address);
+        let mut transfer =
+            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address);
         if let Some(addr) = &to_address {
-            tx.send(addr, send_asset, amount)?;
+            transfer.send(addr, send_asset, amount)?;
         }
-        let signed = tx.sign(&from_keypair, &self.assets)?;
+        let proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
 
-        let commitments = signed.input_commitments()?;
+        let commitments = proof_inputs.input_utxo_hashes()?;
         let mut spend_proofs = Vec::new();
         for commitment in &commitments {
             let state =
@@ -208,7 +207,7 @@ impl LifecycleWorld {
         // The rail follows the input owner type: P256-owned inputs prove on the
         // P256 circuit, ed25519-owned inputs on the vanilla eddsa circuit (where the
         // owner authorizes the spend by signing the transaction).
-        let assembled = assemble(signed, &spend_proofs)?;
+        let assembled = assemble(proof_inputs, &spend_proofs)?;
         let (proof, rail) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (
                 ProverClient::local().prove_transfer_p256(inputs)?,
@@ -241,19 +240,23 @@ impl LifecycleWorld {
         // transaction by the sender's view tag instead.
         let wait_tag = to_view_tag.unwrap_or(sender_view_tag);
         let indexed = wait_for_indexed_transaction(&self.indexer, wait_tag, sig);
-        // Decode the sender bundle for the blinding seed: the expected set is rebuilt
-        // independently from the seed (not from `Wallet::sync`) so `assert_utxos` is a
-        // real cross-check of the synced wallet, not a comparison of sync to itself.
-        let seed = decode_sender_seed(&from_keypair.viewing_key, &indexed)?;
+        // Decode each committed output blinding from the sender side: the expected
+        // set is rebuilt independently from the on-chain ciphertexts (not from
+        // `Wallet::sync`) so `assert_utxos` is a real cross-check of the synced
+        // wallet, not a comparison of sync to itself.
 
-        // Expected recipient UTXO (the recipient slot sits at blinding position 2).
+        // Expected recipient UTXO (the recipient slot sits at output position 2).
         if let (Some(to), Some(to_keypair)) = (to, &to_keypair) {
             let recipient_utxo = self.build_expected(
                 to,
                 to_keypair.signing_pubkey(),
                 send_asset,
                 amount,
-                derive_blinding(&seed, RECIPIENT_POSITION_BASE),
+                decode_output_blinding(
+                    &from_keypair.viewing_key,
+                    &indexed,
+                    RECIPIENT_POSITION_BASE as u32,
+                )?,
                 &indexed,
             )?;
             self.actor_mut(to).expected.push(recipient_utxo);
@@ -300,7 +303,7 @@ impl LifecycleWorld {
                     from_keypair.signing_pubkey(),
                     change_asset,
                     change,
-                    derive_blinding(&seed, position),
+                    decode_output_blinding(&from_keypair.viewing_key, &indexed, position as u32)?,
                     &indexed,
                 )?;
                 self.actor_mut(from).expected.push(change_utxo);
@@ -349,27 +352,35 @@ impl LifecycleWorld {
     }
 }
 
-pub(crate) fn decode_sender_seed(
+pub(crate) fn decode_output_blinding(
     viewing_key: &zolana_keypair::ViewingKey,
     indexed: &ShieldedTransaction,
+    slot_index: u32,
 ) -> Result<[u8; 31]> {
-    let cx = DecodeCx::for_slot(viewing_key, indexed, 0);
-    let slot0 = indexed
-        .output_slots
+    let first_nullifier = indexed
+        .nullifiers
         .first()
-        .ok_or_else(|| anyhow!("no sender slot"))?;
-    let output_data = slot0
+        .ok_or_else(|| anyhow!("indexed tx missing nullifier"))?;
+    let salt = indexed
+        .salt
+        .ok_or_else(|| anyhow!("indexed tx missing salt"))?;
+    let tx_key = viewing_key.get_transaction_viewing_key(first_nullifier)?;
+    let slot = indexed
+        .output_slots
+        .get(slot_index as usize)
+        .ok_or_else(|| anyhow!("indexed tx missing output slot {slot_index}"))?;
+    let output_data = slot
         .output_data()
-        .ok_or_else(|| anyhow!("sender slot undecodable"))?;
+        .ok_or_else(|| anyhow!("output slot {slot_index} undecodable"))?;
     let body = match &output_data {
-        zolana_event::OutputData::Encrypted(blob) => blob
+        zolana_event::OutputDataEncoding::Encrypted(blob) => blob
             .split_first()
             .map(|(_, body)| body)
-            .ok_or_else(|| anyhow!("empty sender blob"))?,
-        _ => return Err(anyhow!("sender slot not encrypted")),
+            .ok_or_else(|| anyhow!("empty output blob"))?,
+        _ => return Err(anyhow!("output slot {slot_index} not encrypted")),
     };
-    let sender_plaintext = ConfidentialSenderBundle::decode(body, &cx)?;
-    Ok(sender_plaintext.blinding_seed)
+    let plaintext = Confidential::decrypt_with_tx_key(&tx_key, body, salt, slot_index)?;
+    Ok(plaintext.blinding)
 }
 
 fn spl_asset_address(world: &LifecycleWorld) -> Address {

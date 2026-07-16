@@ -33,9 +33,8 @@ use zolana_test_utils::{
     test_validator_asserts::assert_create_spl_interface,
 };
 use zolana_transaction::{
-    serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
-    AssetRegistry, Data, LocalWalletAuthority, ShieldedTransaction, Utxo, WalletUtxo,
-    DEFAULT_TAG_WINDOW,
+    serialization::confidential::Confidential, AssetRegistry, Data, LocalWalletAuthority,
+    ShieldedTransaction, Utxo, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 
 use crate::{
@@ -445,28 +444,38 @@ impl ZoneLifecycleWorld {
     }
 }
 
-/// Decode the sender bundle's blinding seed from the sender slot (slot 0) of an
+/// Decode the committed blinding of one output slot from the sender side of an
 /// indexed transaction, so the expected change/recipient set can be rebuilt
-/// independently of `Wallet::sync`.
-pub(crate) fn decode_sender_seed(
+/// independently of `Wallet::sync`. Every output slot carries its own ciphertext,
+/// so the author re-derives the transaction viewing key and decrypts the slot at
+/// `slot_index == output position`.
+pub(crate) fn decode_output_blinding(
     viewing_key: &zolana_keypair::ViewingKey,
     indexed: &ShieldedTransaction,
+    slot_index: u32,
 ) -> Result<[u8; 31]> {
-    let cx = DecodeCx::for_slot(viewing_key, indexed, 0);
-    let slot0 = indexed
-        .output_slots
+    let first_nullifier = indexed
+        .nullifiers
         .first()
-        .ok_or_else(|| anyhow!("no sender slot"))?;
-    let output_data = slot0
+        .ok_or_else(|| anyhow!("indexed tx missing nullifier"))?;
+    let salt = indexed
+        .salt
+        .ok_or_else(|| anyhow!("indexed tx missing salt"))?;
+    let tx_key = viewing_key.get_transaction_viewing_key(first_nullifier)?;
+    let slot = indexed
+        .output_slots
+        .get(slot_index as usize)
+        .ok_or_else(|| anyhow!("indexed tx missing output slot {slot_index}"))?;
+    let output_data = slot
         .output_data()
-        .ok_or_else(|| anyhow!("sender slot undecodable"))?;
+        .ok_or_else(|| anyhow!("output slot {slot_index} undecodable"))?;
     let body = match &output_data {
-        zolana_event::OutputData::Encrypted(blob) => blob
+        zolana_event::OutputDataEncoding::Encrypted(blob) => blob
             .split_first()
             .map(|(_, body)| body)
-            .ok_or_else(|| anyhow!("empty sender blob"))?,
-        _ => return Err(anyhow!("sender slot not encrypted")),
+            .ok_or_else(|| anyhow!("empty output blob"))?,
+        _ => return Err(anyhow!("output slot {slot_index} not encrypted")),
     };
-    let sender_plaintext = ConfidentialSenderBundle::decode(body, &cx)?;
-    Ok(sender_plaintext.blinding_seed)
+    let plaintext = Confidential::decrypt_with_tx_key(&tx_key, body, salt, slot_index)?;
+    Ok(plaintext.blinding)
 }

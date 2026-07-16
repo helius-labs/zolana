@@ -68,6 +68,7 @@ fn build_split_tx(
             },
             payload: ciphertext.data,
         }],
+        messages: Vec::new(),
         nullifiers: vec![first_nullifier],
         proofless: false,
     }
@@ -79,11 +80,11 @@ fn decode_split(
 ) -> Result<SplitBundlePlaintext, TransactionError> {
     let tx = world.split_tx.as_ref().unwrap();
     let payload = &tx.output_slots.first().expect("split slot").payload;
-    let output_data = zolana_event::OutputData::try_from_slice(payload).unwrap();
+    let output_data = zolana_event::OutputDataEncoding::try_from_slice(payload).unwrap();
     let blob = match output_data {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob,
+        zolana_event::OutputDataEncoding::Encrypted(blob)
+        | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
+        | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
     };
     let body = blob.get(1..).expect("scheme byte");
     let cx = DecodeCx::for_slot(&world.kp(owner).viewing_key, tx, 0);
@@ -111,7 +112,7 @@ fn build_split(world: &mut TransactionWorld, owner: String, num_outputs: u8, amo
 fn split_round_trips(world: &mut TransactionWorld) {
     let tx = world.split_tx.as_ref().unwrap();
     let payload = &tx.output_slots.first().expect("split slot").payload;
-    let parsed = zolana_event::OutputData::try_from_slice(payload).unwrap();
+    let parsed = zolana_event::OutputDataEncoding::try_from_slice(payload).unwrap();
     assert_eq!(&borsh::to_vec(&parsed).unwrap(), payload);
 }
 

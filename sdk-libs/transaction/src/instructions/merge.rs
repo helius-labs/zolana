@@ -8,8 +8,8 @@ use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, Shield
 
 use crate::{
     error::TransactionError,
-    instructions::types::{InputCommitment, SpendUtxo},
-    OutputUtxo,
+    instructions::types::{InputUtxoContext, SppProofInputUtxo},
+    SppProofOutputUtxo,
 };
 
 /// Fixed input arity of the merge circuit (`merge_8_1`). Real inputs sit at the
@@ -20,8 +20,8 @@ pub const MERGE_INPUTS: usize = 8;
 /// derived single output, and the owner identity. Every input must share one owner
 /// (P256 or Solana) and asset.
 pub struct Merge {
-    inputs: Vec<SpendUtxo>,
-    output: OutputUtxo,
+    inputs: Vec<SppProofInputUtxo>,
+    output: SppProofOutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
     user_viewing_pk: P256Pubkey,
@@ -33,7 +33,7 @@ impl Merge {
     /// and a fresh ephemeral viewing scalar from the keypair.
     pub fn new<K: ShieldedKeypairTrait>(
         keypair: &K,
-        inputs: Vec<SpendUtxo>,
+        inputs: Vec<SppProofInputUtxo>,
     ) -> Result<Self, TransactionError> {
         if inputs.is_empty() {
             return Err(TransactionError::NoInputs);
@@ -62,13 +62,7 @@ impl Merge {
                 .ok_or(TransactionError::SelectedBalanceOverflow)?;
         }
 
-        let output = OutputUtxo {
-            owner_address: Some(keypair.shielded_address()?),
-            asset,
-            amount: total,
-            blinding: random_blinding(),
-            ..Default::default()
-        };
+        let output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?;
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the
         // value is both a valid P-256 scalar and a valid circuit witness.
@@ -106,7 +100,7 @@ impl Merge {
             tx_viewing_sk,
         } = self;
         while inputs.len() < MERGE_INPUTS {
-            inputs.push(SpendUtxo::new_dummy());
+            inputs.push(SppProofInputUtxo::new_dummy());
         }
         PreparedMerge {
             inputs,
@@ -120,11 +114,11 @@ impl Merge {
 }
 
 /// A merge padded to [`MERGE_INPUTS`] (real inputs first, dummies at the tail),
-/// still proofless. [`Self::input_commitments`] yields what to fetch Merkle proofs
+/// still proofless. [`Self::input_utxo_hashes`] yields what to fetch Merkle proofs
 /// for.
 pub struct PreparedMerge {
-    pub inputs: Vec<SpendUtxo>,
-    pub output: OutputUtxo,
+    pub inputs: Vec<SppProofInputUtxo>,
+    pub output: SppProofOutputUtxo,
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,
     pub user_viewing_pk: P256Pubkey,
@@ -135,7 +129,7 @@ impl PreparedMerge {
     /// Commitments for the real inputs only; dummy padding has a zero owner and no
     /// meaningful commitment to look up. Merge assembly only supports clean inputs,
     /// so an input that committed to program or zone data is rejected.
-    pub fn input_commitments(&self) -> Result<Vec<InputCommitment>, TransactionError> {
+    pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         self.inputs
             .iter()
             .filter(|spend| !spend.is_dummy())
@@ -146,15 +140,10 @@ impl PreparedMerge {
                 {
                     return Err(TransactionError::MergeInputHasData { index });
                 }
-                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-                let utxo_hash = spend.utxo.hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
-                let nullifier = spend
-                    .nullifier_key
-                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                Ok(InputCommitment {
+                Ok(InputUtxoContext {
                     index,
-                    utxo_hash,
-                    nullifier,
+                    utxo_hash: spend.hash()?,
+                    nullifier: spend.nullifier()?,
                 })
             })
             .collect()

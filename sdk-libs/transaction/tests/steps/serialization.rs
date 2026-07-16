@@ -9,7 +9,7 @@ use zolana_transaction::{
     data::{Data, DataRecord},
     serialization::{
         anonymous::AnonymousTransferSenderPlaintext,
-        confidential::TransferRecipientPlaintext,
+        confidential::ConfidentialOutputPlaintext,
         split::{SplitBundlePlaintext, SplitEncryptedUtxos},
     },
     TransactionError, SPLIT,
@@ -32,7 +32,7 @@ fn recipient_plaintext_round_trips(_world: &mut TransactionWorld, _name: String)
             DataRecord::Memo(vec![5; 300]),
         ]),
     ] {
-        let pt = TransferRecipientPlaintext {
+        let pt = ConfidentialOutputPlaintext {
             asset_id: 2,
             amount: 42,
             blinding: [1u8; BLINDING_LEN],
@@ -40,13 +40,16 @@ fn recipient_plaintext_round_trips(_world: &mut TransactionWorld, _name: String)
             data,
         };
         let bytes = pt.serialize().unwrap();
-        assert_eq!(TransferRecipientPlaintext::deserialize(&bytes).unwrap(), pt);
+        assert_eq!(
+            ConfidentialOutputPlaintext::deserialize(&bytes).unwrap(),
+            pt
+        );
     }
 }
 
 #[then(expr = "duplicate data records are rejected for {string}")]
 fn duplicate_data_records_rejected(_world: &mut TransactionWorld, _name: String) {
-    let pt = TransferRecipientPlaintext {
+    let pt = ConfidentialOutputPlaintext {
         asset_id: 2,
         amount: 42,
         blinding: [1u8; BLINDING_LEN],
@@ -62,14 +65,14 @@ fn duplicate_data_records_rejected(_world: &mut TransactionWorld, _name: String)
     );
     let bytes = wincode::serialize(&pt).unwrap();
     assert_eq!(
-        TransferRecipientPlaintext::deserialize(&bytes).unwrap_err(),
+        ConfidentialOutputPlaintext::deserialize(&bytes).unwrap_err(),
         TransactionError::DuplicateDataRecord
     );
 }
 
 #[then(expr = "out-of-order data records are rejected for {string}")]
 fn out_of_order_data_records_rejected(_world: &mut TransactionWorld, _name: String) {
-    let pt = TransferRecipientPlaintext {
+    let pt = ConfidentialOutputPlaintext {
         asset_id: 2,
         amount: 42,
         blinding: [1u8; BLINDING_LEN],
@@ -85,7 +88,7 @@ fn out_of_order_data_records_rejected(_world: &mut TransactionWorld, _name: Stri
     );
     let bytes = wincode::serialize(&pt).unwrap();
     assert_eq!(
-        TransferRecipientPlaintext::deserialize(&bytes).unwrap_err(),
+        ConfidentialOutputPlaintext::deserialize(&bytes).unwrap_err(),
         TransactionError::NonCanonicalDataOrder
     );
 }

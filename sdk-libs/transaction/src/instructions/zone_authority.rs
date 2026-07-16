@@ -1,6 +1,6 @@
 //! Zone-authority state transition (`zone_authority_transact`): an unsigned
 //! transact over zone-owned UTXOs. The zone authority is authorized on-chain (the
-//! `zone_config` PDA signs), so unlike [`SignedTransaction`](super::transact::SignedTransaction)
+//! `zone_config` PDA signs), so unlike [`SppProofInputs`](super::transact::SppProofInputs)
 //! there is no owner signature. Mirrors the merge prepared form: it carries the
 //! padded inputs (real first, dummies at the tail) and yields the input
 //! commitments to fetch Merkle proofs for.
@@ -10,18 +10,18 @@ use solana_address::Address;
 use crate::{
     error::TransactionError,
     instructions::{
-        transact::{builder::Shape, signed_transaction::PublicAmounts},
-        types::{InputCommitment, SpendUtxo},
+        transact::{shape::Shape, spp_proof_inputs::PublicAmounts},
+        types::{InputUtxoContext, SppProofInputUtxo},
     },
-    ExternalData, OutputUtxo,
+    ExternalData, SppProofOutputUtxo,
 };
 
 /// A prepared, unsigned zone-authority transact. `external_data`'s
 /// `instruction_discriminator` must be `ZONE_AUTHORITY_TRANSACT` (Tag 3) so its
 /// `external_data_hash` matches what the program recomputes on-chain.
 pub struct PreparedZoneAuthority {
-    pub inputs: Vec<SpendUtxo>,
-    pub outputs: Vec<OutputUtxo>,
+    pub inputs: Vec<SppProofInputUtxo>,
+    pub outputs: Vec<SppProofOutputUtxo>,
     pub public_amounts: PublicAmounts,
     pub external_data: ExternalData,
     pub payer_pubkey_hash: [u8; 32],
@@ -35,25 +35,16 @@ pub struct PreparedZoneAuthority {
 impl PreparedZoneAuthority {
     /// Commitments for the real inputs only; dummy padding has a zero owner and no
     /// meaningful commitment to look up.
-    pub fn input_commitments(&self) -> Result<Vec<InputCommitment>, TransactionError> {
+    pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         self.inputs
             .iter()
             .filter(|spend| !spend.is_dummy())
             .enumerate()
             .map(|(index, spend)| {
-                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-                let utxo_hash = spend.utxo.hash(
-                    &nullifier_pubkey,
-                    &spend.data_hash.unwrap_or([0u8; 32]),
-                    &spend.zone_data_hash.unwrap_or([0u8; 32]),
-                )?;
-                let nullifier = spend
-                    .nullifier_key
-                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                Ok(InputCommitment {
+                Ok(InputUtxoContext {
                     index,
-                    utxo_hash,
-                    nullifier,
+                    utxo_hash: spend.hash()?,
+                    nullifier: spend.nullifier()?,
                 })
             })
             .collect()

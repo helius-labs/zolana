@@ -92,6 +92,19 @@ pub struct AssetBalance {
     pub utxos: Vec<Utxo>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Filter {
+    MinAmount(u64),
+}
+
+impl Filter {
+    fn matches(&self, utxo: &Utxo) -> bool {
+        match self {
+            Filter::MinAmount(min) => utxo.amount >= *min,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SyncReport {
     pub stored_utxos: usize,
@@ -165,6 +178,32 @@ impl Wallet {
 
     pub(super) fn unspent(&self) -> impl Iterator<Item = &WalletUtxo> {
         self.utxos.iter().filter(|u| !u.spent)
+    }
+
+    pub fn balance(
+        &self,
+        mint: Address,
+        filter: Option<Filter>,
+    ) -> Result<AssetBalance, TransactionError> {
+        let mut balance = AssetBalance {
+            asset_id: self.registry.asset_id(&mint)?,
+            mint,
+            amount: 0,
+            utxos: Vec::new(),
+        };
+        for wallet_utxo in self.unspent() {
+            if wallet_utxo.utxo.asset != mint {
+                continue;
+            }
+            if let Some(filter) = &filter {
+                if !filter.matches(&wallet_utxo.utxo) {
+                    continue;
+                }
+            }
+            balance.amount = balance.amount.saturating_add(wallet_utxo.utxo.amount);
+            balance.utxos.push(wallet_utxo.utxo.clone());
+        }
+        Ok(balance)
     }
 
     pub fn balances(&self, skip_utxos: bool) -> Result<Vec<AssetBalance>, TransactionError> {
