@@ -93,6 +93,12 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
     current_slot: u64,
     discriminator: u8,
 ) -> ProgramResult {
+    // The parser picks one settlement branch, so both amounts set would move only
+    // SPL while the proven SOL leg never settles: an unbacked note. Reject first.
+    if ix.public_sol_amount.is_some() && ix.public_spl_amount.is_some() {
+        return Err(ShieldedPoolError::BothPublicAmountsSet.into());
+    }
+
     let tree_write = {
         let output_tree = transact_accounts.tree.address().to_bytes();
         // Note currently only one tree is supported for the entire protocol

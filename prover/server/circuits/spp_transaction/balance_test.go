@@ -281,6 +281,40 @@ func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
+// C-01: the balance circuit conserves SOL and the public SPL asset on independent
+// per-asset equations with no mutual-exclusion constraint, so one proof may carry
+// both a positive publicSolAmount and a positive publicSplAmount and mint value in
+// both assets at once. This is the enabling condition for the on-chain settlement
+// bug (the program settles only the SPL leg, leaving the SOL leg unbacked). A
+// mutual-exclusion constraint here would make this witness unsatisfiable.
+func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(Shape(shape))
+	solAsset := protocol.SolAsset()
+	splAsset := spptest.Fe(77)
+
+	// No prior value: both inputs are zero-amount; the two outputs are funded
+	// entirely by the two simultaneous public deposits (25 SOL and 25 SPL).
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(0)),
+			sampleUtxoWithAssetAndAmount(20, splAsset, spptest.Fe(0)),
+		},
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(25)),
+			sampleUtxoWithAssetAndAmount(110, splAsset, spptest.Fe(25)),
+		},
+		big.NewInt(25),
+		big.NewInt(25),
+		splAsset,
+	)
+
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
 // The public SPL mint id must be 0 when no SPL amount moves: a balanced,
 // otherwise-valid transfer carrying a stray publicSplAssetPubkey is rejected,
 // so a no-public-SPL transaction cannot leak a mint id into the transcript.
