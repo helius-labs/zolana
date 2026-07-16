@@ -18,7 +18,7 @@ use zolana_interface::{
         transfer_zone_authority_4_4,
     },
 };
-use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair};
 use zolana_transaction::{
     instructions::transact::{builder::Shape as TxShape, PublicAmounts as TxPublicAmounts},
     Data, ExternalData, OutputUtxo, Utxo, SOL_MINT,
@@ -347,7 +347,7 @@ fn zone_program() -> Address {
 fn eddsa_keypair() -> ShieldedKeypair {
     let mut seed = [0u8; 32];
     seed[1..].copy_from_slice(&random_blinding());
-    ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa keypair")
+    ShieldedKeypair::from_ed25519(&seed).expect("eddsa keypair")
 }
 
 fn p256_keypair() -> ShieldedKeypair {

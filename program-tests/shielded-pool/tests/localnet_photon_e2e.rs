@@ -46,7 +46,7 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
-    hash::owner_hash, pubkey::PublicKey, shielded::ShieldedKeypair, NullifierKey, ViewingKey,
+    hash::owner_hash, pubkey::PublicKey, shielded::ShieldedKeypair, NullifierKey,
 };
 use zolana_program_test::{
     create_tree_instructions, rpc_state_root, system_create_account_ix, ZolanaProgramTest,
@@ -1438,7 +1438,7 @@ fn shielded_ed25519_from_solana(signer: &Keypair) -> TestResult<ShieldedKeypair>
     let seed: [u8; 32] = signer.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    Ok(ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?)
+    Ok(ShieldedKeypair::from_ed25519(&seed)?)
 }
 
 /// Restart a fresh validator + Photon indexer so each test runs against clean

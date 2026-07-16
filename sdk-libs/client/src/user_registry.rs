@@ -379,7 +379,7 @@ mod tests {
     use borsh::to_vec;
     use solana_account::Account;
     use solana_signer::Signer;
-    use zolana_keypair::{ShieldedKeypair, ViewingKey};
+    use zolana_keypair::ShieldedKeypair;
     use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry};
 
     use super::*;
@@ -660,8 +660,7 @@ mod tests {
     fn validate_registered_keypair_accepts_ed25519_owner_records() {
         let owner_keypair = solana_keypair::Keypair::new();
         let seed: [u8; 32] = *owner_keypair.secret_bytes();
-        let keypair =
-            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("ed25519 keypair");
+        let keypair = ShieldedKeypair::from_ed25519(&seed).expect("ed25519 keypair");
         let owner = owner_keypair.pubkey();
         let (pda, bump) = user_record_pda(&owner);
         let record = UserRecord {

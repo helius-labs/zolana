@@ -1,12 +1,15 @@
 use crate::{
-    constants::{BLINDING_LEN, SALT_LEN},
+    constants::{BLINDING_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN, SALT_LEN},
     error::KeypairError,
     hash::owner_hash,
     nullifier_key::NullifierKey,
     pubkey::{P256Pubkey, PublicKey},
+    seed::wallet_seed_from_ed25519,
     signing_key::SigningKey,
     viewing_key::ViewingKey,
 };
+
+pub const SHIELDED_ADDRESS_LEN: usize = PUBLIC_KEY_LEN + 32 + P256_PUBKEY_LEN;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ShieldedAddress {
@@ -18,6 +21,37 @@ pub struct ShieldedAddress {
 impl ShieldedAddress {
     pub fn owner_hash(&self) -> Result<[u8; 32], KeypairError> {
         owner_hash(&self.signing_pubkey, &self.nullifier_pubkey)
+    }
+
+    pub fn to_bytes(self) -> [u8; SHIELDED_ADDRESS_LEN] {
+        let mut bytes = [0u8; SHIELDED_ADDRESS_LEN];
+        bytes[..PUBLIC_KEY_LEN].copy_from_slice(self.signing_pubkey.as_bytes());
+        bytes[PUBLIC_KEY_LEN..PUBLIC_KEY_LEN + 32].copy_from_slice(&self.nullifier_pubkey);
+        bytes[PUBLIC_KEY_LEN + 32..].copy_from_slice(self.viewing_pubkey.as_bytes());
+        bytes
+    }
+
+    pub fn from_bytes(bytes: [u8; SHIELDED_ADDRESS_LEN]) -> Result<Self, KeypairError> {
+        let signing_pubkey = PublicKey::from_bytes(
+            bytes[..PUBLIC_KEY_LEN]
+                .try_into()
+                .expect("shielded signing key slice has fixed length"),
+        )?;
+        let nullifier_pubkey = bytes[PUBLIC_KEY_LEN..PUBLIC_KEY_LEN + 32]
+            .try_into()
+            .expect("shielded nullifier key slice has fixed length");
+        let viewing_pubkey = P256Pubkey::from_bytes(
+            bytes[PUBLIC_KEY_LEN + 32..]
+                .try_into()
+                .expect("shielded viewing key slice has fixed length"),
+        )?;
+        let address = Self {
+            signing_pubkey,
+            nullifier_pubkey,
+            viewing_pubkey,
+        };
+        address.owner_hash()?;
+        Ok(address)
     }
 }
 
@@ -74,17 +108,28 @@ impl ShieldedKeypair {
         Self::from_keys(SigningKey::new(), ViewingKey::new())
     }
 
-    pub fn from_ed25519(
-        signing_secret: &[u8; 32],
-        viewing_key: ViewingKey,
-    ) -> Result<Self, KeypairError> {
+    /// A Solana-only owner's shielded keypair: the ed25519 secret is the
+    /// signing key; the nullifier key derives from it directly and the viewing
+    /// key through the [`wallet_seed_from_ed25519`] bridge at the standard
+    /// SLIP-0010 viewing path, so the whole identity is recoverable from the
+    /// Solana keypair alone.
+    pub fn from_ed25519(signing_secret: &[u8; 32]) -> Result<Self, KeypairError> {
         let signing_key = SigningKey::from_ed25519(signing_secret);
         let nullifier_key = NullifierKey::from_signing_secret_key_bytes(signing_secret)?;
+        let wallet_seed = wallet_seed_from_ed25519(signing_secret)?;
+        let viewing_key = ViewingKey::from_seed(&wallet_seed, 0)?;
         Ok(Self {
             signing_key,
             nullifier_key,
             viewing_key,
         })
+    }
+
+    /// Reconstruct the shielded wallet from a Solana keypair (its Ed25519 secret
+    /// is the signing key; nullifier and viewing keys derive from it — see
+    /// [`Self::from_ed25519`]). The Solana keypair alone recovers the wallet.
+    pub fn from_solana_keypair(keypair: &solana_keypair::Keypair) -> Result<Self, KeypairError> {
+        Self::from_ed25519(keypair.secret_bytes())
     }
 
     pub fn signing_pubkey(&self) -> PublicKey {
@@ -189,5 +234,42 @@ impl ShieldedKeypair {
     ) -> Result<ViewingKey, KeypairError> {
         self.viewing_key
             .get_transaction_viewing_key(first_nullifier)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ed25519_keypair_is_deterministic_from_the_solana_secret() {
+        let secret = [7u8; 32];
+        let first = ShieldedKeypair::from_ed25519(&secret).unwrap();
+        let second = ShieldedKeypair::from_ed25519(&secret).unwrap();
+
+        assert_eq!(
+            first.shielded_address().unwrap(),
+            second.shielded_address().unwrap()
+        );
+
+        let other = ShieldedKeypair::from_ed25519(&[8u8; 32]).unwrap();
+        assert_ne!(
+            first.viewing_pubkey().as_bytes(),
+            other.viewing_pubkey().as_bytes()
+        );
+        assert_ne!(
+            first.nullifier_key.pubkey().unwrap(),
+            other.nullifier_key.pubkey().unwrap()
+        );
+    }
+
+    #[test]
+    fn ed25519_viewing_key_derivation_is_stable() {
+        let keypair = ShieldedKeypair::from_ed25519(&[7u8; 32]).unwrap();
+
+        assert_eq!(
+            hex::encode(keypair.viewing_pubkey().as_bytes()),
+            "029186d9897fc6b2877220a3aca216eb24162ac6ebb6cbcc710b7e9a491548383f"
+        );
     }
 }

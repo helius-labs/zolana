@@ -17,6 +17,9 @@ pub enum KeypairError {
     #[error("HKDF expansion failed")]
     Hkdf,
 
+    #[error("derivation account index {0} exceeds the hardened-index range")]
+    InvalidDerivationAccount(u32),
+
     #[error("poseidon hash failed (code {0})")]
     Poseidon(u32),
 

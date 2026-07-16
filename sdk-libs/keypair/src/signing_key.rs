@@ -52,6 +52,19 @@ impl SigningKey {
         })
     }
 
+    /// P-256 signing key at the SLIP-0010 path
+    /// `m/44'/TSPP_COIN_TYPE'/account'/0'/0'` over the 64-byte `wallet_seed`.
+    pub fn from_seed(
+        wallet_seed: &[u8; crate::constants::WALLET_SEED_LEN],
+        account: u32,
+    ) -> Result<Self, KeypairError> {
+        let secret =
+            crate::slip10::derive_secret_key(wallet_seed, &crate::seed::signing_path(account)?)?;
+        Ok(Self {
+            inner: SigningKeyInner::P256(secret),
+        })
+    }
+
     pub fn from_ed25519(bytes: &[u8; 32]) -> Self {
         Self {
             inner: SigningKeyInner::Ed25519(DalekSigningKey::from_bytes(bytes)),
