@@ -9,7 +9,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-tag="${1:-transfer-keys-v10}"
+tag="${1:-transfer-keys-v12}"
 keys_dir="${2:-./proving-keys}"
 repo="helius-labs/zolana"
 split_threshold_bytes=$((1900 * 1024 * 1024))
@@ -24,8 +24,9 @@ while IFS= read -r asset; do
 done < <(find "$keys_dir" -maxdepth 1 -type f \
     \( -name 'transfer_*.key' -o -name 'merge_*.key' \) | sort)
 
-# Batched-address keys are unchanged by transfer-circuit work; include whichever
-# are present locally (mirrors the previous release).
+# The batched-address (nullifier tree) circuits build on circuits/gadget like
+# the transfer and merge circuits, so gadget changes rotate these keys too;
+# include whichever are present locally.
 for batch in batch_address-append_40_10 batch_address-append_40_250; do
     if [[ -f "${keys_dir}/${batch}.key" ]]; then
         key_assets+=("${keys_dir}/${batch}.key")
