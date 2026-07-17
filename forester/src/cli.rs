@@ -2,8 +2,7 @@ use clap::{Parser, Subcommand};
 use solana_pubkey::Pubkey;
 
 /// Default SPP pool tree the forester maintains (devnet/localnet fixture).
-pub const DEFAULT_TREE: Pubkey =
-    Pubkey::from_str_const(zolana_interface::DEFAULT_POOL_TREE_ADDRESS);
+pub const DEFAULT_TREE: Pubkey = Pubkey::from_str_const(zolana_interface::DEFAULT_TREE_ADDRESS);
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]

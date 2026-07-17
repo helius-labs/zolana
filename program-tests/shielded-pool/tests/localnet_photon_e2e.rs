@@ -112,7 +112,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let indexer = ZolanaIndexer::new(indexer_url.clone()).with_http_trace();
     rpc.assert_executable(&program_id)?;
     let unknown_transactions =
-        indexer.get_shielded_transactions_by_tags(vec![[253u8; 32]], None, Some(10))?;
+        indexer.get_shielded_transactions_by_tags(vec![[253u8; 32]], None, Some(10), None)?;
     assert!(
         unknown_transactions.transactions.is_empty(),
         "unknown tag should not return transactions"
@@ -217,7 +217,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         tree_address
     );
     assert!(indexed_deposit.tx_viewing_pk.is_none());
-    let unknown_utxos = indexer.get_encrypted_utxos_by_tags(vec![[254u8; 32]], None, Some(10))?;
+    let unknown_utxos =
+        indexer.get_encrypted_utxos_by_tags(vec![[254u8; 32]], None, Some(10), None)?;
     assert!(
         unknown_utxos.matches.is_empty(),
         "unknown tag should not return encrypted UTXOs"
@@ -235,7 +236,11 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let extra_nullifier_b = fe(91);
     let batched_non_inclusion = wait_for("batched indexed non-inclusion proofs", || {
         let response = indexer
-            .get_non_inclusion_proofs(tree_address, vec![extra_nullifier_a, extra_nullifier_b])?;
+            .get_non_inclusion_proofs(
+                tree_address,
+                vec![extra_nullifier_a, extra_nullifier_b],
+                None,
+            )?;
         if response.proofs.len() == 2 {
             Ok(Some(response.proofs))
         } else {
@@ -406,7 +411,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         wait_for_non_inclusion_proof(&indexer, tree_address, recipient_nullifier)?;
     let batched_state_proofs = wait_for("batched indexed merkle proofs", || {
         let response =
-            indexer.get_merkle_proofs(tree_address, vec![payer_utxo_hash, recipient_hash])?;
+            indexer.get_merkle_proofs(tree_address, vec![payer_utxo_hash, recipient_hash], None)?;
         if response.proofs.len() == 2 {
             Ok(Some(response.proofs))
         } else {
@@ -539,7 +544,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let indexed_withdraw = wait_for_indexed_transaction(&indexer, [1u8; 32], withdraw_sig)?;
     assert_eq!(indexed_withdraw.nullifiers.len(), 2);
     let first_page = wait_for("paginated indexed transactions", || {
-        let response = indexer.get_shielded_transactions_by_tags(vec![[3u8; 32]], None, Some(1))?;
+        let response =
+            indexer.get_shielded_transactions_by_tags(vec![[3u8; 32]], None, Some(1), None)?;
         if response.transactions.len() == 1 && response.next_cursor.is_some() {
             Ok(Some(response))
         } else {
@@ -550,6 +556,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         vec![[3u8; 32]],
         first_page.next_cursor,
         Some(1),
+        None,
     )?;
     assert!(
         !second_page.transactions.is_empty(),
@@ -1147,7 +1154,11 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
                 format!("Photon nullifier root after batch {batch_index}"),
                 || {
                     let response =
-                        indexer.get_non_inclusion_proofs(tree_address, vec![fresh_nullifier])?;
+                        indexer.get_non_inclusion_proofs(
+                            tree_address,
+                            vec![fresh_nullifier],
+                            None,
+                        )?;
                     Ok(response.proofs.into_iter().next().filter(|proof| {
                         proof.root == after_forester.nullifier_root
                             && proof.root_index == after_forester.nullifier_root_index
@@ -1168,7 +1179,11 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         wait_for(
             format!("forested nullifier {nullifier_index} rejected"),
             || match indexer
-                .get_non_inclusion_proofs(tree_address, vec![queued_nullifiers[nullifier_index]])
+                .get_non_inclusion_proofs(
+                    tree_address,
+                    vec![queued_nullifiers[nullifier_index]],
+                    None,
+                )
             {
                 Ok(response) if response.proofs.is_empty() => Ok(Some(())),
                 Ok(_) => Ok(None),
@@ -1363,7 +1378,7 @@ fn wait_for_indexed_utxo(
     signature: Signature,
 ) -> TestResult<EncryptedUtxoMatch> {
     wait_for("indexed UTXO", || {
-        let response = indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50))?;
+        let response = indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50), None)?;
         Ok(response
             .matches
             .into_iter()
@@ -1377,7 +1392,7 @@ fn wait_for_indexed_transaction(
     signature: Signature,
 ) -> TestResult<ShieldedTransaction> {
     wait_for("indexed transaction", || {
-        let response = indexer.get_shielded_transactions_by_tags(vec![tag], None, Some(100))?;
+        let response = indexer.get_shielded_transactions_by_tags(vec![tag], None, Some(100), None)?;
         Ok(response
             .transactions
             .into_iter()
@@ -1391,7 +1406,7 @@ fn wait_for_merkle_proof(
     leaf: [u8; 32],
 ) -> TestResult<IndexedMerkleProof> {
     wait_for("indexed merkle proof", || {
-        let response = indexer.get_merkle_proofs(tree, vec![leaf])?;
+        let response = indexer.get_merkle_proofs(tree, vec![leaf], None)?;
         Ok(response.proofs.into_iter().next())
     })
 }
@@ -1402,7 +1417,7 @@ fn wait_for_non_inclusion_proof(
     leaf: [u8; 32],
 ) -> TestResult<IndexedNonInclusionProof> {
     wait_for("indexed non-inclusion proof", || {
-        let response = indexer.get_non_inclusion_proofs(tree, vec![leaf])?;
+        let response = indexer.get_non_inclusion_proofs(tree, vec![leaf], None)?;
         Ok(response.proofs.into_iter().next())
     })
 }

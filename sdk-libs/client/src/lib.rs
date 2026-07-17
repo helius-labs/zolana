@@ -25,6 +25,7 @@ pub mod error;
 #[cfg(feature = "indexer-api")]
 pub mod indexer;
 pub mod prover;
+pub mod retry;
 pub mod rpc;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
@@ -46,8 +47,9 @@ pub use actions::{
     sign_private_transaction_sync,
 };
 #[cfg(feature = "indexer-api")]
-pub use client::{IndexerPollConfig, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
+pub use client::{ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
 pub use error::ClientError;
+pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{

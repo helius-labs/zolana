@@ -21,16 +21,15 @@ pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 use crate::{
     error::ClientError,
     prover::{transact::witness::SpendProof, ProofCompressed},
+    retry::IndexerRpcConfig,
 };
 
 pub const STATE_TREE_HEIGHT: usize = 32;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
 
-/// Slot the indexer assembled a response at. Every indexer response carries one
-/// so the client knows the chain state the answer reflects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Context {
-    pub slot: u64,
+    pub block_time: i64,
 }
 
 /// Identifies the tree a proof was produced against.
@@ -267,6 +266,7 @@ pub trait Rpc {
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         Err(unsupported("get_encrypted_utxos_by_tags"))
     }
@@ -276,6 +276,7 @@ pub trait Rpc {
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
     }
@@ -291,6 +292,7 @@ pub trait Rpc {
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         Err(unsupported("get_merkle_proofs"))
     }
@@ -299,6 +301,7 @@ pub trait Rpc {
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         Err(unsupported("get_non_inclusion_proofs"))
     }
@@ -308,6 +311,7 @@ pub trait Rpc {
     fn get_input_merkle_proofs(
         &self,
         input_utxo_commitments: &[InputUtxoContext],
+        config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         Err(unsupported("get_input_merkle_proofs"))
     }
@@ -445,6 +449,7 @@ pub trait AsyncRpc: Send + Sync {
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         Err(unsupported("get_encrypted_utxos_by_tags"))
     }
@@ -454,6 +459,7 @@ pub trait AsyncRpc: Send + Sync {
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
     }
@@ -469,6 +475,7 @@ pub trait AsyncRpc: Send + Sync {
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         Err(unsupported("get_merkle_proofs"))
     }
@@ -477,6 +484,7 @@ pub trait AsyncRpc: Send + Sync {
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         Err(unsupported("get_non_inclusion_proofs"))
     }
@@ -484,6 +492,7 @@ pub trait AsyncRpc: Send + Sync {
     async fn get_input_merkle_proofs(
         &self,
         input_utxo_commitments: &[InputUtxoContext],
+        config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         Err(unsupported("get_input_merkle_proofs"))
     }

@@ -50,7 +50,7 @@ pub(crate) fn collect_tagged<I: Rpc, T>(
     let mut cursor = None;
     loop {
         let page = indexer
-            .get_shielded_transactions_by_tags(vec![owner_tag], cursor, None)
+            .get_shielded_transactions_by_tags(vec![owner_tag], cursor, None, None)
             .map_err(err)?;
         for tx in &page.transactions {
             if let Some(item) = scan(tx)? {

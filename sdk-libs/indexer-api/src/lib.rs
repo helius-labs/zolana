@@ -475,7 +475,7 @@ impl<'de> Deserialize<'de> for Limit {
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Context {
-    pub slot: u64,
+    pub block_time: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -699,7 +699,7 @@ mod tests {
     #[test]
     fn response_shape_stays_snake_case() {
         let value = serde_json::to_value(GetEncryptedUtxosByTagsResponse {
-            context: Context { slot: 3 },
+            context: Context { block_time: 3 },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1])),
         })

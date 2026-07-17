@@ -318,7 +318,7 @@ fn build_real_inputs(
         keys.push(kp.nullifier_key.clone());
     }
     let proofs = indexer
-        .get_input_merkle_proofs(&commitments)
+        .get_input_merkle_proofs(&commitments, None)
         .expect("merkle proofs");
     utxos
         .into_iter()

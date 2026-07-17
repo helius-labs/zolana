@@ -242,7 +242,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, cancel_ix)?;
 
         indexer
-            .get_merkle_proofs(tree, vec![source_output_hash])
+            .get_merkle_proofs(tree, vec![source_output_hash], None)
             .map_err(|e| anyhow!("cancel output index: {e}"))?;
     }
     Ok(())

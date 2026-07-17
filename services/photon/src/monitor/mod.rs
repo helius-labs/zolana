@@ -27,7 +27,7 @@ use crate::{
 
 use solana_account::Account as SolanaAccount;
 
-use crate::common::indexer_context::extract as extract_context;
+use crate::common::indexer_context::extract_slot;
 
 use solana_pubkey::Pubkey;
 use zolana_indexer_api::Hash;
@@ -47,8 +47,8 @@ impl Drop for TreeValidationGuard {
 
 async fn fetch_last_indexed_slot_with_infinite_retry(db: &DatabaseConnection) -> u64 {
     loop {
-        if let Ok(context) = extract_context(db).await {
-            return context.slot;
+        if let Ok(slot) = extract_slot(db).await {
+            return slot;
         }
         sleep(Duration::from_millis(100)).await;
     }

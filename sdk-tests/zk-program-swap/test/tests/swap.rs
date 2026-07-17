@@ -277,7 +277,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         send_v0_with_lookup_table(&rpc, &taker.keypair.to_solana_keypair()?, take_ix)?;
 
         indexer
-            .get_merkle_proofs(tree, vec![source_output_hash, destination_output_hash])
+            .get_merkle_proofs(tree, vec![source_output_hash, destination_output_hash], None)
             .map_err(|e| anyhow!("take outputs index: {e}"))?;
     }
     Ok(())

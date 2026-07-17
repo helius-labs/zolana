@@ -153,11 +153,14 @@ fn real_input() -> TransferSpendInput {
     let mut indexer = TestIndexer::new();
     indexer.add_utxo(utxo_hash);
     let proof = indexer
-        .get_input_merkle_proofs(&[InputUtxoContext {
-            index: 0,
-            utxo_hash,
-            nullifier,
-        }])
+        .get_input_merkle_proofs(
+            &[InputUtxoContext {
+                index: 0,
+                utxo_hash,
+                nullifier,
+            }],
+            None,
+        )
         .expect("input merkle proofs")
         .pop()
         .expect("one proof");

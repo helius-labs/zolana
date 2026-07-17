@@ -5,11 +5,7 @@
 //! Submit that transaction through the client's RPC adapter, then confirm on-chain and wait
 //! for Photon indexing with [`ZolanaClient::confirm_private_transaction`].
 
-use std::{
-    sync::OnceLock,
-    thread::sleep,
-    time::{Duration, Instant},
-};
+use std::{sync::OnceLock, thread::sleep, time::Duration};
 
 use async_trait::async_trait;
 use solana_account::Account;
@@ -24,7 +20,7 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction as SolanaTransaction};
 use solana_transaction_status_client_types::TransactionStatus;
-use zolana_interface::instruction::Transact;
+use zolana_interface::instruction::{Transact, TransactIxData};
 use zolana_keypair::hash::sha256_be;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 
@@ -32,6 +28,7 @@ use crate::{
     actions::SignedPrivateTransaction,
     error::ClientError,
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
+    retry::{IndexerPollConfig, IndexerRpcConfig},
     prover::{
         transact::witness::{assemble, ProverInputs, SpendProof},
         AsyncProverClient, ProofCompressed, ProverClient,
@@ -48,20 +45,6 @@ use crate::{
 /// which does not fit inside the default per-instruction budget.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 1_400_000;
 
-#[derive(Clone, Copy, Debug)]
-pub struct IndexerPollConfig {
-    pub poll_interval: Duration,
-    pub timeout: Duration,
-}
-
-impl Default for IndexerPollConfig {
-    fn default() -> Self {
-        Self {
-            poll_interval: Duration::from_millis(500),
-            timeout: Duration::from_secs(120),
-        }
-    }
-}
 
 /// Unified client for private transaction proving and submission helpers.
 ///
@@ -80,7 +63,7 @@ pub struct ZolanaClient<R> {
     tree: Address,
     cu_limit: u32,
     cu_price_micro_lamports: Option<u64>,
-    indexer_poll: IndexerPollConfig,
+    indexer_config: IndexerRpcConfig,
     send_config: Option<RpcSendTransactionConfig>,
 }
 
@@ -104,7 +87,7 @@ impl<R> ZolanaClient<R> {
             tree,
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
-            indexer_poll: IndexerPollConfig::default(),
+            indexer_config: IndexerRpcConfig::default(),
             send_config: None,
         }
     }
@@ -132,7 +115,7 @@ impl<R> ZolanaClient<R> {
             tree,
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
-            indexer_poll: IndexerPollConfig::default(),
+            indexer_config: IndexerRpcConfig::default(),
             send_config: None,
         }
     }
@@ -148,7 +131,12 @@ impl<R> ZolanaClient<R> {
     }
 
     pub fn with_indexer_poll_config(mut self, config: IndexerPollConfig) -> Self {
-        self.indexer_poll = config;
+        self.indexer_config.poll = config;
+        self
+    }
+
+    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.indexer_config = config;
         self
     }
 
@@ -187,6 +175,20 @@ impl<R> ZolanaClient<R> {
 }
 
 impl<R: Rpc> ZolanaClient<R> {
+    /// Fetch the input merkle proofs from the indexer and prove the transaction
+    /// with the client's prover, returning the assembled `transact` instruction
+    /// data ready for the [`Transact`] builder.
+    pub fn prove_transact(
+        &self,
+        proof_inputs: SppProofInputs,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<TransactIxData, ClientError> {
+        let commitments = proof_inputs.input_utxo_hashes()?;
+        let spend_proofs = self.get_input_merkle_proofs(&commitments, config)?;
+        self.blocking_prover()
+            .prove_transact(proof_inputs, &spend_proofs)
+    }
+
     pub(crate) fn finish_submission_unsigned_sync(
         &self,
         signed: &SignedPrivateTransaction,
@@ -196,7 +198,8 @@ impl<R: Rpc> ZolanaClient<R> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
         let commitments = signed.transaction.input_utxo_hashes()?;
-        let spend_proofs = fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments)?;
+        let spend_proofs =
+            fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments, None)?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => self.blocking_prover().prove_transfer_p256(inputs)?,
@@ -225,7 +228,8 @@ impl<R: Rpc> ZolanaClient<R> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
         validate_transaction_tree(signed.tree, self.tree)?;
         let commitments = signed.transaction.input_utxo_hashes()?;
-        let spend_proofs = fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments)?;
+        let spend_proofs =
+            fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments, None)?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
         let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
         build_unsigned_solana_transaction(
@@ -244,11 +248,16 @@ impl<R: Rpc> ZolanaClient<R> {
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
-        wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_poll)?;
+        wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
         let tags = self
             .rpc()
             .transact_output_view_tags_from_signature(signature)?;
-        wait_for_indexed_transaction(self.blocking_indexer(), &tags, signature, self.indexer_poll)
+        wait_for_indexed_transaction(
+            self.blocking_indexer(),
+            &tags,
+            signature,
+            self.indexer_config.poll,
+        )
     }
 }
 
@@ -263,7 +272,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         validate_transaction_tree(signed.tree, self.tree)?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
-            fetch_spend_proofs_async(&self.async_indexer, self.tree, &commitments).await?;
+            fetch_spend_proofs_async(&self.async_indexer, self.tree, &commitments, None).await?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => self.async_prover.prove_transfer_p256(inputs).await?,
@@ -286,13 +295,18 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
-        wait_for_rpc_confirmation_async(self.rpc(), signature, self.indexer_poll).await?;
+        wait_for_rpc_confirmation_async(self.rpc(), signature, self.indexer_config.poll).await?;
         let tags = self
             .rpc()
             .transact_output_view_tags_from_signature(signature)
             .await?;
-        wait_for_indexed_transaction_async(&self.async_indexer, &tags, signature, self.indexer_poll)
-            .await
+        wait_for_indexed_transaction_async(
+            &self.async_indexer,
+            &tags,
+            signature,
+            self.indexer_config.poll,
+        )
+        .await
     }
 }
 
@@ -426,9 +440,15 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         self.async_indexer
-            .get_encrypted_utxos_by_tags(tags, cursor, limit)
+            .get_encrypted_utxos_by_tags(
+                tags,
+                cursor,
+                limit,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
             .await
     }
 
@@ -437,9 +457,15 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         self.async_indexer
-            .get_shielded_transactions_by_tags(tags, cursor, limit)
+            .get_shielded_transactions_by_tags(
+                tags,
+                cursor,
+                limit,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
             .await
     }
 
@@ -456,9 +482,10 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         self.async_indexer
-            .get_merkle_proofs(tree_account, leaves)
+            .get_merkle_proofs(tree_account, leaves, Some(config.unwrap_or(self.indexer_config)))
             .await
     }
 
@@ -466,22 +493,34 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         self.async_indexer
-            .get_non_inclusion_proofs(tree_account, leaves)
+            .get_non_inclusion_proofs(
+                tree_account,
+                leaves,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
             .await
     }
 
     async fn get_input_merkle_proofs(
         &self,
         input_utxo_commitments: &[InputUtxoContext],
+        config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
-        fetch_spend_proofs_async(&self.async_indexer, self.tree, input_utxo_commitments).await
+        fetch_spend_proofs_async(
+            &self.async_indexer,
+            self.tree,
+            input_utxo_commitments,
+            Some(config.unwrap_or(self.indexer_config)),
+        )
+        .await
     }
 
     async fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_utxo_hashes()?;
-        let input_merkle_proofs = self.get_input_merkle_proofs(&commitments).await?;
+        let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None).await?;
         let assembled = assemble(transaction, &input_merkle_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (self.async_prover.prove_transfer_p256(inputs).await?, 1),
@@ -611,9 +650,14 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.blocking_indexer()
-            .get_encrypted_utxos_by_tags(tags, cursor, limit)
+        self.blocking_indexer().get_encrypted_utxos_by_tags(
+            tags,
+            cursor,
+            limit,
+            Some(config.unwrap_or(self.indexer_config)),
+        )
     }
 
     fn get_shielded_transactions_by_tags(
@@ -621,9 +665,14 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.blocking_indexer()
-            .get_shielded_transactions_by_tags(tags, cursor, limit)
+        self.blocking_indexer().get_shielded_transactions_by_tags(
+            tags,
+            cursor,
+            limit,
+            Some(config.unwrap_or(self.indexer_config)),
+        )
     }
 
     fn subscribe_to_shielded_transactions_by_tags(
@@ -638,30 +687,44 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        self.blocking_indexer()
-            .get_merkle_proofs(tree_account, leaves)
+        self.blocking_indexer().get_merkle_proofs(
+            tree_account,
+            leaves,
+            Some(config.unwrap_or(self.indexer_config)),
+        )
     }
 
     fn get_non_inclusion_proofs(
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-        self.blocking_indexer()
-            .get_non_inclusion_proofs(tree_account, leaves)
+        self.blocking_indexer().get_non_inclusion_proofs(
+            tree_account,
+            leaves,
+            Some(config.unwrap_or(self.indexer_config)),
+        )
     }
 
     fn get_input_merkle_proofs(
         &self,
         input_utxo_commitments: &[InputUtxoContext],
+        config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
-        fetch_spend_proofs(self.blocking_indexer(), self.tree, input_utxo_commitments)
+        fetch_spend_proofs(
+            self.blocking_indexer(),
+            self.tree,
+            input_utxo_commitments,
+            Some(config.unwrap_or(self.indexer_config)),
+        )
     }
 
     fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_utxo_hashes()?;
-        let input_merkle_proofs = self.get_input_merkle_proofs(&commitments)?;
+        let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
         let assembled = assemble(transaction, &input_merkle_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (self.blocking_prover().prove_transfer_p256(inputs)?, 1),
@@ -742,6 +805,7 @@ fn fetch_spend_proofs(
     indexer: &ZolanaIndexer,
     tree: Address,
     commitments: &[InputUtxoContext],
+    config: Option<IndexerRpcConfig>,
 ) -> Result<Vec<SpendProof>, ClientError> {
     let leaves = commitments
         .iter()
@@ -751,8 +815,8 @@ fn fetch_spend_proofs(
         .iter()
         .map(|commitment| commitment.nullifier)
         .collect::<Vec<_>>();
-    let state_response = indexer.get_merkle_proofs(tree, leaves)?;
-    let nullifier_response = indexer.get_non_inclusion_proofs(tree, nullifiers)?;
+    let state_response = indexer.get_merkle_proofs(tree, leaves, config)?;
+    let nullifier_response = indexer.get_non_inclusion_proofs(tree, nullifiers, config)?;
     validate_spend_proofs(
         tree,
         commitments,
@@ -765,6 +829,7 @@ async fn fetch_spend_proofs_async(
     indexer: &AsyncZolanaIndexer,
     tree: Address,
     commitments: &[InputUtxoContext],
+    config: Option<IndexerRpcConfig>,
 ) -> Result<Vec<SpendProof>, ClientError> {
     let leaves = commitments
         .iter()
@@ -775,8 +840,8 @@ async fn fetch_spend_proofs_async(
         .map(|commitment| commitment.nullifier)
         .collect::<Vec<_>>();
     let (state_response, nullifier_response) = tokio::try_join!(
-        indexer.get_merkle_proofs(tree, leaves),
-        indexer.get_non_inclusion_proofs(tree, nullifiers),
+        indexer.get_merkle_proofs(tree, leaves, config),
+        indexer.get_non_inclusion_proofs(tree, nullifiers, config),
     )?;
     validate_spend_proofs(
         tree,
@@ -827,39 +892,37 @@ fn validate_spend_proofs(
 fn wait_for_rpc_confirmation<R: Rpc>(
     rpc: &R,
     signature: Signature,
-    config: IndexerPollConfig,
+    retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
-    let started = Instant::now();
-    loop {
+    for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
+        if !delay.is_zero() {
+            sleep(delay);
+        }
         if rpc.confirm_transaction(signature)? {
             return Ok(());
         }
-        if started.elapsed() >= config.timeout {
-            return Err(ClientError::Rpc(format!(
-                "signature not confirmed: {signature}"
-            )));
-        }
-        sleep(config.poll_interval);
     }
+    Err(ClientError::Rpc(format!(
+        "signature not confirmed: {signature}"
+    )))
 }
 
 async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
     rpc: &R,
     signature: Signature,
-    config: IndexerPollConfig,
+    retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
-    let started = Instant::now();
-    loop {
+    for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
         if rpc.confirm_transaction(signature).await? {
             return Ok(());
         }
-        if started.elapsed() >= config.timeout {
-            return Err(ClientError::Rpc(format!(
-                "signature not confirmed: {signature}"
-            )));
-        }
-        tokio::time::sleep(config.poll_interval).await;
     }
+    Err(ClientError::Rpc(format!(
+        "signature not confirmed: {signature}"
+    )))
 }
 
 /// Poll the indexer until the sent transaction is visible under any output
@@ -870,16 +933,19 @@ fn wait_for_indexed_transaction(
     indexer: &ZolanaIndexer,
     tags: &[[u8; 32]],
     signature: Signature,
-    config: IndexerPollConfig,
+    retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
     if tags.is_empty() {
         return Err(ClientError::Rpc(
             "confirmed TRANSACT instruction has no output view tags".into(),
         ));
     }
-    let started = Instant::now();
-    loop {
-        let response = indexer.get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50))?;
+    for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
+        if !delay.is_zero() {
+            sleep(delay);
+        }
+        let response =
+            indexer.get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50), None)?;
         if response
             .transactions
             .iter()
@@ -887,28 +953,27 @@ fn wait_for_indexed_transaction(
         {
             return Ok(());
         }
-        if started.elapsed() >= config.timeout {
-            return Err(ClientError::IndexerTimeout);
-        }
-        sleep(config.poll_interval);
     }
+    Err(ClientError::IndexerTimeout)
 }
 
 async fn wait_for_indexed_transaction_async(
     indexer: &AsyncZolanaIndexer,
     tags: &[[u8; 32]],
     signature: Signature,
-    config: IndexerPollConfig,
+    retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
     if tags.is_empty() {
         return Err(ClientError::Rpc(
             "confirmed TRANSACT instruction has no output view tags".into(),
         ));
     }
-    let started = Instant::now();
-    loop {
+    for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
         let response = indexer
-            .get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50))
+            .get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50), None)
             .await?;
         if response
             .transactions
@@ -917,11 +982,8 @@ async fn wait_for_indexed_transaction_async(
         {
             return Ok(());
         }
-        if started.elapsed() >= config.timeout {
-            return Err(ClientError::IndexerTimeout);
-        }
-        tokio::time::sleep(config.poll_interval).await;
     }
+    Err(ClientError::IndexerTimeout)
 }
 
 #[cfg(test)]
@@ -1135,7 +1197,7 @@ mod tests {
     fn confirm_private_transaction_sync_times_out_when_indexer_lags() {
         let signature = Signature::from([9u8; 64]);
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
-            "context": { "slot": 12 },
+            "context": { "block_time": 12 },
             "transactions": [],
             "next_cursor": null,
         }))]);
@@ -1148,10 +1210,7 @@ mod tests {
             AsyncProverClient::new("http://unused.invalid".to_string()),
             Address::new_from_array([8u8; 32]),
         )
-        .with_indexer_poll_config(IndexerPollConfig {
-            poll_interval: Duration::ZERO,
-            timeout: Duration::ZERO,
-        });
+        .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
         let error = client
             .confirm_private_transaction_sync(signature)
             .expect_err("empty indexer response should time out");
@@ -1269,7 +1328,7 @@ mod tests {
 
     fn merkle_response(tree: Address, leaf: [u8; 32]) -> Value {
         rpc_result(json!({
-            "context": { "slot": 10 },
+            "context": { "block_time": 10 },
             "proofs": [{
                 "leaf": encode_hash(leaf),
                 "merkle_context": {
@@ -1287,7 +1346,7 @@ mod tests {
 
     fn nullifier_response(tree: Address, leaf: [u8; 32]) -> Value {
         rpc_result(json!({
-            "context": { "slot": 10 },
+            "context": { "block_time": 10 },
             "proofs": [{
                 "leaf": encode_hash(leaf),
                 "merkle_context": {
@@ -1308,7 +1367,7 @@ mod tests {
 
     fn indexed_transaction_response(signature: Signature) -> Value {
         rpc_result(json!({
-            "context": { "slot": 11 },
+            "context": { "block_time": 11 },
             "transactions": [{
                 "slot": 11,
                 "tx_signature": signature.to_string(),

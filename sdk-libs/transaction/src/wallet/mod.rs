@@ -10,7 +10,8 @@ pub use authority::{
     P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
 pub use state::{
-    AssetBalance, Filter, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
-    PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
-    WalletUtxo, DEFAULT_TAG_WINDOW,
+    AssetBalance, Balances, Filter, PrivateTransaction, PrivateTransactionDirection,
+    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, SyncReport,
+    ViewingKeyEntry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
+pub use sync::{decrypt_transactions, decrypt_transactions_with_config, SyncConfig};

@@ -144,7 +144,7 @@ impl TransferWorld {
         }
 
         let input_merkle_proofs = indexer
-            .get_input_merkle_proofs(&commitments)
+            .get_input_merkle_proofs(&commitments, None)
             .expect("input merkle proofs");
         match zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
             .expect("into prover")

@@ -13,7 +13,7 @@ use zolana_transaction::{Address, AssetRegistry};
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub(crate) const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
-pub(crate) const DEFAULT_TREE: &str = zolana_interface::DEFAULT_POOL_TREE_ADDRESS;
+pub(crate) const DEFAULT_TREE: &str = zolana_interface::DEFAULT_TREE_ADDRESS;
 const CONFIG_VERSION: u8 = 1;
 
 #[cfg(test)]

@@ -158,7 +158,7 @@ pub fn wait_for_indexed_utxo<I: Rpc>(
         let mut cursor = None;
         loop {
             let response =
-                indexer.get_encrypted_utxos_by_tags(vec![tag], cursor, Some(TAG_PAGE_LIMIT))?;
+                indexer.get_encrypted_utxos_by_tags(vec![tag], cursor, Some(TAG_PAGE_LIMIT), None)?;
             if let Some(item) = response
                 .matches
                 .into_iter()
@@ -177,7 +177,7 @@ pub fn wait_for_indexed_utxo<I: Rpc>(
 #[track_caller]
 pub fn wait_for_merkle_proof<I: Rpc>(indexer: &I, tree: Address, leaf: [u8; 32]) -> MerkleProof {
     wait_for("indexed merkle proof", || {
-        let response = indexer.get_merkle_proofs(tree, vec![leaf])?;
+        let response = indexer.get_merkle_proofs(tree, vec![leaf], None)?;
         Ok(response.proofs.into_iter().next())
     })
 }
@@ -189,7 +189,7 @@ pub fn wait_for_non_inclusion_proof<I: Rpc>(
     leaf: [u8; 32],
 ) -> NonInclusionProof {
     wait_for("indexed non-inclusion proof", || {
-        let response = indexer.get_non_inclusion_proofs(tree, vec![leaf])?;
+        let response = indexer.get_non_inclusion_proofs(tree, vec![leaf], None)?;
         Ok(response.proofs.into_iter().next())
     })
 }
@@ -200,7 +200,7 @@ pub fn wait_for_non_inclusion_proof<I: Rpc>(
 #[track_caller]
 pub fn wait_for_nullifier_present<I: Rpc>(indexer: &I, tree: Address, leaf: [u8; 32]) {
     wait_for("nullifier present in tree", || {
-        match indexer.get_non_inclusion_proofs(tree, vec![leaf]) {
+        match indexer.get_non_inclusion_proofs(tree, vec![leaf], None) {
             Ok(response) if response.proofs.is_empty() => Ok(Some(())),
             Ok(_) => Ok(None),
             Err(_) => Ok(Some(())),
@@ -222,6 +222,7 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
                 vec![tag],
                 cursor,
                 Some(TAG_PAGE_LIMIT),
+                None,
             )?;
             if let Some(item) = response
                 .transactions
