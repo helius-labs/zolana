@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use solana_address::Address;
@@ -10,6 +10,7 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use zolana_client::{
@@ -28,7 +29,7 @@ use zolana_test_utils::{
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
 };
-use zolana_transaction::{AssetRegistry, Filter, LocalWalletAuthority, Wallet, SOL_MINT};
+use zolana_transaction::{AssetRegistry, Wallet, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
 
 // SPL the maker shields into the order UTXO (source), and SOL the taker pays (destination).
@@ -281,34 +282,20 @@ pub fn setup() -> Result<TestEnv> {
     let taker_address = taker_shielded_keypair
         .shielded_address()
         .map_err(|e| anyhow!("taker address: {e:?}"))?;
+
+    // The deposits above already confirmed on-chain, and `sync_wallet` waits for
+    // indexer freshness by default (and handles proofless-deposit discovery plus
+    // asset-registry backfill internally), so one sync per actor is enough --
+    // no manual poll loop needed.
     let mut maker_wallet =
         Wallet::new(maker_address, assets.clone()).map_err(|e| anyhow!("maker wallet: {e:?}"))?;
+    sync_wallet(&mut maker_wallet, &maker_shielded_keypair, &indexer)
+        .map_err(|e| anyhow!("sync maker deposit: {e:?}"))?;
+
     let mut taker_wallet =
         Wallet::new(taker_address, assets.clone()).map_err(|e| anyhow!("taker wallet: {e:?}"))?;
-    let maker_authority =
-        LocalWalletAuthority::new(maker_solana_keypair.pubkey(), &maker_shielded_keypair);
-    let taker_authority =
-        LocalWalletAuthority::new(taker_solana_keypair.pubkey(), &taker_shielded_keypair);
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        sync_wallet(&mut maker_wallet, &maker_authority, &indexer)?;
-        sync_wallet(&mut taker_wallet, &taker_authority, &indexer)?;
-        if !maker_wallet
-            .balance(spl_mint, Some(Filter::MinAmount(SOURCE_AMOUNT)))?
-            .utxos
-            .is_empty()
-            && !taker_wallet
-                .balance(SOL_MINT, Some(Filter::MinAmount(DESTINATION_AMOUNT)))?
-                .utxos
-                .is_empty()
-        {
-            break;
-        }
-        if Instant::now() >= deadline {
-            return Err(anyhow!("timed out syncing shielded deposits"));
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
+    sync_wallet(&mut taker_wallet, &taker_shielded_keypair, &indexer)
+        .map_err(|e| anyhow!("sync taker deposit: {e:?}"))?;
 
     Ok(TestEnv {
         rpc,
@@ -330,7 +317,11 @@ pub fn setup() -> Result<TestEnv> {
 // address lookup table: create + extend the ALT (waiting a slot for each to root),
 // then compile and send. Prepends a 1.4M CU budget; `payer` signs and pays. The
 // swap lifecycle account lists only fit within the 1232-byte tx limit via an ALT.
-pub fn send_v0_with_lookup_table(rpc: &SolanaRpc, payer: &Keypair, ix: Instruction) -> Result<()> {
+pub fn send_v0_with_lookup_table(
+    rpc: &SolanaRpc,
+    payer: &Keypair,
+    ix: Instruction,
+) -> Result<Signature> {
     let alt_addresses: Vec<Pubkey> = ix
         .accounts
         .iter()
@@ -392,8 +383,8 @@ pub fn send_v0_with_lookup_table(rpc: &SolanaRpc, payer: &Keypair, ix: Instructi
     .map_err(|e| anyhow!("compile v0: {e}"))?;
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer])
         .map_err(|e| anyhow!("sign v0: {e}"))?;
-    client
+    let signature = client
         .send_and_confirm_transaction(&tx)
         .map_err(|e| anyhow!("send v0: {e}"))?;
-    Ok(())
+    Ok(signature)
 }
