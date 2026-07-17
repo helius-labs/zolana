@@ -62,42 +62,63 @@ pub struct ConfirmedInstructionGroups {
 
 const DEFAULT_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Unique `view_tag`s from a confirmed shielded-pool `TRANSACT` outer instruction.
+/// Unique `view_tag`s from a confirmed shielded-pool `TRANSACT` instruction,
+/// found either as the transaction's outer instruction (a direct `Transact`
+/// call) or as an inner instruction (a program CPIing into `transact`, e.g.
+/// the zk-program-swap `Make`/`Take`/`Cancel` wrappers).
 pub fn transact_output_view_tags_from_instruction_groups(
     groups: &ConfirmedInstructionGroups,
 ) -> Result<Vec<[u8; 32]>, ClientError> {
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     for group in &groups.groups {
-        let outer = &group.outer;
-        if outer.program_id != program_id {
-            continue;
+        for instruction in std::iter::once(&group.outer).chain(group.inner.iter()) {
+            if let Some(tags) = transact_view_tags(instruction, program_id)? {
+                return Ok(tags);
+            }
         }
-        let Some(instruction_tag) = outer.data.first() else {
-            continue;
-        };
-        if *instruction_tag != tag::TRANSACT {
-            continue;
-        }
-        let payload = outer.data.get(1..).ok_or_else(|| {
-            ClientError::Rpc("transact instruction data is missing its payload".into())
-        })?;
-        let transact_data = TransactIxData::deserialize(payload)
-            .map_err(|err| ClientError::Rpc(format!("decode transact instruction data: {err}")))?;
-        let mut tags = BTreeSet::new();
-        for output in &transact_data.outputs {
-            let tag = fetch_tag(
-                &output.owner_tag,
-                transact_data.p256_signing_pk_x.as_ref(),
-                |i| outer.accounts.get(usize::from(i)).map(|pk| pk.to_bytes()),
-            )
-            .map_err(|err| ClientError::Rpc(format!("resolve output owner tag: {err}")))?;
-            tags.insert(tag);
-        }
-        return Ok(tags.into_iter().collect());
     }
     Err(ClientError::Rpc(
         "confirmed transaction has no shielded-pool TRANSACT instruction".into(),
     ))
+}
+
+/// Returns the output `view_tag`s if `instruction` is a `TRANSACT` call to
+/// `program_id`, `None` if it is unrelated, or an error if it matches but its
+/// payload cannot be decoded.
+fn transact_view_tags(
+    instruction: &ParsedInstruction,
+    program_id: Pubkey,
+) -> Result<Option<Vec<[u8; 32]>>, ClientError> {
+    if instruction.program_id != program_id {
+        return Ok(None);
+    }
+    let Some(instruction_tag) = instruction.data.first() else {
+        return Ok(None);
+    };
+    if *instruction_tag != tag::TRANSACT {
+        return Ok(None);
+    }
+    let payload = instruction.data.get(1..).ok_or_else(|| {
+        ClientError::Rpc("transact instruction data is missing its payload".into())
+    })?;
+    let transact_data = TransactIxData::deserialize(payload)
+        .map_err(|err| ClientError::Rpc(format!("decode transact instruction data: {err}")))?;
+    let mut tags = BTreeSet::new();
+    for output in &transact_data.outputs {
+        let tag = fetch_tag(
+            &output.owner_tag,
+            transact_data.p256_signing_pk_x.as_ref(),
+            |i| {
+                instruction
+                    .accounts
+                    .get(usize::from(i))
+                    .map(|pk| pk.to_bytes())
+            },
+        )
+        .map_err(|err| ClientError::Rpc(format!("resolve output owner tag: {err}")))?;
+        tags.insert(tag);
+    }
+    Ok(Some(tags.into_iter().collect()))
 }
 
 impl SolanaRpc {

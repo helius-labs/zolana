@@ -50,8 +50,7 @@ const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 #[test]
 fn make_and_cancel_swap_inline() -> Result<()> {
     let TestEnv {
-        rpc,
-        indexer,
+        client,
         tree,
         mut maker,
         taker,
@@ -59,8 +58,12 @@ fn make_and_cancel_swap_inline() -> Result<()> {
     } = setup()?;
     let swap_prover_client = SwapProverClient::new();
     {
-        ensure_registered(&rpc, &maker.keypair.to_solana_keypair()?, &maker.keypair)
-            .map_err(|e| anyhow!("register maker: {e:?}"))?;
+        ensure_registered(
+            client.rpc(),
+            &maker.keypair.to_solana_keypair()?,
+            &maker.keypair,
+        )
+        .map_err(|e| anyhow!("register maker: {e:?}"))?;
 
         let taker_address = taker.keypair.shielded_address()?;
         // The taker's ed25519 authorization identity: the order-committed taker.
@@ -137,7 +140,8 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             maker_address.solana_address()?,
         );
 
-        let spp_proof = indexer
+        let spp_proof = client
+            .indexer()
             .prove_transact(tree, spp_proof_inputs.clone())
             .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
@@ -159,7 +163,11 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         }
         .instruction()?;
 
-        send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, make_ix)?;
+        let make_signature =
+            send_v0_with_lookup_table(client.rpc(), &maker.keypair.to_solana_keypair()?, make_ix)?;
+        client
+            .confirm_private_transaction_sync(make_signature)
+            .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
     }
 
     {
@@ -168,7 +176,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let order = index_maker(
             &mut maker.wallet,
             &maker.keypair,
-            &indexer,
+            client.indexer(),
             Duration::from_secs(60),
         )?
         .pop()
@@ -221,7 +229,8 @@ fn make_and_cancel_swap_inline() -> Result<()> {
                 .map_err(|e| anyhow!("cancel external data hash: {e:?}"))?,
         };
 
-        let spp_proof = indexer
+        let spp_proof = client
+            .indexer()
             .prove_transact(tree, cancel_spp_proof_inputs)
             .map_err(|e| anyhow!("cancel transact proof: {e:?}"))?;
 
@@ -239,10 +248,18 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         }
         .instruction()?;
 
-        send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, cancel_ix)?;
+        let cancel_signature = send_v0_with_lookup_table(
+            client.rpc(),
+            &maker.keypair.to_solana_keypair()?,
+            cancel_ix,
+        )?;
+        client
+            .confirm_private_transaction_sync(cancel_signature)
+            .map_err(|e| anyhow!("confirm cancel indexed: {e:?}"))?;
 
-        indexer
-            .get_merkle_proofs(tree, vec![source_output_hash])
+        client
+            .indexer()
+            .get_merkle_proofs(tree, vec![source_output_hash], None)
             .map_err(|e| anyhow!("cancel output index: {e}"))?;
     }
     Ok(())

@@ -113,7 +113,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         view_tag: direct_data.view_tag,
         owner: direct_data.owner,
         blinding: direct_data.blinding,
-        public_amount: direct_data.public_amount,
+        amount: direct_data.amount,
         utxo_data: direct_data.utxo_data,
         memo: direct_data.memo,
     }
@@ -155,7 +155,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         view_tag: zone_data.view_tag,
         owner: zone_data.owner,
         blinding: zone_data.blinding,
-        public_amount: zone_data.public_amount,
+        amount: zone_data.amount,
         zone_program_id,
         zone_data_hash: zone_data.zone_data_hash,
         zone_data: zone_data.zone_data.clone(),

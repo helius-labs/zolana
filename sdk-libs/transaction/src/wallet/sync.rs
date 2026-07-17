@@ -7,9 +7,9 @@ use zolana_keypair::{
 };
 
 use super::state::{
-    PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,
-    PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet, WalletUtxo,
-    SENDER_HISTORY_ROW_BASE,
+    Balances, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
+    WalletUtxo, DEFAULT_TAG_WINDOW, SENDER_HISTORY_ROW_BASE,
 };
 use crate::{
     error::TransactionError,
@@ -892,4 +892,41 @@ impl Wallet {
         self.last_synced = synced_at;
         Ok(report)
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SyncConfig {
+    pub window: u64,
+}
+
+impl Default for SyncConfig {
+    fn default() -> Self {
+        Self {
+            window: DEFAULT_TAG_WINDOW,
+        }
+    }
+}
+
+pub fn decrypt_transactions<K: SyncWalletAuthority + ?Sized>(
+    key: &K,
+    transactions: &[ShieldedTransaction],
+    registry: &AssetRegistry,
+) -> Result<Balances, TransactionError> {
+    decrypt_transactions_with_config(key, transactions, registry, SyncConfig::default())
+}
+
+pub fn decrypt_transactions_with_config<K: SyncWalletAuthority + ?Sized>(
+    key: &K,
+    transactions: &[ShieldedTransaction],
+    registry: &AssetRegistry,
+    config: SyncConfig,
+) -> Result<Balances, TransactionError> {
+    // TODO(separate PR): move this construct-sync-extract sequence onto Wallet
+    // itself (e.g. Wallet::decrypt), so this free function is a thin wrapper
+    // instead of open-coding Wallet's own logic.
+    let mut wallet = Wallet::new(key.shielded_address()?, registry.clone())?;
+    wallet.sync(key, transactions, 0, config.window)?;
+    Ok(Balances {
+        assets: wallet.balances(false)?,
+    })
 }

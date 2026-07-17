@@ -643,12 +643,11 @@ components:
     Context:
       type: object
       required:
-      - slot
+      - block_time
       properties:
-        slot:
+        block_time:
           type: integer
-          format: u-int64
-          minimum: 0
+          format: int64
       additionalProperties: false
     EncryptedUtxoMatch:
       type: object

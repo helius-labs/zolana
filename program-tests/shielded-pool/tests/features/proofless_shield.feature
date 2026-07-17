@@ -13,8 +13,7 @@ Feature: Proofless SOL shield
 
   Scenario: Bad amount shapes are rejected and leave the indexer unchanged
     Given the indexer UTXO count is recorded
-    When the depositor shields with no public amount
-    And the depositor shields zero lamports
+    When the depositor shields zero lamports
     And the depositor shields zero SPL tokens
     Then the indexer UTXO count is unchanged
 

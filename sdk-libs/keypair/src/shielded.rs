@@ -25,6 +25,10 @@ impl ShieldedAddress {
             self.signing_pubkey.as_ed25519()?,
         ))
     }
+
+    pub fn confidential_view_tag(&self) -> Result<[u8; 32], KeypairError> {
+        self.signing_pubkey.confidential_view_tag()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

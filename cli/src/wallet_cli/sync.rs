@@ -56,7 +56,7 @@ pub(super) fn wait_for_indexed_utxo(
 ) -> Result<()> {
     let started = SystemTime::now();
     loop {
-        let response = indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50))?;
+        let response = indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50), None)?;
         if response
             .matches
             .iter()

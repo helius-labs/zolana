@@ -115,13 +115,6 @@ fn record_indexer(world: &mut ShieldedPoolWorld) {
     world.indexed_utxo_count_before = Some(world.rpc().indexer().utxos().len());
 }
 
-#[when(expr = "the depositor shields with no public amount")]
-fn shield_no_amount(world: &mut ShieldedPoolWorld) {
-    let mut none = ZolanaProgramTest::sol_shield_data(1_000, [1u8; 32], [1u8; 31]);
-    none.public_amount = None;
-    assert_invalid_amount_shape(world, &none);
-}
-
 #[when(expr = "the depositor shields zero lamports")]
 fn shield_zero_sol(world: &mut ShieldedPoolWorld) {
     let zero = ZolanaProgramTest::sol_shield_data(0, [1u8; 32], [1u8; 31]);

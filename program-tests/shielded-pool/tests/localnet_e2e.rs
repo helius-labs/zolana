@@ -143,7 +143,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         view_tag: shield_data.view_tag,
         owner: shield_data.owner,
         blinding: shield_data.blinding,
-        public_amount: shield_data.public_amount,
+        amount: shield_data.amount,
         utxo_data: shield_data.utxo_data,
         memo: shield_data.memo,
     }

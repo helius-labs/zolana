@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn serializes_response_cursor_like_rings_spec() {
         let value = serde_json::to_value(GetEncryptedUtxosByTagsResponse {
-            context: Context { slot: 10 },
+            context: Context { block_time: 10 },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1, 2, 3])),
         })

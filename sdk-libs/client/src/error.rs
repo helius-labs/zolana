@@ -142,6 +142,13 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
+    #[error("indexer did not reach block_time {target} within {attempts} attempts; latest indexed block_time is {latest}")]
+    IndexerNotCaughtUp {
+        target: i64,
+        latest: i64,
+        attempts: u32,
+    },
+
     #[error("proof path has {got} elements, expected {expected}")]
     ProofPathLength { got: usize, expected: usize },
 

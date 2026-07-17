@@ -1486,6 +1486,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
+name = "client-example"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "solana-keypair",
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program-test",
+ "zolana-test-utils",
+ "zolana-transaction",
+ "zolana-user-registry-interface",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9588,6 +9605,7 @@ dependencies = [
  "solana-message 3.1.0",
  "solana-pubkey 2.4.0",
  "solana-pubkey 4.2.0",
+ "solana-signature 3.4.1",
  "solana-signer",
  "solana-transaction",
  "swap-program",

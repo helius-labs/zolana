@@ -28,7 +28,7 @@ pub struct DepositIxData {
     pub blinding: [u8; 31],
     /// Deposited amount. The asset (native SOL vs SPL mint) is inferred from the
     /// settlement accounts the caller passes; deposits are deposit-only.
-    pub public_amount: Option<u64>,
+    pub amount: u64,
     /// Application data committed into the UTXO's `data_hash`, authorized by the
     /// payer; `None` for a plain user deposit. Policy-zone deposits use
     /// [`ZoneDepositIxData`].
@@ -61,7 +61,7 @@ pub struct ZoneDepositIxData {
     pub blinding: [u8; 31],
     /// As in [`DepositIxData`]: the asset is inferred from the
     /// settlement accounts the zone forwards.
-    pub public_amount: Option<u64>,
+    pub amount: u64,
     /// Zone-defined data committed into `zone_hash`. The zone's `program_id` is
     /// NOT in instruction data: it is read from the `ZoneConfig` account (the
     /// signing `zone_auth` PDA) the zone forwards.

@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
-use zolana_client::{sync_wallet, Rpc};
+use zolana_client::{sync_wallet, IndexerRpcConfig, Rpc};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{LocalWalletAuthority, ShieldedTransaction, Wallet};
 
@@ -50,7 +50,12 @@ pub(crate) fn collect_tagged<I: Rpc, T>(
     let mut cursor = None;
     loop {
         let page = indexer
-            .get_shielded_transactions_by_tags(vec![owner_tag], cursor, None)
+            .get_shielded_transactions_by_tags(
+                vec![owner_tag],
+                cursor,
+                None,
+                Some(IndexerRpcConfig::wait()),
+            )
             .map_err(err)?;
         for tx in &page.transactions {
             if let Some(item) = scan(tx)? {

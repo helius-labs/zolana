@@ -533,7 +533,7 @@ async fn rings_mode_persists_output_leaf_nodes_without_zk_tables() {
     )
     .await
     .expect("Rings output should return an inclusion proof");
-    assert_eq!(response.context.slot, PROOFLESS_SHIELD_SLOT);
+    assert_eq!(response.context.block_time, PROOFLESS_SHIELD_SLOT as i64);
     let proof = only(&response.proofs, "inclusion proof");
     assert_eq!(proof.leaf, Hash::from(output.utxo_hash));
     assert_eq!(proof.leaf_index, output.leaf_index);
@@ -716,7 +716,7 @@ async fn rings_non_inclusion_accepts_known_tree_account_from_outputs() {
     .await
     .expect("known Rings TreeAccount should support nullifier empty-tree proofs");
 
-    assert_eq!(response.context.slot, PROOFLESS_SHIELD_SLOT);
+    assert_eq!(response.context.block_time, PROOFLESS_SHIELD_SLOT as i64);
     let proof = only(&response.proofs, "non-inclusion proof");
     assert_eq!(
         proof.merkle_context.tree,
@@ -993,7 +993,7 @@ async fn rings_api_returns_empty_non_inclusion_proofs_for_known_nullifier_tree()
     .await
     .expect("known Rings nullifier tree should return empty-tree proofs");
 
-    assert_eq!(response.context.slot, SHIELDED_TRANSFER_SLOT);
+    assert_eq!(response.context.block_time, SHIELDED_TRANSFER_SLOT as i64);
     assert_eq!(response.proofs.len(), leaves.len());
     assert_eq!(
         response
@@ -1051,7 +1051,7 @@ async fn rings_api_returns_empty_non_inclusion_proofs_before_any_nullifier_rows(
     .await
     .expect("known empty Rings nullifier tree should return empty-tree proofs");
 
-    assert_eq!(response.context.slot, SHIELDED_TRANSFER_SLOT);
+    assert_eq!(response.context.block_time, SHIELDED_TRANSFER_SLOT as i64);
     assert_eq!(response.proofs.len(), leaves.len());
     for proof in response.proofs {
         assert_eq!(
@@ -1191,7 +1191,7 @@ async fn assert_rings_api_exposes_output_hashes(
     let shielded = get_shielded_transactions_by_tags(db, request.clone())
         .await
         .unwrap();
-    assert_eq!(shielded.context.slot, UNSHIELD_SLOT);
+    assert_eq!(shielded.context.block_time, UNSHIELD_SLOT as i64);
     assert!(shielded.next_cursor.is_none());
     assert!(!shielded.transactions.is_empty());
     let output_slot = shielded
@@ -1212,7 +1212,7 @@ async fn assert_rings_api_exposes_output_hashes(
     assert_eq!(output_slot.payload.0, payload.payload);
 
     let encrypted = get_encrypted_utxos_by_tags(db, request).await.unwrap();
-    assert_eq!(encrypted.context.slot, UNSHIELD_SLOT);
+    assert_eq!(encrypted.context.block_time, UNSHIELD_SLOT as i64);
     assert!(encrypted.next_cursor.is_none());
     assert!(!encrypted.matches.is_empty());
     let encrypted_match = encrypted

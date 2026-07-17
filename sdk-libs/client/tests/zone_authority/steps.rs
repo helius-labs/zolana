@@ -172,7 +172,7 @@ fn boundary_prover() -> ZoneAuthorityProver {
     };
     let commitments = prepared.input_utxo_hashes().expect("input commitments");
     let proofs = indexer
-        .get_input_merkle_proofs(&commitments)
+        .get_input_merkle_proofs(&commitments, None)
         .expect("merkle proofs");
     ZoneAuthorityProver::try_from(ZoneAuthorityWitness { prepared, proofs })
         .expect("zone-authority prover")
@@ -258,7 +258,7 @@ fn build_real_inputs(
         keys.push(kp.nullifier_key.clone());
     }
     let proofs = indexer
-        .get_input_merkle_proofs(&commitments)
+        .get_input_merkle_proofs(&commitments, None)
         .expect("merkle proofs");
     utxos
         .into_iter()

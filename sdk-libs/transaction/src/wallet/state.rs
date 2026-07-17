@@ -92,6 +92,17 @@ pub struct AssetBalance {
     pub utxos: Vec<Utxo>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Balances {
+    pub assets: Vec<AssetBalance>,
+}
+
+impl Balances {
+    pub fn get_balance(&self, mint: Address) -> Option<&AssetBalance> {
+        self.assets.iter().find(|balance| balance.mint == mint)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Filter {
     MinAmount(u64),

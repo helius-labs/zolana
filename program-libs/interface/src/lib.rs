@@ -30,7 +30,7 @@ pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
 /// Devnet/localnet fixture SPP pool tree address. Single source of truth so the
 /// CLI config default, forester CLI default, xtask protocol init, and the CLI
 /// resolve test all reference one value and cannot drift.
-pub const DEFAULT_POOL_TREE_ADDRESS: &str = "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8";
+pub const DEFAULT_TREE_ADDRESS: &str = "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8";
 
 /// Seed for the native SOL interface account used by public SOL settlement.
 pub const SOL_INTERFACE_PDA_SEED: &[u8] = b"sol_interface";

@@ -16,6 +16,7 @@ use zolana_transaction::{
 
 use crate::{
     error::ClientError,
+    retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
 };
 
@@ -29,6 +30,8 @@ pub struct SyncWalletConfig {
     pub tag_query_chunk: usize,
     pub page_limit: u32,
     pub rounds: usize,
+    pub wait_for_indexer: bool,
+    pub retry: IndexerPollConfig,
 }
 
 impl Default for SyncWalletConfig {
@@ -38,6 +41,17 @@ impl Default for SyncWalletConfig {
             tag_query_chunk: DEFAULT_TAG_QUERY_CHUNK,
             page_limit: DEFAULT_PAGE_LIMIT,
             rounds: DEFAULT_SYNC_ROUNDS,
+            wait_for_indexer: false,
+            retry: IndexerPollConfig::default(),
+        }
+    }
+}
+
+impl SyncWalletConfig {
+    pub fn new() -> Self {
+        Self {
+            wait_for_indexer: true,
+            ..Self::default()
         }
     }
 }
@@ -51,7 +65,7 @@ where
     A: SyncWalletAuthority + ?Sized,
     I: Rpc,
 {
-    sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::default())
+    sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::new())
 }
 
 pub fn sync_wallet_with_config<A, I>(
@@ -65,6 +79,7 @@ where
     I: Rpc,
 {
     let config = normalized_config(config);
+    let rpc_config = indexer_rpc_config(config);
     let material = authority.sync_material()?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
@@ -74,8 +89,8 @@ where
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
-        fetch_shielded_transactions(indexer, &tags, &mut transactions, config)?;
-        fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config)?;
+        fetch_shielded_transactions(indexer, &tags, &mut transactions, config, rpc_config)?;
+        fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config, rpc_config)?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
@@ -140,6 +155,7 @@ where
     I: AsyncRpc,
 {
     let config = normalized_config(config);
+    let rpc_config = indexer_rpc_config(config);
     let material = authority.sync_material().await?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
@@ -149,8 +165,10 @@ where
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
-        fetch_shielded_transactions_async(indexer, &tags, &mut transactions, config).await?;
-        fetch_proofless_deposits_async(indexer, &tags, &mut proofless_deposits, config).await?;
+        fetch_shielded_transactions_async(indexer, &tags, &mut transactions, config, rpc_config)
+            .await?;
+        fetch_proofless_deposits_async(indexer, &tags, &mut proofless_deposits, config, rpc_config)
+            .await?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
@@ -265,6 +283,11 @@ fn normalized_config(config: SyncWalletConfig) -> SyncWalletConfig {
         tag_query_chunk: config.tag_query_chunk.max(1),
         page_limit: config.page_limit.max(1),
         rounds: config.rounds.max(1),
+        wait_for_indexer: config.wait_for_indexer,
+        retry: IndexerPollConfig {
+            num_retries: config.retry.num_retries.max(1),
+            ..config.retry
+        },
     }
 }
 
@@ -319,11 +342,19 @@ fn wallet_query_tags(
     Ok(tags.into_iter().collect())
 }
 
+fn indexer_rpc_config(config: SyncWalletConfig) -> Option<IndexerRpcConfig> {
+    Some(IndexerRpcConfig {
+        wait_for_indexer: config.wait_for_indexer,
+        poll: config.retry,
+    })
+}
+
 fn fetch_shielded_transactions<I: Rpc>(
     indexer: &I,
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
+    rpc_config: Option<IndexerRpcConfig>,
 ) -> Result<(), ClientError> {
     for chunk in tags.chunks(config.tag_query_chunk) {
         let mut cursor = None;
@@ -332,6 +363,7 @@ fn fetch_shielded_transactions<I: Rpc>(
                 chunk.to_vec(),
                 cursor,
                 Some(config.page_limit),
+                rpc_config,
             )?;
             for tx in response.transactions {
                 // Photon may surface proofless/plaintext deposits from this
@@ -361,12 +393,18 @@ async fn fetch_shielded_transactions_async<I: AsyncRpc>(
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
+    rpc_config: Option<IndexerRpcConfig>,
 ) -> Result<(), ClientError> {
     for chunk in tags.chunks(config.tag_query_chunk) {
         let mut cursor = None;
         loop {
             let response = indexer
-                .get_shielded_transactions_by_tags(chunk.to_vec(), cursor, Some(config.page_limit))
+                .get_shielded_transactions_by_tags(
+                    chunk.to_vec(),
+                    cursor,
+                    Some(config.page_limit),
+                    rpc_config,
+                )
                 .await?;
             for tx in response.transactions {
                 if tx.proofless
@@ -409,6 +447,7 @@ fn fetch_proofless_deposits<I>(
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
+    rpc_config: Option<IndexerRpcConfig>,
 ) -> Result<(), ClientError>
 where
     I: Rpc,
@@ -420,6 +459,7 @@ where
                 chunk.to_vec(),
                 cursor,
                 Some(config.page_limit),
+                rpc_config,
             )?;
             for item in response.matches {
                 if item.tx_viewing_pk.is_some() || item.salt.is_some() {
@@ -450,12 +490,18 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
+    rpc_config: Option<IndexerRpcConfig>,
 ) -> Result<(), ClientError> {
     for chunk in tags.chunks(config.tag_query_chunk) {
         let mut cursor = None;
         loop {
             let response = indexer
-                .get_encrypted_utxos_by_tags(chunk.to_vec(), cursor, Some(config.page_limit))
+                .get_encrypted_utxos_by_tags(
+                    chunk.to_vec(),
+                    cursor,
+                    Some(config.page_limit),
+                    rpc_config,
+                )
                 .await?;
             for item in response.matches {
                 if item.tx_viewing_pk.is_some() || item.salt.is_some() {
@@ -597,9 +643,10 @@ mod tests {
             _tags: Vec<ViewTag>,
             _cursor: Option<Vec<u8>>,
             _limit: Option<u32>,
+            _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
             Ok(GetEncryptedUtxosByTagsResponse {
-                context: Context { slot: 0 },
+                context: Context { block_time: 0 },
                 matches: self.matches.clone(),
                 next_cursor: None,
             })
@@ -610,9 +657,10 @@ mod tests {
             _tags: Vec<ViewTag>,
             _cursor: Option<Vec<u8>>,
             _limit: Option<u32>,
+            _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Ok(GetShieldedTransactionsByTagsResponse {
-                context: Context { slot: 0 },
+                context: Context { block_time: 0 },
                 transactions: self.transactions.clone(),
                 next_cursor: None,
             })
@@ -633,8 +681,9 @@ mod tests {
             tags: Vec<ViewTag>,
             cursor: Option<Vec<u8>>,
             limit: Option<u32>,
+            config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-            Rpc::get_encrypted_utxos_by_tags(self, tags, cursor, limit)
+            Rpc::get_encrypted_utxos_by_tags(self, tags, cursor, limit, config)
         }
 
         async fn get_shielded_transactions_by_tags(
@@ -642,8 +691,9 @@ mod tests {
             tags: Vec<ViewTag>,
             cursor: Option<Vec<u8>>,
             limit: Option<u32>,
+            config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_tags(self, tags, cursor, limit)
+            Rpc::get_shielded_transactions_by_tags(self, tags, cursor, limit, config)
         }
     }
 
@@ -932,6 +982,7 @@ mod tests {
             &[[1u8; 32]],
             &mut out,
             SyncWalletConfig::default(),
+            None,
         )
         .expect("skip plaintext row");
 
@@ -955,6 +1006,7 @@ mod tests {
             &[keypair.recipient_bootstrap_view_tag()],
             &mut out,
             SyncWalletConfig::default(),
+            None,
         )
         .expect("decode proofless payload");
 
@@ -1072,6 +1124,7 @@ mod tests {
             &[keypair.recipient_bootstrap_view_tag()],
             &mut out,
             SyncWalletConfig::default(),
+            None,
         )
         .expect("skip encrypted row");
 

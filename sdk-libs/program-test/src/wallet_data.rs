@@ -34,7 +34,7 @@ impl ZolanaProgramTest {
             view_tag: [0u8; 32],
             owner,
             blinding,
-            public_amount: Some(lamports),
+            amount: lamports,
             utxo_data: None,
             memo: None,
         }
@@ -49,7 +49,7 @@ impl ZolanaProgramTest {
             view_tag: [0u8; 32],
             owner,
             blinding,
-            public_amount: Some(amount),
+            amount,
             utxo_data: None,
             memo: None,
         }
@@ -66,7 +66,7 @@ impl ZolanaProgramTest {
             view_tag: fields.view_tag,
             owner: fields.owner,
             blinding: fields.blinding,
-            public_amount: Some(lamports),
+            amount: lamports,
             utxo_data: None,
             memo: None,
         })
@@ -83,7 +83,7 @@ impl ZolanaProgramTest {
             view_tag: fields.view_tag,
             owner: fields.owner,
             blinding: fields.blinding,
-            public_amount: Some(amount),
+            amount,
             utxo_data: None,
             memo: None,
         })
