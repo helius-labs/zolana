@@ -16,10 +16,6 @@ use zolana_test_utils::{
     smart_account::{self, StandardSigners},
 };
 
-pub const DEPOSIT_AMOUNT: u64 = 1_000_000_000;
-pub const TRANSFER_AMOUNT: u64 = 300_000_000;
-pub const WITHDRAW_AMOUNT: u64 = 300_000_000;
-
 pub struct SetupContext {
     pub rpc_url: String,
     pub indexer_url: String,
