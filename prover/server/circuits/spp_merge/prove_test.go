@@ -254,7 +254,9 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			pubUtxoRoots[i] = stateRoot
 			pubNfRoots[i] = nfRoot
 		} else {
-			pubNullifiers[i] = big.NewInt(int64(1000 + i)) // dummy nullifier, unpinned
+			// Dummy nullifier is now pinned to its derivation (C-02); a distinct
+			// blinding per slot keeps the derived values pairwise-distinct.
+			pubNullifiers[i] = mustDummyMergeNullifier(t, i, nullifierSecret)
 			pubUtxoRoots[i] = stateRoot
 			pubNfRoots[i] = nfRoot
 		}
@@ -306,16 +308,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			in.Nullifier = nullifiers[i]
 		} else {
 			in.IsDummy = 1
-			in.Utxo = utxoFields(protocol.Utxo{
-				Domain:        big.NewInt(0),
-				Owner:         big.NewInt(0),
-				Asset:         big.NewInt(0),
-				Amount:        big.NewInt(0),
-				Blinding:      big.NewInt(0),
-				DataHash:      big.NewInt(0),
-				ZoneDataHash:  big.NewInt(0),
-				ZoneProgramID: big.NewInt(0),
-			})
+			in.Utxo = utxoFields(dummyMergeUtxo(i))
 			zeroPath(in.StatePathElements)
 			in.StatePathIndex = big.NewInt(0)
 			in.NullifierLowValue = big.NewInt(0)
@@ -476,6 +469,37 @@ func hashChain(t *testing.T, in []*big.Int) *big.Int {
 		t.Fatal(err)
 	}
 	return h
+}
+
+// dummyMergeUtxo is an inert padding UTXO. Its blinding is distinct per slot so
+// the (now pinned, C-02) derived nullifiers stay pairwise-distinct.
+func dummyMergeUtxo(i int) protocol.Utxo {
+	return protocol.Utxo{
+		Domain:        big.NewInt(0),
+		Owner:         big.NewInt(0),
+		Asset:         big.NewInt(0),
+		Amount:        big.NewInt(0),
+		Blinding:      big.NewInt(int64(1000 + i)),
+		DataHash:      big.NewInt(0),
+		ZoneDataHash:  big.NewInt(0),
+		ZoneProgramID: big.NewInt(0),
+	}
+}
+
+// mustDummyMergeNullifier is the pinned nullifier for dummy slot i: the padding
+// UTXO's derivation under the wallet's shared nullifier secret.
+func mustDummyMergeNullifier(t *testing.T, i int, secret *big.Int) *big.Int {
+	t.Helper()
+	u := dummyMergeUtxo(i)
+	h, err := protocol.UtxoHash(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nf, err := protocol.Nullifier(h, u.Blinding, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return nf
 }
 
 func utxoFields(u protocol.Utxo) transaction.UtxoCircuitFields {

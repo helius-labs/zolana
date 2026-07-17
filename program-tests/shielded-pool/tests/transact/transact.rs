@@ -33,10 +33,10 @@ use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
-    prove_and_verify_transfer, public_input_hash, set_output_owner_tags, start_prover,
-    TransferProverInputsArgs,
+    build_transfer_prover_inputs, derived_dummy_nullifier, dummy_input, dummy_transfer_output,
+    eddsa_input_utxo, external_data_hash, inline_outputs, new_transact_ix_data,
+    output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, set_output_owner_tags,
+    start_prover, TransferProverInputsArgs,
 };
 
 /// The (utxo, nullifier) tree roots at history index 0, exactly as the program
@@ -82,9 +82,14 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
     let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];
 
-    // Two circuit-dummy inputs with distinct non-zero nullifiers (the program
-    // inserts both into the nullifier tree; zeros or duplicates are rejected).
-    let nullifiers = [fe(1), fe(2)];
+    // Two circuit-dummy inputs. A distinct blinding per slot gives distinct
+    // derived (pinned) nullifiers; the program inserts both into the nullifier
+    // tree (zeros or duplicates are rejected).
+    let dummy_blindings: [[u8; 31]; 2] = [[1u8; 31], [2u8; 31]];
+    let nullifiers = [
+        derived_dummy_nullifier(&dummy_blindings[0]),
+        derived_dummy_nullifier(&dummy_blindings[1]),
+    ];
 
     // Three dummy outputs with distinct blindings. Each has a real `utxo_hash` that
     // the program appends to the tree and the proof commits via the public output
@@ -148,8 +153,8 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
 
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
-            dummy_input(&nullifiers[0], roots, &owner_hash),
-            dummy_input(&nullifiers[1], roots, &owner_hash),
+            dummy_input(&dummy_blindings[0], roots, &owner_hash),
+            dummy_input(&dummy_blindings[1], roots, &owner_hash),
         ],
         outputs,
         external_data_hash,

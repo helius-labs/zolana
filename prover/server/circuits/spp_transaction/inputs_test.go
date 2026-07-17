@@ -286,18 +286,20 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 		spptest.Fe(0),
 	)
 
-	// Turn input[0] into an inert dummy slot: IsDummy=1 with zero amount (the
-	// only pinned field). The public columns are zeroed to match the on-chain
-	// zero-padded reconstruction; the remaining witness fields are gated on
-	// notDummy and so are ignored.
+	// Turn input[0] into an inert padding slot: IsDummy=1, zero amount/owner. The
+	// owner/root columns stay free (gated on notDummy / spendOrAddress); the
+	// nullifier is now pinned, so it must be the derived value under secret 0, not
+	// a free column (C-02).
 	in := &assignment.Inputs[0]
 	in.IsDummy = spptest.Fe(1)
 	in.Utxo.Amount = spptest.Fe(0)
 	in.Utxo.Owner = spptest.Fe(0)
+	in.Utxo.Blinding = spptest.Fe(0)
 	in.UtxoTreeRoot = spptest.Fe(0)
 	in.NullifierTreeRoot = spptest.Fe(0)
-	in.Nullifier = spptest.Fe(0)
 	in.OwnerPkHash = spptest.Fe(0)
+	in.NullifierSecret = spptest.Fe(0)
+	in.Nullifier = addressNullifier(t, in.Utxo, big.NewInt(0))
 
 	// The dummy contributes 0 to the private-tx-hash chain, so recompute it (and
 	// the derived P256 message hash) with the input hash zeroed, then refresh the
@@ -326,22 +328,32 @@ func TestDummyInputSlotSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, buildDummyInputShield(t, 125), test.WithCurves(ecc.BN254))
 }
 
-// A dummy slot's public columns are unpinned so dummies can mimic real slots
-// (arity hiding): a non-zero owner entry, nullifier, and roots on a dummy all
-// solve once the public input hash matches. The dummy stays inert -- the
-// amount pin and the notDummy gating keep it out of the balance and the
-// spend checks.
-func TestDummyInputAcceptsMimickedPublicColumns(t *testing.T) {
+// Arity hiding survives the C-02 pin for the columns that stay free: a dummy's
+// owner entry and roots can still mimic a real slot and solve, as long as the
+// nullifier is its derived value.
+func TestDummyInputAcceptsMimickedOwnerAndRoots(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].OwnerPkHash = testSolanaPkField(t)
-	assignment.Inputs[0].Nullifier = spptest.Fe(7)
 	assignment.Inputs[0].UtxoTreeRoot = spptest.Fe(8)
 	assignment.Inputs[0].NullifierTreeRoot = spptest.Fe(9)
 	refreshPublicInputHash(t, assignment)
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// C-02 regression: a padding slot's public nullifier is pinned to its derived
+// value, so a caller can no longer set it to an arbitrary value (a victim
+// nullifier or a reserved tree sentinel). Mimicking it must fail to solve.
+func TestDummyInputRejectsMimickedNullifier(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(Shape(shape))
+	assignment := buildDummyInputShield(t, 125)
+	assignment.Inputs[0].Nullifier = spptest.Fe(7)
+	refreshPublicInputHash(t, assignment)
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
 // TestDummyInputRejectsNonZeroAmount pins the dummy-slot inertness constraint

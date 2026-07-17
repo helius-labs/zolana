@@ -42,11 +42,12 @@ mod common;
 mod transact_common;
 
 use transact_common::{
-    build_transfer_prover_inputs, build_transfer_prover_inputs_spl, dummy_input,
-    dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe,
-    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-    prove_and_verify_transfer, public_input_hash, public_input_hash_spl, public_sol_field,
-    set_output_owner_tags, spend_input, start_prover, SpendInputArgs, TransferProverInputsArgs,
+    build_transfer_prover_inputs, build_transfer_prover_inputs_spl, derived_dummy_nullifier,
+    dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash,
+    external_data_hash_spl, inline_outputs, new_transact_ix_data, nullifier_tree,
+    output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_input_hash_spl,
+    public_sol_field, set_output_owner_tags, spend_input, start_prover, SpendInputArgs,
+    TransferProverInputsArgs,
 };
 
 const PLAIN_PROGRAM_PATH: &str = concat!(
@@ -359,7 +360,11 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];
 
-    let nullifiers = [fe(1), fe(2)];
+    let dummy_blindings: [[u8; 31]; 2] = [[1u8; 31], [2u8; 31]];
+    let nullifiers = [
+        derived_dummy_nullifier(&dummy_blindings[0]),
+        derived_dummy_nullifier(&dummy_blindings[1]),
+    ];
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
@@ -403,8 +408,8 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
-            dummy_input(&nullifiers[0], roots, &owner_hash),
-            dummy_input(&nullifiers[1], roots, &owner_hash),
+            dummy_input(&dummy_blindings[0], roots, &owner_hash),
+            dummy_input(&dummy_blindings[1], roots, &owner_hash),
         ],
         outputs,
         external_data_hash,
@@ -485,7 +490,8 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         .expect("non inclusion proof");
 
     let roots = (utxo_root, nullifier_root);
-    let dummy_nullifier = fe(2);
+    let dummy_blinding: [u8; 31] = [2u8; 31];
+    let dummy_nullifier = derived_dummy_nullifier(&dummy_blinding);
     let payer_spend_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -548,7 +554,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
             payer_spend_input,
-            dummy_input(&dummy_nullifier, roots, &owner_pk_hash),
+            dummy_input(&dummy_blinding, roots, &owner_pk_hash),
         ],
         outputs,
         external_data_hash,
@@ -651,7 +657,8 @@ fn bench_withdrawal_spl(
         .expect("non inclusion proof");
 
     let roots = (utxo_root, nullifier_root);
-    let dummy_nullifier = fe(2);
+    let dummy_blinding: [u8; 31] = [2u8; 31];
+    let dummy_nullifier = derived_dummy_nullifier(&dummy_blinding);
     let payer_spend_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -718,7 +725,7 @@ fn bench_withdrawal_spl(
         TransferProverInputsArgs {
             inputs: vec![
                 payer_spend_input,
-                dummy_input(&dummy_nullifier, roots, &owner_pk_hash),
+                dummy_input(&dummy_blinding, roots, &owner_pk_hash),
             ],
             outputs,
             external_data_hash,

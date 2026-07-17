@@ -22,7 +22,10 @@ use super::{
     event::{build_merge_event, MergeTreeWrite},
     verify::{pk_field, MergeOwnerBinding, MergeProof, MergeProofInputs},
 };
-use crate::instructions::{event::emit_general_event, shared::check_not_expired};
+use crate::instructions::{
+    event::emit_general_event,
+    shared::{check_not_expired, reject_reserved_nullifier},
+};
 
 #[inline(never)]
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
@@ -143,6 +146,7 @@ fn apply_tree(
         *derived.nullifier_tree_roots.get_mut(i).ok_or(shape)? = tree
             .get_nullifier_tree_root(nullifier_root_index)
             .map_err(tree_error)?;
+        reject_reserved_nullifier(nullifier)?;
         tree.nullifer_tree()
             .insert_address_into_queue(nullifier, &current_slot)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;

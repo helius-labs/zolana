@@ -60,6 +60,10 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 
 	assertZeroWhen(api, in.IsDummy, in.Utxo.Amount)
 	assertZeroWhen(api, isPadding, in.Utxo.Owner)
+	// Padding uses secret 0, so its nullifier is a deterministic derivation (below),
+	// not a free public column an attacker could set to a victim nullifier or a
+	// reserved tree sentinel (C-02).
+	assertZeroWhen(api, isPadding, in.NullifierSecret)
 
 	assertZeroWhen(api, isAddress, in.Utxo.Blinding)
 	assertZeroWhen(api, isAddress, in.Utxo.Asset)
@@ -109,7 +113,12 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 		Blinding:        in.Utxo.Blinding,
 		NullifierSecret: in.NullifierSecret,
 	})
-	assertEqualWhen(api, spendOrAddress, nullifier, in.Nullifier)
+	// Pin every slot's public nullifier to the derived value. Real spends and
+	// address slots were already pinned via spendOrAddress; padding (its complement)
+	// was not, leaving its column free (C-02). Preimage resistance then makes the
+	// derived value unforgeable, so an on-chain reserved-value reject suffices for
+	// the tree sentinels.
+	api.AssertIsEqual(nullifier, in.Nullifier)
 
 	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).

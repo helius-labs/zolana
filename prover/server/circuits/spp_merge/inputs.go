@@ -17,8 +17,9 @@ func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecr
 	api.AssertIsBoolean(in.IsDummy)
 	notDummy := api.Sub(1, in.IsDummy)
 
-	// Dummy slots are inert (zero amount); their public columns stay unpinned so
-	// a dummy is indistinguishable from a real input and hides the real arity.
+	// Dummy slots are inert (zero amount); their public columns other than the
+	// pinned nullifier (below) stay free so a dummy is indistinguishable from a real
+	// input and hides the real arity.
 	assertZeroWhen(api, in.IsDummy, in.Utxo.Amount)
 	assertEqualWhen(api, notDummy, in.Utxo.Domain, UtxoDomain)
 
@@ -60,7 +61,11 @@ func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecr
 		Blinding:        in.Utxo.Blinding,
 		NullifierSecret: userNullifierSecret,
 	})
-	assertEqualWhen(api, notDummy, nullifier, in.Nullifier)
+	// Pin the public nullifier for every slot, including dummies. Leaving a dummy's
+	// column free (C-02) let a caller queue an arbitrary value (a victim nullifier
+	// or a reserved tree sentinel). The pinned value is still an opaque Poseidon
+	// output, so arity stays hidden; preimage resistance blocks forging a target.
+	api.AssertIsEqual(nullifier, in.Nullifier)
 
 	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
