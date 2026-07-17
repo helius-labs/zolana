@@ -39,7 +39,7 @@ fn now_unix_seconds() -> i64 {
         .unwrap_or(i64::MAX)
 }
 
-fn with_freshness<T>(
+fn wait_for_freshness<T>(
     config: Option<IndexerRpcConfig>,
     block_time: impl Fn(&T) -> i64,
     mut request: impl FnMut() -> Result<T, ClientError>,
@@ -66,7 +66,7 @@ fn with_freshness<T>(
     })
 }
 
-async fn with_freshness_async<T, F, Fut>(
+async fn wait_for_freshness_async<T, F, Fut>(
     config: Option<IndexerRpcConfig>,
     block_time: impl Fn(&T) -> i64,
     request: F,
@@ -193,7 +193,7 @@ impl Rpc for ZolanaIndexer {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        with_freshness(
+        wait_for_freshness(
             config,
             |response: &GetEncryptedUtxosByTagsResponse| response.context.block_time,
             || {
@@ -227,7 +227,7 @@ impl Rpc for ZolanaIndexer {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        with_freshness(
+        wait_for_freshness(
             config,
             |response: &GetShieldedTransactionsByTagsResponse| response.context.block_time,
             || {
@@ -278,7 +278,7 @@ impl Rpc for ZolanaIndexer {
         };
 
         if let Some(config) = config.filter(|config| config.wait_for_indexer) {
-            return with_freshness(
+            return wait_for_freshness(
                 Some(config),
                 |response: &GetMerkleProofsResponse| response.context.block_time,
                 single,
@@ -311,7 +311,7 @@ impl Rpc for ZolanaIndexer {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-        with_freshness(
+        wait_for_freshness(
             config,
             |response: &GetNonInclusionProofsResponse| response.context.block_time,
             || {
@@ -345,7 +345,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        with_freshness_async(
+        wait_for_freshness_async(
             config,
             |response: &GetEncryptedUtxosByTagsResponse| response.context.block_time,
             || async {
@@ -381,7 +381,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        with_freshness_async(
+        wait_for_freshness_async(
             config,
             |response: &GetShieldedTransactionsByTagsResponse| response.context.block_time,
             || async {
@@ -416,7 +416,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        with_freshness_async(
+        wait_for_freshness_async(
             config,
             |response: &GetMerkleProofsResponse| response.context.block_time,
             || async {
@@ -448,7 +448,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-        with_freshness_async(
+        wait_for_freshness_async(
             config,
             |response: &GetNonInclusionProofsResponse| response.context.block_time,
             || async {
