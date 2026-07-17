@@ -417,10 +417,14 @@ pub(super) fn write_json_secret<T: Serialize>(path: &Path, value: &T) -> Result<
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(true).write(true);
+    // Create the file 0600 up front so a secret is never briefly world-readable
+    // between open and chmod. `mode` applies only on creation, so still enforce
+    // 0600 afterwards for the overwrite-an-existing-file case.
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options
         .open(path)
         .with_context(|| format!("failed to write {}", path.display()))?;
     file.write_all(&serde_json::to_vec_pretty(value)?)?;
