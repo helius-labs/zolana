@@ -3,8 +3,8 @@
 //! owned by; [`PreparedMergeZone`] pads to [`MERGE_INPUTS`] and yields the input
 //! commitments to fetch Merkle proofs for. Like the default merge, the merge-zone
 //! proof proves ownership in-circuit from the nullifier secret, so there is no
-//! signing step. The only delta vs the default merge is that every input (and the
-//! merged output) is bound to a shared `zone_program_id`.
+//! signing step. Every input and the output share a `zone_program_id`; policy-data
+//! hashes remain in the witness and the zone selects the output policy-data hash.
 
 use p256::SecretKey;
 use solana_address::Address;
@@ -13,7 +13,7 @@ use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, Shield
 use crate::{
     error::TransactionError,
     instructions::{
-        merge::{has_data, MERGE_INPUTS},
+        merge::{has_utxo_data, MERGE_INPUTS},
         types::{InputUtxoContext, SppProofInputUtxo},
     },
     SppProofOutputUtxo,
@@ -34,13 +34,14 @@ pub struct MergeZone {
 }
 
 impl MergeZone {
-    /// Validate the inputs, derive the merged output bound to `zone_program_id`,
-    /// and bind the owner identity and a fresh ephemeral viewing scalar from the
-    /// keypair.
+    /// Validate the inputs, derive the merged output bound to `zone_program_id`
+    /// and `output_zone_data_hash`, and bind the owner identity and a fresh
+    /// ephemeral viewing scalar from the keypair.
     pub fn new<K: ShieldedKeypairTrait>(
         keypair: &K,
         inputs: Vec<SppProofInputUtxo>,
         zone_program_id: Address,
+        output_zone_data_hash: Option<[u8; 32]>,
     ) -> Result<Self, TransactionError> {
         if inputs.is_empty() {
             return Err(TransactionError::NoInputs);
@@ -55,9 +56,10 @@ impl MergeZone {
         let asset = inputs.first().ok_or(TransactionError::NoInputs)?.utxo.asset;
         // The proof binds every input to one shared owner identity, so the merge
         // rail is the owner's rail and every input must match it. It also proves
-        // ownership from one nullifier secret and never consumes program data, so
-        // every input must carry exactly the keypair's owner and nullifier key and
-        // attach no program/zone data.
+        // ownership from one nullifier secret and never consumes UTXO program data,
+        // so every input must carry exactly the keypair's owner and nullifier key.
+        // Policy-zone data is allowed because the calling zone authorizes its state
+        // transition before CPI and the merge-zone circuit commits every hash.
         let owner = keypair.signing_pubkey();
         let owner_rail = keypair.curve()?;
         let nullifier_pubkey = keypair.nullifier_key().pubkey()?;
@@ -80,7 +82,7 @@ impl MergeZone {
             if spend.utxo.zone_program_id != Some(zone_program_id) {
                 return Err(TransactionError::MergeInputZoneMismatch { index });
             }
-            if has_data(spend) {
+            if has_utxo_data(spend) {
                 return Err(TransactionError::MergeInputHasData { index });
             }
             total = total
@@ -89,8 +91,14 @@ impl MergeZone {
         }
 
         // The merged output preserves zone ownership.
-        let output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?
-            .with_zone_program_id(zone_program_id);
+        let output = match output_zone_data_hash {
+            Some(zone_data_hash) => {
+                SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?
+                    .with_zone_data_hash(zone_program_id, zone_data_hash)
+            }
+            None => SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?
+                .with_zone_program_id(zone_program_id),
+        };
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the
         // value is both a valid P-256 scalar and a valid circuit witness.
@@ -159,17 +167,15 @@ pub struct PreparedMergeZone {
 
 impl PreparedMergeZone {
     /// Commitments for the real inputs only; dummy padding has a zero owner and no
-    /// meaningful commitment to look up. Merge assembly only supports clean inputs,
-    /// so an input that committed to program or zone data is rejected.
+    /// meaningful commitment to look up. UTXO program data is not mergeable, while
+    /// policy-zone data remains part of each input commitment.
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         self.inputs
             .iter()
             .filter(|spend| !spend.is_dummy())
             .enumerate()
             .map(|(index, spend)| {
-                if spend.data_hash.unwrap_or_default() != [0u8; 32]
-                    || spend.zone_data_hash.unwrap_or_default() != [0u8; 32]
-                {
+                if has_utxo_data(spend) {
                     return Err(TransactionError::MergeInputHasData { index });
                 }
                 Ok(InputUtxoContext {
@@ -187,7 +193,7 @@ mod tests {
     use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair};
 
     use super::*;
-    use crate::{utxo::Utxo, Data};
+    use crate::{utxo::Utxo, Data, DataRecord};
 
     const ZONE: [u8; 32] = [3u8; 32];
 
@@ -209,7 +215,7 @@ mod tests {
         let zone = Address::new_from_array(ZONE);
         let inputs = vec![zone_input(&keypair, 10), zone_input(&keypair, 20)];
 
-        let prepared = MergeZone::new(&keypair, inputs, zone)
+        let prepared = MergeZone::new(&keypair, inputs, zone, None)
             .expect("merge-zone plan")
             .prepare();
 
@@ -225,7 +231,7 @@ mod tests {
         let mut input = zone_input(&keypair, 10);
         input.utxo.zone_program_id = Some(Address::new_from_array([9u8; 32]));
 
-        let Err(error) = MergeZone::new(&keypair, vec![input], zone) else {
+        let Err(error) = MergeZone::new(&keypair, vec![input], zone, None) else {
             panic!("zone mismatch must be rejected");
         };
 
@@ -239,7 +245,7 @@ mod tests {
         let mut input = zone_input(&keypair, 10);
         input.utxo.zone_program_id = None;
 
-        let Err(error) = MergeZone::new(&keypair, vec![input], zone) else {
+        let Err(error) = MergeZone::new(&keypair, vec![input], zone, None) else {
             panic!("unbound input must be rejected");
         };
 
@@ -254,7 +260,7 @@ mod tests {
         let mut input = zone_input(&keypair, 10);
         input.utxo.owner = other.signing_pubkey();
 
-        let Err(error) = MergeZone::new(&keypair, vec![input], zone) else {
+        let Err(error) = MergeZone::new(&keypair, vec![input], zone, None) else {
             panic!("foreign owner must be rejected");
         };
 
@@ -279,7 +285,7 @@ mod tests {
         };
         let input = SppProofInputUtxo::new(utxo, &other);
 
-        let Err(error) = MergeZone::new(&keypair, vec![input], zone) else {
+        let Err(error) = MergeZone::new(&keypair, vec![input], zone, None) else {
             panic!("foreign nullifier key must be rejected");
         };
 
@@ -290,13 +296,36 @@ mod tests {
     }
 
     #[test]
-    fn rejects_input_carrying_a_committed_zone_data_hash() {
+    fn preserves_input_and_output_zone_data_hashes() {
         let keypair = ShieldedKeypair::new().expect("keypair");
         let zone = Address::new_from_array(ZONE);
-        let input = zone_input(&keypair, 10).with_zone_data_hash([1u8; 32]);
+        let input_zone_data_hash = [1u8; 32];
+        let output_zone_data_hash = [2u8; 32];
+        let input = zone_input(&keypair, 10).with_zone_data_hash(input_zone_data_hash);
+        let input_hash = input.hash().expect("input hash");
 
-        let Err(error) = MergeZone::new(&keypair, vec![input], zone) else {
-            panic!("committed zone data hash must be rejected");
+        let prepared = MergeZone::new(&keypair, vec![input], zone, Some(output_zone_data_hash))
+            .expect("zone data is authorized by the calling zone")
+            .prepare();
+
+        assert_eq!(prepared.output.zone_data_hash, Some(output_zone_data_hash));
+        let commitments = prepared.input_utxo_hashes().expect("input commitments");
+        assert_eq!(commitments.len(), 1);
+        assert_eq!(
+            commitments.first().expect("commitment").utxo_hash,
+            input_hash
+        );
+    }
+
+    #[test]
+    fn rejects_input_carrying_utxo_program_data() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let zone = Address::new_from_array(ZONE);
+        let mut input = zone_input(&keypair, 10);
+        input.utxo.data = Data::new(vec![DataRecord::UtxoData(vec![1])]);
+
+        let Err(error) = MergeZone::new(&keypair, vec![input], zone, None) else {
+            panic!("utxo program data must be rejected");
         };
 
         assert_eq!(error, TransactionError::MergeInputHasData { index: 0 });

@@ -176,6 +176,13 @@ mod tests {
     }
 
     #[test]
+    fn fixed_shape_wire_length_matches_the_protocol_contract() {
+        let bytes = data().serialize().expect("serialize merge instruction");
+
+        assert_eq!(bytes.len(), 380 + 36 * MERGE_INPUT_COUNT);
+    }
+
+    #[test]
     fn round_trips_eddsa_owner_flag() {
         let mut owned = data();
         owned.eddsa_owner = true;

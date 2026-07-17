@@ -291,7 +291,8 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             let SppProofInputUtxo {
                 utxo,
                 nullifier_key,
-                ..
+                data_hash,
+                zone_data_hash,
             } = spend;
             let proof = if utxo.owner.is_zero() {
                 None
@@ -306,8 +307,8 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             spends.push(TransferSpendInput {
                 utxo,
                 nullifier_key,
-                data_hash: None,
-                zone_data_hash: None,
+                data_hash,
+                zone_data_hash,
                 proof,
             });
         }

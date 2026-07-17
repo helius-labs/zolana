@@ -168,12 +168,19 @@ impl PreparedMerge {
 }
 
 /// Whether an input carries program or zone data: an external `data_hash`,
-/// `zone_data_hash`, or inline UTXO data. Merge and split consolidate only plain
-/// utxos, so any of these disqualifies the input. Option semantics: a `Some(_)`
-/// hash means "has data" regardless of the hash value (an all-zero hash still
-/// binds committed data).
+/// `zone_data_hash`, or inline UTXO data. Default-zone merge and split consolidate
+/// only plain utxos, so any of these disqualifies the input. Option semantics: a
+/// `Some(_)` hash means "has data" regardless of the hash value (an all-zero hash
+/// still binds committed data).
 pub(crate) fn has_data(spend: &SppProofInputUtxo) -> bool {
     spend.data_hash.is_some() || spend.zone_data_hash.is_some() || !spend.utxo.data.is_empty()
+}
+
+/// Whether an input carries program-controlled UTXO data. Policy-zone merges may
+/// consume `zone_data_hash` values after the zone has authorized their transition,
+/// but `utxo_data` remains owner/program controlled and is never mergeable.
+pub(crate) fn has_utxo_data(spend: &SppProofInputUtxo) -> bool {
+    spend.data_hash.is_some() || spend.utxo.data.utxo_data().is_some()
 }
 
 #[cfg(test)]

@@ -26,13 +26,11 @@ use crate::{
     AssetRegistry,
 };
 
-/// A split is a 1-input -> N-output self-transfer of a single asset into N
-/// equal utxos (`N` in `2..=8`). It always fills the `IN1_OUT8` shape: the `N`
-/// real self-owned outputs occupy slots `0..N`, and `8 - N` zero-value dummies
-/// pad the tail so the padded balance still sums to the input. All `N` real
-/// outputs are encoded in a single `Split` bundle ciphertext published at slot
-/// 0; the remaining real slots and every dummy slot carry no ciphertext of
-/// their own (`data == None`), so the bundle at slot 0 covers them.
+/// A split is a 1-input -> 8-output self-transfer of a single asset. The requested
+/// `N` (`2..=8`) value-bearing outputs are equal; the remaining `8 - N` slots are
+/// owner-bound zero-value self outputs, not dummies, so output tags do not reveal
+/// `N`. A single `Split` bundle ciphertext at slot 0 reconstructs the first `N`
+/// outputs; all other slots carry no ciphertext of their own (`data == None`).
 pub struct ConfidentialSplit {
     pub owner: ShieldedAddress,
     pub input: SppProofInputUtxo,
@@ -209,10 +207,8 @@ impl PreparedSplit {
     }
 
     /// Assemble [`SppProofInputs`] from the sealed slot-0 `bundle`. Slot 0
-    /// publishes the single bundle ciphertext; the other real slots and every
-    /// dummy slot are covered (`data == None`). Resolved owner tags pair 1:1
-    /// with the outputs: the real slots share the owner view tag, and each dummy
-    /// keeps its own random tag.
+    /// publishes the single bundle ciphertext; every other value-bearing or zero
+    /// pad slot is covered (`data == None`).
     ///
     /// Every slot is a real self-output carrying the owner's view tag, so all 8
     /// published tags are identical: the N value-bearing outputs and the (8 - N)

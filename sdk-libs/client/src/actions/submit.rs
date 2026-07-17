@@ -94,12 +94,8 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         prepared,
     } = request;
 
-    // A merge proof is only valid for the tree its input Merkle proofs were fetched
-    // against. `get_input_merkle_proofs` resolves them on the indexer's configured
-    // tree, so reject a submit `tree` that diverges before paying for a proof that
-    // could never verify against the tree the ix targets.
+    // Bind the proof request to the same tree targeted by the instruction.
     let submit_tree = Address::new_from_array(tree.to_bytes());
-    ensure_proof_tree_matches_submit_tree(indexer.configured_tree(), submit_tree)?;
 
     let record = fetch_user_record_checked(rpc, owner)?;
     validate_merge_submission(&record, owner, material)?;
@@ -107,7 +103,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
     // Real-input commitments -> per-input spend proofs (state inclusion + nullifier
     // non-inclusion), fetched before `prepared` is folded into the witness.
     let commitments = prepared.input_utxo_hashes()?;
-    let proofs = indexer.get_input_merkle_proofs(&commitments, None)?;
+    let proofs = indexer.get_input_merkle_proofs(submit_tree, &commitments, None)?;
 
     let result = MergeProver::try_from(MergeWitness {
         prepared,
@@ -141,24 +137,6 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         signature,
         output_hash: result.output_hash,
     })
-}
-
-/// Reject a submit whose ix `tree` differs from the tree the indexer resolves
-/// input Merkle proofs against. `None` means the backend has no fixed tree, so
-/// there is nothing to bind against and the submit proceeds.
-fn ensure_proof_tree_matches_submit_tree(
-    proof_tree: Option<Address>,
-    submit_tree: Address,
-) -> Result<(), ClientError> {
-    if let Some(proof_tree) = proof_tree {
-        if proof_tree != submit_tree {
-            return Err(ClientError::MergeTreeMismatch {
-                proof_tree: proof_tree.to_bytes(),
-                submit_tree: submit_tree.to_bytes(),
-            });
-        }
-    }
-    Ok(())
 }
 
 /// Check the owner opted into merging and that the submitted material is the
@@ -291,29 +269,5 @@ mod tests {
                 .expect_err("signing rail mismatch");
 
         assert!(matches!(error, ClientError::MergeSigningKeyMismatch));
-    }
-
-    #[test]
-    fn submit_rejects_a_proof_tree_that_differs_from_the_submit_tree() {
-        let proof_tree = Address::new_from_array([1u8; 32]);
-        let submit_tree = Address::new_from_array([2u8; 32]);
-
-        let error = ensure_proof_tree_matches_submit_tree(Some(proof_tree), submit_tree)
-            .expect_err("a diverging proof tree must be rejected");
-
-        assert!(matches!(
-            error,
-            ClientError::MergeTreeMismatch { proof_tree: got_proof, submit_tree: got_submit }
-                if got_proof == proof_tree.to_bytes() && got_submit == submit_tree.to_bytes()
-        ));
-    }
-
-    #[test]
-    fn submit_accepts_a_matching_or_unknown_proof_tree() {
-        let tree = Address::new_from_array([3u8; 32]);
-
-        ensure_proof_tree_matches_submit_tree(Some(tree), tree).expect("matching trees");
-        // A backend with no fixed tree has nothing to bind against.
-        ensure_proof_tree_matches_submit_tree(None, tree).expect("unknown proof tree is allowed");
     }
 }
