@@ -54,7 +54,7 @@ const (
 	// has no `gh` CLI. The tag is overridable via PROVING_KEYS_RELEASE_TAG so key
 	// rotations don't require a prover rebuild.
 	ProvingKeysRepo             = "helius-labs/zolana"
-	ProvingKeysReleaseTag       = "transfer-keys-v10"
+	ProvingKeysReleaseTag       = "transfer-keys-v12"
 	provingKeysReleaseTagEnvVar = "PROVING_KEYS_RELEASE_TAG"
 )
 

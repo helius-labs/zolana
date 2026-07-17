@@ -101,7 +101,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.0.2
-      # The spawned prover lazily fetches proving keys from the transfer-keys-v10
+      # The spawned prover lazily fetches proving keys from the transfer-keys-v12
       # release via the GitHub REST API using GH_TOKEN.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -124,7 +124,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v10
+          key: proving-keys-transfer-keys-v12
       - run: just test-shielded-pool
 
   test-sdk-libs:
@@ -144,7 +144,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.0.2
-      # The spawned prover lazily fetches proving keys from the transfer-keys-v10
+      # The spawned prover lazily fetches proving keys from the transfer-keys-v12
       # release via the GitHub REST API using GH_TOKEN.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -167,7 +167,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v10
+          key: proving-keys-transfer-keys-v12
       - run: just test-programs
 
   build-photon:
@@ -234,7 +234,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v10
+          key: proving-keys-transfer-keys-v12
       - name: Download workspace Photon
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -288,7 +288,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
-      # The spawned prover lazily fetches proving keys from the transfer-keys-v10
+      # The spawned prover lazily fetches proving keys from the transfer-keys-v12
       # release via the GitHub REST API using GH_TOKEN.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -308,5 +308,5 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v10
+          key: proving-keys-transfer-keys-v12
       - run: just test-client-integration
