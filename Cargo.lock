@@ -1490,11 +1490,9 @@ name = "client-example"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "solana-address 2.6.1",
  "solana-compute-budget-interface",
  "solana-keypair",
  "solana-pubkey 4.2.0",
- "solana-signature 3.4.1",
  "solana-signer",
  "zolana-client",
  "zolana-interface",

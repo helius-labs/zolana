@@ -35,6 +35,9 @@ pub async fn extract_slot(conn: &DatabaseConnection) -> Result<u64, PhotonApiErr
         .await?
         .ok_or_else(|| PhotonApiError::RecordNotFound("No data has been indexed".to_string()))?;
     u64::try_from(model.slot).map_err(|_| {
-        PhotonApiError::UnexpectedError(format!("Invalid negative slot in database: {}", model.slot))
+        PhotonApiError::UnexpectedError(format!(
+            "Invalid negative slot in database: {}",
+            model.slot
+        ))
     })
 }

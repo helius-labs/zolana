@@ -157,8 +157,12 @@ pub fn wait_for_indexed_utxo<I: Rpc>(
     wait_for(&label, || {
         let mut cursor = None;
         loop {
-            let response =
-                indexer.get_encrypted_utxos_by_tags(vec![tag], cursor, Some(TAG_PAGE_LIMIT), None)?;
+            let response = indexer.get_encrypted_utxos_by_tags(
+                vec![tag],
+                cursor,
+                Some(TAG_PAGE_LIMIT),
+                None,
+            )?;
             if let Some(item) = response
                 .matches
                 .into_iter()

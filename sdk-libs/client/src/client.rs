@@ -28,11 +28,11 @@ use crate::{
     actions::SignedPrivateTransaction,
     error::ClientError,
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
-    retry::{IndexerPollConfig, IndexerRpcConfig},
     prover::{
         transact::witness::{assemble, ProverInputs, SpendProof},
         AsyncProverClient, ProofCompressed, ProverClient,
     },
+    retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, ProveResult, Rpc,
@@ -44,7 +44,6 @@ use crate::{
 /// caller overrides it. A shielded `Transact` verifies a Groth16 proof on-chain,
 /// which does not fit inside the default per-instruction budget.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 1_400_000;
-
 
 /// Unified client for private transaction proving and submission helpers.
 ///
@@ -496,7 +495,11 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         self.async_indexer
-            .get_merkle_proofs(tree_account, leaves, Some(config.unwrap_or(self.indexer_config)))
+            .get_merkle_proofs(
+                tree_account,
+                leaves,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
             .await
     }
 

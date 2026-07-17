@@ -283,7 +283,11 @@ fn make_and_take_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("confirm take indexed: {e:?}"))?;
 
         indexer
-            .get_merkle_proofs(tree, vec![source_output_hash, destination_output_hash], None)
+            .get_merkle_proofs(
+                tree,
+                vec![source_output_hash, destination_output_hash],
+                None,
+            )
             .map_err(|e| anyhow!("take outputs index: {e}"))?;
     }
     Ok(())

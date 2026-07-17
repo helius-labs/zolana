@@ -49,7 +49,6 @@ pub use actions::{
 #[cfg(feature = "indexer-api")]
 pub use client::{confirm_private_transaction_sync, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
 pub use error::ClientError;
-pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{
@@ -66,6 +65,7 @@ pub use prover::{
     ZoneTransferP256ProofResult, ZoneTransferP256Prover, ZoneTransferProofResult,
     ZoneTransferProver, SPP_SUPPORTED_SHAPES,
 };
+pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse,

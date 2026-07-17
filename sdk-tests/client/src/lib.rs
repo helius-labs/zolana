@@ -63,7 +63,10 @@ pub fn setup() -> Result<SetupContext> {
 
     std::env::set_var(
         "ZOLANA_PROVER_KEYS_DIR",
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../prover/server/proving-keys"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../prover/server/proving-keys"
+        ),
     );
     spawn_prover()?;
 
@@ -71,8 +74,8 @@ pub fn setup() -> Result<SetupContext> {
         .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
     let indexer_url =
         std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| "http://127.0.0.1:8784".to_string());
-    let prover_url = std::env::var("ZOLANA_PROVER_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
+    let prover_url =
+        std::env::var("ZOLANA_PROVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
 
     let mut rpc = SolanaRpc::new(rpc_url.clone());
 

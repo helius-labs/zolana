@@ -361,7 +361,9 @@ impl SyncWalletAuthority for ShieldedKeypair {
         outputs: &[SppProofOutputUtxo],
         assets: &AssetRegistry,
     ) -> Result<EncryptedTransfer, TransactionError> {
-        let tx = self.viewing_key.get_transaction_viewing_key(first_nullifier)?;
+        let tx = self
+            .viewing_key
+            .get_transaction_viewing_key(first_nullifier)?;
         let salt = random_salt();
         let slots = encode_confidential_slots(outputs, assets, &tx, salt)?;
         Ok(EncryptedTransfer {
@@ -378,7 +380,9 @@ impl SyncWalletAuthority for ShieldedKeypair {
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError> {
-        let tx = self.viewing_key.get_transaction_viewing_key(first_nullifier)?;
+        let tx = self
+            .viewing_key
+            .get_transaction_viewing_key(first_nullifier)?;
         let salt = random_salt();
         let self_pubkey = self.viewing_key.pubkey();
 

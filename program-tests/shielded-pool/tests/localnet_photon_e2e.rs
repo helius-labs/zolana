@@ -235,12 +235,11 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let extra_nullifier_a = fe(90);
     let extra_nullifier_b = fe(91);
     let batched_non_inclusion = wait_for("batched indexed non-inclusion proofs", || {
-        let response = indexer
-            .get_non_inclusion_proofs(
-                tree_address,
-                vec![extra_nullifier_a, extra_nullifier_b],
-                None,
-            )?;
+        let response = indexer.get_non_inclusion_proofs(
+            tree_address,
+            vec![extra_nullifier_a, extra_nullifier_b],
+            None,
+        )?;
         if response.proofs.len() == 2 {
             Ok(Some(response.proofs))
         } else {
@@ -1153,12 +1152,11 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             let fresh_proof = wait_for(
                 format!("Photon nullifier root after batch {batch_index}"),
                 || {
-                    let response =
-                        indexer.get_non_inclusion_proofs(
-                            tree_address,
-                            vec![fresh_nullifier],
-                            None,
-                        )?;
+                    let response = indexer.get_non_inclusion_proofs(
+                        tree_address,
+                        vec![fresh_nullifier],
+                        None,
+                    )?;
                     Ok(response.proofs.into_iter().next().filter(|proof| {
                         proof.root == after_forester.nullifier_root
                             && proof.root_index == after_forester.nullifier_root_index
@@ -1178,13 +1176,11 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
     for nullifier_index in [0, queued_nullifiers.len() / 2, queued_nullifiers.len() - 1] {
         wait_for(
             format!("forested nullifier {nullifier_index} rejected"),
-            || match indexer
-                .get_non_inclusion_proofs(
-                    tree_address,
-                    vec![queued_nullifiers[nullifier_index]],
-                    None,
-                )
-            {
+            || match indexer.get_non_inclusion_proofs(
+                tree_address,
+                vec![queued_nullifiers[nullifier_index]],
+                None,
+            ) {
                 Ok(response) if response.proofs.is_empty() => Ok(Some(())),
                 Ok(_) => Ok(None),
                 Err(_) => Ok(Some(())),
@@ -1392,7 +1388,8 @@ fn wait_for_indexed_transaction(
     signature: Signature,
 ) -> TestResult<ShieldedTransaction> {
     wait_for("indexed transaction", || {
-        let response = indexer.get_shielded_transactions_by_tags(vec![tag], None, Some(100), None)?;
+        let response =
+            indexer.get_shielded_transactions_by_tags(vec![tag], None, Some(100), None)?;
         Ok(response
             .transactions
             .into_iter()

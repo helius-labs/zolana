@@ -345,28 +345,32 @@ impl AsyncRpc for AsyncZolanaIndexer {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        with_freshness_async(config, |response: &GetEncryptedUtxosByTagsResponse| response.context.block_time, || async {
-            let response = self
-                .api
-                .get_encrypted_utxos_by_tags(
-                    tags.iter().copied().map(encode_hash).collect(),
-                    encode_cursor(cursor.clone()),
-                    limit.map(u64::from),
-                )
-                .await
-                .map_err(indexer_error)?;
+        with_freshness_async(
+            config,
+            |response: &GetEncryptedUtxosByTagsResponse| response.context.block_time,
+            || async {
+                let response = self
+                    .api
+                    .get_encrypted_utxos_by_tags(
+                        tags.iter().copied().map(encode_hash).collect(),
+                        encode_cursor(cursor.clone()),
+                        limit.map(u64::from),
+                    )
+                    .await
+                    .map_err(indexer_error)?;
 
-            Ok(GetEncryptedUtxosByTagsResponse {
-                context: convert_context(response.context),
-                matches: response
-                    .matches
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, item)| convert_encrypted_utxo_match(index, item))
-                    .collect::<Result<Vec<_>, _>>()?,
-                next_cursor: response.next_cursor.map(Into::into),
-            })
-        })
+                Ok(GetEncryptedUtxosByTagsResponse {
+                    context: convert_context(response.context),
+                    matches: response
+                        .matches
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, item)| convert_encrypted_utxo_match(index, item))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    next_cursor: response.next_cursor.map(Into::into),
+                })
+            },
+        )
         .await
     }
 
@@ -377,28 +381,32 @@ impl AsyncRpc for AsyncZolanaIndexer {
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        with_freshness_async(config, |response: &GetShieldedTransactionsByTagsResponse| response.context.block_time, || async {
-            let response = self
-                .api
-                .get_shielded_transactions_by_tags(
-                    tags.iter().copied().map(encode_hash).collect(),
-                    encode_cursor(cursor.clone()),
-                    limit.map(u64::from),
-                )
-                .await
-                .map_err(indexer_error)?;
+        with_freshness_async(
+            config,
+            |response: &GetShieldedTransactionsByTagsResponse| response.context.block_time,
+            || async {
+                let response = self
+                    .api
+                    .get_shielded_transactions_by_tags(
+                        tags.iter().copied().map(encode_hash).collect(),
+                        encode_cursor(cursor.clone()),
+                        limit.map(u64::from),
+                    )
+                    .await
+                    .map_err(indexer_error)?;
 
-            Ok(GetShieldedTransactionsByTagsResponse {
-                context: convert_context(response.context),
-                transactions: response
-                    .transactions
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, item)| convert_shielded_transaction(index, item))
-                    .collect::<Result<Vec<_>, _>>()?,
-                next_cursor: response.next_cursor.map(Into::into),
-            })
-        })
+                Ok(GetShieldedTransactionsByTagsResponse {
+                    context: convert_context(response.context),
+                    transactions: response
+                        .transactions
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, item)| convert_shielded_transaction(index, item))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    next_cursor: response.next_cursor.map(Into::into),
+                })
+            },
+        )
         .await
     }
 
@@ -408,25 +416,29 @@ impl AsyncRpc for AsyncZolanaIndexer {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        with_freshness_async(config, |response: &GetMerkleProofsResponse| response.context.block_time, || async {
-            let response = self
-                .api
-                .get_merkle_proofs(
-                    encode_pubkey(tree_account),
-                    leaves.iter().copied().map(encode_hash).collect(),
-                )
-                .await
-                .map_err(indexer_error)?;
+        with_freshness_async(
+            config,
+            |response: &GetMerkleProofsResponse| response.context.block_time,
+            || async {
+                let response = self
+                    .api
+                    .get_merkle_proofs(
+                        encode_pubkey(tree_account),
+                        leaves.iter().copied().map(encode_hash).collect(),
+                    )
+                    .await
+                    .map_err(indexer_error)?;
 
-            Ok(GetMerkleProofsResponse {
-                context: convert_context(response.context),
-                proofs: response
-                    .proofs
-                    .into_iter()
-                    .map(convert_merkle_proof)
-                    .collect(),
-            })
-        })
+                Ok(GetMerkleProofsResponse {
+                    context: convert_context(response.context),
+                    proofs: response
+                        .proofs
+                        .into_iter()
+                        .map(convert_merkle_proof)
+                        .collect(),
+                })
+            },
+        )
         .await
     }
 
@@ -436,25 +448,29 @@ impl AsyncRpc for AsyncZolanaIndexer {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-        with_freshness_async(config, |response: &GetNonInclusionProofsResponse| response.context.block_time, || async {
-            let response = self
-                .api
-                .get_non_inclusion_proofs(
-                    encode_pubkey(tree_account),
-                    leaves.iter().copied().map(encode_hash).collect(),
-                )
-                .await
-                .map_err(indexer_error)?;
+        with_freshness_async(
+            config,
+            |response: &GetNonInclusionProofsResponse| response.context.block_time,
+            || async {
+                let response = self
+                    .api
+                    .get_non_inclusion_proofs(
+                        encode_pubkey(tree_account),
+                        leaves.iter().copied().map(encode_hash).collect(),
+                    )
+                    .await
+                    .map_err(indexer_error)?;
 
-            Ok(GetNonInclusionProofsResponse {
-                context: convert_context(response.context),
-                proofs: response
-                    .proofs
-                    .into_iter()
-                    .map(convert_non_inclusion_proof)
-                    .collect(),
-            })
-        })
+                Ok(GetNonInclusionProofsResponse {
+                    context: convert_context(response.context),
+                    proofs: response
+                        .proofs
+                        .into_iter()
+                        .map(convert_non_inclusion_proof)
+                        .collect(),
+                })
+            },
+        )
         .await
     }
 }
