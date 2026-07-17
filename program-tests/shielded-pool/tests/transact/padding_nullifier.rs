@@ -4,6 +4,12 @@
 //! pin that also blocks arbitrary (non-sentinel) victim nullifiers is covered by
 //! `spp_transaction/inputs_test.go::TestDummyInputRejectsMimickedNullifier`.
 //!
+//! This drives the `transact` path. The `merge` and `merge_zone` paths share the
+//! same guard: every queue insertion in the program routes through the private
+//! `shared::queue_nullifier` chokepoint (rejects reserved values, then inserts),
+//! so the caller-chosen `merge_view_tag` -- unbound to the proof, and the one
+//! value pinning the padding nullifiers does not cover -- passes the same reject.
+//!
 //! Requires `cargo build-sbf -p shielded-pool-program`; skips when `.so` missing.
 
 #[path = "../common/setup.rs"]

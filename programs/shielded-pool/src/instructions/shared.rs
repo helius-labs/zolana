@@ -6,6 +6,7 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use zolana_interface::error::ShieldedPoolError;
+use zolana_tree::TreeAccount;
 
 /// Reject a transaction whose `expiry_unix_ts` has passed (or a negative clock).
 /// Shared by every instruction that carries an `expiry_unix_ts`.
@@ -58,15 +59,32 @@ const fn sub_one_be(mut be: [u8; 32]) -> [u8; 32] {
 
 /// Reject nullifiers the indexed nullifier tree can never append: the low sentinel
 /// `0`, the high sentinel `p-1`, and non-canonical values (`>= p`). Queuing one
-/// wedges the forester batch and halts every spend; this guards the queue behind
-/// the circuit's padding-nullifier constraint (a padding slot must not smuggle a
-/// reserved value into the queue).
+/// wedges the forester batch and halts every spend. Private on purpose: the reject
+/// is only sound paired with the insert, so [`queue_nullifier`] is the one caller.
 #[inline(always)]
-pub fn reject_reserved_nullifier(nullifier: &[u8; 32]) -> ProgramResult {
+fn reject_reserved_nullifier(nullifier: &[u8; 32]) -> ProgramResult {
     if *nullifier == [0u8; 32] || *nullifier == MODULUS_MINUS_ONE_BE || *nullifier >= MODULUS_BE {
         return Err(ShieldedPoolError::ReservedNullifier.into());
     }
     Ok(())
+}
+
+/// The one sanctioned path from a program value into a tree's nullifier queue:
+/// reject reserved values, then insert. Routing every insertion through here is
+/// what makes the guard un-forgettable — a real input nullifier is already an
+/// opaque Poseidon output (the circuit pins it), but the `merge_view_tag` shares
+/// this queue for its duplicate check and is caller-chosen and unconstrained, so
+/// it is the value that actually needs the sentinel reject.
+#[inline(always)]
+pub fn queue_nullifier(
+    tree: &mut TreeAccount<'_>,
+    nullifier: &[u8; 32],
+    current_slot: &u64,
+) -> ProgramResult {
+    reject_reserved_nullifier(nullifier)?;
+    tree.nullifer_tree()
+        .insert_address_into_queue(nullifier, current_slot)
+        .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed.into())
 }
 
 #[cfg(test)]

@@ -24,7 +24,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
-    shared::{check_not_expired, reject_reserved_nullifier},
+    shared::{check_not_expired, queue_nullifier},
 };
 
 #[inline(never)]
@@ -146,10 +146,7 @@ fn apply_tree(
         *derived.nullifier_tree_roots.get_mut(i).ok_or(shape)? = tree
             .get_nullifier_tree_root(nullifier_root_index)
             .map_err(tree_error)?;
-        reject_reserved_nullifier(nullifier)?;
-        tree.nullifer_tree()
-            .insert_address_into_queue(nullifier, &current_slot)
-            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
+        queue_nullifier(tree, nullifier, &current_slot)?;
         inputs.push(Input {
             tree: output_tree,
             input_queue_seq: nullifier_seq_base + i as u64,
@@ -159,10 +156,11 @@ fn apply_tree(
 
     // `merge_zone` indexes the output by a single-use `merge_view_tag`; insert it
     // into the nullifier queue so a duplicate tag is rejected (replay protection).
+    // It is caller-chosen and unbound to the proof, so it must pass the same
+    // reserved-value reject as a real nullifier or it would be the way to wedge the
+    // queue that pinning the padding nullifiers otherwise closes off (C-02).
     if let Some(tag) = single_use_tag {
-        tree.nullifer_tree()
-            .insert_address_into_queue(&tag, &current_slot)
-            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
+        queue_nullifier(tree, &tag, &current_slot)?;
     }
 
     let output_leaf_index = tree.utxo_tree().next_index();

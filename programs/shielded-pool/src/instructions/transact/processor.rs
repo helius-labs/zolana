@@ -27,7 +27,7 @@ use crate::instructions::{
     event::emit_general_event,
     hash::solana_pk_hash,
     settlement::{settle_sol, settle_spl, Settlement},
-    shared::{check_not_expired, reject_reserved_nullifier},
+    shared::{check_not_expired, queue_nullifier},
     transact::verify::{TransactProof, TransactProofInputs},
     verifier,
 };
@@ -216,10 +216,7 @@ fn apply_tree(
         *proof_inputs.nullifier_tree_roots.get_mut(i).ok_or(error)? = tree
             .get_nullifier_tree_root(input.nullifier_tree_root_index)
             .map_err(tree_error)?;
-        reject_reserved_nullifier(&input.nullifier_hash)?;
-        tree.nullifer_tree()
-            .insert_address_into_queue(&input.nullifier_hash, &current_slot)
-            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
+        queue_nullifier(tree, &input.nullifier_hash, &current_slot)?;
         inputs.push(Input {
             tree: output_tree,
             input_queue_seq: nullifier_seq_base + i as u64,
