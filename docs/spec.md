@@ -766,6 +766,8 @@ struct TransferPlaintextRecipient {
 
 ## UTXO Split
 
+Requires a plain input; produces plain outputs (no attached data).
+
 All M outputs share owner, amount, and asset, so a single ciphertext encodes them. Each output UTXO derives a unique blinding from the blinding seed:
 
 ```
@@ -791,8 +793,7 @@ struct SplitBundlePlaintext {
     asset_amount: u64,
     /// Seed for the M per-output blindings (formula above).
     blinding_seed: [u8; 31],
-    /// Zone and program records, applied uniformly to all M outputs (they
-    /// share every other base field). See [UTXO Data](#utxo-data).
+    /// Empty in this implementation (plain outputs).
     data: Data,
 }
 ```

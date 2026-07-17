@@ -206,6 +206,9 @@ pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
         hex::encode(material.keypair.owner_hash()?),
         material.funding.pubkey()
     );
+    // `wallet new` only writes the file; point the operator at the explicit
+    // on-chain step so the offline behavior is not mistaken for registration.
+    println!("next: zolana wallet register --keypair {}", path.display());
     Ok(())
 }
 

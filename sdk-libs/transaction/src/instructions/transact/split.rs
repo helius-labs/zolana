@@ -210,10 +210,16 @@ impl PreparedSplit {
     }
 
     /// Assemble [`SppProofInputs`] from the sealed slot-0 `bundle`. Slot 0
-    /// publishes the bundle ciphertext; the other real slots and every dummy
-    /// slot are covered (`data == None`) so no per-slot ciphertext leaks the
-    /// output count. Resolved owner tags pair 1:1 with the outputs: the real
-    /// slots share the owner view tag, and each dummy keeps its own random tag.
+    /// publishes the single bundle ciphertext; the other real slots and every
+    /// dummy slot are covered (`data == None`). Resolved owner tags pair 1:1
+    /// with the outputs: the real slots share the owner view tag, and each dummy
+    /// keeps its own random tag.
+    ///
+    /// KNOWN LIMITATION: those per-slot owner tags reveal the real output count
+    /// N -- the N real tags cluster while the dummies do not. Hiding N cannot be
+    /// done here: the real self-outputs must carry the owner tag to be spendable
+    /// (the proof binds them), and the circuit rejects a zero-owner dummy tagged
+    /// as a real owner, so uniform tags need a circuit change.
     pub fn finalize(
         self,
         tx_viewing_pk: P256Pubkey,
