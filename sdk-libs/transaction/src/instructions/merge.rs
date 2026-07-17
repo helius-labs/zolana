@@ -50,7 +50,7 @@ impl Merge {
         // rail is the owner's rail and every input must match it. It also proves
         // ownership from one nullifier secret and never consumes program/zone data,
         // so every input must carry exactly the keypair's owner and nullifier key
-        // and be a plain, unbound note.
+        // and be a plain, unbound utxo.
         let owner = keypair.signing_pubkey();
         let owner_rail = keypair.curve()?;
         let nullifier_pubkey = keypair.nullifier_key().pubkey()?;
@@ -68,7 +68,7 @@ impl Merge {
             if spend.utxo.asset != asset {
                 return Err(TransactionError::MergeInputAssetMismatch { index });
             }
-            // The default merge only consolidates plain notes, so no input may be
+            // The default merge only consolidates plain utxos, so no input may be
             // bound to a zone.
             if spend.utxo.zone_program_id.is_some() {
                 return Err(TransactionError::MergeInputZoneMismatch { index });
@@ -169,7 +169,7 @@ impl PreparedMerge {
 
 /// Whether an input carries program or zone data: an external `data_hash`,
 /// `zone_data_hash`, or inline UTXO data. Merge and split consolidate only plain
-/// notes, so any of these disqualifies the input. Option semantics: a `Some(_)`
+/// utxos, so any of these disqualifies the input. Option semantics: a `Some(_)`
 /// hash means "has data" regardless of the hash value (an all-zero hash still
 /// binds committed data).
 pub(crate) fn has_data(spend: &SppProofInputUtxo) -> bool {
@@ -269,7 +269,7 @@ mod tests {
     fn rejects_input_carrying_inline_data() {
         let keypair = ShieldedKeypair::new().expect("keypair");
         let mut input = plain_input(&keypair, Address::default(), 10);
-        input.utxo.data = Data::new(vec![DataRecord::Memo(b"note".to_vec())]);
+        input.utxo.data = Data::new(vec![DataRecord::Memo(b"utxo".to_vec())]);
 
         let Err(error) = Merge::new(&keypair, vec![input]) else {
             panic!("input carrying data must be rejected");

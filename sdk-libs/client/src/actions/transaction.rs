@@ -256,14 +256,14 @@ pub struct SplitParams<'a> {
     pub input: Option<[u8; 32]>,
 }
 
-/// Build a 1-input -> N-output self-split: spend one plain note and re-mint it
-/// as `parts` equal self-owned notes. The input note is chosen by explicit
-/// commitment hash or, when omitted, as the largest unspent plain note of the
-/// asset on the single spend tree. The note must be plain (no zone binding, no
+/// Build a 1-input -> N-output self-split: spend one plain utxo and re-mint it
+/// as `parts` equal self-owned utxos. The input utxo is chosen by explicit
+/// commitment hash or, when omitted, as the largest unspent plain utxo of the
+/// asset on the single spend tree. The utxo must be plain (no zone binding, no
 /// attached data) and its amount evenly divisible into `parts`.
 pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientError> {
-    // A split re-mints into 2..=8 equal notes. Reject an out-of-range arity up
-    // front so a direct SDK caller gets a clear error before note selection;
+    // A split re-mints into 2..=8 equal utxos. Reject an out-of-range arity up
+    // front so a direct SDK caller gets a clear error before utxo selection;
     // `ConfidentialSplit::new` re-checks the same bound at sign time.
     let max_parts = Shape::IN1_OUT8.n_outputs() as u8;
     if !(2..=max_parts).contains(&request.parts) {
@@ -273,7 +273,7 @@ pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientErro
         .into());
     }
     let tree = resolve_spend_tree(request.wallet, request.asset)?;
-    let (input, per_output_amount) = select_split_note(
+    let (input, per_output_amount) = select_split_utxo(
         request.wallet,
         tree,
         request.asset,
@@ -293,7 +293,7 @@ pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientErro
             },
             withdrawal: None,
             approval_summary: format!(
-                "private transaction split into {num_outputs} notes of {per_output_amount}"
+                "private transaction split into {num_outputs} utxos of {per_output_amount}"
             ),
         },
         num_outputs,
@@ -301,10 +301,10 @@ pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientErro
     })
 }
 
-/// Select and validate the single input note a split spends, returning it with
-/// the per-output amount. Rejects notes carrying zone bindings or data, and
+/// Select and validate the single input utxo a split spends, returning it with
+/// the per-output amount. Rejects utxos carrying zone bindings or data, and
 /// amounts that do not divide evenly into `parts`.
-fn select_split_note(
+fn select_split_utxo(
     wallet: &Wallet,
     tree: Address,
     asset: Address,
@@ -321,7 +321,7 @@ fn select_split_note(
                     && entry.output_context.tree == tree
                     && entry.output_context.hash == hash
             })
-            .ok_or(ClientError::InputNoteUnavailable { hash })?,
+            .ok_or(ClientError::InputUtxoUnavailable { hash })?,
         None => wallet
             .utxos
             .iter()
@@ -339,7 +339,7 @@ fn select_split_note(
     if candidate.utxo.zone_program_id.is_some() {
         return Err(ClientError::SplitInputZoneMismatch { hash });
     }
-    if !is_plain_note(candidate) {
+    if !is_plain_utxo(candidate) {
         return Err(ClientError::SplitInputHasData { hash });
     }
 
@@ -362,7 +362,7 @@ fn select_split_note(
 }
 
 /// A prepared merge plus what a caller needs to report the outcome: how many real
-/// notes are consolidated, their summed amount, and the single spend tree the
+/// utxos are consolidated, their summed amount, and the single spend tree the
 /// merge binds.
 pub struct CreatedMerge {
     pub prepared: PreparedMerge,
@@ -375,12 +375,12 @@ pub struct MergeParams<'a> {
     pub wallet: &'a Wallet,
     pub keypair: &'a ShieldedKeypair,
     pub asset: Address,
-    /// Explicit input note commitment hashes, or `None` to auto-sweep the wallet's
-    /// smallest plain notes of `asset`.
+    /// Explicit input utxo commitment hashes, or `None` to auto-sweep the wallet's
+    /// smallest plain utxos of `asset`.
     pub inputs: Option<Vec<[u8; 32]>>,
 }
 
-/// Build an up-to-8-in/1-out consolidation of same-owner, same-asset plain notes
+/// Build an up-to-8-in/1-out consolidation of same-owner, same-asset plain utxos
 /// on one spend tree. Unlike a transfer, merge proves ownership in-circuit from
 /// the keypair's nullifier secret and encrypts the single output to the owner's
 /// viewing key, so it does not build an [`UnsignedPrivateTransaction`] or take an
@@ -396,7 +396,7 @@ pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientErro
     )?;
     let num_inputs = inputs.len();
     // `Merge::new` re-validates every input against the keypair (owner, nullifier
-    // key, rail, asset), rejects zone-bound or data-carrying notes, and sums the
+    // key, rail, asset), rejects zone-bound or data-carrying utxos, and sums the
     // inputs into the single output amount (same overflow error).
     let prepared = Merge::new(request.keypair, inputs)?.prepare();
     Ok(CreatedMerge {
@@ -407,20 +407,20 @@ pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientErro
     })
 }
 
-/// Whether a wallet note is plain: no zone binding and no attached data. Only
-/// plain notes are mergeable or splittable; building a spend input drops the
-/// note's committed data hashes, which would desync the commitment from the tree
+/// Whether a wallet utxo is plain: no zone binding and no attached data. Only
+/// plain utxos are mergeable or splittable; building a spend input drops the
+/// utxo's committed data hashes, which would desync the commitment from the tree
 /// otherwise. Option semantics: a `Some(_)` hash counts as data regardless of the
 /// hash value.
-fn is_plain_note(entry: &WalletUtxo) -> bool {
+fn is_plain_utxo(entry: &WalletUtxo) -> bool {
     entry.utxo.zone_program_id.is_none()
         && entry.zone_data_hash.is_none()
         && entry.data_hash.is_none()
         && entry.utxo.data.is_empty()
 }
 
-/// Build the spend input for a wallet note, preserving any committed data hashes
-/// so `Merge::new` can reject a non-plain note by hash rather than silently
+/// Build the spend input for a wallet utxo, preserving any committed data hashes
+/// so `Merge::new` can reject a non-plain utxo by hash rather than silently
 /// mismatching the tree commitment.
 fn merge_spend_input(entry: &WalletUtxo, keypair: &ShieldedKeypair) -> SppProofInputUtxo {
     let mut spend = SppProofInputUtxo::new(entry.utxo.clone(), keypair);
@@ -433,10 +433,10 @@ fn merge_spend_input(entry: &WalletUtxo, keypair: &ShieldedKeypair) -> SppProofI
     spend
 }
 
-/// Select the notes a merge consolidates on `tree`. `None` auto-sweeps up to
-/// [`MERGE_INPUTS`] of the smallest plain notes of `asset` (ascending, dust
-/// first). `Some(hashes)` takes exactly the named notes: 2..=8 distinct, unspent
-/// notes of `asset` on `tree`; a non-plain named note is left for `Merge::new` to
+/// Select the utxos a merge consolidates on `tree`. `None` auto-sweeps up to
+/// [`MERGE_INPUTS`] of the smallest plain utxos of `asset` (ascending, dust
+/// first). `Some(hashes)` takes exactly the named utxos: 2..=8 distinct, unspent
+/// utxos of `asset` on `tree`; a non-plain named utxo is left for `Merge::new` to
 /// reject with a precise reason.
 fn select_merge_inputs(
     wallet: &Wallet,
@@ -454,10 +454,10 @@ fn select_merge_inputs(
                     !entry.spent
                         && entry.utxo.asset == asset
                         && entry.output_context.tree == tree
-                        && is_plain_note(entry)
+                        && is_plain_utxo(entry)
                 })
                 .collect();
-            // Smallest first: a sweep clears dust and leaves large notes intact.
+            // Smallest first: a sweep clears dust and leaves large utxos intact.
             candidates.sort_by_key(|entry| entry.utxo.amount);
             candidates.truncate(MERGE_INPUTS);
             if candidates.len() < 2 {
@@ -482,7 +482,7 @@ fn select_merge_inputs(
             let mut selected = Vec::with_capacity(hashes.len());
             for hash in hashes {
                 if !seen.insert(hash) {
-                    return Err(ClientError::DuplicateInputNote { hash });
+                    return Err(ClientError::DuplicateInputUtxo { hash });
                 }
                 let entry = wallet
                     .utxos
@@ -493,7 +493,7 @@ fn select_merge_inputs(
                             && entry.output_context.tree == tree
                             && entry.output_context.hash == hash
                     })
-                    .ok_or(ClientError::InputNoteUnavailable { hash })?;
+                    .ok_or(ClientError::InputUtxoUnavailable { hash })?;
                 selected.push(merge_spend_input(entry, keypair));
             }
             Ok(selected)
@@ -1231,7 +1231,7 @@ mod tests {
     }
 
     #[test]
-    fn create_split_accepts_plain_divisible_note() {
+    fn create_split_accepts_plain_divisible_utxo() {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_sol(sender, 800);
 
@@ -1275,11 +1275,11 @@ mod tests {
     }
 
     #[test]
-    fn create_split_rejects_note_carrying_data() {
+    fn create_split_rejects_utxo_carrying_data() {
         let sender = ShieldedKeypair::new().unwrap();
         let mut wallet = wallet_with_sol(sender, 800);
         if let Some(entry) = wallet.utxos.first_mut() {
-            entry.utxo.data = Data::new(vec![DataRecord::Memo(b"note".to_vec())]);
+            entry.utxo.data = Data::new(vec![DataRecord::Memo(b"utxo".to_vec())]);
         }
 
         let error = match create_split(SplitParams {
@@ -1290,14 +1290,14 @@ mod tests {
             input: None,
         }) {
             Err(error) => error,
-            Ok(_) => panic!("a note carrying data must be rejected"),
+            Ok(_) => panic!("a utxo carrying data must be rejected"),
         };
 
         assert!(matches!(error, ClientError::SplitInputHasData { .. }));
     }
 
     #[test]
-    fn create_split_rejects_zone_bound_note() {
+    fn create_split_rejects_zone_bound_utxo() {
         let sender = ShieldedKeypair::new().unwrap();
         let mut wallet = wallet_with_sol(sender, 800);
         if let Some(entry) = wallet.utxos.first_mut() {
@@ -1312,7 +1312,7 @@ mod tests {
             input: None,
         }) {
             Err(error) => error,
-            Ok(_) => panic!("a zone-bound note must be rejected"),
+            Ok(_) => panic!("a zone-bound utxo must be rejected"),
         };
 
         assert!(matches!(error, ClientError::SplitInputZoneMismatch { .. }));
@@ -1326,9 +1326,9 @@ mod tests {
         .expect("wallet")
     }
 
-    /// Push a plain SOL note of `amount` (distinct `blinding` keeps commitments
+    /// Push a plain SOL utxo of `amount` (distinct `blinding` keeps commitments
     /// unique) and return its commitment hash.
-    fn push_note(
+    fn push_utxo(
         wallet: &mut Wallet,
         keypair: &ShieldedKeypair,
         amount: u64,
@@ -1369,11 +1369,11 @@ mod tests {
     }
 
     #[test]
-    fn merge_auto_sweep_selects_smallest_plain_notes_ascending() {
+    fn merge_auto_sweep_selects_smallest_plain_utxos_ascending() {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
         for (index, amount) in [50u64, 10, 30].into_iter().enumerate() {
-            push_note(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);
+            push_utxo(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);
         }
 
         let selected =
@@ -1383,11 +1383,11 @@ mod tests {
     }
 
     #[test]
-    fn merge_auto_sweep_caps_at_shape_keeping_the_smallest_notes() {
+    fn merge_auto_sweep_caps_at_shape_keeping_the_smallest_utxos() {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
         for step in 1..=9u64 {
-            push_note(&mut wallet, &keypair, step * 10, [step as u8; 31]);
+            push_utxo(&mut wallet, &keypair, step * 10, [step as u8; 31]);
         }
 
         let selected =
@@ -1398,17 +1398,17 @@ mod tests {
     }
 
     #[test]
-    fn merge_auto_sweep_skips_zone_and_data_notes() {
+    fn merge_auto_sweep_skips_zone_and_data_utxos() {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
-        push_note(&mut wallet, &keypair, 10, [1u8; 31]);
-        push_note(&mut wallet, &keypair, 20, [2u8; 31]);
-        // A zone-bound note and a data-carrying note must not be swept.
-        push_note(&mut wallet, &keypair, 30, [3u8; 31]);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
+        // A zone-bound utxo and a data-carrying utxo must not be swept.
+        push_utxo(&mut wallet, &keypair, 30, [3u8; 31]);
         if let Some(entry) = wallet.utxos.last_mut() {
             entry.utxo.zone_program_id = Some(Address::new_from_array([9u8; 32]));
         }
-        push_note(&mut wallet, &keypair, 40, [4u8; 31]);
+        push_utxo(&mut wallet, &keypair, 40, [4u8; 31]);
         if let Some(entry) = wallet.utxos.last_mut() {
             entry.data_hash = Some([7u8; 32]);
         }
@@ -1420,27 +1420,27 @@ mod tests {
     }
 
     #[test]
-    fn merge_auto_sweep_needs_at_least_two_notes() {
+    fn merge_auto_sweep_needs_at_least_two_utxos() {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
-        push_note(&mut wallet, &keypair, 10, [1u8; 31]);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
         let error = match select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None)
         {
             Err(error) => error,
-            Ok(_) => panic!("a single note cannot be merged"),
+            Ok(_) => panic!("a single utxo cannot be merged"),
         };
 
         assert!(matches!(error, ClientError::NothingToMerge { asset } if asset == SOL_MINT));
     }
 
     #[test]
-    fn merge_explicit_selection_takes_exactly_the_named_notes() {
+    fn merge_explicit_selection_takes_exactly_the_named_utxos() {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
-        let a = push_note(&mut wallet, &keypair, 10, [1u8; 31]);
-        let b = push_note(&mut wallet, &keypair, 20, [2u8; 31]);
-        push_note(&mut wallet, &keypair, 30, [3u8; 31]);
+        let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let b = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
+        push_utxo(&mut wallet, &keypair, 30, [3u8; 31]);
 
         let selected = select_merge_inputs(
             &wallet,
@@ -1455,10 +1455,10 @@ mod tests {
     }
 
     #[test]
-    fn merge_explicit_selection_rejects_duplicate_notes() {
+    fn merge_explicit_selection_rejects_duplicate_utxos() {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
-        let a = push_note(&mut wallet, &keypair, 10, [1u8; 31]);
+        let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
         let error = match select_merge_inputs(
             &wallet,
@@ -1468,10 +1468,10 @@ mod tests {
             Some(vec![a, a]),
         ) {
             Err(error) => error,
-            Ok(_) => panic!("a repeated note must be rejected"),
+            Ok(_) => panic!("a repeated utxo must be rejected"),
         };
 
-        assert!(matches!(error, ClientError::DuplicateInputNote { hash } if hash == a));
+        assert!(matches!(error, ClientError::DuplicateInputUtxo { hash } if hash == a));
     }
 
     #[test]
@@ -1501,10 +1501,10 @@ mod tests {
     }
 
     #[test]
-    fn merge_explicit_selection_needs_at_least_two_notes() {
+    fn merge_explicit_selection_needs_at_least_two_utxos() {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
-        let a = push_note(&mut wallet, &keypair, 10, [1u8; 31]);
+        let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
         let error = match select_merge_inputs(
             &wallet,
@@ -1514,17 +1514,17 @@ mod tests {
             Some(vec![a]),
         ) {
             Err(error) => error,
-            Ok(_) => panic!("a single named note cannot be merged"),
+            Ok(_) => panic!("a single named utxo cannot be merged"),
         };
 
         assert!(matches!(error, ClientError::NothingToMerge { asset } if asset == SOL_MINT));
     }
 
     #[test]
-    fn merge_explicit_selection_rejects_an_unknown_note() {
+    fn merge_explicit_selection_rejects_an_unknown_utxo() {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
-        let a = push_note(&mut wallet, &keypair, 10, [1u8; 31]);
+        let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let missing = [0xabu8; 32];
 
         let error = match select_merge_inputs(
@@ -1535,10 +1535,10 @@ mod tests {
             Some(vec![a, missing]),
         ) {
             Err(error) => error,
-            Ok(_) => panic!("an unknown note must be rejected"),
+            Ok(_) => panic!("an unknown utxo must be rejected"),
         };
 
-        assert!(matches!(error, ClientError::InputNoteUnavailable { hash } if hash == missing));
+        assert!(matches!(error, ClientError::InputUtxoUnavailable { hash } if hash == missing));
     }
 
     #[test]
@@ -1546,7 +1546,7 @@ mod tests {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
         for (index, amount) in [10u64, 20, 30].into_iter().enumerate() {
-            push_note(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);
+            push_utxo(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);
         }
 
         let created = create_merge(MergeParams {

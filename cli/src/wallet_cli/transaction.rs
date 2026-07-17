@@ -64,9 +64,9 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     Ok(())
 }
 
-/// List the wallet's spendable notes for one asset. The printed hashes are the
+/// List the wallet's spendable utxos for one asset. The printed hashes are the
 /// `--input` values for `wallet split` / `wallet merge`; `kind` flags which
-/// notes those actions accept (only `plain` notes can be split or merged).
+/// utxos those actions accept (only `plain` utxos can be split or merged).
 pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let ctx = sync_context(&opts.sync)?;
@@ -150,8 +150,8 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
 
-    // No `--input` auto-sweeps the smallest plain notes; explicit hashes name the
-    // exact notes to consolidate.
+    // No `--input` auto-sweeps the smallest plain utxos; explicit hashes name the
+    // exact utxos to consolidate.
     let inputs = if opts.input.is_empty() {
         None
     } else {
