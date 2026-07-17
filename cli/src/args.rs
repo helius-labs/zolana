@@ -47,7 +47,7 @@ pub(crate) enum CliCommand {
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
 
-    #[command(name = "utxos", about = "List spendable private notes")]
+    #[command(name = "utxos", about = "List spendable private utxos")]
     Utxos(UtxosOptions),
 
     #[command(name = "deposit", about = "Deposit into private wallet")]
@@ -61,13 +61,13 @@ pub(crate) enum CliCommand {
 
     #[command(
         name = "split",
-        about = "Split a private note into equal self-owned notes"
+        about = "Split a private utxo into equal self-owned utxos"
     )]
     Split(SplitOptions),
 
     #[command(
         name = "merge",
-        about = "Consolidate several private notes into one (up to 8 in, 1 out)"
+        about = "Consolidate several private utxos into one (up to 8 in, 1 out)"
     )]
     Merge(MergeOptions),
 
@@ -597,13 +597,13 @@ pub(crate) struct SplitOptions {
     #[arg(
         long,
         value_parser = clap::value_parser!(u8).range(2..=8),
-        help = "Number of equal output notes to produce (2-8)"
+        help = "Number of equal output utxos to produce (2-8)"
     )]
     pub(crate) parts: u8,
 
     #[arg(
         long,
-        help = "Optional input note commitment hash (hex); defaults to the largest plain note"
+        help = "Optional input utxo commitment hash (hex); defaults to the largest plain utxo"
     )]
     pub(crate) input: Option<String>,
 }
@@ -636,7 +636,7 @@ pub(crate) struct MergeOptions {
 
     #[arg(
         long = "input",
-        help = "Input note commitment hash (hex); repeat to name each note. Omit to auto-sweep the smallest plain notes.",
+        help = "Input utxo commitment hash (hex); repeat to name each utxo. Omit to auto-sweep the smallest plain utxos.",
         value_name = "HASH"
     )]
     pub(crate) input: Vec<String>,
