@@ -185,7 +185,7 @@ pub(crate) struct ConfigAddAssetOptions {
 pub(crate) enum WalletCommand {
     #[command(
         name = "new",
-        about = "Create a local wallet keypair (ed25519 by default, or P256 with --p256) and register it on-chain"
+        about = "Create a local wallet keypair (ed25519 by default, or P256 with --p256). Offline: publish it on-chain separately with `zolana wallet register`."
     )]
     New(NewWalletOptions),
 
@@ -420,13 +420,13 @@ pub(crate) struct NewWalletOptions {
 
     #[arg(
         long = "rpc-url",
-        help = "Solana RPC URL used to register the wallet (default: configured value or http://127.0.0.1:8899)"
+        help = "Solana RPC URL for the optional --airdrop-lamports funding request (default: configured value or http://127.0.0.1:8899)"
     )]
     pub(crate) rpc_url: Option<String>,
 
     #[arg(
         long = "airdrop-lamports",
-        help = "Request a localnet airdrop for the wallet funding key before registering"
+        help = "Optionally airdrop lamports to the wallet's funding key on localnet (funding only; does not register)"
     )]
     pub(crate) airdrop_lamports: Option<u64>,
 }

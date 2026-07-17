@@ -11,7 +11,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::instruction::MergeTransact;
-use zolana_keypair::{ShieldedKeypair, SignatureType};
+use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair, SignatureType};
 use zolana_transaction::{instructions::merge::PreparedMerge, Address};
 use zolana_user_registry_interface::{user_record_pda, UserRecord};
 
@@ -29,17 +29,42 @@ use crate::{
 /// proof on-chain, which does not fit the default per-instruction budget.
 const MERGE_CU_LIMIT: u32 = 1_400_000;
 
+/// The minimal owner material the merge submit boundary needs: the public
+/// identity to check against the registry record, plus the nullifier secret that
+/// proves ownership in-circuit and receives the merged output under the owner's
+/// viewing key. It deliberately omits the signing secret, the viewing secret,
+/// and (on the ed25519 rail) the funding secret that a full [`ShieldedKeypair`]
+/// holds, so no spending authority crosses the submit API.
+pub struct MergeMaterial {
+    pub signing_pubkey: PublicKey,
+    pub viewing_pubkey: P256Pubkey,
+    pub nullifier_key: NullifierKey,
+}
+
+impl MergeMaterial {
+    /// Extract only the public identity and nullifier secret a merge submit needs
+    /// from a wallet keypair, leaving every signing/viewing/funding secret behind.
+    pub fn from_keypair(keypair: &ShieldedKeypair) -> Self {
+        Self {
+            signing_pubkey: keypair.signing_pubkey(),
+            viewing_pubkey: keypair.viewing_pubkey(),
+            nullifier_key: keypair.nullifier_key.clone(),
+        }
+    }
+}
+
 /// Everything needed to prove and submit a prepared merge. `rpc` sends the
 /// transaction and reads the owner's registry record; `indexer` resolves the
 /// input Merkle proofs (both may point at the same [`crate::ZolanaClient`]). The
-/// fee `payer` signs; `keypair` is the owner whose nullifier secret proves the
-/// merge and whose viewing key receives the encrypted output.
+/// fee `payer` signs; `material` carries the owner's public identity plus the
+/// nullifier secret that proves the merge and whose viewing key receives the
+/// encrypted output.
 pub struct SubmitMergeTransaction<'a, R: Rpc, I: Rpc + ?Sized> {
     pub rpc: &'a R,
     pub indexer: &'a I,
     pub owner: Pubkey,
     pub payer: &'a Keypair,
-    pub keypair: &'a ShieldedKeypair,
+    pub material: &'a MergeMaterial,
     pub tree: Pubkey,
     pub prover_url: &'a str,
     pub prepared: PreparedMerge,
@@ -63,14 +88,21 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         indexer,
         owner,
         payer,
-        keypair,
+        material,
         tree,
         prover_url,
         prepared,
     } = request;
 
+    // A merge proof is only valid for the tree its input Merkle proofs were fetched
+    // against. `get_input_merkle_proofs` resolves them on the indexer's configured
+    // tree, so reject a submit `tree` that diverges before paying for a proof that
+    // could never verify against the tree the ix targets.
+    let submit_tree = Address::new_from_array(tree.to_bytes());
+    ensure_proof_tree_matches_submit_tree(indexer.configured_tree(), submit_tree)?;
+
     let record = fetch_user_record_checked(rpc, owner)?;
-    validate_merge_submission(&record, owner, keypair)?;
+    validate_merge_submission(&record, owner, material)?;
 
     // Real-input commitments -> per-input spend proofs (state inclusion + nullifier
     // non-inclusion), fetched before `prepared` is folded into the witness.
@@ -79,7 +111,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
 
     let result = MergeProver::try_from(MergeWitness {
         prepared,
-        nullifier_key: keypair.nullifier_key.clone(),
+        nullifier_key: material.nullifier_key.clone(),
         proofs,
     })?
     .build()?;
@@ -111,19 +143,37 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
     })
 }
 
-/// Check the owner opted into merging and that the local keypair is the identity
-/// the registry record commits, per rail. The on-chain program verifies the same
-/// keys against the record, so a mismatch would only fail after proving; catching
-/// it here avoids a wasted proof.
+/// Reject a submit whose ix `tree` differs from the tree the indexer resolves
+/// input Merkle proofs against. `None` means the backend has no fixed tree, so
+/// there is nothing to bind against and the submit proceeds.
+fn ensure_proof_tree_matches_submit_tree(
+    proof_tree: Option<Address>,
+    submit_tree: Address,
+) -> Result<(), ClientError> {
+    if let Some(proof_tree) = proof_tree {
+        if proof_tree != submit_tree {
+            return Err(ClientError::MergeTreeMismatch {
+                proof_tree: proof_tree.to_bytes(),
+                submit_tree: submit_tree.to_bytes(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Check the owner opted into merging and that the submitted material is the
+/// identity the registry record commits, per rail. The on-chain program verifies
+/// the same keys against the record, so a mismatch would only fail after proving;
+/// catching it here avoids a wasted proof.
 fn validate_merge_submission(
     record: &UserRecord,
     owner: Pubkey,
-    keypair: &ShieldedKeypair,
+    material: &MergeMaterial,
 ) -> Result<(), ClientError> {
     if !record.merging_enabled {
         return Err(ClientError::MergeDisabled { owner });
     }
-    let signing = keypair.signing_pubkey();
+    let signing = material.signing_pubkey;
     match signing.signature_type()? {
         SignatureType::P256 => {
             if record.owner_p256 != Some(*signing.as_p256()?.as_bytes()) {
@@ -138,10 +188,10 @@ fn validate_merge_submission(
             }
         }
     }
-    if record.nullifier_pubkey != keypair.nullifier_key.pubkey()? {
+    if record.nullifier_pubkey != material.nullifier_key.pubkey()? {
         return Err(ClientError::MergeNullifierKeyMismatch);
     }
-    if record.viewing_pubkey != *keypair.viewing_pubkey().as_bytes() {
+    if record.viewing_pubkey != *material.viewing_pubkey.as_bytes() {
         return Err(ClientError::MergeViewingKeyMismatch { owner });
     }
     Ok(())
@@ -185,7 +235,8 @@ mod tests {
         let (owner, keypair) = ed25519_owner();
         let record = record_for(owner, &keypair, true);
 
-        validate_merge_submission(&record, owner, &keypair).expect("matching record");
+        validate_merge_submission(&record, owner, &MergeMaterial::from_keypair(&keypair))
+            .expect("matching record");
     }
 
     #[test]
@@ -193,8 +244,9 @@ mod tests {
         let (owner, keypair) = ed25519_owner();
         let record = record_for(owner, &keypair, false);
 
-        let error = validate_merge_submission(&record, owner, &keypair)
-            .expect_err("disabled merge service");
+        let error =
+            validate_merge_submission(&record, owner, &MergeMaterial::from_keypair(&keypair))
+                .expect_err("disabled merge service");
 
         assert!(matches!(error, ClientError::MergeDisabled { owner: got } if got == owner));
     }
@@ -206,7 +258,8 @@ mod tests {
         record.viewing_pubkey = [0xffu8; 33];
 
         let error =
-            validate_merge_submission(&record, owner, &keypair).expect_err("viewing key mismatch");
+            validate_merge_submission(&record, owner, &MergeMaterial::from_keypair(&keypair))
+                .expect_err("viewing key mismatch");
 
         assert!(
             matches!(error, ClientError::MergeViewingKeyMismatch { owner: got } if got == owner)
@@ -219,8 +272,9 @@ mod tests {
         let mut record = record_for(owner, &keypair, true);
         record.nullifier_pubkey = [0xffu8; 32];
 
-        let error = validate_merge_submission(&record, owner, &keypair)
-            .expect_err("nullifier key mismatch");
+        let error =
+            validate_merge_submission(&record, owner, &MergeMaterial::from_keypair(&keypair))
+                .expect_err("nullifier key mismatch");
 
         assert!(matches!(error, ClientError::MergeNullifierKeyMismatch));
     }
@@ -233,8 +287,33 @@ mod tests {
         record.owner_p256 = Some([2u8; 33]);
 
         let error =
-            validate_merge_submission(&record, owner, &keypair).expect_err("signing rail mismatch");
+            validate_merge_submission(&record, owner, &MergeMaterial::from_keypair(&keypair))
+                .expect_err("signing rail mismatch");
 
         assert!(matches!(error, ClientError::MergeSigningKeyMismatch));
+    }
+
+    #[test]
+    fn submit_rejects_a_proof_tree_that_differs_from_the_submit_tree() {
+        let proof_tree = Address::new_from_array([1u8; 32]);
+        let submit_tree = Address::new_from_array([2u8; 32]);
+
+        let error = ensure_proof_tree_matches_submit_tree(Some(proof_tree), submit_tree)
+            .expect_err("a diverging proof tree must be rejected");
+
+        assert!(matches!(
+            error,
+            ClientError::MergeTreeMismatch { proof_tree: got_proof, submit_tree: got_submit }
+                if got_proof == proof_tree.to_bytes() && got_submit == submit_tree.to_bytes()
+        ));
+    }
+
+    #[test]
+    fn submit_accepts_a_matching_or_unknown_proof_tree() {
+        let tree = Address::new_from_array([3u8; 32]);
+
+        ensure_proof_tree_matches_submit_tree(Some(tree), tree).expect("matching trees");
+        // A backend with no fixed tree has nothing to bind against.
+        ensure_proof_tree_matches_submit_tree(None, tree).expect("unknown proof tree is allowed");
     }
 }

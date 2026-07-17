@@ -27,13 +27,13 @@ fn parses_only_exact_protocol_config_bytes() {
 
     assert_eq!(
         ProtocolConfig::from_account_bytes(&[0; ProtocolConfig::SIZE - 1]),
-        Err(InterfaceError::InvalidAccountData)
+        Err(InterfaceError::InvalidProtocolConfigData)
     );
     let mut too_long = bytemuck::bytes_of(&config).to_vec();
     too_long.push(0);
     assert_eq!(
         ProtocolConfig::from_account_bytes(&too_long),
-        Err(InterfaceError::InvalidAccountData)
+        Err(InterfaceError::InvalidProtocolConfigData)
     );
 
     let mut wrong_discriminator = config;

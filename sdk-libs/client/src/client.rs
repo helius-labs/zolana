@@ -652,6 +652,10 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
             .get_non_inclusion_proofs(tree_account, leaves)
     }
 
+    fn configured_tree(&self) -> Option<Address> {
+        Some(self.tree)
+    }
+
     fn get_input_merkle_proofs(
         &self,
         input_utxo_commitments: &[InputUtxoContext],

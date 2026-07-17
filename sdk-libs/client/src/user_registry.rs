@@ -89,6 +89,61 @@ pub fn ensure_registered<R: Rpc>(
     )?))
 }
 
+/// Outcome of a strict registration attempt ([`register_if_absent`]).
+///
+/// Unlike [`ensure_registered`], the strict path never rotates keys: a shielded
+/// identity's nullifier key is fixed for its lifetime, so a record whose
+/// published keys differ from the wallet is an identity conflict to surface, not
+/// something to silently overwrite.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StrictRegistration {
+    /// No record existed; this call wrote a fresh one.
+    Written(Signature),
+    /// A record already existed and matches the wallet exactly; no transaction sent.
+    Current,
+    /// A record exists but its published keys differ from the wallet's; no
+    /// transaction sent. The caller decides how to surface the conflict.
+    Mismatch,
+}
+
+/// Register `keypair`'s shielded keys under `funding`'s pubkey with strict
+/// semantics: write the record only when absent, treat an exactly matching
+/// record as a no-op, and report a differing record as
+/// [`StrictRegistration::Mismatch`] without ever calling `update_keys`. The
+/// nullifier key never rotates, so overwriting a differing record would silently
+/// replace an existing on-chain identity.
+///
+/// `funding` must sign: the program keys the record under, and requires the
+/// signature of, its owner pubkey.
+pub fn register_if_absent<R: Rpc>(
+    rpc: &R,
+    funding: &Keypair,
+    keypair: &ShieldedKeypair,
+) -> Result<StrictRegistration, ClientError> {
+    let owner = funding.pubkey();
+    let data = register_fields(&keypair.shielded_address()?)?;
+    let (user_record, _bump) = user_record_pda(&owner);
+
+    if let Some(record) = fetch_user_record_optional_checked(rpc, owner)? {
+        let matches = record.owner_p256 == data.owner_p256
+            && record.nullifier_pubkey == data.nullifier_pubkey
+            && record.viewing_pubkey == data.viewing_pubkey;
+        return Ok(if matches {
+            StrictRegistration::Current
+        } else {
+            StrictRegistration::Mismatch
+        });
+    }
+
+    let ix = register(user_record, owner, data);
+    let signature = rpc.create_and_send_transaction(
+        &[ix],
+        Address::new_from_array(owner.to_bytes()),
+        &[funding],
+    )?;
+    Ok(StrictRegistration::Written(signature))
+}
+
 /// Build an unsigned register/update transaction for an external Solana signer.
 ///
 /// Returns `Ok(None)` when the on-chain record already matches `address`.
@@ -866,5 +921,52 @@ mod tests {
             ensure_registered_ix_tag(&rpc),
             zolana_user_registry_interface::instruction::discriminator::UPDATE_KEYS
         );
+    }
+
+    #[test]
+    fn register_if_absent_writes_when_absent() {
+        let funding = Keypair::new();
+        let keypair = ShieldedKeypair::new().unwrap();
+        let rpc = SendMockRpc::default(); // no record -> register path
+        let outcome = register_if_absent(&rpc, &funding, &keypair).expect("register_if_absent");
+        assert!(matches!(outcome, StrictRegistration::Written(_)));
+        assert_eq!(
+            ensure_registered_ix_tag(&rpc),
+            zolana_user_registry_interface::instruction::discriminator::REGISTER
+        );
+    }
+
+    #[test]
+    fn register_if_absent_is_current_when_matching() {
+        let funding = Keypair::new();
+        let keypair = ShieldedKeypair::new().unwrap();
+        let owner = funding.pubkey();
+        let (_pda, bump) = user_record_pda(&owner);
+        let record = registered_record(owner, bump, &keypair);
+        let rpc = SendMockRpc {
+            account: Some(account_at(owner, &record)),
+            ..Default::default()
+        };
+        let outcome = register_if_absent(&rpc, &funding, &keypair).expect("register_if_absent");
+        assert_eq!(outcome, StrictRegistration::Current);
+        assert!(rpc.sent.borrow().is_none());
+    }
+
+    #[test]
+    fn register_if_absent_reports_mismatch_without_sending() {
+        let funding = Keypair::new();
+        let keypair = ShieldedKeypair::new().unwrap();
+        let owner = funding.pubkey();
+        let (_pda, bump) = user_record_pda(&owner);
+        // A record exists but with a different identity's keys. Strict semantics
+        // must surface the conflict and never send an update_keys transaction.
+        let other = registered_record(owner, bump, &ShieldedKeypair::new().unwrap());
+        let rpc = SendMockRpc {
+            account: Some(account_at(owner, &other)),
+            ..Default::default()
+        };
+        let outcome = register_if_absent(&rpc, &funding, &keypair).expect("register_if_absent");
+        assert_eq!(outcome, StrictRegistration::Mismatch);
+        assert!(rpc.sent.borrow().is_none());
     }
 }

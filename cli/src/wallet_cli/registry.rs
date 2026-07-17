@@ -1,6 +1,9 @@
 use anyhow::{bail, Result};
 use solana_signer::Signer;
-use zolana_client::{ensure_registered, Rpc, SolanaRpc};
+use zolana_client::{
+    user_registry::{register_if_absent, StrictRegistration},
+    Rpc, SolanaRpc,
+};
 use zolana_transaction::Address;
 use zolana_user_registry_interface::{instruction::set_merging_enabled, user_record_pda};
 
@@ -16,8 +19,11 @@ use crate::{
 /// Publish the wallet's shielded keys under its Solana pubkey. Registration is
 /// what makes the pubkey payable: senders resolve it through the registry, and
 /// without a record a `transfer` to it degrades to a public withdrawal.
-/// `ensure_registered` is idempotent: it registers if absent, updates on key
-/// change, and no-ops when the on-chain record already matches.
+///
+/// Strict by design: a shielded identity's nullifier key never rotates, so this
+/// writes a record only when none exists, no-ops when the on-chain record
+/// already matches this wallet, and errors when a differing record is present
+/// rather than overwriting an existing on-chain identity.
 pub(crate) fn run_register(opts: RegisterOptions) -> Result<()> {
     let config = CliConfigFile::load()?;
     let path = resolve_keypair_path(opts.wallet.keypair.keypair.as_deref(), &config);
@@ -31,11 +37,17 @@ pub(crate) fn run_register(opts: RegisterOptions) -> Result<()> {
     let material = load_existing_wallet(&path)?;
     let rpc = SolanaRpc::new(resolve_rpc_url(opts.wallet.rpc_url.as_deref(), &config));
     let owner = material.funding.pubkey();
-    match ensure_registered(&rpc, &material.funding, &material.keypair)? {
-        Some(signature) => {
+    match register_if_absent(&rpc, &material.funding, &material.keypair)? {
+        StrictRegistration::Written(signature) => {
             println!("ok register owner={owner} record=written signature={signature}")
         }
-        None => println!("ok register owner={owner} record=current status=unchanged"),
+        StrictRegistration::Current => {
+            println!("ok register owner={owner} record=current status=unchanged")
+        }
+        StrictRegistration::Mismatch => bail!(
+            "wallet {owner} already has a different shielded identity registered on-chain; \
+             the nullifier key never rotates, so `wallet register` refuses to overwrite it"
+        ),
     }
     Ok(())
 }
