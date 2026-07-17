@@ -363,11 +363,12 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
             .viewing_key
             .get_transaction_viewing_key(first_nullifier)?;
         let salt = random_salt();
+        let tx_viewing_pk = tx.pubkey();
         let message = Split::encode_plaintext(
             bundle,
             view_tag,
             &SplitEncode {
-                tx: tx.clone(),
+                tx,
                 recipient_pubkey: self.keypair.viewing_key.pubkey(),
                 salt,
                 slot_index: 0,
@@ -375,7 +376,7 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
             },
         )?;
         Ok(EncryptedSplit {
-            tx_viewing_pk: tx.pubkey(),
+            tx_viewing_pk,
             salt,
             bundle: message,
         })
