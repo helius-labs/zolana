@@ -155,7 +155,7 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         view_tag: data.view_tag,
         owner: data.owner,
         blinding: data.blinding,
-        public_amount: data.public_amount,
+        amount: data.amount,
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
         zone_data_hash: data.zone_data_hash,
         zone_data: data.zone_data.clone(),

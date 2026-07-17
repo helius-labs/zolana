@@ -107,7 +107,7 @@ impl Deposit<'_> {
             view_tag,
             owner,
             blinding,
-            public_amount: Some(self.amount),
+            amount: self.amount,
             utxo_data: None,
             memo: None,
         };
@@ -118,7 +118,7 @@ impl Deposit<'_> {
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
-            public_amount: data.public_amount,
+            amount: data.amount,
             utxo_data: data.utxo_data.clone(),
             memo: data.memo.clone(),
         }

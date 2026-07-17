@@ -23,7 +23,7 @@ impl ZolanaProgramTest {
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
-            public_amount: data.public_amount,
+            amount: data.amount,
             utxo_data: data.utxo_data.clone(),
             memo: data.memo.clone(),
         }
@@ -51,7 +51,7 @@ impl ZolanaProgramTest {
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
-            public_amount: data.public_amount,
+            amount: data.amount,
             utxo_data: data.utxo_data.clone(),
             memo: data.memo.clone(),
         }
@@ -72,7 +72,7 @@ impl ZolanaProgramTest {
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
-            public_amount: data.public_amount,
+            amount: data.amount,
             utxo_data: data.utxo_data.clone(),
             memo: data.memo.clone(),
         }

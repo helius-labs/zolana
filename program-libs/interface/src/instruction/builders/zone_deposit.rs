@@ -13,7 +13,7 @@ pub struct ZoneDeposit {
     pub view_tag: [u8; 32],
     pub owner: [u8; 32],
     pub blinding: [u8; 31],
-    pub public_amount: Option<u64>,
+    pub amount: u64,
     /// Calling zone program's id; its (canonical) `zone_auth` PDA is the signing
     /// `ZoneConfig` account.
     pub zone_program_id: Pubkey,
@@ -45,7 +45,7 @@ impl ZoneDeposit {
             view_tag: self.view_tag,
             owner: self.owner,
             blinding: self.blinding,
-            public_amount: self.public_amount,
+            amount: self.amount,
             zone_data_hash: self.zone_data_hash,
             zone_data: self.zone_data.clone(),
             utxo_data: self.utxo_data.clone(),

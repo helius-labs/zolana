@@ -21,7 +21,7 @@ pub struct Deposit {
     pub view_tag: [u8; 32],
     pub owner: [u8; 32],
     pub blinding: [u8; 31],
-    pub public_amount: Option<u64>,
+    pub amount: u64,
     /// Application data committed into the deposited UTXO's `data_hash`,
     /// authorized by the payer; `None` for a plain user deposit.
     pub utxo_data: Option<UtxoData>,
@@ -35,7 +35,7 @@ impl Deposit {
             view_tag: self.view_tag,
             owner: self.owner,
             blinding: self.blinding,
-            public_amount: self.public_amount,
+            amount: self.amount,
             utxo_data: self.utxo_data.clone(),
             memo: self.memo.clone(),
         };

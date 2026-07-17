@@ -57,7 +57,7 @@ impl Deposit {
                 view_tag,
                 owner,
                 blinding,
-                public_amount: Some(request.amount),
+                amount: request.amount,
                 utxo_data: None,
                 memo: request.memo,
             },
@@ -178,7 +178,7 @@ fn deposit_instruction(
         view_tag: data.view_tag,
         owner: data.owner,
         blinding: data.blinding,
-        public_amount: data.public_amount,
+        amount: data.amount,
         utxo_data: data.utxo_data.clone(),
         memo: data.memo.clone(),
     }
@@ -260,7 +260,7 @@ mod tests {
             view_tag: [1u8; 32],
             owner: [2u8; 32],
             blinding: [3u8; 31],
-            public_amount: Some(1_000),
+            amount: 1_000,
             utxo_data: None,
             memo: Some(b"thanks".to_vec()),
         };
@@ -275,7 +275,7 @@ mod tests {
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
-            public_amount: data.public_amount,
+            amount: data.amount,
             utxo_data: data.utxo_data.clone(),
             memo: data.memo.clone(),
         }
@@ -300,7 +300,7 @@ mod tests {
         .expect("prepared deposit");
 
         assert_eq!(prepared.data.view_tag, recipient.viewing_pubkey().x());
-        assert_eq!(prepared.data.public_amount, Some(1_000));
+        assert_eq!(prepared.data.amount, 1_000);
         assert_ne!(prepared.data.blinding, [0u8; 31]);
         assert_ne!(prepared.data.owner, [0u8; 32]);
         assert_ne!(prepared.utxo_hash, [0u8; 32]);
@@ -351,7 +351,7 @@ mod tests {
         .expect("prepared deposit");
 
         assert_eq!(prepared.asset, asset);
-        assert_eq!(prepared.data.public_amount, Some(1_000));
+        assert_eq!(prepared.data.amount, 1_000);
         assert_eq!(
             prepared.spl,
             Some(DepositSplAccounts {

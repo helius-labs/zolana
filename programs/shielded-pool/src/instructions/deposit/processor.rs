@@ -27,7 +27,7 @@ pub(crate) struct DepositParams {
     pub view_tag: [u8; 32],
     pub owner: [u8; 32],
     pub blinding: [u8; 31],
-    pub public_amount: Option<u64>,
+    pub amount: u64,
     pub utxo_data: Option<UtxoData>,
     pub zone: Option<ZoneData>,
     pub memo: Option<Vec<u8>>,
@@ -50,7 +50,7 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
-            public_amount: data.public_amount,
+            amount: data.amount,
             utxo_data: data.utxo_data,
             zone: None,
             memo: data.memo,
@@ -74,7 +74,7 @@ pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> Progra
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
-            public_amount: data.public_amount,
+            amount: data.amount,
             utxo_data: data.utxo_data,
             zone: Some(ZoneData {
                 data_hash: data.zone_data_hash,
@@ -89,10 +89,10 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
     accounts: &mut [AccountView],
     d: DepositParams,
 ) -> ProgramResult {
-    let amount = match d.public_amount {
-        Some(amount) if amount > 0 => amount,
-        _ => return Err(ShieldedPoolError::InvalidTransactShape.into()),
-    };
+    if d.amount == 0 {
+        return Err(ShieldedPoolError::InvalidTransactShape.into());
+    }
+    let amount = d.amount;
 
     let (parsed, zone_program_id) =
         DepositAccounts::validate_and_parse::<HAS_ZONE>(&crate::ID, accounts)?;

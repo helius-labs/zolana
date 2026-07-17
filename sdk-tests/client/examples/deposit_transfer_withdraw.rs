@@ -42,7 +42,7 @@ fn main() -> Result<()> {
             view_tag: alice_address.signing_pubkey.confidential_view_tag()?,
             owner: alice_address.owner_hash()?,
             blinding: random_blinding(),
-            public_amount: Some(DEPOSIT_AMOUNT),
+            amount: DEPOSIT_AMOUNT,
             utxo_data: None,
             memo: None,
         }

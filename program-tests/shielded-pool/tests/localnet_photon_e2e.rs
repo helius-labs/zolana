@@ -196,7 +196,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         view_tag: shield_data.view_tag,
         owner: shield_data.owner,
         blinding: shield_data.blinding,
-        public_amount: shield_data.public_amount,
+        amount: shield_data.amount,
         utxo_data: shield_data.utxo_data,
         memo: shield_data.memo,
     }
@@ -858,7 +858,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             view_tag: shield_data.view_tag,
             owner: shield_data.owner,
             blinding: shield_data.blinding,
-            public_amount: shield_data.public_amount,
+            amount: shield_data.amount,
             utxo_data: shield_data.utxo_data,
             memo: shield_data.memo,
         }
@@ -1616,7 +1616,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
             view_tag: shield_data.view_tag,
             owner: shield_data.owner,
             blinding: shield_data.blinding,
-            public_amount: shield_data.public_amount,
+            amount: shield_data.amount,
             utxo_data: shield_data.utxo_data,
             memo: shield_data.memo,
         }
