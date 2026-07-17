@@ -921,7 +921,9 @@ pub fn decrypt_transactions_with_config<K: SyncWalletAuthority + ?Sized>(
     registry: &AssetRegistry,
     config: SyncConfig,
 ) -> Result<Balances, TransactionError> {
-    // TODO: refactor this is stupid    wallet.sync should use decrypt_transactions_with_config not the other way around
+    // TODO(separate PR): move this construct-sync-extract sequence onto Wallet
+    // itself (e.g. Wallet::decrypt), so this free function is a thin wrapper
+    // instead of open-coding Wallet's own logic.
     let mut wallet = Wallet::new(key.shielded_address()?, registry.clone())?;
     wallet.sync(key, transactions, 0, config.window)?;
     Ok(Balances {
