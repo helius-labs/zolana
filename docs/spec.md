@@ -295,7 +295,8 @@ The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Sol
 
 **Constructors:**
 
-- `SigningKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/0'/0')` on the BIP-39 seed `wallet_seed := PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" || passphrase, c=2048, dkLen=64)`.
+- `SigningKey::from_ed25519(ed25519_sk)` — Ed25519 secret is the signing key (implemented rail; `ShieldedKeypair::from_solana_keypair` builds the wallet from it).
+- `SigningKey::from_seed(wallet_seed, account)` — planned P-256 rail: `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/0'/0')`. Not implemented.
 - `SigningKey::from_sk(signing_sk)` — direct injection.
 
 **Methods:**
@@ -319,7 +320,7 @@ Symmetric key to derive nullifiers.
 
 `(viewing_sk, viewing_pk)` — P-256 keypair, used for HPKE encryption and to derive view-tag secrets. While a sync delegate is set the epoch uses a shared P256 key (see [Sync Delegate](#sync-delegate)). Viewing keys can rotate.
 
-**Constructor:** `ViewingKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/1'/0')` on the same BIP-39 `wallet_seed` as the [Signing Key](#signing-key); a sibling of the signing path under change index `1'`, recoverable from the mnemonic.
+**Constructor:** `ViewingKey::from_seed(wallet_seed, account)` — `HKDF-SHA256(∅, wallet_seed, "TSPP/seed/p256_viewing" || u32_be(account), L=48)` reduced to a P-256 scalar. Flat HKDF, implemented (not the SLIP-0010 path above); ed25519 owners: `wallet_seed` = the Ed25519 secret.
 
 ## Derived secrets
 

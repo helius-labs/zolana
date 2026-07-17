@@ -97,6 +97,11 @@ impl ProofCompressed {
     /// commitment(32) || commitment_pok(32)`. The merge circuit is the P256 BSB22
     /// rail, so the commitment is mandatory; a proof without one is not a valid
     /// merge proof and is rejected here rather than silently packed as zeros.
+    ///
+    /// This is the same P256 five-tuple as [`Self::to_transact_proof`]'s
+    /// `TransactProof::P256`, but `merge_transact`'s instruction data is a fixed
+    /// `[u8; 192]` rather than the `TransactProof` enum `transact` uses, so it is
+    /// packed to raw bytes here instead of reusing that structured form.
     pub fn to_merge_proof(&self) -> Result<[u8; 192], ClientError> {
         let commitment = self.commitment.ok_or_else(|| {
             ClientError::ProofParse(
