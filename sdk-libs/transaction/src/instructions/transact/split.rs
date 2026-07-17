@@ -19,7 +19,7 @@ use super::{
 use crate::{
     data::Data,
     error::TransactionError,
-    instructions::types::SppProofInputUtxo,
+    instructions::{merge::has_data, types::SppProofInputUtxo},
     serialization::{
         split::{Split, SplitBundlePlaintext, SplitEncode},
         UtxoSerialization,
@@ -67,13 +67,15 @@ impl ConfidentialSplit {
         if input.utxo.asset != asset {
             return Err(TransactionError::SplitInputAssetMismatch);
         }
-        if input.utxo.zone_program_id.is_some() || input.zone_data_hash.is_some() {
+        if input.utxo.zone_program_id.is_some() {
             return Err(TransactionError::SplitInputZoneMismatch);
         }
-        if !input.utxo.data.is_empty() || input.data_hash.is_some() {
+        if has_data(&input) {
             return Err(TransactionError::SplitInputHasData);
         }
-        let total = per_output_amount
+        // The `.filter` already guarantees the product equals the input amount, so
+        // discard the checked value once the mismatch case has been ruled out.
+        per_output_amount
             .checked_mul(u64::from(num_outputs))
             .filter(|total| *total == input.utxo.amount)
             .ok_or(TransactionError::SplitAmountMismatch {
@@ -81,7 +83,6 @@ impl ConfidentialSplit {
                 num_outputs,
                 per_output: per_output_amount,
             })?;
-        debug_assert_eq!(total, input.utxo.amount);
 
         Ok(Self {
             owner,

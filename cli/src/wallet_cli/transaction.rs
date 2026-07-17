@@ -80,9 +80,7 @@ pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
         count += 1;
         let kind = if entry.utxo.zone_program_id.is_some() {
             "zone"
-        } else if entry.data_hash.unwrap_or_default() != [0u8; 32]
-            || entry.zone_data_hash.unwrap_or_default() != [0u8; 32]
-        {
+        } else if entry.data_hash.is_some() || entry.zone_data_hash.is_some() {
             "data"
         } else {
             "plain"

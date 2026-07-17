@@ -3,7 +3,9 @@ use std::collections::BTreeSet;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
-    pda, SPL_TOKEN_PROGRAM_ID,
+    pda,
+    shape::Shape,
+    SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair, SignatureType,
@@ -17,7 +19,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    Address, AssetRegistry, Utxo, Wallet, WalletUtxo, SOL_MINT,
+    Address, AssetRegistry, TransactionError, Utxo, Wallet, WalletUtxo, SOL_MINT,
 };
 
 #[cfg(feature = "indexer-api")]
@@ -260,6 +262,16 @@ pub struct SplitParams<'a> {
 /// asset on the single spend tree. The note must be plain (no zone binding, no
 /// attached data) and its amount evenly divisible into `parts`.
 pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientError> {
+    // A split re-mints into 2..=8 equal notes. Reject an out-of-range arity up
+    // front so a direct SDK caller gets a clear error before note selection;
+    // `ConfidentialSplit::new` re-checks the same bound at sign time.
+    let max_parts = Shape::IN1_OUT8.n_outputs() as u8;
+    if !(2..=max_parts).contains(&request.parts) {
+        return Err(TransactionError::SplitInvalidPartCount {
+            num_outputs: request.parts,
+        }
+        .into());
+    }
     let tree = resolve_spend_tree(request.wallet, request.asset)?;
     let (input, per_output_amount) = select_split_note(
         request.wallet,
@@ -324,10 +336,10 @@ fn select_split_note(
     };
 
     let hash = candidate.output_context.hash;
-    if candidate.utxo.zone_program_id.is_some() || candidate.zone_data_hash.is_some() {
+    if candidate.utxo.zone_program_id.is_some() {
         return Err(ClientError::SplitInputZoneMismatch { hash });
     }
-    if !candidate.utxo.data.is_empty() || candidate.data_hash.is_some() {
+    if !is_plain_note(candidate) {
         return Err(ClientError::SplitInputHasData { hash });
     }
 
@@ -383,25 +395,23 @@ pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientErro
         request.inputs,
     )?;
     let num_inputs = inputs.len();
-    let merged_amount = inputs.iter().try_fold(0u64, |total, spend| {
-        total
-            .checked_add(spend.utxo.amount)
-            .ok_or(ClientError::SelectedBalanceOverflow)
-    })?;
     // `Merge::new` re-validates every input against the keypair (owner, nullifier
-    // key, rail, asset) and rejects zone-bound or data-carrying notes.
+    // key, rail, asset), rejects zone-bound or data-carrying notes, and sums the
+    // inputs into the single output amount (same overflow error).
     let prepared = Merge::new(request.keypair, inputs)?.prepare();
     Ok(CreatedMerge {
+        merged_amount: prepared.output.amount,
         prepared,
         num_inputs,
-        merged_amount,
         tree,
     })
 }
 
 /// Whether a wallet note is plain: no zone binding and no attached data. Only
-/// plain notes are mergeable; building a spend input drops the note's committed
-/// data hashes, which would desync the commitment from the tree otherwise.
+/// plain notes are mergeable or splittable; building a spend input drops the
+/// note's committed data hashes, which would desync the commitment from the tree
+/// otherwise. Option semantics: a `Some(_)` hash counts as data regardless of the
+/// hash value.
 fn is_plain_note(entry: &WalletUtxo) -> bool {
     entry.utxo.zone_program_id.is_none()
         && entry.zone_data_hash.is_none()
@@ -669,14 +679,7 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
         .await?;
     let mut proof_inputs =
         prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.slots)?;
-    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
-        let message_hash = proof_inputs.message_hash()?;
-        let sig = authority.sign_p256(&message_hash).await?;
-        let mut bytes = [0u8; 64];
-        bytes[..32].copy_from_slice(&sig.sig_r);
-        bytes[32..].copy_from_slice(&sig.sig_s);
-        proof_inputs.p256_signature = Some(bytes);
-    }
+    apply_p256_signature(&mut proof_inputs, address, authority).await?;
     Ok(proof_inputs)
 }
 
@@ -700,6 +703,18 @@ async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
         .await?;
     let mut proof_inputs =
         prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.bundle)?;
+    apply_p256_signature(&mut proof_inputs, address, authority).await?;
+    Ok(proof_inputs)
+}
+
+/// P256-rail signing tail shared by [`sign_prepared`] and [`sign_prepared_split`]:
+/// when the owner's rail is P256, sign the proof inputs' message hash and pack the
+/// r/s signature into the fixed 64-byte field. A no-op for the Solana rail.
+async fn apply_p256_signature<A: WalletAuthority + ?Sized>(
+    proof_inputs: &mut SppProofInputs,
+    address: &ShieldedAddress,
+    authority: &A,
+) -> Result<(), ClientError> {
     if address.signing_pubkey.signature_type()? == SignatureType::P256 {
         let message_hash = proof_inputs.message_hash()?;
         let sig = authority.sign_p256(&message_hash).await?;
@@ -708,7 +723,7 @@ async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
         bytes[32..].copy_from_slice(&sig.sig_s);
         proof_inputs.p256_signature = Some(bytes);
     }
-    Ok(proof_inputs)
+    Ok(())
 }
 
 fn withdrawal_target(
