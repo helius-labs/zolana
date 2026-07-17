@@ -28,3 +28,7 @@ thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-event = { workspace = true }
 zolana-tree = { workspace = true, optional = true }
+
+[dev-dependencies]
+bytemuck = { workspace = true }
+solana-address = { workspace = true }
