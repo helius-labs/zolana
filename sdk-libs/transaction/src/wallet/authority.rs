@@ -490,6 +490,20 @@ impl SyncWalletAuthority for ShieldedKeypair {
         })
     }
 
+    fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError> {
+        SyncWalletAuthority::encrypt_split(
+            &LocalWalletAuthority::new(SyncWalletAuthority::solana_pubkey(self), self),
+            first_nullifier,
+            view_tag,
+            bundle,
+        )
+    }
+
     fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
         let signer = EcdsaSigningKey::from_slice(self.signing_key.secret_bytes().as_slice())
             .map_err(|e| TransactionError::P256(e.to_string()))?;

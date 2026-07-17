@@ -31,10 +31,9 @@ pub use wallet::{
     asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT},
     AnonymousRecipientSlot, ApprovalRequest, AssetBalance, Balances, EncryptedSplit,
     EncryptedTransfer, Filter, LocalWalletAuthority, P256Signature, PrivateTransaction,
-    PrivateTransactionDirection,
-    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, SyncReport,
-    SyncWalletAuthority, ViewingKeyEntry, Wallet, WalletAuthority, WalletSyncMaterial, WalletUtxo,
-    DEFAULT_TAG_WINDOW,
+    PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,
+    PrivateTransactionStatus, SyncReport, SyncWalletAuthority, ViewingKeyEntry, Wallet,
+    WalletAuthority, WalletSyncMaterial, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use wallet::{decrypt_transactions, decrypt_transactions_with_config, SyncConfig};
 pub use zolana_keypair::constants::VIEW_TAG_LEN;

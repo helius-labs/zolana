@@ -80,7 +80,7 @@ pub(super) fn wait_for_indexed_leaf<R: Rpc>(rpc: &R, tree: Address, leaf: [u8; 3
     let started = Instant::now();
     let mut last_error: Option<String> = None;
     loop {
-        match rpc.get_merkle_proofs(tree, vec![leaf]) {
+        match rpc.get_merkle_proofs(tree, vec![leaf], None) {
             Ok(response) => {
                 if response
                     .proofs

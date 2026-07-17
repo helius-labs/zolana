@@ -107,7 +107,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
     // Real-input commitments -> per-input spend proofs (state inclusion + nullifier
     // non-inclusion), fetched before `prepared` is folded into the witness.
     let commitments = prepared.input_utxo_hashes()?;
-    let proofs = indexer.get_input_merkle_proofs(&commitments)?;
+    let proofs = indexer.get_input_merkle_proofs(&commitments, None)?;
 
     let result = MergeProver::try_from(MergeWitness {
         prepared,
