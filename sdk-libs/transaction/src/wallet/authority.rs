@@ -496,26 +496,12 @@ impl SyncWalletAuthority for ShieldedKeypair {
         view_tag: ViewTag,
         bundle: &SplitBundlePlaintext,
     ) -> Result<EncryptedSplit, TransactionError> {
-        let tx = self
-            .viewing_key
-            .get_transaction_viewing_key(first_nullifier)?;
-        let salt = random_salt();
-        let message = Split::encode_plaintext(
-            bundle,
+        SyncWalletAuthority::encrypt_split(
+            &LocalWalletAuthority::new(SyncWalletAuthority::solana_pubkey(self), self),
+            first_nullifier,
             view_tag,
-            &SplitEncode {
-                tx: tx.clone(),
-                recipient_pubkey: self.viewing_key.pubkey(),
-                salt,
-                slot_index: 0,
-                blinding_seed: bundle.blinding_seed,
-            },
-        )?;
-        Ok(EncryptedSplit {
-            tx_viewing_pk: tx.pubkey(),
-            salt,
-            bundle: message,
-        })
+            bundle,
+        )
     }
 
     fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
