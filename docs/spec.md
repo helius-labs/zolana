@@ -289,7 +289,7 @@ The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Sol
 
 `(signing_sk, signing_pk)` — the spend-authorizing keypair. P256 for shielded users; Ed25519 for Solana-only owners whose ownership rails through SPP's Ed25519 signer check (see [UTXO Ownership Check](#utxo-ownership-check)).
 
-**Coin type.** `TSPP_COIN_TYPE = 1445561917'` (placeholder), derived as `SHA-256("luminous.TSPP.v1")[0..4] as u32 & 0x7FFF_FFFF`.
+**Coin type.** `TSPP_COIN_TYPE = 1392955331'` (`be_u32(SHA-256("luminous.TSPP.v1")[0..4]) & 0x7FFF_FFFF`).
 
 **Derivation path.** `m / 44' / TSPP_COIN_TYPE' / account' / 0' / 0'`
 
@@ -533,6 +533,7 @@ sender's change and recipients are dummies too; they hold no value, so their
 
 The confidential default zone reveals recipients but dummy utxos also carry cipher texts so that these are indistinguishable from real outputs.
 
+`split` pads with owner-bound zero-value outputs, not empty UTXOs.
 
 # Output UTXO Serialization
 
@@ -768,13 +769,17 @@ struct TransferPlaintextRecipient {
 
 Requires a plain input; produces plain outputs (no attached data).
 
-All M outputs share owner, amount, and asset, so a single ciphertext encodes them. Each output UTXO derives a unique blinding from the blinding seed:
+A split commits eight owner-bound outputs. Slots `0..M` have the requested amount;
+slots `M..8` have amount zero. All share owner, asset, and owner tag. The wallet
+tracks slots `0..M`.
+
+The ciphertext encodes owner, asset, amount, `M`, and blinding seed. Each output derives:
 
 ```
 blinding_i = Sha256BE(blinding_seed || u8(i))
 ```
 
-for `i = 0 .. M-1`.
+for `i = 0 .. 7`.
 
 ### Plaintext Layout
 
@@ -783,7 +788,7 @@ for `i = 0 .. M-1`.
 /// `data` field. See [UTXO Data](#utxo-data) for the growth per
 /// populated record.
 struct SplitBundlePlaintext {
-    /// Shared owner of all M outputs.
+    /// Shared owner.
     owner_pubkey: PublicKey,
     /// M — number of equal-amount outputs.
     num_outputs: u8,
@@ -791,7 +796,7 @@ struct SplitBundlePlaintext {
     asset_id: u64,
     /// Shared across all M outputs.
     asset_amount: u64,
-    /// Seed for the M per-output blindings (formula above).
+    /// Per-output blinding seed.
     blinding_seed: [u8; 31],
     /// Empty in this implementation (plain outputs).
     data: Data,
@@ -818,9 +823,8 @@ struct SplitEncryptedUtxos {
 ```
 
 The bundle ciphertext sits at `outputs[0].data`; every other output sets
-`data = None` (covered under the [coverage convention](#output-slot-mapping)). Each
-`owner_tag` is `Account(i)` for a committed ed25519 signer, or `P256SigningKey` for
-a P256 owner.
+`data = None`. All eight `owner_tag` values resolve to the same owner. The proof
+and `private_tx_hash` cover all eight commitments.
 
 ## Merge
 
@@ -987,7 +991,7 @@ A third axis selects a zone-capable instantiation at compile time. The non-zone 
 
 ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. The proof references no authority; the SPP program only checks that the user's registry record has `merging_enabled == true` (see [`merge_transact`](#merge_transact)).
 
-**Requirement.** The circuit must NOT take any wallet secret as a witness input.
+**Requirement.** No signing or viewing secret witness. `nullifier_secret` is required.
 
 **Public Inputs**
 
@@ -1680,16 +1684,16 @@ struct MergeTransactIxData {
 7. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
 8. Insert each input nullifier into the nullifier queue. Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of a single-use view tag. SPP does not parse `encrypted_utxo` beyond hashing it; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.
 
-Total instruction data: `8 + 256 (proof) + 32 + 32·N + 4·N + 32 + 105` bytes (the
-owner `pk_field`s come from `user_record`, not the instruction). At the full `N =
-8` shape that is `≈ 721 B`, plus `~206 B` tx overhead (see the `transact` size
-table) `≈ 927 B`.
+Serialized body: `380 + 36·N` bytes (`192`-byte proof, `110`-byte encrypted output).
+With discriminator, `N = 8`: `669 B`; with `~206 B` transaction overhead: `~875 B`.
 
 ### `merge_zone`
 
 **Discriminator:** 13
 
-**Description.** Policy-zone analog of [`merge_transact`](#merge_transact), invoked via CPI from a zone program. The relationship to `merge_transact` parallels how [`zone_authority_transact`](#zone_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `zone_program_id` (matching `zone_config.program_id`) into one output UTXO that preserves `zone_program_id`. The zone program runs its own authorization, including any rules over `zone_data`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the zone program (the `zone_config` signer); SPP does **not** check the registry `merging_enabled` flag for `merge_zone`.
+**Description.** Policy-zone analog of [`merge_transact`](#merge_transact), invoked via CPI from a zone program. The relationship to `merge_transact` parallels how [`zone_authority_transact`](#zone_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `zone_program_id` (matching `zone_config.program_id`) into one output UTXO that preserves `zone_program_id`. The zone program runs its own authorization, including any rules over the input `zone_data_hash` values and its explicitly selected output `zone_data_hash`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the zone program (the `zone_config` signer); SPP does **not** check the registry `merging_enabled` flag for `merge_zone`.
+
+The ciphertext omits `zone_data`; the zone supplies any output `zone_data` preimage.
 
 **Accounts**
 

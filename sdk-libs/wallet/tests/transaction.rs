@@ -178,7 +178,7 @@ fn prover_of(proof_inputs: SppProofInputs) -> TransferP256Prover {
         indexer.add_utxo(commitment.utxo_hash);
     }
     let input_merkle_proofs = indexer
-        .get_input_merkle_proofs(&commitments, None)
+        .get_input_merkle_proofs(Address::default(), &commitments, None)
         .expect("input merkle proofs");
     match zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
         .expect("into prover")
@@ -709,7 +709,9 @@ fn rail_follows_input_owner_type() {
     for commitment in &commitments {
         indexer.add_utxo(commitment.utxo_hash);
     }
-    let input_merkle_proofs = indexer.get_input_merkle_proofs(&commitments, None).unwrap();
+    let input_merkle_proofs = indexer
+        .get_input_merkle_proofs(Address::default(), &commitments, None)
+        .unwrap();
     assert!(matches!(
         zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
             .unwrap()
