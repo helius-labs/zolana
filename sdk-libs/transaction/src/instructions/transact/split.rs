@@ -13,9 +13,7 @@ use zolana_keypair::{
     P256Pubkey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
 };
 
-use super::{
-    spp_proof_inputs::SppProofInputs, transfer::random_view_tag, ExternalData, SppProofOutputUtxo,
-};
+use super::{spp_proof_inputs::SppProofInputs, ExternalData, SppProofOutputUtxo};
 use crate::{
     data::Data,
     error::TransactionError,
@@ -95,27 +93,28 @@ impl ConfidentialSplit {
         })
     }
 
-    /// Assemble the `IN1_OUT8` output set: `num_outputs` real self-owned utxos
-    /// with blindings derived from the shared seed, followed by zero-value
-    /// dummies that keep the padded output balance equal to the input.
+    /// Assemble the `IN1_OUT8` output set: every slot is a real self-owned utxo
+    /// with a blinding derived from the shared seed. The first `num_outputs`
+    /// carry `per_output_amount`; the remaining slots are zero-value self-outputs
+    /// (not `owner=0` dummies) so all 8 are owner-bound and carry the owner's tag
+    /// -- the padded balance still equals the input and the output count is
+    /// hidden. The tail zero-value utxos are worthless and need not be tracked.
     pub fn prepare(self) -> Result<PreparedSplit, TransactionError> {
         let slot_count = Shape::IN1_OUT8.n_outputs();
         let num_outputs = usize::from(self.num_outputs);
 
         let mut outputs = Vec::with_capacity(slot_count);
-        for position in 0..num_outputs {
+        for position in 0..slot_count {
+            let amount = if position < num_outputs {
+                self.per_output_amount
+            } else {
+                0
+            };
             outputs.push(SppProofOutputUtxo {
                 owner_address: Some(self.owner),
                 asset: self.asset,
-                amount: self.per_output_amount,
+                amount,
                 blinding: derive_blinding(&self.blinding_seed, position as u8),
-                ..Default::default()
-            });
-        }
-        for _ in num_outputs..slot_count {
-            outputs.push(SppProofOutputUtxo {
-                blinding: random_blinding(),
-                owner_tag: Some(random_view_tag()?),
                 ..Default::default()
             });
         }
@@ -215,11 +214,12 @@ impl PreparedSplit {
     /// with the outputs: the real slots share the owner view tag, and each dummy
     /// keeps its own random tag.
     ///
-    /// KNOWN LIMITATION: those per-slot owner tags reveal the real output count
-    /// N -- the N real tags cluster while the dummies do not. Hiding N cannot be
-    /// done here: the real self-outputs must carry the owner tag to be spendable
-    /// (the proof binds them), and the circuit rejects a zero-owner dummy tagged
-    /// as a real owner, so uniform tags need a circuit change.
+    /// Every slot is a real self-output carrying the owner's view tag, so all 8
+    /// published tags are identical: the N value-bearing outputs and the (8 - N)
+    /// zero-value pads are indistinguishable, hiding the real output count. Each
+    /// is a genuine owner-bound commitment, so the proof's per-output owner
+    /// binding (`Poseidon(owner_pk, nullifier_pk) == owner_hash`) is satisfied
+    /// for every slot -- no zero-owner dummy, so nothing is rejected.
     pub fn finalize(
         self,
         tx_viewing_pk: P256Pubkey,
@@ -230,38 +230,22 @@ impl PreparedSplit {
             owner,
             input,
             outputs,
-            num_outputs,
             payer_pubkey_hash,
             ..
         } = self;
         let owner_view_tag = owner.signing_pubkey.confidential_view_tag()?;
-        let num_outputs = usize::from(num_outputs);
 
         let mut transact_outputs = Vec::with_capacity(outputs.len());
         let mut resolved_owner_tags = Vec::with_capacity(outputs.len());
         for (position, output) in outputs.iter().enumerate() {
             let utxo_hash = output.hash()?;
-            let (owner_tag, resolved, data) = if position == 0 {
-                (
-                    OwnerTag::Inline(bundle.view_tag),
-                    bundle.view_tag,
-                    Some(bundle.data.clone()),
-                )
-            } else if position < num_outputs {
-                // Real self-output covered by the slot-0 bundle: no ciphertext,
-                // owner view tag shared with the bundle.
-                (OwnerTag::Inline(owner_view_tag), owner_view_tag, None)
-            } else {
-                // Zero-value dummy: its own random tag, no ciphertext.
-                let tag = output.owner_tag.ok_or(TransactionError::MissingOutput)?;
-                (OwnerTag::Inline(tag), tag, None)
-            };
+            let data = (position == 0).then(|| bundle.data.clone());
             transact_outputs.push(TransactOutput {
                 utxo_hash,
-                owner_tag,
+                owner_tag: OwnerTag::Inline(owner_view_tag),
                 data,
             });
-            resolved_owner_tags.push(resolved);
+            resolved_owner_tags.push(owner_view_tag);
         }
 
         let external_data = ExternalData::new(
@@ -381,7 +365,7 @@ mod tests {
             Shape::IN1_OUT8.n_outputs()
         );
 
-        // Balance: the real outputs sum to the input, dummies contribute zero.
+        // Balance: the value-bearing outputs sum to the input; the pads are zero.
         let out_sum: u128 = signed
             .output_utxos
             .iter()
@@ -392,9 +376,11 @@ mod tests {
             assert_eq!(output.amount, per_output);
             assert_eq!(output.asset, SOL_MINT);
         }
+        // The pads are real zero-value self-outputs (owner-bound, not owner=0
+        // dummies), so the proof's per-output owner binding holds for every slot.
         for output in signed.output_utxos.iter().skip(usize::from(parts)) {
             assert_eq!(output.amount, 0);
-            assert!(output.is_dummy());
+            assert!(!output.is_dummy());
         }
 
         // Only slot 0 carries a ciphertext; every other slot is covered.
@@ -404,27 +390,15 @@ mod tests {
             assert!(output.data.is_none());
         }
 
-        // Resolved owner tags pair 1:1; the real slots share the owner tag.
+        // All 8 slots publish the owner's view tag -- uniform, so the tags do
+        // not reveal the real output count N.
         let owner_tag = keypair.signing_pubkey().confidential_view_tag().unwrap();
         assert_eq!(
             signed.external_data.resolved_owner_tags.len(),
             outputs.len()
         );
-        for resolved in signed
-            .external_data
-            .resolved_owner_tags
-            .iter()
-            .take(usize::from(parts))
-        {
+        for resolved in &signed.external_data.resolved_owner_tags {
             assert_eq!(*resolved, owner_tag);
-        }
-        for resolved in signed
-            .external_data
-            .resolved_owner_tags
-            .iter()
-            .skip(usize::from(parts))
-        {
-            assert_ne!(*resolved, owner_tag);
         }
     }
 
