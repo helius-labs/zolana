@@ -366,7 +366,7 @@ cd prover/server && go build -o light-prover .
 ### Distribute proving keys via GitHub release
 
 All gitignored proving keys (merkle, batch, transfer, and merge) are published
-as assets on the single private-repo GitHub release `transfer-keys-v12` on
+as assets on the single private-repo GitHub release `transfer-keys-v13` on
 `helius-labs/zolana`. The downloader fetches release metadata and assets through
 the GitHub REST API with a bearer token from `GITHUB_TOKEN` or `GH_TOKEN`. The
 tag is pinned as `ProvingKeysReleaseTag` in `key_downloader.go` and can be

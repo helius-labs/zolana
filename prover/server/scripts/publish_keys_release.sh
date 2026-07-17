@@ -9,7 +9,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-tag="${1:-transfer-keys-v12}"
+tag="${1:-transfer-keys-v13}"
 keys_dir="${2:-./proving-keys}"
 repo="helius-labs/zolana"
 split_threshold_bytes=$((1900 * 1024 * 1024))

@@ -67,12 +67,15 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	return out
 }
 
-// Pinned as of transfer-keys-v12 (post-#113 gadget refactor). Regenerate with
-// UPDATE_FINGERPRINTS=1 after a full key rotation.
+// Pinned as of transfer-keys-v13 (C-02 padding-nullifier pin on top of the #113
+// gadget refactor). The pin adds constraints to the transfer inputs and removes
+// the dummy-selector on the merge nullifier, so transfer and merge shifted while
+// batch address-append is untouched. Regenerate with UPDATE_FINGERPRINTS=1 after
+// a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
-	"transfer_p256_confidential_2_3": {constraints: 209135, public: 2},
-	"transfer_confidential_2_3":      {constraints: 53393, public: 2},
-	"merge_8_1":                      {constraints: 463362, public: 2},
+	"transfer_p256_confidential_2_3": {constraints: 209137, public: 2},
+	"transfer_confidential_2_3":      {constraints: 53395, public: 2},
+	"merge_8_1":                      {constraints: 463354, public: 2},
 	"batch_address-append_40_10":     {constraints: 423683, public: 2},
 }
 
