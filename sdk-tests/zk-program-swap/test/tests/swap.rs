@@ -14,7 +14,7 @@ use swap_sdk::{
     shared::input_sum,
     state::{OrderTerms, OrderUtxo},
 };
-use zolana_client::{ensure_registered, Rpc};
+use zolana_client::{confirm_private_transaction_sync, ensure_registered, IndexerRpcConfig, Rpc};
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::{
@@ -172,7 +172,10 @@ fn make_and_take_swap_inline() -> Result<()> {
         }
         .instruction()?;
 
-        send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, make_ix)?;
+        let make_signature =
+            send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, make_ix)?;
+        confirm_private_transaction_sync(&rpc, &indexer, make_signature, IndexerRpcConfig::wait())
+            .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
     }
 
     {
@@ -274,7 +277,10 @@ fn make_and_take_swap_inline() -> Result<()> {
         }
         .instruction()?;
 
-        send_v0_with_lookup_table(&rpc, &taker.keypair.to_solana_keypair()?, take_ix)?;
+        let take_signature =
+            send_v0_with_lookup_table(&rpc, &taker.keypair.to_solana_keypair()?, take_ix)?;
+        confirm_private_transaction_sync(&rpc, &indexer, take_signature, IndexerRpcConfig::wait())
+            .map_err(|e| anyhow!("confirm take indexed: {e:?}"))?;
 
         indexer
             .get_merkle_proofs(tree, vec![source_output_hash, destination_output_hash], None)

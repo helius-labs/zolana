@@ -47,7 +47,7 @@ pub use actions::{
     sign_private_transaction_sync,
 };
 #[cfg(feature = "indexer-api")]
-pub use client::{ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
+pub use client::{confirm_private_transaction_sync, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
 pub use error::ClientError;
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 #[cfg(feature = "indexer-api")]

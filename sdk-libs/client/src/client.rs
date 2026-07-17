@@ -248,17 +248,28 @@ impl<R: Rpc> ZolanaClient<R> {
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
-        wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
-        let tags = self
-            .rpc()
-            .transact_output_view_tags_from_signature(signature)?;
-        wait_for_indexed_transaction(
+        confirm_private_transaction_sync(
+            self.rpc(),
             self.blocking_indexer(),
-            &tags,
             signature,
-            self.indexer_config.poll,
+            self.indexer_config,
         )
     }
+}
+
+/// Wait until `signature` is confirmed on-chain and Photon has indexed its
+/// `TRANSACT` output view tags. Callers that only hold an `R: Rpc` and a
+/// [`ZolanaIndexer`] separately (not a full [`ZolanaClient`]) can use this
+/// directly instead of assembling a client just to confirm a submission.
+pub fn confirm_private_transaction_sync<R: Rpc>(
+    rpc: &R,
+    indexer: &ZolanaIndexer,
+    signature: Signature,
+    config: IndexerRpcConfig,
+) -> Result<(), ClientError> {
+    wait_for_rpc_confirmation(rpc, signature, config.poll)?;
+    let tags = rpc.transact_output_view_tags_from_signature(signature)?;
+    wait_for_indexed_transaction(indexer, &tags, signature, config.poll)
 }
 
 impl<R: AsyncRpc> ZolanaClient<R> {
