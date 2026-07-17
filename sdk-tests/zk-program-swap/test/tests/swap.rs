@@ -14,7 +14,7 @@ use swap_sdk::{
     shared::input_sum,
     state::{OrderTerms, OrderUtxo},
 };
-use zolana_client::{confirm_private_transaction_sync, ensure_registered, IndexerRpcConfig, Rpc};
+use zolana_client::{ensure_registered, Rpc};
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::{
@@ -53,8 +53,7 @@ const EXPIRY: u64 = 2_000_000_000;
 #[test]
 fn make_and_take_swap_inline() -> Result<()> {
     let TestEnv {
-        rpc,
-        indexer,
+        client,
         tree,
         maker,
         mut taker,
@@ -62,8 +61,12 @@ fn make_and_take_swap_inline() -> Result<()> {
     } = setup()?;
     let swap_prover_client = SwapProverClient::new();
     {
-        ensure_registered(&rpc, &maker.keypair.to_solana_keypair()?, &maker.keypair)
-            .map_err(|e| anyhow!("register maker: {e:?}"))?;
+        ensure_registered(
+            client.rpc(),
+            &maker.keypair.to_solana_keypair()?,
+            &maker.keypair,
+        )
+        .map_err(|e| anyhow!("register maker: {e:?}"))?;
 
         // 1. Set order terms.
         let taker_address = taker.keypair.shielded_address()?;
@@ -150,7 +153,8 @@ fn make_and_take_swap_inline() -> Result<()> {
 
         let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
         // 5. create spp proof.
-        let spp_proof = indexer
+        let spp_proof = client
+            .indexer()
             .prove_transact(tree, spp_proof_inputs)
             .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
@@ -173,8 +177,9 @@ fn make_and_take_swap_inline() -> Result<()> {
         .instruction()?;
 
         let make_signature =
-            send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, make_ix)?;
-        confirm_private_transaction_sync(&rpc, &indexer, make_signature, IndexerRpcConfig::wait())
+            send_v0_with_lookup_table(client.rpc(), &maker.keypair.to_solana_keypair()?, make_ix)?;
+        client
+            .confirm_private_transaction_sync(make_signature)
             .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
     }
 
@@ -183,8 +188,8 @@ fn make_and_take_swap_inline() -> Result<()> {
         let order = index_taker(
             &mut taker.wallet,
             &taker.keypair,
-            &indexer,
-            &rpc,
+            client.indexer(),
+            client.rpc(),
             Duration::from_secs(60),
         )?
         .pop()
@@ -261,7 +266,8 @@ fn make_and_take_swap_inline() -> Result<()> {
                 .map_err(|e| anyhow!("take external data hash: {e:?}"))?,
         };
 
-        let spp_proof = indexer
+        let spp_proof = client
+            .indexer()
             .prove_transact(tree, take_spp_proof_inputs)
             .map_err(|e| anyhow!("take transact proof: {e:?}"))?;
 
@@ -278,11 +284,13 @@ fn make_and_take_swap_inline() -> Result<()> {
         .instruction()?;
 
         let take_signature =
-            send_v0_with_lookup_table(&rpc, &taker.keypair.to_solana_keypair()?, take_ix)?;
-        confirm_private_transaction_sync(&rpc, &indexer, take_signature, IndexerRpcConfig::wait())
+            send_v0_with_lookup_table(client.rpc(), &taker.keypair.to_solana_keypair()?, take_ix)?;
+        client
+            .confirm_private_transaction_sync(take_signature)
             .map_err(|e| anyhow!("confirm take indexed: {e:?}"))?;
 
-        indexer
+        client
+            .indexer()
             .get_merkle_proofs(
                 tree,
                 vec![source_output_hash, destination_output_hash],

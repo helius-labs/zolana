@@ -14,7 +14,8 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use zolana_client::{
-    spawn_prover, sync_wallet, Deposit, DepositParams, Rpc, SolanaRpc, ZolanaIndexer,
+    spawn_prover, sync_wallet, AsyncProverClient, AsyncZolanaIndexer, Deposit, DepositParams,
+    ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
@@ -41,8 +42,7 @@ pub const DESTINATION_AMOUNT: u64 = 250_000_000;
 // Solana fee payer (`to_solana_keypair`), and the wallet holds the asset
 // registry and the synced spendable notes.
 pub struct TestEnv {
-    pub rpc: SolanaRpc,
-    pub indexer: ZolanaIndexer,
+    pub client: ZolanaClient<SolanaRpc>,
     pub tree: Pubkey,
     pub maker: TestWallet,
     pub taker: TestWallet,
@@ -115,7 +115,7 @@ pub fn setup() -> Result<TestEnv> {
     let indexer_url =
         std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| "http://127.0.0.1:8784".to_string());
     let mut rpc = SolanaRpc::new(rpc_url);
-    let indexer = ZolanaIndexer::new(indexer_url);
+    let indexer = ZolanaIndexer::new(indexer_url.clone());
 
     let spp_program = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     rpc.assert_executable(&spp_program)?;
@@ -297,9 +297,17 @@ pub fn setup() -> Result<TestEnv> {
     sync_wallet(&mut taker_wallet, &taker_shielded_keypair, &indexer)
         .map_err(|e| anyhow!("sync taker deposit: {e:?}"))?;
 
-    Ok(TestEnv {
+    let client = ZolanaClient::new(
         rpc,
         indexer,
+        ProverClient::default(),
+        AsyncZolanaIndexer::new(indexer_url),
+        AsyncProverClient::default(),
+        Address::new_from_array(tree.to_bytes()),
+    );
+
+    Ok(TestEnv {
+        client,
         tree,
         maker: TestWallet {
             wallet: maker_wallet,
