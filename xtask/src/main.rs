@@ -8,6 +8,9 @@ use std::{
 use sha2::{Digest, Sha256};
 
 mod init_protocol;
+mod spec_gate;
+mod spec_lint;
+mod term;
 mod update_protocol_config;
 
 fn main() {
@@ -64,6 +67,14 @@ fn main() {
                 eprintln!("update-protocol-config failed: {error:?}");
                 std::process::exit(1);
             }
+        }
+        Some("spec-gate") => {
+            let code = spec_gate::run(spec_gate::Options::parse(args.collect()));
+            std::process::exit(code);
+        }
+        Some("spec-lint") => {
+            let code = spec_lint::run(spec_lint::Options::parse(args.collect()));
+            std::process::exit(code);
         }
         Some("tx-size") => tx_size(args.collect()),
         Some("--help") | Some("-h") | None => print_help(),
@@ -302,6 +313,12 @@ fn print_help() {
     println!("  init-protocol            Initialize the protocol on a cluster (see --help)");
     println!("  update-protocol-config   Update protocol config flags on a cluster (see --help)");
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");
+    println!(
+        "  spec-gate                Fail while the spec-review findings ledger has open entries"
+    );
+    println!(
+        "  spec-lint                Check docs/spec.md for dead anchors, broken links, banned terms"
+    );
 }
 
 fn print_create_verifying_keys_help() {

@@ -563,6 +563,46 @@ xtask-create-verifying-keys-smoke:
     fi
     cargo run -p xtask -- create-verifying-keys --limit 1
 
+# === Spec review ===
+
+# Tools the headless skill needs, granted on the command line so they apply even
+# when the workspace has not been trust-dialog-accepted (the .claude/settings.json
+# allowlist is ignored in an untrusted headless workspace).
+spec-review-tools := "Read Grep Glob Task " + \
+    '"Bash(git diff:*)" "Bash(git log:*)" "Bash(git show:*)" "Bash(grep:*)" ' + \
+    '"Bash(just spec-gate:*)" "Bash(cargo run -q -p xtask -- spec-gate:*)" ' + \
+    '"Bash(just spec-lint:*)" "Bash(cargo run -q -p xtask -- spec-lint:*)" ' + \
+    '"Edit(docs/spec-review/**)"'
+
+# No API key needed; runs in CI on every PR.
+# Deterministic gate: fails while docs/spec-review/findings.md has open findings.
+spec-gate *args:
+    cargo run -q -p xtask -- spec-gate {{args}}
+
+# Deterministic spec lint: dead anchors, unresolvable links, banned vocabulary.
+spec-lint *args:
+    cargo run -q -p xtask -- spec-lint {{args}}
+
+# Requires the `claude` CLI; in CI additionally ANTHROPIC_API_KEY.
+# Headless spec-vs-code audit: appends findings to the ledger; never edits the spec.
+spec-review:
+    claude -p "/spec-review full" --output-format text --allowedTools {{spec-review-tools}}
+
+# Diff-scoped review of spec sections whose mapped code changed since `base`.
+spec-review-diff base="origin/main":
+    claude -p "/spec-review diff {{base}}" --output-format text --allowedTools {{spec-review-tools}}
+
+# Never run by CI or the hook. Review `git diff docs/spec.md` before committing.
+# Operator-only autofix: rewrites docs/spec.md to match code for recorded spec drift.
+# Adds Edit(docs/spec.md) to the audit tool set — the only recipe that may edit the spec.
+yolo-fix-spec:
+    claude -p "/spec-review fix" --output-format text \
+      --allowedTools {{spec-review-tools}} "Edit(docs/spec.md)"
+
+# Enable the repo git hooks (pre-commit spec gate). Opt-in; off by default.
+install-hooks:
+    git config core.hooksPath .githooks
+
 # === Maintenance ===
 
 metadata:

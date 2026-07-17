@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Edit(docs/spec-review/**)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)",
+      "Bash(just spec-gate:*)",
+      "Bash(cargo run -q -p xtask -- spec-gate:*)"
+    ]
+  }
+}

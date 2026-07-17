@@ -11,8 +11,15 @@
 test-ledger
 .DS_Store
 /.idea
-.claude
-docs
+# Ignore local Claude Code state but track the shared config and skills.
+/.claude/*
+!/.claude/settings.json
+!/.claude/skills/
+# Ignore stray docs by default; track the spec-review directory except the
+# findings ledger, which is local review state.
+/docs/*
+!/docs/spec-review/
+/docs/spec-review/findings.md
 experiments
 docs/api/
 docs/docs.md

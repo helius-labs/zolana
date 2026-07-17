@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Spec-review findings gate. Opt-in: enable with `just install-hooks`
+# (sets core.hooksPath .githooks); bypass a single commit with --no-verify.
+set -euo pipefail
+
+just spec-gate
+just spec-lint
+
+# Optional deep check: SPEC_REVIEW_PRECOMMIT=full additionally runs a
+# diff-scoped headless spec review (slow, requires the `claude` CLI).
+if [[ "${SPEC_REVIEW_PRECOMMIT:-}" == "full" ]]; then
+    just spec-review-diff HEAD
+    just spec-gate
+fi

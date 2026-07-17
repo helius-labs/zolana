@@ -6,6 +6,26 @@
 implementation cleanup unless that is the explicit task. If code, tests, and the
 spec disagree, treat the code or tests as suspect first.
 
+## Spec Maintenance
+
+Spec refreshes run through the `spec-review` skill
+(`.claude/skills/spec-review/SKILL.md`): it compares `docs/spec.md` with the
+code, fixes stale spec text, security-audits the design, and appends findings
+to `docs/spec-review/findings.md` (gitignored local review state). `just
+spec-gate` (CI: `spec-review.yml`) fails while any finding is `status: open`
+and passes when no ledger exists; `yolo-fix-spec` marks the findings it
+closes `auto-resolved` (passes CI, distinct from operator `resolved`), and a
+human operator flips the rest to `acknowledged`/`resolved`. `just spec-lint` is
+the deterministic spec check (dead anchors, broken links, banned vocabulary) run
+by the gate job, the hook, and the skill's self-review. Headless audit runs:
+`just spec-review` / `just spec-review-diff` (these never edit the spec).
+`just yolo-fix-spec` is the operator-only autofix: it rewrites `docs/spec.md` to
+match the code for recorded drift and to production grade, then auto-resolves
+those findings — review `git diff docs/spec.md` before committing. Every fix
+edit carries an adjacent `<!-- ZSR-NNNN: why -->` markdown comment, so the diff
+justifies itself; strip them after review at will. The optional
+pre-commit gate (`spec-gate` + `spec-lint`) is enabled with `just install-hooks`.
+
 ## Repo Structure
 
 program-libs
