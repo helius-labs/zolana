@@ -725,6 +725,10 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         )
     }
 
+    fn configured_tree(&self) -> Option<Address> {
+        Some(self.tree)
+    }
+
     fn get_input_merkle_proofs(
         &self,
         input_utxo_commitments: &[InputUtxoContext],

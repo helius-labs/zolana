@@ -306,6 +306,15 @@ pub trait Rpc {
         Err(unsupported("get_non_inclusion_proofs"))
     }
 
+    /// The single pool tree this backend resolves input Merkle proofs against,
+    /// when it has one. `None` means the backend is not bound to a fixed tree
+    /// (a bare RPC or a test mock), so a caller cannot bind a proof tree to it.
+    /// Used to reject a merge submit whose ix tree diverges from the tree its
+    /// input proofs were fetched against.
+    fn configured_tree(&self) -> Option<Address> {
+        None
+    }
+
     /// Resolve the state-inclusion and nullifier-non-inclusion proofs for each
     /// input UTXO commitment, returned in the same order as the commitments.
     fn get_input_merkle_proofs(

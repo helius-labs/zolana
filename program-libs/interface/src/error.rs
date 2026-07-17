@@ -11,6 +11,11 @@ pub enum InterfaceError {
     /// struct (e.g. a client reading a fetched account whose data does not
     /// match the struct size).
     InvalidAccountData,
+    /// Protocol-config account bytes are the wrong length/format to be cast to
+    /// `ProtocolConfig`. Kept distinct from `InvalidAccountData` so the on-chain
+    /// mapping reports `InvalidProtocolConfig` (7012) rather than the
+    /// SPL-registry code.
+    InvalidProtocolConfigData,
 }
 
 /// Program errors surfaced on-chain as `ProgramError::Custom(code)`.
@@ -87,6 +92,7 @@ impl From<InterfaceError> for ShieldedPoolError {
             InterfaceError::InvalidDiscriminator => ShieldedPoolError::InvalidProtocolConfig,
             InterfaceError::Unauthorized => ShieldedPoolError::UnauthorizedCaller,
             InterfaceError::InvalidAccountData => ShieldedPoolError::InvalidSplAssetRegistry,
+            InterfaceError::InvalidProtocolConfigData => ShieldedPoolError::InvalidProtocolConfig,
         }
     }
 }

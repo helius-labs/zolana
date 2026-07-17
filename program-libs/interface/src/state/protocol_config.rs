@@ -29,10 +29,10 @@ impl ProtocolConfig {
     /// Zero-copy view over an exact protocol-config account payload.
     pub fn from_account_bytes(data: &[u8]) -> Result<&Self, InterfaceError> {
         if data.len() != Self::SIZE {
-            return Err(InterfaceError::InvalidAccountData);
+            return Err(InterfaceError::InvalidProtocolConfigData);
         }
-        let config: &Self =
-            bytemuck::try_from_bytes(data).map_err(|_| InterfaceError::InvalidAccountData)?;
+        let config: &Self = bytemuck::try_from_bytes(data)
+            .map_err(|_| InterfaceError::InvalidProtocolConfigData)?;
         config.check_discriminator()?;
         Ok(config)
     }

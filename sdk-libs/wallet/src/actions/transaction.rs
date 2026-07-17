@@ -318,7 +318,13 @@ fn select_split_utxo(
             .utxos
             .iter()
             .filter(|entry| {
-                !entry.spent && entry.utxo.asset == asset && entry.output_context.tree == tree
+                !entry.spent
+                    && entry.utxo.asset == asset
+                    && entry.output_context.tree == tree
+                    // Apply the full eligibility predicate before picking the
+                    // largest, so a large zone-bound or data-carrying utxo never
+                    // shadows a smaller plain candidate that could actually split.
+                    && is_plain_utxo(entry)
             })
             .max_by_key(|entry| entry.utxo.amount)
             .ok_or(ClientError::InsufficientBalance {
@@ -403,8 +409,9 @@ pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientErro
 /// plain utxos are mergeable or splittable; building a spend input drops the
 /// utxo's committed data hashes, which would desync the commitment from the tree
 /// otherwise. Option semantics: a `Some(_)` hash counts as data regardless of the
-/// hash value.
-fn is_plain_utxo(entry: &WalletUtxo) -> bool {
+/// hash value. Public so the CLI's `utxos` listing classifies `kind` with the
+/// exact predicate split/merge enforce, and the two cannot drift.
+pub fn is_plain_utxo(entry: &WalletUtxo) -> bool {
     entry.utxo.zone_program_id.is_none()
         && entry.zone_data_hash.is_none()
         && entry.data_hash.is_none()
@@ -1263,19 +1270,27 @@ mod tests {
     }
 
     #[test]
-    fn create_split_rejects_utxo_carrying_data() {
+    fn create_split_rejects_named_utxo_carrying_data() {
         let sender = ShieldedKeypair::new().unwrap();
         let mut wallet = wallet_with_sol(sender, 800);
+        let hash = wallet
+            .utxos
+            .first()
+            .expect("seeded utxo")
+            .output_context
+            .hash;
         if let Some(entry) = wallet.utxos.first_mut() {
             entry.utxo.data = Data::new(vec![DataRecord::Memo(b"utxo".to_vec())]);
         }
 
+        // An explicitly named non-plain utxo must error rather than silently
+        // fall back; only auto-selection skips ineligible utxos.
         let error = match create_split(SplitParams {
             wallet: &wallet,
             payer: Address::default(),
             asset: SOL_MINT,
             parts: 8,
-            input: None,
+            input: Some(hash),
         }) {
             Err(error) => error,
             Ok(_) => panic!("a utxo carrying data must be rejected"),
@@ -1285,9 +1300,15 @@ mod tests {
     }
 
     #[test]
-    fn create_split_rejects_zone_bound_utxo() {
+    fn create_split_rejects_named_zone_bound_utxo() {
         let sender = ShieldedKeypair::new().unwrap();
         let mut wallet = wallet_with_sol(sender, 800);
+        let hash = wallet
+            .utxos
+            .first()
+            .expect("seeded utxo")
+            .output_context
+            .hash;
         if let Some(entry) = wallet.utxos.first_mut() {
             entry.utxo.zone_program_id = Some(Address::new_from_array([3u8; 32]));
         }
@@ -1297,13 +1318,37 @@ mod tests {
             payer: Address::default(),
             asset: SOL_MINT,
             parts: 8,
-            input: None,
+            input: Some(hash),
         }) {
             Err(error) => error,
             Ok(_) => panic!("a zone-bound utxo must be rejected"),
         };
 
         assert!(matches!(error, ClientError::SplitInputZoneMismatch { .. }));
+    }
+
+    #[test]
+    fn create_split_auto_select_skips_a_larger_ineligible_utxo() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&sender);
+        // A larger data-carrying utxo must not shadow the smaller plain candidate.
+        push_utxo(&mut wallet, &sender, 1600, [1u8; 31]);
+        if let Some(entry) = wallet.utxos.last_mut() {
+            entry.data_hash = Some([7u8; 32]);
+        }
+        push_utxo(&mut wallet, &sender, 800, [2u8; 31]);
+
+        let created = create_split(SplitParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            asset: SOL_MINT,
+            parts: 8,
+            input: None,
+        })
+        .expect("auto-select falls back to the plain utxo");
+
+        // 800 / 8, proving the larger 1600 data-carrying utxo was skipped.
+        assert_eq!(created.per_output_amount, 100);
     }
 
     fn sol_wallet(keypair: &ShieldedKeypair) -> Wallet {

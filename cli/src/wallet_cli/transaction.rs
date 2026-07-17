@@ -4,6 +4,7 @@ use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
 use zolana_transaction::Address;
 use zolana_wallet::{
+    actions::{submit::MergeMaterial, transaction::is_plain_utxo},
     create_merge, create_split, create_transfer_sync, sign_private_transaction_sync,
     submit_merge_transaction, MergeParams, SplitParams, SubmitMergeTransaction, TransferParams,
 };
@@ -78,9 +79,12 @@ pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
         .filter(|entry| !entry.spent && entry.utxo.asset == asset)
     {
         count += 1;
+        // Classify with the exact predicate split/merge enforce (`is_plain_utxo`),
+        // so a memo-only utxo (inline `utxo.data`, no data hash) reads as `data`
+        // here rather than as `plain` that those actions would then reject.
         let kind = if entry.utxo.zone_program_id.is_some() {
             "zone"
-        } else if entry.data_hash.is_some() || entry.zone_data_hash.is_some() {
+        } else if !is_plain_utxo(entry) {
             "data"
         } else {
             "plain"
@@ -181,12 +185,15 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         network.prover_url.clone(),
         Address::new_from_array(tree.to_bytes()),
     );
+    // Submit only needs the owner's public identity plus the nullifier secret;
+    // no signing/viewing/funding secret crosses the submit boundary.
+    let material = MergeMaterial::from_keypair(&ctx.material.keypair);
     let submitted = submit_merge_transaction(SubmitMergeTransaction {
         rpc: &client,
         indexer: &client,
         owner: ctx.material.funding.pubkey(),
         payer: &ctx.material.funding,
-        keypair: &ctx.material.keypair,
+        material: &material,
         tree: Pubkey::new_from_array(tree.to_bytes()),
         prover_url: &network.prover_url,
         prepared: created.prepared,
