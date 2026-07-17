@@ -25,13 +25,5 @@ zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [[example]]
-name = "instruction_deposit"
-path = "wallet/deposit.rs"
-
-[[example]]
-name = "instruction_transfer"
-path = "inlined/transfer.rs"
-
-[[example]]
-name = "instruction_withdraw"
-path = "wallet/withdraw.rs"
+name = "deposit_transfer_withdraw"
+path = "examples/deposit_transfer_withdraw.rs"

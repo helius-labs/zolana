@@ -2,73 +2,31 @@ use anyhow::{anyhow, Result};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{spawn_prover, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer};
+use zolana_client::{spawn_prover, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateProtocolConfig, CreateTree},
     pda,
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::system_create_account_ix;
 use zolana_test_utils::{
     localnet::LocalnetValidator,
     smart_account::{self, StandardSigners},
 };
-use zolana_transaction::{instructions::types::SppProofInputUtxo, Address, AssetRegistry, Wallet};
-
-pub mod wallet;
-pub use wallet::{Confirmation, TestWallet};
 
 pub const DEPOSIT_AMOUNT: u64 = 1_000_000_000;
 pub const TRANSFER_AMOUNT: u64 = 300_000_000;
 pub const WITHDRAW_AMOUNT: u64 = 300_000_000;
 
 pub struct SetupContext {
-    pub rpc: SolanaRpc,
-    pub indexer: ZolanaIndexer,
     pub rpc_url: String,
     pub indexer_url: String,
     pub prover_url: String,
     pub tree: Pubkey,
-    pub alice: TestWallet,
-    pub bob: TestWallet,
-}
-
-/// ZolanaClient over a fresh RPC, used to fetch input merkle proofs from the
-/// indexer and to submit the assembled `transact` transaction.
-pub fn client(ctx: &SetupContext) -> ZolanaClient<SolanaRpc> {
-    ZolanaClient::from_urls(
-        SolanaRpc::new(ctx.rpc_url.clone()),
-        &ctx.indexer_url,
-        ctx.prover_url.clone(),
-        ctx.tree,
-    )
-}
-
-pub fn prover(ctx: &SetupContext) -> ProverClient {
-    ProverClient::new(ctx.prover_url.clone())
-}
-
-/// Spend inputs covering `amount`, each bound to `keypair`'s nullifier key.
-pub fn select_inputs(
-    wallet: &Wallet,
-    keypair: &ShieldedKeypair,
-    asset: Address,
-    amount: u64,
-) -> Result<Vec<SppProofInputUtxo>> {
-    let mut inputs = Vec::new();
-    let mut total = 0u64;
-    for utxo in wallet.balance(asset, None)?.utxos {
-        total = total.saturating_add(utxo.amount);
-        inputs.push(SppProofInputUtxo::new(utxo, keypair));
-        if total >= amount {
-            return Ok(inputs);
-        }
-    }
-    Err(anyhow!(
-        "insufficient shielded balance: have {total}, need {amount}"
-    ))
+    pub alice: ShieldedKeypair,
+    pub bob: ShieldedKeypair,
 }
 
 pub fn setup() -> Result<SetupContext> {
@@ -117,7 +75,6 @@ pub fn setup() -> Result<SetupContext> {
         .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
 
     let mut rpc = SolanaRpc::new(rpc_url.clone());
-    let indexer = ZolanaIndexer::new(indexer_url.clone());
 
     rpc.assert_executable(&Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID))?;
 
@@ -201,12 +158,10 @@ pub fn setup() -> Result<SetupContext> {
     )?;
     let tree = tree.pubkey();
 
-    let alice = new_wallet(&mut rpc, tree)?;
-    let bob = new_wallet(&mut rpc, tree)?;
+    let alice = new_wallet(&mut rpc)?;
+    let bob = new_wallet(&mut rpc)?;
 
     Ok(SetupContext {
-        rpc,
-        indexer,
         rpc_url,
         indexer_url,
         prover_url,
@@ -216,12 +171,9 @@ pub fn setup() -> Result<SetupContext> {
     })
 }
 
-fn new_wallet(rpc: &mut SolanaRpc, tree: Pubkey) -> Result<TestWallet> {
+fn new_wallet(rpc: &mut SolanaRpc) -> Result<ShieldedKeypair> {
     let solana_keypair = Keypair::new();
-    let seed: [u8; 32] = solana_keypair.to_bytes()[..32]
-        .try_into()
-        .expect("ed25519 seed is the first 32 bytes");
-    let keypair = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?;
+    let keypair = ShieldedKeypair::from_solana_keypair(&solana_keypair)?;
     rpc.airdrop(&solana_keypair.pubkey(), 10_000_000_000)?;
-    Ok(TestWallet::new(keypair, AssetRegistry::default())?.with_tree(tree))
+    Ok(keypair)
 }

@@ -428,11 +428,11 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p swap-test-validator --test swap --test cancel -- --nocapture
 
-# Minimal zolana-client SDK examples: deposit, shielded transfer, and withdrawal,
-# each building the SPP instruction by hand and submitting it
-# (sdk-tests/client/instructions/{deposit,transfer,withdraw}.rs). Every example
-# boots solana-test-validator via the `zolana` CLI with the shielded pool, the
-# user registry, and the Squads smart account, plus Photon and the SPP prover --
+# Minimal zolana-client SDK example: deposit, shielded transfer, and withdrawal
+# building the SPP instructions by hand and submitting them
+# (sdk-tests/client/examples/deposit_transfer_withdraw.rs). Boots
+# solana-test-validator via the `zolana` CLI with the shielded pool, the user
+# registry, and the Squads smart account, plus Photon and the SPP prover --
 # mirroring test-spp-validator.
 test-client-example: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
@@ -448,10 +448,8 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    for example in instruction_deposit instruction_transfer instruction_withdraw; do
-      env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-        cargo run -p client-example --example "$example"
-    done
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo run -p client-example --example deposit_transfer_withdraw
 
 install-surfpool:
     #!/usr/bin/env bash
