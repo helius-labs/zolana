@@ -88,11 +88,11 @@ pub enum ClientError {
     #[error("owner {owner} has not enabled the merge service on its user-registry record")]
     MergeDisabled { owner: Pubkey },
 
-    #[error("nothing to merge for asset {asset:?}: fewer than two plain notes are available")]
+    #[error("nothing to merge for asset {asset:?}: fewer than two plain utxos are available")]
     NothingToMerge { asset: solana_address::Address },
 
-    #[error("merge input note {hash:?} was named more than once")]
-    DuplicateInputNote { hash: [u8; 32] },
+    #[error("merge input utxo {hash:?} was named more than once")]
+    DuplicateInputUtxo { hash: [u8; 32] },
 
     #[error("merging keypair signing key does not match the owner's registry record")]
     MergeSigningKeyMismatch,
@@ -106,13 +106,13 @@ pub enum ClientError {
     #[error("split amount {amount} is not divisible into {parts} equal parts")]
     SplitNotDivisible { amount: u64, parts: u8 },
 
-    #[error("split input note {hash:?} is not available in the wallet")]
-    InputNoteUnavailable { hash: [u8; 32] },
+    #[error("split input utxo {hash:?} is not available in the wallet")]
+    InputUtxoUnavailable { hash: [u8; 32] },
 
-    #[error("split input note {hash:?} carries program or utxo data, which is not supported")]
+    #[error("split input utxo {hash:?} carries program or utxo data, which is not supported")]
     SplitInputHasData { hash: [u8; 32] },
 
-    #[error("split input note {hash:?} is bound to a zone, which is not supported")]
+    #[error("split input utxo {hash:?} is bound to a zone, which is not supported")]
     SplitInputZoneMismatch { hash: [u8; 32] },
 
     #[error("p256 signature error: {0}")]

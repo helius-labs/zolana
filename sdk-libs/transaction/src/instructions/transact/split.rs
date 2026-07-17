@@ -29,7 +29,7 @@ use crate::{
 };
 
 /// A split is a 1-input -> N-output self-transfer of a single asset into N
-/// equal notes (`N` in `2..=8`). It always fills the `IN1_OUT8` shape: the `N`
+/// equal utxos (`N` in `2..=8`). It always fills the `IN1_OUT8` shape: the `N`
 /// real self-owned outputs occupy slots `0..N`, and `8 - N` zero-value dummies
 /// pad the tail so the padded balance still sums to the input. All `N` real
 /// outputs are encoded in a single `Split` bundle ciphertext published at slot
@@ -49,7 +49,7 @@ const MIN_PARTS: u8 = 2;
 
 impl ConfidentialSplit {
     /// Validate the split shape and input before assembly: `num_outputs` in
-    /// `2..=8`, the input matches `asset`, the input is a plain note (no zone
+    /// `2..=8`, the input matches `asset`, the input is a plain utxo (no zone
     /// binding and no attached data), and `num_outputs * per_output_amount`
     /// equals the input amount so the circuit balance holds.
     pub fn new(
@@ -95,7 +95,7 @@ impl ConfidentialSplit {
         })
     }
 
-    /// Assemble the `IN1_OUT8` output set: `num_outputs` real self-owned notes
+    /// Assemble the `IN1_OUT8` output set: `num_outputs` real self-owned utxos
     /// with blindings derived from the shared seed, followed by zero-value
     /// dummies that keep the padded output balance equal to the input.
     pub fn prepare(self) -> Result<PreparedSplit, TransactionError> {
@@ -187,7 +187,7 @@ pub struct PreparedSplit {
 impl PreparedSplit {
     /// The `Split` bundle plaintext that covers every real output: it carries
     /// the owner pubkey, the shared blinding seed, and the per-output amount, so
-    /// the recipient re-derives all `num_outputs` notes from slot 0 alone.
+    /// the recipient re-derives all `num_outputs` utxos from slot 0 alone.
     pub fn bundle_plaintext(
         &self,
         assets: &AssetRegistry,
@@ -461,7 +461,7 @@ mod tests {
         let recovered = Split::into_utxos(plaintext, &owner_cx).expect("into utxos");
         assert_eq!(recovered.len(), usize::from(parts));
 
-        // Each recovered note's commitment matches the on-chain output hash at
+        // Each recovered utxo's commitment matches the on-chain output hash at
         // its slot.
         let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pk");
         let zero = [0u8; VIEW_TAG_LEN];
