@@ -71,7 +71,9 @@ pub(super) fn system_create_account_ix(
     space: u64,
     owner: &Pubkey,
 ) -> Instruction {
-    let mut data = vec![0u8; 4 + 8 + 8 + 32];
+    // SystemInstruction::CreateAccount: u32 tag (0) || u64 lamports || u64 space
+    // || 32-byte owner. A fixed-size array makes the layout compiler-checked.
+    let mut data = [0u8; 4 + 8 + 8 + 32];
     data[4..12].copy_from_slice(&lamports.to_le_bytes());
     data[12..20].copy_from_slice(&space.to_le_bytes());
     data[20..52].copy_from_slice(&owner.to_bytes());
@@ -81,7 +83,7 @@ pub(super) fn system_create_account_ix(
             AccountMeta::new(*payer, true),
             AccountMeta::new(*new_account, true),
         ],
-        data,
+        data: data.to_vec(),
     }
 }
 

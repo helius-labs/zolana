@@ -463,7 +463,7 @@ fn sender_owner_tag(
 /// tag, so a dummy slot does not stand out and leak the recipient count. The 31
 /// random bytes are left-padded to a 32-byte big-endian field element (leading byte
 /// zero keeps it below the BN254 modulus).
-pub(crate) fn random_view_tag() -> Result<[u8; VIEW_TAG_LEN], TransactionError> {
+fn random_view_tag() -> Result<[u8; VIEW_TAG_LEN], TransactionError> {
     let mut input = [0u8; 32];
     input[1..].copy_from_slice(&random_blinding());
     Ok(zolana_keypair::hash::poseidon(&[&input])?)
