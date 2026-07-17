@@ -154,9 +154,7 @@ impl PreparedMerge {
             .filter(|spend| !spend.is_dummy())
             .enumerate()
             .map(|(index, spend)| {
-                if spend.data_hash.unwrap_or_default() != [0u8; 32]
-                    || spend.zone_data_hash.unwrap_or_default() != [0u8; 32]
-                {
+                if has_data(spend) {
                     return Err(TransactionError::MergeInputHasData { index });
                 }
                 Ok(InputUtxoContext {
@@ -170,12 +168,12 @@ impl PreparedMerge {
 }
 
 /// Whether an input carries program or zone data: an external `data_hash`,
-/// `zone_data_hash`, or inline UTXO data. Merge consolidates only plain notes, so
-/// any of these disqualifies the input.
+/// `zone_data_hash`, or inline UTXO data. Merge and split consolidate only plain
+/// notes, so any of these disqualifies the input. Option semantics: a `Some(_)`
+/// hash means "has data" regardless of the hash value (an all-zero hash still
+/// binds committed data).
 pub(crate) fn has_data(spend: &SppProofInputUtxo) -> bool {
-    spend.data_hash.unwrap_or_default() != [0u8; 32]
-        || spend.zone_data_hash.unwrap_or_default() != [0u8; 32]
-        || !spend.utxo.data.is_empty()
+    spend.data_hash.is_some() || spend.zone_data_hash.is_some() || !spend.utxo.data.is_empty()
 }
 
 #[cfg(test)]

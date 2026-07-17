@@ -1,7 +1,4 @@
-use std::{
-    thread::sleep,
-    time::{Instant, SystemTime},
-};
+use std::{thread::sleep, time::Instant};
 
 use anyhow::{bail, Result};
 use solana_signature::Signature;
@@ -58,7 +55,7 @@ pub(super) fn wait_for_indexed_utxo(
     tag: [u8; 32],
     signature: Signature,
 ) -> Result<()> {
-    let started = SystemTime::now();
+    let started = Instant::now();
     loop {
         let response = indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50), None)?;
         if response
@@ -68,7 +65,7 @@ pub(super) fn wait_for_indexed_utxo(
         {
             return Ok(());
         }
-        if started.elapsed().unwrap_or_default() >= INDEXER_TIMEOUT {
+        if started.elapsed() >= INDEXER_TIMEOUT {
             bail!("timed out waiting for Photon to index {signature}");
         }
         sleep(INDEXER_POLL);
