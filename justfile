@@ -224,6 +224,66 @@ bench-swap: ensure-swap-keys
         -- --features bpf-entrypoint,profile-program
     cargo test -p swap-test-validator --test bench_cu -- --ignored --nocapture
 
+# Verifies the committed escrow/withdraw proving and verifying keys against
+# timelock-escrow-keys.CHECKSUM. Unlike the swap keys, these are not yet
+# published to a GitHub release, so a missing or mismatched key must be
+# regenerated locally with 'just regen-escrow-keys'.
+ensure-escrow-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/timelock-escrow"
+    for c in escrow withdraw; do
+        dir="$base/build/gnark/$c"
+        for kind in pk vk; do
+            if [ ! -f "$dir/$kind.bin" ]; then
+                echo "$dir/$kind.bin missing -- run 'just regen-escrow-keys'" >&2
+                exit 1
+            fi
+            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/timelock-escrow-keys.CHECKSUM")
+            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
+            if [ "$want" != "$got" ]; then
+                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
+                echo "regenerate with 'just regen-escrow-keys', which also rewrites the checksum manifest" >&2
+                exit 1
+            fi
+        done
+    done
+
+# Rotate the escrow/withdraw proving keys: regenerate both circuits, rewriting
+# the committed Rust verifying keys and the checksum manifest.
+regen-escrow-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/timelock-escrow"
+    for c in escrow withdraw; do
+        cargo run --release -p timelock-escrow-prover --bin timelock-escrow-prover-setup -- \
+            "$c" "$base/build/gnark/$c" \
+            --rust-vk "$base/program/src/verifying_keys/$c.rs"
+    done
+    : > "$base/timelock-escrow-keys.CHECKSUM"
+    for c in escrow withdraw; do
+        for kind in pk vk; do
+            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
+                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/timelock-escrow-keys.CHECKSUM"
+        done
+    done
+
+# The profiling escrow build calls a profiler syscall that solana-test-validator
+# does not register, so it must never land in target/deploy (validator/CI load
+# the plain program from there). Build the bench programs into a dedicated dir,
+# matching PROFILING_SBF_DIR in bench_cu.rs. Regenerates
+# sdk-tests/timelock-escrow/BENCHMARK.md.
+bench-escrow: ensure-escrow-keys
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/escrow-bench \
+        --manifest-path programs/shielded-pool/Cargo.toml \
+        -- --features bpf-entrypoint
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/escrow-bench \
+        --manifest-path sdk-tests/timelock-escrow/program/Cargo.toml \
+        -- --features bpf-entrypoint,profile-program
+    cargo test -p timelock-escrow-test --test bench_cu -- --ignored --nocapture
+
 # === Local validator helpers ===
 
 # Local-validator end-to-end SOL cycle.
