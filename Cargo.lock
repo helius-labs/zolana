@@ -9844,7 +9844,6 @@ dependencies = [
 name = "timelock-escrow-program"
 version = "0.1.0"
 dependencies = [
- "borsh",
  "groth16-solana",
  "light-program-profiler",
  "pinocchio 0.11.2",
@@ -9875,7 +9874,6 @@ name = "timelock-escrow-sdk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "borsh",
  "groth16-solana",
  "solana-address 2.6.1",
  "solana-instruction 3.4.0",
@@ -9885,7 +9883,6 @@ dependencies = [
  "timelock-escrow-program",
  "timelock-escrow-prover",
  "wincode",
- "zolana-client",
  "zolana-interface",
  "zolana-keypair",
  "zolana-transaction",

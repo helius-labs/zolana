@@ -224,10 +224,14 @@ bench-swap: ensure-swap-keys
         -- --features bpf-entrypoint,profile-program
     cargo test -p swap-test-validator --test bench_cu -- --ignored --nocapture
 
-# Verifies the committed escrow/withdraw proving and verifying keys against
-# timelock-escrow-keys.CHECKSUM. Unlike the swap keys, these are not yet
-# published to a GitHub release, so a missing or mismatched key must be
-# regenerated locally with 'just regen-escrow-keys'.
+# Fetch the pinned escrow/withdraw proving keys from the escrow-keys release
+# and verify them against the committed manifest. groth16.Setup is
+# non-deterministic, so the published keys are the only set matching the
+# committed Rust verifying keys; regenerating locally (regen-escrow-keys)
+# requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
+# plus the committed verifying keys together.
+escrow-keys-tag := "escrow-keys-v1"
+
 ensure-escrow-keys:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -236,21 +240,25 @@ ensure-escrow-keys:
         dir="$base/build/gnark/$c"
         for kind in pk vk; do
             if [ ! -f "$dir/$kind.bin" ]; then
-                echo "$dir/$kind.bin missing -- run 'just regen-escrow-keys'" >&2
-                exit 1
+                mkdir -p "$dir"
+                gh release download "{{escrow-keys-tag}}" --repo helius-labs/zolana \
+                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
             fi
             want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/timelock-escrow-keys.CHECKSUM")
             got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
             if [ "$want" != "$got" ]; then
                 echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
-                echo "regenerate with 'just regen-escrow-keys', which also rewrites the checksum manifest" >&2
+                echo "refresh from the {{escrow-keys-tag}} release (delete the file and rerun)," >&2
+                echo "or rotate keys with 'just regen-escrow-keys' and publish a new release" >&2
                 exit 1
             fi
         done
     done
 
 # Rotate the escrow/withdraw proving keys: regenerate both circuits, rewriting
-# the committed Rust verifying keys and the checksum manifest.
+# the committed Rust verifying keys and the checksum manifest. Publish the new
+# build/gnark key files to a fresh escrow-keys release and bump
+# escrow-keys-tag afterwards.
 regen-escrow-keys:
     #!/usr/bin/env bash
     set -euo pipefail

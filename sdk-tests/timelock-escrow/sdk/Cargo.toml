@@ -6,14 +6,12 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
-borsh = { workspace = true }
 timelock-escrow-program = { path = "../program" }
 timelock-escrow-prover = { path = "../prover" }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
 wincode = { workspace = true }
-zolana-client = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
