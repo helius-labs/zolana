@@ -208,8 +208,8 @@ jobs:
             recipe: test-spp-validator-randomized
           - name: zone lifecycle
             recipe: test-zone-validator
-          - name: swap lifecycle
-            recipe: test-swap-validator
+          - name: swap and escrow lifecycle
+            recipe: test-swap-and-escrow-validator
     env:
       AGAVE_VERSION: v4.0.2
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

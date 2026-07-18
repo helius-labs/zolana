@@ -488,6 +488,29 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p swap-test-validator --test swap --test cancel -- --nocapture
 
+# Timelock escrow lifecycle on a local validator, driven against a real
+# localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots
+# solana-test-validator via the `zolana` CLI with the timelock escrow program,
+# the shielded pool, and the Squads smart account loaded together, plus Photon
+# and the persistent SPP prover -- mirroring test-swap-validator.
+test-escrow-validator: ensure-escrow-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p timelock-escrow-test --test escrow -- --nocapture
+
+# Runs the swap and escrow lifecycle suites back to back in one CI job.
+test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
+
 # Minimal zolana-client SDK example: deposit, shielded transfer, and withdrawal
 # building the SPP instructions by hand and submitting them
 # (sdk-tests/client/examples/deposit_transfer_withdraw.rs). Boots
