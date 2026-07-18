@@ -122,3 +122,15 @@ Feature: Transaction proving on the eddsa (Solana-only) rail at shape (2,3)
     Given the (2,3) shape is declared
     When the sender sends 60 SOL to a fresh recipient
     Then the proof verifies
+
+  # A declared shape wider than the real output set forces true output padding:
+  # two change slots plus one dummy slot whose owner tag comes from
+  # `dummy_view_tag`. With no recipient the dummy tag rail falls back to the
+  # sender's rail (ed25519 here), so this exercises the ed25519 dummy tag through a
+  # real proof; the p256 feature's counterpart exercises the P256 dummy tag. The
+  # proof must still verify, confirming the padded dummy tag does not perturb the
+  # witness or public inputs.
+  Scenario: SOL change-only with the shape declared pads a dummy output slot
+    Given a Solana SOL input worth 100
+    Given the (2,3) shape is declared
+    Then the proof verifies
