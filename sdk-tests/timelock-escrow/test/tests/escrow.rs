@@ -37,7 +37,7 @@ use zolana_transaction::{
 //      by the escrow-authority PDA, committed unlock timestamp already in
 //      the past) + change 0.2 SOL (back to the creator). ZK escrow proof, v0
 //      tx via ALT.
-//   3. Withdraw: creator (still holding the escrow UTXO opening locally --
+//   3. Withdraw: creator (still holding the escrow UTXO hash locally --
 //      no discovery needed) spends the escrow UTXO -> source output 0.3 SOL
 //      back to itself. ZK withdraw proof, v0 tx.
 //   4. Assert the creator's synced confidential balance after each step, and
@@ -63,9 +63,9 @@ fn escrow_then_withdraw() -> Result<()> {
         amount: LOCK_AMOUNT,
     };
 
-    // escrow: lock `escrow_utxo` on-chain -- spend the creator's own shielded
-    // balance, append the escrow UTXO (owned by the escrow-authority PDA)
-    // plus a change output back to the creator.
+    // escrow: lock `escrow_utxo` -- spend the creator's own shielded balance,
+    // append the escrow UTXO (owned by the escrow-authority PDA) plus a
+    // change output back to the creator.
     let creator_address = creator.keypair.shielded_address()?;
     let escrow_output_utxo = escrow_utxo.output_utxo()?;
 
@@ -146,8 +146,8 @@ fn escrow_then_withdraw() -> Result<()> {
 
     // Assert the creator's confidential balance dropped to the change amount:
     // the original 0.5 SOL note is spent, replaced by the 0.2 SOL change note.
-    // The escrow UTXO itself is owned by the escrow-authority PDA, tagged for
-    // discovery under the PDA's own signing pubkey, so it never surfaces in
+    // The escrow UTXO is owned by the escrow-authority PDA and tagged for
+    // discovery using the PDA's own signing pubkey, so it never surfaces in
     // the creator's own wallet sync.
     sync_wallet(&mut creator.wallet, &creator.keypair, client.indexer())
         .map_err(|e| anyhow!("sync creator after escrow: {e:?}"))?;
@@ -247,10 +247,9 @@ fn escrow_then_withdraw() -> Result<()> {
 
     // Assert the withdrawn output landed in the creator's confidential
     // balance: the change note plus the returned escrow amount sum back to
-    // the original shielded deposit. Both notes are independent (withdraw
-    // only spends the PDA-owned escrow UTXO, never the change note), so they
-    // stay as two distinct entries in sync order: the change note discovered
-    // by the first sync, then the source output discovered by the second.
+    // the original shielded deposit. Withdraw only spends the PDA-owned
+    // escrow UTXO, so both notes stay as distinct entries: the change note
+    // from the first sync, the source output from the second.
     sync_wallet(&mut creator.wallet, &creator.keypair, client.indexer())
         .map_err(|e| anyhow!("sync creator after withdraw: {e:?}"))?;
     let balance_after_withdraw = creator
