@@ -118,3 +118,12 @@ Feature: Transaction proving on the P256 rail at shape (2,3)
     Given the (2,3) shape is declared
     When the sender sends 60 SOL to a fresh recipient
     Then the proof verifies
+
+  # A declared shape wider than the real output set forces true output padding.
+  # With no recipient the dummy slot's tag rail falls back to the sender's rail
+  # (P256 here), so this exercises the P256 dummy tag through a real proof; the
+  # eddsa feature's counterpart exercises the ed25519 dummy tag.
+  Scenario: SOL change-only with the shape declared pads a dummy output slot
+    Given a P256 SOL input worth 100
+    Given the (2,3) shape is declared
+    Then the proof verifies
