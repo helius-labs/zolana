@@ -7,15 +7,13 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use zolana_hasher::{Hasher, Poseidon};
+use zolana_hasher::primitives;
 use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::error::SwapError;
 
 pub fn u64_right_align(value: u64) -> [u8; 32] {
-    let mut bytes = [0u8; 32];
-    bytes[24..32].copy_from_slice(&value.to_be_bytes());
-    bytes
+    primitives::right_align(&value.to_be_bytes())
 }
 
 /// `owner_pk_field` for an ed25519 owner: `Poseidon(value[16..32], value[0..16])`
@@ -23,11 +21,7 @@ pub fn u64_right_align(value: u64) -> [u8; 32] {
 /// `zolana_keypair::hash::hash_field` so the maker's Solana signer pubkey maps
 /// to the `owner_pk_field` committed in the order's `maker_owner_hash`.
 pub fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
-    let mut low = [0u8; 32];
-    low[16..].copy_from_slice(&value[16..32]);
-    let mut high = [0u8; 32];
-    high[16..].copy_from_slice(&value[0..16]);
-    Poseidon::hashv(&[low.as_slice(), high.as_slice()]).map_err(|_| SwapError::HashingFailed.into())
+    primitives::hash_field(value).map_err(|_| SwapError::HashingFailed.into())
 }
 
 #[inline(always)]

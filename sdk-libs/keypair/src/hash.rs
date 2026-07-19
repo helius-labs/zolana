@@ -1,56 +1,19 @@
 use sha2::{Digest, Sha256};
-use zolana_hasher::{Hasher, Poseidon};
+pub use zolana_hasher::primitives::{bool_fe, pack33, right_align, split_be_128};
+use zolana_hasher::{primitives, Hasher, Poseidon, Sha256BE};
 
-use crate::{constants::P256_PUBKEY_LEN, error::KeypairError, pubkey::PublicKey};
+use crate::{error::KeypairError, pubkey::PublicKey};
 
 pub fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], KeypairError> {
     Poseidon::hashv(inputs).map_err(|e| KeypairError::Poseidon(e.into()))
 }
 
 pub fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], KeypairError> {
-    let (low, high) = split_be_128(value);
-    poseidon(&[&low, &high])
-}
-
-pub fn split_be_128(v: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
-    let mut low = [0u8; 32];
-    let mut high = [0u8; 32];
-    high[16..].copy_from_slice(&v[0..16]);
-    low[16..].copy_from_slice(&v[16..32]);
-    (low, high)
-}
-
-/// pack33 mirrors Pack33To2FECircuit: lo = bytes[0..31], hi = bytes[31..33] (16-bit).
-pub(crate) fn pack33(b: &[u8; P256_PUBKEY_LEN]) -> ([u8; 32], [u8; 32]) {
-    let mut lo = [0u8; 32];
-    lo[1..32].copy_from_slice(&b[0..31]);
-    let mut hi = [0u8; 32];
-    hi[30] = b[31];
-    hi[31] = b[32];
-    (lo, hi)
-}
-
-pub(crate) fn fe_right_align(bytes: &[u8]) -> Result<[u8; 32], KeypairError> {
-    if bytes.len() > 32 {
-        return Err(KeypairError::FieldElementTooLong);
-    }
-    let mut fe = [0u8; 32];
-    fe[32 - bytes.len()..].copy_from_slice(bytes);
-    Ok(fe)
-}
-
-pub(crate) fn bool_fe(b: bool) -> [u8; 32] {
-    let mut fe = [0u8; 32];
-    if b {
-        fe[31] = 1;
-    }
-    fe
+    primitives::hash_field(value).map_err(|e| KeypairError::Poseidon(e.into()))
 }
 
 pub fn sha256_be(preimage: &[u8]) -> [u8; 32] {
-    let mut digest: [u8; 32] = Sha256::digest(preimage).into();
-    digest[0] = 0;
-    digest
+    Sha256BE::hash(preimage).expect("the sha256 feature is enabled")
 }
 
 pub fn sha256(preimage: &[u8]) -> [u8; 32] {

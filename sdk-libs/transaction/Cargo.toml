@@ -15,8 +15,6 @@ async-trait = { workspace = true }
 borsh = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
-light-poseidon = { workspace = true }
-ark-bn254 = { workspace = true }
 solana-address = { workspace = true }
 p256 = { workspace = true }
 rayon = { workspace = true, optional = true }

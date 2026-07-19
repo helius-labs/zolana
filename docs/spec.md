@@ -264,18 +264,17 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 
 ## Pubkey Field Encoding
 
-A pubkey is encoded into a single BN254 field via nested 2-input Poseidon over 128-bit big-endian limbs. This `pk_field(pk)` is the canonical form used wherever a pubkey appears inside a Poseidon hash anywhere in this spec.
+A pubkey is encoded into a single BN254 field via 2-input Poseidon over 128-bit big-endian limbs of a 32-byte value: `hash_field(v) := Poseidon(v_low_128, v_high_128)`. This `pk_field(pk)` is the canonical form used wherever a pubkey appears inside a Poseidon hash anywhere in this spec.
 
 ```
-P256 (33 B SEC1: parity || x_be32):
-  x_hash := Poseidon(x_low_128, x_high_128)
-  pk_field(pk) := Poseidon(y_is_odd, x_hash)
+Owner signing keys (owner tag = the P256 x-coordinate, or the 32 B Ed25519 key):
+  pk_field(pk) := hash_field(owner_tag)
 
-Solana / Ed25519 (32 B):
-  pk_field(pk) := Poseidon(pk_low_128, pk_high_128)
+Viewing keys (P256, 33 B SEC1: parity || x_be32):
+  pk_field(pk) := Poseidon(y_is_odd, hash_field(x))
 ```
 
-P256's extra `y_is_odd` layer means the two encodings cannot collide except via Poseidon preimage collision (~2⁻²⁵⁴); no explicit scheme tag is needed.
+The owner encoding excludes the P256 y-parity (the parity is in the encrypted data), so both schemes share one shape. No scheme tag is needed: a cross-scheme collision requires valid keypairs on both curves with byte-equal owner tags. Viewing keys keep the `y_is_odd` layer so `pk_field` identifies the exact point used for ECDH.
 
 ## Owner Hash
 
@@ -881,7 +880,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). An Ed25519-owned input uses the public `solana_owner_pk_hashes[i]`. |
+| owner signing key witness | P256 inputs witness the canonical point `(x, y)`, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). An Ed25519-owned input uses the public `solana_owner_pk_hashes[i]`. |
 | `nullifier_secret` | the input owner's secret (see [Nullifier Key](#nullifier-key)); recomputes the input's `nullifier_pk` and [nullifier](#nullifier) |
 | `blinding`, `asset`, `amount`, `data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
@@ -1014,7 +1013,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 
 | Input | Description |
 | --- | --- |
-| owner signing key witness | Rail-selected, mirroring the [SPP Proof](#spp-proof---solana-privacy-zk-proof) owner rails: a P256 owner witnesses the canonical point `(x, y)` and compressed-key parity and recomputes `pk_field(user_signing_pk)` in-circuit; a Solana (ed25519) owner witnesses the precomputed `pk_field(user_signing_pk)` directly (the P256 point witness is then an unused dummy). Either way it produces the same `pk_field(user_signing_pk)` public input (see [Shielded Address](#shielded-address)). Merge verifies no signature on either rail; ownership rests on the shared `nullifier_secret` and the owner-preserving output. |
+| owner signing key witness | Rail-selected, mirroring the [SPP Proof](#spp-proof---solana-privacy-zk-proof) owner rails: a P256 owner witnesses the canonical point `(x, y)` and recomputes `pk_field(user_signing_pk)` in-circuit; a Solana (ed25519) owner witnesses the precomputed `pk_field(user_signing_pk)` directly (the P256 point witness is then an unused dummy). Either way it produces the same `pk_field(user_signing_pk)` public input (see [Shielded Address](#shielded-address)). Merge verifies no signature on either rail; ownership rests on the shared `nullifier_secret` and the owner-preserving output. |
 | `user_nullifier_pk` | shared owner's nullifier commitment, a 32-byte field element |
 | `nullifier_secret` | wallet's symmetric nullifier secret; held by the sync delegate that operates this merge service |
 | `user_viewing_pk` | owner's P256 viewing pubkey; the proof recomputes the public `pk_field(user_viewing_pk)` from it, which SPP checks against `UserRecord.viewing_pubkey` |

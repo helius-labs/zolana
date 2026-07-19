@@ -24,7 +24,7 @@ func pack256(k int) *big.Int {
 	return new(big.Int).Lsh(big.NewInt(1), uint(8*k))
 }
 
-// Pack32To2FECircuit mirrors interface/src/shared.rs:split_32_bytes in-circuit.
+// Pack32To2FECircuit mirrors program-libs/hasher/src/primitives/pack32.rs in-circuit.
 //
 //	lo = bytes[0..31] left-padded with one zero byte (i.e. lo as big-endian
 //	     integer = sum_{i=0..30} bytes[i] * 256^(30-i))
@@ -43,7 +43,7 @@ func Pack32To2FECircuit(api frontend.API, bytes [32]frontend.Variable) (lo, hi f
 	return lo, hi
 }
 
-// Pack33To2FECircuit mirrors interface/src/shared.rs:split_33_bytes in-circuit.
+// Pack33To2FECircuit mirrors program-libs/hasher/src/primitives/pack33.rs in-circuit.
 //
 //	lo = bytes[0..31] left-padded with one zero byte (same as pack32To2FE)
 //	hi = bytes[31]*256 + bytes[32] (16-bit value)
@@ -57,7 +57,7 @@ func Pack33To2FECircuit(api frontend.API, bytes [33]frontend.Variable) (lo, hi f
 	return lo, hi
 }
 
-// packInfoTo2FECircuit mirrors interface/src/shared.rs:pack_to_2_fe in-circuit.
+// packInfoTo2FECircuit mirrors program-libs/hasher/src/primitives/pack_info.rs in-circuit.
 // infoLen is a compile-time constant; only the active prefix info[0:infoLen]
 // is interpreted, the rest is ignored.
 //

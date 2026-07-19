@@ -9,7 +9,7 @@ use groth16_solana::{
 };
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, ProgramResult};
-use zolana_hasher::{Hasher, Poseidon};
+use zolana_hasher::{primitives, Hasher, Poseidon};
 use zolana_interface::error::ShieldedPoolError;
 
 /// `Poseidon(a, b)` of two field elements; maps a hasher failure to `verify_err`.
@@ -28,12 +28,7 @@ pub fn hash_field(
     value: &[u8; 32],
     verify_err: ShieldedPoolError,
 ) -> Result<[u8; 32], ProgramError> {
-    let (high_bytes, low_bytes) = value.split_at(16);
-    poseidon2(
-        &right_align_16(low_bytes),
-        &right_align_16(high_bytes),
-        verify_err,
-    )
+    primitives::hash_field(value).map_err(|_| verify_err.into())
 }
 
 /// Fold `items` into a Poseidon hash chain (`acc = Poseidon(acc, next)`, empty = 0).
@@ -51,12 +46,6 @@ pub fn hash_chain(
         acc = poseidon2(&acc, item, verify_err)?;
     }
     Ok(acc)
-}
-
-fn right_align_16(bytes: &[u8]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[16..].copy_from_slice(bytes);
-    out
 }
 
 /// The compressed Groth16 proof points handed to [`verify_groth16`]. `commitment`

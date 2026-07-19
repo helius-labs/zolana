@@ -4,8 +4,9 @@
 //! merge-specific.
 
 use num_bigint::BigUint;
-use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
+use p256::SecretKey;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+pub(crate) use zolana_hasher::primitives::right_align;
 use zolana_interface::instruction::instruction_data::merge_transact::{
     MergeExternalDataHash, MergeTransactIxData,
 };
@@ -175,16 +176,16 @@ impl MergeProver {
         // through owner_pk_hash.
         let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
         let (pub_x, pub_y, owner_pk_hash) = if eddsa_owner {
-            let (x, y) = dummy_p256_xy()?;
+            let (x, y) = P256Pubkey::generator().xy()?;
             (x, y, BigUint::from_bytes_be(&user_signing_pk_hash))
         } else {
-            let (x, y) = signing_xy(&self.signing_pubkey.as_p256()?)?;
+            let (x, y) = self.signing_pubkey.as_p256()?.xy()?;
             (x, y, BigUint::ZERO)
         };
         let user_nullifier_pk = self.nullifier_key.pubkey()?;
         let user_nullifier_secret = right_align(self.nullifier_key.secret());
         let sk_bytes: [u8; 32] = self.tx_viewing_sk.to_bytes().into();
-        let user_viewing_pubkey = uncompressed(&self.user_viewing_pk)?
+        let user_viewing_pubkey = self.user_viewing_pk.to_uncompressed()?
             .iter()
             .map(|b| BigUint::from(*b))
             .collect();
@@ -251,54 +252,6 @@ pub(crate) fn merge_plaintext(output: &SppProofOutputUtxo) -> Result<Vec<u8>, Cl
     Ok(pt)
 }
 
-pub(crate) fn uncompressed(pk: &P256Pubkey) -> Result<[u8; 65], ClientError> {
-    let point = pk.to_p256()?.to_encoded_point(false);
-    let bytes = point.as_bytes();
-    let mut out = [0u8; 65];
-    if bytes.len() != 65 {
-        return Err(ClientError::P256Signature(
-            "uncompressed P256 point must be 65 bytes".into(),
-        ));
-    }
-    out.copy_from_slice(bytes);
-    Ok(out)
-}
-
-pub(crate) fn signing_xy(pk: &P256Pubkey) -> Result<([u8; 32], [u8; 32]), ClientError> {
-    let bytes = uncompressed(pk)?;
-    let mut x = [0u8; 32];
-    let mut y = [0u8; 32];
-    x.copy_from_slice(&bytes[1..33]);
-    y.copy_from_slice(&bytes[33..65]);
-    Ok((x, y))
-}
-
-/// The P256 generator coordinates, used as the discarded dummy `P256Pub` on the
-/// Solana rail: the circuit always asserts the point is on the curve even though
-/// the rail select discards its pk_field, so it must be a valid point.
-pub(crate) fn dummy_p256_xy() -> Result<([u8; 32], [u8; 32]), ClientError> {
-    let mut one = [0u8; 32];
-    one[31] = 1;
-    let sk = SecretKey::from_slice(&one).map_err(|e| ClientError::P256Signature(e.to_string()))?;
-    let point = sk.public_key().to_encoded_point(false);
-    let bytes = point.as_bytes();
-    if bytes.len() != 65 {
-        return Err(ClientError::P256Signature(
-            "P256 generator point must be 65 bytes".into(),
-        ));
-    }
-    let mut x = [0u8; 32];
-    let mut y = [0u8; 32];
-    x.copy_from_slice(&bytes[1..33]);
-    y.copy_from_slice(&bytes[33..65]);
-    Ok((x, y))
-}
-
-pub(crate) fn right_align(bytes: &[u8; 31]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[1..].copy_from_slice(bytes);
-    out
-}
 /// A prepared merge plus the owner nullifier key and the fetched Merkle proofs,
 /// ready to fold into a [`MergeProver`]. The nullifier key is the secret the merge
 /// circuit proves ownership from; it is not carried on [`PreparedMerge`], so the

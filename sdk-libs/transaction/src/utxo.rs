@@ -1,6 +1,5 @@
-use ark_bn254::Fr;
-use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use solana_address::Address;
+use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
 pub use zolana_interface::UTXO_DOMAIN;
 use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, NullifierKey, PublicKey};
 
@@ -10,11 +9,7 @@ use crate::{
 };
 
 fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], TransactionError> {
-    let mut hasher = Poseidon::<Fr>::new_circom(inputs.len())
-        .map_err(|e| TransactionError::Poseidon(e.to_string()))?;
-    hasher
-        .hash_bytes_be(inputs)
-        .map_err(|e| TransactionError::Poseidon(e.to_string()))
+    Ok(Poseidon::hashv(inputs)?)
 }
 
 pub type Blinding = [u8; BLINDING_LEN];
@@ -37,13 +32,6 @@ pub struct Utxo {
     pub blinding: Blinding,
     pub zone_program_id: Option<Address>,
     pub data: Data,
-}
-
-fn right_align<const N: usize>(bytes: &[u8; N]) -> [u8; 32] {
-    const { assert!(N <= 32) }
-    let mut out = [0u8; 32];
-    out[32 - N..].copy_from_slice(bytes);
-    out
 }
 
 pub(crate) fn resolve_zone_program_id(

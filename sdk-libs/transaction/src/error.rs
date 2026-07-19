@@ -49,9 +49,6 @@ pub enum TransactionError {
     #[error("program/zone data on this output cannot be processed yet")]
     UnsupportedOutputData,
 
-    #[error("poseidon hash failed: {0}")]
-    Poseidon(String),
-
     #[error("hash failed: {0}")]
     Hash(String),
 

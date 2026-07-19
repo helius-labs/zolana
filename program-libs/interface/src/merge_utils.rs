@@ -3,95 +3,49 @@
 //! (`prover/server/circuits/spp_merge`) byte-for-byte; the client cross-checks the
 //! same vectors via `zolana-keypair`, so byte order is load-bearing.
 
-use zolana_hasher::{Hasher, HasherError, Poseidon};
+pub use zolana_hasher::primitives::{ciphertext_hash, pack33};
+use zolana_hasher::{
+    primitives::{bool_fe, hash_field},
+    Hasher, HasherError, Poseidon,
+};
 
 const P256_PUBKEY_LEN: usize = 33;
 
-/// `pk_field` of a SEC1-compressed P256 public key, matching the circuit's
-/// `Poseidon(bool_fe(y_is_odd), Poseidon(x_low_128, x_high_128))`. The compressed
-/// encoding is `prefix(1) || x(32)`, with `prefix == 0x02` for even y and `0x03`
-/// for odd y; `x_high_128` is the high 16 bytes of `x` and `x_low_128` the low 16,
-/// each right-aligned, matching the keypair `hash_field` split.
-pub fn pk_field_compressed(compressed: &[u8; P256_PUBKEY_LEN]) -> Result<[u8; 32], HasherError> {
+/// Validates the SEC1 prefix (`0x02` even y, `0x03` odd y) and returns
+/// `(y_is_odd, x)`.
+fn parse_compressed(
+    compressed: &[u8; P256_PUBKEY_LEN],
+) -> Result<(bool, [u8; 32]), HasherError> {
     let prefix = compressed[0];
     if prefix != 0x02 && prefix != 0x03 {
         return Err(HasherError::InvalidInputLength(usize::from(prefix), 0));
     }
-    let y_is_odd = prefix == 0x03;
-    let x = compressed
-        .get(1..P256_PUBKEY_LEN)
-        .ok_or(HasherError::InvalidInputLength(0, P256_PUBKEY_LEN - 1))?;
-    let high = x.get(0..16).ok_or(HasherError::InvalidInputLength(0, 16))?;
-    let low = x
-        .get(16..32)
-        .ok_or(HasherError::InvalidInputLength(16, 32))?;
-    let x_hash = Poseidon::hashv(&[&right_align_16(low), &right_align_16(high)])?;
+    let mut x = [0u8; 32];
+    if let Some(src) = compressed.get(1..P256_PUBKEY_LEN) {
+        x.copy_from_slice(src);
+    }
+    Ok((prefix == 0x03, x))
+}
+
+/// `pk_field` of a SEC1-compressed P256 public key, matching the circuit's
+/// `Poseidon(bool_fe(y_is_odd), hash_field(x))` (spec: Pubkey Field Encoding,
+/// viewing keys).
+pub fn pk_field_compressed(compressed: &[u8; P256_PUBKEY_LEN]) -> Result<[u8; 32], HasherError> {
+    let (y_is_odd, x) = parse_compressed(compressed)?;
+    let x_hash = hash_field(&x)?;
     Poseidon::hashv(&[&bool_fe(y_is_odd), &x_hash])
 }
 
 /// Owner-identity `pk_field` of a SEC1-compressed P256 public key: the parity-free
-/// `Poseidon(x_low_128, x_high_128)` (the y-parity is carried in the encrypted data,
-/// not the owner identity), so a P256 owner has the same pk_field shape as an ed25519
-/// owner. Matches the circuit `OwnerPkFieldGadget` and keypair
+/// `hash_field(x)` (the y-parity is carried in the encrypted data, not the owner
+/// identity), so a P256 owner has the same pk_field shape as an ed25519 owner.
+/// Matches the circuit `OwnerPkFieldGadget` and keypair
 /// `PublicKey::owner_pk_field`. The compressed prefix is still validated.
 pub fn owner_pk_field_compressed(
     compressed: &[u8; P256_PUBKEY_LEN],
 ) -> Result<[u8; 32], HasherError> {
-    let prefix = compressed[0];
-    if prefix != 0x02 && prefix != 0x03 {
-        return Err(HasherError::InvalidInputLength(usize::from(prefix), 0));
-    }
-    let x = compressed
-        .get(1..P256_PUBKEY_LEN)
-        .ok_or(HasherError::InvalidInputLength(0, P256_PUBKEY_LEN - 1))?;
-    let high = x.get(0..16).ok_or(HasherError::InvalidInputLength(0, 16))?;
-    let low = x
-        .get(16..32)
-        .ok_or(HasherError::InvalidInputLength(16, 32))?;
-    Poseidon::hashv(&[&right_align_16(low), &right_align_16(high)])
-}
-
-/// `pack33` mirrors `Pack33To2FECircuit`: `lo[1..32] = b[0..31]` and the trailing
-/// two bytes go into `hi[30..32]`. Returns `(lo, hi)`.
-pub fn pack33(b: &[u8; P256_PUBKEY_LEN]) -> ([u8; 32], [u8; 32]) {
-    let mut lo = [0u8; 32];
-    if let (Some(dst), Some(src)) = (lo.get_mut(1..32), b.get(0..31)) {
-        dst.copy_from_slice(src);
-    }
-    let mut hi = [0u8; 32];
-    if let Some(byte) = b.get(31) {
-        hi[30] = *byte;
-    }
-    if let Some(byte) = b.get(32) {
-        hi[31] = *byte;
-    }
-    (lo, hi)
-}
-
-/// Poseidon hash of a ciphertext, mirroring `PoseidonHash(PackBytesBE(ct, 16))`:
-/// 16-byte big-endian chunks right-aligned into field elements (last chunk may be
-/// short), then `Poseidon::hashv` over all chunks.
-pub fn ciphertext_hash(ciphertext: &[u8]) -> Result<[u8; 32], HasherError> {
-    let chunks: Vec<[u8; 32]> = ciphertext.chunks(16).map(right_align_16).collect();
-    let refs: Vec<&[u8]> = chunks.iter().map(|c| c.as_slice()).collect();
-    Poseidon::hashv(&refs)
-}
-
-fn right_align_16(bytes: &[u8]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    let len = bytes.len().min(32);
-    if let (Some(dst), Some(src)) = (out.get_mut(32 - len..32), bytes.get(..len)) {
-        dst.copy_from_slice(src);
-    }
-    out
-}
-
-fn bool_fe(b: bool) -> [u8; 32] {
-    let mut fe = [0u8; 32];
-    if b {
-        fe[31] = 1;
-    }
-    fe
+    let (_, x) = parse_compressed(compressed)?;
+    hash_field(&x)
 }
 
 #[cfg(test)]

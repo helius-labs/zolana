@@ -30,10 +30,7 @@ use crate::{
     error::ClientError,
     prover::{
         field::be,
-        merge::{
-            dummy_p256_xy, merge_encrypted_utxo, merge_plaintext, right_align, signing_xy,
-            uncompressed,
-        },
+        merge::{merge_encrypted_utxo, merge_plaintext, right_align},
         transact::{
             p256_and_eddsa::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
             witness::SpendProof,
@@ -201,16 +198,16 @@ impl MergeZoneProver {
         // through owner_pk_hash.
         let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
         let (pub_x, pub_y, owner_pk_hash) = if eddsa_owner {
-            let (x, y) = dummy_p256_xy()?;
+            let (x, y) = P256Pubkey::generator().xy()?;
             (x, y, BigUint::from_bytes_be(&user_signing_pk_hash))
         } else {
-            let (x, y) = signing_xy(&self.signing_pubkey.as_p256()?)?;
+            let (x, y) = self.signing_pubkey.as_p256()?.xy()?;
             (x, y, BigUint::ZERO)
         };
         let user_nullifier_pk = self.nullifier_key.pubkey()?;
         let user_nullifier_secret = right_align(self.nullifier_key.secret());
         let sk_bytes: [u8; 32] = self.tx_viewing_sk.to_bytes().into();
-        let user_viewing_pubkey = uncompressed(&self.user_viewing_pk)?
+        let user_viewing_pubkey = self.user_viewing_pk.to_uncompressed()?
             .iter()
             .map(|b| BigUint::from(*b))
             .collect();

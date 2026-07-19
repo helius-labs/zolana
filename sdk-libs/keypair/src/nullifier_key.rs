@@ -1,11 +1,12 @@
 use hkdf::Hkdf;
 use sha2::Sha256;
 use zeroize::Zeroizing;
+use zolana_hasher::primitives::right_align;
 
 use crate::{
     constants::{BLINDING_LEN, INFO_NULLIFIER},
     error::KeypairError,
-    hash::{fe_right_align, poseidon},
+    hash::poseidon,
     signing_key::SigningKey,
 };
 
@@ -44,7 +45,7 @@ impl NullifierKey {
     }
 
     pub fn pubkey(&self) -> Result<[u8; 32], KeypairError> {
-        let secret_fe = fe_right_align(self.secret.as_slice())?;
+        let secret_fe = right_align(&self.secret);
         poseidon(&[&secret_fe])
     }
 
@@ -53,8 +54,8 @@ impl NullifierKey {
         utxo_hash: &[u8; 32],
         blinding: &[u8; BLINDING_LEN],
     ) -> Result<[u8; 32], KeypairError> {
-        let blinding_fe = fe_right_align(blinding)?;
-        let secret_fe = fe_right_align(self.secret.as_slice())?;
+        let blinding_fe = right_align(blinding);
+        let secret_fe = right_align(&self.secret);
         poseidon(&[utxo_hash, &blinding_fe, &secret_fe])
     }
 }

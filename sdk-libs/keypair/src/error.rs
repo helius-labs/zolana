@@ -23,6 +23,6 @@ pub enum KeypairError {
     #[error("poseidon hash failed (code {0})")]
     Poseidon(u32),
 
-    #[error("field element input exceeds 32 bytes")]
-    FieldElementTooLong,
+    #[error("info string exceeds 62 bytes")]
+    InfoTooLong,
 }

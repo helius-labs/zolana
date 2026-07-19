@@ -1,5 +1,4 @@
 use num_bigint::BigUint;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{
     hash::{hash_field, sha256, split_be_128},
@@ -170,9 +169,7 @@ pub(crate) struct P256SignatureWitness {
 
 impl P256Owner {
     pub(crate) fn witness(&self) -> Result<P256SignatureWitness, ClientError> {
-        let public_key = self.pubkey.to_p256()?;
-        let point = public_key.to_encoded_point(false);
-        let (pub_x, pub_y) = encoded_xy(&point)?;
+        let (pub_x, pub_y) = self.pubkey.xy()?;
         Ok(P256SignatureWitness {
             pub_x,
             pub_y,
@@ -180,20 +177,6 @@ impl P256Owner {
             sig_s: self.sig_s,
         })
     }
-}
-
-fn encoded_xy(point: &p256::EncodedPoint) -> Result<([u8; 32], [u8; 32]), ClientError> {
-    let x = point
-        .x()
-        .ok_or_else(|| ClientError::P256Signature("missing x coordinate".into()))?;
-    let y = point
-        .y()
-        .ok_or_else(|| ClientError::P256Signature("missing y coordinate".into()))?;
-    let mut pub_x = [0u8; 32];
-    let mut pub_y = [0u8; 32];
-    pub_x.copy_from_slice(x);
-    pub_y.copy_from_slice(y);
-    Ok((pub_x, pub_y))
 }
 
 pub(crate) struct AssembledInputs {

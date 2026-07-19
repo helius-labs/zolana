@@ -5,12 +5,13 @@
 //! not a GCM tag, so this path has no authentication tag.
 
 use p256::SecretKey;
+use zolana_hasher::primitives::{ciphertext_hash, pack32, pack33, pack_info, right_align};
 
 use crate::{
     constants::P256_PUBKEY_LEN,
     encryption::{ctr_apply, ecdh_x},
     error::KeypairError,
-    hash::{pack33, poseidon},
+    hash::poseidon,
     pubkey::P256Pubkey,
 };
 
@@ -25,34 +26,7 @@ const DOM_SEP_NONCE: u32 = 0x544d_534e; // "TMSN"
 pub const MERGE_INFO: &[u8] = b"TSPP/merge";
 
 fn fe_u32(x: u32) -> [u8; 32] {
-    let mut fe = [0u8; 32];
-    fe[28..32].copy_from_slice(&x.to_be_bytes());
-    fe
-}
-
-/// pack32 mirrors Pack32To2FECircuit: lo = bytes[0..31] (big-endian), hi = bytes[31].
-fn pack32(b: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
-    let mut lo = [0u8; 32];
-    lo[1..32].copy_from_slice(&b[0..31]);
-    let mut hi = [0u8; 32];
-    hi[31] = b[31];
-    (lo, hi)
-}
-
-/// pack_info mirrors packInfoTo2FECircuit: lo[0] = len, lo holds info[..split] in
-/// its low bytes, hi holds the remainder. `info.len()` must be <= 62.
-fn pack_info(info: &[u8]) -> ([u8; 32], [u8; 32]) {
-    let len = info.len();
-    let split = len.min(31);
-    let mut lo = [0u8; 32];
-    lo[0] = len as u8;
-    lo[32 - split..32].copy_from_slice(&info[..split]);
-    let mut hi = [0u8; 32];
-    let rem = len - split;
-    if rem > 0 {
-        hi[32 - rem..32].copy_from_slice(&info[split..len]);
-    }
-    (lo, hi)
+    right_align(&x.to_be_bytes())
 }
 
 fn derive_shared_secret(
@@ -80,7 +54,7 @@ fn key_schedule(
     shared_secret: &[u8; 32],
     info: &[u8],
 ) -> Result<([u8; 32], [u8; NONCE_LEN]), KeypairError> {
-    let (info_lo, info_hi) = pack_info(info);
+    let (info_lo, info_hi) = pack_info(info).map_err(|_| KeypairError::InfoTooLong)?;
     let siloed = poseidon(&[&fe_u32(DOM_SEP_SILO), shared_secret, &info_lo, &info_hi])?;
     let key_lo = poseidon(&[&fe_u32(DOM_SEP_KEY), &siloed])?;
     let key_hi = poseidon(&[&fe_u32(DOM_SEP_KEY + 1), &siloed])?;
@@ -187,16 +161,7 @@ pub fn merge_public_contribution(
 /// in the circuit. This is the value the merge proof folds into the public input
 /// hash in place of a GCM tag.
 pub fn merge_ciphertext_hash(ciphertext: &[u8]) -> Result<[u8; 32], KeypairError> {
-    let chunks: Vec<[u8; 32]> = ciphertext
-        .chunks(16)
-        .map(|c| {
-            let mut fe = [0u8; 32];
-            fe[32 - c.len()..32].copy_from_slice(c);
-            fe
-        })
-        .collect();
-    let refs: Vec<&[u8]> = chunks.iter().map(|c| c.as_slice()).collect();
-    poseidon(&refs)
+    ciphertext_hash(ciphertext).map_err(|e| KeypairError::Poseidon(e.into()))
 }
 
 #[cfg(test)]

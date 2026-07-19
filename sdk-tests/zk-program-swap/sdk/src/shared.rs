@@ -1,6 +1,6 @@
 use anyhow::Result;
 use solana_address::Address;
-use zolana_keypair::ShieldedAddress;
+use zolana_keypair::{hash::right_align, ShieldedAddress};
 use zolana_transaction::{
     instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
     utxo::Blinding,
@@ -16,16 +16,13 @@ pub fn input_sum(inputs: &[SppProofInputUtxo], asset: &Address) -> i128 {
         .sum()
 }
 
-// Places the blinding in bytes [1..32], leaving the top byte zero for field
-// validity; only well-defined when a Blinding is exactly 31 bytes. Asserted at
-// compile time so a Blinding length change is a build error, not a runtime panic
-// in `copy_from_slice`.
+// The top byte must stay zero for field validity, which holds only while a
+// Blinding is at most 31 bytes. Asserted at compile time so a Blinding length
+// change is a build error, not an out-of-range field element.
 const _: () = assert!(core::mem::size_of::<Blinding>() == 31);
 
 pub(crate) fn right_align_blinding(blinding: &Blinding) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[1..].copy_from_slice(blinding);
-    out
+    right_align(blinding)
 }
 
 pub(crate) fn check_output_utxo(

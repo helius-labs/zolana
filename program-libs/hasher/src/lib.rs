@@ -11,6 +11,7 @@
 //! | [`HasherError`] | Error type for hash operations |
 //! | [`hash_chain`] | Sequential hash chaining |
 //! | [`hash_to_field_size`] | Truncate hash output to BN254 field size |
+//! | [`primitives`] | Field-element packing and hashing primitives |
 //! | [`zero_bytes`] | Precomputed zero-leaf hashes per hasher |
 
 #![allow(unexpected_cfgs)]
@@ -31,13 +32,14 @@ pub mod hash_chain;
 pub mod hash_to_field_size;
 pub mod keccak;
 pub mod poseidon;
+pub mod primitives;
 pub mod sha256;
 pub mod syscalls;
 pub mod zero_bytes;
 
 pub use keccak::Keccak;
 pub use poseidon::Poseidon;
-pub use sha256::Sha256;
+pub use sha256::{Sha256, Sha256BE};
 
 pub use crate::errors::HasherError;
 use crate::zero_bytes::ZeroBytes;

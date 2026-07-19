@@ -1,4 +1,4 @@
-use p256::{elliptic_curve::sec1::ToEncodedPoint, PublicKey as P256PublicKey};
+use p256::{elliptic_curve::sec1::ToEncodedPoint, AffinePoint, PublicKey as P256PublicKey};
 
 use crate::{
     constants::{ED25519_PUBKEY_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
@@ -67,6 +67,40 @@ impl P256Pubkey {
 
     pub fn to_p256(&self) -> Result<P256PublicKey, KeypairError> {
         P256PublicKey::from_sec1_bytes(&self.0).map_err(|_| KeypairError::InvalidPublicKey)
+    }
+
+    /// The P256 generator point. Used as the discarded dummy point witness on
+    /// the Solana rail: the circuits assert every witnessed point is on the
+    /// curve even when the rail select discards its `pk_field`.
+    pub fn generator() -> Self {
+        Self::from_p256(
+            &P256PublicKey::from_affine(AffinePoint::GENERATOR)
+                .expect("the P256 generator is a valid public key"),
+        )
+    }
+
+    /// The point's uncompressed SEC1 encoding (`0x04 || x || y`).
+    pub fn to_uncompressed(&self) -> Result<[u8; 65], KeypairError> {
+        let point = self.to_p256()?.to_encoded_point(false);
+        let bytes = point.as_bytes();
+        let mut out = [0u8; 65];
+        if bytes.len() != out.len() {
+            return Err(KeypairError::InvalidPublicKey);
+        }
+        out.copy_from_slice(bytes);
+        Ok(out)
+    }
+
+    /// The point's affine coordinates as 32-byte big-endian values.
+    pub fn xy(&self) -> Result<([u8; 32], [u8; 32]), KeypairError> {
+        let point = self.to_p256()?.to_encoded_point(false);
+        let x = point.x().ok_or(KeypairError::InvalidPublicKey)?;
+        let y = point.y().ok_or(KeypairError::InvalidPublicKey)?;
+        let mut x_bytes = [0u8; 32];
+        let mut y_bytes = [0u8; 32];
+        x_bytes.copy_from_slice(x);
+        y_bytes.copy_from_slice(y);
+        Ok((x_bytes, y_bytes))
     }
 }
 

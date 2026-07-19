@@ -1,5 +1,6 @@
 use num_bigint::BigUint;
 use solana_address::Address;
+use zolana_hasher::primitives::right_align_slice;
 use zolana_keypair::{
     hash::{hash_field, sha256, sha256_be},
     ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
@@ -22,13 +23,6 @@ fn modulus() -> BigUint {
     BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).expect("valid BN254 modulus literal")
 }
 
-fn right_align_slice(bytes: &[u8]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    let len = bytes.len().min(32);
-    out[32 - len..].copy_from_slice(&bytes[bytes.len() - len..]);
-    out
-}
-
 pub fn signed_to_field(value: i64) -> [u8; 32] {
     let magnitude = BigUint::from(value.unsigned_abs());
     let field = if value < 0 {
@@ -36,7 +30,7 @@ pub fn signed_to_field(value: i64) -> [u8; 32] {
     } else {
         magnitude
     };
-    right_align_slice(&field.to_bytes_be())
+    right_align_slice(&field.to_bytes_be()).expect("a BN254 field element fits 32 bytes")
 }
 
 pub fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {
