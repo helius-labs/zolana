@@ -1,0 +1,22 @@
+[package]
+name = "timelock-escrow-sdk"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+timelock-escrow-program = { path = "../program" }
+timelock-escrow-prover = { path = "../prover" }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
+wincode = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+groth16-solana = { workspace = true, features = ["bsb22"] }
+solana-keypair = { workspace = true }
+solana-signature = { workspace = true }

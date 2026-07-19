@@ -224,6 +224,74 @@ bench-swap: ensure-swap-keys
         -- --features bpf-entrypoint,profile-program
     cargo test -p swap-test-validator --test bench_cu -- --ignored --nocapture
 
+# Fetch the pinned escrow/withdraw proving keys from the escrow-keys release
+# and verify them against the committed manifest. groth16.Setup is
+# non-deterministic, so the published keys are the only set matching the
+# committed Rust verifying keys; regenerating locally (regen-escrow-keys)
+# requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
+# plus the committed verifying keys together.
+escrow-keys-tag := "escrow-keys-v1"
+
+ensure-escrow-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/timelock-escrow"
+    for c in escrow withdraw; do
+        dir="$base/build/gnark/$c"
+        for kind in pk vk; do
+            if [ ! -f "$dir/$kind.bin" ]; then
+                mkdir -p "$dir"
+                gh release download "{{escrow-keys-tag}}" --repo helius-labs/zolana \
+                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
+            fi
+            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/timelock-escrow-keys.CHECKSUM")
+            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
+            if [ "$want" != "$got" ]; then
+                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
+                echo "refresh from the {{escrow-keys-tag}} release (delete the file and rerun)," >&2
+                echo "or rotate keys with 'just regen-escrow-keys' and publish a new release" >&2
+                exit 1
+            fi
+        done
+    done
+
+# Rotate the escrow/withdraw proving keys: regenerate both circuits, rewriting
+# the committed Rust verifying keys and the checksum manifest. Publish the new
+# build/gnark key files to a fresh escrow-keys release and bump
+# escrow-keys-tag afterwards.
+regen-escrow-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/timelock-escrow"
+    for c in escrow withdraw; do
+        cargo run --release -p timelock-escrow-prover --bin timelock-escrow-prover-setup -- \
+            "$c" "$base/build/gnark/$c" \
+            --rust-vk "$base/program/src/verifying_keys/$c.rs"
+    done
+    : > "$base/timelock-escrow-keys.CHECKSUM"
+    for c in escrow withdraw; do
+        for kind in pk vk; do
+            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
+                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/timelock-escrow-keys.CHECKSUM"
+        done
+    done
+
+# The profiling escrow build calls a profiler syscall that solana-test-validator
+# does not register, so it must never land in target/deploy (validator/CI load
+# the plain program from there). Build the bench programs into a dedicated dir,
+# matching PROFILING_SBF_DIR in bench_cu.rs. Regenerates
+# sdk-tests/timelock-escrow/BENCHMARK.md.
+bench-escrow: ensure-escrow-keys
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/escrow-bench \
+        --manifest-path programs/shielded-pool/Cargo.toml \
+        -- --features bpf-entrypoint
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/escrow-bench \
+        --manifest-path sdk-tests/timelock-escrow/program/Cargo.toml \
+        -- --features bpf-entrypoint,profile-program
+    cargo test -p timelock-escrow-test --test bench_cu -- --ignored --nocapture
+
 # === Local validator helpers ===
 
 # Local-validator end-to-end SOL cycle.
@@ -427,6 +495,29 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p swap-test-validator --test swap --test cancel -- --nocapture
+
+# Timelock escrow lifecycle on a local validator, driven against a real
+# localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots
+# solana-test-validator via the `zolana` CLI with the timelock escrow program,
+# the shielded pool, and the Squads smart account loaded together, plus Photon
+# and the persistent SPP prover -- mirroring test-swap-validator.
+test-escrow-validator: ensure-escrow-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p timelock-escrow-test --test escrow -- --nocapture
+
+# Runs the swap and escrow lifecycle suites back to back in one CI job.
+test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
 
 # Minimal zolana-client SDK example: deposit, shielded transfer, and withdrawal
 # building the SPP instructions by hand and submitting them
