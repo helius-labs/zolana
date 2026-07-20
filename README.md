@@ -31,6 +31,19 @@ The Cargo workspace's `default-members` is deliberately narrow — `forester`,
 `program-libs/interface`, and `programs/shielded-pool` — so a bare `cargo check` from the root
 hits the production-critical surface quickly. For full-workspace coverage use `just check-all`.
 
+## Install the CLI
+
+Install the `zolana` binary straight from the repository (builds from source, so
+it pulls the workspace's git dependencies; not published to crates.io):
+
+```bash
+cargo install --git https://github.com/helius-labs/zolana --tag v0.1.0-alpha zolana-cli
+```
+
+`zolana dev start` then fetches a version-pinned, pre-initialized localnet
+(programs, account snapshots, prover, and Photon) from the matching release. See
+[`cli/README.md`](cli/README.md) for commands and the `--local` dev flow.
+
 ## CI
 
 Workflows under `.github/workflows/`:
