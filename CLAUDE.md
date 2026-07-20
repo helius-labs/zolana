@@ -365,31 +365,24 @@ cd prover/server && go build -o light-prover .
 
 ### Distribute proving keys via S3 + CloudFront
 
-All gitignored proving keys (merkle, batch, transfer, and merge) live in a private
-S3 bucket (`zolana-proving-keys`, eu-north-1) served publicly through a CloudFront
-distribution (`d3gbdb0egjwcw9.cloudfront.net`) with Origin Access Control -- the
-bucket stays private and reads need no credentials. The keys are PUBLIC setup
-parameters, not secrets.
+The gitignored proving keys (transfer, merge, and the forester's batch
+address-append) are distributed from a private S3 bucket fronted by CloudFront;
+reads are credential-free (the keys are PUBLIC setup parameters, not secrets).
+Which keys, their `sha256`, and the version-hashed prefix
+(`proving-keys/<hash>/<name>.key`) are pinned by the committed lockfile
+`prover/server/prover/provingkeys/proving-keys.lock`, embedded into the prover by
+the `provingkeys` package -- it IS the proving-key version and changes in the same
+commit as the verifying keys, so pk<->vk<->code drift is impossible.
 
-Objects live under a **version-hashed, immutable** folder:
-`proving-keys/<version-hash>/<name>.key`, where the version hash is derived from
-the whole key set. The committed lockfile
-`prover/server/prover/provingkeys/proving-keys.lock` (embedded into the prover by
-the `provingkeys` Go package) records that prefix plus each key's `sha256` and
-`size`, and IS the proving-key version -- it changes in the same commit as the
-regenerated verifying keys, so pk<->vk<->code drift is impossible. Because the
-folder is version-hashed, a rotation writes a NEW folder and leaves old ones
-untouched: an already-published CLI keeps fetching its own (unchanged) folder, so
-old CLI -> old keys and new CLI -> new keys, with no overwrite and no CloudFront
-invalidation. Filenames stay human-readable within each version folder.
-
-The downloader (`EnsureProvingKey` in `key_downloader.go`) is cache-first: it
-verifies an on-disk key against the lockfile's `sha256` (offline), else HTTPS-GETs
-`<base-url>/<prefix>/<name>` (no auth) and hard-fails unless the streamed bytes
-match the pinned `size` + `sha256`. The base URL defaults to the CloudFront domain
-and is overridable with `ZOLANA_PROVING_KEYS_URL`. There is no GitHub token, no
-release tag, and no `CHECKSUM` file. CI caches `prover/server/proving-keys` keyed
-by the lockfile hash, so it auto-invalidates on rotation.
+The downloader (`EnsureProvingKey` in `key_downloader.go`) is cache-first: verify
+an on-disk key against the lockfile `sha256` (offline), else HTTPS-GET
+`<base>/<prefix>/<name>` and hard-fail unless the bytes match the pinned `size` +
+`sha256`. The base URL defaults to the CloudFront domain defined in
+`key_downloader.go` and is overridable with `ZOLANA_PROVING_KEYS_URL`; no GitHub
+token, release tag, or `CHECKSUM`. Version-hashed folders are immutable, so a
+rotation writes a NEW folder and leaves old ones untouched (old CLI -> old keys,
+new CLI -> new keys; no CloudFront invalidation). CI caches
+`prover/server/proving-keys` keyed by the lockfile hash.
 
 Rotate keys with (needs the aws CLI + bucket write access):
 
