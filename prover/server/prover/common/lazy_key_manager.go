@@ -127,7 +127,7 @@ func (m *LazyKeyManager) loadMerkleSystem(
 		Str("cache_key", key).
 		Msg("Loading MerkleProofSystem")
 
-	if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
+	if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
 		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
 	}
 
@@ -180,7 +180,7 @@ func (m *LazyKeyManager) loadBatchSystem(key string, circuitType CircuitType, tr
 		Str("cache_key", key).
 		Msg("Loading BatchProofSystem")
 
-	if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
+	if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
 		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
 	}
 
@@ -232,7 +232,7 @@ func (m *LazyKeyManager) loadTransferSystem(key string, circuitType CircuitType,
 		Str("cache_key", key).
 		Msg("Loading TransferProofSystem")
 
-	if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
+	if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
 		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
 	}
 
@@ -499,7 +499,7 @@ func (m *LazyKeyManager) preloadKeys(keyPaths []string) error {
 			Str("key_path", keyPath).
 			Msg("Preloading key")
 
-		if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
+		if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
 			return fmt.Errorf("failed to download key %s: %w", keyPath, err)
 		}
 

@@ -7,12 +7,12 @@
 // and public-variable counts. A change here means the circuit changed; the fix
 // is NOT to blindly update these numbers but to run the full rotation:
 //
-//	prover/server/scripts/rotate_proving_keys.sh <new-tag>
+//	prover/server/scripts/rotate_proving_keys.sh
 //
 // which regenerates proving keys, regenerates and commits the Rust verifying
-// keys (interface + batched-merkle-tree crates), publishes the release, and
-// bumps ProvingKeysReleaseTag + the CI cache key. Only then update the pinned
-// values below (UPDATE_FINGERPRINTS=1 prints the current ones).
+// keys (interface + batched-merkle-tree crates), regenerates proving-keys.lock,
+// and uploads the keys to a new immutable version folder in S3. Only then update
+// the pinned values below (UPDATE_FINGERPRINTS=1 prints the current ones).
 package fingerprint
 
 import (
@@ -67,7 +67,8 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	return out
 }
 
-// Pinned as of transfer-keys-v12 (post-#113 gadget refactor). Regenerate with
+// Pinned to the current key set; the version hash is in
+// prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
 	"transfer_p256_confidential_2_3": {constraints: 209135, public: 2},

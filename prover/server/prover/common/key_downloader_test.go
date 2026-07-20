@@ -4,197 +4,23 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-type testReleaseServer struct {
-	mu            sync.Mutex
-	assets        []releaseAsset
-	assetBodies   map[int64][]byte
-	assetStatuses map[int64][]int
-	releaseCount  int
-	assetCounts   map[int64]int
-	releaseTags   []string
-	authHeaders   []string
-}
-
-func newTestReleaseServer(_ *testing.T, assets []releaseAsset, assetBodies map[int64][]byte) *testReleaseServer {
-	s := &testReleaseServer{
-		assets:        append([]releaseAsset(nil), assets...),
-		assetBodies:   assetBodies,
-		assetStatuses: map[int64][]int{},
-		assetCounts:   map[int64]int{},
-	}
-	return s
-}
-
-func (s *testReleaseServer) RoundTrip(req *http.Request) (*http.Response, error) {
-	recorder := httptest.NewRecorder()
-	s.handle(recorder, req)
-	resp := recorder.Result()
-	resp.Request = req
-	return resp, nil
-}
-
-func (s *testReleaseServer) handle(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	releasePrefix := "/repos/" + ProvingKeysRepo + "/releases/tags/"
-	if strings.HasPrefix(r.URL.Path, releasePrefix) {
-		tag := strings.TrimPrefix(r.URL.Path, releasePrefix)
-		s.mu.Lock()
-		s.releaseCount++
-		s.releaseTags = append(s.releaseTags, tag)
-		s.authHeaders = append(s.authHeaders, r.Header.Get("Authorization"))
-		assets := append([]releaseAsset(nil), s.assets...)
-		s.mu.Unlock()
-
-		w.Header().Set("Content-Type", "application/json")
-		err := json.NewEncoder(w).Encode(struct {
-			Assets []releaseAsset `json:"assets"`
-		}{Assets: assets})
-		if err != nil {
-			panic(fmt.Sprintf("encode release response: %v", err))
-		}
-		return
-	}
-
-	assetPrefix := "/repos/" + ProvingKeysRepo + "/releases/assets/"
-	if strings.HasPrefix(r.URL.Path, assetPrefix) {
-		idText := strings.TrimPrefix(r.URL.Path, assetPrefix)
-		id, err := strconv.ParseInt(idText, 10, 64)
-		if err != nil {
-			http.Error(w, "bad asset id", http.StatusBadRequest)
-			return
-		}
-
-		s.mu.Lock()
-		s.assetCounts[id]++
-		count := s.assetCounts[id]
-		s.authHeaders = append(s.authHeaders, r.Header.Get("Authorization"))
-		statuses := append([]int(nil), s.assetStatuses[id]...)
-		body, ok := s.assetBodies[id]
-		s.mu.Unlock()
-
-		if !ok {
-			http.Error(w, "missing asset", http.StatusNotFound)
-			return
-		}
-
-		status := http.StatusOK
-		if len(statuses) > 0 {
-			idx := count - 1
-			if idx >= len(statuses) {
-				idx = len(statuses) - 1
-			}
-			status = statuses[idx]
-		}
-		if status != http.StatusOK {
-			http.Error(w, fmt.Sprintf("status %d", status), status)
-			return
-		}
-
-		if _, err := w.Write(body); err != nil {
-			panic(fmt.Sprintf("write asset response: %v", err))
-		}
-		return
-	}
-
-	http.NotFound(w, r)
-}
-
-func (s *testReleaseServer) setAssetStatuses(id int64, statuses ...int) {
-	s.mu.Lock()
-	s.assetStatuses[id] = append([]int(nil), statuses...)
-	s.mu.Unlock()
-}
-
-func (s *testReleaseServer) requestsForAsset(id int64) int {
-	s.mu.Lock()
-	count := s.assetCounts[id]
-	s.mu.Unlock()
-	return count
-}
-
-func (s *testReleaseServer) requestsForRelease() int {
-	s.mu.Lock()
-	count := s.releaseCount
-	s.mu.Unlock()
-	return count
-}
-
-func (s *testReleaseServer) sawReleaseTag(tag string) bool {
-	s.mu.Lock()
-	tags := append([]string(nil), s.releaseTags...)
-	s.mu.Unlock()
-	for _, got := range tags {
-		if got == tag {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *testReleaseServer) sawAuthorization(header string) bool {
-	s.mu.Lock()
-	headers := append([]string(nil), s.authHeaders...)
-	s.mu.Unlock()
-	for _, got := range headers {
-		if got == header {
-			return true
-		}
-	}
-	return false
-}
-
-func useTestGitHub(t *testing.T, s *testReleaseServer) {
-	oldBaseURL := githubAPIBaseURL
-	oldMetadataClient := metadataHTTPClient
-	oldAssetClient := assetHTTPClient
-	checksumMergeMu.Lock()
-	oldChecksumStates := checksumMergeStates
-	checksumMergeStates = map[string]*checksumMergeState{}
-	checksumMergeMu.Unlock()
-
-	githubAPIBaseURL = "https://api.github.test"
-	metadataHTTPClient = &http.Client{Transport: s}
-	assetHTTPClient = &http.Client{Transport: s}
-
-	t.Cleanup(func() {
-		githubAPIBaseURL = oldBaseURL
-		metadataHTTPClient = oldMetadataClient
-		assetHTTPClient = oldAssetClient
-		checksumMergeMu.Lock()
-		checksumMergeStates = oldChecksumStates
-		checksumMergeMu.Unlock()
-	})
-}
-
-func testDownloadConfig(maxRetries int) *DownloadConfig {
-	return &DownloadConfig{
-		MaxRetries:    maxRetries,
-		RetryDelay:    time.Millisecond,
-		MaxRetryDelay: time.Millisecond,
-		AutoDownload:  true,
-	}
-}
-
-func checksumHex(data []byte) string {
+func sha256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func entryFor(data []byte) lockEntry {
+	return lockEntry{Sha256: sha256Hex(data), Size: int64(len(data))}
 }
 
 func writeTestFile(t *testing.T, path string, data []byte) {
@@ -213,295 +39,379 @@ func readTestFile(t *testing.T, path string) []byte {
 	return data
 }
 
-func writeTestChecksum(t *testing.T, dir string, entries map[string]string) {
+func testDownloadConfig(maxRetries int) *DownloadConfig {
+	return &DownloadConfig{
+		MaxRetries:    maxRetries,
+		RetryDelay:    time.Millisecond,
+		MaxRetryDelay: time.Millisecond,
+		AutoDownload:  true,
+	}
+}
+
+// useTestManifest installs a synthetic manifest for the duration of a test so the
+// lookup logic in EnsureProvingKey can be exercised without the real 133-key
+// embedded lockfile, then restores production behavior on cleanup.
+func useTestManifest(t *testing.T, m *lockManifest) {
 	t.Helper()
-	var b strings.Builder
-	for name, sum := range entries {
-		if _, err := fmt.Fprintf(&b, "%s  %s\n", sum, name); err != nil {
-			t.Fatalf("format checksum entry: %v", err)
+	old := manifestForTest
+	manifestForTest = m
+	t.Cleanup(func() { manifestForTest = old })
+}
+
+// countingServer serves fixed bodies per URL path and records request counts,
+// so tests can assert both correct content and no-network / fail-fast behavior.
+type countingServer struct {
+	mu       sync.Mutex
+	bodies   map[string][]byte
+	statuses map[string][]int
+	counts   map[string]int
+}
+
+func newCountingServer() *countingServer {
+	return &countingServer{
+		bodies:   map[string][]byte{},
+		statuses: map[string][]int{},
+		counts:   map[string]int{},
+	}
+}
+
+func (s *countingServer) setBody(path string, body []byte) {
+	s.mu.Lock()
+	s.bodies[path] = body
+	s.mu.Unlock()
+}
+
+func (s *countingServer) setStatuses(path string, statuses ...int) {
+	s.mu.Lock()
+	s.statuses[path] = append([]int(nil), statuses...)
+	s.mu.Unlock()
+}
+
+func (s *countingServer) requests(path string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.counts[path]
+}
+
+func (s *countingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.counts[r.URL.Path]++
+	count := s.counts[r.URL.Path]
+	statuses := s.statuses[r.URL.Path]
+	body, ok := s.bodies[r.URL.Path]
+	s.mu.Unlock()
+
+	if len(statuses) > 0 {
+		idx := count - 1
+		if idx >= len(statuses) {
+			idx = len(statuses) - 1
+		}
+		if status := statuses[idx]; status != http.StatusOK {
+			http.Error(w, http.StatusText(status), status)
+			return
 		}
 	}
-	writeTestFile(t, filepath.Join(dir, "CHECKSUM"), []byte(b.String()))
+
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := w.Write(body); err != nil {
+		panic(err)
+	}
 }
 
-func releaseWithChecksumAndKey(filename string, body []byte) ([]releaseAsset, map[int64][]byte) {
-	checksum := []byte(fmt.Sprintf("%s  %s\n", checksumHex(body), filename))
-	return []releaseAsset{
-			{ID: 1, Name: "CHECKSUM"},
-			{ID: 2, Name: filename},
-		}, map[int64][]byte{
-			1: checksum,
-			2: body,
-		}
-}
-
-func TestEnsureProvingKeyLocalChecksumVerifiedSkipsNetwork(t *testing.T) {
+func TestDownloadAndVerifySuccess(t *testing.T) {
 	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "local.key")
-	keyBody := []byte("local key")
-	writeTestFile(t, keyPath, keyBody)
-	writeTestChecksum(t, dir, map[string]string{"local.key": checksumHex(keyBody)})
+	keyPath := filepath.Join(dir, "success.key")
+	body := []byte("a downloaded proving key")
 
-	server := newTestReleaseServer(t, nil, nil)
-	useTestGitHub(t, server)
+	server := newCountingServer()
+	server.setBody("/success.key", body)
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
 
-	if err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(1)); err != nil {
-		t.Fatalf("ensure local key: %v", err)
+	url := httpServer.URL + "/success.key"
+	if err := downloadAndVerify(url, keyPath, entryFor(body), testDownloadConfig(1)); err != nil {
+		t.Fatalf("downloadAndVerify: %v", err)
 	}
-	if got := server.requestsForRelease(); got != 0 {
-		t.Fatalf("release requests = %d, want 0", got)
+	if got := readTestFile(t, keyPath); !bytes.Equal(got, body) {
+		t.Fatalf("downloaded file = %q, want %q", got, body)
+	}
+	if _, statErr := os.Stat(keyPath + ".tmp"); !os.IsNotExist(statErr) {
+		t.Fatalf("temp file still present or unexpected stat error: %v", statErr)
+	}
+	if got := server.requests("/success.key"); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
+	}
+}
+
+func TestDownloadAndVerifyShaMismatch(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "mismatch.key")
+	body := []byte("actual bytes")
+	// Correct size, wrong sha256 -> the sha check must fail.
+	entry := lockEntry{Sha256: sha256Hex([]byte("different bytes here!")), Size: int64(len(body))}
+
+	server := newCountingServer()
+	server.setBody("/mismatch.key", body)
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
+
+	err := downloadAndVerify(httpServer.URL+"/mismatch.key", keyPath, entry, testDownloadConfig(1))
+	if err == nil || !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Fatalf("error = %v, want sha256 mismatch", err)
+	}
+	if _, statErr := os.Stat(keyPath); !os.IsNotExist(statErr) {
+		t.Fatalf("key file left behind or unexpected stat error: %v", statErr)
+	}
+	if _, statErr := os.Stat(keyPath + ".tmp"); !os.IsNotExist(statErr) {
+		t.Fatalf("temp file left behind or unexpected stat error: %v", statErr)
+	}
+}
+
+func TestDownloadAndVerifySizeMismatch(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "size.key")
+	body := []byte("twelve bytes")
+	// Correct sha256, wrong size -> the size check must fail first.
+	entry := lockEntry{Sha256: sha256Hex(body), Size: int64(len(body)) + 1}
+
+	server := newCountingServer()
+	server.setBody("/size.key", body)
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
+
+	err := downloadAndVerify(httpServer.URL+"/size.key", keyPath, entry, testDownloadConfig(1))
+	if err == nil || !strings.Contains(err.Error(), "size mismatch") {
+		t.Fatalf("error = %v, want size mismatch", err)
+	}
+	if _, statErr := os.Stat(keyPath); !os.IsNotExist(statErr) {
+		t.Fatalf("key file left behind or unexpected stat error: %v", statErr)
+	}
+}
+
+func TestDownloadAndVerify404FailsFast(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "missing.key")
+
+	server := newCountingServer()
+	server.setStatuses("/missing.key", http.StatusNotFound)
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
+
+	err := downloadAndVerify(httpServer.URL+"/missing.key", keyPath, lockEntry{Sha256: "deadbeef", Size: 1}, testDownloadConfig(3))
+	if err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("error = %v, want HTTP 404", err)
+	}
+	if got := server.requests("/missing.key"); got != 1 {
+		t.Fatalf("requests = %d, want 1 (permanent 4xx fails fast)", got)
+	}
+}
+
+func TestDownloadAndVerifyRetriesThenSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "retry.key")
+	body := []byte("eventually served")
+
+	server := newCountingServer()
+	server.setBody("/retry.key", body)
+	server.setStatuses("/retry.key", http.StatusInternalServerError, http.StatusOK)
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
+
+	if err := downloadAndVerify(httpServer.URL+"/retry.key", keyPath, entryFor(body), testDownloadConfig(3)); err != nil {
+		t.Fatalf("downloadAndVerify: %v", err)
+	}
+	if got := readTestFile(t, keyPath); !bytes.Equal(got, body) {
+		t.Fatalf("downloaded file = %q, want %q", got, body)
+	}
+	if got := server.requests("/retry.key"); got != 2 {
+		t.Fatalf("requests = %d, want 2 (500 then 200)", got)
+	}
+}
+
+func TestEnsureProvingKeyCacheHitSkipsNetwork(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "cached.key")
+	body := []byte("already on disk")
+	writeTestFile(t, keyPath, body)
+
+	useTestManifest(t, &lockManifest{
+		Prefix: "proving-keys",
+		Keys:   map[string]lockEntry{"cached.key": entryFor(body)},
+	})
+
+	server := newCountingServer()
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
+	t.Setenv(provingKeysURLEnvVar, httpServer.URL)
+
+	if err := EnsureProvingKey(keyPath, true, testDownloadConfig(1)); err != nil {
+		t.Fatalf("EnsureProvingKey: %v", err)
+	}
+	if got := server.requests("/proving-keys/cached.key"); got != 0 {
+		t.Fatalf("requests = %d, want 0 (cache hit)", got)
+	}
+}
+
+func TestEnsureProvingKeyNotInManifestPresentIsOK(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "local-only.key")
+	writeTestFile(t, keyPath, []byte("locally generated"))
+
+	useTestManifest(t, &lockManifest{Prefix: "proving-keys", Keys: map[string]lockEntry{}})
+
+	if err := EnsureProvingKey(keyPath, true, testDownloadConfig(1)); err != nil {
+		t.Fatalf("EnsureProvingKey: %v", err)
+	}
+}
+
+func TestEnsureProvingKeyNotInManifestMissingErrors(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "local-only.key")
+
+	useTestManifest(t, &lockManifest{Prefix: "proving-keys", Keys: map[string]lockEntry{}})
+
+	err := EnsureProvingKey(keyPath, true, testDownloadConfig(1))
+	if err == nil || !strings.Contains(err.Error(), "not in the proving-keys lockfile") {
+		t.Fatalf("error = %v, want not-in-lockfile error", err)
+	}
+}
+
+func TestEnsureProvingKeyDownloadsMissingKey(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "download.key")
+	body := []byte("fetched from the object store")
+
+	useTestManifest(t, &lockManifest{
+		Prefix: "proving-keys",
+		Keys:   map[string]lockEntry{"download.key": entryFor(body)},
+	})
+
+	server := newCountingServer()
+	server.setBody("/proving-keys/download.key", body)
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
+	t.Setenv(provingKeysURLEnvVar, httpServer.URL)
+
+	if err := EnsureProvingKey(keyPath, true, testDownloadConfig(1)); err != nil {
+		t.Fatalf("EnsureProvingKey: %v", err)
+	}
+	if got := readTestFile(t, keyPath); !bytes.Equal(got, body) {
+		t.Fatalf("downloaded file = %q, want %q", got, body)
+	}
+	if got := server.requests("/proving-keys/download.key"); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
 	}
 }
 
 func TestEnsureProvingKeyAutoDownloadDisabled(t *testing.T) {
-	t.Run("missing file errors without network", func(t *testing.T) {
-		dir := t.TempDir()
-		keyPath := filepath.Join(dir, "missing.key")
-		server := newTestReleaseServer(t, nil, nil)
-		useTestGitHub(t, server)
+	body := []byte("pinned bytes")
+	manifest := &lockManifest{
+		Prefix: "proving-keys",
+		Keys:   map[string]lockEntry{"pinned.key": entryFor(body)},
+	}
 
-		err := EnsureProvingKeyFromRelease(keyPath, false, testDownloadConfig(1))
+	t.Run("missing file errors", func(t *testing.T) {
+		dir := t.TempDir()
+		keyPath := filepath.Join(dir, "pinned.key")
+		useTestManifest(t, manifest)
+
+		err := EnsureProvingKey(keyPath, false, testDownloadConfig(1))
 		if err == nil || !strings.Contains(err.Error(), "required key file not found") {
 			t.Fatalf("error = %v, want missing-file error", err)
 		}
-		if got := server.requestsForRelease(); got != 0 {
-			t.Fatalf("release requests = %d, want 0", got)
-		}
 	})
 
-	t.Run("checksum failure errors without network", func(t *testing.T) {
+	t.Run("mismatched file errors and is not removed", func(t *testing.T) {
 		dir := t.TempDir()
-		keyPath := filepath.Join(dir, "bad.key")
-		writeTestFile(t, keyPath, []byte("bad key"))
-		writeTestChecksum(t, dir, map[string]string{"bad.key": checksumHex([]byte("expected key"))})
-		server := newTestReleaseServer(t, nil, nil)
-		useTestGitHub(t, server)
+		keyPath := filepath.Join(dir, "pinned.key")
+		writeTestFile(t, keyPath, []byte("wrong bytes"))
+		useTestManifest(t, manifest)
 
-		err := EnsureProvingKeyFromRelease(keyPath, false, testDownloadConfig(1))
-		if err == nil || !strings.Contains(err.Error(), "failed checksum verification") {
-			t.Fatalf("error = %v, want checksum verification error", err)
+		err := EnsureProvingKey(keyPath, false, testDownloadConfig(1))
+		if err == nil || !strings.Contains(err.Error(), "does not match the lockfile checksum") {
+			t.Fatalf("error = %v, want checksum mismatch error", err)
 		}
-		if got := server.requestsForRelease(); got != 0 {
-			t.Fatalf("release requests = %d, want 0", got)
+		if _, statErr := os.Stat(keyPath); statErr != nil {
+			t.Fatalf("mismatched file was removed or stat failed: %v", statErr)
 		}
 	})
 }
 
-func TestEnsureProvingKeyExactAssetDownload(t *testing.T) {
+func TestEnsureProvingKeyReplacesMismatchedFile(t *testing.T) {
 	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "exact.key")
-	keyBody := []byte("downloaded exact key")
-	assets, bodies := releaseWithChecksumAndKey("exact.key", keyBody)
-	server := newTestReleaseServer(t, assets, bodies)
-	useTestGitHub(t, server)
+	keyPath := filepath.Join(dir, "stale.key")
+	writeTestFile(t, keyPath, []byte("stale contents"))
+	body := []byte("fresh verified contents")
 
-	if err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(1)); err != nil {
-		t.Fatalf("ensure exact key: %v", err)
+	useTestManifest(t, &lockManifest{
+		Prefix: "proving-keys",
+		Keys:   map[string]lockEntry{"stale.key": entryFor(body)},
+	})
+
+	server := newCountingServer()
+	server.setBody("/proving-keys/stale.key", body)
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
+	t.Setenv(provingKeysURLEnvVar, httpServer.URL)
+
+	if err := EnsureProvingKey(keyPath, true, testDownloadConfig(1)); err != nil {
+		t.Fatalf("EnsureProvingKey: %v", err)
 	}
-	if got := readTestFile(t, keyPath); !bytes.Equal(got, keyBody) {
-		t.Fatalf("downloaded file = %q, want %q", got, keyBody)
-	}
-	if got := server.requestsForAsset(1); got != 1 {
-		t.Fatalf("CHECKSUM requests = %d, want 1", got)
-	}
-	if got := server.requestsForAsset(2); got != 1 {
-		t.Fatalf("key requests = %d, want 1", got)
+	if got := readTestFile(t, keyPath); !bytes.Equal(got, body) {
+		t.Fatalf("file after re-download = %q, want %q", got, body)
 	}
 }
 
-func TestEnsureProvingKeySplitAssetDownload(t *testing.T) {
-	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "split.key")
-	partA := []byte("left-")
-	partB := []byte("right")
-	keyBody := append(append([]byte(nil), partA...), partB...)
-	checksum := []byte(fmt.Sprintf("%s  split.key\n", checksumHex(keyBody)))
-	server := newTestReleaseServer(t, []releaseAsset{
-		{ID: 1, Name: "CHECKSUM"},
-		{ID: 2, Name: "split.key.part-000"},
-		{ID: 3, Name: "split.key.part-001"},
-	}, map[int64][]byte{
-		1: checksum,
-		2: partA,
-		3: partB,
-	})
-	useTestGitHub(t, server)
-
-	if err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(1)); err != nil {
-		t.Fatalf("ensure split key: %v", err)
-	}
-	if got := readTestFile(t, keyPath); !bytes.Equal(got, keyBody) {
-		t.Fatalf("assembled file = %q, want %q", got, keyBody)
-	}
-	if got := server.requestsForAsset(2); got != 1 {
-		t.Fatalf("part 000 requests = %d, want 1", got)
-	}
-	if got := server.requestsForAsset(3); got != 1 {
-		t.Fatalf("part 001 requests = %d, want 1", got)
-	}
-	for _, partName := range []string{"split.key.part-000", "split.key.part-001"} {
-		partPath := filepath.Join(dir, partName)
-		if _, statErr := os.Stat(partPath); !os.IsNotExist(statErr) {
-			t.Fatalf("split part %s still exists or stat failed with unexpected error: %v", partName, statErr)
-		}
-	}
-}
-
-func TestEnsureProvingKeyChecksumMismatchRemovesFile(t *testing.T) {
-	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "mismatch.key")
-	keyBody := []byte("actual key")
-	checksum := []byte(fmt.Sprintf("%s  mismatch.key\n", checksumHex([]byte("expected key"))))
-	server := newTestReleaseServer(t, []releaseAsset{
-		{ID: 1, Name: "CHECKSUM"},
-		{ID: 2, Name: "mismatch.key"},
-	}, map[int64][]byte{
-		1: checksum,
-		2: keyBody,
-	})
-	useTestGitHub(t, server)
-
-	err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(1))
-	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
-		t.Fatalf("error = %v, want checksum mismatch", err)
-	}
-	if _, statErr := os.Stat(keyPath); !os.IsNotExist(statErr) {
-		t.Fatalf("downloaded file still exists or stat failed with unexpected error: %v", statErr)
-	}
-}
-
-func TestDownloadAssetRetries(t *testing.T) {
-	t.Run("404 fails fast", func(t *testing.T) {
-		dir := t.TempDir()
-		keyPath := filepath.Join(dir, "not-found.key")
-		keyBody := []byte("key")
-		assets, bodies := releaseWithChecksumAndKey("not-found.key", keyBody)
-		server := newTestReleaseServer(t, assets, bodies)
-		server.setAssetStatuses(2, http.StatusNotFound)
-		useTestGitHub(t, server)
-
-		err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(3))
-		if err == nil || !strings.Contains(err.Error(), "HTTP 404") {
-			t.Fatalf("error = %v, want HTTP 404", err)
-		}
-		if got := server.requestsForAsset(2); got != 1 {
-			t.Fatalf("key requests = %d, want 1", got)
+func TestBaseURL(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		t.Setenv(provingKeysURLEnvVar, "")
+		if got := baseURL(); got != defaultProvingKeysBaseURL {
+			t.Fatalf("baseURL = %q, want %q", got, defaultProvingKeysBaseURL)
 		}
 	})
-
-	t.Run("500 retries", func(t *testing.T) {
-		dir := t.TempDir()
-		keyPath := filepath.Join(dir, "retry.key")
-		keyBody := []byte("key")
-		assets, bodies := releaseWithChecksumAndKey("retry.key", keyBody)
-		server := newTestReleaseServer(t, assets, bodies)
-		server.setAssetStatuses(2, http.StatusInternalServerError, http.StatusInternalServerError)
-		useTestGitHub(t, server)
-
-		err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(2))
-		if err == nil || !strings.Contains(err.Error(), "HTTP 500") {
-			t.Fatalf("error = %v, want HTTP 500", err)
-		}
-		if got := server.requestsForAsset(2); got != 2 {
-			t.Fatalf("key requests = %d, want 2", got)
+	t.Run("override trims trailing slash", func(t *testing.T) {
+		t.Setenv(provingKeysURLEnvVar, "https://mirror.example.com/keys/")
+		if got := baseURL(); got != "https://mirror.example.com/keys" {
+			t.Fatalf("baseURL = %q, want trimmed override", got)
 		}
 	})
 }
 
-func TestChecksumMergePreservesLocalEntriesAndReleaseWins(t *testing.T) {
-	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "download.key")
-	keyBody := []byte("download")
-	localOnlySum := checksumHex([]byte("local only"))
-	oldConflictSum := checksumHex([]byte("old conflict"))
-	newConflictSum := checksumHex([]byte("new conflict"))
-	writeTestChecksum(t, dir, map[string]string{
-		"local-only.key": localOnlySum,
-		"conflict.key":   oldConflictSum,
-	})
-
-	releaseChecksum := []byte(fmt.Sprintf("%s  conflict.key\n%s  download.key\n", newConflictSum, checksumHex(keyBody)))
-	server := newTestReleaseServer(t, []releaseAsset{
-		{ID: 1, Name: "CHECKSUM"},
-		{ID: 2, Name: "download.key"},
-	}, map[int64][]byte{
-		1: releaseChecksum,
-		2: keyBody,
-	})
-	useTestGitHub(t, server)
-
-	if err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(1)); err != nil {
-		t.Fatalf("ensure key: %v", err)
+func TestObjectURL(t *testing.T) {
+	t.Setenv(provingKeysURLEnvVar, "https://mirror.example.com")
+	if got := objectURL("proving-keys", "v2_inclusion_32_1.key"); got != "https://mirror.example.com/proving-keys/v2_inclusion_32_1.key" {
+		t.Fatalf("objectURL = %q", got)
 	}
-	entries, err := parseChecksumFile(filepath.Join(dir, "CHECKSUM"))
+	if got := objectURL("", "bare.key"); got != "https://mirror.example.com/bare.key" {
+		t.Fatalf("objectURL with empty prefix = %q", got)
+	}
+}
+
+func TestEmbeddedManifestLoads(t *testing.T) {
+	// Ensure the real embedded lockfile is used, not any test seam.
+	old := manifestForTest
+	manifestForTest = nil
+	t.Cleanup(func() { manifestForTest = old })
+
+	m, err := loadManifest()
 	if err != nil {
-		t.Fatalf("parse merged CHECKSUM: %v", err)
+		t.Fatalf("loadManifest: %v", err)
 	}
-	if got := entries["local-only.key"]; got != localOnlySum {
-		t.Fatalf("local-only checksum = %q, want %q", got, localOnlySum)
+	if !strings.HasPrefix(m.Prefix, "proving-keys/") {
+		t.Fatalf("prefix = %q, want proving-keys/<version-hash>", m.Prefix)
 	}
-	if got := entries["conflict.key"]; got != newConflictSum {
-		t.Fatalf("conflict checksum = %q, want release checksum %q", got, newConflictSum)
+	if len(m.Keys) == 0 {
+		t.Fatalf("embedded manifest has no keys")
 	}
-}
-
-func TestChecksumMergeRetriesAfterFailure(t *testing.T) {
-	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "retry-checksum.key")
-	keyBody := []byte("key")
-	assets, bodies := releaseWithChecksumAndKey("retry-checksum.key", keyBody)
-	server := newTestReleaseServer(t, assets, bodies)
-	server.setAssetStatuses(1, http.StatusInternalServerError, http.StatusOK)
-	useTestGitHub(t, server)
-
-	if err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(1)); err == nil {
-		t.Fatalf("first ensure succeeded, want CHECKSUM download failure")
-	}
-	if err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(1)); err != nil {
-		t.Fatalf("second ensure: %v", err)
-	}
-	if got := server.requestsForAsset(1); got != 2 {
-		t.Fatalf("CHECKSUM requests = %d, want 2", got)
-	}
-}
-
-func TestChecksumMergeRunsPerTagAndDir(t *testing.T) {
-	dir1 := t.TempDir()
-	dir2 := t.TempDir()
-	keyBody := []byte("shared")
-	assets, bodies := releaseWithChecksumAndKey("shared.key", keyBody)
-	server := newTestReleaseServer(t, assets, bodies)
-	useTestGitHub(t, server)
-
-	if err := EnsureProvingKeyFromRelease(filepath.Join(dir1, "shared.key"), true, testDownloadConfig(1)); err != nil {
-		t.Fatalf("ensure dir1: %v", err)
-	}
-	if err := EnsureProvingKeyFromRelease(filepath.Join(dir2, "shared.key"), true, testDownloadConfig(1)); err != nil {
-		t.Fatalf("ensure dir2: %v", err)
-	}
-	if got := server.requestsForAsset(1); got != 2 {
-		t.Fatalf("CHECKSUM requests = %d, want 2", got)
-	}
-}
-
-func TestProvingKeysReleaseTagOverride(t *testing.T) {
-	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "override.key")
-	keyBody := []byte("key")
-	assets, bodies := releaseWithChecksumAndKey("override.key", keyBody)
-	server := newTestReleaseServer(t, assets, bodies)
-	useTestGitHub(t, server)
-	t.Setenv(provingKeysReleaseTagEnvVar, "custom-tag")
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "test-token")
-
-	if err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(1)); err != nil {
-		t.Fatalf("ensure override key: %v", err)
-	}
-	if !server.sawReleaseTag("custom-tag") {
-		t.Fatalf("release tag override was not used")
-	}
-	if !server.sawAuthorization("Bearer test-token") {
-		t.Fatalf("authorization bearer token was not sent")
+	for name, entry := range m.Keys {
+		if len(entry.Sha256) != 64 {
+			t.Fatalf("key %s sha256 = %q, want 64 hex chars", name, entry.Sha256)
+		}
+		if entry.Size <= 0 {
+			t.Fatalf("key %s size = %d, want > 0", name, entry.Size)
+		}
 	}
 }

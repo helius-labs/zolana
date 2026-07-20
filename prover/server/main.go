@@ -493,7 +493,7 @@ func runCli() {
 					},
 					&cli.StringSliceFlag{
 						Name:  "preload-circuits",
-						Usage: "Preload specific circuits, e.g.: update,append,batch_update_32_500,batch_append_32_500)",
+						Usage: "Preload specific circuits, e.g.: address-append,address-append-test",
 					},
 					&cli.StringFlag{
 						Name:  "redis-url",
