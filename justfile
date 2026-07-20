@@ -81,10 +81,9 @@ test-photon:
 
 # All zolana-client tests (lib unit tests, the `transaction` integration test,
 # and the `transfer_2_3` BDD suite). The BDD scenario spawns the prover server
-# (via the zolana CLI), which lazily downloads proving keys from the
-# transfer-keys-v12 GitHub release via the GitHub REST API using GH_TOKEN or
-# GITHUB_TOKEN, or uses local keys verified by CHECKSUM. Builds the go prover
-# binary and the zolana CLI the spawned server/test rely on.
+# (via the zolana CLI), which lazily downloads any missing proving keys from
+# CloudFront (verified against the committed lockfile; no token). Builds the go
+# prover binary and the zolana CLI the spawned server/test rely on.
 test-client-integration: build-prover-server build-cli
     cargo test -p zolana-client --all-features
 
@@ -610,8 +609,16 @@ build-spp-keys:
     prover/server/scripts/generate_keys_merge.sh "{{spp-keys-dir}}"
     prover/server/scripts/regenerate_all_vkeys.sh "$(pwd)/{{spp-keys-dir}}"
 
-publish-spp-keys-release:
-    prover/server/scripts/publish_keys_release.sh transfer-keys-v12 "$(pwd)/{{spp-keys-dir}}"
+# Upload the local proving keys to their immutable S3 version folder; the prefix
+# (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws
+# CLI with bucket write access. Full rotation (regen keys + vkeys + lock + upload)
+# is scripts/rotate_proving_keys.sh.
+publish-spp-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
+    prefix="$(python3 -c "import json; print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])")"
+    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key'
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon

@@ -363,25 +363,44 @@ cd prover/server && go build -o light-prover .
 (pk+vk+ccs). Keys are gitignored. The server lazy-loads
 `proving-keys/<rail>_<in>_<out>.key` on first proof request for that shape.
 
-### Distribute proving keys via GitHub release
+### Distribute proving keys via S3 + CloudFront
 
-All gitignored proving keys (merkle, batch, transfer, and merge) are published
-as assets on the single private-repo GitHub release `transfer-keys-v12` on
-`helius-labs/zolana`. The downloader fetches release metadata and assets through
-the GitHub REST API with a bearer token from `GITHUB_TOKEN` or `GH_TOKEN`. The
-tag is pinned as `ProvingKeysReleaseTag` in `key_downloader.go` and can be
-overridden with `PROVING_KEYS_RELEASE_TAG`; keep it aligned with
-`publish_keys_release.sh` and the `proving-keys-transfer-keys-<tag>` cache key in
-`.github/workflows/rust.yml` when rotating.
+All gitignored proving keys (merkle, batch, transfer, and merge) live in a private
+S3 bucket (`zolana-proving-keys`, eu-north-1) served publicly through a CloudFront
+distribution (`d3gbdb0egjwcw9.cloudfront.net`) with Origin Access Control -- the
+bucket stays private and reads need no credentials. The keys are PUBLIC setup
+parameters, not secrets.
+
+Objects live under a **version-hashed, immutable** folder:
+`proving-keys/<version-hash>/<name>.key`, where the version hash is derived from
+the whole key set. The committed lockfile
+`prover/server/prover/provingkeys/proving-keys.lock` (embedded into the prover by
+the `provingkeys` Go package) records that prefix plus each key's `sha256` and
+`size`, and IS the proving-key version -- it changes in the same commit as the
+regenerated verifying keys, so pk<->vk<->code drift is impossible. Because the
+folder is version-hashed, a rotation writes a NEW folder and leaves old ones
+untouched: an already-published CLI keeps fetching its own (unchanged) folder, so
+old CLI -> old keys and new CLI -> new keys, with no overwrite and no CloudFront
+invalidation. Filenames stay human-readable within each version folder.
+
+The downloader (`EnsureProvingKey` in `key_downloader.go`) is cache-first: it
+verifies an on-disk key against the lockfile's `sha256` (offline), else HTTPS-GETs
+`<base-url>/<prefix>/<name>` (no auth) and hard-fails unless the streamed bytes
+match the pinned `size` + `sha256`. The base URL defaults to the CloudFront domain
+and is overridable with `ZOLANA_PROVING_KEYS_URL`. There is no GitHub token, no
+release tag, and no `CHECKSUM` file. CI caches `prover/server/proving-keys` keyed
+by the lockfile hash, so it auto-invalidates on rotation.
+
+Rotate keys with (needs the aws CLI + bucket write access):
 
 ```bash
-prover/server/scripts/publish_keys_release.sh        # publish/refresh the release
+prover/server/scripts/rotate_proving_keys.sh   # regen keys + vkeys + lock; upload new version folder
 ```
 
-`EnsureProvingKeyFromRelease` verifies an existing key against the local
-`CHECKSUM` first (offline, no network). Missing or mismatched keys are downloaded
-from the release via the REST API, then verified against the merged release
-`CHECKSUM`. CI jobs set `GH_TOKEN` and cache `prover/server/proving-keys` by tag.
+It regenerates the proving keys, the interface + batched-merkle-tree verifying
+keys, the circuit fingerprints, and `proving-keys.lock`, then uploads the full set
+to the new `proving-keys/<version-hash>/` folder. Commit the regenerated lockfile
+together with the vkeys in ONE PR.
 
 ### Regenerate Rust verifying keys (`program-libs/interface/src/verifying_keys/`)
 

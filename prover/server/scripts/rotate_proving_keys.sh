@@ -3,27 +3,30 @@ set -euo pipefail
 
 # One-shot proving-key rotation. Run this whenever a circuit changes (the
 # fingerprint test in prover/prover/fingerprint fails) or on a deliberate key
-# refresh. It regenerates every proving key, regenerates and commits the Rust
-# verifying keys in both crates that embed them, refreshes the circuit
-# fingerprints, and publishes the GitHub release. Bumping the pinned tag and CI
-# cache key is a separate reviewed edit (see the printed reminder) so the tag
-# change lands in the same PR as the keys it points at.
+# refresh. It regenerates every proving key, regenerates the Rust verifying keys
+# in both crates that embed them, refreshes the circuit fingerprints, regenerates
+# the committed proving-keys.lock, and uploads the keys to a NEW immutable version
+# folder in S3 (proving-keys/<version-hash>/). Because the folder is content-
+# versioned, already-published CLIs keep fetching their own (unchanged) folder and
+# nothing needs a CloudFront invalidation.
+#
+# The lockfile pins every key's sha256 and the version-hashed prefix; commit the
+# regenerated proving-keys.lock together with the regenerated verifying keys in
+# ONE PR so the on-chain vkeys and the pinned proving-key hashes can never drift.
+# The CI cache key is derived from the lockfile hash, so it invalidates
+# automatically -- no manual tag bump.
 #
 # Usage:
-#   prover/server/scripts/rotate_proving_keys.sh <tag> [keys_dir]
+#   prover/server/scripts/rotate_proving_keys.sh [keys_dir]
 #
-# <tag> MUST equal common.ProvingKeysReleaseTag after you bump it. Requires
-# GH_TOKEN / GITHUB_TOKEN with write access to the release repo.
+# Requires the aws CLI with write access to the proving-keys bucket.
+# Config: ZOLANA_PROVING_KEYS_BUCKET (default: zolana-proving-keys).
 
-if [[ $# -lt 1 ]]; then
-    echo "usage: $0 <tag> [keys_dir]" >&2
-    exit 1
-fi
-
-tag="$1"
 server_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_root="$(cd "$server_dir/../.." && pwd)"
-keys_dir="${2:-$server_dir/proving-keys}"
+keys_dir="${1:-$server_dir/proving-keys}"
+
+bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
 
 cd "$server_dir"
 echo "==> building light-prover"
@@ -71,18 +74,26 @@ echo "==> refreshing circuit fingerprints"
     grep -E '"[a-z].*constraints' || true)
 echo "    paste the printed values into prover/server/prover/fingerprint/fingerprint_test.go"
 
-echo "==> publishing release $tag"
-bash scripts/publish_keys_release.sh "$tag" "$keys_dir"
+echo "==> regenerating proving-keys.lock"
+python3 scripts/generate_lockfile.py "$keys_dir"
+
+# The lock's prefix carries the new version hash; upload the full key set into that
+# immutable version folder. Old version folders are left untouched, so previously
+# published CLIs keep working -- no overwrite and no CloudFront invalidation.
+lock_prefix="$(python3 -c "import json; print(json.load(open('prover/provingkeys/proving-keys.lock'))['prefix'])")"
+echo "==> uploading proving keys to s3://$bucket/$lock_prefix/ (immutable version folder)"
+aws s3 sync "$keys_dir/" "s3://$bucket/$lock_prefix/" --exclude '*' --include '*.key'
 
 cat <<EOF
 
-==> rotation complete for $tag
+==> rotation complete
 
-Still MANUAL (single reviewed diff, same PR as the committed vkeys):
-  1. set common.ProvingKeysReleaseTag = "$tag" in
-     prover/server/prover/common/key_downloader.go
-  2. bump the proving-keys-<tag> cache key in .github/workflows/{rust,async-prover}.yml
-  3. paste the refreshed fingerprints into prover/prover/fingerprint/fingerprint_test.go
-  4. update the release tag references in CLAUDE.md and justfile
-  5. commit the regenerated verifying_keys/*.rs in both crates
+Still MANUAL (one reviewed PR, so pk <-> vk <-> lock all move together):
+  1. paste the refreshed fingerprints into
+     prover/server/prover/fingerprint/fingerprint_test.go
+  2. commit the regenerated verifying_keys/*.rs in the interface and
+     batched-merkle-tree crates
+  3. commit the regenerated
+     prover/server/prover/provingkeys/proving-keys.lock
+     (its hash drives the CI cache key automatically -- no tag bump)
 EOF

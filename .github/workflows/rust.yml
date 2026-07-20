@@ -101,9 +101,6 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.0.2
-      # The spawned prover lazily fetches proving keys from the transfer-keys-v12
-      # release via the GitHub REST API using GH_TOKEN.
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -124,7 +121,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v12
+          key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just test-shielded-pool
 
   test-sdk-libs:
@@ -144,9 +141,6 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.0.2
-      # The spawned prover lazily fetches proving keys from the transfer-keys-v12
-      # release via the GitHub REST API using GH_TOKEN.
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -167,7 +161,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v12
+          key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just test-programs
 
   build-photon:
@@ -212,6 +206,8 @@ jobs:
             recipe: test-swap-and-escrow-validator
     env:
       AGAVE_VERSION: v4.0.2
+      # GH_TOKEN is for the gh-release swap/escrow key downloads (ensure-swap-keys /
+      # ensure-escrow-keys); proving keys come from CloudFront and need no token.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ZOLANA_PHOTON_BIN: target/bin/photon
     steps:
@@ -234,7 +230,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v12
+          key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - name: Download workspace Photon
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -287,10 +283,6 @@ jobs:
     name: tests / client integration
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    env:
-      # The spawned prover lazily fetches proving keys from the transfer-keys-v12
-      # release via the GitHub REST API using GH_TOKEN.
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -302,11 +294,11 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      # Avoid re-downloading proving keys every run; the prover's offline
-      # CHECKSUM path reuses them on a cache hit.
+      # Cache the keys dir across runs, keyed by the lockfile so a key rotation
+      # invalidates it; the prover re-verifies cached keys against the lock on use.
       - name: Cache proving keys
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v12
+          key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just test-client-integration
