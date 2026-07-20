@@ -1,6 +1,10 @@
 /target/
 /node_modules/
 /.tools/
+# cli_smoke.sh isolated config + wallet dirs (contain funding secret keys).
+/.cli-smoke/
+/.devnet-smoke/
+/.localnet-smoke/
 # Per-clone local env (port offsets etc.); keep .env.example checked in.
 /.env
 /forester/target/

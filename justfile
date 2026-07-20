@@ -330,6 +330,61 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p shielded-pool-tests --features localnet --test localnet_wallet_cli_e2e -- --nocapture
 
+# Spawn a localnet (validator + prover + photon) via the `zolana` CLI, bootstrap a
+# pool tree with an authority wallet, then run the tools/cli_smoke.sh coverage
+# script against it: one pass over every CLI operation using the real binary,
+# both asset rails (SOL + SPL) and both wallet rails (ed25519 + P256). The
+# authority wallet doubles as the smoke actor so the SPL `test-mint` rail is
+# permitted. Services and workdir are torn down on exit.
+test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_PROVER_KEYS_DIR="$PWD/{{spp-keys-dir}}"
+    bin="target/release/zolana"
+    workdir="target/cli-smoke"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    rm -rf "$workdir"; mkdir -p "$workdir"
+    export ZOLANA_CONFIG_DIR="$PWD/$workdir"
+
+    # Clear any services left over from a previous run so the validator binds
+    # cleanly (dev start also stops them, but this avoids a port-release race).
+    cleanup; sleep 2
+
+    # 1. Spawn services (dev start daemonizes the validator/prover/photon and
+    #    returns once each is ready).
+    "$bin" dev start --with-photon --no-use-surfpool \
+      --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
+      --photon-port {{localnet-photon-port}} \
+      --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
+      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
+      --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+
+    # 2. Bootstrap: a funder keypair (funds the smoke wallets), an authority wallet
+    #    (also the smoke actor), and a pool tree. Capture the created tree address.
+    funder="$workdir/funder.json"
+    solana-keygen new --no-bip39-passphrase --silent --force --outfile "$funder"
+    "$bin" config set --rpc-url {{localnet-rpc-url}} \
+      --indexer-url {{localnet-photon-url}} --prover-url {{localnet-prover-url}} >/dev/null
+    "$bin" wallet new --outfile "$workdir/alice.json"
+    tree="$("$bin" dev pool create-tree --keypair "$workdir/alice.json" \
+      --tree-keypair "$workdir/tree.json" --airdrop-lamports 20000000000 \
+      | sed -n 's/^ok tree //p')"
+    solana airdrop 100 "$(solana address --keypair "$funder")" --url {{localnet-rpc-url}} >/dev/null
+
+    # 3. Run the coverage script against the live localnet.
+    WORKDIR="$PWD/$workdir" ZOLANA_BIN="$PWD/$bin" FUNDER="$PWD/$funder" \
+      RPC="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      ZOLANA_PROVER_URL="{{localnet-prover-url}}" ZOLANA_TREE="$tree" \
+      tools/cli_smoke.sh
+
 # BDD decrypt-and-spend lifecycle scenarios over a fresh validator + Photon per
 # scenario (program-tests/spp-test-validator). The prover server persists; each
 # cucumber scenario restarts the validator + Photon via the `zolana` CLI.
