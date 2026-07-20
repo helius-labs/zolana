@@ -20,8 +20,7 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.TransferZoneAuthorityCircuitType, "zk_transfer_queue"},
 		{common.MergeCircuitType, "zk_transfer_queue"},
 		{common.MergeZoneCircuitType, "zk_transfer_queue"},
-		{common.InclusionCircuitType, ""},
-		{common.NonInclusionCircuitType, ""},
+		{common.CircuitType("unknown"), ""},
 	}
 	for _, c := range cases {
 		if got := GetQueueNameForCircuit(c.circuit); got != c.queue {

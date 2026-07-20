@@ -39,23 +39,15 @@ func runCli() {
 			{
 				Name: "setup",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "circuit", Usage: "Type of circuit (\"inclusion\" / \"non-inclusion\" / \"combined\" / \"append\" / \"update\" / \"address-append\" )", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Type of circuit (\"address-append\")", Required: true},
 					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
 					&cli.StringFlag{Name: "output-vkey", Usage: "Output file", Required: true},
-					&cli.UintFlag{Name: "inclusion-tree-height", Usage: "[Inclusion]: Merkle tree height", Required: false},
-					&cli.UintFlag{Name: "inclusion-compressed-accounts", Usage: "[Inclusion]: Number of compressed accounts", Required: false},
-					&cli.UintFlag{Name: "non-inclusion-tree-height", Usage: "[Non-inclusion]: merkle tree height", Required: false},
-					&cli.UintFlag{Name: "non-inclusion-compressed-accounts", Usage: "[Non-inclusion]: number of compressed accounts", Required: false},
-					&cli.UintFlag{Name: "append-tree-height", Usage: "[Batch append]: tree height", Required: false},
-					&cli.UintFlag{Name: "append-batch-size", Usage: "[Batch append]: batch size", Required: false},
-					&cli.UintFlag{Name: "update-tree-height", Usage: "[Batch update]: tree height", Required: false},
-					&cli.UintFlag{Name: "update-batch-size", Usage: "[Batch update]: batch size", Required: false},
 					&cli.UintFlag{Name: "address-append-tree-height", Usage: "[Batch address append]: tree height", Required: false},
 					&cli.UintFlag{Name: "address-append-batch-size", Usage: "[Batch address append]: batch size", Required: false},
 				},
 				Action: func(context *cli.Context) error {
 					circuit := common.CircuitType(context.String("circuit"))
-					if circuit != common.InclusionCircuitType && circuit != common.NonInclusionCircuitType && circuit != common.CombinedCircuitType && circuit != common.BatchUpdateCircuitType && circuit != common.BatchAppendCircuitType && circuit != common.BatchAddressAppendCircuitType {
+					if circuit != common.BatchAddressAppendCircuitType {
 						return fmt.Errorf("invalid circuit type %s", circuit)
 					}
 
@@ -193,26 +185,13 @@ func runCli() {
 				Name: "r1cs",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
-					&cli.StringFlag{Name: "circuit", Usage: "Type of circuit (\"inclusion\" / \"non-inclusion\" / \"combined\" / \"append\" / \"update\" / \"address-append\")", Required: true},
-					&cli.UintFlag{Name: "inclusion-tree-height", Usage: "[Inclusion]: merkle tree height", Required: false},
-					&cli.UintFlag{Name: "inclusion-compressed-accounts", Usage: "[Inclusion]: number of compressed accounts", Required: false},
-					&cli.UintFlag{Name: "non-inclusion-tree-height", Usage: "[Non-inclusion]: merkle tree height", Required: false},
-					&cli.UintFlag{Name: "non-inclusion-compressed-accounts", Usage: "[Non-inclusion]: number of compressed accounts", Required: false},
-					&cli.UintFlag{Name: "append-tree-height", Usage: "[Batch append]: merkle tree height", Required: false},
-					&cli.UintFlag{Name: "append-batch-size", Usage: "[Batch append]: batch size", Required: false},
-					&cli.UintFlag{Name: "update-tree-height", Usage: "[Batch update]: merkle tree height", Required: false},
-					&cli.UintFlag{Name: "update-batch-size", Usage: "[Batch update]: batch size", Required: false},
+					&cli.StringFlag{Name: "circuit", Usage: "Type of circuit (\"address-append\")", Required: true},
 					&cli.UintFlag{Name: "address-append-tree-height", Usage: "[Batch address append]: tree height", Required: false},
 					&cli.UintFlag{Name: "address-append-batch-size", Usage: "[Batch address append]: batch size", Required: false},
 				},
 				Action: func(context *cli.Context) error {
 					circuit := common.CircuitType(context.String("circuit"))
-					if circuit != common.InclusionCircuitType &&
-						circuit != common.NonInclusionCircuitType &&
-						circuit != common.CombinedCircuitType &&
-						circuit != common.BatchUpdateCircuitType &&
-						circuit != common.BatchAppendCircuitType &&
-						circuit != common.BatchAddressAppendCircuitType {
+					if circuit != common.BatchAddressAppendCircuitType {
 						return fmt.Errorf("invalid circuit type %s", circuit)
 					}
 
@@ -259,20 +238,12 @@ func runCli() {
 			{
 				Name: "import-setup",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "circuit", Usage: "Type of circuit (\"inclusion\" / \"non-inclusion\" / \"combined\")", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Type of circuit (\"address-append\")", Required: true},
 					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
 					&cli.StringFlag{Name: "vkey-output", Usage: "Verifying key output file (optional)", Required: false},
 					&cli.StringFlag{Name: "pk", Usage: "Proving key", Required: true},
 					&cli.StringFlag{Name: "vk", Usage: "Verifying key", Required: true},
 					&cli.StringFlag{Name: "r1cs", Usage: "R1CS file", Required: false},
-					&cli.UintFlag{Name: "inclusion-tree-height", Usage: "[Inclusion]: merkle tree height", Required: false},
-					&cli.UintFlag{Name: "inclusion-compressed-accounts", Usage: "[Inclusion]: number of compressed accounts", Required: false},
-					&cli.UintFlag{Name: "non-inclusion-tree-height", Usage: "[Non-inclusion]: merkle tree height", Required: false},
-					&cli.UintFlag{Name: "non-inclusion-compressed-accounts", Usage: "[Non-inclusion]: number of compressed accounts", Required: false},
-					&cli.UintFlag{Name: "append-tree-height", Usage: "[Batch append]: merkle tree height", Required: false},
-					&cli.UintFlag{Name: "append-batch-size", Usage: "[Batch append]: batch size", Required: false},
-					&cli.UintFlag{Name: "update-tree-height", Usage: "[Batch update]: merkle tree height", Required: false},
-					&cli.UintFlag{Name: "update-batch-size", Usage: "[Batch update]: batch size", Required: false},
 					&cli.UintFlag{Name: "address-append-tree-height", Usage: "[Batch address append]: tree height", Required: false},
 					&cli.UintFlag{Name: "address-append-batch-size", Usage: "[Batch address append]: batch size", Required: false},
 				},
@@ -335,8 +306,6 @@ func runCli() {
 
 					var buf bytes.Buffer
 					switch s := system.(type) {
-					case *common.MerkleProofSystem:
-						_, err = s.VerifyingKey.WriteTo(&buf)
 					case *common.BatchProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.TransferProofSystem:
@@ -406,7 +375,7 @@ func runCli() {
 					},
 					&cli.StringSliceFlag{
 						Name:  "circuit",
-						Usage: "Download keys for specific circuits (inclusion, non-inclusion, combined, append, update, append-test, update-test, address-append, address-append-test)",
+						Usage: "Download keys for specific circuits (address-append, address-append-test)",
 					},
 					&cli.StringFlag{
 						Name:  "keys-dir",
@@ -484,7 +453,7 @@ func runCli() {
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
 						Name:  "circuit",
-						Usage: "Specify the circuits to enable (inclusion, non-inclusion, combined, append, update, append-test, update-test, address-append, address-append-test)",
+						Usage: "Specify the circuits to enable (address-append, address-append-test, transfer)",
 					},
 					&cli.StringFlag{
 						Name:  "preload-keys",
@@ -717,17 +686,13 @@ func runCli() {
 			{
 				Name: "prove",
 				Flags: []cli.Flag{
-					&cli.BoolFlag{Name: "inclusion", Usage: "Run inclusion circuit", Required: true},
-					&cli.BoolFlag{Name: "non-inclusion", Usage: "Run non-inclusion circuit", Required: false},
-					&cli.BoolFlag{Name: "append", Usage: "Run batch append circuit", Required: false},
-					&cli.BoolFlag{Name: "update", Usage: "Run batch update circuit", Required: false},
 					&cli.BoolFlag{Name: "address-append", Usage: "Run batch address append circuit", Required: false},
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where circuit key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{Name: "keys-file", Aliases: []string{"k"}, Value: cli.NewStringSlice(), Usage: "Proving system file"},
 					&cli.StringSliceFlag{
 						Name:  "circuit",
-						Usage: "Specify the circuits to enable (inclusion, non-inclusion, combined, append, update, append-test, update-test, address-append, address-append-test)",
-						Value: cli.NewStringSlice("inclusion", "non-inclusion", "combined", "append", "update", "append-test", "update-test", "address-append", "address-append-test"),
+						Usage: "Specify the circuits to enable (address-append, address-append-test)",
+						Value: cli.NewStringSlice("address-append", "address-append-test"),
 					},
 					&cli.StringFlag{
 						Name:  "run-mode",
@@ -744,12 +709,12 @@ func runCli() {
 					}
 					var keysDirPath = context.String("keys-dir")
 
-					psv1, psv2, err := common.LoadKeys(keysDirPath, runMode, circuits)
+					psv2, err := common.LoadKeys(keysDirPath, runMode, circuits)
 					if err != nil {
 						return err
 					}
 
-					if len(psv1) == 0 && len(psv2) == 0 {
+					if len(psv2) == 0 {
 						return fmt.Errorf("no proving systems loaded")
 					}
 

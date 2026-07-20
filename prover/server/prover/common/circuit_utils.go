@@ -15,17 +15,6 @@ type ProofWithTiming struct {
 	ProofDurationMs int64  `json:"proof_duration_ms"`
 }
 
-type MerkleProofSystem struct {
-	InclusionTreeHeight                    uint32
-	InclusionNumberOfCompressedAccounts    uint32
-	NonInclusionTreeHeight                 uint32
-	NonInclusionNumberOfCompressedAccounts uint32
-	Version                                uint32
-	ProvingKey                             groth16.ProvingKey
-	VerifyingKey                           groth16.VerifyingKey
-	ConstraintSystem                       constraint.ConstraintSystem
-}
-
 type BatchProofSystem struct {
 	CircuitType      CircuitType
 	TreeHeight       uint32
