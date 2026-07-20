@@ -1,0 +1,95 @@
+name: spec-review
+
+# Separate from rust.yml because that workflow ignores "**/*.md" paths and
+# would skip exactly the spec/ledger changes this must gate.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Spec review scope for the headless analysis job
+        type: choice
+        options: [full, diff]
+        default: full
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  # Deterministic ledger gate: fails while docs/spec-review/findings.md has any
+  # `status: open` entry. Runs on every PR; needs no API key.
+  gate:
+    name: findings ledger gate
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: spec-gate
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: just spec-gate
+      - run: just spec-lint
+
+  # Headless spec refinement: runs the spec-review skill via `claude -p`,
+  # then uploads any resulting spec/ledger edits as a patch artifact and fails
+  # so an operator applies them through a normal PR (this workflow never
+  # writes to the repository; see enforce-pr-only.yml).
+  analysis:
+    name: headless spec review (${{ inputs.scope }})
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: spec-gate
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run spec review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [[ "${{ inputs.scope }}" == "diff" ]]; then
+            just spec-review-diff origin/main
+          else
+            just spec-review
+          fi
+      - name: Collect spec edits
+        id: collect
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git diff > spec-review.patch
+            echo "dirty=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dirty=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload spec review patch
+        if: steps.collect.outputs.dirty == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: spec-review-patch
+          path: spec-review.patch
+      - name: Report ledger state
+        run: just spec-gate || true
+      - name: Require operator follow-up
+        if: steps.collect.outputs.dirty == 'true'
+        run: |
+          echo "The spec review produced edits. Download the spec-review-patch" >&2
+          echo "artifact, apply it on a branch (git apply spec-review.patch)," >&2
+          echo "and open a PR. This job fails so the result is not lost." >&2
+          exit 1
