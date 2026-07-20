@@ -1,6 +1,19 @@
 # zolana CLI
 
-Run from repo root:
+Install the `zolana` binary directly from the repository (no checkout needed).
+This builds from source, so it pulls the workspace's git dependencies; the CLI is
+not published to crates.io.
+
+```bash
+cargo install --git https://github.com/helius-labs/zolana --tag v0.1.0-alpha zolana-cli
+```
+
+Installing at the release tag keeps the CLI's embedded proving-key/artifact
+lockfile in sync with the artifacts it downloads. Use a newer `--tag`, or
+`--branch main` / `--rev <sha>`, to track other revisions; re-run with `--force`
+to update an existing install.
+
+For local development from a checkout, install from the working tree instead:
 
 ```bash
 cargo install --path cli --force
@@ -57,3 +70,35 @@ Optional wallet path:
 ```bash
 --keypair /path/to/pid.json
 ```
+
+## Local dev environment
+
+```bash
+zolana dev start          # or: zolana test-env
+```
+
+By default `dev start` bootstraps a ready-to-use localnet from a pinned GitHub
+release: it downloads the shielded-pool, user-registry, and Squads smart-account
+programs, an account-snapshot bundle (protocol config, asset counter, the pool
+tree at the default tree address, and the Squads authority accounts), and the
+prover and Photon binaries, plus the custom surfpool binary from its own release.
+Every artifact is verified against the sha256 lockfile embedded in the CLI
+(`cli/release-artifacts.lock`) and cached under `~/.config/zolana/cache/<tag>/`,
+so repeat starts are offline. This means a fresh `cargo install --path cli` can
+boot a fully-initialized localnet with no repo checkout and nothing prebuilt.
+
+Use `--local` to run against locally built artifacts instead (what dev and CI
+use after `just build-programs` / `just build-prover-server` / `just
+build-photon`):
+
+```bash
+zolana dev start --local --sbf-program <ID> target/deploy/<program>.so
+```
+
+Passing any explicit `--sbf-program` also implies local mode. Override the
+release download host with `ZOLANA_RELEASE_URL`.
+
+Maintainers publish the release with `just release <tag>` (dry run; set `UPLOAD=1`
+to publish via `gh`, `PRERELEASE=1` for alpha tags). It builds the artifacts,
+snapshots the initialized accounts in-process with LiteSVM (no keypairs or running
+validator needed), and regenerates the lockfile.

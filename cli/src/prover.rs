@@ -18,6 +18,7 @@ pub(crate) fn run_start_prover(opts: StartProverOptions) -> Result<()> {
         opts.redis_url.as_deref(),
         opts.auto_download,
         DEFAULT_LOG_DIR,
+        None,
     )
 }
 
@@ -26,6 +27,7 @@ pub(crate) fn start_prover_service(
     redis_url: Option<&str>,
     auto_download: bool,
     log_dir: &str,
+    binary: Option<&Path>,
 ) -> Result<()> {
     // The prover's Prometheus metrics server defaults to the fixed port 9998, so
     // two clones running prover-backed tests concurrently would collide there and
@@ -38,11 +40,14 @@ pub(crate) fn start_prover_service(
     stop_port(prover_port);
     stop_port(metrics_port);
 
-    let prover = find_binary(
-        &["PROVER_BIN", "ZOLANA_PROVER_BIN"],
-        &["target/prover-server"],
-        &["prover-server"],
-    )?;
+    let prover = match binary {
+        Some(path) => path.to_path_buf(),
+        None => find_binary(
+            &["PROVER_BIN", "ZOLANA_PROVER_BIN"],
+            &["target/prover-server"],
+            &["prover-server"],
+        )?,
+    };
     let keys_dir = prover_keys_dir()?;
     fs::create_dir_all(&keys_dir)
         .with_context(|| format!("failed to create prover keys dir {}", keys_dir.display()))?;

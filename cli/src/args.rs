@@ -193,6 +193,12 @@ pub(crate) struct TestValidatorOptions {
     #[arg(long, help = "Start a local Photon indexer")]
     pub(crate) with_photon: bool,
 
+    #[arg(
+        long,
+        help = "Use locally built artifacts instead of the pinned release"
+    )]
+    pub(crate) local: bool,
+
     #[arg(long, help = "Stop the local validator environment")]
     pub(crate) stop: bool,
 
@@ -558,6 +564,13 @@ impl TestValidatorOptions {
         self.use_surfpool || !self.no_use_surfpool
     }
 
+    /// Fetch programs, account snapshots, and helper binaries from the pinned
+    /// release unless the user opted into local builds or passed explicit
+    /// programs (in which case those local artifacts take precedence).
+    pub(crate) fn use_release(&self) -> bool {
+        !self.local && self.sbf_programs.is_empty() && self.upgradeable_programs.is_empty()
+    }
+
     pub(crate) fn sbf_program_specs(&self) -> Vec<ProgramSpec> {
         self.sbf_programs
             .chunks_exact(2)
@@ -772,6 +785,24 @@ mod tests {
         );
         assert_eq!(zone_program.path, "target/deploy/zone.so");
         assert!(programs.next().is_none());
+    }
+
+    #[test]
+    fn use_release_reflects_local_flag_and_explicit_programs() {
+        let default = parse_validator(&[]);
+        assert!(default.use_release());
+        assert!(!default.local);
+
+        let local = parse_validator(&["--local"]);
+        assert!(local.local);
+        assert!(!local.use_release());
+
+        let explicit_program = parse_validator(&[
+            "--sbf-program",
+            "Pool111111111111111111111111111111111111111",
+            "target/deploy/pool.so",
+        ]);
+        assert!(!explicit_program.use_release());
     }
 
     #[test]

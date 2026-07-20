@@ -7,6 +7,7 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
+mod create_release;
 mod init_protocol;
 mod update_protocol_config;
 
@@ -62,6 +63,13 @@ fn main() {
                 update_protocol_config::run(update_protocol_config::Options::parse(args.collect()))
             {
                 eprintln!("update-protocol-config failed: {error:?}");
+                std::process::exit(1);
+            }
+        }
+        Some("create-release") => {
+            if let Err(error) = create_release::run(create_release::Options::parse(args.collect()))
+            {
+                eprintln!("create-release failed: {error:?}");
                 std::process::exit(1);
             }
         }
@@ -301,6 +309,9 @@ fn print_help() {
     println!("  program-ids              Print local validator program ids as shell assignments");
     println!("  init-protocol            Initialize the protocol on a cluster (see --help)");
     println!("  update-protocol-config   Update protocol config flags on a cluster (see --help)");
+    println!(
+        "  create-release           Build the localnet release artifacts + lockfile (see --help)"
+    );
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");
 }
 

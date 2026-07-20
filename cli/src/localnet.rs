@@ -1,4 +1,4 @@
-use std::{thread, time::Duration};
+use std::{path::Path, thread, time::Duration};
 
 use anyhow::{bail, Context, Result};
 
@@ -6,11 +6,14 @@ use crate::{
     args::TestValidatorOptions,
     config::{READINESS_STABLE_CHECKS, READINESS_TIMEOUT},
     http::{wait_for_http_get_with_child, wait_for_rpc_with_child},
-    process::{find_binary, remove_launchd_validators, spawn_service, stop_name, stop_port},
+    process::{
+        find_binary, path_string, remove_launchd_validators, spawn_service, stop_name, stop_port,
+    },
     prover::start_prover_service,
+    release::Release,
 };
 
-pub(crate) fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
+pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
     if opts.stop {
         println!("Stopping local validator environment");
         stop_test_env(&opts);
@@ -22,8 +25,30 @@ pub(crate) fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
     stop_test_validator(opts.rpc_port);
     thread::sleep(Duration::from_secs(1));
 
+    // Default rail: fetch version-pinned programs, initialized account snapshots,
+    // and helper binaries from the release. `--local` (or explicit --sbf-program)
+    // keeps the fully-local artifacts used by dev and CI. Release programs and
+    // snapshots are folded into `opts` so the arg builders keep a single source.
+    let release = if opts.use_release() {
+        Some(Release::load()?)
+    } else {
+        None
+    };
+    if let Some(release) = &release {
+        println!("Using release {} artifacts", release.tag());
+        for spec in release.program_specs()? {
+            opts.sbf_programs.push(spec.address);
+            opts.sbf_programs.push(spec.path);
+        }
+        opts.account_dirs
+            .push(path_string(&release.accounts_dir()?)?);
+    }
+
     let mut validator = if opts.use_surfpool_backend() {
-        let surfpool = find_binary(&["SURFPOOL_BIN"], &["target/tools/surfpool"], &["surfpool"])?;
+        let surfpool = match &release {
+            Some(release) => release.surfpool_binary()?,
+            None => find_binary(&["SURFPOOL_BIN"], &["target/tools/surfpool"], &["surfpool"])?,
+        };
         let args = surfpool_args(&opts)?;
         println!(
             "Starting surfpool: {} {}",
@@ -57,16 +82,25 @@ pub(crate) fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
     })?;
 
     if !opts.skip_prover {
+        let prover_binary = match &release {
+            Some(release) => Some(release.prover_binary()?),
+            None => None,
+        };
         start_prover_service(
             opts.prover_port,
             None,
             opts.prover_auto_download,
             &opts.log_dir,
+            prover_binary.as_deref(),
         )?;
     }
 
     if opts.with_photon {
-        start_photon_service(&opts)?;
+        let photon_binary = match &release {
+            Some(release) => Some(release.photon_binary()?),
+            None => None,
+        };
+        start_photon_service(&opts, photon_binary.as_deref())?;
     }
 
     println!("Local validator environment is ready");
@@ -168,15 +202,18 @@ fn stop_test_validator(rpc_port: u16) {
     stop_port(rpc_port);
 }
 
-fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
+fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> Result<()> {
     stop_name("photon");
     stop_port(opts.photon_port);
 
-    let photon = find_binary(
-        &["ZOLANA_PHOTON_BIN"],
-        &["target/release/photon", "target/debug/photon"],
-        &["photon"],
-    )?;
+    let photon = match binary {
+        Some(path) => path.to_path_buf(),
+        None => find_binary(
+            &["ZOLANA_PHOTON_BIN"],
+            &["target/release/photon", "target/debug/photon"],
+            &["photon"],
+        )?,
+    };
     let rpc_url = format!("http://127.0.0.1:{}", opts.rpc_port);
     let mut args = vec![
         "--rpc-url".to_string(),

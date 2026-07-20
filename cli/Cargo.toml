@@ -14,8 +14,10 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }

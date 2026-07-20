@@ -303,7 +303,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
-    cargo run -p zolana-cli -- dev start --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+    cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_e2e -- --nocapture
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
@@ -640,6 +640,20 @@ ensure-photon:
       exit 0
     fi
     just build-photon
+
+# Build the localnet release artifacts and regenerate cli/release-artifacts.lock:
+# version-suffixed program .so files, an account-snapshot bundle (generated
+# in-process with LiteSVM -- no keypairs or running validator needed), and this
+# host's prover/photon binaries. Stages assets and rewrites the lockfile by
+# default; set UPLOAD=1 to publish via `gh release create`, and PRERELEASE=1 to
+# mark it a GitHub pre-release (e.g. `-alpha` tags). A multi-platform release runs
+# this on each target and merges the per-platform binaries into the lockfile.
+release tag: build-programs fetch-smart-account build-prover-server build-photon
+    cargo run -p xtask -- create-release \
+        --tag {{tag}} \
+        --photon-bin {{photon-bin}} \
+        {{ if env_var_or_default("UPLOAD", "") == "" { "" } else { "--upload" } }} \
+        {{ if env_var_or_default("PRERELEASE", "") == "" { "" } else { "--prerelease" } }}
 
 # === Formatting and linting ===
 

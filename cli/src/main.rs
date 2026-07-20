@@ -6,6 +6,7 @@ mod http;
 mod localnet;
 mod process;
 mod prover;
+mod release;
 mod wallet_cli;
 
 use anyhow::Result;
