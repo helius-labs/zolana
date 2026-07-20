@@ -150,35 +150,26 @@ func GetKeys(keysDir string, runMode RunMode, circuits []string) []string {
 	return uniqueKeys
 }
 
-func LoadKeys(keysDirPath string, runMode RunMode, circuits []string) ([]*MerkleProofSystem, []*BatchProofSystem, error) {
+func LoadKeys(keysDirPath string, runMode RunMode, circuits []string) ([]*BatchProofSystem, error) {
 	return LoadKeysWithConfig(keysDirPath, runMode, circuits, DefaultDownloadConfig())
 }
 
-func LoadKeysWithConfig(keysDirPath string, runMode RunMode, circuits []string, config *DownloadConfig) ([]*MerkleProofSystem, []*BatchProofSystem, error) {
-	var pssv1 []*MerkleProofSystem
+func LoadKeysWithConfig(keysDirPath string, runMode RunMode, circuits []string, config *DownloadConfig) ([]*BatchProofSystem, error) {
 	var pssv2 []*BatchProofSystem
 	keys := GetKeys(keysDirPath, runMode, circuits)
 
 	// Ensure all required keys exist (download if necessary)
 	if err := EnsureKeysExist(keys, config); err != nil {
-		return nil, nil, fmt.Errorf("failed to ensure keys exist: %w", err)
+		return nil, fmt.Errorf("failed to ensure keys exist: %w", err)
 	}
 
 	for _, key := range keys {
 		logging.Logger().Info().Msg("Reading proving system from file " + key + "...")
 		system, err := ReadSystemFromFile(key)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		switch s := system.(type) {
-		case *MerkleProofSystem:
-			pssv1 = append(pssv1, s)
-			logging.Logger().Info().
-				Uint32("inclusionTreeHeight", s.InclusionTreeHeight).
-				Uint32("inclusionCompressedAccounts", s.InclusionNumberOfCompressedAccounts).
-				Uint32("nonInclusionTreeHeight", s.NonInclusionTreeHeight).
-				Uint32("nonInclusionCompressedAccounts", s.NonInclusionNumberOfCompressedAccounts).
-				Msg("Read MerkleProofSystem")
 		case *BatchProofSystem:
 			pssv2 = append(pssv2, s)
 			logging.Logger().Info().
@@ -186,10 +177,10 @@ func LoadKeysWithConfig(keysDirPath string, runMode RunMode, circuits []string, 
 				Uint32("batchSize", s.BatchSize).
 				Msg("Read BatchProofSystem")
 		default:
-			return nil, nil, fmt.Errorf("unknown proving system type")
+			return nil, fmt.Errorf("unknown proving system type")
 		}
 	}
-	return pssv1, pssv2, nil
+	return pssv2, nil
 }
 
 func createFileAndWriteBytes(filePath string, data []byte) error {
@@ -222,8 +213,6 @@ func WriteProvingSystem(system interface{}, path string, pathVkey string) error 
 
 	var written int64
 	switch s := system.(type) {
-	case *MerkleProofSystem:
-		written, err = s.WriteTo(file)
 	case *BatchProofSystem:
 		written, err = s.WriteTo(file)
 	case *TransferProofSystem:
@@ -242,8 +231,6 @@ func WriteProvingSystem(system interface{}, path string, pathVkey string) error 
 	if pathVkey != "" {
 		var vk interface{}
 		switch s := system.(type) {
-		case *MerkleProofSystem:
-			vk = s.VerifyingKey
 		case *BatchProofSystem:
 			vk = s.VerifyingKey
 		case *TransferProofSystem:

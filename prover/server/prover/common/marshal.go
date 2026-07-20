@@ -8,7 +8,6 @@ import (
 	"io"
 	"math/big"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -137,90 +136,6 @@ func (p *Proof) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	return nil
-}
-
-func (ps *MerkleProofSystem) WriteTo(w io.Writer) (int64, error) {
-	var totalWritten int64 = 0
-	var intBuf [4]byte
-
-	fieldsToWrite := []uint32{
-		ps.InclusionTreeHeight,
-		ps.InclusionNumberOfCompressedAccounts,
-		ps.NonInclusionTreeHeight,
-		ps.NonInclusionNumberOfCompressedAccounts,
-	}
-
-	for _, field := range fieldsToWrite {
-		binary.BigEndian.PutUint32(intBuf[:], field)
-		written, err := w.Write(intBuf[:])
-		totalWritten += int64(written)
-		if err != nil {
-			return totalWritten, err
-		}
-	}
-
-	keyWritten, err := ps.ProvingKey.WriteTo(w)
-	totalWritten += keyWritten
-	if err != nil {
-		return totalWritten, err
-	}
-
-	keyWritten, err = ps.VerifyingKey.WriteTo(w)
-	totalWritten += keyWritten
-	if err != nil {
-		return totalWritten, err
-	}
-
-	keyWritten, err = ps.ConstraintSystem.WriteTo(w)
-	totalWritten += keyWritten
-	if err != nil {
-		return totalWritten, err
-	}
-	return totalWritten, nil
-}
-
-func (ps *MerkleProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
-	var totalRead int64 = 0
-	var intBuf [4]byte
-
-	fieldsToRead := []*uint32{
-		&ps.InclusionTreeHeight,
-		&ps.InclusionNumberOfCompressedAccounts,
-		&ps.NonInclusionTreeHeight,
-		&ps.NonInclusionNumberOfCompressedAccounts,
-	}
-
-	for _, field := range fieldsToRead {
-		read, err := io.ReadFull(r, intBuf[:])
-		totalRead += int64(read)
-		if err != nil {
-			return totalRead, err
-		}
-		*field = binary.BigEndian.Uint32(intBuf[:])
-	}
-
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
-	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
-	totalRead += keyRead
-	if err != nil {
-		return totalRead, err
-	}
-
-	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
-	keyRead, err = ps.VerifyingKey.UnsafeReadFrom(r)
-	totalRead += keyRead
-	if err != nil {
-		return totalRead, err
-	}
-
-	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
-	keyRead, err = ps.ConstraintSystem.ReadFrom(r)
-	totalRead += keyRead
-	if err != nil {
-		return totalRead, err
-	}
-
-	return totalRead, nil
 }
 
 func (ps *TransferProofSystem) WriteTo(w io.Writer) (int64, error) {
@@ -353,7 +268,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 	} else if strings.Contains(strings.ToLower(path), "merge") {
 		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name
 		// (merge_8_1.key) carries no "transfer" substring, so it needs its own
-		// branch or it would be misread as a MerkleProofSystem.
+		// branch or it would fall through to the unrecognized-file error.
 		ps := new(TransferProofSystem)
 		file, err := os.Open(path)
 		if err != nil {
@@ -386,56 +301,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 			return nil, err
 		}
 		return ps, nil
-	} else if strings.Contains(strings.ToLower(path), "append") {
-		ps := new(BatchProofSystem)
-		ps.CircuitType = BatchAppendCircuitType
-		file, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-		_, err = ps.UnsafeReadFrom(file)
-		if err != nil {
-			return nil, err
-		}
-		return ps, nil
-	} else if strings.Contains(strings.ToLower(path), "update") {
-		ps := new(BatchProofSystem)
-		ps.CircuitType = BatchUpdateCircuitType
-		file, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-
-		_, err = ps.UnsafeReadFrom(file)
-		if err != nil {
-			return nil, err
-		}
-		return ps, nil
 	} else {
-		ps := new(MerkleProofSystem)
-		filename := strings.ToLower(filepath.Base(path))
-		if strings.HasPrefix(filename, "v2_") {
-			ps.Version = 2
-		} else if strings.HasPrefix(filename, "v1_") {
-			ps.Version = 1
-		} else if strings.Contains(filename, "mainnet") {
-			ps.Version = 1
-		} else {
-			ps.Version = 1
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-
-		_, err = ps.UnsafeReadFrom(file)
-		if err != nil {
-			return nil, err
-		}
-		return ps, nil
+		return nil, fmt.Errorf("unrecognized proving key file: %s", path)
 	}
 }
 
