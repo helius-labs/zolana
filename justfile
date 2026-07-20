@@ -9,10 +9,10 @@ surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
 # (auto-loaded above) to shift every service port by a fixed amount so concurrent
 # checkouts never contend. Each individual port/URL var can still be overridden
 # explicitly. See .env.example.
-port-offset := env_var_or_default("ZOLANA_PORT_OFFSET", "0")
-localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", shell('echo $((8899 + ${1:-0}))', port-offset))
-localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", shell('echo $((8784 + ${1:-0}))', port-offset))
-localnet-prover-port := env_var_or_default("ZOLANA_LOCALNET_PROVER_PORT", shell('echo $((3001 + ${1:-0}))', port-offset))
+export ZOLANA_PORT_OFFSET := env_var_or_default("ZOLANA_PORT_OFFSET", "0")
+localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", `echo $((8899 + ${ZOLANA_PORT_OFFSET:-0}))`)
+localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", `echo $((8784 + ${ZOLANA_PORT_OFFSET:-0}))`)
+localnet-prover-port := env_var_or_default("ZOLANA_LOCALNET_PROVER_PORT", `echo $((3001 + ${ZOLANA_PORT_OFFSET:-0}))`)
 localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:" + localnet-rpc-port)
 localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:" + localnet-photon-port)
 localnet-prover-url := env_var_or_default("ZOLANA_PROVER_URL", "http://127.0.0.1:" + localnet-prover-port)
@@ -25,11 +25,16 @@ spp-keys-dir := env_var_or_default("ZOLANA_SPP_KEYS_DIR", "prover/server/proving
 # this single var is the source of truth for the prover.
 export ZOLANA_PROVER_URL := localnet-prover-url
 
-mod forester 'forester'
-mod prover 'prover/server'
-
 default:
     @just --list
+
+# Preserve module-like subcommands without requiring unstable module support in
+# older `just` versions.
+forester *args:
+    just --justfile forester/justfile {{args}}
+
+prover *args:
+    just --justfile prover/server/justfile {{args}}
 
 # === Rust workspace ===
 
