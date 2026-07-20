@@ -17,7 +17,7 @@ use zolana_interface::{
     },
     verifying_keys::transfer_confidential_2_3,
 };
-use zolana_keypair::hash::hash_field;
+use zolana_hasher::primitives::{bytes32_proof_input_hash, hash_bytes};
 use zolana_transaction::SppProofOutputUtxo;
 
 pub fn start_prover() -> Result<()> {
@@ -72,7 +72,7 @@ pub fn public_input_hash(
         create_hash_chain_from_slice(utxo_roots).expect("utxo root chain"),
         create_hash_chain_from_slice(nullifier_tree_roots).expect("nullifier root chain"),
         *private_tx,
-        hash_field(&zero).expect("p256 message field"),
+        bytes32_proof_input_hash(&zero).expect("p256 message field"),
         *external_data_hash,
         *public_sol_amount,
         zero, // public_spl_amount
@@ -87,7 +87,7 @@ pub fn public_input_hash(
 }
 
 /// Per-output owner `pk_field` the program reconstructs as
-/// `hash_field(resolved_owner_tag)`, one per output position. Mirrors the
+/// `hash_bytes(resolved_owner_tag)`, one per output position. Mirrors the
 /// program's `resolve_output_owner_tags`: each output carries its own owner tag,
 /// resolved here against the transaction's `p256_signing_pk_x`. Tests build
 /// `Inline` tags, for which resolution is the identity, and pass `None`.
@@ -101,14 +101,14 @@ pub fn output_owner_pk_hashes(
             let resolved = output
                 .into_resolved(p256_signing_pk_x, |_| None)
                 .map_err(|e| anyhow!("resolve owner tag: {e:?}"))?;
-            hash_field(&resolved.owner_tag).map_err(|e| anyhow!("owner pk field: {e:?}"))
+            hash_bytes(&resolved.owner_tag).map_err(|e| anyhow!("owner pk field: {e:?}"))
         })
         .collect()
 }
 
 /// Build the `transact` output slots from parallel utxo-hash and owner-view-tag
 /// vectors: each output carries an `Inline` owner tag equal to its view tag and
-/// no ciphertext, so `hash_field(view_tag)` is the OWNER public input the circuit
+/// no ciphertext, so `hash_bytes(view_tag)` is the OWNER public input the circuit
 /// binds that output to. The two slices must have equal length; extra entries in
 /// either are dropped.
 pub fn inline_outputs(
@@ -142,7 +142,7 @@ pub fn resolve_outputs(ix: &TransactIxData) -> Result<Vec<ResolvedOutput<'_>>> {
 }
 
 /// Stamp the confidential owner tag onto each witness output. `owner_pk_hashes[i]`
-/// is the program's `hash_field(view_tag[i])` (so the public output-owner chain
+/// is the program's `hash_bytes(view_tag[i])` (so the public output-owner chain
 /// matches), and `nullifier_pks[i]` is the real output's nullifier pubkey from
 /// which the circuit recomputes `owner_hash` (zero for a dummy, whose owner the
 /// circuit leaves unconstrained).

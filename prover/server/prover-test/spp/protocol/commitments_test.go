@@ -149,9 +149,11 @@ func TestSolanaPkFieldMatchesSpecFormula(t *testing.T) {
 		pubkey[i] = byte(i + 1)
 	}
 	got := mustSolanaPkField(t, pubkey)
-	want := mustPoseidon(t, 3, []*big.Int{
-		new(big.Int).SetBytes(pubkey[16:]),
-		new(big.Int).SetBytes(pubkey[:16]),
+	// hash_bytes(pubkey) = Poseidon(len_fe, pubkey[0:31], pubkey[31:32]).
+	want := mustPoseidon(t, 4, []*big.Int{
+		big.NewInt(32),
+		new(big.Int).SetBytes(pubkey[0:31]),
+		new(big.Int).SetBytes(pubkey[31:32]),
 	})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("solana pk hash mismatch: got %s want %s", got, want)
@@ -168,18 +170,15 @@ func TestP256PkFieldMatchesSpecFormula(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var xBytes [32]byte
-	priv.PublicKey.X.FillBytes(xBytes[:])
-	xHash := mustPoseidon(t, 3, []*big.Int{
-		new(big.Int).SetBytes(xBytes[16:]),
-		new(big.Int).SetBytes(xBytes[:16]),
-	})
-	want := mustPoseidon(t, 3, []*big.Int{
-		new(big.Int).SetUint64(uint64(compressed[0] & 1)),
-		xHash,
+	// Viewing pk_field = hash_bytes(sec1_compressed) =
+	// Poseidon(len_fe, sec1[0:31], sec1[31:33]) over the full 33-byte SEC1 point.
+	want := mustPoseidon(t, 4, []*big.Int{
+		big.NewInt(33),
+		new(big.Int).SetBytes(compressed[0:31]),
+		new(big.Int).SetBytes(compressed[31:33]),
 	})
 	if got.Cmp(want) != 0 {
-		t.Fatalf("P256 owner key hash mismatch: got %s want %s", got, want)
+		t.Fatalf("P256 viewing key hash mismatch: got %s want %s", got, want)
 	}
 }
 

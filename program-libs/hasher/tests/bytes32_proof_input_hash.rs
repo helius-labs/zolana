@@ -26,10 +26,10 @@ fn splits_into_right_aligned_limbs() {
 /// encoding drifted from the circuits.
 #[cfg(feature = "poseidon")]
 #[test]
-fn hash_field_matches_pinned_vector() {
-    use zolana_hasher::primitives::hash_field;
+fn bytes32_proof_input_hash_matches_pinned_vector() {
+    use zolana_hasher::primitives::bytes32_proof_input_hash;
 
-    let got = hash_field(&VALUE).unwrap();
+    let got = bytes32_proof_input_hash(&VALUE).unwrap();
     let expected: [u8; 32] = [
         43, 206, 220, 148, 200, 204, 113, 121, 112, 250, 116, 12, 238, 24, 70, 113, 34, 21, 110,
         22, 33, 54, 68, 90, 112, 8, 157, 204, 11, 182, 90, 81,

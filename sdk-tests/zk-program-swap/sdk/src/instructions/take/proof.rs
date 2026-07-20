@@ -3,7 +3,8 @@ use swap_program::instructions::{shared::u64_right_align, take::TakePublicInput}
 use swap_prover::{
     OrderTermsProofInput, TakeProofInputs, DESTINATION_BLINDING_DOMAIN, TAKE_MODE_DERIVED,
 };
-use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon};
+use zolana_hasher::{Hasher, Poseidon};
+use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
     utxo::Blinding,
@@ -18,7 +19,7 @@ use crate::{
 
 pub fn derive_destination_blinding(order_utxo_blinding: &Blinding) -> Result<Blinding> {
     let domain = u64_right_align(DESTINATION_BLINDING_DOMAIN);
-    let derived = poseidon(&[&right_align_blinding(order_utxo_blinding), &domain]).map_err(err)?;
+    let derived = Poseidon::hashv(&[&right_align_blinding(order_utxo_blinding), &domain])?;
     let mut blinding = [0u8; BLINDING_LEN];
     blinding.copy_from_slice(derived.get(1..32).ok_or_else(|| err("blinding tail"))?);
     Ok(blinding)

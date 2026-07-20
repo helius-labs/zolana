@@ -98,7 +98,7 @@ fn shield_then_withdraw_sol() {
         zone_program_id: None,
         data: Data::default(),
     };
-    let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
+    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
 
     // Shield: deposit AMOUNT into the UTXO. The vault (cpi_authority) is funded.
@@ -193,7 +193,7 @@ fn shield_then_withdraw_sol() {
     );
 
     // All three outputs are dummies; stamp their confidential owner tags from the
-    // program's `hash_field(resolved_owner_tag)` mapping (nullifier_pk 0 =
+    // program's `hash_bytes(resolved_owner_tag)` mapping (nullifier_pk 0 =
     // unconstrained).
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
@@ -297,7 +297,7 @@ fn shield_transfer_then_withdraw_sol() {
         zone_program_id: None,
         data: Data::default(),
     };
-    let payer_owner_pk_hash = payer_utxo.owner.hash().expect("payer owner pk hash");
+    let payer_owner_pk_hash = payer_utxo.owner.owner_proof_input_hash().expect("payer owner pk hash");
     let payer_owner_field =
         owner_hash(&payer_utxo.owner, &payer_nullifier_pk).expect("payer owner field");
 
@@ -377,8 +377,8 @@ fn shield_transfer_then_withdraw_sol() {
         dummy_transfer_output(&[19u8; 31]).expect("transfer dummy output");
 
     // Each real output's owner tag is its owner's `confidential_view_tag`, so the
-    // program's `hash_field(resolved_owner_tag)` equals that owner's
-    // `owner_pk_field` and the circuit's output owner binding holds. The dummy
+    // program's `hash_bytes(resolved_owner_tag)` equals that owner's
+    // `owner_proof_input_hash` and the circuit's output owner binding holds. The dummy
     // slot's owner tag is arbitrary.
     let change_view_tag = payer_utxo
         .owner
@@ -501,7 +501,7 @@ fn shield_transfer_then_withdraw_sol() {
     );
     let recipient_owner_pk_hash = recipient_utxo
         .owner
-        .hash()
+        .owner_proof_input_hash()
         .expect("recipient owner pk hash");
     let recipient_nullifier = recipient_nullifier_key
         .nullifier(&recipient_hash, &recipient_utxo.blinding)

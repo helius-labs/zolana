@@ -10,7 +10,7 @@ const MERGE_PLAINTEXT_LEN: usize = 8 + 32 + BLINDING_LEN;
 
 pub struct MergePlaintext {
     pub amount: u64,
-    pub asset_field: [u8; 32],
+    pub asset_proof_input_hash: [u8; 32],
     pub blinding: [u8; BLINDING_LEN],
 }
 
@@ -18,7 +18,7 @@ impl MergePlaintext {
     pub fn serialize(&self) -> Result<Vec<u8>, TransactionError> {
         let mut out = Vec::with_capacity(MERGE_PLAINTEXT_LEN);
         out.extend_from_slice(&self.amount.to_be_bytes());
-        out.extend_from_slice(&self.asset_field);
+        out.extend_from_slice(&self.asset_proof_input_hash);
         out.extend_from_slice(&self.blinding);
         Ok(out)
     }
@@ -32,13 +32,13 @@ impl MergePlaintext {
         }
         let mut amount_bytes = [0u8; 8];
         amount_bytes.copy_from_slice(&bytes[..8]);
-        let mut asset_field = [0u8; 32];
-        asset_field.copy_from_slice(&bytes[8..40]);
+        let mut asset_proof_input_hash = [0u8; 32];
+        asset_proof_input_hash.copy_from_slice(&bytes[8..40]);
         let mut blinding = [0u8; BLINDING_LEN];
         blinding.copy_from_slice(&bytes[40..MERGE_PLAINTEXT_LEN]);
         Ok(Self {
             amount: u64::from_be_bytes(amount_bytes),
-            asset_field,
+            asset_proof_input_hash,
             blinding,
         })
     }
@@ -79,7 +79,7 @@ impl UtxoSerialization for Merge {
     fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
         let asset = cx
             .assets
-            .address_for_field(&plaintext.asset_field)?
+            .address_for_asset_hash(&plaintext.asset_proof_input_hash)?
             .ok_or_else(|| {
                 TransactionError::Deserialize("merge asset field has no matching asset".to_string())
             })?;
@@ -101,7 +101,7 @@ impl UtxoSerialization for Merge {
         let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
         Ok(MergePlaintext {
             amount: first.amount,
-            asset_field: zolana_keypair::hash::hash_field(first.asset.as_array())?,
+            asset_proof_input_hash: zolana_hasher::primitives::hash_bytes(first.asset.as_array())?,
             blinding: first.blinding,
         })
     }

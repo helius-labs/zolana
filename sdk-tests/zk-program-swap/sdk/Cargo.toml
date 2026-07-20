@@ -14,6 +14,7 @@ solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
 wincode = { workspace = true }
 zolana-client = { workspace = true }
+zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

@@ -166,7 +166,7 @@ impl<'a> TransactProof<'a> {
         };
 
         let public_spl_asset_pubkey = match self.derived.spl_mint {
-            Some(mint) => hash_field(&mint)?,
+            Some(mint) => asset_field(&mint)?,
             None => [0u8; 32],
         };
 
@@ -247,6 +247,10 @@ fn sha256(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
 
 fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     verifier::hash_field(value, PROOF_ERR)
+}
+
+fn asset_field(mint: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
+    verifier::hash_bytes(mint, PROOF_ERR)
 }
 
 fn hash_chain(items: &[[u8; 32]]) -> Result<[u8; 32], ProgramError> {

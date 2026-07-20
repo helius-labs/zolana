@@ -28,8 +28,10 @@ for key in $keys; do
         continue
     fi
 
+    # Source proving-key checksum, emitted as a provenance comment in the vk file.
+    key_sha256="$(shasum -a 256 "$key" | awk '{print $1}')"
     if (cd ../.. && cargo run -q -p xtask -- bsb22-vk \
-        "$vk_bin" "program-libs/interface/src/verifying_keys" "${module}.rs"); then
+        "$vk_bin" "program-libs/interface/src/verifying_keys" "${module}.rs" "$key_sha256"); then
         modules="${modules}${module}"$'\n'
     else
         echo "WARN: vk codegen failed, skipping $stem"

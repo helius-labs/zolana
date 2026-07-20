@@ -18,7 +18,7 @@ pub use external_data::ExternalData;
 pub use shape::{canonical_shape, resolve_shape, Shape, SPP_SUPPORTED_SHAPES};
 pub use slots::{encode_confidential_slots, encrypt_transaction_data, EncryptedTransactionData};
 pub use spp_proof_inputs::{
-    first_nullifier, get_transaction_viewing_key, inputs_require_p256, signed_to_field,
+    first_nullifier, get_transaction_viewing_key, inputs_require_p256, signed_to_proof_input,
     PublicAmounts, SppProofInputs,
 };
 pub use transfer::{

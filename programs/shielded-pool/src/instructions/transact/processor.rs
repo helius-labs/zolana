@@ -25,7 +25,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
-    hash::solana_pk_hash,
+    hash::address_field,
     settlement::{settle_sol, settle_spl, Settlement},
     shared::check_not_expired,
     transact::verify::{TransactProof, TransactProofInputs},
@@ -95,7 +95,7 @@ pub(crate) fn prepare_proof_inputs<const IS_ZONE: bool, const IS_AUTHORITY: bool
     // Poseidon syscall), before `check_input_signers` folds it for P256-owned
     // inputs. Absent on the eddsa rail (folded as the `0` sentinel).
     proof_inputs.p256_signing_pk_field = match ix.p256_signing_pk_x {
-        Some(x) => verifier::hash_field(&x, ShieldedPoolError::TransactProofVerificationFailed)?,
+        Some(x) => address_field(&x)?,
         None => [0u8; 32],
     };
     if !IS_AUTHORITY {
@@ -245,9 +245,9 @@ fn tree_error(e: TreeError) -> ProgramError {
     }
 }
 
-// Record each input owner's `pk_field` (`Poseidon(low, high)`) in `proof_inputs`.
+// Record each input owner's `pk_field` (`hash_bytes(owner_tag)`) in `proof_inputs`.
 // Ed25519 inputs must have their owner account as a signer and use its
-// `solana_pk_hash` (every variant). P256-owned inputs differ by variant: the
+// `address_field` (every variant). P256-owned inputs differ by variant: the
 // confidential rail folds the shared P256 signing key's `pk_field`
 // (`proof_inputs.p256_signing_pk_field`, hashed once in `prepare_proof_inputs`)
 // so the circuit routes ownership by equality,
@@ -274,7 +274,7 @@ fn check_input_signers<const IS_ZONE: bool>(
                 .get(usize::from(input.eddsa_signer_index))
                 .ok_or(ProgramError::NotEnoughAccountKeys)?;
             check_signer(account)?;
-            solana_pk_hash(account.address().as_array())?
+            address_field(account.address().as_array())?
         };
         *proof_inputs
             .input_owner_pk_hashes
@@ -295,7 +295,7 @@ fn fill_output_owner_pk_hashes(
         .iter_mut()
         .zip(resolved_outputs.iter())
     {
-        *slot = verifier::hash_field(&output.owner_tag, error)?;
+        *slot = verifier::hash_bytes(&output.owner_tag, error)?;
     }
     Ok(())
 }

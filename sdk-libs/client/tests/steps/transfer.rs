@@ -18,7 +18,7 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     instructions::transact::{
-        spp_proof_inputs::{asset_field, signed_to_field},
+        spp_proof_inputs::{asset_proof_input_hash, signed_to_proof_input},
         SENDER_SLOT_COUNT,
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
@@ -315,14 +315,14 @@ fn assert_outputs(
     assert_eq!(
         public_amounts,
         &PublicAmounts {
-            sol: signed_to_field(
+            sol: signed_to_proof_input(
                 i64::try_from(net_public(Asset::Sol)).expect("public amount fits i64")
             ),
-            spl: signed_to_field(
+            spl: signed_to_proof_input(
                 i64::try_from(net_public(Asset::Spl)).expect("public amount fits i64")
             ),
             asset: if net_public(Asset::Spl) != 0 {
-                asset_field(&spl_mint()).unwrap()
+                asset_proof_input_hash(&spl_mint()).unwrap()
             } else {
                 [0u8; 32]
             },

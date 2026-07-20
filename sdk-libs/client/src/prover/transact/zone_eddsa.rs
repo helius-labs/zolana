@@ -15,9 +15,10 @@
 
 use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_keypair::hash::hash_field;
+use zolana_hasher::primitives::bytes32_proof_input_hash;
 use zolana_transaction::{
-    instructions::transact::PrivateTxHash, utxo::program_id_field, ExternalData, SppProofOutputUtxo,
+    instructions::transact::PrivateTxHash, utxo::program_id_proof_input_hash, ExternalData,
+    SppProofOutputUtxo,
 };
 
 use crate::{
@@ -74,12 +75,12 @@ impl ZoneTransferProver {
         // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
         // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
         // zone field to this public input.
-        let zone_program_id = program_id_field(&self.zone_program_id)?;
+        let zone_program_id = program_id_proof_input_hash(&self.zone_program_id)?;
 
         // Zone eddsa-rail public-input layout: the 13-element base chain
         // (Confidential=false, ZoneAuthority=false in public_inputs.go), i.e. the 12
         // base elements PLUS create_hash_chain_from_slice(input_owner_pk_hashes), with NO confidential
-        // appendix (no output-owner chain, no p256_signing_pk_field). hash_field(&[0;32])
+        // appendix (no output-owner chain, no p256_signing_pk_field). bytes32_proof_input_hash(&[0;32])
         // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element on
         // the eddsa rail.
         let public_input = create_hash_chain_from_slice(&[
@@ -88,7 +89,7 @@ impl ZoneTransferProver {
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
-            hash_field(&[0u8; 32])?,
+            bytes32_proof_input_hash(&[0u8; 32])?,
             external_data_hash,
             self.public_amounts.sol,
             self.public_amounts.spl,

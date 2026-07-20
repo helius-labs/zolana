@@ -15,7 +15,7 @@ use zolana_client::{
 use zolana_interface::verifying_keys::merge_zone_8_1;
 use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::spp_proof_inputs::asset_field, Data, SppProofOutputUtxo, Utxo,
+    instructions::transact::spp_proof_inputs::asset_proof_input_hash, Data, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{test_indexer::TestIndexer, world::MergeZoneWorld};
@@ -135,7 +135,7 @@ impl MergeZoneWorld {
         let blinding: [u8; 31] = recovered[40..71].try_into().unwrap();
         assert_eq!(
             recovered_asset,
-            asset_field(&asset).expect("asset field"),
+            asset_proof_input_hash(&asset).expect("asset field"),
             "recovered asset field",
         );
         let reconstructed = SppProofOutputUtxo {

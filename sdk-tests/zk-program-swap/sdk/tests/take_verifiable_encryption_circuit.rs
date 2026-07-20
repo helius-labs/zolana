@@ -23,11 +23,8 @@ use swap_sdk::{
     },
     state::DataHash,
 };
-use zolana_interface::merge_utils::ciphertext_hash;
-use zolana_keypair::{
-    hash::{hash_field, poseidon},
-    ViewingKey,
-};
+use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
+use zolana_keypair::ViewingKey;
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 mod shared;
@@ -65,7 +62,7 @@ fn blinding(byte: u8) -> Blinding {
 fn sample_order() -> OrderTermsProofInput {
     let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
     OrderTermsProofInput {
-        destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
+        destination_asset: hash_bytes(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,
         maker_owner_hash: fe(99),
         maker_viewing_pk,
@@ -76,7 +73,7 @@ fn sample_order() -> OrderTermsProofInput {
 }
 
 fn taker_owner_hash(order: &OrderTermsProofInput) -> [u8; 32] {
-    poseidon(&[&order.taker_pk_fe, &fe(200)]).expect("taker owner hash")
+    Poseidon::hashv(&[&order.taker_pk_fe, &fe(200)]).expect("taker owner hash")
 }
 
 #[derive(Default)]
@@ -260,7 +257,7 @@ fn take_prove_verify_and_round_trip() {
 
     let (ciphertext, ct_hash) = sample_ciphertext(&inputs.order);
     assert_eq!(
-        ciphertext_hash(&ciphertext).expect("program-side take ciphertext hash"),
+        hash_bytes(&ciphertext).expect("program-side take ciphertext hash"),
         ct_hash,
         "program-side ctHash must match the sdk's destination ciphertext hash"
     );
@@ -301,7 +298,7 @@ fn take_prove_verify_and_round_trip() {
     assert_eq!(
         (asset, amount),
         (
-            hash_field(&[2u8; 32]).expect("destination asset"),
+            hash_bytes(&[2u8; 32]).expect("destination asset"),
             inputs.order.destination_amount
         ),
         "the maker recovers (destination_asset, destination_amount) by decrypting with the order utxo blinding"

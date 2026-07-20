@@ -33,7 +33,7 @@ use zolana_interface::instruction::instruction_data::transact::{
 };
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::{spp_proof_inputs::signed_to_field, Shape, SENDER_SLOT_COUNT},
+    instructions::transact::{spp_proof_inputs::signed_to_proof_input, Shape, SENDER_SLOT_COUNT},
     serialization::{
         confidential::{Confidential, ConfidentialOutputPlaintext},
         DecodeCx, UtxoSerialization,
@@ -630,7 +630,7 @@ fn withdrawal_sets_external_data_and_change() {
     assert_eq!(
         prover.public_amounts,
         PublicAmounts {
-            sol: signed_to_field(-30),
+            sol: signed_to_proof_input(-30),
             spl: [0u8; 32],
             asset: [0u8; 32],
         }

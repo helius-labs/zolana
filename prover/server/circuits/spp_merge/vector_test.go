@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/prover-test/poseidon"
+	"zolana/prover/prover-test/spp/protocol"
 )
 
 // TestPrintMergeVector emits a fixed cross-language fixture for the Rust host
@@ -37,7 +37,7 @@ func TestPrintMergeVector(t *testing.T) {
 		pt[i] = byte(i)
 	}
 	ct := ctrEncrypt(t, key, nonce, pt)
-	ctHash, err := poseidon.Hash(packBytesBE(ct, 16))
+	ctHash, err := protocol.HashBytes(ct)
 	if err != nil {
 		t.Fatal(err)
 	}

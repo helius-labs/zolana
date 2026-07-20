@@ -357,8 +357,7 @@ func encryptMerge(t *testing.T, curve elliptic.Curve, txViewingSk, viewX, viewY 
 	plaintext := mergePlaintext(out)
 	ciphertext := ctrEncrypt(t, key, nonce, plaintext)
 
-	packed := packBytesBE(ciphertext, 16)
-	ctHash, err := poseidon.Hash(packed)
+	ctHash, err := protocol.HashBytes(ciphertext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,8 +378,9 @@ func deriveSharedSecret(t *testing.T, dh [32]byte, ephComp, rpkComp [33]byte) *b
 
 func keySchedule(t *testing.T, sharedSecret *big.Int, info []byte) (key [32]byte, nonce [12]byte) {
 	t.Helper()
-	infoLo, infoHi := packInfo(info)
-	siloed, err := poseidon.Hash([]*big.Int{domSepSilo, sharedSecret, infoLo, infoHi})
+	siloInputs := []*big.Int{domSepSilo, sharedSecret, big.NewInt(int64(len(info)))}
+	siloInputs = append(siloInputs, packBytesBE(info, 31)...)
+	siloed, err := poseidon.Hash(siloInputs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,17 +444,6 @@ func pack32(b [32]byte) (lo, hi *big.Int) {
 
 func pack33(b [33]byte) (lo, hi *big.Int) {
 	return new(big.Int).SetBytes(b[0:31]), new(big.Int).SetBytes(b[31:33])
-}
-
-func packInfo(info []byte) (lo, hi *big.Int) {
-	split := len(info)
-	if split > 31 {
-		split = 31
-	}
-	lo = new(big.Int).Lsh(big.NewInt(int64(len(info))), 8*31)
-	lo.Add(lo, new(big.Int).SetBytes(info[:split]))
-	hi = new(big.Int).SetBytes(info[split:])
-	return lo, hi
 }
 
 func packBytesBE(b []byte, bytesPerFE int) []*big.Int {

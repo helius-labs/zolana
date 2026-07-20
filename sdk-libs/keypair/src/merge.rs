@@ -5,13 +5,15 @@
 //! not a GCM tag, so this path has no authentication tag.
 
 use p256::SecretKey;
-use zolana_hasher::primitives::{ciphertext_hash, pack32, pack33, pack_info, right_align};
+use zolana_hasher::{
+    primitives::{hash_bytes, pack_be, pack_be_slice, right_align},
+    Hasher, Poseidon,
+};
 
 use crate::{
     constants::P256_PUBKEY_LEN,
     encryption::{ctr_apply, ecdh_x},
     error::KeypairError,
-    hash::poseidon,
     pubkey::P256Pubkey,
 };
 
@@ -34,10 +36,10 @@ fn derive_shared_secret(
     eph_comp: &[u8; P256_PUBKEY_LEN],
     rpk_comp: &[u8; P256_PUBKEY_LEN],
 ) -> Result<[u8; 32], KeypairError> {
-    let (dh_lo, dh_hi) = pack32(dh);
-    let (eph_lo, eph_hi) = pack33(eph_comp);
-    let (rpk_lo, rpk_hi) = pack33(rpk_comp);
-    poseidon(&[
+    let [dh_lo, dh_hi] = pack_be::<32, 2>(dh);
+    let [eph_lo, eph_hi] = pack_be::<33, 2>(eph_comp);
+    let [rpk_lo, rpk_hi] = pack_be::<33, 2>(rpk_comp);
+    Ok(Poseidon::hashv(&[
         &fe_u32(DOM_SEP_SHARED_SECRET),
         &dh_lo,
         &dh_hi,
@@ -45,7 +47,7 @@ fn derive_shared_secret(
         &eph_hi,
         &rpk_lo,
         &rpk_hi,
-    ])
+    ])?)
 }
 
 const NONCE_LEN: usize = 12;
@@ -54,14 +56,26 @@ fn key_schedule(
     shared_secret: &[u8; 32],
     info: &[u8],
 ) -> Result<([u8; 32], [u8; NONCE_LEN]), KeypairError> {
-    let (info_lo, info_hi) = pack_info(info).map_err(|_| KeypairError::InfoTooLong)?;
-    let siloed = poseidon(&[&fe_u32(DOM_SEP_SILO), shared_secret, &info_lo, &info_hi])?;
-    let key_lo = poseidon(&[&fe_u32(DOM_SEP_KEY), &siloed])?;
-    let key_hi = poseidon(&[&fe_u32(DOM_SEP_KEY + 1), &siloed])?;
+    // Key-schedule context binds the info string as `len_fe || pack_be(info)`
+    // after the domain tag and shared secret.
+    let silo = fe_u32(DOM_SEP_SILO);
+    let info_len = right_align(&(info.len() as u64).to_be_bytes());
+    let mut info_chunks = [[0u8; 32]; 2];
+    let info_chunks = pack_be_slice(info, &mut info_chunks).map_err(|_| KeypairError::InfoTooLong)?;
+    let mut inputs: Vec<&[u8]> = Vec::with_capacity(3 + info_chunks.len());
+    inputs.push(silo.as_slice());
+    inputs.push(shared_secret.as_slice());
+    inputs.push(info_len.as_slice());
+    for chunk in info_chunks {
+        inputs.push(chunk.as_slice());
+    }
+    let siloed = Poseidon::hashv(&inputs)?;
+    let key_lo = Poseidon::hashv(&[&fe_u32(DOM_SEP_KEY), &siloed])?;
+    let key_hi = Poseidon::hashv(&[&fe_u32(DOM_SEP_KEY + 1), &siloed])?;
     let mut key = [0u8; 32];
     key[0..16].copy_from_slice(&key_hi[16..32]);
     key[16..32].copy_from_slice(&key_lo[16..32]);
-    let nonce_raw = poseidon(&[&fe_u32(DOM_SEP_NONCE), &siloed])?;
+    let nonce_raw = Poseidon::hashv(&[&fe_u32(DOM_SEP_NONCE), &siloed])?;
     let mut nonce = [0u8; NONCE_LEN];
     nonce.copy_from_slice(&nonce_raw[20..32]);
     Ok((key, nonce))
@@ -148,20 +162,15 @@ pub fn merge_public_contribution(
     tx_viewing_pk: &P256Pubkey,
     ciphertext: &[u8],
 ) -> Result<MergeCiphertextPublicInputs, KeypairError> {
-    let (tx_viewing_pk_lo, tx_viewing_pk_hi) = pack33(tx_viewing_pk.as_bytes());
-    let ciphertext_hash = merge_ciphertext_hash(ciphertext)?;
+    let [tx_viewing_pk_lo, tx_viewing_pk_hi] = pack_be::<33, 2>(tx_viewing_pk.as_bytes());
+    // hash_bytes(ct) is the value the merge proof folds into the public input
+    // hash in place of a GCM tag.
+    let ciphertext_hash = hash_bytes(ciphertext)?;
     Ok(MergeCiphertextPublicInputs {
         tx_viewing_pk_lo,
         tx_viewing_pk_hi,
         ciphertext_hash,
     })
-}
-
-/// Poseidon hash of the ciphertext, mirroring `PoseidonHash(PackBytesBE(ct, 16))`
-/// in the circuit. This is the value the merge proof folds into the public input
-/// hash in place of a GCM tag.
-pub fn merge_ciphertext_hash(ciphertext: &[u8]) -> Result<[u8; 32], KeypairError> {
-    ciphertext_hash(ciphertext).map_err(|e| KeypairError::Poseidon(e.into()))
 }
 
 #[cfg(test)]
@@ -206,7 +215,7 @@ mod tests {
         let plaintext: Vec<u8> = (0..71u8).collect();
 
         let (ciphertext, tx_pk) = encrypt_verifiable(&tx_sk, &user_pk, &plaintext).unwrap();
-        let ct_hash = merge_ciphertext_hash(&ciphertext).unwrap();
+        let ct_hash = hash_bytes(&ciphertext).unwrap();
 
         assert_eq!(
             hex::encode(tx_pk.as_bytes()),
@@ -215,12 +224,12 @@ mod tests {
         );
         assert_eq!(
             hex::encode(&ciphertext),
-            "d52cccc7053c653d83c840fcb12c3a1dd6ac2263a9f4c705d784dfd894234b6b5271590160bddbb7191a0eeb96646aa5397e0acb27b605aec6f1ceadcd2726cab1a675d511f202",
+            "00668796102e28fade49e957b4aa1e74afb6126081e121be93718c316180782b6229664f85ca09e993beace104007f61cbb4cbef156ed821428138d54e5a51bdba164de05ad1ac",
             "ciphertext mismatch",
         );
         assert_eq!(
             hex::encode(ct_hash),
-            "2418c4f8d103a80bcc365a28f6172e7cd9cbfe71a301c19f775a64187ed2f453",
+            "1e0b8420c1ec30030e05082d2e458de0afc2e8fa43491024bac48b2a2bdcb746",
             "ciphertext hash mismatch",
         );
 

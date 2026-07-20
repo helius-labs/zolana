@@ -1,7 +1,10 @@
 use num_bigint::BigUint;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::{
+    hash_chain::create_hash_chain_from_slice,
+    primitives::{bytes32_proof_input_hash, hash_bytes},
+};
 use zolana_keypair::{
-    hash::{hash_field, sha256, split_be_128},
+    hash::{sha256, split_be_128},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
 use zolana_transaction::{
@@ -94,7 +97,7 @@ impl TransferP256Prover {
         // reproduces `pk_field` on-chain.
         let signing_pubkey = PublicKey::from_p256(&self.p256_owner.pubkey);
         let p256_signing_pk_x = signing_pubkey.confidential_view_tag()?;
-        let p256_signing_pk_field = signing_pubkey.owner_pk_field()?;
+        let p256_signing_pk_field = signing_pubkey.owner_proof_input_hash()?;
         let assembled_inputs = assemble_inputs(
             &self.inputs,
             &OwnerMode::ConfidentialP256(p256_signing_pk_field),
@@ -197,17 +200,17 @@ pub(crate) struct AssembledOutputs {
     pub outputs: Vec<TransferOutput>,
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_output_hashes: Vec<[u8; 32]>,
-    /// Per-output public owner tag: `signing_pubkey.owner_pk_field()`
-    /// (`hash_field(view_tag)`) for a real output, `hash_field(view_tag)` of the
+    /// Per-output public owner tag: `signing_pubkey.owner_proof_input_hash()`
+    /// (`hash_bytes(view_tag)`) for a real output, `hash_bytes(view_tag)` of the
     /// builder's random tag for a dummy. Folded into the confidential
-    /// public-input hash and matches the program's `hash_field(view_tag)`
+    /// public-input hash and matches the program's `hash_bytes(view_tag)`
     /// reconstruction.
     pub output_owner_pk_hashes: Vec<[u8; 32]>,
 }
 
 /// Selects how each input's owner `pk_field` is derived for the witness and the
 /// public-input chain. A P256-owned input is treated differently per mode; an
-/// ed25519-owned input always uses its own `owner_pk_field()`.
+/// ed25519-owned input always uses its own `owner_proof_input_hash()`.
 pub(crate) enum OwnerMode {
     /// Confidential P256 rail: a P256 owner exposes the shared signing `pk_field`
     /// (so the circuit routes ownership by equality); ed25519 uses its `pk_field`.
@@ -220,11 +223,11 @@ pub(crate) enum OwnerMode {
     /// `pk_field`.
     Merge,
     /// Zone authority (anonymous, pubkey-agnostic): every owner uses its own
-    /// `owner_pk_field()` as a private witness, regardless of scheme.
+    /// `owner_proof_input_hash()` as a private witness, regardless of scheme.
     ZoneAuthority,
     /// Zone P256 rail (anonymous): a P256-owned input contributes the `0`
     /// sentinel (its identity stays hidden behind the shared zone proof); an
-    /// ed25519 owner uses its own `owner_pk_field()`.
+    /// ed25519 owner uses its own `owner_proof_input_hash()`.
     Zone,
 }
 
@@ -286,8 +289,8 @@ pub(crate) fn assemble_inputs(
             (OwnerMode::ConfidentialEddsa, true) => {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index })
             }
-            (OwnerMode::ZoneAuthority, true) => spend.utxo.owner.owner_pk_field()?,
-            (_, false) => spend.utxo.owner.owner_pk_field()?,
+            (OwnerMode::ZoneAuthority, true) => spend.utxo.owner.owner_proof_input_hash()?,
+            (_, false) => spend.utxo.owner.owner_proof_input_hash()?,
         };
 
         let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
@@ -346,19 +349,19 @@ pub(crate) fn assemble_outputs(
         let is_dummy = output.is_dummy();
         let hash = output.hash()?;
         // Confidential owner tag: a real output exposes its owner's `pk_field`
-        // (`signing_pubkey.owner_pk_field()` == `hash_field(view_tag)`) and witnesses
+        // (`signing_pubkey.owner_proof_input_hash()` == `hash_bytes(view_tag)`) and witnesses
         // the `nullifier_pk`, so the circuit recomputes `owner_hash` and binds the
-        // tag. A dummy slot folds `hash_field` of the builder's random `view_tag` so
-        // its public tag matches the program's `hash_field(view_tag)` reconstruction
+        // tag. A dummy slot folds `hash_bytes` of the builder's random `view_tag` so
+        // its public tag matches the program's `hash_bytes(view_tag)` reconstruction
         // and is indistinguishable from a real one; the circuit leaves it
         // unconstrained and `nullifier_pk` is unused (0).
         let (owner_pk_field, nullifier_pk) = match &output.owner_address {
             Some(address) => (
-                address.signing_pubkey.owner_pk_field()?,
+                address.signing_pubkey.owner_proof_input_hash()?,
                 address.nullifier_pubkey,
             ),
             None => (
-                hash_field(&output.owner_tag.unwrap_or([0u8; 32]))?,
+                hash_bytes(&output.owner_tag.unwrap_or([0u8; 32]))?,
                 [0u8; 32],
             ),
         };
@@ -414,7 +417,7 @@ impl PublicInputs<'_> {
             create_hash_chain_from_slice(self.utxo_roots)?,
             create_hash_chain_from_slice(self.nullifier_tree_roots)?,
             *self.private_tx,
-            hash_field(self.p256_message_hash)?,
+            bytes32_proof_input_hash(self.p256_message_hash)?,
             *self.external_data_hash,
             self.public_amounts.sol,
             self.public_amounts.spl,

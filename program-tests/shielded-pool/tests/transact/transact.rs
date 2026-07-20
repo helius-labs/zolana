@@ -27,7 +27,7 @@ use zolana_interface::instruction::{
     instruction_data::transact::{OwnerTag, TransactIxData},
     Transact,
 };
-use zolana_keypair::hash::hash_field;
+use zolana_hasher::primitives::hash_bytes;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
@@ -112,7 +112,7 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
     );
 
     // Confidential owner tags: the program reconstructs each output's owner
-    // `pk_field` as `hash_field(resolved_owner_tag)` per position. All three
+    // `pk_field` as `hash_bytes(resolved_owner_tag)` per position. All three
     // outputs are dummies, so their owner is unconstrained (nullifier_pk 0).
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
@@ -129,7 +129,7 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
         .expect("private tx hash");
 
     // Values the program reconstructs from accounts[0] (the payer).
-    let owner_hash = hash_field(&payer_bytes).expect("owner hash");
+    let owner_hash = hash_bytes(&payer_bytes).expect("owner hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
     let public_input_hash = public_input_hash(
@@ -191,7 +191,7 @@ fn transact_sends_valid_proof() {
 }
 
 /// A tampered output owner tag (changed after proving, so
-/// `hash_field(resolved_owner_tag)` no longer matches the proof's committed
+/// `hash_bytes(resolved_owner_tag)` no longer matches the proof's committed
 /// output-owner chain) must be rejected: the program reconstructs the owner tags
 /// from the instruction's outputs and the resulting public input no longer
 /// matches the proof.
@@ -205,7 +205,7 @@ fn transact_rejects_tampered_output_view_tag() {
     let mut transact_ix_data = build_valid_transact_ix(&env);
 
     // Flip a recipient output's owner tag. The proof committed to the original
-    // `hash_field(resolved_owner_tag)`, so the program's reconstruction now
+    // `hash_bytes(resolved_owner_tag)`, so the program's reconstruction now
     // disagrees.
     let tampered = transact_ix_data.outputs.get_mut(1).expect("second output");
     tampered.owner_tag = OwnerTag::Inline([0xAAu8; 32]);

@@ -14,7 +14,7 @@
   },
   "solana_pk_hash": {
     "pubkey": "0x00112233445566778899aabbccddeeff102132435465768798a9babbdcddedef",
-    "hash": "0x0d4b51e66e781793ca0f9d070ffdbca58ac534e1beda9aaaeaf689fbbeb2e606"
+    "hash": "0x16e8f562493732568c7adffb20a5b662160711b8dcaf8618afd11588ea917f57"
   },
   "p256_message_hash": {
     "private_tx_hash": "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",

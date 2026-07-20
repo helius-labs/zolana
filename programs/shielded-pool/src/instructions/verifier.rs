@@ -21,14 +21,21 @@ pub fn poseidon2(
     Poseidon::hashv(&[a.as_slice(), b.as_slice()]).map_err(|_| verify_err.into())
 }
 
-/// `hash_field`: split a 32-byte value into low/high 128-bit limbs and
-/// `Poseidon(low, high)`.
+/// `hash_field`: `Poseidon(low_128, high_128)` of a 32-byte value. Used only for
+/// the ECDSA message digest (spec: `private_tx_hash_digest`); byte values hashed
+/// for their own sake use [`hash_bytes`] instead.
 #[inline(never)]
 pub fn hash_field(
     value: &[u8; 32],
     verify_err: ShieldedPoolError,
 ) -> Result<[u8; 32], ProgramError> {
-    primitives::hash_field(value).map_err(|_| verify_err.into())
+    primitives::bytes32_proof_input_hash(value).map_err(|_| verify_err.into())
+}
+
+/// `hash_bytes(bytes)` — the canonical byte commitment (spec: Byte Field Encoding).
+#[inline(never)]
+pub fn hash_bytes(bytes: &[u8], verify_err: ShieldedPoolError) -> Result<[u8; 32], ProgramError> {
+    primitives::hash_bytes(bytes).map_err(|_| verify_err.into())
 }
 
 /// Fold `items` into a Poseidon hash chain (`acc = Poseidon(acc, next)`, empty = 0).

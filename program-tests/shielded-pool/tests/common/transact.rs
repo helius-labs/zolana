@@ -23,17 +23,16 @@ use zolana_interface::instruction::{
     instruction_data::transact::{ExternalDataHash, TransactIxData},
     tag,
 };
-use zolana_keypair::{
-    hash::hash_field, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
-};
+use zolana_hasher::primitives::{bytes32_proof_input_hash, hash_bytes};
+use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey};
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_transaction::{
-    instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
+    instructions::transact::spp_proof_inputs::{signed_to_proof_input, BN254_MODULUS_DEC},
     SppProofOutputUtxo, Utxo,
 };
 
 /// A fixed dummy viewing pubkey for real test outputs: the proof math
-/// (`owner_hash` / `owner_pk_field`) never reads the viewing key, so any valid
+/// (`owner_hash` / `owner_proof_input_hash`) never reads the viewing key, so any valid
 /// P256 point works and a constant keeps the run deterministic.
 #[allow(dead_code)]
 fn test_viewing_pubkey() -> P256Pubkey {
@@ -43,7 +42,7 @@ fn test_viewing_pubkey() -> P256Pubkey {
 }
 
 /// A real (non-dummy) output owned by `signing_pubkey`/`nullifier_pubkey`. The
-/// resulting `owner_hash` is `Poseidon(signing_pubkey.owner_pk_field, nullifier)`,
+/// resulting `owner_hash` is `Poseidon(signing_pubkey.owner_proof_input_hash, nullifier)`,
 /// which the circuit recomputes from the witness `owner_pk_hash` + `nullifier_pk`
 /// stamped by [`set_output_owner_tags`].
 #[allow(dead_code)]
@@ -68,7 +67,7 @@ pub fn real_output(
 }
 
 /// Mirror of `public_input_hash` for the SPL rail: the `public_spl_amount`
-/// (chain index 8) and `public_spl_asset_pubkey` (`hash_field(mint)`, index 9)
+/// (chain index 8) and `public_spl_asset_pubkey` (`hash_bytes(mint)`, index 9)
 /// fields carry real values instead of zero.
 #[allow(dead_code, clippy::too_many_arguments)]
 pub fn public_input_hash_spl(
@@ -92,11 +91,11 @@ pub fn public_input_hash_spl(
         create_hash_chain_from_slice(utxo_roots).expect("utxo root chain"),
         create_hash_chain_from_slice(nullifier_tree_roots).expect("nullifier root chain"),
         *private_tx,
-        hash_field(&zero).expect("p256 message field"),
+        bytes32_proof_input_hash(&zero).expect("p256 message field"),
         *external_data_hash,
         zero, // public_sol_amount
         *public_spl_amount,
-        hash_field(mint).expect("public spl asset pubkey"),
+        hash_bytes(mint).expect("public spl asset pubkey"),
         zero, // zone_program_id
         *payer_pubkey_hash,
         create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
@@ -122,7 +121,7 @@ pub fn build_transfer_prover_inputs_spl(
         private_tx_hash: be(&args.private_tx_hash),
         public_sol_amount: be(&zero),
         public_spl_amount: be(&public_spl_amount),
-        public_spl_asset_pubkey: be(&hash_field(&mint).expect("spl asset field")),
+        public_spl_asset_pubkey: be(&hash_bytes(&mint).expect("spl asset field")),
         zone_program_id: be(&zero),
         payer_pubkey_hash: be(&args.payer_pubkey_hash),
         public_input_hash: be(&args.public_input_hash),
@@ -222,5 +221,5 @@ pub fn transfer_output(output: &SppProofOutputUtxo) -> Result<TransferOutput> {
 }
 
 pub fn public_sol_field(amount: Option<i64>) -> [u8; 32] {
-    amount.map(signed_to_field).unwrap_or_default()
+    amount.map(signed_to_proof_input).unwrap_or_default()
 }

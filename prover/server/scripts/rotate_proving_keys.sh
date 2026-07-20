@@ -59,10 +59,11 @@ for spec in "10" "250"; do
     stem="batch_address-append_40_${spec}"
     module="batch_address_append_40_${spec}"
     ./light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
+    key_sha256="$(shasum -a 256 "$keys_dir/${stem}.key" | awk '{print $1}')"
     (cd "$repo_root" && cargo run -q -p xtask -- bsb22-vk \
         "$tmp_dir/${stem}.vkbin" \
         "program-libs/batched-merkle-tree/src/verify/verifying_keys" \
-        "${module}.rs")
+        "${module}.rs" "$key_sha256")
 done
 echo "    wrote vkeys into $bmt_vk_dir"
 

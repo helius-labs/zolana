@@ -1,4 +1,5 @@
 use thiserror::Error;
+use zolana_hasher::HasherError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum KeypairError {
@@ -25,4 +26,10 @@ pub enum KeypairError {
 
     #[error("info string exceeds 62 bytes")]
     InfoTooLong,
+}
+
+impl From<HasherError> for KeypairError {
+    fn from(error: HasherError) -> Self {
+        KeypairError::Poseidon(error.into())
+    }
 }

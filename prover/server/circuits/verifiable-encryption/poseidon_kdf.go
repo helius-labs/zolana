@@ -19,111 +19,6 @@ const (
 	DomSepNonce        uint32 = 0x544d534e // "TMSN" (CTR nonce)
 )
 
-// pack256 builds 256^k as a *big.Int constant for k in 0..31.
-func pack256(k int) *big.Int {
-	return new(big.Int).Lsh(big.NewInt(1), uint(8*k))
-}
-
-// Pack32To2FECircuit mirrors program-libs/hasher/src/primitives/pack32.rs in-circuit.
-//
-//	lo = bytes[0..31] left-padded with one zero byte (i.e. lo as big-endian
-//	     integer = sum_{i=0..30} bytes[i] * 256^(30-i))
-//	hi = bytes[31] (single byte, value < 2^8)
-//
-// Both packings are linear combinations -- gnark folds them into the next
-// nonlinear gate, so the cost is effectively zero R1CS constraints.
-func Pack32To2FECircuit(api frontend.API, bytes [32]frontend.Variable) (lo, hi frontend.Variable) {
-	lo = frontend.Variable(0)
-	for i := 0; i < 31; i++ {
-		// position 30-i means byte 0 is the most significant, byte 30 is the least.
-		coeff := pack256(30 - i)
-		lo = api.Add(lo, api.Mul(bytes[i], coeff))
-	}
-	hi = bytes[31]
-	return lo, hi
-}
-
-// Pack33To2FECircuit mirrors program-libs/hasher/src/primitives/pack33.rs in-circuit.
-//
-//	lo = bytes[0..31] left-padded with one zero byte (same as pack32To2FE)
-//	hi = bytes[31]*256 + bytes[32] (16-bit value)
-func Pack33To2FECircuit(api frontend.API, bytes [33]frontend.Variable) (lo, hi frontend.Variable) {
-	lo = frontend.Variable(0)
-	for i := 0; i < 31; i++ {
-		coeff := pack256(30 - i)
-		lo = api.Add(lo, api.Mul(bytes[i], coeff))
-	}
-	hi = api.Add(api.Mul(bytes[31], big.NewInt(256)), bytes[32])
-	return lo, hi
-}
-
-// packInfoTo2FECircuit mirrors program-libs/hasher/src/primitives/pack_info.rs in-circuit.
-// infoLen is a compile-time constant; only the active prefix info[0:infoLen]
-// is interpreted, the rest is ignored.
-//
-// Layout (matching the Rust):
-//   - split = min(31, infoLen)
-//   - fe0[0] = infoLen (length byte)
-//   - fe0[32-split..32] = info[0..split]
-//   - fe1[32-(infoLen-split)..32] = info[split..infoLen]
-//
-// Note: when infoLen <= 30 the length byte at fe0[0] does NOT overlap with
-// any data byte. When infoLen == 31 the length byte at fe0[0] occupies the
-// position immediately above data, with no gap.
-func packInfoTo2FECircuit(api frontend.API, info []frontend.Variable, infoLen int) (lo, hi frontend.Variable) {
-	if infoLen > 62 {
-		panic("packInfoTo2FECircuit: infoLen exceeds 62")
-	}
-	if infoLen > len(info) {
-		panic("packInfoTo2FECircuit: infoLen larger than info slice")
-	}
-
-	split := infoLen
-	if split > 31 {
-		split = 31
-	}
-
-	// fe0 as big-endian 32-byte field element:
-	//   byte[0] = infoLen (constant)
-	//   bytes[1 .. 32-split] = 0 (gap when infoLen < 31)
-	//   bytes[32-split .. 32] = info[0..split]
-	// As an integer: lo = infoLen * 256^31 + sum_{i=0..split-1}(info[i] * 256^(split-1-i))
-	lo = api.Mul(big.NewInt(int64(infoLen)), pack256(31))
-	for i := 0; i < split; i++ {
-		coeff := pack256(split - 1 - i)
-		lo = api.Add(lo, api.Mul(info[i], coeff))
-	}
-
-	remainder := infoLen - split
-	hi = frontend.Variable(0)
-	for i := 0; i < remainder; i++ {
-		coeff := pack256(remainder - 1 - i)
-		hi = api.Add(hi, api.Mul(info[split+i], coeff))
-	}
-	return lo, hi
-}
-
-// PackBytesBE packs a byte slice into big-endian field elements of bytesPerFE
-// bytes each (the final element holds the remaining bytes).
-func PackBytesBE(api frontend.API, bytes []frontend.Variable, bytesPerFE int) []frontend.Variable {
-	var fes []frontend.Variable
-	for offset := 0; offset < len(bytes); offset += bytesPerFE {
-		end := offset + bytesPerFE
-		if end > len(bytes) {
-			end = len(bytes)
-		}
-		chunk := bytes[offset:end]
-		v := frontend.Variable(0)
-		n := len(chunk)
-		for i, b := range chunk {
-			coeff := new(big.Int).Lsh(big.NewInt(1), uint(8*(n-1-i)))
-			v = api.Add(v, api.Mul(b, coeff))
-		}
-		fes = append(fes, v)
-	}
-	return fes
-}
-
 // FieldToBytesBE decomposes a field element into nbytes big-endian bytes.
 func FieldToBytesBE(api frontend.API, v frontend.Variable, nbytes int) []frontend.Variable {
 	allBits := bits.ToBinary(api, v, bits.WithNbDigits(nbytes*8))
@@ -180,15 +75,17 @@ func KeySchedule(
 	info []frontend.Variable,
 	infoLen int,
 ) (key [32]frontend.Variable, nonce [12]frontend.Variable) {
-	infoLo, infoHi := packInfoTo2FECircuit(api, info, infoLen)
-
-	// Silo step: Poseidon(silo_sep, sharedSecret, infoLo, infoHi). t=5.
-	siloed := gadget.PoseidonHash(api, []frontend.Variable{
+	// Silo step: Poseidon(silo_sep, sharedSecret, len_fe, pack_be(info)...). The
+	// info bytes bind their length, matching the general hash_bytes formula.
+	infoChunks := gadget.PackBE(api, info[:infoLen], gadget.PackBEChunkBytes)
+	siloInputs := make([]frontend.Variable, 0, 3+len(infoChunks))
+	siloInputs = append(siloInputs,
 		frontend.Variable(uint64(DomSepSilo)),
 		sharedSecret,
-		infoLo,
-		infoHi,
-	})
+		frontend.Variable(uint64(infoLen)),
+	)
+	siloInputs = append(siloInputs, infoChunks...)
+	siloed := gadget.PoseidonHash(api, siloInputs)
 
 	// Two Poseidon calls for the AES-256 key (16 bytes from each output).
 	keyLo := gadget.PoseidonHash(api, []frontend.Variable{
@@ -236,11 +133,15 @@ func DeriveSharedSecret(
 	encCompressed [33]frontend.Variable,
 	rpkCompressed [33]frontend.Variable,
 ) frontend.Variable {
-	dhLo, dhHi := Pack32To2FECircuit(api, dh)
-	encLo, encHi := Pack33To2FECircuit(api, encCompressed)
-	rpkLo, rpkHi := Pack33To2FECircuit(api, rpkCompressed)
+	// pack_be over the fixed-length operands: 32 B -> [31,1], 33 B -> [31,2].
+	dhChunks := gadget.PackBE(api, dh[:], gadget.PackBEChunkBytes)
+	encChunks := gadget.PackBE(api, encCompressed[:], gadget.PackBEChunkBytes)
+	rpkChunks := gadget.PackBE(api, rpkCompressed[:], gadget.PackBEChunkBytes)
 	sep := frontend.Variable(uint64(DomSepSharedSecret))
 	return gadget.PoseidonHash(api, []frontend.Variable{
-		sep, dhLo, dhHi, encLo, encHi, rpkLo, rpkHi,
+		sep,
+		dhChunks[0], dhChunks[1],
+		encChunks[0], encChunks[1],
+		rpkChunks[0], rpkChunks[1],
 	})
 }

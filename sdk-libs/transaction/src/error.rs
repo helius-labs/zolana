@@ -127,7 +127,7 @@ pub enum TransactionError {
 
 impl From<zolana_hasher::HasherError> for TransactionError {
     fn from(e: zolana_hasher::HasherError) -> Self {
-        TransactionError::Keypair(KeypairError::Poseidon(e.into()))
+        TransactionError::Keypair(e.into())
     }
 }
 

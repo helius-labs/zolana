@@ -29,7 +29,7 @@ impl CancelProofInputParams {
             bail!("source output owner does not match the order destination");
         }
         let order = OrderTermsProofInput::try_from(terms)?;
-        let maker_owner_pk_field = maker.signing_pubkey.owner_pk_field().map_err(err)?;
+        let maker_owner_pk_field = maker.signing_pubkey.owner_proof_input_hash().map_err(err)?;
         let order_utxo =
             ProofInputUtxo::try_from(&self.order_utxo.to_input_utxo()?).map_err(err)?;
         let source_output = ProofInputUtxo::try_from(&self.source_output).map_err(err)?;

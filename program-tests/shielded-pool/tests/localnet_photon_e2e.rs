@@ -185,7 +185,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         zone_program_id: None,
         data: Data::default(),
     };
-    let payer_owner_pk_hash = payer_utxo.owner.hash()?;
+    let payer_owner_pk_hash = payer_utxo.owner.owner_proof_input_hash()?;
     let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
 
     let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
@@ -293,8 +293,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
     // Each real output's owner tag is its owner's `confidential_view_tag` so the
-    // program's `hash_field(resolved_owner_tag)` matches that owner's
-    // `owner_pk_field`.
+    // program's `hash_bytes(resolved_owner_tag)` matches that owner's
+    // `owner_proof_input_hash`.
     let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
     let transfer_view_tags = [change_view_tag, recipient_view_tag, [3u8; 32]];
@@ -402,7 +402,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         recipient_hash,
         recipient_utxo.hash(&recipient_nullifier_pk, &zero, &zero)?
     );
-    let recipient_owner_pk_hash = recipient_utxo.owner.hash()?;
+    let recipient_owner_pk_hash = recipient_utxo.owner.owner_proof_input_hash()?;
     let recipient_nullifier =
         recipient_nullifier_key.nullifier(&recipient_hash, &recipient_utxo.blinding)?;
     let recipient_state_proof = wait_for_merkle_proof(&indexer, tree_address, recipient_hash)?;

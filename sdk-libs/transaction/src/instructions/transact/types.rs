@@ -1,8 +1,8 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{MessageData, OutputDataEncoding};
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_keypair::{hash::poseidon, random_blinding, P256Pubkey, ShieldedAddress};
+use zolana_hasher::{hash_chain::create_hash_chain_from_slice, Hasher, Poseidon};
+use zolana_keypair::{random_blinding, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;
 use crate::{
@@ -193,7 +193,7 @@ impl<'a> PrivateTxHash<'a> {
             Some(address_hashes) => create_hash_chain_from_slice(address_hashes)?,
             None => create_hash_chain_from_slice(&vec![[0u8; 32]; self.input_hashes.len()])?,
         };
-        Ok(poseidon(&[
+        Ok(Poseidon::hashv(&[
             &input_chain,
             &output_chain,
             &address_chain,

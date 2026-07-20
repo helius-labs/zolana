@@ -1,6 +1,8 @@
 package transaction
 
 import (
+	"math/big"
+
 	gadgetlib "zolana/prover/circuits/gadget"
 
 	"github.com/consensys/gnark/frontend"
@@ -13,6 +15,9 @@ import (
 
 const (
 	p256LimbBits = 128
+	// 2^240, the coefficient of the SEC1 prefix byte in the first pack_be chunk
+	// of a 33-byte compressed point (sec1[0:31] as a big-endian integer).
+	sec1PrefixShift = 240
 )
 
 // P256PublicKey and P256Signature are the gnark ECDSA witness types pinned to
@@ -22,17 +27,19 @@ type (
 	P256Signature = gnarkecdsa.Signature[emulated.P256Fr]
 )
 
-// P256PkFieldGadget folds a P256 public key (parity bit and the two 128-bit
-// halves of the x-coordinate) into a single field element.
+// P256PkFieldGadget folds a P256 VIEWING key into pk_field =
+// hash_bytes(sec1_compressed) = Poseidon(33, chunk0, chunk1), where the chunks
+// are pack_be over the 33-byte SEC1 point: chunk0 = sec1[0:31] as a big-endian
+// integer = (2 + y_parity)·2^240 + (x >> 16), chunk1 = sec1[31:33] = x mod 2^16.
 type P256PkFieldGadget struct {
-	YIsOdd   frontend.Variable
-	XLow128  frontend.Variable
-	XHigh128 frontend.Variable
+	Chunk0 frontend.Variable
+	Chunk1 frontend.Variable
 }
 
 func (gadget P256PkFieldGadget) DefineGadget(api frontend.API) interface{} {
-	xHash := gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.XLow128, gadget.XHigh128})
-	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.YIsOdd, xHash})
+	return gadgetlib.PoseidonHash(api, []frontend.Variable{
+		frontend.Variable(33), gadget.Chunk0, gadget.Chunk1,
+	})
 }
 
 func P256PkFieldFromPubkeyCircuit(
@@ -51,10 +58,10 @@ func P256PkFieldFromPubkeyCircuit(
 	return P256PkFieldFromPointCircuit(api, point)
 }
 
-// P256PkFieldFromPointCircuit folds an already-parsed P256 point into pk_field.
-// It does not assert the point is on the curve; callers that need that guarantee
-// (e.g. P256PkFieldFromPubkeyCircuit, or after p256.PointOnCurve) ensure it
-// separately.
+// P256PkFieldFromPointCircuit folds an already-parsed P256 point into the viewing
+// pk_field. It does not assert the point is on the curve; callers that need that
+// guarantee (e.g. P256PkFieldFromPubkeyCircuit, or after p256.PointOnCurve)
+// ensure it separately.
 func P256PkFieldFromPointCircuit(
 	api frontend.API,
 	point sw_emulated.AffinePoint[emulated.P256Fp],
@@ -65,28 +72,33 @@ func P256PkFieldFromPointCircuit(
 	}
 	yBits := fp.ToBitsCanonical(&point.Y)
 	xBits := fp.ToBitsCanonical(&point.X)
-	xLow128 := gnarkbits.FromBinary(api, xBits[:p256LimbBits])
-	xHigh128 := gnarkbits.FromBinary(api, xBits[p256LimbBits:])
+	// SEC1 prefix = 2 + y_parity, occupying byte 0 of the 33-byte point, i.e. the
+	// most significant byte of the 31-byte chunk0 (coefficient 2^240).
+	prefix := api.Add(big.NewInt(2), yBits[0])
+	prefixTerm := api.Mul(prefix, new(big.Int).Lsh(big.NewInt(1), sec1PrefixShift))
+	chunk0 := api.Add(prefixTerm, gnarkbits.FromBinary(api, xBits[16:])) // (2+parity)·2^240 + (x>>16)
+	chunk1 := gnarkbits.FromBinary(api, xBits[:16])                      // x mod 2^16
 	return abstractor.Call(api, P256PkFieldGadget{
-		YIsOdd:   yBits[0],
-		XLow128:  xLow128,
-		XHigh128: xHigh128,
+		Chunk0: chunk0,
+		Chunk1: chunk1,
 	}), nil
 }
 
-// OwnerPkFieldGadget folds a P256 OWNER public key into pk_field using only the
-// x-coordinate: Poseidon(x_low128, x_high128). The y-parity is intentionally
-// excluded (it is carried in the encrypted data, not the owner identity), so a
-// P256 owner pk_field has the same shape as an ed25519 owner pk_field
-// (hash_field over the two 128-bit halves). The VIEWING key keeps the
-// parity-folding P256PkFieldGadget.
+// OwnerPkFieldGadget folds a P256 OWNER public key into pk_field =
+// hash_bytes(x) = Poseidon(32, chunk0, chunk1) over the 32-byte x-coordinate:
+// chunk0 = x[0:31] as a big-endian integer = x >> 8, chunk1 = x[31] = x mod 2^8.
+// The y-parity is intentionally excluded (it is carried in the encrypted data,
+// not the owner identity), so a P256 owner pk_field has the same 32-byte-tag
+// shape as an ed25519 owner. The VIEWING key hashes the full 33-byte SEC1 point.
 type OwnerPkFieldGadget struct {
-	XLow128  frontend.Variable
-	XHigh128 frontend.Variable
+	Chunk0 frontend.Variable
+	Chunk1 frontend.Variable
 }
 
 func (gadget OwnerPkFieldGadget) DefineGadget(api frontend.API) interface{} {
-	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.XLow128, gadget.XHigh128})
+	return gadgetlib.PoseidonHash(api, []frontend.Variable{
+		frontend.Variable(32), gadget.Chunk0, gadget.Chunk1,
+	})
 }
 
 // OwnerPkFieldFromPubkeyCircuit derives the parity-free owner pk_field from a
@@ -109,11 +121,11 @@ func OwnerPkFieldFromPubkeyCircuit(
 		return nil, err
 	}
 	xBits := fp.ToBitsCanonical(&point.X)
-	xLow128 := gnarkbits.FromBinary(api, xBits[:p256LimbBits])
-	xHigh128 := gnarkbits.FromBinary(api, xBits[p256LimbBits:])
+	chunk0 := gnarkbits.FromBinary(api, xBits[8:]) // x >> 8
+	chunk1 := gnarkbits.FromBinary(api, xBits[:8]) // x mod 2^8
 	return abstractor.Call(api, OwnerPkFieldGadget{
-		XLow128:  xLow128,
-		XHigh128: xHigh128,
+		Chunk0: chunk0,
+		Chunk1: chunk1,
 	}), nil
 }
 

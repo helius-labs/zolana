@@ -1,5 +1,6 @@
 use solana_address::Address;
 use zolana_event::MessageData;
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN, VIEW_TAG_LEN},
@@ -466,7 +467,7 @@ fn sender_owner_tag(
 fn random_view_tag() -> Result<[u8; VIEW_TAG_LEN], TransactionError> {
     let mut input = [0u8; 32];
     input[1..].copy_from_slice(&random_blinding());
-    Ok(zolana_keypair::hash::poseidon(&[&input])?)
+    Ok(Poseidon::hashv(&[&input])?)
 }
 
 /// Random `len` bytes for a dummy output slot.

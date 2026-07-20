@@ -10,7 +10,7 @@ use zolana_interface::instruction::{
 
 use super::account::ZoneTransactAccounts;
 use crate::instructions::{
-    hash::solana_pk_hash,
+    hash::address_field,
     shared::check_not_expired,
     transact::processor::{prepare_proof_inputs, process_transact_core, resolve_outputs},
 };
@@ -32,7 +32,7 @@ pub fn process_zone_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     let mut proof_inputs = prepare_proof_inputs::<true, false>(accounts, &ix, &resolved_outputs)?;
     let (transact_accounts, zone_program_id) =
         ZoneTransactAccounts::validate_and_parse::<false>(accounts, &ix)?;
-    proof_inputs.zone_program_id = solana_pk_hash(&zone_program_id)?;
+    proof_inputs.zone_program_id = address_field(&zone_program_id)?;
 
     process_transact_core::<true, false>(
         &ix,

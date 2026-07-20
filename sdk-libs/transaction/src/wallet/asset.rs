@@ -49,10 +49,13 @@ impl AssetRegistry {
             .ok_or(TransactionError::UnknownMint(*mint))
     }
 
-    pub fn address_for_field(&self, field: &[u8; 32]) -> Result<Option<Address>, TransactionError> {
+    pub fn address_for_asset_hash(
+        &self,
+        asset_hash: &[u8; 32],
+    ) -> Result<Option<Address>, TransactionError> {
         for mint in self.0.values() {
-            let mint_field = zolana_keypair::hash::hash_field(mint.as_array())?;
-            if &mint_field == field {
+            let mint_hash = zolana_hasher::primitives::hash_bytes(mint.as_array())?;
+            if &mint_hash == asset_hash {
                 return Ok(Some(*mint));
             }
         }

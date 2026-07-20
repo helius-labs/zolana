@@ -16,12 +16,12 @@ pub fn u64_right_align(value: u64) -> [u8; 32] {
     primitives::right_align(&value.to_be_bytes())
 }
 
-/// `owner_pk_field` for an ed25519 owner: `Poseidon(value[16..32], value[0..16])`
-/// with each half right-aligned into a field element. Matches
-/// `zolana_keypair::hash::hash_field` so the maker's Solana signer pubkey maps
-/// to the `owner_pk_field` committed in the order's `maker_owner_hash`.
-pub fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
-    primitives::hash_field(value).map_err(|_| SwapError::HashingFailed.into())
+/// Field encoding of a 32-byte value: `hash_bytes(value)` (spec: Byte Field
+/// Encoding). Wraps `zolana_hasher::primitives::hash_bytes` so the maker's Solana
+/// signer pubkey maps to the `owner_pk_field` committed in the order's
+/// `maker_owner_hash`, and a destination mint to the order's `destination_asset`.
+pub fn hash_bytes(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
+    primitives::hash_bytes(value).map_err(|_| SwapError::HashingFailed.into())
 }
 
 #[inline(always)]

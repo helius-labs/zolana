@@ -3,10 +3,10 @@ use solana_address::Address;
 use swap_program::instructions::shared::u64_right_align;
 use swap_prover::OrderTermsProofInput;
 use wincode::{SchemaRead, SchemaWrite};
+use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
 use zolana_keypair::{
-    constants::BLINDING_LEN,
-    hash::{hash_field, poseidon},
-    CompressedShieldedAddress, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress,
+    constants::BLINDING_LEN, CompressedShieldedAddress, NullifierKey, P256Pubkey, PublicKey,
+    ShieldedAddress,
 };
 use zolana_transaction::{
     instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
@@ -78,7 +78,7 @@ impl TryFrom<&OrderTerms> for OrderTermsProofInput {
 
     fn try_from(terms: &OrderTerms) -> Result<Self> {
         Ok(Self {
-            destination_asset: hash_field(terms.destination_mint.as_array()).map_err(err)?,
+            destination_asset: hash_bytes(terms.destination_mint.as_array())?,
             destination_amount: terms.destination_amount,
             maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
             maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
@@ -98,22 +98,21 @@ impl DataHash for OrderTermsProofInput {
         }
         .hash()
         .map_err(err)?;
-        poseidon(&[
+        Ok(Poseidon::hashv(&[
             &self.destination_asset,
             &u64_right_align(self.destination_amount),
             &maker_address,
             &u64_right_align(self.expiry),
             &self.taker_pk_fe,
             &u64_right_align(self.take_mode),
-        ])
-        .map_err(err)
+        ])?)
     }
 }
 
 // All instructions: the taker pubkey as the `taker_pk_fe` terms field.
 impl DataHash for Address {
     fn data_hash(&self) -> Result<[u8; 32]> {
-        hash_field(self.as_array()).map_err(err)
+        Ok(hash_bytes(self.as_array())?)
     }
 }
 
@@ -283,7 +282,7 @@ mod tests {
 
     fn sample_terms(take_mode: u64) -> OrderTermsProofInput {
         OrderTermsProofInput {
-            destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
+            destination_asset: hash_bytes(&[2u8; 32]).expect("destination asset"),
             destination_amount: 250,
             maker_owner_hash: [7u8; 32],
             maker_viewing_pk: *sample_viewing_pk(9).as_bytes(),

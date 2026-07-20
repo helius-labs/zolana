@@ -42,10 +42,10 @@ func constrainEncryption(api frontend.API, g *aes.AESGadget, txViewingSk fronten
 
 	plaintext := mergePlaintextBytes(api, output.Utxo.Amount, output.Utxo.Asset, output.Utxo.Blinding)
 	ciphertext := aes.CTREncrypt(api, g, key, nonce, plaintext[:])
-	ctHash = gadget.PoseidonHash(api, ve.PackBytesBE(api, ciphertext, 16))
+	ctHash = gadget.HashBytes(api, ciphertext)
 
-	txViewingPkLo, txViewingPkHi = ve.Pack33To2FECircuit(api, txViewingPkComp)
-	return ctHash, txViewingPkLo, txViewingPkHi
+	pkChunks := gadget.PackBE(api, txViewingPkComp[:], gadget.PackBEChunkBytes)
+	return ctHash, pkChunks[0], pkChunks[1]
 }
 
 func mergeInfoBytes() []frontend.Variable {

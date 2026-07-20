@@ -6,10 +6,8 @@ use pinocchio::{
 };
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData, merge_utils::ciphertext_hash,
-};
+use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
+use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
     error::SwapError,
@@ -42,7 +40,8 @@ pub struct TakeVerifiableEncryptionPublicInput<'a> {
 
 impl TakeVerifiableEncryptionPublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        let ct_hash = ciphertext_hash(self.destination_ciphertext)
+        // hash_bytes(ct) is the ciphertext integrity binding, in place of a GCM tag.
+        let ct_hash = hash_bytes(self.destination_ciphertext)
             .map_err(|_| ProgramError::from(SwapError::HashingFailed))?;
         Poseidon::hashv(&[
             self.private_tx_hash.as_slice(),

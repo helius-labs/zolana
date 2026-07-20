@@ -98,7 +98,7 @@ pub struct TransactIxData {
     // multi-party transactions (e.g. two P256 owners co-spending in a swap),
     // not single wallets.
     /// Confidential variant: the raw x-coordinate of the shared P256 signing key
-    /// (`owner_pk_field` before hashing). The program derives the public input by
+    /// (`owner_proof_input_hash` before hashing). The program derives the public input by
     /// hashing it on-chain, so P256-owned inputs route by equality and a
     /// `P256SigningKey` output tag resolves to this value. `None` on the eddsa
     /// rail (folded as `0` into the public-input hash).

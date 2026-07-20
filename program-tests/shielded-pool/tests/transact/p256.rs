@@ -261,15 +261,16 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             instruction_data::transact::{ExternalDataHash, ResolvedOutput},
             tag,
         };
-        use zolana_keypair::hash::{hash_field, sha256};
-        use zolana_transaction::instructions::transact::spp_proof_inputs::signed_to_field;
+        use zolana_hasher::primitives::{bytes32_proof_input_hash, hash_bytes};
+        use zolana_keypair::hash::sha256;
+        use zolana_transaction::instructions::transact::spp_proof_inputs::signed_to_proof_input;
 
         // The program derives the P256 public input by hashing the raw x-coordinate
         // on-chain; mirror that here.
         let p256_x = ix_data
             .p256_signing_pk_x
             .expect("p256 signing pk x present");
-        let p256_field = hash_field(&p256_x).expect("p256 signing pk field");
+        let p256_field = hash_bytes(&p256_x).expect("p256 signing pk field");
         let n_in = ix_data.inputs.len();
         let nullifiers: Vec<[u8; 32]> = ix_data.inputs.iter().map(|i| i.nullifier_hash).collect();
         // Every input is P256-owned (`eddsa_signer_index == 255`), so the program
@@ -315,10 +316,10 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             create_hash_chain_from_slice(&vec![utxo_root; n_in]).unwrap(),
             create_hash_chain_from_slice(&vec![nullifier_root; n_in]).unwrap(),
             ix_data.private_tx_hash,
-            hash_field(&p256_message_hash).unwrap(),
+            bytes32_proof_input_hash(&p256_message_hash).unwrap(),
             external_data_hash,
-            signed_to_field(ix_data.public_sol_amount.unwrap_or(0)),
-            signed_to_field(ix_data.public_spl_amount.unwrap_or(0)),
+            signed_to_proof_input(ix_data.public_sol_amount.unwrap_or(0)),
+            signed_to_proof_input(ix_data.public_spl_amount.unwrap_or(0)),
             zero, // public_spl_asset_pubkey (no mint)
             zero, // zone_program_id
             payer_pubkey_hash,

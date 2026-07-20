@@ -20,13 +20,19 @@ fn main() {
         Some("bsb22-vk") => {
             let vk_bin = args
                 .next()
-                .unwrap_or_else(|| usage_and_exit("usage: bsb22-vk <vk_bin> <out_dir> <filename>"));
+                .unwrap_or_else(|| {
+                    usage_and_exit("usage: bsb22-vk <vk_bin> <out_dir> <filename> [key_sha256]")
+                });
             let out_dir = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <out_dir>"));
             let filename = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <filename>"));
+            // Optional 4th arg: the SHA-256 of the source proving key (.key),
+            // matching proving-keys/CHECKSUM. Emitted as a provenance comment so
+            // each committed vk file traces to the exact proving key it came from.
+            let key_sha256 = args.next();
             groth16_solana::vk::gnark::generate_bsb22_vk_file(
                 &vk_bin,
                 Path::new(&out_dir),
@@ -34,6 +40,11 @@ fn main() {
                 "VERIFYINGKEY",
             )
             .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
+            if let Some(sha256) = key_sha256 {
+                let path = Path::new(&out_dir).join(&filename);
+                insert_key_checksum_comment(&path, &sha256)
+                    .unwrap_or_else(|e| panic!("failed to annotate {filename}: {e:?}"));
+            }
             println!("wrote {out_dir}/{filename}");
         }
         Some("vk-json") => {
@@ -283,6 +294,25 @@ fn parse_limit(value: &str) -> usize {
     value
         .parse::<usize>()
         .unwrap_or_else(|_| usage_and_exit("--limit must be a positive integer"))
+}
+
+/// Inserts a `// Source proving key SHA-256: <hex>` provenance line into a
+/// generated vk file, right after the generator's header comment block. Idempotent
+/// across regenerations because the generator always rewrites the file first.
+fn insert_key_checksum_comment(path: &Path, sha256: &str) -> std::io::Result<()> {
+    let contents = fs::read_to_string(path)?;
+    let comment = format!("// Source proving key SHA-256: {sha256}\n");
+    // Place the line after the "Do not edit by hand." header line if present, else
+    // at the top, so the provenance sits with the rest of the generated header.
+    let annotated = match contents.find("// Do not edit by hand.\n") {
+        Some(idx) => {
+            let after = idx + "// Do not edit by hand.\n".len();
+            let (head, tail) = contents.split_at(after);
+            format!("{head}{comment}{tail}")
+        }
+        None => format!("{comment}{contents}"),
+    };
+    fs::write(path, annotated)
 }
 
 fn usage_and_exit(msg: &str) -> ! {

@@ -7,13 +7,14 @@
 //! into the hash.
 
 use solana_address::Address;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::{hash_chain::create_hash_chain_from_slice, primitives::bytes32_proof_input_hash};
 use zolana_keypair::{
-    hash::{hash_field, sha256, split_be_128},
+    hash::{sha256, split_be_128},
     PublicKey,
 };
 use zolana_transaction::{
-    instructions::transact::PrivateTxHash, utxo::program_id_field, ExternalData, SppProofOutputUtxo,
+    instructions::transact::PrivateTxHash, utxo::program_id_proof_input_hash, ExternalData,
+    SppProofOutputUtxo,
 };
 
 use crate::{
@@ -77,7 +78,7 @@ impl ZoneTransferP256Prover {
         // program reproduces `pk_field` on-chain.
         let signing_pubkey = PublicKey::from_p256(&self.p256_owner.pubkey);
         let p256_signing_pk_x = signing_pubkey.confidential_view_tag()?;
-        let p256_signing_pk_field = signing_pubkey.owner_pk_field()?;
+        let p256_signing_pk_field = signing_pubkey.owner_proof_input_hash()?;
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Zone)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
@@ -94,11 +95,11 @@ impl ZoneTransferP256Prover {
         // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
         // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
         // zone field to this public input.
-        let zone_program_id = program_id_field(&self.zone_program_id)?;
+        let zone_program_id = program_id_proof_input_hash(&self.zone_program_id)?;
 
         // Zone P256 public-input layout: the 13-element base chain (input owner
         // pk_fields committed, but P256 owners contribute the 0 sentinel so identities
-        // stay private), with the real hash_field(p256_message_hash) at the
+        // stay private), with the real bytes32_proof_input_hash(p256_message_hash) at the
         // p256-message position. No output-owner chain and no p256_signing_pk_field.
         // Mirrors PublicInputHash with ZoneAuthority=false, Confidential=false in
         // prover/server/prover-test/spp/protocol/public_inputs.go.
@@ -108,7 +109,7 @@ impl ZoneTransferP256Prover {
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
-            hash_field(&p256_message_hash)?,
+            bytes32_proof_input_hash(&p256_message_hash)?,
             external_data_hash,
             self.public_amounts.sol,
             self.public_amounts.spl,

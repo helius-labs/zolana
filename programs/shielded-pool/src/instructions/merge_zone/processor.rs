@@ -17,7 +17,7 @@ use zolana_interface::{
 
 use super::account::MergeZoneAccounts;
 use crate::instructions::{
-    hash::solana_pk_hash,
+    hash::address_field,
     merge::{
         processor::process_merge_core,
         verify::{MergeOwnerBinding, MergeProofInputs},
@@ -59,7 +59,7 @@ pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     // `user_record` registry, so the `Zone` binding omits owner identity entirely
     // (see `MergeProof::public_input_hash`); the binding also selects the
     // `merge_zone_8_1` verifying key.
-    let zone_program_id = solana_pk_hash(merge_accounts.zone_program_id.as_array())?;
+    let zone_program_id = address_field(merge_accounts.zone_program_id.as_array())?;
     let derived = MergeProofInputs {
         utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
         nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],

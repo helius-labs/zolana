@@ -184,24 +184,15 @@ impl PublicKey {
         }
     }
 
-    pub fn hash(&self) -> Result<[u8; 32], KeypairError> {
-        match self.signature_type()? {
-            SignatureType::P256 => {
-                let p = self.as_p256()?;
-                let x_hash = crate::hash::hash_field(&p.x())?;
-                crate::hash::poseidon(&[&crate::hash::bool_fe(p.y_is_odd()), &x_hash])
-            }
-            SignatureType::Ed25519 => crate::hash::hash_field(&self.as_ed25519()?),
-        }
-    }
-
-    /// Owner-identity pk_field: rail-agnostic `hash_field(signing_tag)` where the tag
-    /// is the P256 x-coordinate or the full ed25519 key (= `confidential_view_tag`).
-    /// Unlike [`Self::hash`] (used for viewing keys), the P256 y-parity is excluded —
-    /// it is carried in the encrypted data, not the owner identity — so a P256 owner
-    /// has the same pk_field shape as an ed25519 owner. Matches the circuit
-    /// `OwnerPkFieldGadget` and the program's `hash_field(view_tag)` reconstruction.
-    pub fn owner_pk_field(&self) -> Result<[u8; 32], KeypairError> {
-        crate::hash::hash_field(&self.confidential_view_tag()?)
+    /// Owner-identity proof-input hash: `hash_bytes(signing_tag)` where the tag is
+    /// the P256 x-coordinate or the full ed25519 key (= `confidential_view_tag`).
+    /// The P256 y-parity is excluded — it is carried in the encrypted data, not the
+    /// owner identity — so a P256 owner has the same 32-byte-tag shape as an ed25519
+    /// owner. Matches the circuit `OwnerPkFieldGadget` and the program's
+    /// `hash_bytes(view_tag)` reconstruction.
+    pub fn owner_proof_input_hash(&self) -> Result<[u8; 32], KeypairError> {
+        Ok(zolana_hasher::primitives::hash_bytes(
+            &self.confidential_view_tag()?,
+        )?)
     }
 }

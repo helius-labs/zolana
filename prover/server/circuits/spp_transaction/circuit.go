@@ -377,11 +377,12 @@ const (
 	NullifierTreeHeight = 40
 )
 
-// solAssetValue is the UTXO asset field for native SOL: Poseidon(0, 0), the
+// solAssetValue is the UTXO asset field for native SOL: hash_bytes([0;32]), the
 // all-zero address encoded as a SolanaPkField. Precomputed so the circuits
-// package needs no host Poseidon; protocol.SolAsset() is the source of truth.
+// package needs no host Poseidon; protocol.SolAsset() is the source of truth
+// (asserted equal by TestSolAssetConstantMatchesHost).
 var solAssetValue, _ = new(big.Int).SetString(
-	"14744269619966411208579211824598458697587494354926760081771325075741142829156", 10)
+	"9452164242708395306470613271737146286211020129178709886780322681380148088934", 10)
 
 // SolAsset returns the native-SOL asset field used in UTXO commitments.
 func SolAsset() *big.Int {

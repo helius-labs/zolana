@@ -262,19 +262,38 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 
 `CompressedShieldedAddress = (owner_hash, viewing_pk)`
 
+## Byte Field Encoding
+
+Every byte string committed inside a Poseidon hash anywhere in this spec — pubkeys, assets, zone program ids, ciphertexts — uses one canonical encoding. Two primitives:
+
+```
+pack_be(bytes) := 31-byte big-endian chunks, each right-aligned into a field element
+                  k = ceil(len(bytes) / 31) chunks; the final chunk holds the remainder
+                  lossless (31 bytes < 2^248 < the BN254 modulus), so no chunk overflows
+
+hash_bytes(bytes) := Poseidon(len_fe, chunk_0, .., chunk_{k-1})
+                     where (chunk_i) = pack_be(bytes)
+```
+
+`len_fe` is `len(bytes)` as a field element; binding the length makes the encoding injective (`pack_be` alone is not: `[0x00, 0x01]` and `[0x01]` pack identically). Poseidon takes at most 12 inputs, so `1 + k ≤ 12` bounds `hash_bytes` to 341 bytes; longer inputs would chain wide-hash blocks (not currently used).
+
+`hash_bytes` carries no domain-separation tag: distinct uses are separated by their byte length and by their position in the enclosing hash (an asset field and an owner field never occupy the same slot of a `utxo_hash`). Equal bytes of equal length hash to the same field element regardless of role.
+
+`pack_be` is also used on its own — without the `hash_bytes` wrapper — wherever fixed-length byte values enter a larger structured Poseidon hash (the [merge KDF](#merge-proof---merge-zk-proof)).
+
 ## Pubkey Field Encoding
 
-A pubkey is encoded into a single BN254 field via 2-input Poseidon over 128-bit big-endian limbs of a 32-byte value: `hash_field(v) := Poseidon(v_low_128, v_high_128)`. This `pk_field(pk)` is the canonical form used wherever a pubkey appears inside a Poseidon hash anywhere in this spec.
+A pubkey is encoded into a single BN254 field element, `pk_field(pk)`, via `hash_bytes`:
 
 ```
 Owner signing keys (owner tag = the P256 x-coordinate, or the 32 B Ed25519 key):
-  pk_field(pk) := hash_field(owner_tag)
+  pk_field(pk) := hash_bytes(owner_tag)
 
 Viewing keys (P256, 33 B SEC1: parity || x_be32):
-  pk_field(pk) := Poseidon(y_is_odd, hash_field(x))
+  pk_field(pk) := hash_bytes(sec1_compressed)
 ```
 
-The owner encoding excludes the P256 y-parity (the parity is in the encrypted data), so both schemes share one shape. No scheme tag is needed: a cross-scheme collision requires valid keypairs on both curves with byte-equal owner tags. Viewing keys keep the `y_is_odd` layer so `pk_field` identifies the exact point used for ECDH.
+The owner encoding hashes only the 32-byte tag, so a P256 owner (x-coordinate) and an Ed25519 owner (full key) share one shape; the P256 y-parity travels in the encrypted data, not the owner identity. The viewing-key encoding hashes the full 33-byte SEC1 point (parity prefix included), so `pk_field` identifies the exact point used for ECDH and is distinct from the 32-byte owner encoding by both length and content.
 
 ## Owner Hash
 
@@ -282,7 +301,17 @@ The owner encoding excludes the P256 y-parity (the parity is in the encrypted da
 owner_hash := Poseidon(pk_field(signing_pk), nullifier_pk)
 ```
 
-The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Solana / Ed25519 inputs, SPP supplies it from the verified signer account.
+The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Solana / Ed25519 inputs, SPP supplies it from the verified signer account. Both recompute `hash_bytes(owner_tag)` over the 32-byte tag.
+
+## Compressed Shielded Address Hash
+
+A [`CompressedShieldedAddress`](#shielded-address) commits to a single field element:
+
+```
+address_hash := Poseidon(owner_hash, pk_field(viewing_pk))
+```
+
+`owner_hash` is defined above; `pk_field(viewing_pk)` is the viewing-key encoding from [Pubkey Field Encoding](#pubkey-field-encoding). Applications that bind a recipient address into a proof (for example a swap order) commit to `address_hash`.
 
 # Signing Key
 
@@ -487,11 +516,11 @@ struct Utxo {
 utxo_hash = Poseidon(domain, asset, amount,
                      data_hash, zone_hash, owner_utxo_hash)
 
-zone_hash       = Poseidon(zone_data_hash, pk_field(zone_program_id))
+zone_hash       = Poseidon(zone_data_hash, zone_program_field)
 owner_utxo_hash = Poseidon(owner, blinding)
 ```
 
-The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `asset` is Poseidon-encoded as `Poseidon(low, high)` before hashing; `zone_program_id` uses `pk_field` (see [Shielded Address](#shielded-address)). An absent `zone_program_id` is `0` (not `pk_field(0)`), so a UTXO without one keeps `zone_hash` over a `0` program field. `data_hash` enters `utxo_hash` directly and is `0` when absent.
+The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `asset` is encoded as `hash_bytes(mint)` (SOL uses 32 zero bytes for the mint); `zone_program_field` is `hash_bytes(zone_program_id)` (see [Byte Field Encoding](#byte-field-encoding)). An absent `zone_program_id` is `0` (not `hash_bytes(0)`), so a UTXO without one keeps `zone_hash` over a `0` program field. `data_hash` enters `utxo_hash` directly and is `0` when absent.
 
 `owner` is a user `owner_hash`; there is no program ownership. A UTXO may hold `utxo_data`: `data_hash` is committed into `utxo_hash` unchecked, and the application circuit/SDK interprets it. `zone_hash` pairs `zone_data_hash` with the authorizing zone program, and a non-zero `zone_data_hash` requires a non-zero `zone_program_id`. `owner_utxo_hash` nests `owner` and `blinding`: it keeps the owner private on the `transact` rails, where the components stay in the proof and ciphertext. A `deposit` instead sends `owner` and `blinding` in the clear and the program recomputes `owner_utxo_hash`, so that rail does not hide the recipient.
 
@@ -868,11 +897,11 @@ struct MergeEncryptedUtxo {
 | external_data_hash | instruction data. SPP recomputes it from the instruction and checks it matches this public input. It is its own public input, not just an input to `private_tx_hash`, because SPP cannot recompute `private_tx_hash`: that hash covers the input UTXO hashes, which are private. Without it a proof could be reused with a different instruction (different `encrypted_utxos`, accounts, or fee). |
 | public_sol_amount | instruction data |
 | public_spl_amount | instruction data |
-| public_spl_asset_pubkey | derived by SPP from the vault token account's mint |
-| zone_program_id | single `pk_field` of the policy zone authorizing the transaction's UTXOs; `0` (non-zone / default transact) — instruction data |
+| public_spl_asset_pubkey | `hash_bytes(mint)` derived by SPP from the vault token account's mint |
+| zone_program_id | single `hash_bytes(·)` of the policy zone authorizing the transaction's UTXOs; `0` (non-zone / default transact) — instruction data |
 | payer_pubkey_hash | `Sha256BE(payer)` derived by SPP from the `payer` account |
-| solana_owner_pk_hashes (one per input UTXO) | `pk_field` (see [Shielded Address](#shielded-address)) of the input's Solana / Ed25519 owner; `0` for a P256-owned input. |
-| p256_signing_pk | `hash_field(p256_signing_pk_x)`, the transaction's shared P256 signing key. SPP computes it on-chain from the raw x-coordinate in instruction data (`0` on the eddsa rail); the circuit routes P256-owned inputs by equality against it. |
+| solana_owner_pk_hashes (one per input UTXO) | `pk_field` (`hash_bytes(key)`, see [Pubkey Field Encoding](#pubkey-field-encoding)) of the input's Solana / Ed25519 owner; `0` for a P256-owned input. |
+| p256_signing_pk | `hash_bytes(p256_signing_pk_x)`, the transaction's shared P256 signing key. SPP computes it on-chain from the raw x-coordinate in instruction data (`0` on the eddsa rail); the circuit routes P256-owned inputs by equality against it. |
 
 See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
@@ -999,7 +1028,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | pk_field(user_signing_pk) | owner identity; derived by SPP from the registry record by the rail the `merge_transact` `eddsa_owner` flag selects: `pk_field(owner_p256)` for a P256 owner, or `pk_field` of the registry account `owner` (the ed25519 signing key) for a Solana owner. The proof computes the same `pk_field` in its public input hash, so it fails unless they match. Stands in for `owner_hash` as the public identifier. |
 | pk_field(user_viewing_pk) | derived by SPP from `user_record.viewing_pubkey`. The proof computes the same `pk_field`, so the output is provably encrypted to the owner's registered viewing key. |
 | tx_viewing_pk | instruction data (from the merge ciphertext blob) |
-| ciphertext_hash | `Poseidon` over the ciphertext, recomputed by SPP from the blob's `ciphertext`. Replaces exposing the raw ciphertext and is the integrity binding in place of a tag. |
+| ciphertext_hash | `hash_bytes(ciphertext)`, recomputed by SPP from the blob's `ciphertext`. Replaces exposing the raw ciphertext and is the integrity binding in place of a tag. |
 
 **Private Inputs (per input UTXO)**
 
@@ -1045,24 +1074,28 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Private transaction hash | `private_tx_hash` as defined in [SPP Proof](#spp-proof---solana-privacy-zk-proof). It covers every input, the output, and the external-data hash, so the proof cannot be replayed with different state. |
 | Plaintext binding | `Poseidon(plaintext) == output_utxo_hash`. |
 | Keypair consistency | `tx_viewing_pk == tx_viewing_sk · G_P256`. |
-| Verifiable encryption | The public `ciphertext_hash` equals `Poseidon` over `ciphertext = AES-256-CTR(aes_key, nonce, plaintext)`, where `(aes_key, nonce)` are derived by the Poseidon KDF below from `tx_viewing_sk` and `user_viewing_pk`. There is no tag; integrity comes from `ciphertext_hash` plus the plaintext-to-output binding. |
+| Verifiable encryption | The public `ciphertext_hash` equals `hash_bytes(ciphertext)` over `ciphertext = AES-256-CTR(aes_key, nonce, plaintext)`, where `(aes_key, nonce)` are derived by the Poseidon KDF below from `tx_viewing_sk` and `user_viewing_pk`. There is no tag; integrity comes from `ciphertext_hash` plus the plaintext-to-output binding. |
 
 **Verifiable encryption: DHKEM(P-256) + Poseidon KDF + AES-256-CTR.** All steps are checked by the merge proof.
+
+Byte values enter via `pack_be` (see [Byte Field Encoding](#byte-field-encoding)); `pack_be(dh)` is 2 chunks (32 B), `pack_be(sec1_pubkey)` is 2 chunks (33 B), `pack_be("TSPP/merge")` is 1 chunk (10 B). The `DOM_SEP_*` values are the HPKE/DHKEM domain separators inherent to this encryption scheme (unrelated to the general byte encoding, which carries no tag).
 
 ```
 // 1. Raw ECDH (P-256)
 dh = tx_viewing_sk · user_viewing_pk          // 32 B (x-coordinate)
 
-// 2. KEM shared secret, binding both pubkeys (HPKE kem_context pattern)
+// 2. KEM shared secret, binding both pubkeys (HPKE kem_context pattern).
+//    Fixed-length operands, so no length input.
 shared_secret = Poseidon(
     DOM_SEP_SHARED_SECRET,
-    dh.lo,              dh.hi,
-    tx_viewing_pk.lo,   tx_viewing_pk.hi,
-    user_viewing_pk.lo, user_viewing_pk.hi,
+    pack_be(dh)...,                 // 2 chunks
+    pack_be(tx_viewing_pk)...,      // 2 chunks
+    pack_be(user_viewing_pk)...,    // 2 chunks
 )
 
-// 3. Key schedule context (HPKE info binding; no salt)
-key_schedule_context = Poseidon(DOM_SEP_SILO, shared_secret, info.lo, info.hi)
+// 3. Key schedule context (HPKE info binding; no salt). info length is bound.
+key_schedule_context = Poseidon(DOM_SEP_SILO, shared_secret,
+                                len(info)_fe, pack_be(info)...)
          where info = "TSPP/merge"
 
 // 4. AES-256 key (two Poseidon calls, low 16 bytes from each high half)
@@ -1077,7 +1110,7 @@ nonce     = nonce_raw[20..32]                    // 12 B
 // 6. Encrypt (CTR counter block J0 = nonce || 0x00000001; the first plaintext
 //    block uses J0 + 1, i.e. nonce || 0x00000002)
 ciphertext      = AES-256-CTR(aes_key, nonce, plaintext)   // 71 B, no tag
-ciphertext_hash = Poseidon(pack_be(ciphertext, 16))        // public input
+ciphertext_hash = hash_bytes(ciphertext)                   // public input, 3 chunks
 ```
 
 `DOM_SEP_*` are 32-bit ASCII tags packed into a field element:
@@ -1234,7 +1267,7 @@ struct InputUtxo {
 }
 
 /// Owner of an output as a 32-byte value: the published fetch tag and the
-/// preimage of the output's owner public input `hash_field(fetch_tag)`.
+/// preimage of the output's owner public input `hash_bytes(fetch_tag)`.
 enum OwnerTag {
     /// The 32-byte value inline: a recipient/dummy signing pubkey or zone HKDF tag.
     Inline([u8; 32]),
@@ -1272,7 +1305,7 @@ struct TransactIxData {
     /// is supplied directly rather than derived on-chain.
     private_tx_hash: [u8; 32],
     /// Raw P256 x-coordinate of the transaction's shared signing key; `None` on
-    /// the eddsa rail. SPP computes `hash_field(x)` for the P256 owner public
+    /// the eddsa rail. SPP computes `hash_bytes(x)` for the P256 owner public
     /// input; the raw value is the `P256SigningKey` fetch tag.
     p256_signing_pk_x: Option<[u8; 32]>,
     inputs: Vec<InputUtxo>,

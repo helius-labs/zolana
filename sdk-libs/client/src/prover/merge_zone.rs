@@ -22,7 +22,7 @@ use zolana_transaction::{
     instructions::{
         merge_zone::PreparedMergeZone, transact::PrivateTxHash, types::SppProofInputUtxo,
     },
-    utxo::program_id_field,
+    utxo::program_id_proof_input_hash,
     SppProofOutputUtxo,
 };
 
@@ -60,7 +60,7 @@ pub struct MergeZoneProver {
     pub user_viewing_pk: P256Pubkey,
     pub tx_viewing_sk: SecretKey,
     /// Zone program every input and the output are owned by. Its `pk_field`
-    /// (`program_id_field(&Some(zone))` == on-chain `solana_pk_hash(zone)`) is the
+    /// (`program_id_proof_input_hash(&Some(zone))` == on-chain `address_field(zone)`) is the
     /// final public-input element and the value SPP binds from `zone_config`.
     pub zone_program_id: Address,
 }
@@ -172,13 +172,13 @@ impl MergeZoneProver {
 
         // Owner signing pk_field, used to feed the ed25519 owner rail's
         // `owner_pk_hash` witness below (not a public input on the zone rail).
-        let user_signing_pk_hash = self.signing_pubkey.owner_pk_field()?;
+        let user_signing_pk_hash = self.signing_pubkey.owner_proof_input_hash()?;
 
         // The policy-zone merge omits the owner-identity public inputs (no registry
         // binds them) and instead commits the zone's pk_field as the final element,
         // after the ciphertext hash. `zone_program_id_field` equals the on-chain
-        // `solana_pk_hash(zone)` the program derives from the calling `zone_config`.
-        let zone_program_id_field = program_id_field(&Some(self.zone_program_id))?;
+        // `address_field(zone)` the program derives from the calling `zone_config`.
+        let zone_program_id_field = program_id_proof_input_hash(&Some(self.zone_program_id))?;
         let public_input = create_hash_chain_from_slice(&[
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,

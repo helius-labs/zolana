@@ -1,8 +1,8 @@
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_hasher::primitives::right_align_slice;
+use zolana_hasher::primitives::{hash_bytes, right_align_slice};
 use zolana_keypair::{
-    hash::{hash_field, sha256, sha256_be},
+    hash::{sha256, sha256_be},
     ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
 };
 
@@ -23,7 +23,7 @@ fn modulus() -> BigUint {
     BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).expect("valid BN254 modulus literal")
 }
 
-pub fn signed_to_field(value: i64) -> [u8; 32] {
+pub fn signed_to_proof_input(value: i64) -> [u8; 32] {
     let magnitude = BigUint::from(value.unsigned_abs());
     let field = if value < 0 {
         modulus() - magnitude
@@ -33,8 +33,8 @@ pub fn signed_to_field(value: i64) -> [u8; 32] {
     right_align_slice(&field.to_bytes_be()).expect("a BN254 field element fits 32 bytes")
 }
 
-pub fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {
-    Ok(hash_field(asset.as_array())?)
+pub fn asset_proof_input_hash(asset: &Address) -> Result<[u8; 32], TransactionError> {
+    Ok(hash_bytes(asset.as_array())?)
 }
 
 pub fn inputs_require_p256(inputs: &[SppProofInputUtxo]) -> Result<bool, TransactionError> {
@@ -122,13 +122,13 @@ impl SppProofInputs {
         let sol = self.external_data.public_sol_amount.unwrap_or(0);
         let spl = self.external_data.public_spl_amount.unwrap_or(0);
         let asset = if spl != 0 {
-            asset_field(&self.check_public_spl_asset()?)?
+            asset_proof_input_hash(&self.check_public_spl_asset()?)?
         } else {
             [0u8; 32]
         };
         Ok(PublicAmounts {
-            sol: signed_to_field(sol),
-            spl: signed_to_field(spl),
+            sol: signed_to_proof_input(sol),
+            spl: signed_to_proof_input(spl),
             asset,
         })
     }
@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn zero_public_amounts_match_the_field_encoding_of_zero() {
-        assert_eq!(PublicAmounts::default().sol, signed_to_field(0));
-        assert_eq!(PublicAmounts::default().spl, signed_to_field(0));
+        assert_eq!(PublicAmounts::default().sol, signed_to_proof_input(0));
+        assert_eq!(PublicAmounts::default().spl, signed_to_proof_input(0));
     }
 }

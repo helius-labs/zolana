@@ -1,8 +1,9 @@
 use pinocchio::{error::ProgramError, ProgramResult};
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{MergeTransactIxDataRef, MERGE_INPUT_COUNT},
-    merge_utils::{ciphertext_hash, pack33, pk_field_compressed},
+    merge_utils::{pack_be, pk_field_compressed},
     verifying_keys::{merge_8_1, merge_zone_8_1},
 };
 
@@ -91,8 +92,9 @@ impl<'a> MergeProof<'a> {
             .ix
             .ciphertext()
             .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
-        let (tx_viewing_pk_lo, tx_viewing_pk_hi) = pack33(tx_viewing_pk);
-        let ct_hash = ciphertext_hash(ciphertext).map_err(|_| PROOF_ERR)?;
+        let [tx_viewing_pk_lo, tx_viewing_pk_hi] = pack_be::<33, 2>(tx_viewing_pk);
+        // hash_bytes(ct) is the ciphertext integrity binding, in place of a GCM tag.
+        let ct_hash = hash_bytes(ciphertext).map_err(|_| PROOF_ERR)?;
 
         let nullifiers = hash_chain(&self.ix.nullifiers)?;
         let utxo_roots = hash_chain(&self.derived.utxo_roots)?;

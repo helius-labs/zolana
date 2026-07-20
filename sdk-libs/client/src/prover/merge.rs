@@ -6,6 +6,7 @@
 use num_bigint::BigUint;
 use p256::SecretKey;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::primitives::hash_bytes;
 pub(crate) use zolana_hasher::primitives::right_align;
 use zolana_interface::instruction::instruction_data::merge_transact::{
     MergeExternalDataHash, MergeTransactIxData,
@@ -17,7 +18,7 @@ use zolana_keypair::{
 use zolana_transaction::{
     instructions::{
         merge::PreparedMerge,
-        transact::{spp_proof_inputs::asset_field, PrivateTxHash},
+        transact::{spp_proof_inputs::asset_proof_input_hash, PrivateTxHash},
         types::SppProofInputUtxo,
     },
     EncryptedScheme, SppProofOutputUtxo,
@@ -154,8 +155,8 @@ impl MergeProver {
         // SPP checks both against the owner's registry record; the owner recombines
         // the signing pk_field with their nullifier_pk to get user_owner_hash, so
         // the owner need not be carried in the ciphertext.
-        let user_signing_pk_hash = self.signing_pubkey.owner_pk_field()?;
-        let user_viewing_pk_hash = PublicKey::from_p256(&self.user_viewing_pk).hash()?;
+        let user_signing_pk_hash = self.signing_pubkey.owner_proof_input_hash()?;
+        let user_viewing_pk_hash = hash_bytes(self.user_viewing_pk.as_bytes())?;
         let public_input = create_hash_chain_from_slice(&[
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
@@ -247,7 +248,7 @@ pub fn merge_encrypted_utxo(tx_viewing_pk: &P256Pubkey, ciphertext: &[u8]) -> Ve
 pub(crate) fn merge_plaintext(output: &SppProofOutputUtxo) -> Result<Vec<u8>, ClientError> {
     let mut pt = Vec::with_capacity(8 + 32 + 31);
     pt.extend_from_slice(&output.amount.to_be_bytes());
-    pt.extend_from_slice(&asset_field(&output.asset)?);
+    pt.extend_from_slice(&asset_proof_input_hash(&output.asset)?);
     pt.extend_from_slice(&output.blinding);
     Ok(pt)
 }

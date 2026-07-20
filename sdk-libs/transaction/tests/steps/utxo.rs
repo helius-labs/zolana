@@ -1,8 +1,6 @@
 use cucumber::then;
-use zolana_keypair::{
-    constants::BLINDING_LEN,
-    hash::{hash_field, owner_hash, poseidon},
-};
+use zolana_hasher::{primitives::bytes32_proof_input_hash, Hasher, Poseidon};
+use zolana_keypair::{constants::BLINDING_LEN, hash::owner_hash};
 use zolana_transaction::{
     data::Data,
     utxo::{ProofInputUtxo, Utxo, UTXO_DOMAIN},
@@ -67,12 +65,12 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
         .expect("UTXO hash");
 
     let owner = owner_hash(&utxo.owner, &npk).expect("owner hash");
-    let owner_utxo_hash = poseidon(&[&owner, &fe(utxo.blinding)]).expect("owner UTXO hash");
-    let asset = hash_field(utxo.asset.as_array()).expect("asset field");
+    let owner_utxo_hash = Poseidon::hashv(&[&owner, &fe(utxo.blinding)]).expect("owner UTXO hash");
+    let asset = bytes32_proof_input_hash(utxo.asset.as_array()).expect("asset field");
     let zone_program_id_field =
-        hash_field(zone_program_id.as_array()).expect("zone program id field");
-    let zone_hash = poseidon(&[&zone_data_hash, &zone_program_id_field]).expect("zone hash");
-    let expected = poseidon(&[
+        bytes32_proof_input_hash(zone_program_id.as_array()).expect("zone program id field");
+    let zone_hash = Poseidon::hashv(&[&zone_data_hash, &zone_program_id_field]).expect("zone hash");
+    let expected = Poseidon::hashv(&[
         &fe(UTXO_DOMAIN.to_be_bytes()),
         &asset,
         &fe(utxo.amount.to_be_bytes()),

@@ -1,9 +1,9 @@
 use pinocchio::{address::Address, error::ProgramError, AccountView};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::{error::ShieldedPoolError, merge_utils::owner_pk_field_compressed};
+use zolana_interface::{error::ShieldedPoolError, merge_utils::owner_proof_input_hash_compressed};
 use zolana_user_registry_interface::{state::UserRecord, USER_REGISTRY_PROGRAM_ID};
 
-use crate::instructions::hash::solana_pk_hash;
+use crate::instructions::hash::address_field;
 
 /// Validated accounts for `merge_transact`, in loader order: `tree` (writable),
 /// `payer` (signer, pays fees), `user_record` (read-only).
@@ -64,13 +64,13 @@ pub fn load_user_record(
     let mut signing_view_tag = [0u8; 32];
     let signing_pk_field = if eddsa_owner {
         signing_view_tag.copy_from_slice(record.owner.as_array());
-        solana_pk_hash(record.owner.as_array())?
+        address_field(record.owner.as_array())?
     } else {
         let owner_p256 = record
             .owner_p256
             .ok_or(ShieldedPoolError::InvalidUserRecord)?;
         signing_view_tag.copy_from_slice(&owner_p256[1..]);
-        owner_pk_field_compressed(&owner_p256).map_err(|_| ShieldedPoolError::InvalidUserRecord)?
+        owner_proof_input_hash_compressed(&owner_p256).map_err(|_| ShieldedPoolError::InvalidUserRecord)?
     };
     Ok(UserPkFields {
         signing_pk_field,

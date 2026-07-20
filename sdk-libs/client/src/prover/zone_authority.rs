@@ -8,10 +8,10 @@
 
 use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_keypair::hash::hash_field;
+use zolana_hasher::primitives::bytes32_proof_input_hash;
 use zolana_transaction::{
     instructions::{transact::PrivateTxHash, zone_authority::PreparedZoneAuthority},
-    utxo::program_id_field,
+    utxo::program_id_proof_input_hash,
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -79,11 +79,11 @@ impl ZoneAuthorityProver {
         // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
         // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
         // zone field to this public input.
-        let zone_program_id = program_id_field(&self.zone_program_id)?;
+        let zone_program_id = program_id_proof_input_hash(&self.zone_program_id)?;
 
         // Zone-authority public-input layout: the 12 base elements, with input owner
         // pk_fields kept private (no owner chain) and no confidential appendix.
-        // Mirrors NewTransferZoneAuthorityCircuit's publicInputHash. hash_field(&[0;32])
+        // Mirrors NewTransferZoneAuthorityCircuit's publicInputHash. bytes32_proof_input_hash(&[0;32])
         // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element.
         let public_input = create_hash_chain_from_slice(&[
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
@@ -91,7 +91,7 @@ impl ZoneAuthorityProver {
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
-            hash_field(&[0u8; 32])?,
+            bytes32_proof_input_hash(&[0u8; 32])?,
             external_data_hash,
             self.public_amounts.sol,
             self.public_amounts.spl,

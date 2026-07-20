@@ -13,10 +13,8 @@ use swap_program::{
 };
 use swap_prover::{CancelProofInputs, CircuitId, OrderTermsProofInput, TAKE_MODE_DERIVED};
 use swap_sdk::state::DataHash;
-use zolana_keypair::{
-    hash::{hash_field, poseidon},
-    ViewingKey,
-};
+use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
+use zolana_keypair::ViewingKey;
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 mod shared;
@@ -54,10 +52,10 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
     let maker_owner_pk_field = fe(71);
     let maker_nullifier_pk = fe(88);
     let maker_owner_hash =
-        poseidon(&[&maker_owner_pk_field, &maker_nullifier_pk]).expect("owner hash");
+        Poseidon::hashv(&[&maker_owner_pk_field, &maker_nullifier_pk]).expect("owner hash");
     let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
     let order = OrderTermsProofInput {
-        destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
+        destination_asset: hash_bytes(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,
         maker_owner_hash,
         maker_viewing_pk,
@@ -105,7 +103,7 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
 }
 
 fn sample_inputs() -> CancelProofInputs {
-    let maker_owner_hash = poseidon(&[&fe(71), &fe(88)]).expect("owner hash");
+    let maker_owner_hash = Poseidon::hashv(&[&fe(71), &fe(88)]).expect("owner hash");
     build_inputs(maker_owner_hash)
 }
 
@@ -236,7 +234,7 @@ fn cancel_rejects_tampered_public_input() {
 fn cancel_rejects_wrong_source_output_owner() {
     ensure_keys();
 
-    let mut wrong_owner = poseidon(&[&fe(71), &fe(88)]).expect("owner hash");
+    let mut wrong_owner = Poseidon::hashv(&[&fe(71), &fe(88)]).expect("owner hash");
     wrong_owner[31] ^= 0x01;
     let inputs = build_inputs(wrong_owner);
 

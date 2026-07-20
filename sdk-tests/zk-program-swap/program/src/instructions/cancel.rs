@@ -12,7 +12,7 @@ use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use crate::{
     error::SwapError,
     instructions::{
-        shared::{check_after_window, cpi_spp_transact_signed, hash_field, u64_right_align},
+        shared::{check_after_window, cpi_spp_transact_signed, hash_bytes, u64_right_align},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
 };
@@ -62,7 +62,7 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     // The maker signs the cancel; the cancel proof recomputes the order's
     // committed maker_owner_hash from this pubkey (owner_pk_field), so only the
     // maker can cancel and the maker knows the refund blinding it chose.
-    let maker_owner_pk_field = hash_field(iter.next_signer("maker")?.address().as_array())?;
+    let maker_owner_pk_field = hash_bytes(iter.next_signer("maker")?.address().as_array())?;
 
     let CancelIxData {
         proof,

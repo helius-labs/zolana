@@ -14,7 +14,7 @@ use super::{
     event::{emit_proofless_event, ProoflessOutputCtx},
 };
 use crate::instructions::{
-    hash::{field_from_u64, solana_pk_hash},
+    hash::{address_field, field_from_u64},
     settlement::{settle_sol, settle_spl, Settlement},
 };
 
@@ -99,7 +99,7 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
     let needs_spl = matches!(parsed.settlement, Settlement::Spl(_));
 
     let asset = parsed.asset;
-    let asset_field = solana_pk_hash(&asset)?;
+    let asset_fe = address_field(&asset)?;
 
     let zero = [0u8; 32];
     let data_hash = match &d.utxo_data {
@@ -107,7 +107,7 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
         None => zero,
     };
     let (zone_data_hash, zone_id_field) = match (&d.zone, &zone_program_id) {
-        (Some(zone), Some(program_id)) => (zone.data_hash, solana_pk_hash(program_id)?),
+        (Some(zone), Some(program_id)) => (zone.data_hash, address_field(program_id)?),
         _ => (zero, zero),
     };
     let zone_hash = hash_with_program_id(&zone_data_hash, &zone_id_field)?;
@@ -117,7 +117,7 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
     let utxo_hash = Poseidon::hashv(&[
         field_from_u64(u64::from(UTXO_DOMAIN)).as_slice(),
-        asset_field.as_slice(),
+        asset_fe.as_slice(),
         field_from_u64(amount).as_slice(),
         data_hash.as_slice(),
         zone_hash.as_slice(),

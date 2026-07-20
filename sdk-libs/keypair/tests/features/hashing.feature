@@ -8,7 +8,7 @@ Feature: Hash primitives
 
   Scenario: pubkey_field of the P256 generator matches the golden vector
     Given a P256 signing key "g" from scalar 1
-    Then pubkey_field of signing key "g" is "044773b2681cec700fdb631cf2ca84410447986764b430e88ac2e83e81b4a665"
+    Then pubkey_field of signing key "g" is "1e1cb7f006d9be548f5f7fff15a996046e447d43eb68b4a1894c335676a8052c"
 
   Scenario: pubkey_field is stable across calls
     Given a P256 signing key "g" from scalar 1
