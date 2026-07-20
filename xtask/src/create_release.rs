@@ -165,7 +165,11 @@ pub fn run(options: Options) -> Result<()> {
         .with_context(|| format!("failed to write {}", options.lock_path.display()))?;
     println!("wrote lockfile {}", options.lock_path.display());
 
-    let assets = staged_asset_paths(staging, &lock);
+    // Build the CLI binaries last so they embed the just-written lockfile.
+    let cli_assets = build_cli_binaries(&options, staging, (os, arch))?;
+    let mut assets = staged_asset_paths(staging, &lock);
+    assets.extend(cli_assets);
+
     if options.upload {
         upload_release(&options.tag, &assets, options.prerelease, &git_head()?)?;
     } else {
@@ -186,14 +190,11 @@ pub fn run(options: Options) -> Result<()> {
 /// Go prover cross-compiles natively; photon-linux-x64 builds in a Docker
 /// container so no host cross-linker is required.
 fn build_binaries(options: &Options, staging: &Path, host: (&str, &str)) -> Result<Vec<Value>> {
-    let mut targets = vec![host];
-    if host != ("linux", "x64") {
-        targets.push(("linux", "x64"));
-    }
-
     let repo = repo_root()?;
     let mut out = Vec::new();
-    for (os, arch) in targets {
+    for (os, arch) in release_targets(host) {
+        let is_host = (os, arch) == host;
+
         let prover_asset = format!("prover-{os}-{arch}-{}", options.tag);
         let prover_path = staging.join(&prover_asset);
         build_prover(&repo, os, arch, &prover_path)?;
@@ -207,13 +208,7 @@ fn build_binaries(options: &Options, staging: &Path, host: (&str, &str)) -> Resu
 
         let photon_asset = format!("photon-{os}-{arch}-{}", options.tag);
         let photon_path = staging.join(&photon_asset);
-        if (os, arch) == host {
-            build_photon_host(&repo, &photon_path)?;
-        } else if (os, arch) == ("linux", "x64") {
-            build_photon_linux_x64(&repo, &photon_path)?;
-        } else {
-            bail!("no photon builder for {os}-{arch}");
-        }
+        build_rust_binary(&repo, "photon-indexer", "photon", &photon_path, is_host)?;
         out.push(binary_json(
             "photon",
             os,
@@ -223,6 +218,35 @@ fn build_binaries(options: &Options, staging: &Path, host: (&str, &str)) -> Resu
         )?);
     }
     Ok(out)
+}
+
+/// Build the `zolana` CLI binary for each target and stage it. Called AFTER the
+/// lockfile is regenerated so the binary embeds the final lockfile (the CLI
+/// itself is therefore not a lockfile entry -- that would be circular). Returns
+/// the staged asset paths to upload alongside the lockfile-tracked assets.
+fn build_cli_binaries(
+    options: &Options,
+    staging: &Path,
+    host: (&str, &str),
+) -> Result<Vec<PathBuf>> {
+    let repo = repo_root()?;
+    let mut assets = Vec::new();
+    for (os, arch) in release_targets(host) {
+        let asset = format!("zolana-{os}-{arch}-{}", options.tag);
+        let path = staging.join(&asset);
+        build_rust_binary(&repo, "zolana-cli", "zolana", &path, (os, arch) == host)?;
+        assets.push(path);
+    }
+    Ok(assets)
+}
+
+/// The host platform plus linux-x64 (deduped when the host already is linux-x64).
+fn release_targets<'a>(host: (&'a str, &'a str)) -> Vec<(&'a str, &'a str)> {
+    let mut targets = vec![host];
+    if host != ("linux", "x64") {
+        targets.push(("linux", "x64"));
+    }
+    targets
 }
 
 fn binary_json(role: &str, os: &str, arch: &str, asset: &str, path: &Path) -> Result<Value> {
@@ -273,32 +297,39 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
     Ok(())
 }
 
-fn build_photon_host(repo: &Path, out: &Path) -> Result<()> {
-    println!("building photon (host)");
+/// Build a workspace binary (e.g. `photon`, `zolana`) for a target and stage it.
+/// The host build uses cargo directly; linux-x64 builds in a Docker container so
+/// no host cross-linker is needed. Both are cache-first via the shared
+/// `target`/`target-linux-x64` dirs, so building a second binary is incremental.
+fn build_rust_binary(repo: &Path, package: &str, bin: &str, out: &Path, host: bool) -> Result<()> {
+    if host {
+        build_rust_binary_host(repo, package, bin, out)
+    } else {
+        build_rust_binary_linux_x64(repo, package, bin, out)
+    }
+}
+
+fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> Result<()> {
+    println!("building {bin} (host)");
     let status = Command::new("cargo")
         .current_dir(repo)
-        .args([
-            "build",
-            "--release",
-            "-p",
-            "photon-indexer",
-            "--bin",
-            "photon",
-        ])
+        .args(["build", "--release", "-p", package, "--bin", bin])
         .status()
-        .context("failed to run cargo build for photon")?;
+        .with_context(|| format!("failed to run cargo build for {bin}"))?;
     if !status.success() {
-        bail!("cargo build failed for photon (host)");
+        bail!("cargo build failed for {bin} (host)");
     }
-    fs::copy(repo.join("target/release/photon"), out)
-        .with_context(|| format!("failed to stage host photon to {}", out.display()))?;
+    fs::copy(repo.join("target/release").join(bin), out)
+        .with_context(|| format!("failed to stage host {bin} to {}", out.display()))?;
     Ok(())
 }
 
-fn build_photon_linux_x64(repo: &Path, out: &Path) -> Result<()> {
-    println!("building photon linux-x64 (docker {PHOTON_LINUX_BUILDER_IMAGE})");
+fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path) -> Result<()> {
+    println!("building {bin} linux-x64 (docker {PHOTON_LINUX_BUILDER_IMAGE})");
     let mount = format!("{}:/work", path_str(repo)?);
-    let build = "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p photon-indexer --bin photon --target-dir /work/target-linux-x64";
+    let build = format!(
+        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin} --target-dir /work/target-linux-x64"
+    );
     let status = Command::new("docker")
         .args([
             "run",
@@ -311,14 +342,14 @@ fn build_photon_linux_x64(repo: &Path, out: &Path) -> Result<()> {
             "/work",
         ])
         .arg(PHOTON_LINUX_BUILDER_IMAGE)
-        .args(["bash", "-c", build])
+        .args(["bash", "-c", &build])
         .status()
-        .context("failed to run docker for photon linux-x64 build")?;
+        .with_context(|| format!("failed to run docker for {bin} linux-x64 build"))?;
     if !status.success() {
-        bail!("docker photon linux-x64 build failed");
+        bail!("docker {bin} linux-x64 build failed");
     }
-    fs::copy(repo.join("target-linux-x64/release/photon"), out)
-        .with_context(|| format!("failed to stage linux photon to {}", out.display()))?;
+    fs::copy(repo.join("target-linux-x64/release").join(bin), out)
+        .with_context(|| format!("failed to stage linux {bin} to {}", out.display()))?;
     Ok(())
 }
 
@@ -591,9 +622,11 @@ fn print_help() {
     println!();
     println!("Builds the localnet release: version-suffixed program .so files, an");
     println!("account-snapshot bundle generated in-process with LiteSVM (no keypairs");
-    println!("or running validator needed), and the prover/photon binaries for the host");
-    println!("platform plus linux-x64 (Go cross-compile for the prover; Docker for the");
-    println!("linux photon), then regenerates cli/release-artifacts.lock.");
+    println!("or running validator needed), and the prover, photon, and zolana CLI");
+    println!("binaries for the host platform plus linux-x64 (Go cross-compile for the");
+    println!("prover; Docker for the linux Rust binaries). Regenerates");
+    println!("cli/release-artifacts.lock; the CLI binary is built last so it embeds the");
+    println!("final lockfile (and is therefore uploaded but not a lockfile entry).");
     println!();
     println!("Requires: go, cargo, and docker (for the linux-x64 photon build).");
     println!();
