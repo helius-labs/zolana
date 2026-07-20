@@ -82,7 +82,7 @@ test-photon:
 # All zolana-client tests (lib unit tests, the `transaction` integration test,
 # and the `transfer_2_3` BDD suite). The BDD scenario spawns the prover server
 # (via the zolana CLI), which lazily downloads proving keys from the
-# transfer-keys-v12 GitHub release via the GitHub REST API using GH_TOKEN or
+# transfer-keys-v13 GitHub release via the GitHub REST API using GH_TOKEN or
 # GITHUB_TOKEN, or uses local keys verified by CHECKSUM. Builds the go prover
 # binary and the zolana CLI the spawned server/test rely on.
 test-client-integration: build-prover-server build-cli
@@ -611,7 +611,7 @@ build-spp-keys:
     prover/server/scripts/regenerate_all_vkeys.sh "$(pwd)/{{spp-keys-dir}}"
 
 publish-spp-keys-release:
-    prover/server/scripts/publish_keys_release.sh transfer-keys-v12 "$(pwd)/{{spp-keys-dir}}"
+    prover/server/scripts/publish_keys_release.sh transfer-keys-v13 "$(pwd)/{{spp-keys-dir}}"
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon

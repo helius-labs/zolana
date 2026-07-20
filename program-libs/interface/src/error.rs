@@ -73,6 +73,8 @@ pub enum ShieldedPoolError {
     MissingP256SigningKey = 7024,
     #[error("output owner tag account index is out of range")]
     OwnerTagAccountMissing = 7025,
+    #[error("input nullifier is a reserved value (0, p-1, or non-canonical)")]
+    ReservedNullifier = 7026,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -135,6 +137,7 @@ mod tests {
             (BothPublicAmountsSet as u32, 7023),
             (MissingP256SigningKey as u32, 7024),
             (OwnerTagAccountMissing as u32, 7025),
+            (ReservedNullifier as u32, 7026),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

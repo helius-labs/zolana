@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{
     prover::field::be, spawn_prover, Proof, ProofCompressed, ProofInputUtxo, ProverClient,
-    TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    TransferInput, TransferInputs, TransferOutput,
 };
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::{
@@ -161,33 +161,30 @@ pub fn set_output_owner_tags(
     }
 }
 
-/// One circuit-dummy input carrying a chosen nullifier plus the real tree roots
-/// and signer owner hash.
+/// One circuit-dummy (padding) input over a chosen `blinding`. Delegates to the
+/// production builder, so the public nullifier is the derived
+/// `Poseidon(utxo_hash, blinding, 0)` the circuit pins -- a distinct blinding per
+/// slot keeps padding nullifiers pairwise-distinct. Pair with
+/// [`derived_dummy_nullifier`] for the caller's public columns.
 pub fn dummy_input(
-    nullifier: &[u8; 32],
+    blinding: &[u8; 31],
     roots: ([u8; 32], [u8; 32]),
     owner_hash: &[u8; 32],
 ) -> TransferInput {
     let (utxo_root, nullifier_root) = roots;
+    TransferInput::new_dummy(blinding, &utxo_root, &nullifier_root, owner_hash)
+        .expect("dummy input")
+        .0
+}
+
+/// The pinned nullifier of a padding input built from `blinding`. It depends only
+/// on the blinding (the padding UTXO's owner/amount are zero), so it matches the
+/// nullifier [`dummy_input`] embeds.
+pub fn derived_dummy_nullifier(blinding: &[u8; 31]) -> [u8; 32] {
     let zero = [0u8; 32];
-    TransferInput {
-        // A circuit-dummy input carries a chosen `nullifier`; the circuit skips its
-        // ownership/inclusion/nullifier-derivation checks, so an all-zero utxo slot
-        // satisfies the padding constraints (amount, owner, data_hash zero).
-        utxo: ProofInputUtxo::default(),
-        is_dummy: be(&fe(1)),
-        state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
-        state_path_index: be(&zero),
-        nullifier_low_value: be(&zero),
-        nullifier_next_value: be(&zero),
-        nullifier_low_path_elements: vec![be(&zero); NULLIFIER_TREE_HEIGHT],
-        nullifier_low_path_index: be(&zero),
-        utxo_tree_root: be(&utxo_root),
-        nullifier_tree_root: be(&nullifier_root),
-        nullifier: be(nullifier),
-        owner_pk_hash: be(owner_hash),
-        nullifier_secret: be(&zero),
-    }
+    TransferInput::new_dummy(blinding, &zero, &zero, &zero)
+        .expect("dummy nullifier")
+        .1
 }
 
 pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> InputUtxo {

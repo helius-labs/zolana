@@ -36,8 +36,8 @@ use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
+    build_transfer_prover_inputs, derived_dummy_nullifier, dummy_input, dummy_transfer_output,
+    eddsa_input_utxo, external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_sol_field,
     real_output, set_output_owner_tags, spend_input, start_prover, transfer_output, SpendInputArgs,
     TransferProverInputsArgs,
@@ -209,7 +209,8 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     );
     let change_hash = change_output.hash()?;
     let recipient_hash = recipient_output.hash()?;
-    let transfer_dummy_nullifier = fe(20);
+    let transfer_dummy_blinding: [u8; 31] = [20u8; 31];
+    let transfer_dummy_nullifier = derived_dummy_nullifier(&transfer_dummy_blinding);
     let transfer_roots = (shield_utxo_root, nullifier_root);
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
@@ -269,7 +270,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         inputs: vec![
             payer_spend_input,
             dummy_input(
-                &transfer_dummy_nullifier,
+                &transfer_dummy_blinding,
                 transfer_roots,
                 &payer_owner_pk_hash,
             ),
@@ -350,7 +351,8 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let public_recipient_before = account_lamports(&rpc, &public_recipient)?;
     let vault = pda::sol_interface();
     let vault_before = account_lamports(&rpc, &vault)?;
-    let withdraw_dummy_nullifier = fe(21);
+    let withdraw_dummy_blinding: [u8; 31] = [21u8; 31];
+    let withdraw_dummy_nullifier = derived_dummy_nullifier(&withdraw_dummy_blinding);
     let withdraw_dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
         .map(|blinding| {
@@ -410,7 +412,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         inputs: vec![
             recipient_spend_input,
             dummy_input(
-                &withdraw_dummy_nullifier,
+                &withdraw_dummy_blinding,
                 (transfer_utxo_root, transfer_nullifier_root),
                 &recipient_owner_pk_hash,
             ),

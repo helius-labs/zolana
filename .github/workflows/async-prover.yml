@@ -46,7 +46,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v12
+          key: proving-keys-transfer-keys-v13
       - run: just test-client-async-transfer-queue
       - name: Dump prover log on failure
         if: failure()

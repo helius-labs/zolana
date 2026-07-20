@@ -92,3 +92,7 @@ path = "tests/transact/p256.rs"
 [[test]]
 name = "both_amounts"
 path = "tests/transact/both_amounts.rs"
+
+[[test]]
+name = "padding_nullifier"
+path = "tests/transact/padding_nullifier.rs"

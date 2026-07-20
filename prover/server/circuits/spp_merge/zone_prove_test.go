@@ -154,7 +154,8 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 		if i < numReal {
 			pubNullifiers[i] = nullifiers[i]
 		} else {
-			pubNullifiers[i] = big.NewInt(int64(1000 + i))
+			// Pinned padding nullifier (C-02), derived under the shared secret.
+			pubNullifiers[i] = mustDummyMergeNullifier(t, i, nullifierSecret)
 		}
 		pubUtxoRoots[i] = stateRoot
 		pubNfRoots[i] = nfRoot
@@ -205,16 +206,7 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 			in.Nullifier = nullifiers[i]
 		} else {
 			in.IsDummy = 1
-			in.Utxo = utxoFields(protocol.Utxo{
-				Domain:        big.NewInt(0),
-				Owner:         big.NewInt(0),
-				Asset:         big.NewInt(0),
-				Amount:        big.NewInt(0),
-				Blinding:      big.NewInt(0),
-				DataHash:      big.NewInt(0),
-				ZoneDataHash:  big.NewInt(0),
-				ZoneProgramID: big.NewInt(0),
-			})
+			in.Utxo = utxoFields(dummyMergeUtxo(i))
 			zeroPath(in.StatePathElements)
 			in.StatePathIndex = big.NewInt(0)
 			in.NullifierLowValue = big.NewInt(0)
