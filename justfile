@@ -643,17 +643,15 @@ ensure-photon:
 
 # Build the localnet release artifacts and regenerate cli/release-artifacts.lock:
 # version-suffixed program .so files, an account-snapshot bundle (generated
-# in-process with LiteSVM -- no keypairs or running validator needed), and this
-# host's prover/photon binaries. Stages assets and rewrites the lockfile by
-# default; set UPLOAD=1 to publish via `gh release create`, and PRERELEASE=1 to
-# mark it a GitHub pre-release (e.g. `-alpha` tags). A multi-platform release runs
-# this on each target and merges the per-platform binaries into the lockfile.
-release tag: build-programs fetch-smart-account build-prover-server build-photon
-    cargo run -p xtask -- create-release \
-        --tag {{tag}} \
-        --photon-bin {{photon-bin}} \
-        {{ if env_var_or_default("UPLOAD", "") == "" { "" } else { "--upload" } }} \
-        {{ if env_var_or_default("PRERELEASE", "") == "" { "" } else { "--prerelease" } }}
+# in-process with LiteSVM -- no keypairs or running validator needed), and the
+# prover/photon binaries for the host platform plus linux-x64 (Go cross-compile
+# for the prover; Docker for the linux photon, so docker must be running).
+# Stages assets and rewrites the lockfile only, unless you forward flags to
+# `create-release`: add `--upload` to publish via `gh release create`
+# (re-published cleanly, tag re-pointed at HEAD) and `--prerelease` to mark a
+# GitHub pre-release. Example: `just release v0.1.0-alpha --upload --prerelease`.
+release tag *args: build-programs fetch-smart-account
+    cargo run -p xtask -- create-release --tag {{tag}} {{args}}
 
 # === Formatting and linting ===
 

@@ -1,8 +1,8 @@
 {
   "accounts": {
     "asset": "accounts-v0.1.0-alpha.tar.gz",
-    "sha256": "6520a1b3f60ea7b2797d91b504d25a5383ef3e8e16fa3449dffbc2bfd4f94fc7",
-    "size": 4549
+    "sha256": "ca1e13bb5da8cfe8fa29f802b83df2eacbb4fa1be08bb7bac257441973a07e97",
+    "size": 4552
   },
   "binaries": [
     {
@@ -10,16 +10,32 @@
       "asset": "prover-darwin-arm64-v0.1.0-alpha",
       "os": "darwin",
       "role": "prover",
-      "sha256": "191bdcaf84f9d29eff0c95480bb8b0a18a5c94f135c418e8271fa95ba23941ba",
-      "size": 39281890
+      "sha256": "be89bdf93f940f5bcd15ca3be1ea6ee4d3e61d3572ca396c4b60361f2cefe3a7",
+      "size": 39363522
     },
     {
       "arch": "arm64",
       "asset": "photon-darwin-arm64-v0.1.0-alpha",
       "os": "darwin",
       "role": "photon",
-      "sha256": "244381ec5fc385a644cda44509db198e55f06e1d51f22a1d8ca2613f2ceabda8",
-      "size": 79548968
+      "sha256": "20ab4e061ae46e844a09154d3ff51b4c1993bbc63f1d72bb6be28455cdaa3668",
+      "size": 25361280
+    },
+    {
+      "arch": "x64",
+      "asset": "prover-linux-x64-v0.1.0-alpha",
+      "os": "linux",
+      "role": "prover",
+      "sha256": "6ff60739c09e2d8bf1d5e1f562323fa54f19414f18746bba71e0904e58937db3",
+      "size": 41564971
+    },
+    {
+      "arch": "x64",
+      "asset": "photon-linux-x64-v0.1.0-alpha",
+      "os": "linux",
+      "role": "photon",
+      "sha256": "0206546254d9fe6b97f345107aabc8f5bfa0631c82a23b15754a686af1c4585f",
+      "size": 29910496
     }
   ],
   "programs": [

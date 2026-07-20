@@ -21,11 +21,14 @@ use zolana_program_test::ZolanaProgramTest;
 const DEFAULT_SURFPOOL_TAG: &str = "v1.1.1-light";
 const DEFAULT_SURFPOOL_VERSION: &str = "1.1.1";
 
+// Cross-compile photon for linux-x64 inside a matching-toolchain container
+// (see rust-toolchain.toml). linux/amd64 builds the x86_64-linux binary natively
+// in the container, avoiding a host cross-linker.
+const PHOTON_LINUX_BUILDER_IMAGE: &str = "rust:1.97-bookworm";
+
 pub struct Options {
     tag: String,
     deploy_dir: PathBuf,
-    prover_bin: PathBuf,
-    photon_bin: PathBuf,
     staging_dir: PathBuf,
     lock_path: PathBuf,
     upload: bool,
@@ -36,8 +39,6 @@ impl Options {
     pub fn parse(args: Vec<String>) -> Self {
         let mut tag = None;
         let mut deploy_dir = PathBuf::from("target/deploy");
-        let mut prover_bin = PathBuf::from("target/prover-server");
-        let mut photon_bin = PathBuf::from("target/release/photon");
         let mut staging_dir = PathBuf::from("target/release-staging");
         let mut lock_path = PathBuf::from("cli/release-artifacts.lock");
         let mut upload = false;
@@ -52,8 +53,6 @@ impl Options {
             match arg.as_str() {
                 "--tag" => tag = Some(next("--tag")),
                 "--deploy-dir" => deploy_dir = PathBuf::from(next("--deploy-dir")),
-                "--prover-bin" => prover_bin = PathBuf::from(next("--prover-bin")),
-                "--photon-bin" => photon_bin = PathBuf::from(next("--photon-bin")),
                 "--staging-dir" => staging_dir = PathBuf::from(next("--staging-dir")),
                 "--lock-path" => lock_path = PathBuf::from(next("--lock-path")),
                 "--upload" => upload = true,
@@ -69,8 +68,6 @@ impl Options {
         Self {
             tag: tag.unwrap_or_else(|| usage_and_exit("--tag is required")),
             deploy_dir,
-            prover_bin,
-            photon_bin,
             staging_dir,
             lock_path,
             upload,
@@ -118,8 +115,6 @@ pub fn run(options: Options) -> Result<()> {
             Ok((source, path))
         })
         .collect::<Result<Vec<_>>>()?;
-    require_file(&options.prover_bin, "run `just build-prover-server` first")?;
-    require_file(&options.photon_bin, "run `just build-photon` first")?;
 
     let staging = &options.staging_dir;
     reset_dir(staging)?;
@@ -153,22 +148,7 @@ pub fn run(options: Options) -> Result<()> {
         "sha256": accounts_staged.sha256,
     });
 
-    let mut binaries_json = Vec::new();
-    for (role, src) in [
-        ("prover", &options.prover_bin),
-        ("photon", &options.photon_bin),
-    ] {
-        let asset = format!("{role}-{os}-{arch}-{}", options.tag);
-        let staged = stage_file(src, &staging.join(&asset))?;
-        binaries_json.push(json!({
-            "role": role,
-            "os": os,
-            "arch": arch,
-            "asset": asset,
-            "size": staged.size,
-            "sha256": staged.sha256,
-        }));
-    }
+    let binaries_json = build_binaries(&options, staging, (os, arch))?;
 
     let (surfpool_tag, surfpool_version) = existing_surfpool_fields(&options.lock_path);
     let lock = json!({
@@ -187,7 +167,7 @@ pub fn run(options: Options) -> Result<()> {
 
     let assets = staged_asset_paths(staging, &lock);
     if options.upload {
-        upload_release(&options.tag, &assets, options.prerelease)?;
+        upload_release(&options.tag, &assets, options.prerelease, &git_head()?)?;
     } else {
         println!(
             "dry run (pass --upload to publish). Assets staged in {}:",
@@ -196,12 +176,172 @@ pub fn run(options: Options) -> Result<()> {
         for asset in &assets {
             println!("  {}", asset.display());
         }
-        println!(
-            "\nOnly the {os}-{arch} prover/photon binaries were built here. A multi-platform release requires running this on each target and merging the binaries into the lockfile."
-        );
     }
 
     Ok(())
+}
+
+/// Build the prover (Go) and photon (Rust) binaries for the host platform and,
+/// when the host is not already linux-x64, cross-build the linux-x64 pair. The
+/// Go prover cross-compiles natively; photon-linux-x64 builds in a Docker
+/// container so no host cross-linker is required.
+fn build_binaries(options: &Options, staging: &Path, host: (&str, &str)) -> Result<Vec<Value>> {
+    let mut targets = vec![host];
+    if host != ("linux", "x64") {
+        targets.push(("linux", "x64"));
+    }
+
+    let repo = repo_root()?;
+    let mut out = Vec::new();
+    for (os, arch) in targets {
+        let prover_asset = format!("prover-{os}-{arch}-{}", options.tag);
+        let prover_path = staging.join(&prover_asset);
+        build_prover(&repo, os, arch, &prover_path)?;
+        out.push(binary_json(
+            "prover",
+            os,
+            arch,
+            &prover_asset,
+            &prover_path,
+        )?);
+
+        let photon_asset = format!("photon-{os}-{arch}-{}", options.tag);
+        let photon_path = staging.join(&photon_asset);
+        if (os, arch) == host {
+            build_photon_host(&repo, &photon_path)?;
+        } else if (os, arch) == ("linux", "x64") {
+            build_photon_linux_x64(&repo, &photon_path)?;
+        } else {
+            bail!("no photon builder for {os}-{arch}");
+        }
+        out.push(binary_json(
+            "photon",
+            os,
+            arch,
+            &photon_asset,
+            &photon_path,
+        )?);
+    }
+    Ok(out)
+}
+
+fn binary_json(role: &str, os: &str, arch: &str, asset: &str, path: &Path) -> Result<Value> {
+    let staged = checksum_file(path)?;
+    Ok(json!({
+        "role": role,
+        "os": os,
+        "arch": arch,
+        "asset": asset,
+        "size": staged.size,
+        "sha256": staged.sha256,
+    }))
+}
+
+fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
+    let goos = match os {
+        "linux" => "linux",
+        "darwin" => "darwin",
+        other => bail!("unsupported prover OS {other}"),
+    };
+    let goarch = match arch {
+        "x64" => "amd64",
+        "arm64" => "arm64",
+        other => bail!("unsupported prover arch {other}"),
+    };
+    println!("building prover {os}-{arch}");
+    // `go build` runs in prover/server, so the -o path must be absolute or it
+    // would resolve relative to that dir instead of the repo-root staging dir.
+    let out_abs = if out.is_absolute() {
+        out.to_path_buf()
+    } else {
+        repo.join(out)
+    };
+    let status = Command::new("go")
+        .current_dir(repo.join("prover/server"))
+        .env("CGO_ENABLED", "0")
+        .env("GOOS", goos)
+        .env("GOARCH", goarch)
+        .arg("build")
+        .arg("-o")
+        .arg(&out_abs)
+        .arg(".")
+        .status()
+        .context("failed to run go build for prover")?;
+    if !status.success() {
+        bail!("go build failed for prover {os}-{arch}");
+    }
+    Ok(())
+}
+
+fn build_photon_host(repo: &Path, out: &Path) -> Result<()> {
+    println!("building photon (host)");
+    let status = Command::new("cargo")
+        .current_dir(repo)
+        .args([
+            "build",
+            "--release",
+            "-p",
+            "photon-indexer",
+            "--bin",
+            "photon",
+        ])
+        .status()
+        .context("failed to run cargo build for photon")?;
+    if !status.success() {
+        bail!("cargo build failed for photon (host)");
+    }
+    fs::copy(repo.join("target/release/photon"), out)
+        .with_context(|| format!("failed to stage host photon to {}", out.display()))?;
+    Ok(())
+}
+
+fn build_photon_linux_x64(repo: &Path, out: &Path) -> Result<()> {
+    println!("building photon linux-x64 (docker {PHOTON_LINUX_BUILDER_IMAGE})");
+    let mount = format!("{}:/work", path_str(repo)?);
+    let build = "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p photon-indexer --bin photon --target-dir /work/target-linux-x64";
+    let status = Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "--platform",
+            "linux/amd64",
+            "-v",
+            &mount,
+            "-w",
+            "/work",
+        ])
+        .arg(PHOTON_LINUX_BUILDER_IMAGE)
+        .args(["bash", "-c", build])
+        .status()
+        .context("failed to run docker for photon linux-x64 build")?;
+    if !status.success() {
+        bail!("docker photon linux-x64 build failed");
+    }
+    fs::copy(repo.join("target-linux-x64/release/photon"), out)
+        .with_context(|| format!("failed to stage linux photon to {}", out.display()))?;
+    Ok(())
+}
+
+fn repo_root() -> Result<PathBuf> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .context("failed to run git rev-parse --show-toplevel")?;
+    if !output.status.success() {
+        bail!("git rev-parse --show-toplevel failed");
+    }
+    Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
+}
+
+fn git_head() -> Result<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .context("failed to run git rev-parse HEAD")?;
+    if !output.status.success() {
+        bail!("git rev-parse HEAD failed");
+    }
+    Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
 /// Build the initialized account set fully in-process with LiteSVM. No maintainer
@@ -355,11 +495,19 @@ fn existing_surfpool_fields(lock_path: &Path) -> (String, String) {
     }
 }
 
-fn upload_release(tag: &str, assets: &[PathBuf], prerelease: bool) -> Result<()> {
+fn upload_release(tag: &str, assets: &[PathBuf], prerelease: bool, target: &str) -> Result<()> {
+    // Delete any existing release + tag so the re-publish is clean and the tag is
+    // recreated at the released commit. Best-effort: ignore "not found".
+    let _ = Command::new("gh")
+        .args(["release", "delete", tag, "--yes", "--cleanup-tag"])
+        .status();
+
     let mut args = vec![
         "release".to_string(),
         "create".to_string(),
         tag.to_string(),
+        "--target".to_string(),
+        target.to_string(),
         "--title".to_string(),
         tag.to_string(),
         "--notes".to_string(),
@@ -378,7 +526,7 @@ fn upload_release(tag: &str, assets: &[PathBuf], prerelease: bool) -> Result<()>
     if !status.success() {
         bail!("gh release create failed with status {status}");
     }
-    println!("published release {tag}");
+    println!("published release {tag} at {target}");
     Ok(())
 }
 
@@ -443,17 +591,22 @@ fn print_help() {
     println!();
     println!("Builds the localnet release: version-suffixed program .so files, an");
     println!("account-snapshot bundle generated in-process with LiteSVM (no keypairs");
-    println!("or running validator needed), and this host's prover/photon binaries,");
-    println!("then regenerates cli/release-artifacts.lock.");
+    println!("or running validator needed), and the prover/photon binaries for the host");
+    println!("platform plus linux-x64 (Go cross-compile for the prover; Docker for the");
+    println!("linux photon), then regenerates cli/release-artifacts.lock.");
+    println!();
+    println!("Requires: go, cargo, and docker (for the linux-x64 photon build).");
     println!();
     println!("Options:");
     println!("  --deploy-dir <dir>      Program .so directory (default target/deploy)");
-    println!("  --prover-bin <path>     Prover binary (default target/prover-server)");
-    println!("  --photon-bin <path>     Photon binary (default target/release/photon)");
     println!("  --staging-dir <dir>     Asset staging dir (default target/release-staging)");
-    println!("  --lock-path <path>      Lockfile to regenerate (default cli/release-artifacts.lock)");
+    println!(
+        "  --lock-path <path>      Lockfile to regenerate (default cli/release-artifacts.lock)"
+    );
     println!("  --upload                Publish via `gh release create` (default: dry run)");
-    println!("  --prerelease            Mark the GitHub release as a pre-release (e.g. alpha tags)");
+    println!(
+        "  --prerelease            Mark the GitHub release as a pre-release (e.g. alpha tags)"
+    );
 }
 
 #[cfg(test)]
@@ -500,6 +653,9 @@ mod tests {
             .iter()
             .map(|p| p.file_name().unwrap().to_str().unwrap())
             .collect();
-        assert_eq!(names, ["a.so", "b.so", "accounts.tar.gz", "prover", "photon"]);
+        assert_eq!(
+            names,
+            ["a.so", "b.so", "accounts.tar.gz", "prover", "photon"]
+        );
     }
 }

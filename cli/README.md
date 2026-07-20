@@ -98,7 +98,9 @@ zolana dev start --local --sbf-program <ID> target/deploy/<program>.so
 Passing any explicit `--sbf-program` also implies local mode. Override the
 release download host with `ZOLANA_RELEASE_URL`.
 
-Maintainers publish the release with `just release <tag>` (dry run; set `UPLOAD=1`
-to publish via `gh`, `PRERELEASE=1` for alpha tags). It builds the artifacts,
-snapshots the initialized accounts in-process with LiteSVM (no keypairs or running
-validator needed), and regenerates the lockfile.
+Maintainers publish the release with
+`just release <tag> --upload --prerelease` (omit the flags for a dry run that only
+stages assets and regenerates the lockfile). It builds the programs, the host +
+linux-x64 prover/photon binaries, snapshots the initialized accounts in-process
+with LiteSVM (no keypairs or running validator needed), and regenerates the
+lockfile.
