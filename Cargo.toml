@@ -36,6 +36,7 @@ members = [
     "sdk-tests/dynamic-swap/prover",
     "sdk-tests/dynamic-swap/sdk",
     "sdk-tests/dynamic-swap/test",
+    "sdk-tests/rfq",
     "sdk-tests/zk-program-swap/program",
     "sdk-tests/zk-program-swap/prover",
     "sdk-tests/zk-program-swap/sdk",
