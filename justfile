@@ -76,16 +76,16 @@ test-sdk-libs:
     cargo test -p zolana-keypair
     cargo test -p zolana-transaction
     cargo test -p zolana-client --lib --features indexer-api
-    cargo test -p zolana-client --test transaction --features indexer-api
     cargo test -p zolana-client --test solana_rpc --features solana-rpc
+    cargo test -p zolana-wallet
 
 # Photon unit and SQLite-backed integration tests. The Postgres migration smoke
 # test runs in CI where a database service is available.
 test-photon:
     cargo test -p photon-indexer
 
-# All zolana-client tests (lib unit tests, the `transaction` integration test,
-# and the `transfer_2_3` BDD suite). The BDD scenario spawns the prover server
+# All zolana-client tests (lib unit tests and the `transfer_2_3` BDD suite).
+# The BDD scenario spawns the prover server
 # (via the zolana CLI), which lazily downloads any missing proving keys from
 # CloudFront (verified against the committed lockfile; no token). Builds the go
 # prover binary and the zolana CLI the spawned server/test rely on.
