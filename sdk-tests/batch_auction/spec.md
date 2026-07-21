@@ -7,6 +7,22 @@
 - The operator is disclosure-only: it never custodies funds and never executes. It is trusted for liveness twice -- publishing the aggregate to bidders, and forwarding the decrypted order notes to the winner after award (the winner needs each order's witnesses to build fill proofs). The winner therefore learns the batch's composition; losing bidders and the public learn only the bucket.
 - Bonds replace reservations: each bid deposits the batch's fixed public `bond` (displacing and refunding the previous bidder's). A winner that fills or refunds every order reclaims it; orders still open past `execution_deadline` are reclaimed by their takers, each reclaim claiming an equal share of the forfeited bond.
 
+## Actors
+
+| Actor | Role | Trust |
+|-------|------|-------|
+| Taker | Spends source-asset liquidity into an order, holds its witnesses, and reclaims it if unfilled past `execution_deadline`. | None. Spends only its own funds; the proof fixes every payout. |
+| Operator | Opens the batch, publishes the aggregate-volume bucket, and forwards the decrypted order notes to the winner. Holds every order's witnesses but never custodies funds or fills. | Liveness. A silent operator strands the batch; it cannot misstate the aggregate but can grief by handing witnesses to a non-winner. |
+| Solver | Bids the clearing price up during the bid window, posting the `bond`; the last bidder wins, receives the witnesses, and fills or refunds every order from its own destination-asset liquidity. | Bonded only. Forfeits the `bond` for stranding any order; learns the batch composition. |
+
+## Phases
+
+1. **Join** (`slot <= join_deadline`) -- takers `place_order`; the accumulator and `order_count` grow, then freeze.
+2. **Disclose** -- the operator publishes the aggregate-volume bucket to bidders, proven against the frozen accumulator.
+3. **Bid** (`join_deadline < slot <= bid_deadline`) -- solvers `bid` the `clearing_price` up, each posting the `bond` and refunding the last bidder; the final bidder wins.
+4. **Execution** (`bid_deadline < slot <= execution_deadline`) -- the winner runs one `fill` per order, filling or limit-refunding indistinguishably.
+5. **Settle** (`slot > execution_deadline`) -- takers `reclaim` stranded orders and split the forfeited bond; `close_batch` returns the rest to the winner and rent to the operator.
+
 ## Instructions
 
 | # | Instruction | Tag | Description | Accounts Read | Accounts Modified | Access control |
