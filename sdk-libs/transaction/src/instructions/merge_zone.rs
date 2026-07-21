@@ -1,7 +1,8 @@
 //! High-level policy-zone merge build: [`MergeZone`] names which UTXOs to
 //! consolidate, the derived single output, and the zone program every input is
-//! owned by; [`PreparedMergeZone`] pads to [`MERGE_INPUTS`] and yields the input
-//! commitments to fetch Merkle proofs for. Like the default merge, the merge-zone
+//! owned by; [`PreparedMergeZone`] pads to
+//! [`MERGE_INPUTS`](crate::instructions::merge::MERGE_INPUTS) and yields the
+//! input commitments to fetch Merkle proofs for. Like the default merge, the merge-zone
 //! proof proves ownership in-circuit from the nullifier secret, so there is no
 //! signing step. Every input and the output share a `zone_program_id`; policy-data
 //! hashes remain in the witness and the zone selects the output policy-data hash.
@@ -89,8 +90,9 @@ impl MergeZone {
         self
     }
 
-    /// Pad to [`MERGE_INPUTS`] with dummy inputs (real inputs first), producing the
-    /// proofless [`PreparedMergeZone`].
+    /// Pad to [`MERGE_INPUTS`](crate::instructions::merge::MERGE_INPUTS) with
+    /// dummy inputs (real inputs first), producing the proofless
+    /// [`PreparedMergeZone`].
     pub fn prepare(self) -> PreparedMergeZone {
         let MergeZone {
             mut inputs,
@@ -114,9 +116,11 @@ impl MergeZone {
     }
 }
 
-/// A policy-zone merge padded to [`MERGE_INPUTS`] (real inputs first, dummies at
-/// the tail), still proofless. Carries the shared `zone_program_id` the proof
-/// commits. [`Self::input_utxo_hashes`] yields what to fetch Merkle proofs for.
+/// A policy-zone merge padded to
+/// [`MERGE_INPUTS`](crate::instructions::merge::MERGE_INPUTS) (real inputs
+/// first, dummies at the tail), still proofless. Carries the shared
+/// `zone_program_id` the proof commits. [`Self::input_utxo_hashes`] yields what
+/// to fetch Merkle proofs for.
 pub struct PreparedMergeZone {
     pub inputs: Vec<SppProofInputUtxo>,
     pub output: SppProofOutputUtxo,
@@ -140,7 +144,7 @@ mod tests {
     use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair};
 
     use super::*;
-    use crate::{utxo::Utxo, Data, DataRecord};
+    use crate::{instructions::merge::MERGE_INPUTS, utxo::Utxo, Data, DataRecord};
 
     const ZONE: [u8; 32] = [3u8; 32];
 
