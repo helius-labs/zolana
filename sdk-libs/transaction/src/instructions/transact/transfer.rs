@@ -1,3 +1,4 @@
+use rand::{rngs::OsRng, Rng, RngCore};
 use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
@@ -505,19 +506,14 @@ fn dummy_rail(recipient_rails: &[SignatureType], sender_rail: SignatureType) -> 
     if recipient_rails.is_empty() {
         return sender_rail;
     }
-    let index =
-        usize::from(random_blinding().first().copied().unwrap_or(0)) % recipient_rails.len();
+    let index = OsRng.gen_range(0..recipient_rails.len());
     recipient_rails.get(index).copied().unwrap_or(sender_rail)
 }
 
 /// Random `len` bytes for a dummy output slot.
 fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
-    let mut data = Vec::with_capacity(len);
-    while data.len() < len {
-        let chunk = random_blinding();
-        let take = (len - data.len()).min(chunk.len());
-        data.extend_from_slice(&chunk[..take]);
-    }
+    let mut data = vec![0u8; len];
+    OsRng.fill_bytes(&mut data);
     data
 }
 

@@ -11649,6 +11649,7 @@ dependencies = [
  "num-bigint 0.4.8",
  "p256",
  "proptest",
+ "rand 0.8.7",
  "rayon",
  "solana-address 2.6.1",
  "solana-signature 3.4.1",

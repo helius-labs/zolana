@@ -115,6 +115,15 @@ pub enum ClientError {
     #[error("split input utxo {hash:?} is not available in the wallet")]
     InputUtxoUnavailable { hash: [u8; 32] },
 
+    #[error(
+        "input utxo {hash:?} is on tree {utxo_tree:?}, not the resolved spend tree {spend_tree:?}"
+    )]
+    InputUtxoTreeMismatch {
+        hash: [u8; 32],
+        utxo_tree: solana_address::Address,
+        spend_tree: solana_address::Address,
+    },
+
     #[error("split input utxo {hash:?} carries program or utxo data, which is not supported")]
     SplitInputHasData { hash: [u8; 32] },
 
@@ -183,6 +192,12 @@ pub enum ClientError {
         target: i64,
         latest: i64,
         attempts: u32,
+    },
+
+    #[error("poll gave up after {attempts} attempts; last transient error: {last_error:?}")]
+    PollTimedOut {
+        attempts: u32,
+        last_error: Option<String>,
     },
 
     #[error("proof path has {got} elements, expected {expected}")]

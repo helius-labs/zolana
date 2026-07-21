@@ -8,12 +8,15 @@
 
 use p256::SecretKey;
 use solana_address::Address;
-use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, ShieldedKeypairTrait};
+use zolana_keypair::{P256Pubkey, PublicKey, ShieldedKeypairTrait};
 
 use crate::{
     error::TransactionError,
     instructions::{
-        merge::{has_utxo_data, MERGE_INPUTS},
+        merge::{
+            fresh_tx_viewing_sk, has_utxo_data, pad_with_dummies, real_input_contexts,
+            validate_merge_inputs,
+        },
         types::{InputUtxoContext, SppProofInputUtxo},
     },
     SppProofOutputUtxo,
@@ -43,52 +46,20 @@ impl MergeZone {
         zone_program_id: Address,
         output_zone_data_hash: Option<[u8; 32]>,
     ) -> Result<Self, TransactionError> {
-        if inputs.is_empty() {
-            return Err(TransactionError::NoInputs);
-        }
-        if inputs.len() > MERGE_INPUTS {
-            return Err(TransactionError::TooManyInputs {
-                got: inputs.len(),
-                max: MERGE_INPUTS,
-            });
-        }
-
-        let asset = inputs.first().ok_or(TransactionError::NoInputs)?.utxo.asset;
-        // The proof binds every input to one shared owner identity, so the merge
-        // rail is the owner's rail and every input must match it. It also proves
-        // ownership from one nullifier secret and never consumes UTXO program data,
-        // so every input must carry exactly the keypair's owner and nullifier key.
-        // Policy-zone data is allowed because the calling zone authorizes its state
-        // transition before CPI and the merge-zone circuit commits every hash.
-        let owner = keypair.signing_pubkey();
-        let owner_rail = keypair.curve()?;
-        let nullifier_pubkey = keypair.nullifier_key().pubkey()?;
-        let mut total = 0u64;
-        for (index, spend) in inputs.iter().enumerate() {
-            if spend.utxo.owner.signature_type()? != owner_rail {
-                return Err(TransactionError::MergeInputRailMismatch { index });
-            }
-            if spend.utxo.owner != owner {
-                return Err(TransactionError::MergeInputOwnerMismatch { index });
-            }
-            if spend.nullifier_key.pubkey()? != nullifier_pubkey {
-                return Err(TransactionError::MergeInputNullifierKeyMismatch { index });
-            }
-            if spend.utxo.asset != asset {
-                return Err(TransactionError::MergeInputAssetMismatch { index });
-            }
-            // The policy-zone merge consolidates only UTXOs already owned by the
-            // calling zone, so every input must carry exactly this zone_program_id.
+        // The policy-zone merge consolidates only UTXOs already owned by the
+        // calling zone, so every input must carry exactly this zone_program_id.
+        // Policy-zone data is allowed (the calling zone authorizes its state
+        // transition before CPI and the merge-zone circuit commits every hash);
+        // owner/program UTXO data is never mergeable.
+        let (asset, total) = validate_merge_inputs(keypair, &inputs, |index, spend| {
             if spend.utxo.zone_program_id != Some(zone_program_id) {
                 return Err(TransactionError::MergeInputZoneMismatch { index });
             }
             if has_utxo_data(spend) {
                 return Err(TransactionError::MergeInputHasData { index });
             }
-            total = total
-                .checked_add(spend.utxo.amount)
-                .ok_or(TransactionError::SelectedBalanceOverflow)?;
-        }
+            Ok(())
+        })?;
 
         // The merged output preserves zone ownership.
         let output = match output_zone_data_hash {
@@ -100,13 +71,6 @@ impl MergeZone {
                 .with_zone_program_id(zone_program_id),
         };
 
-        // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the
-        // value is both a valid P-256 scalar and a valid circuit witness.
-        let mut sk_bytes = [0u8; 32];
-        sk_bytes[1..].copy_from_slice(&random_blinding());
-        let tx_viewing_sk =
-            SecretKey::from_slice(&sk_bytes).map_err(|e| TransactionError::P256(e.to_string()))?;
-
         Ok(Self {
             inputs,
             output,
@@ -115,7 +79,7 @@ impl MergeZone {
             expiry_unix_ts: u64::MAX,
             signing_pubkey: keypair.signing_pubkey(),
             user_viewing_pk: keypair.viewing_pubkey(),
-            tx_viewing_sk,
+            tx_viewing_sk: fresh_tx_viewing_sk()?,
             zone_program_id,
         })
     }
@@ -137,9 +101,7 @@ impl MergeZone {
             tx_viewing_sk,
             zone_program_id,
         } = self;
-        while inputs.len() < MERGE_INPUTS {
-            inputs.push(SppProofInputUtxo::new_dummy());
-        }
+        pad_with_dummies(&mut inputs);
         PreparedMergeZone {
             inputs,
             output,
@@ -166,25 +128,10 @@ pub struct PreparedMergeZone {
 }
 
 impl PreparedMergeZone {
-    /// Commitments for the real inputs only; dummy padding has a zero owner and no
-    /// meaningful commitment to look up. UTXO program data is not mergeable, while
-    /// policy-zone data remains part of each input commitment.
+    /// Commitments for the real inputs only. UTXO program data is not mergeable,
+    /// while policy-zone data remains part of each input commitment.
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
-        self.inputs
-            .iter()
-            .filter(|spend| !spend.is_dummy())
-            .enumerate()
-            .map(|(index, spend)| {
-                if has_utxo_data(spend) {
-                    return Err(TransactionError::MergeInputHasData { index });
-                }
-                Ok(InputUtxoContext {
-                    index,
-                    utxo_hash: spend.hash()?,
-                    nullifier: spend.nullifier()?,
-                })
-            })
-            .collect()
+        real_input_contexts(&self.inputs, has_utxo_data)
     }
 }
 
