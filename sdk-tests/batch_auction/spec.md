@@ -37,4 +37,4 @@
 
 ## Future Work
 
-1. Batched fills: one instruction and proof resolving several orders against the same clearing price, amortizing verification CU across the batch.
+1. Batched fills: one instruction and proof resolving several orders against the same clearing price, amortizing verification CU across the batch. Deposit with 4kb instruction size could deposit to up to 75 users with one proof.
