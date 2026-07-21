@@ -24,7 +24,7 @@ use crate::{
             p256_and_eddsa::{
                 assemble_inputs, assemble_outputs, OwnerMode, PublicAmounts, TransferSpendInput,
             },
-            witness::SpendProof,
+            witness::{attach_input_proofs, SpendProof},
         },
         Shape, TransferInputs,
     },
@@ -147,29 +147,7 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
             shape,
         } = prepared;
 
-        // Attach a proof to each real input; a dummy (zero owner) is proofless and
-        // mirrors the first real input's roots during assembly.
-        let mut spends = Vec::with_capacity(inputs.len());
-        let mut real_index = 0;
-        for spend in inputs {
-            let proof = if spend.utxo.owner.is_zero() {
-                None
-            } else {
-                let proof = proofs
-                    .get(real_index)
-                    .ok_or(ClientError::MissingInputMerkleProof { index: real_index })?
-                    .clone();
-                real_index += 1;
-                Some(proof)
-            };
-            spends.push(TransferSpendInput {
-                utxo: spend.utxo,
-                nullifier_key: spend.nullifier_key,
-                data_hash: spend.data_hash,
-                zone_data_hash: spend.zone_data_hash,
-                proof,
-            });
-        }
+        let spends = attach_input_proofs(inputs, &proofs)?;
 
         Ok(ZoneAuthorityProver {
             inputs: spends,

@@ -16,7 +16,7 @@ pub use inputs::{
     TransferP256Inputs,
 };
 pub use merge::{MergeProofResult, MergeProver};
-pub use merge_zone::{MergeZoneProofResult, MergeZoneProver, MergeZoneWitness};
+pub use merge_zone::{MergeZoneProver, MergeZoneWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use transact::{
     P256Owner, PublicAmounts, TransferP256ProofResult, TransferP256Prover, TransferProofResult,
