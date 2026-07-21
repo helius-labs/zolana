@@ -154,7 +154,6 @@ fn real_input() -> TransferSpendInput {
     indexer.add_utxo(utxo_hash);
     let proof = indexer
         .get_input_merkle_proofs(
-            Address::default(),
             &[InputUtxoContext {
                 index: 0,
                 utxo_hash,

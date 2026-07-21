@@ -307,11 +307,11 @@ pub trait Rpc {
     }
 
     /// Resolve the state-inclusion and nullifier-non-inclusion proofs for each
-    /// input UTXO commitment on `tree_account`, returned in the same order as the
-    /// commitments.
+    /// input UTXO commitment, returned in the same order as the commitments. The
+    /// commitments determine the tree; each returned proof names it in its merkle
+    /// context.
     fn get_input_merkle_proofs(
         &self,
-        tree_account: Address,
         input_utxo_commitments: &[InputUtxoContext],
         config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
@@ -493,7 +493,6 @@ pub trait AsyncRpc: Send + Sync {
 
     async fn get_input_merkle_proofs(
         &self,
-        tree_account: Address,
         input_utxo_commitments: &[InputUtxoContext],
         config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {

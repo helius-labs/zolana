@@ -107,7 +107,6 @@ impl Default for TestIndexer {
 impl Rpc for TestIndexer {
     fn get_input_merkle_proofs(
         &self,
-        _tree_account: solana_address::Address,
         input_utxo_commitments: &[InputUtxoContext],
         _config: Option<zolana_client::IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
@@ -119,8 +118,7 @@ impl Rpc for TestIndexer {
 
     fn prove(&self, proof_inputs: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = proof_inputs.input_utxo_hashes()?;
-        let input_merkle_proofs =
-            self.get_input_merkle_proofs(solana_address::Address::default(), &commitments, None)?;
+        let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
         let assembled = zolana_client::assemble(proof_inputs, &input_merkle_proofs)?;
         // circuit_id has no formal registry yet: 1 = P256 rail, 0 = eddsa rail.
         let (proof, circuit_id) = match &assembled.prover_inputs {

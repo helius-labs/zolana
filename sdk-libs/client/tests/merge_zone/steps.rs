@@ -95,7 +95,7 @@ impl MergeZoneWorld {
         let prepared = merge.prepare();
         let commitments = prepared.input_utxo_hashes().expect("input commitments");
         let proofs = indexer
-            .get_input_merkle_proofs(Address::default(), &commitments, None)
+            .get_input_merkle_proofs(&commitments, None)
             .expect("merkle proofs");
         let result = MergeZoneProver::try_from(MergeZoneWitness {
             prepared,

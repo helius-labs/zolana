@@ -196,7 +196,7 @@ impl<R: Rpc> ZolanaClient<R> {
         config: Option<IndexerRpcConfig>,
     ) -> Result<TransactIxData, ClientError> {
         let commitments = proof_inputs.input_utxo_hashes()?;
-        let spend_proofs = self.get_input_merkle_proofs(self.tree, &commitments, config)?;
+        let spend_proofs = self.get_input_merkle_proofs(&commitments, config)?;
         self.blocking_prover()
             .prove_transact(proof_inputs, &spend_proofs)
     }
@@ -522,13 +522,12 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
 
     async fn get_input_merkle_proofs(
         &self,
-        tree_account: Address,
         input_utxo_commitments: &[InputUtxoContext],
         config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         fetch_spend_proofs_async(
             &self.async_indexer,
-            tree_account,
+            self.tree,
             input_utxo_commitments,
             Some(config.unwrap_or(self.indexer_config)),
         )
@@ -537,9 +536,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
 
     async fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_utxo_hashes()?;
-        let input_merkle_proofs = self
-            .get_input_merkle_proofs(self.tree, &commitments, None)
-            .await?;
+        let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None).await?;
         let assembled = assemble(transaction, &input_merkle_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (self.async_prover.prove_transfer_p256(inputs).await?, 1),
@@ -730,13 +727,12 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
 
     fn get_input_merkle_proofs(
         &self,
-        tree_account: Address,
         input_utxo_commitments: &[InputUtxoContext],
         config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         fetch_spend_proofs(
             self.blocking_indexer(),
-            tree_account,
+            self.tree,
             input_utxo_commitments,
             Some(config.unwrap_or(self.indexer_config)),
         )
@@ -744,7 +740,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
 
     fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_utxo_hashes()?;
-        let input_merkle_proofs = self.get_input_merkle_proofs(self.tree, &commitments, None)?;
+        let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
         let assembled = assemble(transaction, &input_merkle_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (self.blocking_prover().prove_transfer_p256(inputs)?, 1),

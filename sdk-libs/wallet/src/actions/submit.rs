@@ -22,6 +22,7 @@ use zolana_client::{
         ProofCompressed, ProverClient,
     },
     rpc::Rpc,
+    SpendProof,
 };
 
 use crate::user_registry::fetch_user_record_checked;
@@ -95,16 +96,17 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         prepared,
     } = request;
 
-    // Bind the proof request to the same tree targeted by the instruction.
-    let submit_tree = Address::new_from_array(tree.to_bytes());
-
     let record = fetch_user_record_checked(rpc, owner)?;
     validate_merge_submission(&record, owner, material)?;
 
     // Real-input commitments -> per-input spend proofs (state inclusion + nullifier
-    // non-inclusion), fetched before `prepared` is folded into the witness.
+    // non-inclusion), fetched before `prepared` is folded into the witness. The
+    // indexer resolves the tree from the commitments; the proofs name it in their
+    // merkle context, checked against the ix tree before paying for a proof that
+    // could never verify on-chain.
     let commitments = prepared.input_utxo_hashes()?;
-    let proofs = indexer.get_input_merkle_proofs(submit_tree, &commitments, None)?;
+    let proofs = indexer.get_input_merkle_proofs(&commitments, None)?;
+    ensure_proofs_match_submit_tree(&proofs, Address::new_from_array(tree.to_bytes()))?;
 
     let result = MergeProver::try_from(MergeWitness {
         prepared,
@@ -138,6 +140,29 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         signature,
         output_hash: result.output_hash,
     })
+}
+
+/// Reject spend proofs resolved against a different tree than the submit ix
+/// targets: a merge proof only verifies against the tree its input proofs were
+/// fetched from, so a mismatch would fail on-chain after proving.
+fn ensure_proofs_match_submit_tree(
+    proofs: &[SpendProof],
+    submit_tree: Address,
+) -> Result<(), ClientError> {
+    for proof in proofs {
+        for proof_tree in [
+            proof.state.merkle_context.tree,
+            proof.nullifier.merkle_context.tree,
+        ] {
+            if proof_tree != submit_tree {
+                return Err(ClientError::MergeTreeMismatch {
+                    proof_tree: proof_tree.to_bytes(),
+                    submit_tree: submit_tree.to_bytes(),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Check the owner opted into merging and that the submitted material is the
@@ -178,6 +203,7 @@ fn validate_merge_submission(
 
 #[cfg(test)]
 mod tests {
+    use zolana_client::{MerkleContext, MerkleProof, NonInclusionProof};
     use zolana_keypair::ViewingKey;
 
     use super::*;
@@ -270,5 +296,85 @@ mod tests {
                 .expect_err("signing rail mismatch");
 
         assert!(matches!(error, ClientError::MergeSigningKeyMismatch));
+    }
+
+    fn spend_proof_on(state_tree: Address, nullifier_tree: Address) -> SpendProof {
+        SpendProof {
+            state: MerkleProof {
+                leaf: [1u8; 32],
+                merkle_context: MerkleContext {
+                    tree_type: 0,
+                    tree: state_tree,
+                },
+                path: Vec::new(),
+                leaf_index: 0,
+                root: [2u8; 32],
+                root_seq: 0,
+                root_index: 0,
+            },
+            nullifier: NonInclusionProof {
+                leaf: [3u8; 32],
+                merkle_context: MerkleContext {
+                    tree_type: 0,
+                    tree: nullifier_tree,
+                },
+                path: Vec::new(),
+                low_element: [0u8; 32],
+                low_element_index: 0,
+                high_element: [4u8; 32],
+                high_element_index: 0,
+                root: [5u8; 32],
+                root_seq: 0,
+                root_index: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn proofs_on_the_submit_tree_pass_the_tree_check() {
+        let tree = Address::new_from_array([7u8; 32]);
+
+        ensure_proofs_match_submit_tree(&[spend_proof_on(tree, tree)], tree)
+            .expect("proofs on the submit tree");
+    }
+
+    #[test]
+    fn a_state_proof_from_another_tree_fails_the_tree_check() {
+        let submit_tree = Address::new_from_array([7u8; 32]);
+        let other_tree = Address::new_from_array([8u8; 32]);
+
+        let error = ensure_proofs_match_submit_tree(
+            &[spend_proof_on(other_tree, submit_tree)],
+            submit_tree,
+        )
+        .expect_err("state proof tree mismatch");
+
+        assert!(matches!(
+            error,
+            ClientError::MergeTreeMismatch {
+                proof_tree,
+                submit_tree: got,
+            } if proof_tree == other_tree.to_bytes() && got == submit_tree.to_bytes()
+        ));
+    }
+
+    #[test]
+    fn a_nullifier_proof_from_another_tree_fails_the_tree_check() {
+        let submit_tree = Address::new_from_array([7u8; 32]);
+        let other_tree = Address::new_from_array([8u8; 32]);
+
+        let error = ensure_proofs_match_submit_tree(
+            &[spend_proof_on(submit_tree, other_tree)],
+            submit_tree,
+        )
+        .expect_err("nullifier proof tree mismatch");
+
+        assert!(matches!(
+            error,
+            ClientError::MergeTreeMismatch {
+                proof_tree,
+                submit_tree: got,
+            } if proof_tree == other_tree.to_bytes() && got == submit_tree.to_bytes()
+        ));
     }
 }
