@@ -20,12 +20,9 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
-    create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
-    ApprovalRequest, AsyncRpc, CircuitType, ClientError, ConfidentialTransfer, EncryptedTransfer,
-    LocalWalletAuthority, MerkleContext, MerkleProof, NonInclusionProof, P256Signature,
-    PublicAmounts, Rpc, SpendProof, SppProofInputUtxo, SppProofInputs, SyncWalletAuthority,
-    TransferP256Prover, TransferParams, WalletAuthority, WithdrawalParams, WithdrawalTarget,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    AsyncRpc, CircuitType, ClientError, ConfidentialTransfer, MerkleContext, MerkleProof,
+    NonInclusionProof, PublicAmounts, Rpc, SpendProof, SppProofInputUtxo, SppProofInputs,
+    TransferP256Prover, WithdrawalTarget, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_interface::instruction::instruction_data::transact::{
@@ -41,6 +38,11 @@ use zolana_transaction::{
     utxo::derive_blinding,
     AssetRegistry, Data, ExternalData, OutputContext, SppProofOutputUtxo, TransactionError, Utxo,
     Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
+};
+use zolana_wallet::{
+    create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
+    ApprovalRequest, EncryptedTransfer, LocalWalletAuthority, P256Signature, SyncWalletAuthority,
+    TransferParams, WalletAuthority, WithdrawalParams,
 };
 
 fn blinding(rng: &mut ThreadRng) -> [u8; 31] {
@@ -110,7 +112,7 @@ impl WalletAuthority for AsyncTestAuthority {
         sender_view_tag: [u8; 32],
         sender: &zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> Result<zolana_client::EncryptedTransfer, TransactionError> {
+    ) -> Result<zolana_wallet::EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
             &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,

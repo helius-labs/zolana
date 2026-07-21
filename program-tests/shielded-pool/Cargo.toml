@@ -43,6 +43,7 @@ tokio = { workspace = true }
 zolana-smart-account-client = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-tree = { workspace = true }
+zolana-wallet = { workspace = true }
 mollusk-svm = "0.3.0"
 light-program-profiler = { workspace = true, features = ["mollusk"] }
 mollusk-solana-account = { package = "solana-account", version = "2.2" }

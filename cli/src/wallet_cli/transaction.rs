@@ -1,10 +1,8 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{
-    create_transfer_sync, sign_private_transaction_sync, Rpc, SolanaRpc, TransferParams,
-    ZolanaClient,
-};
+use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
 use zolana_transaction::Address;
+use zolana_wallet::{create_transfer_sync, sign_private_transaction_sync, TransferParams};
 
 use super::{
     material::WalletMaterial,

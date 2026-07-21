@@ -2,8 +2,9 @@ use std::{thread::sleep, time::SystemTime};
 
 use anyhow::{bail, Result};
 use solana_signature::Signature;
-use zolana_client::{sync_wallet as client_sync_wallet, Rpc, ZolanaIndexer};
+use zolana_client::{Rpc, ZolanaIndexer};
 use zolana_transaction::Wallet;
+use zolana_wallet::sync_wallet as client_sync_wallet;
 
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},

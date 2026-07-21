@@ -91,7 +91,7 @@ fn ensure_associated_token_account(
     mint: &Pubkey,
 ) -> Result<Pubkey> {
     let rpc = SolanaRpc::new(rpc_url);
-    let (_sig, ata) = zolana_client::create_associated_token_account(&rpc, payer, owner, mint)?;
+    let (_sig, ata) = zolana_wallet::create_associated_token_account(&rpc, payer, owner, mint)?;
     Ok(ata)
 }
 

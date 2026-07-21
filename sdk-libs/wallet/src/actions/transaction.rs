@@ -14,20 +14,19 @@ use zolana_transaction::{
     Address, AssetRegistry, Utxo, Wallet, SOL_MINT,
 };
 
-#[cfg(feature = "indexer-api")]
 use solana_signer::Signer;
-#[cfg(feature = "indexer-api")]
 use solana_transaction::Transaction as SolanaTransaction;
 
 use crate::{
-    error::ClientError,
-    rpc::{AsyncRpc, Rpc},
     user_registry::{try_resolve_registered_address, try_resolve_registered_address_async},
     wallet_authority::{ApprovalRequest, SyncWalletAuthority, WalletAuthority},
 };
-
-#[cfg(feature = "indexer-api")]
-use crate::client::ZolanaClient;
+use zolana_client::{
+    client::ZolanaClient,
+    error::ClientError,
+    rpc::{AsyncRpc, Rpc},
+    SignedPrivateTransaction,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedAddress {
@@ -75,13 +74,6 @@ impl TransferRecipient {
 pub struct CreatedWithdrawal {
     pub transaction: UnsignedPrivateTransaction,
     pub withdrawal: TransactWithdrawal,
-}
-
-#[doc(hidden)]
-pub struct SignedPrivateTransaction {
-    pub transaction: SppProofInputs,
-    pub withdrawal: Option<TransactWithdrawal>,
-    pub tree: Address,
 }
 
 #[derive(Clone)]
@@ -228,7 +220,6 @@ pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdra
     })
 }
 
-#[cfg(feature = "indexer-api")]
 pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
@@ -243,7 +234,6 @@ pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>
         .await
 }
 
-#[cfg(feature = "indexer-api")]
 pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
@@ -262,7 +252,6 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     Ok(native)
 }
 
-#[cfg(feature = "indexer-api")]
 pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
@@ -275,7 +264,6 @@ pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     client.finish_submission_unsigned_sync(&shielded, fee_payer, blockhash)
 }
 
-#[cfg(feature = "indexer-api")]
 pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,

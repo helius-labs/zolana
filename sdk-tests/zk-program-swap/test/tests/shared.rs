@@ -14,8 +14,8 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use zolana_client::{
-    spawn_prover, sync_wallet, AsyncProverClient, AsyncZolanaIndexer, Deposit, DepositParams,
-    ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
+    spawn_prover, AsyncProverClient, AsyncZolanaIndexer, ProverClient, Rpc, SolanaRpc,
+    ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
@@ -32,6 +32,7 @@ use zolana_test_utils::{
 };
 use zolana_transaction::{AssetRegistry, Wallet, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
+use zolana_wallet::{sync_wallet, Deposit, DepositParams};
 
 // SPL the maker shields into the order UTXO (source), and SOL the taker pays (destination).
 pub const MAKER_SHIELD_SPL: u64 = 1_000_000_000;

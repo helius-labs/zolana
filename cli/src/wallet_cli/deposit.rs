@@ -1,8 +1,7 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{
-    create_deposit, resolve_registered_address, DepositParams, SolanaRpc, ZolanaIndexer,
-};
+use zolana_client::{SolanaRpc, ZolanaIndexer};
+use zolana_wallet::{create_deposit, resolve_registered_address, DepositParams};
 
 use super::{
     material::load_sender_from_resolved_sync,

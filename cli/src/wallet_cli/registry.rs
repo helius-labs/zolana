@@ -17,7 +17,7 @@ pub(super) fn register_wallet_on_chain(
 ) -> Result<Option<Signature>> {
     // Idempotent register-or-update lives in the SDK; the CLI just supplies its
     // keypair + funding key.
-    Ok(zolana_client::ensure_registered(
+    Ok(zolana_wallet::ensure_registered(
         rpc,
         &material.funding,
         &material.keypair,

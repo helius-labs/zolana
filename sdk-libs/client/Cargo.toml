@@ -86,9 +86,6 @@ path = "tests/zone_transfer/main.rs"
 harness = false
 
 [[test]]
-name = "transaction"
-
-[[test]]
 name = "transfer_dummy"
 
 [[test]]

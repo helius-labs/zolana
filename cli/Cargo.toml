@@ -26,3 +26,4 @@ zolana-interface = { workspace = true, features = ["solana"] }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
+zolana-wallet = { workspace = true }

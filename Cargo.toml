@@ -29,6 +29,7 @@ members = [
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
+    "sdk-libs/wallet",
     "services/photon",
     "sdk-tests/client",
     "sdk-tests/zk-program-swap/program",
@@ -67,6 +68,7 @@ zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0" }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
+zolana-wallet = { path = "sdk-libs/wallet", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
 zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
 zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
