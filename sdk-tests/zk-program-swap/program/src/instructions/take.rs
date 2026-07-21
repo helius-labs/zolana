@@ -12,7 +12,9 @@ use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use crate::{
     error::SwapError,
     instructions::{
-        shared::{check_within_window, cpi_spp_transact_signed, u64_right_align},
+        shared::{
+            check_within_window, cpi_spp_transact_signed, u64_right_align, SignedSppAccounts,
+        },
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
 };
@@ -54,6 +56,11 @@ pub fn process_take_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
     let TakeIxData { proof, transact } =
         wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;
 
+    let prefix_len =
+        wincode::serialized_size(&proof).map_err(|_| SwapError::InvalidInstructionData)?;
+    let transact_bytes = crate::instructions::shared::instruction_suffix(data, prefix_len)?;
+    let spp_accounts = SignedSppAccounts::validate(iter.remaining()?)?;
+
     let clock = Clock::get()?;
     check_within_window(clock.unix_timestamp, transact.expiry_unix_ts)?;
 
@@ -72,9 +79,5 @@ pub fn process_take_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         &crate::verifying_keys::take::VERIFYINGKEY,
     )?;
 
-    let transact_bytes = transact
-        .serialize()
-        .map_err(|_| SwapError::InvalidInstructionData)?;
-    let spp_accounts = iter.remaining()?;
-    cpi_spp_transact_signed(spp_accounts, &transact_bytes)
+    cpi_spp_transact_signed(spp_accounts, transact_bytes)
 }

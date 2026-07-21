@@ -9,6 +9,9 @@ publish = false
 [features]
 default = []
 localnet = ["zolana-client/indexer-api", "zolana-client/solana-rpc"]
+# Gates the Groth16-backed test binaries that spawn the local prover, so a
+# plain `cargo test -p shielded-pool-tests` stays hermetic by construction.
+proofs = []
 
 [dependencies]
 anyhow = { workspace = true }
@@ -23,6 +26,10 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 spl-token-2022-interface = { workspace = true }
+solana-transaction-error = { workspace = true }
+solana-system-interface = { workspace = true }
+spl-token = { workspace = true }
+zolana-account-checks = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
@@ -32,7 +39,6 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true }
-cucumber = { workspace = true }
 groth16-solana = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
@@ -45,17 +51,19 @@ zolana-smart-account-client = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-tree = { workspace = true }
 zolana-wallet = { workspace = true }
-mollusk-svm = { workspace = true }
+mollusk-svm = { version = "0.3.0", features = ["fuzz"] }
+zolana-mollusk-harness = { path = "../mollusk-harness" }
 light-program-profiler = { workspace = true, features = ["mollusk"] }
-solana-account = { workspace = true }
+mollusk-solana-account = { package = "solana-account", version = "2.2" }
+mollusk-solana-instruction = { package = "solana-instruction", version = "2.2" }
+mollusk-solana-program-error = { package = "solana-program-error", version = "2.2" }
+mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
+proptest = { workspace = true }
 
 [[test]]
 name = "bench_cu"
 path = "tests/bench_cu.rs"
-
-[[test]]
-name = "bdd"
-harness = false
+required-features = ["proofs"]
 
 [[test]]
 name = "localnet_e2e"
@@ -80,10 +88,12 @@ required-features = ["localnet"]
 [[test]]
 name = "transact"
 path = "tests/transact/transact.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "shield_withdraw"
 path = "tests/transact/shield_withdraw.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "interface_transfers"

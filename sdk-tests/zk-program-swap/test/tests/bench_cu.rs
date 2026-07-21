@@ -61,11 +61,6 @@ use zolana_tree::TreeAccount;
 
 const PROFILING_SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../target/swap-bench");
 const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../BENCHMARK.md");
-const PROVER_KEYS_DIR: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../../prover/server/proving-keys"
-);
-
 fn to_mollusk_pubkey(key: &Pubkey) -> MolluskPubkey {
     MolluskPubkey::new_from_array(key.to_bytes())
 }
@@ -252,14 +247,6 @@ fn prove_transact_timed(
     (transact, start.elapsed())
 }
 
-fn start_prover() {
-    static INIT: std::sync::Once = std::sync::Once::new();
-    INIT.call_once(|| {
-        std::env::set_var("ZOLANA_PROVER_KEYS_DIR", PROVER_KEYS_DIR);
-    });
-    zolana_client::spawn_prover().expect("spawn prover");
-}
-
 fn proving_time_table(spp: Duration, swap: Duration) -> SectionTable {
     SectionTable {
         title: "Proving Time".into(),
@@ -362,7 +349,7 @@ fn bench_cu_swap() {
         ..Default::default()
     });
 
-    start_prover();
+    zolana_test_utils::prover::spawn_workspace_prover();
     preload(CircuitId::Make).expect("preload make keys");
     preload(CircuitId::Take).expect("preload take keys");
     preload(CircuitId::TakeVerifiableEncryption).expect("preload take_verifiable_encryption keys");

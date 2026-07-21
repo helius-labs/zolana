@@ -1,7 +1,7 @@
 //! Post-instruction checks for a public SPL `deposit` deposit.
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::AssetDeposit;
+use zolana_interface::instruction::DepositIxData;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -13,23 +13,39 @@ use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 ///
 /// `vault_before` / `user_token_before` are the token balances captured before
 /// the deposit; `root_before` is the on-chain state root captured before it.
+pub struct SplDepositAssertArgs<'a, A: ?Sized> {
+    pub tree: &'a Pubkey,
+    pub mint: &'a Pubkey,
+    pub vault: &'a Pubkey,
+    pub user_token: &'a Pubkey,
+    pub event: &'a DepositOutput,
+    pub data: &'a DepositIxData,
+    pub expected_amount: u64,
+    pub vault_before: u64,
+    pub user_token_before: u64,
+    pub root_before: [u8; 32],
+    pub authority: &'a A,
+}
+
 #[track_caller]
-#[allow(clippy::too_many_arguments)]
 pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
     program_test: &mut ZolanaProgramTest,
-    tree: &Pubkey,
-    mint: &Pubkey,
-    vault: &Pubkey,
-    user_token: &Pubkey,
-    event: &DepositOutput,
-    data: &AssetDeposit,
-    expected_amount: u64,
-    vault_before: u64,
-    user_token_before: u64,
-    root_before: [u8; 32],
-    authority: &A,
     recipient: &mut Wallet,
+    args: SplDepositAssertArgs<'_, A>,
 ) {
+    let SplDepositAssertArgs {
+        tree,
+        mint,
+        vault,
+        user_token,
+        event,
+        data,
+        expected_amount,
+        vault_before,
+        user_token_before,
+        root_before,
+        authority,
+    } = args;
     assert_eq!(event.output.amount, expected_amount, "event amount");
     assert_eq!(
         event.output.asset,

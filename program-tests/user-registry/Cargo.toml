@@ -23,9 +23,5 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 
 [dev-dependencies]
-cucumber = { workspace = true }
-tokio = { workspace = true }
-
-[[test]]
-name = "bdd"
-harness = false
+solana-transaction-error = { workspace = true }
+zolana-user-registry = { workspace = true }

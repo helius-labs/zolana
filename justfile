@@ -63,15 +63,50 @@ test: test-shielded-pool test-sdk-libs test-photon
 test-shielded-pool: build-programs build-prover-server build-cli
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
-    cargo test -p shielded-pool-tests
+    cargo test -p shielded-pool-tests --features proofs
     cargo test -p zolana-user-registry --tests
     cargo test -p user-registry-tests --test wire_layout
+
+# Fast SBF-backed state and failure tests. No proof server or local validator.
+# The proof-backed binaries are gated behind the `proofs` feature, so the plain
+# package run is hermetic by construction.
+test-program-fast: build-programs
+    cargo test -p zolana-interface --features solana
+    cargo test -p shielded-pool-program --lib --tests
+    cargo test -p zolana-user-registry --tests
+    cargo test -p shielded-pool-tests
+    cargo test -p swap-program --tests
+
+# Account-aware Mollusk failures and property mutations for SPP and swap.
+test-program-mollusk: build-programs
+    cargo test -p shielded-pool-tests --test admin
+    cargo test -p shielded-pool-tests --test deposit
+    cargo test -p swap-program --test failing
+
+# Swap wrapper unit, wire-contract, and SBF-backed negative tests.
+test-swap-program: build-programs
+    cargo test -p swap-program --tests
+
+# Groth16-backed program and client matrices, separated from fast state tests.
+test-program-proofs: build-programs build-prover-server build-cli
+    cargo test -p shielded-pool-tests --features proofs --test transact --test shield_withdraw --test p256 --test both_amounts
+    cargo test -p zolana-client --test transaction_proving --test merge_proving --test merge_zone_proving --test zone_authority_proving --test zone_transfer_proving
+
+# Export Mollusk's exact-error cases as replayable fuzz fixtures.
+eject-mollusk-fixtures output="target/fuzz-fixtures": build-programs
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{output}}"
+    output_dir="$(cd "{{output}}" && pwd)"
+    EJECT_FUZZ_FIXTURES_JSON="$output_dir" \
+      cargo test -p shielded-pool-tests --test deposit \
+      'failing::mollusk_deposit_rejects_'
 
 # User-registry litesvm tests only (no Light fixture bundle required).
 test-user-registry-litesvm: build-programs
     cargo test -p user-registry-tests
 
-# Unit, BDD, and property tests for the client-side SDK crates.
+# Unit, integration, and property tests for the client-side SDK crates.
 test-sdk-libs:
     cargo test -p zolana-keypair
     cargo test -p zolana-transaction
@@ -84,10 +119,10 @@ test-sdk-libs:
 test-photon:
     cargo test -p photon-indexer
 
-# All zolana-client tests (lib unit tests and the `transfer_2_3` BDD suite).
-# The BDD scenario spawns the prover server
+# All zolana-client tests (lib unit tests, the `transaction` integration test,
+# and the transfer proving matrices). The proving tests spawn the prover server
 # (via the zolana CLI), which lazily downloads any missing proving keys from
-# CloudFront (verified against the committed lockfile; no token). Builds the go
+# CloudFront (verified against the committed lockfile; no token). Builds the Go
 # prover binary and the zolana CLI the spawned server/test rely on.
 test-client-integration: build-prover-server build-cli
     cargo test -p zolana-client --all-features
@@ -104,7 +139,7 @@ test-client-async-transfer-queue: build-prover-server build-cli
 # Program integration tests backed by LiteSVM. Transact tests spawn the prover
 # through the zolana CLI.
 test-programs: build-programs build-prover-server build-cli
-    cargo test -p shielded-pool-tests
+    cargo test -p shielded-pool-tests --features proofs
 
 # Proving-key-independent interface, program, and LiteSVM proofless tests.
 # The BDD target covers pool administration, direct deposit batches, and zone
@@ -116,7 +151,7 @@ test-proofless-programs: build-programs
     cargo test -p shielded-pool-tests --test bdd
 
 # Aggregate of all CI-runnable Rust tests.
-test-all: test test-programs test-user-registry-litesvm
+test-all: test test-programs test-user-registry-litesvm test-swap-program
 
 # Rust-only verification for machines without Go installed.
 verify-rust: check test
@@ -163,7 +198,7 @@ bench-shielded-pool: build-programs
         -- --features bpf-entrypoint,profile-program
     test -f target/deploy/spl_token.so || \
         solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
-    cargo test -p shielded-pool-tests --test bench_cu -- --ignored --nocapture
+    cargo test -p shielded-pool-tests --features proofs --test bench_cu -- --ignored --nocapture
 
 # Profile the confidential swap create/fill/cancel instructions and record proving
 # times. The bench builds the shielded-pool tree account directly and replays one
@@ -486,9 +521,8 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
       ZOLANA_PROVER_URL="{{localnet-prover-url}}" ZOLANA_TREE="$tree" \
       tools/cli_smoke.sh
 
-# BDD decrypt-and-spend lifecycle scenarios over a fresh validator + Photon per
-# scenario (program-tests/spp-test-validator). The prover server persists; each
-# cucumber scenario restarts the validator + Photon via the `zolana` CLI.
+# Decrypt-and-spend lifecycle tests over a fresh validator + Photon per test
+# (program-tests/spp-test-validator).
 test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -506,9 +540,7 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle
 
-# Run only the emitted-event decode scenario from test-spp-validator, which
-# prints the parsed `GeneralEvent`. The test binary has `harness = false`, so
-# the output reaches the terminal directly.
+# Run the transfer case that also decodes the emitted event.
 test-spp-validator-decode: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -524,7 +556,7 @@ test-spp-validator-decode: build-programs build-prover-server build-cli ensure-p
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle -- --name "A SOL transfer's emitted event decodes"
+      cargo test -p spp-test-validator --test lifecycle p256_transfers_cover_sol_and_spl_assets -- --exact --nocapture
 
 # Run only the merge scenarios from test-spp-validator (the 1-8 consolidation
 # outline plus the disabled-service negative). For debugging the merge flow without
@@ -544,10 +576,10 @@ test-spp-validator-merge: build-programs build-prover-server build-cli ensure-ph
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle -- --name "Merge service"
+      cargo test -p spp-test-validator --test lifecycle merge -- --nocapture
 
-# Run only the randomized 50-transaction workload from test-spp-validator. This is
-# intentionally isolated in CI because it is the longest and quietest scenario.
+# Run only the randomized 500-transaction workload from test-spp-validator.
+# Set ZOLANA_RANDOM_SEED (decimal or 0x-prefixed hex) to replay a run.
 test-spp-validator-randomized: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -563,10 +595,9 @@ test-spp-validator-randomized: build-programs build-prover-server build-cli ensu
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle -- --name "Fifty randomized eddsa transactions"
+      cargo test -p spp-test-validator --test lifecycle randomized_mixed_asset -- --nocapture
 
-# Run the non-merge, non-randomized spp-validator scenarios: eddsa signer, P256
-# signer, mixed lifecycle, SOL lifecycle, and emitted-event decode.
+# Run the non-randomized spp-validator lifecycle tests.
 test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -582,11 +613,10 @@ test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cl
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle -- --name "authorizes SOL, SPL, and mixed transfers|Fifty mixed transactions|Transfer recipient and sender change|A SOL transfer's emitted event decodes"
+      cargo test -p spp-test-validator --test lifecycle -- \
+      --skip randomized_mixed_asset --skip merge --nocapture
 
-# Run only the mixed-lifecycle scenario from test-spp-validator (deposits,
-# transfers, SOL withdrawals, and merges across three owners). For exercising the
-# full instruction mix without running the rest of the lifecycle suite.
+# Run the transfer lifecycle case.
 test-spp-validator-lifecycle: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -602,17 +632,16 @@ test-spp-validator-lifecycle: build-programs build-prover-server build-cli ensur
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle -- --name "Fifty mixed transactions"
+      cargo test -p spp-test-validator --test lifecycle transfer -- --nocapture
 
-# BDD zone lifecycle scenarios over a fresh validator + Photon per scenario
+# Zone lifecycle tests over a fresh validator + Photon per test
 # (program-tests/zone-test-program). Mirrors test-spp-validator but loads the
 # policy-zone fixture program (zone_test_program.so) and CPIs into SPP via its
 # `zone_auth` PDA, so the recipe also exports ZONE_TEST_PROGRAM_ID and
 # USER_REGISTRY_PROGRAM_ID. build-programs builds zone_test_program.so; the merge
 # flow reads the user-registry record so that program must be co-loaded, and the
 # zone deposits use the Squads smart account binary (ensure-smart-account). The
-# prover server persists; each cucumber scenario restarts the validator + Photon
-# via the `zolana` CLI.
+# prover server persists while each test restarts the validator + Photon.
 test-zone-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
@@ -889,6 +918,9 @@ fmt-check:
 
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
+
+check-test-hygiene:
+    ./tools/check-test-hygiene.sh
 
 # === Prover server ===
 

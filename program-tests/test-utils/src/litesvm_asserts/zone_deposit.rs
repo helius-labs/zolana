@@ -1,8 +1,8 @@
 //! Post-instruction checks for `zone_deposit` (policy-zone deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::ZoneAssetDeposit;
-use zolana_program_test::{ZolanaProgramTest, ZoneDepositOutput};
+use zolana_interface::instruction::ZoneDepositIxData;
+use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled `zone_deposit` against the integration-test
@@ -14,33 +14,46 @@ use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 ///
 /// `expected_zone_program_id` is the zone wrapper program id; `root_before` is
 /// the on-chain state root captured before the deposit.
+pub struct ZoneDepositAssertArgs<'a, A: ?Sized> {
+    pub tree: &'a Pubkey,
+    pub event: &'a DepositOutput,
+    pub data: &'a ZoneDepositIxData,
+    pub expected_amount: u64,
+    pub expected_asset: [u8; 32],
+    pub expected_zone_program_id: [u8; 32],
+    pub root_before: [u8; 32],
+    pub authority: &'a A,
+}
+
 #[track_caller]
-#[allow(clippy::too_many_arguments)]
 pub fn litesvm_assert_zone_deposit<A: SyncWalletAuthority + ?Sized>(
     program_test: &mut ZolanaProgramTest,
-    tree: &Pubkey,
-    event: &ZoneDepositOutput,
-    data: &ZoneAssetDeposit,
-    expected_amount: u64,
-    expected_asset: [u8; 32],
-    expected_zone_program_id: [u8; 32],
-    root_before: [u8; 32],
-    authority: &A,
     recipient: &mut Wallet,
+    args: ZoneDepositAssertArgs<'_, A>,
 ) {
+    let ZoneDepositAssertArgs {
+        tree,
+        event,
+        data,
+        expected_amount,
+        expected_asset,
+        expected_zone_program_id,
+        root_before,
+        authority,
+    } = args;
     assert_eq!(event.output.amount, expected_amount, "event amount");
     assert_eq!(event.output.asset, expected_asset, "event asset");
+    assert_eq!(event.output.owner, data.deposit.owner, "owner");
+    assert_eq!(event.output.blinding, data.deposit.blinding, "blinding");
+    assert_eq!(event.view_tag, data.deposit.view_tag, "view tag");
     assert_eq!(
-        event.output.owner_utxo_hash, data.owner_utxo_hash,
-        "owner UTXO hash"
-    );
-    assert_eq!(event.view_tag, data.view_tag, "view tag");
-    assert_eq!(
-        event.output.zone_program_id, expected_zone_program_id,
+        event.output.zone_program_id,
+        Some(expected_zone_program_id),
         "UTXO is owned by the zone program"
     );
     assert_eq!(
-        event.output.zone_data_hash, data.zone_data_hash,
+        event.output.zone_data_hash,
+        Some(data.zone_data_hash),
         "UTXO carries the zone policy hash"
     );
 
@@ -54,7 +67,7 @@ pub fn litesvm_assert_zone_deposit<A: SyncWalletAuthority + ?Sized>(
 
     let by_tag: Vec<_> = program_test
         .indexer()
-        .fetch_by_view_tag(&data.view_tag)
+        .fetch_by_view_tag(&data.deposit.view_tag)
         .collect();
     assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
 

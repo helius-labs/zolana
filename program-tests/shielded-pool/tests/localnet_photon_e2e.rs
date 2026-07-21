@@ -4,9 +4,6 @@
 
 #[path = "common/nullifier_test_forester.rs"]
 mod nullifier_test_forester;
-#[path = "common/transact.rs"]
-#[allow(dead_code)]
-mod transact_common;
 
 use std::{
     collections::VecDeque,
@@ -52,6 +49,7 @@ use zolana_program_test::{
     create_tree_instructions, rpc_state_root, system_create_account_ix, ZolanaProgramTest,
 };
 use zolana_smart_account_client::{execute_sync_ix, SMART_ACCOUNT_PROGRAM_ID};
+use zolana_test_utils::prover::spawn_workspace_prover;
 use zolana_test_utils::smart_account::{self, StandardSigners};
 use zolana_transaction::{
     instructions::transact::PrivateTxHash,
@@ -61,12 +59,12 @@ use zolana_transaction::{
 };
 use zolana_tree::TreeAccount;
 
-use crate::transact_common::{
+use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input_with_proof, dummy_nullifier, dummy_transfer_output,
     eddsa_input_utxo, external_data_hash, fe, inline_outputs, new_transact_ix_data,
     output_owner_pk_hashes, pack_proof, prove_and_verify_transfer, public_input_hash,
-    public_sol_field, real_output, set_output_owner_tags, sol_public_slots, start_prover,
-    transfer_output, TransferProverInputsArgs,
+    public_sol_field, real_output, set_output_owner_tags, sol_public_slots, transfer_output,
+    TransferProverInputsArgs,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -100,7 +98,7 @@ impl SpendRail {
 #[serial]
 fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     restart_localnet();
-    start_prover()?;
+    spawn_workspace_prover();
 
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
     let indexer_url =
@@ -734,7 +732,7 @@ fn forester_dry_run_reconstructs_from_photon() -> TestResult {
 #[serial]
 fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> TestResult {
     restart_localnet();
-    start_prover()?;
+    spawn_workspace_prover();
 
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
     let indexer_url =
@@ -1519,7 +1517,7 @@ fn shield_encrypted_transfer_eddsa_recovered_by_decryption() -> TestResult {
 
 fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRail) -> TestResult {
     restart_localnet();
-    start_prover()?;
+    spawn_workspace_prover();
 
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
     let indexer_url =

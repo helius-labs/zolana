@@ -19,8 +19,8 @@ pub enum SwapError {
     MissingOrderAuthority = 8013,
     #[error("make transact must carry exactly one marker message")]
     InvalidMarkerMessage = 8014,
-    #[error("make marker message data must be empty")]
-    MarkerDataNotEmpty = 8015,
+    #[error("make marker message must contain the zeroed marker placeholder")]
+    InvalidMarkerPlaceholder = 8015,
     #[error("hashing failed")]
     HashingFailed = 8016,
 }

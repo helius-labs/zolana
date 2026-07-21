@@ -18,13 +18,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
+use zolana_test_utils::prover::spawn_workspace_prover;
 use zolana_transaction::Address;
-
-#[path = "common/transact.rs"]
-#[allow(dead_code)]
-mod transact_common;
-
-use transact_common::start_prover;
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
 const INDEXER_URL_ENV: &str = "ZOLANA_INDEXER_URL";
@@ -379,7 +374,7 @@ impl TransferOutput {
 #[serial]
 fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     restart_localnet();
-    start_prover()?;
+    spawn_workspace_prover();
 
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
     let indexer_url =

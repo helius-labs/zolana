@@ -1,11 +1,4 @@
 //! Shared contract types for the zone lifecycle suite.
-//!
-//! These types are the stable surface the per-instruction step modules drive
-//! against. They live here (not inside a single step module) so the
-//! zone_transact / merge_zone / zone_authority_transact steps can depend on a
-//! frozen contract without editing `world.rs` or each other's modules.
-
-#![allow(dead_code)]
 
 use solana_pubkey::Pubkey;
 
@@ -18,7 +11,7 @@ pub(crate) enum Variant {
     Eddsa,
 }
 
-/// An SPL asset a scenario registers: its mint, the vault the deposit credits,
+/// A registered SPL asset: its mint, the vault the deposit credits,
 /// and the shared funding token account (owned by the payer).
 #[derive(Clone, Copy)]
 pub(crate) struct SplAsset {

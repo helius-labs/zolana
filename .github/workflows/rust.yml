@@ -45,6 +45,7 @@ jobs:
       - name: Install workspace Rust toolchain
         run: rustup show active-toolchain
       - run: cargo fmt --all -- --check
+      - run: ./tools/check-test-hygiene.sh
 
   machete:
     name: cargo-machete
@@ -122,7 +123,7 @@ jobs:
         with:
           path: prover/server/proving-keys
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
-      - run: just test-shielded-pool
+      - run: just test-program-fast
 
   test-sdk-libs:
     name: tests / sdk-libs
@@ -162,7 +163,7 @@ jobs:
         with:
           path: prover/server/proving-keys
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
-      - run: just test-programs
+      - run: just test-program-proofs
 
   build-photon:
     name: build / photon

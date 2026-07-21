@@ -37,7 +37,7 @@ instructions, and circuits.
   hashing); `mod.rs` only re-exports. Shared helpers in `shared.rs`. The
   prover client mirrors `zolana_client::ProverClient`: one `prove_*` method
   per circuit, no data processing.
-- test: cucumber end-to-end flows against localnet + photon + prover; mollusk
+- test: Rust end-to-end flows against localnet + photon + prover; mollusk
   CU profiling that regenerates the benchmark doc.
 
 ## Dependencies
@@ -53,7 +53,7 @@ instructions, and circuits.
   `solana-instruction`/`solana-address` for wire types, plus the program and
   prover crates.
 - test: `zolana-program-test` + `zolana-test-utils` for the harness,
-  `zolana-client` (+`indexer-api`, `solana-rpc`), `cucumber`, `mollusk-svm` +
+  `zolana-client` (+`indexer-api`, `solana-rpc`), `mollusk-svm` +
   `light-program-profiler` for benchmarks.
 
 ## Key Artifacts

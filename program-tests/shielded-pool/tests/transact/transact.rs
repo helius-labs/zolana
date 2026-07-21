@@ -10,12 +10,10 @@
 //! signer hash chain, tree roots, and nullifier/output hash chains.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program` to have produced the
-//! `.so` binary; the test skips (does not fail) when it is missing.
+//! `.so` binary.
 
 #[path = "../common/setup.rs"]
 mod common;
-#[path = "../common/transact.rs"]
-mod transact_common;
 
 use num_bigint::BigUint;
 use solana_keypair::Keypair;
@@ -40,7 +38,7 @@ use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
-use crate::transact_common::{
+use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, real_output,
@@ -83,8 +81,8 @@ struct TransactEnv {
 
 impl TransactEnv {
     /// Returns `None` when the program `.so` is missing so callers can skip.
-    fn boot() -> Option<Self> {
-        let mut rpc = common::program_test()?;
+    fn boot() -> Self {
+        let mut rpc = common::program_test();
         start_prover().expect("start prover");
         let authority = Keypair::new();
         rpc.create_protocol_config(&authority)
@@ -92,11 +90,11 @@ impl TransactEnv {
         let tree = rpc
             .create_tree(common::tree_account_size(), &authority)
             .expect("create tree");
-        Some(Self {
+        Self {
             rpc,
             authority,
             tree,
-        })
+        }
     }
 
     /// Move only the nullifier queue cursor so it has one fewer free leaf than
@@ -312,9 +310,7 @@ fn build_valid_transact_ix(env: &mut TransactEnv) -> TransactIxData {
 
 #[test]
 fn transact_sends_valid_proof() {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = TransactEnv::boot();
 
     let payer = env.rpc.payer.pubkey();
     let transact_ix_data = build_valid_transact_ix(&mut env);
@@ -346,9 +342,7 @@ fn transact_sends_valid_proof() {
 
 #[test]
 fn transact_spends_from_input_tree_and_appends_to_output_tree() {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = TransactEnv::boot();
 
     let output_tree = env
         .rpc
@@ -414,9 +408,7 @@ fn transact_spends_from_input_tree_and_appends_to_output_tree() {
 
 #[test]
 fn transact_rejects_dummy_inputs_after_capacity_threshold() {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = TransactEnv::boot();
 
     let payer = env.rpc.payer.pubkey();
     let transact_ix_data = build_valid_transact_ix(&mut env);
@@ -450,9 +442,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
 /// supported is rejected even with an otherwise valid proof.
 #[test]
 fn transact_rejects_mismatched_circuit_selector() {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = TransactEnv::boot();
 
     let payer = env.rpc.payer.pubkey();
     let valid = build_valid_transact_ix(&mut env);
@@ -497,9 +487,7 @@ fn transact_rejects_mismatched_circuit_selector() {
 /// matches the proof.
 #[test]
 fn transact_rejects_tampered_output_view_tag() {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = TransactEnv::boot();
 
     let payer = env.rpc.payer.pubkey();
     let mut transact_ix_data = build_valid_transact_ix(&mut env);

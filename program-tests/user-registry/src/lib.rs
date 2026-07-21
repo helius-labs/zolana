@@ -1,7 +1,17 @@
 //! LiteSVM test helpers for the user-registry program.
 
+use std::path::PathBuf;
+
+use litesvm::{
+    types::{FailedTransactionMetadata, TransactionMetadata},
+    LiteSVM,
+};
 use solana_instruction::Instruction;
+use solana_keypair::Keypair;
+use solana_message::Message;
 use solana_pubkey::Pubkey;
+use solana_signer::Signer;
+use solana_transaction::Transaction;
 use zolana_user_registry_interface::{
     instruction::{
         self as user_registry_instruction, p256_key_binding_message, p256_verify_instruction,
@@ -10,6 +20,86 @@ use zolana_user_registry_interface::{
     user_record_pda,
 };
 pub use zolana_user_registry_interface::{user_registry_program_id, UserRecord};
+
+pub struct UserRegistryTestRig {
+    pub svm: LiteSVM,
+    pub payer: Keypair,
+}
+
+pub type TestTransactionResult =
+    std::result::Result<TransactionMetadata, Box<FailedTransactionMetadata>>;
+
+impl UserRegistryTestRig {
+    pub fn new() -> Self {
+        let path = user_registry_program_path();
+        assert!(
+            path.exists(),
+            "missing {}; run `just build-programs`",
+            path.display()
+        );
+
+        let mut svm = LiteSVM::new();
+        let program = std::fs::read(&path).expect("read user-registry program");
+        svm.add_program(user_registry_program_id(), &program)
+            .expect("load user-registry program");
+
+        let payer = Keypair::new();
+        svm.airdrop(&payer.pubkey(), 20_000_000_000)
+            .expect("fund test payer");
+        Self { svm, payer }
+    }
+
+    pub fn fund(&mut self, address: &Pubkey, lamports: u64) {
+        self.svm.expire_blockhash();
+        self.svm
+            .airdrop(address, lamports)
+            .expect("fund test account");
+    }
+
+    pub fn send(
+        &mut self,
+        instruction: Instruction,
+        signers: &[&Keypair],
+    ) -> TestTransactionResult {
+        self.svm.expire_blockhash();
+        let payer = self.payer.insecure_clone();
+        let mut all_signers = Vec::with_capacity(signers.len() + 1);
+        all_signers.push(&payer);
+        all_signers.extend_from_slice(signers);
+        let message = Message::new(&[instruction], Some(&payer.pubkey()));
+        let transaction = Transaction::new(&all_signers, message, self.svm.latest_blockhash());
+        self.svm.send_transaction(transaction).map_err(Box::new)
+    }
+
+    pub fn record(&self, owner: &Pubkey) -> UserRecord {
+        fetch_user_record(&self.svm, owner).expect("user record must exist")
+    }
+}
+
+impl Default for UserRegistryTestRig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub fn user_registry_program_path() -> PathBuf {
+    if let Ok(path) = std::env::var("USER_REGISTRY_PROGRAM_PATH") {
+        return PathBuf::from(path);
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("target")
+        .join("deploy")
+        .join("zolana_user_registry.so")
+}
+
+pub fn test_p256_pubkey(tag: u8) -> [u8; 33] {
+    let mut pubkey = [0u8; 33];
+    pubkey[0] = 0x02;
+    pubkey[1] = tag;
+    pubkey
+}
 
 pub fn build_register_ix(
     owner: &Pubkey,

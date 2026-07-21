@@ -14,8 +14,10 @@ pub use merge_zone::{assert_merge_zone, MergeZoneAssertArgs};
 pub use protocol_config::assert_protocol_config;
 use solana_account::Account;
 use solana_address::Address;
+use solana_instruction_error::InstructionError;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use solana_transaction_error::TransactionError;
 pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
 use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
@@ -104,6 +106,64 @@ pub fn fetch_account<R: Rpc>(rpc: &R, pubkey: &Pubkey) -> Result<Account, Client
     Ok(rpc
         .get_account(to_address(pubkey))?
         .expect("account exists"))
+}
+
+pub fn fetch_optional_account<R: Rpc>(
+    rpc: &R,
+    pubkey: &Pubkey,
+) -> Result<Option<Account>, ClientError> {
+    rpc.get_account(to_address(pubkey))
+}
+
+/// Extract the transaction failure without depending on validator error text.
+pub fn transaction_error(error: &ClientError) -> Option<TransactionError> {
+    match error {
+        ClientError::SolanaRpcTransaction { source, .. } => source.get_transaction_error(),
+        _ => None,
+    }
+}
+
+/// Assert that a rejected transaction surfaced the expected custom program
+/// error. The instruction index is returned so callers may additionally assert
+/// which instruction failed when a transaction contains wrappers or budgets.
+#[track_caller]
+pub fn assert_custom_program_error(error: &ClientError, expected_code: u32) -> u8 {
+    let transaction_error = transaction_error(error)
+        .unwrap_or_else(|| panic!("expected a typed Solana transaction error, got {error:?}"));
+    match transaction_error {
+        TransactionError::InstructionError(index, InstructionError::Custom(code)) => {
+            assert_eq!(code, expected_code, "custom program error code");
+            index
+        }
+        other => {
+            panic!("expected custom program error {expected_code}, got transaction error {other:?}")
+        }
+    }
+}
+
+/// Verify rollback after a rejected transaction by comparing the complete
+/// account, including lamports, owner, flags, rent epoch, and data.
+#[track_caller]
+pub fn assert_account_unchanged<R: Rpc>(
+    rpc: &R,
+    pubkey: &Pubkey,
+    before: &Account,
+) -> Result<(), ClientError> {
+    let after = fetch_account(rpc, pubkey)?;
+    assert_eq!(&after, before, "account {pubkey} changed after rejection");
+    Ok(())
+}
+
+/// Verify that an account remains byte-for-byte identical or remains absent.
+#[track_caller]
+pub fn assert_optional_account_unchanged<R: Rpc>(
+    rpc: &R,
+    pubkey: &Pubkey,
+    before: &Option<Account>,
+) -> Result<(), ClientError> {
+    let after = fetch_optional_account(rpc, pubkey)?;
+    assert_eq!(&after, before, "account {pubkey} changed after rejection");
+    Ok(())
 }
 
 #[track_caller]
@@ -241,4 +301,24 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::assert_custom_program_error;
+    use solana_instruction_error::InstructionError;
+    use solana_transaction_error::TransactionError;
+    use zolana_client::ClientError;
+
+    #[test]
+    fn typed_custom_program_error_preserves_code_and_instruction_index() {
+        let source = solana_rpc_client_api::client_error::Error::from(
+            TransactionError::InstructionError(2, InstructionError::Custom(7_008)),
+        );
+        let error = ClientError::SolanaRpcTransaction {
+            operation: "test",
+            source,
+        };
+        assert_eq!(assert_custom_program_error(&error, 7_008), 2);
+    }
 }

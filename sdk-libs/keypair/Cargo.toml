@@ -21,10 +21,8 @@ solana-keypair = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-cucumber = { workspace = true }
-tokio = { workspace = true }
 hex = { workspace = true }
 
 [[test]]
-name = "bdd"
-harness = false
+name = "keypair"
+path = "tests/keypair.rs"

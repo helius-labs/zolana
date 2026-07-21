@@ -52,10 +52,6 @@ pub use proofless::DepositBatch;
 pub mod rpc;
 pub use rejection::Rejection;
 pub use rpc::IndexedTransaction;
-mod transaction_trace;
-pub use transaction_trace::{
-    AccountSnapshot, AccountTransition, InstructionTrace, TransactionOutcome, TransactionTrace,
-};
 pub use zolana_client::Rpc;
 mod spl;
 mod wallet_data;
@@ -114,7 +110,6 @@ pub struct ZolanaProgramTest {
     /// Counter mixed into deterministic tree seeds so repeated `create_tree`
     /// calls produce distinct reproducible addresses.
     tree_counter: u64,
-    transaction_traces: Vec<TransactionTrace>,
 }
 
 impl ZolanaProgramTest {
@@ -148,7 +143,6 @@ impl ZolanaProgramTest {
             program_id,
             indexer: TestIndexer::new(),
             tree_counter: 0,
-            transaction_traces: Vec::new(),
         })
     }
 
@@ -165,28 +159,15 @@ impl ZolanaProgramTest {
         &self.indexer
     }
 
-    /// All submissions made through this backend, including rejected ones.
-    pub fn transaction_traces(&self) -> &[TransactionTrace] {
-        &self.transaction_traces
-    }
-
-    /// Diagnostics and automatic pre/post snapshots for the last submission.
-    pub fn last_transaction_trace(&self) -> Option<&TransactionTrace> {
-        self.transaction_traces.last()
-    }
-
     pub fn warp_to_slot(&mut self, slot: u64) -> Result<(), ProgramTestError> {
         self.svm.warp_to_slot(slot);
         Ok(())
     }
 
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<(), ProgramTestError> {
-        // Deliberately does NOT expire the blockhash: LiteSVM accepts only the
-        // single current latest_blockhash, so expiring here would invalidate any
-        // transaction signed before the airdrop (`BlockhashNotFound`). Freshness
-        // against AlreadyProcessed dedup lives in the signing path
-        // (`create_and_send_transaction` expires immediately before fetching the
-        // blockhash for a new transaction).
+        // LiteSVM rejects byte-identical transactions as AlreadyProcessed. Advance
+        // the blockhash so repeated setup/actions exercise the program again.
+        self.svm.expire_blockhash();
         self.svm
             .airdrop(pubkey, lamports)
             .map(|_| ())

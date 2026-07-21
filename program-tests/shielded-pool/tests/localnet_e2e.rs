@@ -3,9 +3,6 @@
 //! Flow: proofless shield into a private UTXO, transfer part of that value to a
 //! second private owner, then unshield the transferred UTXO back to public SOL.
 
-#[path = "common/transact.rs"]
-mod transact_common;
-
 use anyhow::anyhow;
 use num_bigint::BigUint;
 use solana_address::Address;
@@ -39,12 +36,12 @@ use zolana_program_test::{
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
-use crate::transact_common::{
+use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_sol_field,
-    real_output, set_output_owner_tags, sol_public_slots, spend_input, start_prover,
-    transfer_output, SpendInputArgs, TransferProverInputsArgs,
+    real_output, set_output_owner_tags, sol_public_slots, spend_input, transfer_output,
+    SpendInputArgs, TransferProverInputsArgs,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -57,7 +54,7 @@ type TestResult<T = ()> = anyhow::Result<T>;
 
 #[test]
 fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
-    start_prover()?;
+    zolana_test_utils::prover::spawn_workspace_prover();
 
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
 

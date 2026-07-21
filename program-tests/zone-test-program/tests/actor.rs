@@ -1,6 +1,4 @@
-//! A shielded participant in a zone lifecycle scenario.
-
-#![allow(dead_code)]
+//! A shielded participant in zone lifecycle tests.
 
 use anyhow::Result;
 use solana_account::Account;
@@ -11,7 +9,7 @@ use zolana_interface::instruction::ZoneAssetDeposit;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 
-/// What a zone deposit's action recorded, so the separate assert step can verify
+/// What a zone deposit records so the separate assertion can verify
 /// it with `assert_zone_deposit` (which needs the sent data and the pre-deposit
 /// account snapshots). `spl` is `Some` for token zone deposits.
 #[derive(Clone)]

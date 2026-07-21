@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-# Only the explicit `lifecycle` test target builds; tests/{actor,localnet,world}.rs
+# Only the explicit `lifecycle` test target builds; tests/{actor,localnet,harness}.rs
 # are its modules, not standalone integration-test binaries.
 autotests = false
 
@@ -32,11 +32,9 @@ zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
-cucumber = { workspace = true }
-futures = { workspace = true }
 rand = { workspace = true }
+serial_test = { workspace = true }
 
 [[test]]
 name = "lifecycle"
 path = "tests/lifecycle.rs"
-harness = false

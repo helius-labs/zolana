@@ -1,7 +1,7 @@
 //! Post-instruction checks for `deposit` (SOL deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::AssetDeposit;
+use zolana_interface::instruction::DepositIxData;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -12,19 +12,31 @@ use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 /// and the recipient wallet discovers the new UTXO.
 ///
 /// `root_before` is the on-chain state root captured before the deposit.
+pub struct DepositAssertArgs<'a, A: ?Sized> {
+    pub tree: &'a Pubkey,
+    pub event: &'a DepositOutput,
+    pub data: &'a DepositIxData,
+    pub expected_amount: u64,
+    pub expected_asset: [u8; 32],
+    pub root_before: [u8; 32],
+    pub authority: &'a A,
+}
+
 #[track_caller]
-#[allow(clippy::too_many_arguments)]
 pub fn litesvm_assert_deposit<A: SyncWalletAuthority + ?Sized>(
     program_test: &mut ZolanaProgramTest,
-    tree: &Pubkey,
-    event: &DepositOutput,
-    data: &AssetDeposit,
-    expected_amount: u64,
-    expected_asset: [u8; 32],
-    root_before: [u8; 32],
-    authority: &A,
     recipient: &mut Wallet,
+    args: DepositAssertArgs<'_, A>,
 ) {
+    let DepositAssertArgs {
+        tree,
+        event,
+        data,
+        expected_amount,
+        expected_asset,
+        root_before,
+        authority,
+    } = args;
     assert_eq!(event.output.amount, expected_amount, "event amount");
     assert_eq!(event.output.asset, expected_asset, "event asset");
     assert_eq!(event.output.owner, data.owner, "owner");
@@ -48,8 +60,9 @@ pub fn litesvm_assert_deposit<A: SyncWalletAuthority + ?Sized>(
         .fetch_by_view_tag(&data.view_tag)
         .collect();
     assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
+    let indexed = by_tag.first().expect("one indexed deposit");
     assert_eq!(
-        by_tag[0].proofless().expect("proofless deposit").owner,
+        indexed.proofless().expect("proofless deposit").owner,
         data.owner,
         "indexed record owner"
     );

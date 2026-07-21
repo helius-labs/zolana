@@ -11,12 +11,10 @@
 //! its owner hash.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program` to have produced the
-//! `.so` binary; the test skips (does not fail) when it is missing.
+//! `.so` binary.
 
 #[path = "../common/setup.rs"]
 mod common;
-#[path = "../common/transact.rs"]
-mod transact_common;
 
 use num_bigint::BigUint;
 use solana_keypair::Keypair;
@@ -38,7 +36,7 @@ use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
-use crate::transact_common::{
+use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_sol_field,
@@ -65,8 +63,8 @@ struct TransactEnv {
 }
 
 impl TransactEnv {
-    fn boot() -> Option<Self> {
-        let mut rpc = common::program_test()?;
+    fn boot() -> Self {
+        let mut rpc = common::program_test();
         start_prover().expect("start prover");
         let authority = Keypair::new();
         rpc.create_protocol_config(&authority)
@@ -74,15 +72,13 @@ impl TransactEnv {
         let tree = rpc
             .create_tree(common::tree_account_size(), &authority)
             .expect("create tree");
-        Some(Self { rpc, tree })
+        Self { rpc, tree }
     }
 }
 
 #[test]
 fn shield_then_withdraw_sol() {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = TransactEnv::boot();
 
     let tree = env.tree.pubkey();
     let payer = env.rpc.payer.insecure_clone();
@@ -279,9 +275,7 @@ fn shield_then_withdraw_sol() {
 
 #[test]
 fn shield_transfer_then_withdraw_sol() {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = TransactEnv::boot();
 
     const TRANSFER_AMOUNT: u64 = 400_000_000;
     const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;

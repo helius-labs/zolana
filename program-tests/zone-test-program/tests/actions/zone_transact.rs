@@ -1,0 +1,720 @@
+//! Zone transfer and withdrawal operations.
+
+use anyhow::{anyhow, Result};
+use solana_account::Account;
+use solana_address::Address;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signature::Signature;
+use solana_signer::Signer;
+use zolana_client::{
+    ConfidentialTransfer, ProverClient, Rpc, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
+    TransferSpendInput, ZoneTransferProver,
+};
+use zolana_interface::instruction::{
+    instruction_data::transact::{CircuitId, InputUtxo, TransactIxData, TransactProof},
+    tag::ZONE_TRANSACT,
+    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, ZoneTransact,
+};
+use zolana_keypair::SignatureType;
+use zolana_test_utils::test_validator_asserts::{
+    assert_account_unchanged, assert_custom_program_error, assert_zone_transact, fetch_account,
+    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+    ZoneTransactAssertArgs,
+};
+use zolana_transaction::{
+    instructions::transact::SettlementTarget, ShieldedTransaction, Utxo, SOL_MINT,
+};
+
+use crate::{
+    harness::decode_output_blinding,
+    localnet::{
+        send_transaction, transact_proof, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
+        SPL_CHANGE_POSITION, ZERO,
+    },
+    support::Variant,
+    ZoneHarness,
+};
+
+/// `ShieldedPoolError::TransactProofVerificationFailed`: SPP's shared transact
+/// proof verifier rejects a malformed / zeroed proof.
+const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;
+
+/// Sentinel `eddsa_signer_index` marking a P256-owned input; SPP uses it to select
+/// the P256 verifying key and skip the per-input eddsa signer check. Mirrors
+/// `P256_OWNED_SIGNER` in the shielded-pool program and `witness.rs`.
+const P256_OWNED_SIGNER: u8 = 255;
+
+/// Default eddsa signer account index for a Solana-owned input (the fee payer).
+const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
+
+/// The output hashes a zone transfer produced, so the step can confirm
+/// `Wallet::sync` rediscovers each one.
+#[derive(Default)]
+struct DiscoveredOutputs {
+    /// The recipient output hash (`None` for a change-only transfer / withdrawal).
+    recipient: Option<[u8; 32]>,
+    /// The sender's per-asset change output hashes.
+    change: Vec<[u8; 32]>,
+}
+
+/// A proved zone transfer, sent and indexed, ready to be asserted and tracked.
+struct SentZoneTransfer {
+    data: TransactIxData,
+    fetch_view_tag: [u8; 32],
+    indexed: ShieldedTransaction,
+    signature: Signature,
+    tree_before: Account,
+}
+
+struct ZoneTransferOperation<'a> {
+    from: &'a str,
+    to: Option<&'a str>,
+    inputs: &'a [Utxo],
+    send_asset: Address,
+    amount: u64,
+    withdrawal: Option<Pubkey>,
+    rail: Variant,
+}
+
+impl ZoneHarness {
+    /// Zone-transfer `amount` of `asset` from `from` to `to` over the eddsa rail
+    /// (the owner authorizes the spend with its ed25519 transaction signature),
+    /// consolidating two of `from`'s spendable zone UTXOs of `asset` into the
+    /// (2, 3) shape. Sets `last_rail` to [`Variant::Eddsa`].
+    pub(crate) fn zone_transfer(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<Signature> {
+        self.execute_zone_transfer(from, Some(to), asset, amount, None, Variant::Eddsa)
+    }
+
+    /// Zone-withdraw `amount` of SOL from `from`'s zone UTXOs to a fresh external
+    /// Solana account: the public SOL amount leaves the pool while `from` keeps the
+    /// change as a zone UTXO. Eddsa rail. Returns the withdrawal recipient so the
+    /// step can assert the lamports landed.
+    pub(crate) fn zone_withdraw(
+        &mut self,
+        from: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<(Signature, Pubkey)> {
+        if asset != SOL_MINT {
+            return Err(anyhow!("only SOL zone withdrawals are supported"));
+        }
+        let recipient = Keypair::new().pubkey();
+        let sig =
+            self.execute_zone_transfer(from, None, asset, amount, Some(recipient), Variant::Eddsa)?;
+        Ok((sig, recipient))
+    }
+
+    /// Build, prove (`zone_transact` rail), send, and verify a zone transfer or
+    /// withdrawal. `withdrawal` is `Some(recipient)` for a public-amount SOL
+    /// withdrawal; `None` for a pure shielded transfer. Records `last_transact` and
+    /// `last_rail`, pushes the indexed transaction, tracks the recipient / change
+    /// UTXOs, and marks consumed inputs spent — mirroring the default-zone
+    /// `transact` flow.
+    fn execute_zone_transfer(
+        &mut self,
+        from: &str,
+        to: Option<&str>,
+        send_asset: Address,
+        amount: u64,
+        withdrawal: Option<Pubkey>,
+        rail: Variant,
+    ) -> Result<Signature> {
+        if self.zone_config.is_none() {
+            self.create_enabled_zone_config()?;
+        }
+        self.ensure_actor(from)?;
+        if let Some(to) = to {
+            self.ensure_actor(to)?;
+        }
+
+        let inputs = self.take_zone_inputs(from, send_asset)?;
+        let sent = self.send_zone_transfer(ZoneTransferOperation {
+            from,
+            to,
+            inputs: &inputs,
+            send_asset,
+            amount,
+            withdrawal,
+            rail,
+        })?;
+        self.last_rail = Some(rail);
+
+        let SentZoneTransfer {
+            data,
+            fetch_view_tag,
+            indexed,
+            signature,
+            tree_before,
+        } = sent;
+
+        assert_zone_transact(
+            &self.rpc,
+            &self.indexer,
+            ZoneTransactAssertArgs {
+                tree: &self.tree,
+                data: &data,
+                signature,
+                fetch_view_tag,
+                tree_before: &tree_before,
+            },
+        )?;
+
+        // Rebuild the expected recipient / change UTXOs from the committed output
+        // blindings (decoded independently of `Wallet::sync`), then mark consumed
+        // inputs spent, so `assert_utxos` is a real cross-check of the synced wallet.
+        let discovered = self.track_outputs(from, to, &inputs, send_asset, amount, &indexed)?;
+        self.indexed.push(indexed);
+
+        // Discovery via `Wallet::sync`: the confidential builder tagged the recipient
+        // output by the recipient's owner-pubkey view tag and the sender change by the
+        // sender's owner-pubkey view tag, the two tags `sync` scans for the default-zone
+        // path (see `sdk-libs/transaction/src/wallet/sync.rs`). Sync each actor and
+        // confirm its wallet now holds the new outputs by hash — no hand-asserted view tag.
+        if let (Some(to), Some(recipient_hash)) = (to, discovered.recipient) {
+            self.sync(to)?;
+            self.assert_wallet_holds(to, recipient_hash, "recipient zone-transfer output")?;
+        }
+        self.sync(from)?;
+        for change_hash in &discovered.change {
+            self.assert_wallet_holds(from, *change_hash, "sender zone-transfer change")?;
+        }
+
+        Ok(signature)
+    }
+
+    /// Confirm `name`'s synced wallet holds an unspent UTXO with `output_hash`. Run
+    /// `sync` first; this leans on `Wallet::sync` discovery (the confidential owner
+    /// tag the builder attached), not on a hand-set view tag.
+    fn assert_wallet_holds(&self, name: &str, output_hash: [u8; 32], what: &str) -> Result<()> {
+        let found = self
+            .actor(name)
+            .wallet
+            .utxos
+            .iter()
+            .any(|w| w.output_context.hash == output_hash && !w.spent);
+        if !found {
+            return Err(anyhow!(
+                "{name}'s synced wallet did not discover the {what} (hash {})",
+                hex32(&output_hash)
+            ));
+        }
+        Ok(())
+    }
+
+    /// Take two of `from`'s spendable zone UTXOs of `asset` (the (2, 3) shape). A
+    /// zone UTXO carries `zone_program_id`, so its hash binds the zone the prover
+    /// stamps on the proof.
+    fn take_zone_inputs(&mut self, from: &str, asset: Address) -> Result<Vec<Utxo>> {
+        let actor = self.actor_mut(from);
+        let mut taken = Vec::with_capacity(2);
+        for _ in 0..2 {
+            let pos = actor
+                .spendable
+                .iter()
+                .position(|u| u.asset == asset)
+                .ok_or_else(|| anyhow!("{from} needs two spendable zone UTXOs of {asset}"))?;
+            taken.push(actor.spendable.remove(pos));
+        }
+        Ok(taken)
+    }
+
+    /// Assemble the proved `TransactIxData`, send the `ZoneTransact` instruction, and
+    /// wait for the indexed transaction.
+    fn send_zone_transfer(
+        &mut self,
+        operation: ZoneTransferOperation<'_>,
+    ) -> Result<SentZoneTransfer> {
+        let ZoneTransferOperation {
+            from,
+            to,
+            inputs,
+            send_asset,
+            amount,
+            withdrawal,
+            rail,
+        } = operation;
+        let from_keypair = self.actor(from).keypair.clone();
+        let to_keypair = to.map(|t| self.actor(t).keypair.clone());
+        let to_address = to_keypair
+            .as_ref()
+            .map(|k| k.shielded_address())
+            .transpose()?;
+        let to_view_tag = to_keypair
+            .as_ref()
+            .map(|k| k.signing_pubkey().confidential_view_tag())
+            .transpose()?;
+        let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
+
+        // The eddsa rail's owner sits at signer index 0 (the fee payer), so an eddsa
+        // actor pays and signs its own spend; a P256 actor falls back to the global
+        // payer (ownership is proven in the proof).
+        let fee_payer = self
+            .actor(from)
+            .solana_signer
+            .as_ref()
+            .map(|k| k.insecure_clone())
+            .unwrap_or_else(|| self.payer.insecure_clone());
+        let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
+
+        // The high-level builder produces a decryptable SppProofInputs (outputs,
+        // ciphertexts, external_data) exactly as a confidential transact; the zone
+        // rail differs only in the prover and the instruction, plus the public
+        // zone_program_id and the rebound discriminator.
+        let spends: Vec<SppProofInputUtxo> = inputs
+            .iter()
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair))
+            .collect();
+        let mut transfer =
+            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address);
+        match (&to_address, withdrawal) {
+            (Some(addr), None) => {
+                transfer.send(addr, send_asset, amount)?;
+            }
+            (None, Some(recipient)) => {
+                transfer.withdraw(
+                    send_asset,
+                    amount,
+                    SettlementTarget::Sol {
+                        user_sol_account: Address::new_from_array(recipient.to_bytes()),
+                    },
+                )?;
+            }
+            (Some(_), Some(_)) => {
+                return Err(anyhow!("a zone transfer cannot both send and withdraw"));
+            }
+            (None, None) => {
+                return Err(anyhow!("a zone transfer needs a recipient or a withdrawal"));
+            }
+        }
+        let mut proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
+        // Rebind the discriminator to ZONE_TRANSACT before anything commits to
+        // external_data: it is folded into external_data_hash and private_tx_hash, so
+        // the proof and the on-chain recompute must agree on it.
+        proof_inputs.external_data.instruction_discriminator = ZONE_TRANSACT;
+
+        let zone = Address::new_from_array(self.zone_program_id.to_bytes());
+        let data = self.prove_and_assemble(&proof_inputs, zone, rail)?;
+
+        let interface_transfer_accounts = withdrawal
+            .map(|recipient| {
+                vec![TransactInterfaceTransferAccounts::Sol(
+                    TransactSolTransferAccounts { recipient },
+                )]
+            })
+            .unwrap_or_default();
+
+        let tree_before = fetch_account(&self.rpc, &self.tree)?;
+        let transfer_ix = ZoneTransact {
+            payer: fee_payer.pubkey(),
+            input_tree: self.tree,
+            output_tree: self.tree,
+            zone_program_id: self.zone_program_id,
+            interface_transfer_accounts,
+            data: data.clone(),
+        }
+        .instruction();
+        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        let signature = send_transaction(
+            &mut self.rpc,
+            &[compute_budget, transfer_ix.clone()],
+            &fee_payer.pubkey(),
+            &[&fee_payer],
+        )?;
+        self.last_transact = Some((signature, transfer_ix));
+
+        // A change-only transfer/withdrawal has no recipient slot, so locate the
+        // indexed transaction by the sender's view tag instead.
+        let fetch_view_tag = to_view_tag.unwrap_or(sender_view_tag);
+        let indexed = wait_for_indexed_transaction(&self.indexer, fetch_view_tag, signature);
+
+        Ok(SentZoneTransfer {
+            data,
+            fetch_view_tag,
+            indexed,
+            signature,
+            tree_before,
+        })
+    }
+
+    /// Drive the zone prover rail and fold the result into a `TransactIxData`,
+    /// mirroring `witness.rs::assemble`.
+    fn prove_and_assemble(
+        &self,
+        proof_inputs: &SppProofInputs,
+        zone: Address,
+        rail: Variant,
+    ) -> Result<TransactIxData> {
+        let spend_inputs = self.zone_spend_inputs(&proof_inputs.input_utxos)?;
+        let tx_shape = proof_inputs.check_shape()?;
+        let shape = Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs());
+
+        match rail {
+            Variant::Eddsa => {
+                let prover = ZoneTransferProver {
+                    inputs: spend_inputs,
+                    outputs: proof_inputs.output_utxos.clone(),
+                    external_data: proof_inputs.external_data.clone(),
+                    public_movements: proof_inputs.public_movements()?,
+                    payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
+                    allow_dummy_inputs: true,
+                    zone_program_id: Some(zone),
+                    shape: Some(shape),
+                };
+                let result = prover.build()?;
+                let proof = ProverClient::local().prove_transfer_zone(&result.inputs)?;
+                assemble_ix_data(
+                    proof_inputs,
+                    &result.nullifiers,
+                    result.private_tx_hash,
+                    &result.input_root_indices,
+                    Variant::Eddsa,
+                    transact_proof(&proof)?,
+                )
+            }
+            // The P256 rail is removed; kept as a placeholder arm so the
+            // instruction-data variant mapping stays exhaustive.
+            Variant::P256 => Err(anyhow!("P256 rail removed")),
+        }
+    }
+
+    /// Convert the builder's padded `SppProofInputUtxo` list into the prover's
+    /// `TransferSpendInput` list, fetching a `SpendProof` for every real input
+    /// against its zone-bound UTXO hash. A dummy carries no state proof (it mirrors
+    /// the first real input's state root downstream) but still needs a real
+    /// non-inclusion witness for its own nullifier: the circuit checks
+    /// non-inclusion for every slot.
+    fn zone_spend_inputs(&self, spends: &[SppProofInputUtxo]) -> Result<Vec<TransferSpendInput>> {
+        let mut out = Vec::with_capacity(spends.len());
+        for spend in spends {
+            let (proof, nullifier_proof) = if spend.is_dummy() {
+                let nullifier = spend.nullifier()?;
+                let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
+                (None, Some(nf))
+            } else {
+                let nullifier_pk = spend.nullifier_key.pubkey()?;
+                let utxo_hash = spend.utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
+                let nullifier = spend
+                    .nullifier_key
+                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
+                let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
+                let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
+                (
+                    Some(SpendProof {
+                        state,
+                        nullifier: nf,
+                    }),
+                    None,
+                )
+            };
+            out.push(TransferSpendInput {
+                utxo: spend.utxo.clone(),
+                nullifier_key: spend.nullifier_key.clone(),
+                data_hash: None,
+                zone_data_hash: None,
+                proof,
+                nullifier_proof,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Track the expected recipient and per-asset sender-change UTXOs and mark the
+    /// consumed inputs spent, rebuilt independently from the decoded output blindings
+    /// so `assert_utxos` cross-checks the synced wallet. Mirrors the default-zone
+    /// `transact` flow; a withdrawal has no recipient slot and reduces the SOL change
+    /// by the public amount.
+    fn track_outputs(
+        &mut self,
+        from: &str,
+        to: Option<&str>,
+        inputs: &[Utxo],
+        send_asset: Address,
+        amount: u64,
+        indexed: &ShieldedTransaction,
+    ) -> Result<DiscoveredOutputs> {
+        let from_keypair = self.actor(from).keypair.clone();
+        let mut discovered = DiscoveredOutputs::default();
+
+        if let Some(to) = to {
+            let to_keypair = self.actor(to).keypair.clone();
+            let recipient_utxo = self.build_expected(
+                to,
+                to_keypair.signing_pubkey(),
+                send_asset,
+                amount,
+                decode_output_blinding(
+                    &from_keypair.viewing_key,
+                    indexed,
+                    RECIPIENT_POSITION_BASE as u32,
+                )?,
+                indexed,
+            )?;
+            discovered.recipient = Some(recipient_utxo.output_context.hash);
+            self.actor_mut(to).expected.push(recipient_utxo);
+        }
+
+        let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
+        for input in inputs {
+            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO)?;
+            if let Some(note) = self
+                .actor_mut(from)
+                .expected
+                .iter_mut()
+                .find(|n| n.output_context.hash == consumed_hash)
+            {
+                note.spent = true;
+            }
+        }
+
+        // Per-asset sender change: SPL change at output position 0, SOL change at
+        // position 1 (the fixed-position output layout). A withdrawal (no recipient
+        // slot) sends the public amount out of the pool; the rest is SOL change.
+        let spl_asset = inputs.iter().map(|u| u.asset).find(|a| *a != SOL_MINT);
+        for (change_asset, position) in [
+            (spl_asset, SPL_CHANGE_POSITION),
+            (Some(SOL_MINT), SOL_CHANGE_POSITION),
+        ] {
+            let Some(change_asset) = change_asset else {
+                continue;
+            };
+            let input_sum: u64 = inputs
+                .iter()
+                .filter(|u| u.asset == change_asset)
+                .map(|u| u.amount)
+                .sum();
+            let sent = if change_asset == send_asset {
+                amount
+            } else {
+                0
+            };
+            let change = input_sum
+                .checked_sub(sent)
+                .ok_or_else(|| anyhow!("{from} change underflow: sent {sent} of {change_asset}"))?;
+            if change > 0 {
+                let change_utxo = self.build_expected(
+                    from,
+                    from_keypair.signing_pubkey(),
+                    change_asset,
+                    change,
+                    decode_output_blinding(&from_keypair.viewing_key, indexed, position as u32)?,
+                    indexed,
+                )?;
+                discovered.change.push(change_utxo.output_context.hash);
+                self.actor_mut(from).expected.push(change_utxo);
+            }
+        }
+        Ok(discovered)
+    }
+
+    /// Attempt a zone transfer whose proof bytes are zeroed; SPP's shared transact
+    /// proof verifier must reject it. Builds the same instruction the happy path
+    /// does (real inputs, padded dummies, decryptable outputs) but replaces the
+    /// proof with `TransactProof::zeroed`, so only proof verification fails.
+    /// Borrows (does not consume) the inputs: a rejected transfer spends nothing.
+    pub(crate) fn zone_transfer_bad_proof(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<()> {
+        if self.zone_config.is_none() {
+            self.create_enabled_zone_config()?;
+        }
+        self.ensure_actor(from)?;
+        self.ensure_actor(to)?;
+
+        let inputs: Vec<Utxo> = {
+            let actor = self.actor(from);
+            let mut taken = Vec::with_capacity(2);
+            for utxo in actor.spendable.iter().filter(|u| u.asset == asset) {
+                taken.push(utxo.clone());
+                if taken.len() == 2 {
+                    break;
+                }
+            }
+            if taken.len() < 2 {
+                return Err(anyhow!("{from} needs two spendable zone UTXOs of {asset}"));
+            }
+            taken
+        };
+
+        let from_keypair = self.actor(from).keypair.clone();
+        let to_address = self.actor(to).keypair.shielded_address()?;
+        let fee_payer = self
+            .actor(from)
+            .solana_signer
+            .as_ref()
+            .map(|k| k.insecure_clone())
+            .unwrap_or_else(|| self.payer.insecure_clone());
+        let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
+
+        let spends: Vec<SppProofInputUtxo> = inputs
+            .iter()
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair))
+            .collect();
+        let mut transfer =
+            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address);
+        transfer.send(&to_address, asset, amount)?;
+        let mut proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
+        proof_inputs.external_data.instruction_discriminator = ZONE_TRANSACT;
+
+        // Assemble the instruction data with real nullifiers / root indices but a
+        // zeroed proof, so verification is the only thing that fails.
+        let zone = Address::new_from_array(self.zone_program_id.to_bytes());
+        let tx_shape = proof_inputs.check_shape()?;
+        let prover = ZoneTransferProver {
+            inputs: self.zone_spend_inputs(&proof_inputs.input_utxos)?,
+            outputs: proof_inputs.output_utxos.clone(),
+            external_data: proof_inputs.external_data.clone(),
+            public_movements: proof_inputs.public_movements()?,
+            payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
+            allow_dummy_inputs: true,
+            zone_program_id: Some(zone),
+            shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
+        };
+        let result = prover.build()?;
+        let data = assemble_ix_data(
+            &proof_inputs,
+            &result.nullifiers,
+            result.private_tx_hash,
+            &result.input_root_indices,
+            Variant::Eddsa,
+            TransactProof::zeroed(),
+        )?;
+
+        let transfer_ix = ZoneTransact {
+            payer: fee_payer.pubkey(),
+            input_tree: self.tree,
+            output_tree: self.tree,
+            zone_program_id: self.zone_program_id,
+            interface_transfer_accounts: Vec::new(),
+            data,
+        }
+        .instruction();
+        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        let tree_before = fetch_account(&self.rpc, &self.tree)?;
+        match send_transaction(
+            &mut self.rpc,
+            &[compute_budget, transfer_ix],
+            &fee_payer.pubkey(),
+            &[&fee_payer],
+        ) {
+            Ok(_) => Err(anyhow!(
+                "zone transfer with an invalid proof unexpectedly succeeded"
+            )),
+            Err(error) => {
+                assert_eq!(
+                    assert_custom_program_error(&error, TRANSACT_PROOF_VERIFICATION_FAILED),
+                    1
+                );
+                assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Assemble the `TransactIxData` from the signed transaction's external data and
+/// the prover result, mirroring `client::prover::transact::witness::assemble`. Each
+/// padded input carries its nullifier hash, root indices, and signer index; dummies
+/// inherit the first real input's signer. `external_data` fields flow through
+/// unchanged (already rebound to `ZONE_TRANSACT`).
+fn assemble_ix_data(
+    proof_inputs: &SppProofInputs,
+    nullifiers: &[[u8; 32]],
+    private_tx_hash: [u8; 32],
+    root_indices: &[(u16, u16)],
+    rail: Variant,
+    proof: TransactProof,
+) -> Result<TransactIxData> {
+    let n_inputs = proof_inputs.check_shape()?.n_inputs();
+    if nullifiers.len() != n_inputs || root_indices.len() != n_inputs {
+        return Err(anyhow!(
+            "witness input count {} / {} does not match shape {n_inputs}",
+            nullifiers.len(),
+            root_indices.len()
+        ));
+    }
+
+    // Per-input signer index: a real P256 input uses the P256 sentinel, a real
+    // eddsa input uses signer index 0 (the fee payer); dummies inherit the first
+    // real input's signer.
+    let mut real_signer_indices = Vec::new();
+    for spend in proof_inputs
+        .input_utxos
+        .iter()
+        .filter(|spend| !spend.is_dummy())
+    {
+        let signer = match (rail, spend.utxo.owner.signature_type()?) {
+            (Variant::P256, SignatureType::P256) => P256_OWNED_SIGNER,
+            _ => DEFAULT_EDDSA_SIGNER_INDEX,
+        };
+        real_signer_indices.push(signer);
+    }
+    let dummy_signer = real_signer_indices
+        .first()
+        .copied()
+        .unwrap_or(DEFAULT_EDDSA_SIGNER_INDEX);
+
+    let mut inputs = Vec::with_capacity(n_inputs);
+    for i in 0..n_inputs {
+        let nullifier_hash = *nullifiers
+            .get(i)
+            .ok_or_else(|| anyhow!("missing nullifier {i}"))?;
+        let &(utxo_tree_root_index, nullifier_tree_root_index) = root_indices
+            .get(i)
+            .ok_or_else(|| anyhow!("missing root index {i}"))?;
+        let eddsa_signer_index = real_signer_indices.get(i).copied().unwrap_or(dummy_signer);
+        inputs.push(InputUtxo {
+            nullifier_hash,
+            nullifier_tree_root_index,
+            utxo_tree_root_index,
+            eddsa_signer_index,
+        });
+    }
+
+    let external = &proof_inputs.external_data;
+    Ok(TransactIxData {
+        proof,
+        expiry_unix_ts: external.expiry_unix_ts,
+        private_tx_hash,
+        circuit: match rail {
+            Variant::P256 => return Err(anyhow!("the P256 transact rail was removed")),
+            Variant::Eddsa => CircuitId::ZoneEddsa(
+                n_inputs as u8,
+                external.outputs.len() as u8,
+                zolana_interface::N_PUBLIC_SLOTS as u8,
+            ),
+        },
+        inputs,
+        interface_transfers: external
+            .interface_transfers
+            .iter()
+            .map(|transfer| transfer.interface_transfer())
+            .collect(),
+        data_hash: external.data_hash,
+        zone_data_hash: external.zone_data_hash,
+        tx_viewing_pk: external.tx_viewing_pk,
+        salt: external.salt,
+        outputs: external.outputs.clone(),
+        messages: external.messages.clone(),
+    })
+}
+
+/// Lowercase hex of a 32-byte hash for error messages.
+fn hex32(bytes: &[u8; 32]) -> String {
+    let mut s = String::with_capacity(64);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}

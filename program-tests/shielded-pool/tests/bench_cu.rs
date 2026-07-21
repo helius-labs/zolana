@@ -32,17 +32,16 @@ use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_
 use zolana_tree::TreeAccount;
 
 mod common;
-
-#[path = "common/transact.rs"]
-mod transact_common;
-
-use transact_common::{
-    build_transfer_prover_inputs, build_transfer_prover_inputs_spl, dummy_input,
-    dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl,
-    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-    prove_and_verify_transfer, public_input_hash, public_input_hash_spl, public_sol_field,
-    set_output_owner_tags, sol_public_slots, spend_input, start_prover, SpendInputArgs,
-    TransferProverInputsArgs,
+use zolana_test_utils::{
+    prover::spawn_workspace_prover,
+    transact::{
+        build_transfer_prover_inputs, build_transfer_prover_inputs_spl, dummy_input,
+        dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe,
+        inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+        prove_and_verify_transfer, public_input_hash, public_input_hash_spl, public_sol_field,
+        set_output_owner_tags, sol_public_slots, spend_input, SpendInputArgs,
+        TransferProverInputsArgs,
+    },
 };
 
 const PLAIN_PROGRAM_PATH: &str = concat!(
@@ -101,7 +100,7 @@ fn snapshot_account(pt: &ZolanaProgramTest, key: &Pubkey) -> (MolluskPubkey, Mol
 
 fn bench_setup() -> (ZolanaProgramTest, Keypair, Pubkey) {
     std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
-    let mut pt = common::program_test().expect("plain shielded-pool program built for litesvm");
+    let mut pt = common::program_test();
     let authority = Keypair::new();
     pt.create_protocol_config(&authority)
         .expect("create_protocol_config");
@@ -376,7 +375,7 @@ fn bench_deposit_spl(
 // no settlement. Mirrors `transact::transact_sends_valid_proof`.
 fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     let (pt, _authority, tree) = bench_setup();
-    start_prover().expect("start prover");
+    spawn_workspace_prover();
 
     let payer = pt.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
@@ -468,7 +467,7 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
 // full amount to an external account. Mirrors `shield_withdraw::shield_then_withdraw_sol`.
 fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     let (mut pt, _authority, tree) = bench_setup();
-    start_prover().expect("start prover");
+    spawn_workspace_prover();
 
     const AMOUNT: u64 = 1_000_000_000;
     let payer = pt.payer.insecure_clone();
@@ -629,7 +628,7 @@ fn bench_withdrawal_spl(
     bench: &mut CuBenchmark,
 ) {
     let (mut pt, authority, tree) = bench_setup();
-    start_prover().expect("start prover");
+    spawn_workspace_prover();
 
     const AMOUNT: u64 = 1_000;
     let mint = pt.create_mint().expect("create_mint");

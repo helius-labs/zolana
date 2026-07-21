@@ -1,25 +1,167 @@
-//! End-to-end BDD tests for the `Transaction` builder at shape (2,3), one feature
-//! file per ownership rail (`eddsa_transaction`, `p256_transaction`,
-//! `eddsa_p256_transaction`). Each scenario declares inputs / sends / withdrawals,
-//! then the `the proof verifies` step builds the transfer, proves it on the prover
-//! server, and verifies against the committed vk for the selected rail.
-//!
-//! Requires a reachable prover server (started via `spawn_prover`) with the
-//! `transfer_2_3.key` and `transfer_p256_2_3.key` proving keys available.
-//!
-//! Run with: `cargo test -p zolana-client --test transaction_proving`
+//! Transfer proof matrix for the fixed (2,3) circuit shape.
 
+mod harness;
 mod prover;
-mod steps;
+mod prover_bootstrap;
+mod proving;
 mod test_indexer;
-mod world;
 
-use cucumber::World as _;
+use harness::{Asset, InputSpec, Owner, SendSpec, TransferHarness, TransferPlan, WithdrawSpec};
+use std::{any::Any, panic::AssertUnwindSafe};
 
-fn main() {
-    futures::executor::block_on(
-        world::TransferWorld::cucumber()
-            .fail_on_skipped()
-            .run_and_exit("tests/features"),
-    );
+type SingleOwnerCase = (
+    Vec<(Asset, u64)>,
+    Vec<(Asset, u64)>,
+    Option<(Asset, u64)>,
+    bool,
+);
+
+fn run(
+    inputs: &[(Owner, Asset, u64)],
+    sends: &[(Asset, u64)],
+    withdraw: Option<(Asset, u64)>,
+    declared_shape: bool,
+) {
+    TransferHarness {
+        plan: TransferPlan {
+            inputs: inputs
+                .iter()
+                .map(|&(owner, asset, amount)| InputSpec {
+                    owner,
+                    asset,
+                    amount,
+                })
+                .collect(),
+            sends: sends
+                .iter()
+                .map(|&(asset, amount)| SendSpec { asset, amount })
+                .collect(),
+            withdraw: withdraw.map(|(asset, amount)| WithdrawSpec { asset, amount }),
+            declared_shape,
+        },
+    }
+    .prove_and_verify();
+}
+
+fn panic_message(payload: &(dyn Any + Send)) -> &str {
+    payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .unwrap_or("non-string panic payload")
+}
+
+fn run_with_context(
+    case_index: usize,
+    inputs: &[(Owner, Asset, u64)],
+    sends: &[(Asset, u64)],
+    withdraw: Option<(Asset, u64)>,
+    declared_shape: bool,
+) {
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        run(inputs, sends, withdraw, declared_shape)
+    }));
+    if let Err(payload) = result {
+        panic!(
+            "proof case {case_index} failed: inputs={inputs:?}, sends={sends:?}, \
+             withdraw={withdraw:?}, declared_shape={declared_shape}: {}",
+            panic_message(payload.as_ref())
+        );
+    }
+}
+
+fn run_single_owner_matrix(owner: Owner) {
+    use Asset::{Sol, Spl};
+    let cases: Vec<SingleOwnerCase> = vec![
+        (vec![(Sol, 100)], vec![(Sol, 60)], None, false),
+        (vec![(Sol, 100), (Sol, 50)], vec![(Sol, 60)], None, false),
+        (vec![(Sol, 100)], vec![(Sol, 100)], None, false),
+        (vec![(Sol, 100)], vec![], None, false),
+        (vec![(Sol, 100), (Sol, 50)], vec![], None, false),
+        (vec![(Sol, 100)], vec![], Some((Sol, 30)), false),
+        (vec![(Sol, 100)], vec![(Sol, 70)], Some((Sol, 30)), false),
+        (vec![(Sol, 100)], vec![(Sol, 40)], Some((Sol, 30)), false),
+        (vec![(Sol, 100)], vec![], Some((Sol, 100)), false),
+        (vec![(Sol, 100), (Sol, 50)], vec![], Some((Sol, 30)), false),
+        (vec![(Spl, 100)], vec![(Spl, 60)], None, false),
+        (vec![(Spl, 100)], vec![(Spl, 100)], None, false),
+        (vec![(Spl, 100), (Spl, 50)], vec![], None, false),
+        (vec![(Spl, 100)], vec![], Some((Spl, 30)), false),
+        (vec![(Spl, 100)], vec![], Some((Spl, 100)), false),
+        (vec![(Spl, 100)], vec![(Spl, 40)], Some((Spl, 30)), false),
+        (vec![(Sol, 100), (Spl, 100)], vec![(Spl, 60)], None, false),
+        (vec![(Sol, 100), (Spl, 100)], vec![], None, false),
+        (
+            vec![(Sol, 100), (Spl, 100)],
+            vec![(Spl, 60)],
+            Some((Sol, 100)),
+            false,
+        ),
+        (
+            vec![(Sol, 100), (Spl, 100)],
+            vec![(Sol, 60)],
+            Some((Spl, 100)),
+            false,
+        ),
+        (vec![(Sol, 100)], vec![(Sol, 60)], None, true),
+    ];
+    for (case_index, (inputs, sends, withdraw, declared)) in cases.into_iter().enumerate() {
+        let inputs: Vec<_> = inputs
+            .into_iter()
+            .map(|(asset, amount)| (owner, asset, amount))
+            .collect();
+        run_with_context(case_index, &inputs, &sends, withdraw, declared);
+    }
+}
+
+#[test]
+#[serial_test::serial]
+fn solana_owner_public_amount_and_output_matrix_proves() {
+    run_single_owner_matrix(Owner::Solana);
+}
+
+#[test]
+#[serial_test::serial]
+fn p256_owner_public_amount_and_output_matrix_proves() {
+    run_single_owner_matrix(Owner::P256);
+}
+
+#[test]
+#[serial_test::serial]
+fn mixed_owner_public_amount_and_output_matrix_proves() {
+    use Asset::{Sol, Spl};
+    use Owner::{Solana, P256};
+    let mixed = [
+        (
+            vec![(P256, Sol, 100), (Solana, Sol, 50)],
+            vec![(Sol, 60)],
+            None,
+        ),
+        (vec![(P256, Sol, 100), (Solana, Sol, 50)], vec![], None),
+        (
+            vec![(P256, Sol, 100), (Solana, Sol, 50)],
+            vec![],
+            Some((Sol, 30)),
+        ),
+        (vec![(P256, Spl, 100), (Solana, Spl, 50)], vec![], None),
+        (
+            vec![(P256, Sol, 100), (Solana, Spl, 100)],
+            vec![(Spl, 60)],
+            None,
+        ),
+        (vec![(P256, Sol, 100), (Solana, Spl, 100)], vec![], None),
+        (
+            vec![(P256, Sol, 100), (Solana, Spl, 100)],
+            vec![(Spl, 60)],
+            Some((Sol, 100)),
+        ),
+        (
+            vec![(P256, Sol, 100), (Solana, Spl, 100)],
+            vec![(Sol, 60)],
+            Some((Spl, 100)),
+        ),
+    ];
+    for (case_index, (inputs, sends, withdraw)) in mixed.into_iter().enumerate() {
+        run_with_context(case_index, &inputs, &sends, withdraw, false);
+    }
 }

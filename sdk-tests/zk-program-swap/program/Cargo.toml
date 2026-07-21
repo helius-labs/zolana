@@ -28,6 +28,14 @@ zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-interface = { workspace = true, features = ["solana"] }
 
+[dev-dependencies]
+mollusk-svm = "0.3.0"
+zolana-mollusk-harness = { path = "../../../program-tests/mollusk-harness" }
+mollusk-solana-account = { package = "solana-account", version = "2.2" }
+mollusk-solana-instruction = { package = "solana-instruction", version = "2.2" }
+mollusk-solana-program-error = { package = "solana-program-error", version = "2.2" }
+mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
+
 [lints.rust.unexpected_cfgs]
 level = "allow"
 check-cfg = [
