@@ -170,6 +170,13 @@ bench-shielded-pool: build-programs
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
 swap-keys-tag := "swap-keys-v3"
 
+# Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
+# (escrow_open/escrow_settle). The release assets are
+# the only key set matching the committed Rust verifying keys; rotating locally
+# (regen-dynamic-swap-keys) requires publishing a new release and updating
+# dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
+dynamic-swap-keys-tag := "dynamic-swap-keys-v3"
+
 ensure-swap-keys:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -210,6 +217,50 @@ regen-swap-keys:
         for kind in pk vk; do
             shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
                 | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/swap-keys.CHECKSUM"
+        done
+    done
+
+ensure-dynamic-swap-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/dynamic-swap"
+    for c in escrow_open escrow_settle; do
+        dir="$base/build/gnark/$c"
+        for kind in pk vk; do
+            if [ ! -f "$dir/$kind.bin" ]; then
+                mkdir -p "$dir"
+                gh release download "{{dynamic-swap-keys-tag}}" --repo helius-labs/zolana \
+                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
+            fi
+            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/dynamic-swap-keys.CHECKSUM")
+            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
+            if [ "$want" != "$got" ]; then
+                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
+                echo "refresh from the {{dynamic-swap-keys-tag}} release (delete the file and rerun)," >&2
+                echo "or rotate keys with 'just regen-dynamic-swap-keys' and publish a new release" >&2
+                exit 1
+            fi
+        done
+    done
+
+# Rotate the dynamic-swap proving keys: regenerate every circuit, rewriting the
+# committed Rust verifying keys and the checksum manifest. Publish the new
+# build/gnark key files to a fresh dynamic-swap-keys release and bump
+# dynamic-swap-keys-tag afterwards.
+regen-dynamic-swap-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/dynamic-swap"
+    for c in escrow_open escrow_settle; do
+        cargo run --release -p dynamic-swap-prover --bin dynamic-swap-prover-setup -- \
+            "$c" "$base/build/gnark/$c" \
+            --rust-vk "$base/program/src/verifying_keys/$c.rs"
+    done
+    : > "$base/dynamic-swap-keys.CHECKSUM"
+    for c in escrow_open escrow_settle; do
+        for kind in pk vk; do
+            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
+                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/dynamic-swap-keys.CHECKSUM"
         done
     done
 
@@ -295,6 +346,24 @@ bench-escrow: ensure-escrow-keys
         --manifest-path sdk-tests/timelock-escrow/program/Cargo.toml \
         -- --features bpf-entrypoint,profile-program
     cargo test -p timelock-escrow-test --test bench_cu -- --ignored --nocapture
+
+# The profiling dynamic-swap build calls the same profiler syscall
+# solana-test-validator does not register, so it must never land in
+# target/deploy either -- build the bench programs into their own dedicated
+# dir, matching PROFILING_SBF_DIR in dynamic-swap's bench_cu.rs. dynamic-swap's
+# own gnark keys (build/gnark/{escrow_open,escrow_settle}) are
+# generated locally and gitignored; there is no release download step for them
+# yet, so this assumes they already exist.
+bench-dynamic-swap:
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/dynamic-swap-bench \
+        --manifest-path programs/shielded-pool/Cargo.toml \
+        -- --features bpf-entrypoint
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/dynamic-swap-bench \
+        --manifest-path sdk-tests/dynamic-swap/program/Cargo.toml \
+        -- --features bpf-entrypoint,profile-program
+    cargo test -p dynamic-swap-test --test bench_cu -- --ignored --nocapture
 
 # === Local validator helpers ===
 
@@ -545,6 +614,27 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo run -p client-example --example deposit_transfer_withdraw
+
+# Dynamic-swap example lifecycle tests
+# (sdk-tests/dynamic-swap/test/tests/{pair,escrow_flow,escrow_refund}.rs). Each
+# test binary boots its own solana-test-validator +
+# Photon via the `zolana` CLI and starts the shared SPP prover server itself
+# (spawn_prover); dynamic-swap's own circuits (escrow_open/
+# escrow_settle) prove in-process through an embedded gnark FFI,
+# no separate prover process for those. Needs the Squads smart-account binary
+# (ensure-smart-account) since setup() always loads it, and exports the
+# per-clone ZOLANA_PORT_OFFSET-derived ports/URLs like the other localnet
+# recipes so it never collides with a concurrent session on the default
+# ports. Pass extra cargo-test args to select a single test binary, e.g.
+# `just test-dynamic-swap --test pair`.
+test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p dynamic-swap-test {{args}} -- --nocapture
 
 install-surfpool:
     #!/usr/bin/env bash

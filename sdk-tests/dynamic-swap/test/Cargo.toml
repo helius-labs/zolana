@@ -1,0 +1,64 @@
+[package]
+name = "dynamic-swap-test"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+anyhow = { workspace = true }
+bytemuck = { workspace = true }
+dynamic-swap-program = { path = "../program" }
+dynamic-swap-prover = { path = "../prover" }
+dynamic-swap-sdk = { path = "../sdk" }
+solana-address = { workspace = true }
+solana-address-lookup-table-interface = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-rpc-client = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true, features = ["bincode"] }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-test-utils = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+zolana-wallet = { workspace = true }
+
+[dev-dependencies]
+bincode = "1.3"
+num-bigint = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon"] }
+zolana-merkle-tree = { workspace = true }
+zolana-tree = { workspace = true }
+mollusk-svm = "0.3.0"
+light-program-profiler = { workspace = true, features = ["mollusk"] }
+mollusk-solana-account = { package = "solana-account", version = "2.2" }
+mollusk-solana-instruction = { package = "solana-instruction", version = "2.2" }
+mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
+
+[[test]]
+name = "bench_cu"
+path = "tests/bench_cu.rs"
+
+[[test]]
+name = "pair"
+path = "tests/pair.rs"
+
+[[test]]
+name = "negative"
+path = "tests/negative.rs"
+
+[[test]]
+name = "escrow_flow"
+path = "tests/escrow_flow.rs"
+
+[[test]]
+name = "escrow_refund"
+path = "tests/escrow_refund.rs"
