@@ -2141,6 +2141,96 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
+name = "dynamic-swap-program"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "bytemuck",
+ "groth16-solana",
+ "light-program-profiler",
+ "pinocchio 0.11.2",
+ "pinocchio-system",
+ "solana-program-error 3.0.1",
+ "thiserror 2.0.18",
+ "wincode",
+ "zolana-account-checks",
+ "zolana-hasher",
+ "zolana-interface",
+]
+
+[[package]]
+name = "dynamic-swap-prover"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "groth16-solana",
+ "num-bigint 0.4.8",
+ "serde_json",
+ "solana-bn254 3.2.1",
+ "thiserror 2.0.18",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "dynamic-swap-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "dynamic-swap-program",
+ "dynamic-swap-prover",
+ "solana-address 2.6.1",
+ "solana-instruction 3.4.0",
+ "solana-pubkey 4.2.0",
+ "solana-system-interface 3.2.0",
+ "wincode",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "dynamic-swap-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode 1.3.3",
+ "bytemuck",
+ "dynamic-swap-program",
+ "dynamic-swap-prover",
+ "dynamic-swap-sdk",
+ "light-program-profiler",
+ "mollusk-svm",
+ "num-bigint 0.4.8",
+ "solana-account 2.2.1",
+ "solana-address 2.6.1",
+ "solana-address-lookup-table-interface",
+ "solana-compute-budget-interface",
+ "solana-instruction 2.3.3",
+ "solana-instruction 3.4.0",
+ "solana-keypair",
+ "solana-message 3.1.0",
+ "solana-pubkey 2.4.0",
+ "solana-pubkey 4.2.0",
+ "solana-rpc-client",
+ "solana-signature 3.4.1",
+ "solana-signer",
+ "solana-transaction",
+ "zolana-client",
+ "zolana-hasher",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-merkle-tree",
+ "zolana-program-test",
+ "zolana-test-utils",
+ "zolana-transaction",
+ "zolana-tree",
+ "zolana-user-registry-interface",
+ "zolana-wallet",
+]
+
+[[package]]
 name = "eager"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
