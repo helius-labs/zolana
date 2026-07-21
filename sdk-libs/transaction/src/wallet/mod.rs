@@ -6,7 +6,7 @@ mod state;
 mod sync;
 
 pub use authority::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedSplit, EncryptedTransfer,
+    AnonymousRecipientSlot, ApprovalRequest, EncryptedEnvelope, EncryptedSplit, EncryptedTransfer,
     LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
 pub use state::{

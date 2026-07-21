@@ -41,22 +41,25 @@ pub struct AnonymousRecipientSlot {
     pub plaintext: AnonymousTransferRecipientPlaintext,
 }
 
+/// Per-transaction encryption envelope an authority returns: the ephemeral
+/// `tx_viewing_pk` and `salt` every ciphertext in the transaction shares
+/// (published in the clear), plus the sealed payload the operation produced.
 #[derive(Clone, Debug)]
-pub struct EncryptedTransfer {
+pub struct EncryptedEnvelope<P> {
     pub tx_viewing_pk: P256Pubkey,
     pub salt: Salt,
-    pub slots: Vec<Option<MessageData>>,
+    pub payload: P,
 }
 
-/// The sealed slot-0 `Split` bundle plus the transaction context needed to
-/// finalize the split proof inputs. Unlike [`EncryptedTransfer`], a split emits
-/// a single ciphertext covering every real output rather than one per slot.
-#[derive(Clone, Debug)]
-pub struct EncryptedSplit {
-    pub tx_viewing_pk: P256Pubkey,
-    pub salt: Salt,
-    pub bundle: MessageData,
-}
+/// Transfer payload: one ciphertext per output slot, keyed to that output's
+/// owner. `None` marks a dummy slot the transfer builder pads with a
+/// length-matched random ciphertext.
+pub type EncryptedTransfer = EncryptedEnvelope<Vec<Option<MessageData>>>;
+
+/// Split payload: the single sealed slot-0 `Split` bundle covering every real
+/// output. Unlike a transfer there is exactly one ciphertext; all other slots
+/// stay empty (covered) on the wire.
+pub type EncryptedSplit = EncryptedEnvelope<MessageData>;
 
 /// Ephemeral key material required by a wallet scan.
 ///
@@ -286,7 +289,7 @@ fn encrypt_confidential_transfer_with(
     Ok(EncryptedTransfer {
         tx_viewing_pk: tx.pubkey(),
         salt,
-        slots,
+        payload: slots,
     })
 }
 
@@ -336,7 +339,7 @@ fn encrypt_anonymous_transfer_with(
     Ok(EncryptedTransfer {
         tx_viewing_pk: tx.pubkey(),
         salt,
-        slots,
+        payload: slots,
     })
 }
 
@@ -365,7 +368,7 @@ fn encrypt_split_with(
     Ok(EncryptedSplit {
         tx_viewing_pk,
         salt,
-        bundle: message,
+        payload: message,
     })
 }
 

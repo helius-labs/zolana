@@ -43,7 +43,7 @@ pub use user_registry::{
     validate_registered_keypair,
 };
 pub use wallet_authority::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedSplit, EncryptedTransfer,
+    AnonymousRecipientSlot, ApprovalRequest, EncryptedEnvelope, EncryptedSplit, EncryptedTransfer,
     LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
 pub use wallet_sync::{

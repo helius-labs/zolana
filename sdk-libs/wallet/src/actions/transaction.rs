@@ -673,7 +673,7 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
         })
         .await?;
     let mut proof_inputs =
-        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.slots)?;
+        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
     apply_p256_signature(&mut proof_inputs, address, authority).await?;
     Ok(proof_inputs)
 }
@@ -697,7 +697,7 @@ async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
         })
         .await?;
     let mut proof_inputs =
-        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.bundle)?;
+        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
     apply_p256_signature(&mut proof_inputs, address, authority).await?;
     Ok(proof_inputs)
 }
