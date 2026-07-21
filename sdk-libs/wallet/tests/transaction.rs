@@ -2,7 +2,9 @@
 //! prover server: change derivation, blinding positions, the encrypted-slot
 //! round-trip, rail detection, external-data assembly, and the error paths.
 
-#[path = "test_indexer.rs"]
+// Single source of truth lives in the client crate's tests; included here
+// rather than duplicated.
+#[path = "../../client/tests/test_indexer.rs"]
 mod test_indexer;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
