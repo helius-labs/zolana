@@ -222,7 +222,11 @@ fn ensure_file(tag: &str, asset: &Asset, base_url: &str) -> Result<PathBuf> {
     println!("Downloading {url}");
     let bytes = http_get(&url)?;
     verify_bytes(&bytes, asset)?;
-    fs::write(&path, &bytes).with_context(|| format!("failed to write {}", path.display()))?;
+    // Write to a temp file then rename so an interrupted download never leaves a
+    // corrupt file at the cache path (rename is atomic on the same filesystem).
+    let tmp = path.with_extension("part");
+    fs::write(&tmp, &bytes).with_context(|| format!("failed to write {}", tmp.display()))?;
+    fs::rename(&tmp, &path).with_context(|| format!("failed to finalize {}", path.display()))?;
     Ok(path)
 }
 
@@ -287,8 +291,11 @@ fn http_get(url: &str) -> Result<Vec<u8>> {
 
 fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<()> {
     fs::create_dir_all(dest).with_context(|| format!("failed to create {}", dest.display()))?;
+    // Exclude macOS AppleDouble/.DS_Store sidecars: if a snapshot tarball was
+    // packed on macOS with them, GNU tar would materialize them into the account
+    // dir and the validator would try to parse them as account JSON and fail.
     let status = Command::new("tar")
-        .arg("-xzf")
+        .args(["--exclude=._*", "--exclude=.DS_Store", "-xzf"])
         .arg(archive)
         .arg("-C")
         .arg(dest)

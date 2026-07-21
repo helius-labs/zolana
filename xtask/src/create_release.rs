@@ -172,6 +172,7 @@ pub fn run(options: Options) -> Result<()> {
 
     if options.upload {
         upload_release(&options.tag, &assets, options.prerelease, &git_head()?)?;
+        warn_if_lockfile_uncommitted(&options.lock_path, &options.tag)?;
     } else {
         println!(
             "dry run (pass --upload to publish). Assets staged in {}:",
@@ -286,6 +287,10 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
         .env("GOOS", goos)
         .env("GOARCH", goarch)
         .arg("build")
+        // -trimpath + empty buildid make the prover build reproducible so a
+        // re-run produces byte-identical output (stable lockfile checksums).
+        .arg("-trimpath")
+        .args(["-ldflags", "-buildid="])
         .arg("-o")
         .arg(&out_abs)
         .arg(".")
@@ -362,6 +367,36 @@ fn repo_root() -> Result<PathBuf> {
         bail!("git rev-parse --show-toplevel failed");
     }
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
+}
+
+/// The lockfile is regenerated during the build, so after publishing it is
+/// typically uncommitted. The uploaded assets and the downloaded CLI binary are
+/// already correct; the only gap is that the tag sits at the current HEAD, whose
+/// committed lockfile is stale, so `cargo install --git --tag` users would build
+/// with the old lockfile. We deliberately do not mutate git here; print the
+/// non-force reconcile: commit the lockfile and re-run --upload, which recreates
+/// the release + tag via gh at the new commit (no force-push).
+fn warn_if_lockfile_uncommitted(lock_path: &Path, tag: &str) -> Result<()> {
+    let clean = Command::new("git")
+        .args(["diff", "--quiet", "--"])
+        .arg(lock_path)
+        .status()
+        .context("failed to check lockfile git status")?
+        .success();
+    if !clean {
+        println!();
+        println!(
+            "NOTE: {} was regenerated and is uncommitted.",
+            lock_path.display()
+        );
+        println!("Assets are published. To also make `cargo install --git --tag {tag}` match,");
+        println!("commit the lockfile and re-run --upload (the release + tag are recreated via");
+        println!("gh at the new commit -- no force-push):");
+        println!("  git add {}", lock_path.display());
+        println!("  git commit -m \"chore(release): {tag} lockfile\" && git push");
+        println!("  just release {tag} --upload   # add --prerelease for alpha tags");
+    }
+    Ok(())
 }
 
 fn git_head() -> Result<String> {
@@ -576,8 +611,13 @@ fn current_platform() -> Result<(&'static str, &'static str)> {
 }
 
 fn tar_gz(source_dir: &Path, archive: &Path) -> Result<()> {
+    // COPYFILE_DISABLE stops macOS bsdtar from adding AppleDouble (._*) sidecars;
+    // the excludes drop any that already exist. Without this, GNU tar on Linux
+    // would materialize them and the validator would choke parsing them as
+    // account JSON. The CLI extractor excludes them too (defense in depth).
     let status = Command::new("tar")
-        .arg("-czf")
+        .env("COPYFILE_DISABLE", "1")
+        .args(["--exclude=._*", "--exclude=.DS_Store", "-czf"])
         .arg(archive)
         .arg("-C")
         .arg(source_dir)
@@ -664,14 +704,49 @@ mod tests {
             executable: false,
             rent_epoch: u64::MAX,
         };
-        let value = account_json(&pubkey, &account);
-        assert_eq!(value["pubkey"], pubkey.to_string());
-        assert_eq!(value["account"]["lamports"], 42);
-        assert_eq!(value["account"]["data"][0], STANDARD.encode([1, 2, 3]));
-        assert_eq!(value["account"]["data"][1], "base64");
-        assert_eq!(value["account"]["owner"], account.owner.to_string());
-        assert_eq!(value["account"]["executable"], false);
-        assert_eq!(value["account"]["rentEpoch"], u64::MAX);
+        let expected = json!({
+            "pubkey": pubkey.to_string(),
+            "account": {
+                "lamports": 42,
+                "data": [STANDARD.encode([1, 2, 3]), "base64"],
+                "owner": account.owner.to_string(),
+                "executable": false,
+                "rentEpoch": u64::MAX,
+            }
+        });
+        assert_eq!(account_json(&pubkey, &account), expected);
+    }
+
+    // Guard against drift between the JSON this tool writes and the schema the
+    // CLI parses (cli/src/release.rs: ReleaseLock/ProgramAsset/BinaryAsset). If
+    // this fails, update both sides together.
+    #[test]
+    fn lockfile_shape_matches_cli_parser() {
+        let lock = json!({
+            "release_tag": "t",
+            "surfpool_tag": "s",
+            "surfpool_version": "1",
+            "programs": [{"role": "shielded_pool", "asset": "a.so", "size": 1, "sha256": "x"}],
+            "accounts": {"asset": "accounts.tar.gz", "size": 1, "sha256": "x"},
+            "binaries": [{
+                "role": "prover", "os": "linux", "arch": "x64",
+                "asset": "prover-linux-x64-t", "size": 1, "sha256": "x"
+            }],
+        });
+        let program = &lock["programs"][0];
+        for key in ["role", "asset", "size", "sha256"] {
+            assert!(program.get(key).is_some(), "program missing {key}");
+        }
+        for key in ["asset", "size", "sha256"] {
+            assert!(
+                lock["accounts"].get(key).is_some(),
+                "accounts missing {key}"
+            );
+        }
+        let binary = &lock["binaries"][0];
+        for key in ["role", "os", "arch", "asset", "size", "sha256"] {
+            assert!(binary.get(key).is_some(), "binary missing {key}");
+        }
     }
 
     #[test]
