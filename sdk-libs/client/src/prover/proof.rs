@@ -2,7 +2,7 @@ use groth16_solana::groth16::negate_g1_be;
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
-use zolana_interface::instruction::instruction_data::transact::TransactProof;
+use zolana_interface::instruction::instruction_data::transact::{P256Proof, TransactProof};
 
 use crate::error::ClientError;
 
@@ -77,15 +77,9 @@ impl ProofCompressed {
     /// components: the P256 rail keeps its BSB22 commitment, the eddsa rail omits
     /// it (no padding). The program decompresses these points at verification time.
     pub fn to_transact_proof(self) -> TransactProof {
-        match self.commitment {
-            Some(commitment) => TransactProof::P256 {
-                a: self.a,
-                b: self.b,
-                c: self.c,
-                commitment: commitment.commitment,
-                commitment_pok: commitment.commitment_pok,
-            },
-            None => TransactProof::Eddsa {
+        match self.to_p256_proof() {
+            Ok(proof) => TransactProof::P256(proof),
+            Err(_) => TransactProof::Eddsa {
                 a: self.a,
                 b: self.b,
                 c: self.c,
@@ -93,28 +87,29 @@ impl ProofCompressed {
         }
     }
 
-    /// Pack the 192-byte `merge_transact` proof: `a(32) || b(64) || c(32) ||
-    /// commitment(32) || commitment_pok(32)`. The merge circuit is the P256 BSB22
-    /// rail, so the commitment is mandatory; a proof without one is not a valid
-    /// merge proof and is rejected here rather than silently packed as zeros.
-    ///
-    /// This is the same P256 five-tuple as [`Self::to_transact_proof`]'s
-    /// `TransactProof::P256`, but `merge_transact`'s instruction data is a fixed
-    /// `[u8; 192]` rather than the `TransactProof` enum `transact` uses, so it is
-    /// packed to raw bytes here instead of reusing that structured form.
-    pub fn to_merge_proof(&self) -> Result<[u8; 192], ClientError> {
+    /// The P256-rail five-tuple ([`P256Proof`]), shared by `transact`'s P256
+    /// variant and `merge_transact` instruction data. Rejected if the proof
+    /// carries no BSB22 commitment (eddsa rail).
+    pub fn to_p256_proof(&self) -> Result<P256Proof, ClientError> {
         let commitment = self.commitment.ok_or_else(|| {
             ClientError::ProofParse(
-                "merge proof is missing its BSB22 commitment (wrong rail?)".to_string(),
+                "P256-rail proof is missing its BSB22 commitment (wrong rail?)".to_string(),
             )
         })?;
-        let mut proof = [0u8; 192];
-        proof[0..32].copy_from_slice(&self.a);
-        proof[32..96].copy_from_slice(&self.b);
-        proof[96..128].copy_from_slice(&self.c);
-        proof[128..160].copy_from_slice(&commitment.commitment);
-        proof[160..192].copy_from_slice(&commitment.commitment_pok);
-        Ok(proof)
+        Ok(P256Proof {
+            a: self.a,
+            b: self.b,
+            c: self.c,
+            commitment: commitment.commitment,
+            commitment_pok: commitment.commitment_pok,
+        })
+    }
+
+    /// The `merge_transact` proof. The merge circuit is the P256 BSB22 rail, so
+    /// this is exactly [`Self::to_p256_proof`]: mandatory commitment, and a proof
+    /// without one is not a valid merge proof.
+    pub fn to_merge_proof(&self) -> Result<P256Proof, ClientError> {
+        self.to_p256_proof()
     }
 }
 
@@ -209,16 +204,25 @@ mod tests {
     }
 
     #[test]
-    fn to_merge_proof_packs_a_b_c_and_commitment() {
-        let packed = proof_with_commitment()
+    fn to_merge_proof_maps_points_and_commitment() {
+        let proof = proof_with_commitment()
             .to_merge_proof()
-            .expect("merge proof packs");
+            .expect("merge proof maps");
 
-        assert_eq!(packed.get(0..32), Some([1u8; 32].as_slice()));
-        assert_eq!(packed.get(32..96), Some([2u8; 64].as_slice()));
-        assert_eq!(packed.get(96..128), Some([3u8; 32].as_slice()));
-        assert_eq!(packed.get(128..160), Some([4u8; 32].as_slice()));
-        assert_eq!(packed.get(160..192), Some([5u8; 32].as_slice()));
+        assert_eq!(proof.a, [1u8; 32]);
+        assert_eq!(proof.b, [2u8; 64]);
+        assert_eq!(proof.c, [3u8; 32]);
+        assert_eq!(proof.commitment, [4u8; 32]);
+        assert_eq!(proof.commitment_pok, [5u8; 32]);
+    }
+
+    /// The transact P256 variant and the merge proof must be the same
+    /// five-tuple: one packing definition serves both instruction formats.
+    #[test]
+    fn transact_p256_and_merge_proof_are_the_same_tuple() {
+        let compressed = proof_with_commitment();
+        let merge = compressed.to_merge_proof().expect("merge proof maps");
+        assert_eq!(compressed.to_transact_proof(), TransactProof::P256(merge));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Shared Groth16 public-input field math and proof verification, reused by every
 //! proof-bearing instruction (`transact`, `merge_transact`). The hash helpers
 //! mirror the circuits' Poseidon field encoding; `verify_groth16` decompresses the
-//! 192-byte proof and runs the BSB22 or vanilla pairing depending on the VK.
+//! proof points and runs the BSB22 or vanilla pairing depending on the VK.
 
 use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
@@ -112,18 +112,4 @@ pub fn verify_groth16(
         _ => return Err(encoding_err.into()),
     }
     Ok(())
-}
-
-/// Borrow a fixed-size sub-array from `data` at `start`, mapping a length mismatch
-/// to `encoding_err`. Used by `merge_transact`, whose proof is still a fixed
-/// 192-byte blob (it always carries a BSB22 commitment).
-pub(crate) fn chunk<const N: usize>(
-    data: &[u8],
-    start: usize,
-    encoding_err: ShieldedPoolError,
-) -> Result<&[u8; N], ProgramError> {
-    data.get(start..start + N)
-        .ok_or(encoding_err)?
-        .try_into()
-        .map_err(|_| encoding_err.into())
 }

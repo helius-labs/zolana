@@ -1,6 +1,8 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
+use super::transact::{P256Proof, P256ProofRef};
+
 /// Number of input slots a merge proof spends (8-in/1-out shape). Dummy slots
 /// carry distinct, in-window nullifiers and valid root indices.
 pub const MERGE_INPUT_COUNT: usize = 8;
@@ -18,7 +20,9 @@ pub const MERGE_ENCRYPTED_UTXO_TYPE_PREFIX: u8 = 2;
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeTransactIxData {
     pub expiry_unix_ts: u64,
-    pub proof: [u8; 192],
+    /// The merge circuit is P256-only, so the proof is always the BSB22-committed
+    /// five-tuple; the layout is shared with `transact`'s P256 rail.
+    pub proof: P256Proof,
     pub output_utxo_hash: [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
@@ -54,13 +58,13 @@ pub(crate) type RefConfig = wincode::config::Configuration<
     FixIntLen<u16>,
 >;
 
-/// Zero-copy view of [`MergeTransactIxData`]. The large payloads (`proof` and
-/// `encrypted_utxo`) alias the instruction buffer; only the small element vectors
-/// are read owned.
+/// Zero-copy view of [`MergeTransactIxData`]. The large payloads (the proof
+/// points and `encrypted_utxo`) alias the instruction buffer; only the small
+/// element vectors are read owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
 pub struct MergeTransactIxDataRef<'a> {
     pub expiry_unix_ts: u64,
-    pub proof: &'a [u8; 192],
+    pub proof: P256ProofRef<'a>,
     pub output_utxo_hash: &'a [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
@@ -140,7 +144,13 @@ mod tests {
     fn data() -> MergeTransactIxData {
         MergeTransactIxData {
             expiry_unix_ts: 42,
-            proof: [7u8; 192],
+            proof: P256Proof {
+                a: [1u8; 32],
+                b: [2u8; 64],
+                c: [3u8; 32],
+                commitment: [4u8; 32],
+                commitment_pok: [5u8; 32],
+            },
             output_utxo_hash: [9u8; 32],
             nullifiers: (0..MERGE_INPUT_COUNT as u8).map(|i| [i; 32]).collect(),
             utxo_tree_root_index: (0..MERGE_INPUT_COUNT as u16).collect(),
@@ -159,7 +169,11 @@ mod tests {
         let bytes = owned.serialize().unwrap();
         let view = MergeTransactIxDataRef::from_bytes(&bytes).unwrap();
         assert_eq!(view.expiry_unix_ts, owned.expiry_unix_ts);
-        assert_eq!(view.proof, &owned.proof);
+        assert_eq!(view.proof.a, &owned.proof.a);
+        assert_eq!(view.proof.b, &owned.proof.b);
+        assert_eq!(view.proof.c, &owned.proof.c);
+        assert_eq!(view.proof.commitment, &owned.proof.commitment);
+        assert_eq!(view.proof.commitment_pok, &owned.proof.commitment_pok);
         assert_eq!(view.output_utxo_hash, &owned.output_utxo_hash);
         assert_eq!(view.nullifiers, owned.nullifiers);
         assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);

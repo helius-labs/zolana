@@ -51,19 +51,16 @@ impl<'a> MergeProof<'a> {
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
         let public_input_hash = self.public_input_hash()?;
-        // The merge proof is always BSB22-committed, so its wire format stays a
-        // fixed 192-byte blob: a(0..32) || b(32..96) || c(96..128) ||
-        // commitment(128..160) || commitment_pok(160..192).
-        let proof = self.ix.proof;
+        // The merge circuit is P256-only, so the proof is always the
+        // BSB22-committed five-tuple ([`P256ProofRef`], the layout `transact`'s
+        // P256 rail shares).
+        let p = &self.ix.proof;
         let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
         let proof = verifier::CompressedGroth16Proof {
-            a: verifier::chunk::<32>(proof, 0, encoding_err)?,
-            b: verifier::chunk::<64>(proof, 32, encoding_err)?,
-            c: verifier::chunk::<32>(proof, 96, encoding_err)?,
-            commitment: Some((
-                verifier::chunk::<32>(proof, 128, encoding_err)?,
-                verifier::chunk::<32>(proof, 160, encoding_err)?,
-            )),
+            a: p.a,
+            b: p.b,
+            c: p.c,
+            commitment: Some((p.commitment, p.commitment_pok)),
         };
         // The policy-zone merge (`merge_zone`) commits `zone_program_id`, so it uses
         // its own verifying key; the default-zone merge uses `merge_8_1`.

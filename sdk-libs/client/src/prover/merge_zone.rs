@@ -13,6 +13,7 @@ use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::instruction::instruction_data::{
     merge_transact::{MergeExternalDataHash, MergeTransactIxData},
     merge_zone::MergeZoneIxData,
+    transact::P256Proof,
 };
 use zolana_keypair::{
     merge::{encrypt_verifiable, merge_public_contribution, MergeCiphertextPublicInputs},
@@ -93,11 +94,11 @@ pub struct MergeZoneProofResult {
 
 impl MergeZoneProofResult {
     /// Assemble the `merge_zone` instruction data from this proof result and the
-    /// packed 192-byte proof: the [`MergeTransactIxData`] body wrapped in a
-    /// [`MergeZoneIxData`] with the single-use `merge_view_tag` indexing the merged
-    /// output. The caller passes the result to the `MergeZone` builder with the
-    /// tree / zone_config accounts.
-    pub fn instruction_data(&self, proof: [u8; 192], merge_view_tag: [u8; 32]) -> MergeZoneIxData {
+    /// P256-rail proof (`ProofCompressed::to_merge_proof`): the
+    /// [`MergeTransactIxData`] body wrapped in a [`MergeZoneIxData`] with the
+    /// single-use `merge_view_tag` indexing the merged output. The caller passes
+    /// the result to the `MergeZone` builder with the tree / zone_config accounts.
+    pub fn instruction_data(&self, proof: P256Proof, merge_view_tag: [u8; 32]) -> MergeZoneIxData {
         MergeZoneIxData {
             merge_view_tag,
             merge: MergeTransactIxData {

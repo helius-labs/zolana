@@ -6,8 +6,9 @@
 use num_bigint::BigUint;
 use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_interface::instruction::instruction_data::merge_transact::{
-    MergeExternalDataHash, MergeTransactIxData,
+use zolana_interface::instruction::instruction_data::{
+    merge_transact::{MergeExternalDataHash, MergeTransactIxData},
+    transact::P256Proof,
 };
 use zolana_keypair::{
     merge::{encrypt_verifiable, merge_public_contribution, MergeCiphertextPublicInputs},
@@ -82,10 +83,11 @@ pub struct MergeProofResult {
 }
 
 impl MergeProofResult {
-    /// Assemble the `merge_transact` instruction data from this proof result and the
-    /// packed 192-byte proof. The caller passes the result to the `MergeTransact`
-    /// builder with the tree / protocol_config / user_record accounts.
-    pub fn instruction_data(&self, proof: [u8; 192]) -> MergeTransactIxData {
+    /// Assemble the `merge_transact` instruction data from this proof result and
+    /// the P256-rail proof (`ProofCompressed::to_merge_proof`). The caller passes
+    /// the result to the `MergeTransact` builder with the tree / protocol_config /
+    /// user_record accounts.
+    pub fn instruction_data(&self, proof: P256Proof) -> MergeTransactIxData {
         MergeTransactIxData {
             expiry_unix_ts: self.expiry_unix_ts,
             proof,

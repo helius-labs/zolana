@@ -26,7 +26,7 @@ use zolana_client::{
     prover::merge_zone::MergeZoneProver, ProverClient, SpendProof, TransferSpendInput,
 };
 use zolana_interface::instruction::{
-    instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeZone,
+    instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeZone, P256Proof,
 };
 use zolana_keypair::random_blinding;
 use zolana_test_utils::test_validator_asserts::{
@@ -344,9 +344,9 @@ impl ZoneLifecycleWorld {
 
         // Assemble the instruction data exactly as the happy path does (derived
         // merge_view_tag so the nullifier-queue insert is valid), then zero the
-        // 192-byte proof so verification is the only thing that fails.
+        // proof so verification is the only thing that fails.
         let merge_view_tag = keypair.get_merge_view_tag(0)?;
-        let data = result.instruction_data([0u8; 192], merge_view_tag);
+        let data = result.instruction_data(P256Proof::zeroed(), merge_view_tag);
 
         let payer = self.payer.insecure_clone();
         let merge_ix = MergeZone {
