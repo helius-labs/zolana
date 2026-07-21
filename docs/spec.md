@@ -796,9 +796,9 @@ struct SplitBundlePlaintext {
     asset_id: u64,
     /// Shared across all M outputs.
     asset_amount: u64,
-    /// Per-output blinding seed.
+    /// Seed for the M per-output blindings (formula above).
     blinding_seed: [u8; 31],
-    /// Empty in this implementation (plain outputs).
+    /// Empty (plain outputs).
     data: Data,
 }
 ```
