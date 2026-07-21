@@ -23,6 +23,7 @@ impl LocalnetValidator {
 
         let mut args: Vec<String> = vec![
             "test-env".into(),
+            "--local".into(),
             "--no-use-surfpool".into(),
             "--with-photon".into(),
             "--skip-prover".into(),

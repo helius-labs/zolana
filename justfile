@@ -303,7 +303,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
-    cargo run -p zolana-cli -- dev start --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+    cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_e2e -- --nocapture
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
@@ -640,6 +640,18 @@ ensure-photon:
       exit 0
     fi
     just build-photon
+
+# Build the localnet release artifacts and regenerate cli/release-artifacts.lock:
+# version-suffixed program .so files, an account-snapshot bundle (generated
+# in-process with LiteSVM -- no keypairs or running validator needed), and the
+# prover/photon binaries for the host platform plus linux-x64 (Go cross-compile
+# for the prover; Docker for the linux photon, so docker must be running).
+# Stages assets and rewrites the lockfile only, unless you forward flags to
+# `create-release`: add `--upload` to publish via `gh release create`
+# (re-published cleanly, tag re-pointed at HEAD) and `--prerelease` to mark a
+# GitHub pre-release. Example: `just release v0.1.0-alpha --upload --prerelease`.
+release tag *args: build-programs fetch-smart-account
+    cargo run -p xtask -- create-release --tag {{tag}} {{args}}
 
 # === Formatting and linting ===
 

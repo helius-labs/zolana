@@ -22,3 +22,4 @@ experiments
 docs/spec.pdf
 docs/squads_policy_program.pdf
 build
+target-linux-x64/
