@@ -29,9 +29,9 @@ pub use solana_address::Address;
 pub use utxo::{derive_blinding, owner_utxo_hash, Blinding, ProofInputUtxo, Utxo};
 pub use wallet::{
     asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT},
-    AnonymousRecipientSlot, ApprovalRequest, AssetBalance, Balances, EncryptedEnvelope, EncryptedSplit,
-    EncryptedTransfer, Filter, LocalWalletAuthority, P256Signature, PrivateTransaction,
-    PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,
+    AnonymousRecipientSlot, ApprovalRequest, AssetBalance, Balances, EncryptedEnvelope,
+    EncryptedSplit, EncryptedTransfer, Filter, LocalWalletAuthority, P256Signature,
+    PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,
     PrivateTransactionStatus, SyncReport, SyncWalletAuthority, ViewingKeyEntry, Wallet,
     WalletAuthority, WalletSyncMaterial, WalletUtxo, DEFAULT_TAG_WINDOW,
 };

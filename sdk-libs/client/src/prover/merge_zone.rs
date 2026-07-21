@@ -84,7 +84,12 @@ impl MergeZoneProver {
         // `solana_pk_hash(zone)` the program derives from the calling `zone_config`.
         let zone_program_id_field = program_id_field(&Some(zone_program_id))?;
         let mut elements = merge.head.to_vec();
-        elements.extend([merge.tx_pk_lo, merge.tx_pk_hi, merge.ct_hash, zone_program_id_field]);
+        elements.extend([
+            merge.tx_pk_lo,
+            merge.tx_pk_hi,
+            merge.ct_hash,
+            zone_program_id_field,
+        ]);
         let public_input = create_hash_chain_from_slice(&elements)?;
 
         // The zone binding is a top-level witness the merge-zone circuit checks;

@@ -1,9 +1,9 @@
 use anyhow::{bail, Result};
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
-use zolana_wallet::user_registry::{register_if_absent, StrictRegistration};
 use zolana_transaction::Address;
 use zolana_user_registry_interface::{instruction::set_merging_enabled, user_record_pda};
+use zolana_wallet::user_registry::{register_if_absent, StrictRegistration};
 
 use super::{
     material::{load_existing_wallet, load_sender_from_resolved_sync},

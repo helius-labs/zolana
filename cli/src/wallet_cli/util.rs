@@ -3,9 +3,9 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use zolana_client::Rpc;
-use zolana_wallet::create_associated_token_account;
 use zolana_interface::{pda, state::ProtocolConfig, PROGRAM_ID_PUBKEY};
 use zolana_transaction::{Address, SOL_MINT};
+use zolana_wallet::create_associated_token_account;
 
 use crate::cli_config::CliConfigFile;
 

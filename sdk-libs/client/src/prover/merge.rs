@@ -304,7 +304,11 @@ impl MergeProver {
 impl CommonMerge {
     /// Fold the rail's completed public-input hash and zone binding (zero for the
     /// default merge) into the final witness and proof result.
-    pub(crate) fn finish(self, public_input: [u8; 32], zone_program_id: BigUint) -> MergeProofResult {
+    pub(crate) fn finish(
+        self,
+        public_input: [u8; 32],
+        zone_program_id: BigUint,
+    ) -> MergeProofResult {
         let inputs = MergeInputs {
             inputs: self.inputs,
             output: self.output,
