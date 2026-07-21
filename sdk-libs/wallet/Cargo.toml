@@ -1,0 +1,40 @@
+[package]
+name = "zolana-wallet"
+version = "0.1.0"
+description = "Zolana wallet SDK: syncing, balances, transaction-building actions, wallet authority, and the user registry."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+zolana-client = { workspace = true, features = ["indexer-api"] }
+zolana-interface = { workspace = true, features = ["solana"] }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+zolana-event = { workspace = true, features = ["program-test"] }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+borsh = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+solana-address = { workspace = true }
+solana-account = { workspace = true }
+solana-hash = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true, features = ["bincode"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+rand = { workspace = true }
+p256 = { workspace = true }
+num-bigint = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
+zolana-merkle-tree = { workspace = true }
+
+[[test]]
+name = "transaction"

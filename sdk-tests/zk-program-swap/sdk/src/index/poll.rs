@@ -1,9 +1,10 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
-use zolana_client::{sync_wallet, IndexerRpcConfig, Rpc};
+use zolana_client::{IndexerRpcConfig, Rpc};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{LocalWalletAuthority, ShieldedTransaction, Wallet};
+use zolana_wallet::sync_wallet;
 
 use crate::err;
 

@@ -25,7 +25,6 @@ use zolana_keypair::hash::sha256_be;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 
 use crate::{
-    actions::SignedPrivateTransaction,
     error::ClientError,
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
@@ -40,10 +39,20 @@ use crate::{
     },
 };
 
+/// A signed shielded transaction ready for proof assembly and submission.
+///
+/// Produced by `zolana_wallet::sign_shielded_transaction`; consumed by
+/// [`ZolanaClient`]'s submission helpers.
+pub struct SignedPrivateTransaction {
+    pub transaction: SppProofInputs,
+    pub withdrawal: Option<zolana_interface::instruction::TransactWithdrawal>,
+    pub tree: Address,
+}
+
 /// Compute-unit ceiling a private transaction is submitted with unless the
 /// caller overrides it. A shielded `Transact` verifies a Groth16 proof on-chain,
 /// which does not fit inside the default per-instruction budget.
-pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 1_400_000;
+pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 300_000;
 
 /// Unified client for private transaction proving and submission helpers.
 ///
@@ -192,7 +201,7 @@ impl<R: Rpc> ZolanaClient<R> {
             .prove_transact(proof_inputs, &spend_proofs)
     }
 
-    pub(crate) fn finish_submission_unsigned_sync(
+    pub fn finish_submission_unsigned_sync(
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
@@ -265,7 +274,7 @@ impl<R: Rpc> ZolanaClient<R> {
 }
 
 impl<R: AsyncRpc> ZolanaClient<R> {
-    pub(crate) async fn finish_submission_unsigned(
+    pub async fn finish_submission_unsigned(
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
@@ -1010,11 +1019,13 @@ mod tests {
 
     use super::*;
     use crate::{
-        actions::transaction::sign_shielded_transaction_sync,
-        actions::{create_withdrawal, WithdrawalParams},
         prover::CompressedCommitments,
         rpc::{MerkleContext, MerkleProof, NonInclusionProof},
-        wallet_authority::LocalWalletAuthority,
+    };
+    use zolana_interface::instruction::{TransactSolWithdrawal, TransactWithdrawal};
+    use zolana_transaction::instructions::{
+        transact::{ConfidentialTransfer, WithdrawalTarget},
+        types::SppProofInputUtxo,
     };
 
     #[tokio::test]
@@ -1040,22 +1051,33 @@ mod tests {
         let sender = ShieldedKeypair::new().expect("sender");
         let tree = Address::new_from_array([6u8; 32]);
         let wallet = wallet_with_tree(sender.clone(), tree, 10);
-        let authority = LocalWalletAuthority::new(Pubkey::default(), &sender);
         let recipient = Pubkey::new_unique();
-        let shielded = sign_shielded_transaction_sync(
-            create_withdrawal(WithdrawalParams {
-                wallet: &wallet,
-                payer: Address::new_from_array(payer.pubkey().to_bytes()),
-                recipient,
-                asset: SOL_MINT,
-                amount: 4,
-            })
-            .expect("create")
-            .transaction,
-            &wallet,
-            &authority,
-        )
-        .expect("sign");
+        let input = SppProofInputUtxo::new(
+            wallet.utxos.first().expect("funded utxo").utxo.clone(),
+            &sender,
+        );
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().expect("shielded address"),
+            vec![input],
+            payer.pubkey(),
+        );
+        transfer
+            .withdraw(
+                SOL_MINT,
+                4,
+                WithdrawalTarget::Sol {
+                    user_sol_account: recipient,
+                },
+            )
+            .expect("withdraw");
+        let proof_inputs = transfer
+            .sign(&sender, &AssetRegistry::default())
+            .expect("sign");
+        let shielded = SignedPrivateTransaction {
+            transaction: proof_inputs,
+            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+            tree,
+        };
         let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);
         let signature = Signature::from([5u8; 64]);
         let server = MockIndexerServer::respond_with(vec![

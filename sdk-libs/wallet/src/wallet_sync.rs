@@ -14,7 +14,7 @@ use zolana_transaction::{
     WalletAuthority, WalletSyncMaterial, DEFAULT_TAG_WINDOW,
 };
 
-use crate::{
+use zolana_client::{
     error::ClientError,
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
@@ -616,7 +616,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::rpc::{
+    use zolana_client::rpc::{
         Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
         OutputContext, OutputSlot,
     };

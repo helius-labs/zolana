@@ -7,7 +7,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::instruction::CreateAssociatedTokenAccount;
 
-use crate::{error::ClientError, rpc::Rpc};
+use zolana_client::{error::ClientError, rpc::Rpc};
 
 /// Build and send an idempotent SPL associated-token-account creation for
 /// `(owner, mint)`, funded by `payer`.

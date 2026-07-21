@@ -14,8 +14,8 @@ use zolana_user_registry_interface::{
     user_record_pda, user_registry_program_id, UserRecord,
 };
 
-use crate::{
-    actions::ResolvedAddress,
+use crate::actions::ResolvedAddress;
+use zolana_client::{
     error::ClientError,
     rpc::{AsyncRpc, Rpc},
 };

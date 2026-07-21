@@ -11,10 +11,7 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, LocalWalletAuthority,
-    P256Signature, SolanaRpc, SyncWalletAuthority,
-};
+use zolana_client::SolanaRpc;
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
     ViewingKey,
@@ -22,6 +19,10 @@ use zolana_keypair::{
 use zolana_transaction::{
     serialization::anonymous::AnonymousTransferSenderPlaintext, Address, AssetRegistry,
     SppProofOutputUtxo, TransactionError,
+};
+use zolana_wallet::{
+    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, LocalWalletAuthority,
+    P256Signature, SyncWalletAuthority,
 };
 
 use super::{

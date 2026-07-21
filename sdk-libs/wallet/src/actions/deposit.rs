@@ -15,7 +15,7 @@ use zolana_interface::{
 use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{ProofInputUtxo, SOL_MINT};
 
-use crate::{
+use zolana_client::{
     error::ClientError,
     rpc::{AsyncRpc, Rpc},
 };

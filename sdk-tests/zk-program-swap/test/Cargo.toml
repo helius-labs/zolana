@@ -38,6 +38,7 @@ num-bigint = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-merkle-tree = { workspace = true }
 zolana-tree = { workspace = true }
+zolana-wallet = { workspace = true }
 mollusk-svm = "0.3.0"
 light-program-profiler = { workspace = true, features = ["mollusk"] }
 mollusk-solana-account = { package = "solana-account", version = "2.2" }
