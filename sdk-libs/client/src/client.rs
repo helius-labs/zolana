@@ -1059,14 +1059,14 @@ mod tests {
         let mut transfer = ConfidentialTransfer::new(
             sender.shielded_address().expect("shielded address"),
             vec![input],
-            Address::new_from_array(payer.pubkey().to_bytes()),
+            payer.pubkey(),
         );
         transfer
             .withdraw(
                 SOL_MINT,
                 4,
                 WithdrawalTarget::Sol {
-                    user_sol_account: Address::new_from_array(recipient.to_bytes()),
+                    user_sol_account: recipient,
                 },
             )
             .expect("withdraw");

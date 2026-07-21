@@ -52,6 +52,7 @@ tokio = { workspace = true, features = ["time", "rt", "macros"] }
 
 [dev-dependencies]
 base64 = { workspace = true }
+borsh = { workspace = true }
 bs58 = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
 zolana-merkle-tree = { workspace = true }
