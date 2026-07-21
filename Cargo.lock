@@ -11418,7 +11418,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
- "borsh",
  "bs58",
  "cucumber",
  "futures",
@@ -11456,7 +11455,6 @@ dependencies = [
  "zolana-keypair",
  "zolana-merkle-tree",
  "zolana-transaction",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
