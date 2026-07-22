@@ -79,10 +79,13 @@ impl CachedTreeUpdate {
     }
 }
 
+/// Slot table for cached tree updates. Slots are keyed by zkp batch index and
+/// tracked by the per-entry `occupied` byte; `placeholder` is never read and
+/// only keeps the account layout stable.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct CachedTreeUpdateVec<const N: usize> {
-    pub header: [u64; 2],
+    pub placeholder: [u64; 2],
     pub data: [CachedTreeUpdate; N],
 }
 

@@ -281,8 +281,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             hash_chain.header[BOUNDED_CAPACITY] = ZKP as u64;
         }
         for update_vec in layout.cached_tree_updates.iter_mut() {
-            update_vec.header[BOUNDED_LENGTH] = 0;
-            update_vec.header[BOUNDED_CAPACITY] = ZKP as u64;
+            update_vec.placeholder = [0u64; 2];
         }
         let next_index = layout.metadata.next_index;
 
