@@ -173,6 +173,10 @@ impl Batch {
             self.sequence_number = 0;
             self.root_index = 0;
             self.num_inserted_zkp_batches = 0;
+            // Defensive: already 0 because Full is only reachable via
+            // add_to_hash_chain, which zeroes num_inserted when the final zkp
+            // batch completes; reset here so the invariant is local.
+            self.num_inserted = 0;
             self.start_slot_is_set = 0;
             self.start_slot = 0;
             if let Some(start_index) = start_index {
@@ -702,6 +706,17 @@ mod tests {
         }
         batch.advance_state_to_inserted().unwrap();
         assert_eq!(batch.get_state(), BatchState::Inserted);
+    }
+
+    #[test]
+    fn advance_state_to_fill_resets_num_inserted() {
+        let mut batch = get_test_batch();
+        batch.num_inserted = 42;
+        batch.state = BatchState::Inserted.into();
+        batch.advance_state_to_fill(None).unwrap();
+        assert_eq!(batch.num_inserted, 0);
+        assert_eq!(batch.get_num_inserted_elements(), 0);
+        assert_eq!(batch.get_hash_chain_store_len(), 0);
     }
 
     #[test]
