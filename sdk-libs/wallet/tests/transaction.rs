@@ -124,6 +124,20 @@ impl WalletAuthority for AsyncTestAuthority {
         )
     }
 
+    async fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: [u8; 32],
+        bundle: &zolana_transaction::serialization::split::SplitBundlePlaintext,
+    ) -> Result<zolana_wallet::EncryptedSplit, TransactionError> {
+        SyncWalletAuthority::encrypt_split(
+            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            first_nullifier,
+            view_tag,
+            bundle,
+        )
+    }
+
     async fn request_user_approval(
         &self,
         request: ApprovalRequest,
@@ -381,10 +395,12 @@ fn transfer_round_trip_outputs_and_slots() {
 /// number of ciphertexts, and every ciphertext the same derived length.
 ///
 /// In the confidential default zone a real recipient slot is tagged by the owner
-/// pubkey (a 32-byte value with an arbitrary leading byte). A dummy slot's view tag
-/// is the Poseidon hash of 31 random bytes, also a 32-byte value, so a dummy does
-/// not stand out by tag length or ciphertext length and the recipient count stays
-/// hidden.
+/// pubkey -- a P256 x-coordinate whose leading byte reaches `0xFF`. A dummy slot's
+/// view tag is drawn from the same distribution (the x-coordinate of a throwaway
+/// signing key), so a dummy stands out neither by tag value, tag length, nor
+/// ciphertext length, and the recipient count stays hidden. This test pins the
+/// length invariant; the tag-value invariant is pinned by
+/// `dummy_view_tag_shares_recipient_distribution_not_poseidon_range`.
 #[test]
 fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
     let build = |with_recipient: bool| {

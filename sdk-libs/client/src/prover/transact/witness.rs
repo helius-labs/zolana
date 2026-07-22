@@ -2,7 +2,10 @@ use zolana_interface::instruction::instruction_data::transact::{
     InputUtxo, TransactIxData, TransactProof,
 };
 use zolana_keypair::SignatureType;
-use zolana_transaction::instructions::transact::{inputs_require_p256, SppProofInputs};
+use zolana_transaction::instructions::{
+    transact::{inputs_require_p256, SppProofInputs},
+    types::SppProofInputUtxo,
+};
 
 use crate::{
     error::ClientError,
@@ -21,6 +24,38 @@ use crate::{
 pub struct SpendProof {
     pub state: MerkleProof,
     pub nullifier: NonInclusionProof,
+}
+
+/// Attach the fetched Merkle proofs to the proof inputs positionally: each real
+/// input (non-zero owner) consumes the next proof, dummy slots stay proofless
+/// and mirror the first real input's roots during assembly. Shared by every
+/// witness builder (transact, merge, merge-zone, zone-authority).
+pub(crate) fn attach_input_proofs(
+    inputs: Vec<SppProofInputUtxo>,
+    proofs: &[SpendProof],
+) -> Result<Vec<TransferSpendInput>, ClientError> {
+    let mut spends = Vec::with_capacity(inputs.len());
+    let mut real_index = 0;
+    for spend in inputs {
+        let proof = if spend.utxo.owner.is_zero() {
+            None
+        } else {
+            let proof = proofs
+                .get(real_index)
+                .ok_or(ClientError::MissingInputMerkleProof { index: real_index })?
+                .clone();
+            real_index += 1;
+            Some(proof)
+        };
+        spends.push(TransferSpendInput {
+            utxo: spend.utxo,
+            nullifier_key: spend.nullifier_key,
+            data_hash: spend.data_hash,
+            zone_data_hash: spend.zone_data_hash,
+            proof,
+        });
+    }
+    Ok(spends)
 }
 
 pub enum CircuitType {
@@ -140,33 +175,7 @@ pub fn into_prover(
         ..
     } = proof_inputs;
 
-    let mut spends = Vec::with_capacity(inputs.len());
-    let mut real_index = 0;
-    for spend in inputs {
-        let utxo = spend.utxo;
-        let nullifier_key = spend.nullifier_key;
-        let data_hash = spend.data_hash;
-        let zone_data_hash = spend.zone_data_hash;
-        // Real inputs have their own proof; a dummy (zero owner) is proofless and
-        // mirrors the first real input's roots downstream.
-        let proof = if utxo.owner.is_zero() {
-            None
-        } else {
-            let proof = input_merkle_proofs
-                .get(real_index)
-                .ok_or(ClientError::MissingInputMerkleProof { index: real_index })?
-                .clone();
-            real_index += 1;
-            Some(proof)
-        };
-        spends.push(TransferSpendInput {
-            utxo,
-            nullifier_key,
-            data_hash,
-            zone_data_hash,
-            proof,
-        });
-    }
+    let spends = attach_input_proofs(inputs, input_merkle_proofs)?;
 
     let circuit = if requires_p256 {
         let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;

@@ -19,6 +19,7 @@ light-poseidon = { workspace = true }
 ark-bn254 = { workspace = true }
 solana-address = { workspace = true }
 p256 = { workspace = true }
+rand = { workspace = true }
 rayon = { workspace = true, optional = true }
 solana-signature = { workspace = true }
 num-bigint = { workspace = true }

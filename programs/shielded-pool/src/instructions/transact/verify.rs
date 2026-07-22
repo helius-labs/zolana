@@ -98,20 +98,11 @@ impl<'a> TransactProof<'a> {
                 c,
                 commitment: None,
             },
-            (
-                ProofData::P256 {
-                    a,
-                    b,
-                    c,
-                    commitment,
-                    commitment_pok,
-                },
-                true,
-            ) => verifier::CompressedGroth16Proof {
-                a,
-                b,
-                c,
-                commitment: Some((commitment, commitment_pok)),
+            (ProofData::P256(p), true) => verifier::CompressedGroth16Proof {
+                a: &p.a,
+                b: &p.b,
+                c: &p.c,
+                commitment: Some((&p.commitment, &p.commitment_pok)),
             },
             _ => return Err(ShieldedPoolError::MismatchedTransactProofRail.into()),
         };

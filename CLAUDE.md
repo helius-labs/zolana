@@ -152,13 +152,6 @@ port. Running `cargo test` directly (not via `just`) does not auto-load `.env`
   the derive macro, not our code. Test behavior we actually implement
   (validation, field mapping, encode/decode logic, state transitions) instead.
 
-## Testing
-
-- Do not add tests that only exercise derived serialization, e.g. a borsh or
-  wincode `serialize` -> `deserialize` round-trip asserting equality. They test
-  the derive macro, not our code. Test behavior we actually implement
-  (validation, field mapping, encode/decode logic, state transitions) instead.
-
 ## Pinocchio 0.11 API
 
 This project uses Pinocchio, not Anchor. Key types and idioms:

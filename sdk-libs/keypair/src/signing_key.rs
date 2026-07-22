@@ -8,7 +8,7 @@ use p256::{
     },
     SecretKey,
 };
-use rand::rngs::OsRng;
+use rand::{rngs::OsRng, RngCore};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -42,6 +42,17 @@ impl SigningKey {
     pub fn new() -> Self {
         Self {
             inner: SigningKeyInner::P256(SecretKey::random(&mut OsRng)),
+        }
+    }
+
+    /// A fresh random ed25519 key. Mirrors [`Self::new`] (P256) for callers that
+    /// need a throwaway key on the ed25519 rail; the secret bytes are zeroized
+    /// once copied into the dalek key.
+    pub fn new_ed25519() -> Self {
+        let mut secret = Zeroizing::new([0u8; 32]);
+        OsRng.fill_bytes(secret.as_mut());
+        Self {
+            inner: SigningKeyInner::Ed25519(DalekSigningKey::from_bytes(&secret)),
         }
     }
 
@@ -123,5 +134,33 @@ impl SigningKey {
 impl Default for SigningKey {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pubkey::SignatureType;
+
+    /// `new_ed25519` produces a genuine ed25519 key: it reports the ed25519 rail,
+    /// signs and verifies a message (which an off-curve key could not), and its
+    /// confidential view tag is the raw 32-byte ed25519 public key. `new` stays on
+    /// the P256 rail.
+    #[test]
+    fn new_ed25519_is_a_working_ed25519_key() {
+        let key = SigningKey::new_ed25519();
+        assert!(key.is_ed25519());
+        assert!(!SigningKey::new().is_ed25519());
+
+        let msg = [7u8; 32];
+        let sig = key.sign(&msg);
+        assert!(key.verify(&msg, &sig));
+
+        let pubkey = key.pubkey();
+        assert_eq!(pubkey.signature_type().unwrap(), SignatureType::Ed25519);
+        assert_eq!(
+            pubkey.confidential_view_tag().unwrap(),
+            pubkey.as_ed25519().unwrap()
+        );
     }
 }

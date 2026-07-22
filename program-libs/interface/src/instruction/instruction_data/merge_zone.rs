@@ -41,8 +41,9 @@ impl<'a> MergeZoneIxDataRef<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::instruction_data::merge_transact::{
-        MERGE_ENCRYPTED_UTXO_LEN, MERGE_INPUT_COUNT,
+    use crate::instruction::instruction_data::{
+        merge_transact::{MERGE_ENCRYPTED_UTXO_LEN, MERGE_INPUT_COUNT},
+        transact::P256Proof,
     };
 
     fn data() -> MergeZoneIxData {
@@ -50,7 +51,13 @@ mod tests {
             merge_view_tag: [9u8; 32],
             merge: MergeTransactIxData {
                 expiry_unix_ts: 42,
-                proof: [7u8; 192],
+                proof: P256Proof {
+                    a: [1u8; 32],
+                    b: [2u8; 64],
+                    c: [3u8; 32],
+                    commitment: [4u8; 32],
+                    commitment_pok: [5u8; 32],
+                },
                 output_utxo_hash: [1u8; 32],
                 nullifiers: (0..MERGE_INPUT_COUNT as u8).map(|i| [i; 32]).collect(),
                 utxo_tree_root_index: (0..MERGE_INPUT_COUNT as u16).collect(),
@@ -72,7 +79,11 @@ mod tests {
 
         let view = MergeZoneIxDataRef::from_bytes(&bytes).unwrap();
         assert_eq!(view.merge_view_tag, &owned.merge_view_tag);
-        assert_eq!(view.merge.proof, &owned.merge.proof);
+        assert_eq!(view.merge.proof.a, &owned.merge.proof.a);
+        assert_eq!(
+            view.merge.proof.commitment_pok,
+            &owned.merge.proof.commitment_pok
+        );
         assert_eq!(view.merge.nullifiers, owned.merge.nullifiers);
         assert_eq!(
             view.merge.encrypted_utxo,

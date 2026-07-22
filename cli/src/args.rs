@@ -47,6 +47,9 @@ pub(crate) enum CliCommand {
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
 
+    #[command(name = "utxos", about = "List spendable private utxos")]
+    Utxos(UtxosOptions),
+
     #[command(name = "deposit", about = "Deposit into private wallet")]
     Deposit(DepositOptions),
 
@@ -56,8 +59,23 @@ pub(crate) enum CliCommand {
     #[command(name = "withdraw", about = "Withdraw to public address")]
     Withdraw(WithdrawOptions),
 
-    #[command(name = "merge", about = "Enable or disable merging for this wallet")]
+    #[command(
+        name = "split",
+        about = "Split a private utxo into equal self-owned utxos"
+    )]
+    Split(SplitOptions),
+
+    #[command(
+        name = "merge",
+        about = "Consolidate several private utxos into one (up to 8 in, 1 out)"
+    )]
     Merge(MergeOptions),
+
+    #[command(
+        name = "set-merging",
+        about = "Enable or disable the merge service for this wallet"
+    )]
+    SetMerging(SetMergingOptions),
 }
 
 #[derive(Debug, Subcommand)]
@@ -166,10 +184,22 @@ pub(crate) struct ConfigAddAssetOptions {
 #[derive(Debug, Subcommand, Clone)]
 pub(crate) enum WalletCommand {
     #[command(
-        name = "init",
-        about = "Create a filesystem private keypair and register it on-chain"
+        name = "new",
+        about = "Create a local wallet keypair (ed25519 by default, or P256 with --p256). Offline: publish it on-chain separately with `zolana wallet register`."
     )]
-    Init(InitOptions),
+    New(NewWalletOptions),
+
+    #[command(
+        name = "address",
+        about = "Print the selected wallet's shielded owner hash (or its funding pubkey)"
+    )]
+    Address(AddressOptions),
+
+    #[command(
+        name = "register",
+        about = "Publish the wallet's shielded keys on-chain so its Solana pubkey is payable"
+    )]
+    Register(RegisterOptions),
 }
 
 #[derive(Debug)]
@@ -372,25 +402,69 @@ pub(crate) struct WalletKeypairOptions {
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
-pub(crate) struct InitOptions {
+pub(crate) struct NewWalletOptions {
     #[arg(
-        long = "path",
-        help = "Output path for generated keypair (default: ~/.config/zolana/pid.json)",
+        long = "outfile",
+        help = "Output wallet file (default: configured keypair path or ~/.config/zolana/pid.json)",
         value_name = "PATH"
     )]
-    pub(crate) path: Option<String>,
+    pub(crate) outfile: Option<String>,
+
+    #[arg(
+        long = "funding-keypair",
+        help = "Use an existing Solana keypair file (e.g. ~/.config/solana/id.json) as the fee payer instead of generating a new one",
+        value_name = "PATH"
+    )]
+    pub(crate) funding_keypair: Option<String>,
+
+    #[arg(
+        long = "p256",
+        action = ArgAction::SetTrue,
+        help = "Mint an independent random P256 shielded identity instead of the default ed25519 rail (where the Solana funding key is the identity)"
+    )]
+    pub(crate) p256: bool,
 
     #[arg(
         long = "rpc-url",
-        help = "Solana RPC URL used to register the wallet (default: configured value or http://127.0.0.1:8899)"
+        help = "Solana RPC URL for the optional --airdrop-lamports funding request (default: configured value or http://127.0.0.1:8899)"
     )]
     pub(crate) rpc_url: Option<String>,
 
     #[arg(
         long = "airdrop-lamports",
-        help = "Request a localnet airdrop for the wallet funding key before registering"
+        help = "Optionally airdrop lamports to the wallet's funding key on localnet (funding only; does not register)"
     )]
     pub(crate) airdrop_lamports: Option<u64>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct AddressOptions {
+    #[command(flatten)]
+    pub(crate) keypair: WalletKeypairOptions,
+
+    #[arg(
+        long,
+        help = "Print the wallet's public funding/fee-payer pubkey instead"
+    )]
+    pub(crate) funding: bool,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct RegisterOptions {
+    #[command(flatten)]
+    pub(crate) wallet: RpcWalletOptions,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct RpcWalletOptions {
+    #[command(flatten)]
+    pub(crate) keypair: WalletKeypairOptions,
+
+    #[arg(
+        long = "rpc-url",
+        help = "Solana RPC URL (default: configured value or http://127.0.0.1:8899)"
+    )]
+    pub(crate) rpc_url: Option<String>,
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
@@ -526,6 +600,28 @@ pub(crate) struct WithdrawOptions {
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct SplitOptions {
+    #[command(flatten)]
+    pub(crate) network: NetworkWalletOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u8).range(2..=8),
+        help = "Number of equal output utxos to produce (2-8)"
+    )]
+    pub(crate) parts: u8,
+
+    #[arg(
+        long,
+        help = "Optional input utxo commitment hash (hex); defaults to the largest plain utxo"
+    )]
+    pub(crate) input: Option<String>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct BalanceOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
@@ -535,26 +631,51 @@ pub(crate) struct BalanceOptions {
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct UtxosOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct MergeOptions {
+    #[command(flatten)]
+    pub(crate) network: NetworkWalletOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(
+        long = "input",
+        help = "Input utxo commitment hash (hex); repeat to name each utxo. Omit to auto-sweep the smallest plain utxos.",
+        value_name = "HASH"
+    )]
+    pub(crate) input: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
 #[command(group(
     clap::ArgGroup::new("merge_toggle")
         .required(true)
         .args(["enable", "disable"])
 ))]
-pub(crate) struct MergeOptions {
+pub(crate) struct SetMergingOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
 
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Enable merging for this wallet"
+        help = "Enable the merge service for this wallet"
     )]
     pub(crate) enable: bool,
 
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Disable merging for this wallet"
+        help = "Disable the merge service for this wallet"
     )]
     pub(crate) disable: bool,
 }
@@ -711,13 +832,18 @@ mod tests {
             ["zolana", "config", "asset", "add", "--help"].as_slice(),
             ["zolana", "config", "asset", "path", "--help"].as_slice(),
             ["zolana", "wallet", "--help"].as_slice(),
-            ["zolana", "wallet", "init", "--help"].as_slice(),
+            ["zolana", "wallet", "new", "--help"].as_slice(),
+            ["zolana", "wallet", "address", "--help"].as_slice(),
+            ["zolana", "wallet", "register", "--help"].as_slice(),
             ["zolana", "sync", "--help"].as_slice(),
             ["zolana", "balance", "--help"].as_slice(),
+            ["zolana", "utxos", "--help"].as_slice(),
             ["zolana", "deposit", "--help"].as_slice(),
             ["zolana", "transfer", "--help"].as_slice(),
             ["zolana", "withdraw", "--help"].as_slice(),
+            ["zolana", "split", "--help"].as_slice(),
             ["zolana", "merge", "--help"].as_slice(),
+            ["zolana", "set-merging", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
@@ -877,22 +1003,70 @@ mod tests {
     }
 
     #[test]
-    fn parses_wallet_init_options() {
-        let WalletCommand::Init(opts) = parse_wallet(&[
-            "init",
-            "--path",
+    fn parses_wallet_new_options() {
+        let WalletCommand::New(opts) = parse_wallet(&[
+            "new",
+            "--outfile",
             "/tmp/alice.pid.json",
+            "--funding-keypair",
+            "/tmp/solana.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
             "--airdrop-lamports",
             "1000000000",
-        ]);
-        let expected = InitOptions {
-            path: Some("/tmp/alice.pid.json".to_string()),
+        ]) else {
+            panic!("expected wallet new command");
+        };
+        let expected = NewWalletOptions {
+            outfile: Some("/tmp/alice.pid.json".to_string()),
+            funding_keypair: Some("/tmp/solana.json".to_string()),
+            p256: false,
             rpc_url: Some("http://127.0.0.1:8900".to_string()),
             airdrop_lamports: Some(1_000_000_000),
         };
         assert_eq!(opts, expected);
+
+        let WalletCommand::New(p256_opts) = parse_wallet(&["new", "--p256"]) else {
+            panic!("expected wallet new command");
+        };
+        assert!(p256_opts.p256);
+
+        let WalletCommand::New(default_opts) = parse_wallet(&["new"]) else {
+            panic!("expected wallet new command");
+        };
+        assert!(!default_opts.p256);
+    }
+
+    #[test]
+    fn parses_wallet_address_options() {
+        let WalletCommand::Address(opts) =
+            parse_wallet(&["address", "--keypair", "/tmp/alice.pid.json", "--funding"])
+        else {
+            panic!("expected wallet address command");
+        };
+        assert_eq!(opts.keypair.keypair.as_deref(), Some("/tmp/alice.pid.json"));
+        assert!(opts.funding);
+    }
+
+    #[test]
+    fn parses_wallet_register_options() {
+        let WalletCommand::Register(opts) = parse_wallet(&[
+            "register",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--rpc-url",
+            "http://127.0.0.1:8900",
+        ]) else {
+            panic!("expected wallet register command");
+        };
+        assert_eq!(
+            opts.wallet.keypair.keypair.as_deref(),
+            Some("/tmp/alice.pid.json")
+        );
+        assert_eq!(
+            opts.wallet.rpc_url.as_deref(),
+            Some("http://127.0.0.1:8900")
+        );
     }
 
     #[test]
@@ -1064,6 +1238,56 @@ mod tests {
             "merge",
             "--keypair",
             "/tmp/alice.pid.json",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+            "--mint",
+            "SOL",
+            "--input",
+            "0101010101010101010101010101010101010101010101010101010101010101",
+            "--input",
+            "0202020202020202020202020202020202020202020202020202020202020202",
+        ])
+        .command
+        else {
+            panic!("expected merge command");
+        };
+
+        let expected = MergeOptions {
+            network: NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        keypair: Some("/tmp/alice.pid.json".to_string()),
+                    },
+                    rpc_url: None,
+                    indexer_url: None,
+                },
+                tree: Some("Tree111111111111111111111111111111111111111".to_string()),
+                prover_url: None,
+                airdrop_lamports: None,
+            },
+            mint: "SOL".to_string(),
+            input: vec![
+                "0101010101010101010101010101010101010101010101010101010101010101".to_string(),
+                "0202020202020202020202020202020202020202020202020202020202020202".to_string(),
+            ],
+        };
+        assert_eq!(opts, expected);
+
+        // Auto-sweep: no --input.
+        let Some(CliCommand::Merge(opts)) =
+            parse_cli(&["merge", "--keypair", "/tmp/alice.pid.json"]).command
+        else {
+            panic!("expected merge command");
+        };
+        assert!(opts.input.is_empty());
+    }
+
+    #[test]
+    fn parses_set_merging_options() {
+        let Some(CliCommand::SetMerging(opts)) = parse_cli(&[
+            "set-merging",
+            "--keypair",
+            "/tmp/alice.pid.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
             "--indexer-url",
@@ -1072,10 +1296,10 @@ mod tests {
         ])
         .command
         else {
-            panic!("expected merge command");
+            panic!("expected set-merging command");
         };
 
-        let expected = MergeOptions {
+        let expected = SetMergingOptions {
             sync: SyncOptions {
                 keypair: WalletKeypairOptions {
                     keypair: Some("/tmp/alice.pid.json".to_string()),
@@ -1088,13 +1312,18 @@ mod tests {
         };
         assert_eq!(opts, expected);
 
-        let Some(CliCommand::Merge(opts)) =
-            parse_cli(&["merge", "--keypair", "/tmp/alice.pid.json", "--disable"]).command
+        let Some(CliCommand::SetMerging(opts)) = parse_cli(&[
+            "set-merging",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--disable",
+        ])
+        .command
         else {
-            panic!("expected merge command");
+            panic!("expected set-merging command");
         };
 
-        let expected = MergeOptions {
+        let expected = SetMergingOptions {
             sync: SyncOptions {
                 keypair: WalletKeypairOptions {
                     keypair: Some("/tmp/alice.pid.json".to_string()),
@@ -1106,6 +1335,62 @@ mod tests {
             disable: true,
         };
         assert_eq!(opts, expected);
+    }
+
+    #[test]
+    fn parses_split_options() {
+        let Some(CliCommand::Split(split)) = parse_cli(&[
+            "split",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+            "--mint",
+            "SOL",
+            "--parts",
+            "4",
+            "--input",
+            "0101010101010101010101010101010101010101010101010101010101010101",
+        ])
+        .command
+        else {
+            panic!("expected split command");
+        };
+        let expected = SplitOptions {
+            network: NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        keypair: Some("/tmp/alice.pid.json".to_string()),
+                    },
+                    rpc_url: None,
+                    indexer_url: None,
+                },
+                tree: Some("Tree111111111111111111111111111111111111111".to_string()),
+                prover_url: None,
+                airdrop_lamports: None,
+            },
+            mint: "SOL".to_string(),
+            parts: 4,
+            input: Some(
+                "0101010101010101010101010101010101010101010101010101010101010101".to_string(),
+            ),
+        };
+        assert_eq!(split, expected);
+    }
+
+    #[test]
+    fn split_part_count_is_range_limited() {
+        for parts in ["1", "9"] {
+            assert!(Cli::try_parse_from([
+                "zolana",
+                "split",
+                "--keypair",
+                "/tmp/alice.pid.json",
+                "--parts",
+                parts,
+            ])
+            .is_err());
+        }
     }
 
     #[test]

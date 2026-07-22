@@ -21,10 +21,10 @@ use crate::args::WalletCommand;
 // transfer/withdraw) and the pool setup commands under `dev pool`.
 pub(crate) use balance::run_balance;
 pub(crate) use deposit::run_deposit;
-pub(crate) use registry::run_merge;
+pub(crate) use registry::run_set_merging;
 pub(crate) use sync::run_sync;
 pub(crate) use test_mint::run_test_mint;
-pub(crate) use transaction::run_transfer;
+pub(crate) use transaction::{run_merge, run_split, run_transfer, run_utxos};
 pub(crate) use tree::run_create_tree;
 pub(crate) use withdraw::run_withdraw;
 
@@ -33,6 +33,8 @@ const INDEXER_POLL: Duration = Duration::from_millis(500);
 
 pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
     match command {
-        WalletCommand::Init(opts) => material::run_init(opts),
+        WalletCommand::New(opts) => material::run_new(opts),
+        WalletCommand::Address(opts) => material::run_address(opts),
+        WalletCommand::Register(opts) => registry::run_register(opts),
     }
 }

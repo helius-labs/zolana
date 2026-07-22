@@ -67,6 +67,8 @@ impl MergeZoneWorld {
         let mut inputs = Vec::with_capacity(n);
         for i in 0..n {
             let amount = 100 + i as u64;
+            let mut zone_data_hash = [0u8; 32];
+            zone_data_hash[31] = u8::try_from(i + 1).expect("merge input count fits u8");
             let utxo = Utxo {
                 owner,
                 asset,
@@ -76,16 +78,18 @@ impl MergeZoneWorld {
                 data: Data::default(),
             };
             let utxo_hash = utxo
-                .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+                .hash(&nullifier_pk, &[0u8; 32], &zone_data_hash)
                 .expect("utxo hash");
             indexer.add_utxo(utxo_hash);
-            inputs.push(SppProofInputUtxo::new(utxo, &sender));
+            inputs.push(SppProofInputUtxo::new(utxo, &sender).with_zone_data_hash(zone_data_hash));
         }
 
         // The plan derives the merged zone-owned output and owner identity; preparing
         // it pads to MERGE_INPUTS, and the MergeZoneWitness folds in the owner
         // nullifier key and the proofs. The prover never sees the high-level plan.
-        let merge = MergeZone::new(&sender, inputs, zone)
+        let mut output_zone_data_hash = [0u8; 32];
+        output_zone_data_hash[31] = 0xd2;
+        let merge = MergeZone::new(&sender, inputs, zone, Some(output_zone_data_hash))
             .expect("build merge-zone plan")
             .with_expiry(0);
         let prepared = merge.prepare();
@@ -144,7 +148,7 @@ impl MergeZoneWorld {
             amount,
             blinding,
             zone_program_id: Some(zone),
-            zone_data_hash: None,
+            zone_data_hash: Some(output_zone_data_hash),
             data_hash: None,
             owner_tag: None,
             data: Data::default(),

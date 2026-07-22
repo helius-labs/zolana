@@ -18,8 +18,8 @@ use crate::{
     localnet::run_test_validator,
     prover::run_start_prover,
     wallet_cli::{
-        run_balance, run_create_tree, run_deposit, run_merge, run_sync, run_test_mint,
-        run_transfer, run_wallet, run_withdraw,
+        run_balance, run_create_tree, run_deposit, run_merge, run_set_merging, run_split, run_sync,
+        run_test_mint, run_transfer, run_utxos, run_wallet, run_withdraw,
     },
 };
 
@@ -38,10 +38,13 @@ fn run(cli: Cli) -> Result<()> {
         Some(CliCommand::TestEnv(opts)) => run_test_validator(*opts),
         Some(CliCommand::Sync(opts)) => run_sync(opts),
         Some(CliCommand::Balance(opts)) => run_balance(opts),
+        Some(CliCommand::Utxos(opts)) => run_utxos(opts),
         Some(CliCommand::Deposit(opts)) => run_deposit(opts),
         Some(CliCommand::Transfer(opts)) => run_transfer(opts),
         Some(CliCommand::Withdraw(opts)) => run_withdraw(opts),
+        Some(CliCommand::Split(opts)) => run_split(opts),
         Some(CliCommand::Merge(opts)) => run_merge(opts),
+        Some(CliCommand::SetMerging(opts)) => run_set_merging(opts),
         None => {
             Cli::command().print_help()?;
             println!();

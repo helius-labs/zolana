@@ -1,4 +1,6 @@
-use std::time::Duration;
+use std::{thread::sleep, time::Duration};
+
+use crate::error::ClientError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IndexerPollConfig {
@@ -32,6 +34,32 @@ impl IndexerPollConfig {
             let current = Duration::from_millis(delay);
             delay = delay.saturating_mul(2).min(self.max_delay_ms);
             current
+        })
+    }
+
+    /// Poll `request` on this config's backoff schedule until `accept` matches
+    /// a response, returning that response. Transient request errors are
+    /// retried, not propagated; when the schedule is exhausted the poll fails
+    /// with [`ClientError::PollTimedOut`] carrying the last transient error.
+    pub fn poll_until<T>(
+        &self,
+        mut request: impl FnMut() -> Result<T, ClientError>,
+        mut accept: impl FnMut(&T) -> bool,
+    ) -> Result<T, ClientError> {
+        let mut last_error = None;
+        for delay in std::iter::once(Duration::ZERO).chain(self.backoff()) {
+            if !delay.is_zero() {
+                sleep(delay);
+            }
+            match request() {
+                Ok(response) if accept(&response) => return Ok(response),
+                Ok(_) => {}
+                Err(error) => last_error = Some(error.to_string()),
+            }
+        }
+        Err(ClientError::PollTimedOut {
+            attempts: self.num_retries.saturating_add(1),
+            last_error,
         })
     }
 }

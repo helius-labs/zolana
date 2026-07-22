@@ -26,6 +26,17 @@ impl ProtocolConfig {
             .ok_or(InterfaceError::InvalidDiscriminator)
     }
 
+    /// Zero-copy view over an exact protocol-config account payload.
+    pub fn from_account_bytes(data: &[u8]) -> Result<&Self, InterfaceError> {
+        if data.len() != Self::SIZE {
+            return Err(InterfaceError::InvalidProtocolConfigData);
+        }
+        let config: &Self = bytemuck::try_from_bytes(data)
+            .map_err(|_| InterfaceError::InvalidProtocolConfigData)?;
+        config.check_discriminator()?;
+        Ok(config)
+    }
+
     pub fn check_protocol_authority(&self, authority: &Address) -> Result<(), InterfaceError> {
         address_eq(&self.protocol_authority, authority)
             .then_some(())

@@ -85,6 +85,19 @@ impl SppProofOutputUtxo {
         self
     }
 
+    /// Bind an output to policy-zone state when only its commitment hash belongs
+    /// in the merge witness. The zone is responsible for making the corresponding
+    /// preimage available to the owner according to its policy protocol.
+    pub fn with_zone_data_hash(
+        mut self,
+        zone_program_id: Address,
+        zone_data_hash: [u8; 32],
+    ) -> Self {
+        self.zone_program_id = Some(zone_program_id);
+        self.zone_data_hash = Some(zone_data_hash);
+        self
+    }
+
     pub fn with_utxo_data(mut self, utxo_data: Vec<u8>, data_hash: [u8; 32]) -> Self {
         self.data_hash = Some(data_hash);
         self.set_data_record(DataRecord::UtxoData(utxo_data));

@@ -10,9 +10,13 @@ use zolana_keypair::{
 
 use crate::{
     instructions::transact::slots::encode_confidential_slots,
-    serialization::anonymous::{
-        AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle, AnonymousSenderEncode,
-        AnonymousTransferRecipientPlaintext, AnonymousTransferSenderPlaintext,
+    serialization::{
+        anonymous::{
+            AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
+            AnonymousSenderEncode, AnonymousTransferRecipientPlaintext,
+            AnonymousTransferSenderPlaintext,
+        },
+        split::{Split, SplitBundlePlaintext, SplitEncode},
     },
     AssetRegistry, SppProofOutputUtxo, TransactionError, UtxoSerialization,
 };
@@ -37,12 +41,25 @@ pub struct AnonymousRecipientSlot {
     pub plaintext: AnonymousTransferRecipientPlaintext,
 }
 
+/// Per-transaction encryption envelope an authority returns: the ephemeral
+/// `tx_viewing_pk` and `salt` every ciphertext in the transaction shares
+/// (published in the clear), plus the sealed payload the operation produced.
 #[derive(Clone, Debug)]
-pub struct EncryptedTransfer {
+pub struct EncryptedEnvelope<P> {
     pub tx_viewing_pk: P256Pubkey,
     pub salt: Salt,
-    pub slots: Vec<Option<MessageData>>,
+    pub payload: P,
 }
+
+/// Transfer payload: one ciphertext per output slot, keyed to that output's
+/// owner. `None` marks a dummy slot the transfer builder pads with a
+/// length-matched random ciphertext.
+pub type EncryptedTransfer = EncryptedEnvelope<Vec<Option<MessageData>>>;
+
+/// Split payload: the single sealed slot-0 `Split` bundle covering every real
+/// output. Unlike a transfer there is exactly one ciphertext; all other slots
+/// stay empty (covered) on the wire.
+pub type EncryptedSplit = EncryptedEnvelope<MessageData>;
 
 /// Ephemeral key material required by a wallet scan.
 ///
@@ -92,6 +109,13 @@ pub trait WalletAuthority: Send + Sync {
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError>;
 
+    async fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError>;
+
     async fn request_user_approval(
         &self,
         _request: ApprovalRequest,
@@ -137,6 +161,13 @@ pub trait SyncWalletAuthority: Send + Sync {
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError>;
+
+    fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError>;
 
     fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), TransactionError> {
         Ok(())
@@ -193,6 +224,15 @@ where
         )
     }
 
+    async fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError> {
+        SyncWalletAuthority::encrypt_split(self, first_nullifier, view_tag, bundle)
+    }
+
     async fn request_user_approval(
         &self,
         request: ApprovalRequest,
@@ -232,6 +272,127 @@ fn recipient_slot_index(i: usize) -> Result<u32, TransactionError> {
     })
 }
 
+/// Shared bodies for every local authority over a [`ShieldedKeypair`]
+/// ([`LocalWalletAuthority`] and the bare keypair impl below), so the
+/// encryption and signing logic exists once.
+fn encrypt_confidential_transfer_with(
+    keypair: &ShieldedKeypair,
+    first_nullifier: &[u8; 32],
+    outputs: &[SppProofOutputUtxo],
+    assets: &AssetRegistry,
+) -> Result<EncryptedTransfer, TransactionError> {
+    let tx = keypair
+        .viewing_key
+        .get_transaction_viewing_key(first_nullifier)?;
+    let salt = random_salt();
+    let slots = encode_confidential_slots(outputs, assets, &tx, salt)?;
+    Ok(EncryptedTransfer {
+        tx_viewing_pk: tx.pubkey(),
+        salt,
+        payload: slots,
+    })
+}
+
+fn encrypt_anonymous_transfer_with(
+    keypair: &ShieldedKeypair,
+    first_nullifier: &[u8; 32],
+    sender_view_tag: ViewTag,
+    sender: &AnonymousTransferSenderPlaintext,
+    recipients: &[AnonymousRecipientSlot],
+) -> Result<EncryptedTransfer, TransactionError> {
+    let tx = keypair
+        .viewing_key
+        .get_transaction_viewing_key(first_nullifier)?;
+    let salt = random_salt();
+    let self_pubkey = keypair.viewing_key.pubkey();
+
+    let mut slots = Vec::with_capacity(1 + recipients.len());
+    let sender_cx = AnonymousSenderEncode {
+        tx: tx.clone(),
+        self_pubkey,
+        salt,
+        slot_index: 0,
+        blinding_seed: sender.blinding_seed,
+        recipient_viewing_pks: sender.recipient_viewing_pks.clone(),
+    };
+    slots.push(Some(AnonymousSenderBundle::encode_plaintext(
+        sender,
+        sender_view_tag,
+        &sender_cx,
+    )?));
+
+    for (i, recipient) in recipients.iter().enumerate() {
+        let cx = AnonymousRecipientEncode {
+            tx: tx.clone(),
+            recipient_pubkey: recipient.recipient_pubkey,
+            sender_pubkey: recipient.plaintext.sender_pubkey,
+            salt,
+            slot_index: recipient_slot_index(i)?,
+        };
+        slots.push(Some(AnonymousRecipient::encode_plaintext(
+            &recipient.plaintext,
+            recipient.view_tag,
+            &cx,
+        )?));
+    }
+
+    Ok(EncryptedTransfer {
+        tx_viewing_pk: tx.pubkey(),
+        salt,
+        payload: slots,
+    })
+}
+
+fn encrypt_split_with(
+    keypair: &ShieldedKeypair,
+    first_nullifier: &[u8; 32],
+    view_tag: ViewTag,
+    bundle: &SplitBundlePlaintext,
+) -> Result<EncryptedSplit, TransactionError> {
+    let tx = keypair
+        .viewing_key
+        .get_transaction_viewing_key(first_nullifier)?;
+    let salt = random_salt();
+    let tx_viewing_pk = tx.pubkey();
+    let message = Split::encode_plaintext(
+        bundle,
+        view_tag,
+        &SplitEncode {
+            tx,
+            recipient_pubkey: keypair.viewing_key.pubkey(),
+            salt,
+            slot_index: 0,
+            blinding_seed: bundle.blinding_seed,
+        },
+    )?;
+    Ok(EncryptedSplit {
+        tx_viewing_pk,
+        salt,
+        payload: message,
+    })
+}
+
+fn sign_p256_with(
+    keypair: &ShieldedKeypair,
+    message_hash: &[u8; 32],
+) -> Result<P256Signature, TransactionError> {
+    let signer = EcdsaSigningKey::from_slice(keypair.signing_key.secret_bytes().as_slice())
+        .map_err(|e| TransactionError::P256(e.to_string()))?;
+    let signature: Signature = signer
+        .sign_prehash(message_hash)
+        .map_err(|e| TransactionError::P256(e.to_string()))?;
+    let bytes = signature.to_bytes();
+    let mut sig_r = [0u8; 32];
+    let mut sig_s = [0u8; 32];
+    sig_r.copy_from_slice(&bytes[..32]);
+    sig_s.copy_from_slice(&bytes[32..]);
+    Ok(P256Signature {
+        pubkey: keypair.signing_pubkey().as_p256()?,
+        sig_r,
+        sig_s,
+    })
+}
+
 impl SyncWalletAuthority for LocalWalletAuthority<'_> {
     fn solana_pubkey(&self) -> Address {
         self.solana_pubkey
@@ -251,17 +412,7 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
         outputs: &[SppProofOutputUtxo],
         assets: &AssetRegistry,
     ) -> Result<EncryptedTransfer, TransactionError> {
-        let tx = self
-            .keypair
-            .viewing_key
-            .get_transaction_viewing_key(first_nullifier)?;
-        let salt = random_salt();
-        let slots = encode_confidential_slots(outputs, assets, &tx, salt)?;
-        Ok(EncryptedTransfer {
-            tx_viewing_pk: tx.pubkey(),
-            salt,
-            slots,
-        })
+        encrypt_confidential_transfer_with(self.keypair, first_nullifier, outputs, assets)
     }
 
     fn encrypt_anonymous_transfer(
@@ -271,67 +422,26 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError> {
-        let tx = self
-            .keypair
-            .viewing_key
-            .get_transaction_viewing_key(first_nullifier)?;
-        let salt = random_salt();
-        let self_pubkey = self.keypair.viewing_key.pubkey();
-
-        let mut slots = Vec::with_capacity(1 + recipients.len());
-        let sender_cx = AnonymousSenderEncode {
-            tx: tx.clone(),
-            self_pubkey,
-            salt,
-            slot_index: 0,
-            blinding_seed: sender.blinding_seed,
-            recipient_viewing_pks: sender.recipient_viewing_pks.clone(),
-        };
-        slots.push(Some(AnonymousSenderBundle::encode_plaintext(
-            sender,
+        encrypt_anonymous_transfer_with(
+            self.keypair,
+            first_nullifier,
             sender_view_tag,
-            &sender_cx,
-        )?));
+            sender,
+            recipients,
+        )
+    }
 
-        for (i, recipient) in recipients.iter().enumerate() {
-            let cx = AnonymousRecipientEncode {
-                tx: tx.clone(),
-                recipient_pubkey: recipient.recipient_pubkey,
-                sender_pubkey: recipient.plaintext.sender_pubkey,
-                salt,
-                slot_index: recipient_slot_index(i)?,
-            };
-            slots.push(Some(AnonymousRecipient::encode_plaintext(
-                &recipient.plaintext,
-                recipient.view_tag,
-                &cx,
-            )?));
-        }
-
-        Ok(EncryptedTransfer {
-            tx_viewing_pk: tx.pubkey(),
-            salt,
-            slots,
-        })
+    fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError> {
+        encrypt_split_with(self.keypair, first_nullifier, view_tag, bundle)
     }
 
     fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        let signer =
-            EcdsaSigningKey::from_slice(self.keypair.signing_key.secret_bytes().as_slice())
-                .map_err(|e| TransactionError::P256(e.to_string()))?;
-        let signature: Signature = signer
-            .sign_prehash(message_hash)
-            .map_err(|e| TransactionError::P256(e.to_string()))?;
-        let bytes = signature.to_bytes();
-        let mut sig_r = [0u8; 32];
-        let mut sig_s = [0u8; 32];
-        sig_r.copy_from_slice(&bytes[..32]);
-        sig_s.copy_from_slice(&bytes[32..]);
-        Ok(P256Signature {
-            pubkey: self.keypair.signing_pubkey().as_p256()?,
-            sig_r,
-            sig_s,
-        })
+        sign_p256_with(self.keypair, message_hash)
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
@@ -361,16 +471,7 @@ impl SyncWalletAuthority for ShieldedKeypair {
         outputs: &[SppProofOutputUtxo],
         assets: &AssetRegistry,
     ) -> Result<EncryptedTransfer, TransactionError> {
-        let tx = self
-            .viewing_key
-            .get_transaction_viewing_key(first_nullifier)?;
-        let salt = random_salt();
-        let slots = encode_confidential_slots(outputs, assets, &tx, salt)?;
-        Ok(EncryptedTransfer {
-            tx_viewing_pk: tx.pubkey(),
-            salt,
-            slots,
-        })
+        encrypt_confidential_transfer_with(self, first_nullifier, outputs, assets)
     }
 
     fn encrypt_anonymous_transfer(
@@ -380,65 +481,20 @@ impl SyncWalletAuthority for ShieldedKeypair {
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError> {
-        let tx = self
-            .viewing_key
-            .get_transaction_viewing_key(first_nullifier)?;
-        let salt = random_salt();
-        let self_pubkey = self.viewing_key.pubkey();
+        encrypt_anonymous_transfer_with(self, first_nullifier, sender_view_tag, sender, recipients)
+    }
 
-        let mut slots = Vec::with_capacity(1 + recipients.len());
-        let sender_cx = AnonymousSenderEncode {
-            tx: tx.clone(),
-            self_pubkey,
-            salt,
-            slot_index: 0,
-            blinding_seed: sender.blinding_seed,
-            recipient_viewing_pks: sender.recipient_viewing_pks.clone(),
-        };
-        slots.push(Some(AnonymousSenderBundle::encode_plaintext(
-            sender,
-            sender_view_tag,
-            &sender_cx,
-        )?));
-
-        for (i, recipient) in recipients.iter().enumerate() {
-            let cx = AnonymousRecipientEncode {
-                tx: tx.clone(),
-                recipient_pubkey: recipient.recipient_pubkey,
-                sender_pubkey: recipient.plaintext.sender_pubkey,
-                salt,
-                slot_index: recipient_slot_index(i)?,
-            };
-            slots.push(Some(AnonymousRecipient::encode_plaintext(
-                &recipient.plaintext,
-                recipient.view_tag,
-                &cx,
-            )?));
-        }
-
-        Ok(EncryptedTransfer {
-            tx_viewing_pk: tx.pubkey(),
-            salt,
-            slots,
-        })
+    fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError> {
+        encrypt_split_with(self, first_nullifier, view_tag, bundle)
     }
 
     fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        let signer = EcdsaSigningKey::from_slice(self.signing_key.secret_bytes().as_slice())
-            .map_err(|e| TransactionError::P256(e.to_string()))?;
-        let signature: Signature = signer
-            .sign_prehash(message_hash)
-            .map_err(|e| TransactionError::P256(e.to_string()))?;
-        let bytes = signature.to_bytes();
-        let mut sig_r = [0u8; 32];
-        let mut sig_s = [0u8; 32];
-        sig_r.copy_from_slice(&bytes[..32]);
-        sig_s.copy_from_slice(&bytes[32..]);
-        Ok(P256Signature {
-            pubkey: self.signing_pubkey().as_p256()?,
-            sig_r,
-            sig_s,
-        })
+        sign_p256_with(self, message_hash)
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {

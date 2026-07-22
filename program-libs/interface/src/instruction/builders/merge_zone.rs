@@ -68,11 +68,12 @@ impl MergeZone {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instruction::P256Proof;
 
     fn data() -> MergeTransactIxData {
         MergeTransactIxData {
             expiry_unix_ts: u64::MAX,
-            proof: [0u8; 192],
+            proof: P256Proof::zeroed(),
             output_utxo_hash: [0u8; 32],
             nullifiers: vec![[0u8; 32]; 8],
             utxo_tree_root_index: vec![0; 8],

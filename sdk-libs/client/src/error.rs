@@ -85,6 +85,51 @@ pub enum ClientError {
     #[error("merge input {index} has a different asset; merge requires a single shared asset")]
     MergeInputAssetMismatch { index: usize },
 
+    #[error("owner {owner} has not enabled the merge service on its user-registry record")]
+    MergeDisabled { owner: Pubkey },
+
+    #[error("nothing to merge for asset {asset:?}: fewer than two plain utxos are available")]
+    NothingToMerge { asset: solana_address::Address },
+
+    #[error("merge input utxo {hash:?} was named more than once")]
+    DuplicateInputUtxo { hash: [u8; 32] },
+
+    #[error("merging keypair signing key does not match the owner's registry record")]
+    MergeSigningKeyMismatch,
+
+    #[error("merging keypair nullifier key does not match the owner's registry record")]
+    MergeNullifierKeyMismatch,
+
+    #[error("merging keypair viewing key does not match the registry record for {owner}")]
+    MergeViewingKeyMismatch { owner: Pubkey },
+
+    #[error("merge proof was fetched for tree {proof_tree:?}, but the submit ix targets {submit_tree:?}")]
+    MergeTreeMismatch {
+        proof_tree: [u8; 32],
+        submit_tree: [u8; 32],
+    },
+
+    #[error("split amount {amount} is not divisible into {parts} equal parts")]
+    SplitNotDivisible { amount: u64, parts: u8 },
+
+    #[error("split input utxo {hash:?} is not available in the wallet")]
+    InputUtxoUnavailable { hash: [u8; 32] },
+
+    #[error(
+        "input utxo {hash:?} is on tree {utxo_tree:?}, not the resolved spend tree {spend_tree:?}"
+    )]
+    InputUtxoTreeMismatch {
+        hash: [u8; 32],
+        utxo_tree: solana_address::Address,
+        spend_tree: solana_address::Address,
+    },
+
+    #[error("split input utxo {hash:?} carries program or utxo data, which is not supported")]
+    SplitInputHasData { hash: [u8; 32] },
+
+    #[error("split input utxo {hash:?} is bound to a zone, which is not supported")]
+    SplitInputZoneMismatch { hash: [u8; 32] },
+
     #[error("p256 signature error: {0}")]
     P256Signature(String),
 
@@ -147,6 +192,12 @@ pub enum ClientError {
         target: i64,
         latest: i64,
         attempts: u32,
+    },
+
+    #[error("poll gave up after {attempts} attempts; last transient error: {last_error:?}")]
+    PollTimedOut {
+        attempts: u32,
+        last_error: Option<String>,
     },
 
     #[error("proof path has {got} elements, expected {expected}")]

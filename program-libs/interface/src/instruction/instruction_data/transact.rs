@@ -4,6 +4,48 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 use crate::error::ShieldedPoolError;
 
+/// The BSB22-committed Groth16 proof of the P256 rail: `a || b || c ||
+/// commitment || commitment_pok`, 192 bytes on the wire (compressed points,
+/// G1 -> 32 bytes, G2 -> 64 bytes). This is the single definition of that
+/// layout: `transact` carries it as [`TransactProof::P256`] and `merge_transact`
+/// embeds it directly (the merge circuit is P256-only, so its proof is always
+/// this five-tuple).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct P256Proof {
+    pub a: [u8; 32],
+    pub b: [u8; 64],
+    pub c: [u8; 32],
+    pub commitment: [u8; 32],
+    pub commitment_pok: [u8; 32],
+}
+
+impl P256Proof {
+    /// Serialized length: the five points back to back, no tag.
+    pub const LEN: usize = 192;
+
+    /// A zeroed proof, used as a placeholder before the real proof is attached
+    /// and as a dummy in tests.
+    pub const fn zeroed() -> Self {
+        Self {
+            a: [0u8; 32],
+            b: [0u8; 64],
+            c: [0u8; 32],
+            commitment: [0u8; 32],
+            commitment_pok: [0u8; 32],
+        }
+    }
+}
+
+/// Zero-copy view of [`P256Proof`]: every point aliases the instruction buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
+pub struct P256ProofRef<'a> {
+    pub a: &'a [u8; 32],
+    pub b: &'a [u8; 64],
+    pub c: &'a [u8; 32],
+    pub commitment: &'a [u8; 32],
+    pub commitment_pok: &'a [u8; 32],
+}
+
 /// The Groth16 proof carried by a `transact` instruction. The two proving rails
 /// have different proof sizes, so the proof is a tagged enum instead of a padded
 /// fixed-width blob: the Solana-only eddsa rail omits the 64-byte BSB22 commitment
@@ -19,14 +61,8 @@ pub enum TransactProof {
         b: [u8; 64],
         c: [u8; 32],
     },
-    /// P256 rail: BSB22-committed Groth16 (192 bytes).
-    P256 {
-        a: [u8; 32],
-        b: [u8; 64],
-        c: [u8; 32],
-        commitment: [u8; 32],
-        commitment_pok: [u8; 32],
-    },
+    /// P256 rail: BSB22-committed Groth16 ([`P256Proof::LEN`] bytes).
+    P256(P256Proof),
 }
 
 impl TransactProof {
@@ -389,13 +425,13 @@ mod tests {
     }
 
     fn p256_proof() -> TransactProof {
-        TransactProof::P256 {
+        TransactProof::P256(P256Proof {
             a: [1u8; 32],
             b: [2u8; 64],
             c: [3u8; 32],
             commitment: [4u8; 32],
             commitment_pok: [5u8; 32],
-        }
+        })
     }
 
     #[test]

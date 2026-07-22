@@ -1,30 +1,59 @@
 use anyhow::{bail, Result};
-use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_transaction::Address;
 use zolana_user_registry_interface::{instruction::set_merging_enabled, user_record_pda};
+use zolana_wallet::user_registry::{register_if_absent, StrictRegistration};
 
 use super::{
-    material::{load_sender_from_resolved_sync, WalletMaterial},
+    material::{load_existing_wallet, load_sender_from_resolved_sync},
     resolve::resolve_sync,
 };
-use crate::args::MergeOptions;
+use crate::{
+    args::{RegisterOptions, SetMergingOptions},
+    cli_config::{resolve_keypair_path, resolve_rpc_url, CliConfigFile},
+};
 
-pub(super) fn register_wallet_on_chain(
-    rpc: &SolanaRpc,
-    material: &WalletMaterial,
-) -> Result<Option<Signature>> {
-    // Idempotent register-or-update lives in the SDK; the CLI just supplies its
-    // keypair + funding key.
-    Ok(zolana_wallet::ensure_registered(
-        rpc,
-        &material.funding,
-        &material.keypair,
-    )?)
+/// Publish the wallet's shielded keys under its Solana pubkey. Registration is
+/// what makes the pubkey payable: senders resolve it through the registry, and
+/// without a record a `transfer` to it degrades to a public withdrawal.
+///
+/// Strict by design: a shielded identity's nullifier key never rotates, so this
+/// writes a record only when none exists, no-ops when the on-chain record
+/// already matches this wallet, and errors when a differing record is present
+/// rather than overwriting an existing on-chain identity.
+pub(crate) fn run_register(opts: RegisterOptions) -> Result<()> {
+    let config = CliConfigFile::load()?;
+    let path = resolve_keypair_path(opts.wallet.keypair.keypair.as_deref(), &config);
+    if !path.exists() {
+        bail!(
+            "wallet not found at {}; create it with `zolana wallet new --outfile {}`",
+            path.display(),
+            path.display()
+        );
+    }
+    let material = load_existing_wallet(&path)?;
+    let rpc = SolanaRpc::new(resolve_rpc_url(opts.wallet.rpc_url.as_deref(), &config));
+    let owner = material.funding.pubkey();
+    match register_if_absent(&rpc, &material.funding, &material.keypair)? {
+        StrictRegistration::Written(signature) => {
+            println!("ok register owner={owner} record=written signature={signature}")
+        }
+        StrictRegistration::Current => {
+            println!("ok register owner={owner} record=current status=unchanged")
+        }
+        StrictRegistration::Mismatch => bail!(
+            "wallet {owner} already has a different shielded identity registered on-chain; \
+             the nullifier key never rotates, so `wallet register` refuses to overwrite it"
+        ),
+    }
+    Ok(())
 }
 
-pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
+/// Toggle the wallet's `merging_enabled` flag on its user-registry record. This is
+/// the opt-in the merge service requires; the actual note consolidation is the
+/// `merge` command.
+pub(crate) fn run_set_merging(opts: SetMergingOptions) -> Result<()> {
     let sync = resolve_sync(&opts.sync)?;
     let rpc = SolanaRpc::new(sync.rpc_url.clone());
     let material = load_sender_from_resolved_sync(&sync)?;
@@ -44,6 +73,6 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         &[&material.funding],
     )?;
 
-    println!("ok merge owner={owner} enabled={enabled} signature={signature}");
+    println!("ok set_merging owner={owner} enabled={enabled} signature={signature}");
     Ok(())
 }

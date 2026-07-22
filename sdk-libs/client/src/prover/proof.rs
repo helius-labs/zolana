@@ -2,7 +2,7 @@ use groth16_solana::groth16::negate_g1_be;
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
-use zolana_interface::instruction::instruction_data::transact::TransactProof;
+use zolana_interface::instruction::instruction_data::transact::{P256Proof, TransactProof};
 
 use crate::error::ClientError;
 
@@ -77,20 +77,39 @@ impl ProofCompressed {
     /// components: the P256 rail keeps its BSB22 commitment, the eddsa rail omits
     /// it (no padding). The program decompresses these points at verification time.
     pub fn to_transact_proof(self) -> TransactProof {
-        match self.commitment {
-            Some(commitment) => TransactProof::P256 {
-                a: self.a,
-                b: self.b,
-                c: self.c,
-                commitment: commitment.commitment,
-                commitment_pok: commitment.commitment_pok,
-            },
-            None => TransactProof::Eddsa {
+        match self.to_p256_proof() {
+            Ok(proof) => TransactProof::P256(proof),
+            Err(_) => TransactProof::Eddsa {
                 a: self.a,
                 b: self.b,
                 c: self.c,
             },
         }
+    }
+
+    /// The P256-rail five-tuple ([`P256Proof`]), shared by `transact`'s P256
+    /// variant and `merge_transact` instruction data. Rejected if the proof
+    /// carries no BSB22 commitment (eddsa rail).
+    pub fn to_p256_proof(&self) -> Result<P256Proof, ClientError> {
+        let commitment = self.commitment.ok_or_else(|| {
+            ClientError::ProofParse(
+                "P256-rail proof is missing its BSB22 commitment (wrong rail?)".to_string(),
+            )
+        })?;
+        Ok(P256Proof {
+            a: self.a,
+            b: self.b,
+            c: self.c,
+            commitment: commitment.commitment,
+            commitment_pok: commitment.commitment_pok,
+        })
+    }
+
+    /// The `merge_transact` proof. The merge circuit is the P256 BSB22 rail, so
+    /// this is exactly [`Self::to_p256_proof`]: mandatory commitment, and a proof
+    /// without one is not a valid merge proof.
+    pub fn to_merge_proof(&self) -> Result<P256Proof, ClientError> {
+        self.to_p256_proof()
     }
 }
 
@@ -166,4 +185,57 @@ pub(crate) fn proof_from_gnark_json(json_str: &str) -> Option<Proof> {
         c,
         commitment,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proof_with_commitment() -> ProofCompressed {
+        ProofCompressed {
+            a: [1u8; 32],
+            b: [2u8; 64],
+            c: [3u8; 32],
+            commitment: Some(CompressedCommitments {
+                commitment: [4u8; 32],
+                commitment_pok: [5u8; 32],
+            }),
+        }
+    }
+
+    #[test]
+    fn to_merge_proof_maps_points_and_commitment() {
+        let proof = proof_with_commitment()
+            .to_merge_proof()
+            .expect("merge proof maps");
+
+        assert_eq!(proof.a, [1u8; 32]);
+        assert_eq!(proof.b, [2u8; 64]);
+        assert_eq!(proof.c, [3u8; 32]);
+        assert_eq!(proof.commitment, [4u8; 32]);
+        assert_eq!(proof.commitment_pok, [5u8; 32]);
+    }
+
+    /// The transact P256 variant and the merge proof must be the same
+    /// five-tuple: one packing definition serves both instruction formats.
+    #[test]
+    fn transact_p256_and_merge_proof_are_the_same_tuple() {
+        let compressed = proof_with_commitment();
+        let merge = compressed.to_merge_proof().expect("merge proof maps");
+        assert_eq!(compressed.to_transact_proof(), TransactProof::P256(merge));
+    }
+
+    #[test]
+    fn to_merge_proof_rejects_a_proof_without_a_commitment() {
+        let vanilla = ProofCompressed {
+            commitment: None,
+            ..proof_with_commitment()
+        };
+
+        let error = vanilla
+            .to_merge_proof()
+            .expect_err("a vanilla proof is not a merge proof");
+
+        assert!(matches!(error, ClientError::ProofParse(_)));
+    }
 }

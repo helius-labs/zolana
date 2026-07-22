@@ -3,15 +3,23 @@ use std::collections::BTreeSet;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
-    pda, SPL_TOKEN_PROGRAM_ID,
+    pda,
+    shape::Shape,
+    SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, SignatureType};
+use zolana_keypair::{
+    shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair, SignatureType,
+};
 use zolana_transaction::{
     instructions::{
-        transact::{ConfidentialTransfer, PreparedTransfer, SppProofInputs, WithdrawalTarget},
+        merge::{Merge, PreparedMerge, MERGE_INPUTS},
+        transact::{
+            ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
+            SppProofInputs, WithdrawalTarget,
+        },
         types::SppProofInputUtxo,
     },
-    Address, AssetRegistry, Utxo, Wallet, SOL_MINT,
+    Address, AssetRegistry, TransactionError, Utxo, Wallet, WalletUtxo, SOL_MINT,
 };
 
 use solana_signer::Signer;
@@ -121,6 +129,11 @@ enum PrivateTransactionAction {
         amount: u64,
         target: WithdrawalTarget,
     },
+    Split {
+        asset: Address,
+        num_outputs: u8,
+        per_output_amount: u64,
+    },
 }
 
 pub struct TransferParams<'a, R> {
@@ -158,7 +171,7 @@ fn create_transfer_with_recipient<R>(
     request: TransferParams<'_, R>,
     recipient: Option<ResolvedAddress>,
 ) -> Result<CreatedTransfer, ClientError> {
-    let tree = resolve_spend_tree(request.wallet, request.asset)?;
+    let tree = resolve_spend_tree(request.wallet, request.asset, |_| true)?;
     let Some(recipient) = recipient else {
         let withdrawal = create_withdrawal(WithdrawalParams {
             wallet: request.wallet,
@@ -197,7 +210,7 @@ fn create_transfer_with_recipient<R>(
 }
 
 pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdrawal, ClientError> {
-    let tree = resolve_spend_tree(request.wallet, request.asset)?;
+    let tree = resolve_spend_tree(request.wallet, request.asset, |_| true)?;
     let inputs = select_inputs(request.wallet, tree, request.asset, request.amount)?;
     let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
     Ok(CreatedWithdrawal {
@@ -218,6 +231,326 @@ pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdra
         },
         withdrawal,
     })
+}
+
+#[derive(Clone)]
+pub struct CreatedSplit {
+    pub transaction: UnsignedPrivateTransaction,
+    pub num_outputs: u8,
+    pub per_output_amount: u64,
+}
+
+pub struct SplitParams<'a> {
+    pub wallet: &'a Wallet,
+    pub payer: Address,
+    pub asset: Address,
+    pub parts: u8,
+    pub input: Option<[u8; 32]>,
+}
+
+/// Build a 1-input -> N-output self-split: spend one plain utxo and re-mint it
+/// as `parts` equal self-owned utxos. The input utxo is chosen by explicit
+/// commitment hash or, when omitted, as the largest unspent plain utxo of the
+/// asset on the single spend tree. The utxo must be plain (no zone binding, no
+/// attached data) and its amount evenly divisible into `parts`.
+pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientError> {
+    // A split re-mints into 2..=8 equal utxos. Reject an out-of-range arity up
+    // front so a direct SDK caller gets a clear error before utxo selection;
+    // `ConfidentialSplit::new` re-checks the same bound at sign time.
+    let max_parts = Shape::IN1_OUT8.n_outputs() as u8;
+    if !(2..=max_parts).contains(&request.parts) {
+        return Err(TransactionError::SplitInvalidPartCount {
+            num_outputs: request.parts,
+        }
+        .into());
+    }
+    let tree = match request.input {
+        Some(hash) => named_input_tree(request.wallet, request.asset, hash)?,
+        None => resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?,
+    };
+
+    let (input, per_output_amount) = select_split_utxo(
+        request.wallet,
+        tree,
+        request.asset,
+        request.parts,
+        request.input,
+    )?;
+    let num_outputs = request.parts;
+    Ok(CreatedSplit {
+        transaction: UnsignedPrivateTransaction {
+            payer: request.payer,
+            tree,
+            inputs: vec![input],
+            action: PrivateTransactionAction::Split {
+                asset: request.asset,
+                num_outputs,
+                per_output_amount,
+            },
+            withdrawal: None,
+            approval_summary: format!(
+                "private transaction split into {num_outputs} utxos of {per_output_amount}"
+            ),
+        },
+        num_outputs,
+        per_output_amount,
+    })
+}
+
+/// Select and validate the single input utxo a split spends, returning it with
+/// the per-output amount. Rejects utxos carrying zone bindings or data, and
+/// amounts that do not divide evenly into `parts`.
+fn select_split_utxo(
+    wallet: &Wallet,
+    tree: Address,
+    asset: Address,
+    parts: u8,
+    input: Option<[u8; 32]>,
+) -> Result<(UnsignedSpendInput, u64), ClientError> {
+    let parts_u64 = u64::from(parts);
+    let candidate = match input {
+        Some(hash) => {
+            let entry = wallet
+                .utxos
+                .iter()
+                .find(|entry| {
+                    !entry.spent && entry.utxo.asset == asset && entry.output_context.hash == hash
+                })
+                .ok_or(ClientError::InputUtxoUnavailable { hash })?;
+            // The utxo exists but lives on another tree: report the mismatch
+            // rather than "unavailable", which the owner can see is untrue in
+            // their own `wallet utxos` listing.
+            if entry.output_context.tree != tree {
+                return Err(ClientError::InputUtxoTreeMismatch {
+                    hash,
+                    utxo_tree: entry.output_context.tree,
+                    spend_tree: tree,
+                });
+            }
+            entry
+        }
+        None => {
+            // Auto-select the largest plain utxo that divides evenly into
+            // `parts`. Track the largest plain candidate separately so a wallet
+            // whose plain utxos exist but none divide reports the divisibility
+            // problem, not a misleading "no balance".
+            let mut largest_plain: Option<&WalletUtxo> = None;
+            let mut largest_divisible: Option<&WalletUtxo> = None;
+            for entry in wallet.utxos.iter().filter(|entry| {
+                !entry.spent
+                    && entry.utxo.asset == asset
+                    && entry.output_context.tree == tree
+                    // Apply the full eligibility predicate before picking the
+                    // largest, so a large zone-bound or data-carrying utxo never
+                    // shadows a smaller plain candidate that could actually split.
+                    && is_plain_utxo(entry)
+            }) {
+                if largest_plain.is_none_or(|best| entry.utxo.amount > best.utxo.amount) {
+                    largest_plain = Some(entry);
+                }
+                if parts_u64 != 0
+                    && entry.utxo.amount % parts_u64 == 0
+                    && largest_divisible.is_none_or(|best| entry.utxo.amount > best.utxo.amount)
+                {
+                    largest_divisible = Some(entry);
+                }
+            }
+            match (largest_divisible, largest_plain) {
+                (Some(entry), _) => entry,
+                (None, Some(entry)) => {
+                    return Err(ClientError::SplitNotDivisible {
+                        amount: entry.utxo.amount,
+                        parts,
+                    })
+                }
+                (None, None) => {
+                    return Err(ClientError::InsufficientBalance {
+                        requested: 1,
+                        available: 0,
+                    })
+                }
+            }
+        }
+    };
+
+    let hash = candidate.output_context.hash;
+    if candidate.utxo.zone_program_id.is_some() {
+        return Err(ClientError::SplitInputZoneMismatch { hash });
+    }
+    if !is_plain_utxo(candidate) {
+        return Err(ClientError::SplitInputHasData { hash });
+    }
+
+    let amount = candidate.utxo.amount;
+    if parts == 0 || amount % parts_u64 != 0 {
+        return Err(ClientError::SplitNotDivisible { amount, parts });
+    }
+
+    Ok((
+        UnsignedSpendInput {
+            utxo: candidate.utxo.clone(),
+            utxo_hash: hash,
+            nullifier: candidate.nullifier,
+            data_hash: candidate.data_hash,
+            zone_data_hash: candidate.zone_data_hash,
+        },
+        amount / parts_u64,
+    ))
+}
+
+/// A prepared merge plus what a caller needs to report the outcome: how many real
+/// utxos are consolidated, their summed amount, and the single spend tree the
+/// merge binds.
+pub struct CreatedMerge {
+    pub prepared: PreparedMerge,
+    pub num_inputs: usize,
+    pub merged_amount: u64,
+    pub tree: Address,
+}
+
+pub struct MergeParams<'a> {
+    pub wallet: &'a Wallet,
+    pub keypair: &'a ShieldedKeypair,
+    pub asset: Address,
+    /// Explicit input utxo commitment hashes, or `None` to auto-sweep the wallet's
+    /// smallest plain utxos of `asset`.
+    pub inputs: Option<Vec<[u8; 32]>>,
+}
+
+/// Build an up-to-8-in/1-out consolidation of same-owner, same-asset plain utxos
+/// on one spend tree. Unlike a transfer, merge proves ownership in-circuit from
+/// the keypair's nullifier secret and encrypts the single output to the owner's
+/// viewing key, so it does not build an [`UnsignedPrivateTransaction`] or take an
+/// authority signing step; the keypair is threaded straight to submission.
+pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientError> {
+    // Explicitly named inputs bind the spend to the first named utxo's tree
+    // (the rest must match it), so `Merge::new` can report precise per-input
+    // reasons; auto-sweep resolves the tree over the eligible (plain) utxos.
+    let tree = match request.inputs.as_ref().and_then(|hashes| hashes.first()) {
+        Some(&hash) => named_input_tree(request.wallet, request.asset, hash)?,
+        None => resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?,
+    };
+    let inputs = select_merge_inputs(
+        request.wallet,
+        tree,
+        request.asset,
+        request.keypair,
+        request.inputs,
+    )?;
+    let num_inputs = inputs.len();
+    // `Merge::new` re-validates every input against the keypair (owner, nullifier
+    // key, rail, asset), rejects zone-bound or data-carrying utxos, and sums the
+    // inputs into the single output amount (same overflow error).
+    let prepared = Merge::new(request.keypair, inputs)?.prepare();
+    Ok(CreatedMerge {
+        merged_amount: prepared.output.amount,
+        prepared,
+        num_inputs,
+        tree,
+    })
+}
+
+/// Whether a wallet utxo is plain: no zone binding and no attached data. Only
+/// plain utxos are mergeable or splittable; building a spend input drops the
+/// utxo's committed data hashes, which would desync the commitment from the tree
+/// otherwise. Option semantics: a `Some(_)` hash counts as data regardless of the
+/// hash value. Public so the CLI's `utxos` listing classifies `kind` with the
+/// exact predicate split/merge enforce, and the two cannot drift.
+pub fn is_plain_utxo(entry: &WalletUtxo) -> bool {
+    entry.utxo.zone_program_id.is_none()
+        && entry.zone_data_hash.is_none()
+        && entry.data_hash.is_none()
+        && entry.utxo.data.is_empty()
+}
+
+/// Build the spend input for a wallet utxo, preserving any committed data hashes
+/// so `Merge::new` can reject a non-plain utxo by hash rather than silently
+/// mismatching the tree commitment.
+fn merge_spend_input(entry: &WalletUtxo, keypair: &ShieldedKeypair) -> SppProofInputUtxo {
+    let mut spend = SppProofInputUtxo::new(entry.utxo.clone(), keypair);
+    if let Some(data_hash) = entry.data_hash {
+        spend = spend.with_data_hash(data_hash);
+    }
+    if let Some(zone_data_hash) = entry.zone_data_hash {
+        spend = spend.with_zone_data_hash(zone_data_hash);
+    }
+    spend
+}
+
+/// Select the utxos a merge consolidates on `tree`. `None` auto-sweeps up to
+/// [`MERGE_INPUTS`] of the smallest plain utxos of `asset` (ascending, dust
+/// first). `Some(hashes)` takes exactly the named utxos: 2..=8 distinct, unspent
+/// utxos of `asset` on `tree`; a non-plain named utxo is left for `Merge::new` to
+/// reject with a precise reason.
+fn select_merge_inputs(
+    wallet: &Wallet,
+    tree: Address,
+    asset: Address,
+    keypair: &ShieldedKeypair,
+    inputs: Option<Vec<[u8; 32]>>,
+) -> Result<Vec<SppProofInputUtxo>, ClientError> {
+    match inputs {
+        None => {
+            let mut candidates: Vec<&WalletUtxo> = wallet
+                .utxos
+                .iter()
+                .filter(|entry| {
+                    !entry.spent
+                        && entry.utxo.asset == asset
+                        && entry.output_context.tree == tree
+                        && is_plain_utxo(entry)
+                })
+                .collect();
+            // Smallest first: a sweep clears dust and leaves large utxos intact.
+            candidates.sort_by_key(|entry| entry.utxo.amount);
+            candidates.truncate(MERGE_INPUTS);
+            if candidates.len() < 2 {
+                return Err(ClientError::NothingToMerge { asset });
+            }
+            Ok(candidates
+                .into_iter()
+                .map(|entry| merge_spend_input(entry, keypair))
+                .collect())
+        }
+        Some(hashes) => {
+            if hashes.len() > MERGE_INPUTS {
+                return Err(ClientError::TooManyInputs {
+                    got: hashes.len(),
+                    max: MERGE_INPUTS,
+                });
+            }
+            if hashes.len() < 2 {
+                return Err(ClientError::NothingToMerge { asset });
+            }
+            let mut seen = BTreeSet::new();
+            let mut selected = Vec::with_capacity(hashes.len());
+            for hash in hashes {
+                if !seen.insert(hash) {
+                    return Err(ClientError::DuplicateInputUtxo { hash });
+                }
+                let entry = wallet
+                    .utxos
+                    .iter()
+                    .find(|entry| {
+                        !entry.spent
+                            && entry.utxo.asset == asset
+                            && entry.output_context.hash == hash
+                    })
+                    .ok_or(ClientError::InputUtxoUnavailable { hash })?;
+                // Distinguish a wrong-tree utxo from an unknown one; the owner
+                // can see the hash in their own `wallet utxos` listing.
+                if entry.output_context.tree != tree {
+                    return Err(ClientError::InputUtxoTreeMismatch {
+                        hash,
+                        utxo_tree: entry.output_context.tree,
+                        spend_tree: tree,
+                    });
+                }
+                selected.push(merge_spend_input(entry, keypair));
+            }
+            Ok(selected)
+        }
+    }
 }
 
 pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
@@ -300,32 +633,66 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
             zone_data_hash: input.zone_data_hash,
         })
         .collect();
-    let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
-    match transaction.action {
+    let signed = match transaction.action {
         PrivateTransactionAction::Transfer {
             recipient,
             asset,
             amount,
         } => {
+            let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
             tx.send(&recipient, asset, amount)?;
+            let prepared = tx.prepare()?;
+            sign_prepared(
+                prepared,
+                &address,
+                authority,
+                &wallet.registry,
+                transaction.approval_summary,
+            )
+            .await?
         }
         PrivateTransactionAction::Withdrawal {
             asset,
             amount,
             target,
         } => {
+            let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
             tx.withdraw(asset, amount, target)?;
+            let prepared = tx.prepare()?;
+            sign_prepared(
+                prepared,
+                &address,
+                authority,
+                &wallet.registry,
+                transaction.approval_summary,
+            )
+            .await?
         }
-    }
-    let prepared = tx.prepare()?;
-    let signed = sign_prepared(
-        prepared,
-        &address,
-        authority,
-        &wallet.registry,
-        transaction.approval_summary,
-    )
-    .await?;
+        PrivateTransactionAction::Split {
+            asset,
+            num_outputs,
+            per_output_amount,
+        } => {
+            let input = inputs.into_iter().next().ok_or(ClientError::NoInputs)?;
+            let split = ConfidentialSplit::new(
+                address,
+                input,
+                asset,
+                num_outputs,
+                per_output_amount,
+                transaction.payer,
+            )?;
+            let prepared = split.prepare()?;
+            sign_prepared_split(
+                prepared,
+                &address,
+                authority,
+                &wallet.registry,
+                transaction.approval_summary,
+            )
+            .await?
+        }
+    };
     Ok(SignedPrivateTransaction {
         transaction: signed,
         withdrawal: transaction.withdrawal,
@@ -359,7 +726,43 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
         })
         .await?;
     let mut proof_inputs =
-        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.slots)?;
+        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
+    apply_p256_signature(&mut proof_inputs, address, authority).await?;
+    Ok(proof_inputs)
+}
+
+async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
+    prepared: PreparedSplit,
+    address: &ShieldedAddress,
+    authority: &A,
+    assets: &AssetRegistry,
+    approval_summary: String,
+) -> Result<SppProofInputs, ClientError> {
+    let bundle = prepared.bundle_plaintext(assets)?;
+    let view_tag = prepared.owner_view_tag()?;
+    let encrypted = authority
+        .encrypt_split(&prepared.first_nullifier, view_tag, &bundle)
+        .await?;
+    authority
+        .request_user_approval(ApprovalRequest {
+            solana_pubkey: authority.solana_pubkey(),
+            summary: approval_summary,
+        })
+        .await?;
+    let mut proof_inputs =
+        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
+    apply_p256_signature(&mut proof_inputs, address, authority).await?;
+    Ok(proof_inputs)
+}
+
+/// P256-rail signing tail shared by [`sign_prepared`] and [`sign_prepared_split`]:
+/// when the owner's rail is P256, sign the proof inputs' message hash and pack the
+/// r/s signature into the fixed 64-byte field. A no-op for the Solana rail.
+async fn apply_p256_signature<A: WalletAuthority + ?Sized>(
+    proof_inputs: &mut SppProofInputs,
+    address: &ShieldedAddress,
+    authority: &A,
+) -> Result<(), ClientError> {
     if address.signing_pubkey.signature_type()? == SignatureType::P256 {
         let message_hash = proof_inputs.message_hash()?;
         let sig = authority.sign_p256(&message_hash).await?;
@@ -368,7 +771,7 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
         bytes[32..].copy_from_slice(&sig.sig_s);
         proof_inputs.p256_signature = Some(bytes);
     }
-    Ok(proof_inputs)
+    Ok(())
 }
 
 fn withdrawal_target(
@@ -402,11 +805,37 @@ fn withdrawal_target(
     ))
 }
 
-fn resolve_spend_tree(wallet: &Wallet, asset: Address) -> Result<Address, ClientError> {
+/// The tree an explicitly named input binds the spend to: the named utxo's own
+/// tree. Explicit selection needs no eligibility scan; the downstream per-input
+/// checks report precise reasons for ineligible utxos.
+fn named_input_tree(
+    wallet: &Wallet,
+    asset: Address,
+    hash: [u8; 32],
+) -> Result<Address, ClientError> {
+    wallet
+        .utxos
+        .iter()
+        .find(|entry| {
+            !entry.spent && entry.utxo.asset == asset && entry.output_context.hash == hash
+        })
+        .map(|entry| entry.output_context.tree)
+        .ok_or(ClientError::InputUtxoUnavailable { hash })
+}
+
+/// Resolve the single tree a spend of `asset` binds, considering only the utxos
+/// `eligible` accepts. Transfers and withdrawals can spend any utxo; split and
+/// merge only plain ones, so an ineligible zone-bound or data-carrying utxo
+/// sitting on another tree must not make their spend tree ambiguous.
+fn resolve_spend_tree(
+    wallet: &Wallet,
+    asset: Address,
+    eligible: impl Fn(&WalletUtxo) -> bool,
+) -> Result<Address, ClientError> {
     let trees: BTreeSet<Address> = wallet
         .utxos
         .iter()
-        .filter(|entry| !entry.spent && entry.utxo.asset == asset)
+        .filter(|entry| !entry.spent && entry.utxo.asset == asset && eligible(entry))
         .map(|entry| entry.output_context.tree)
         .collect();
 
@@ -479,7 +908,7 @@ mod tests {
     use borsh::to_vec;
     use solana_account::Account;
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{Data, Utxo, WalletUtxo};
+    use zolana_transaction::{Data, DataRecord, Utxo, WalletUtxo};
     use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
     use super::*;
@@ -830,7 +1259,7 @@ mod tests {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_sol(sender, 10);
 
-        let tree = resolve_spend_tree(&wallet, SOL_MINT).expect("infer tree");
+        let tree = resolve_spend_tree(&wallet, SOL_MINT, |_| true).expect("infer tree");
 
         assert_eq!(tree, Address::default());
     }
@@ -844,7 +1273,7 @@ mod tests {
         second.output_context.tree = second_tree;
         wallet.utxos.push(second);
 
-        let error = match resolve_spend_tree(&wallet, SOL_MINT) {
+        let error = match resolve_spend_tree(&wallet, SOL_MINT, |_| true) {
             Err(error) => error,
             Ok(_) => panic!("expected ambiguous tree error"),
         };
@@ -873,5 +1302,476 @@ mod tests {
         .expect("withdrawal");
 
         assert_eq!(created.transaction.tree(), Address::default());
+    }
+
+    #[test]
+    fn create_split_accepts_plain_divisible_utxo() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_sol(sender, 800);
+
+        let created = create_split(SplitParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            asset: SOL_MINT,
+            parts: 8,
+            input: None,
+        })
+        .expect("split");
+
+        assert_eq!(created.num_outputs, 8);
+        assert_eq!(created.per_output_amount, 100);
+        assert_eq!(created.transaction.input_count(), 1);
+    }
+
+    #[test]
+    fn create_split_rejects_indivisible_amount() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_sol(sender, 10);
+
+        let error = match create_split(SplitParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            asset: SOL_MINT,
+            parts: 3,
+            input: None,
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("an indivisible amount must be rejected"),
+        };
+
+        assert!(matches!(
+            error,
+            ClientError::SplitNotDivisible {
+                amount: 10,
+                parts: 3
+            }
+        ));
+    }
+
+    #[test]
+    fn create_split_rejects_named_utxo_carrying_data() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let mut wallet = wallet_with_sol(sender, 800);
+        let hash = wallet
+            .utxos
+            .first()
+            .expect("seeded utxo")
+            .output_context
+            .hash;
+        if let Some(entry) = wallet.utxos.first_mut() {
+            entry.utxo.data = Data::new(vec![DataRecord::Memo(b"utxo".to_vec())]);
+        }
+
+        // An explicitly named non-plain utxo must error rather than silently
+        // fall back; only auto-selection skips ineligible utxos.
+        let error = match create_split(SplitParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            asset: SOL_MINT,
+            parts: 8,
+            input: Some(hash),
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("a utxo carrying data must be rejected"),
+        };
+
+        assert!(matches!(error, ClientError::SplitInputHasData { .. }));
+    }
+
+    #[test]
+    fn create_split_rejects_named_zone_bound_utxo() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let mut wallet = wallet_with_sol(sender, 800);
+        let hash = wallet
+            .utxos
+            .first()
+            .expect("seeded utxo")
+            .output_context
+            .hash;
+        if let Some(entry) = wallet.utxos.first_mut() {
+            entry.utxo.zone_program_id = Some(Address::new_from_array([3u8; 32]));
+        }
+
+        let error = match create_split(SplitParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            asset: SOL_MINT,
+            parts: 8,
+            input: Some(hash),
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("a zone-bound utxo must be rejected"),
+        };
+
+        assert!(matches!(error, ClientError::SplitInputZoneMismatch { .. }));
+    }
+
+    #[test]
+    fn create_split_auto_select_skips_a_larger_ineligible_utxo() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&sender);
+        // A larger data-carrying utxo must not shadow the smaller plain candidate.
+        push_utxo(&mut wallet, &sender, 1600, [1u8; 31]);
+        if let Some(entry) = wallet.utxos.last_mut() {
+            entry.data_hash = Some([7u8; 32]);
+        }
+        push_utxo(&mut wallet, &sender, 800, [2u8; 31]);
+
+        let created = create_split(SplitParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            asset: SOL_MINT,
+            parts: 8,
+            input: None,
+        })
+        .expect("auto-select falls back to the plain utxo");
+
+        // 800 / 8, proving the larger 1600 data-carrying utxo was skipped.
+        assert_eq!(created.per_output_amount, 100);
+    }
+
+    fn sol_wallet(keypair: &ShieldedKeypair) -> Wallet {
+        Wallet::new(
+            keypair.shielded_address().expect("shielded address"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet")
+    }
+
+    /// Push a plain SOL utxo of `amount` (distinct `blinding` keeps commitments
+    /// unique) and return its commitment hash.
+    fn push_utxo(
+        wallet: &mut Wallet,
+        keypair: &ShieldedKeypair,
+        amount: u64,
+        blinding: [u8; 31],
+    ) -> [u8; 32] {
+        let utxo = Utxo {
+            owner: keypair.signing_pubkey(),
+            asset: SOL_MINT,
+            amount,
+            blinding,
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
+        let hash = utxo
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+            .expect("utxo hash");
+        let nullifier = utxo
+            .nullifier(&hash, &keypair.nullifier_key)
+            .expect("nullifier");
+        wallet.utxos.push(WalletUtxo {
+            utxo,
+            output_context: zolana_transaction::instructions::transact::types::OutputContext {
+                hash,
+                tree: Address::default(),
+                leaf_index: 0,
+            },
+            nullifier,
+            data_hash: None,
+            zone_data_hash: None,
+            spent: false,
+        });
+        hash
+    }
+
+    fn amounts(selected: &[SppProofInputUtxo]) -> Vec<u64> {
+        selected.iter().map(|spend| spend.utxo.amount).collect()
+    }
+
+    #[test]
+    fn merge_auto_sweep_selects_smallest_plain_utxos_ascending() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for (index, amount) in [50u64, 10, 30].into_iter().enumerate() {
+            push_utxo(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);
+        }
+
+        let selected =
+            select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
+
+        assert_eq!(amounts(&selected), vec![10, 30, 50]);
+    }
+
+    #[test]
+    fn merge_auto_sweep_caps_at_shape_keeping_the_smallest_utxos() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for step in 1..=9u64 {
+            push_utxo(&mut wallet, &keypair, step * 10, [step as u8; 31]);
+        }
+
+        let selected =
+            select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
+
+        assert_eq!(selected.len(), MERGE_INPUTS);
+        assert_eq!(amounts(&selected), vec![10, 20, 30, 40, 50, 60, 70, 80]);
+    }
+
+    #[test]
+    fn merge_auto_sweep_skips_zone_and_data_utxos() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
+        // A zone-bound utxo and a data-carrying utxo must not be swept.
+        push_utxo(&mut wallet, &keypair, 30, [3u8; 31]);
+        if let Some(entry) = wallet.utxos.last_mut() {
+            entry.utxo.zone_program_id = Some(Address::new_from_array([9u8; 32]));
+        }
+        push_utxo(&mut wallet, &keypair, 40, [4u8; 31]);
+        if let Some(entry) = wallet.utxos.last_mut() {
+            entry.data_hash = Some([7u8; 32]);
+        }
+
+        let selected =
+            select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
+
+        assert_eq!(amounts(&selected), vec![10, 20]);
+    }
+
+    #[test]
+    fn merge_auto_sweep_needs_at_least_two_utxos() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+
+        let error = match select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None)
+        {
+            Err(error) => error,
+            Ok(_) => panic!("a single utxo cannot be merged"),
+        };
+
+        assert!(matches!(error, ClientError::NothingToMerge { asset } if asset == SOL_MINT));
+    }
+
+    #[test]
+    fn merge_explicit_selection_takes_exactly_the_named_utxos() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let b = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
+        push_utxo(&mut wallet, &keypair, 30, [3u8; 31]);
+
+        let selected = select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(vec![a, b]),
+        )
+        .unwrap();
+
+        assert_eq!(amounts(&selected), vec![10, 20]);
+    }
+
+    #[test]
+    fn merge_explicit_selection_rejects_duplicate_utxos() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+
+        let error = match select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(vec![a, a]),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("a repeated utxo must be rejected"),
+        };
+
+        assert!(matches!(error, ClientError::DuplicateInputUtxo { hash } if hash == a));
+    }
+
+    #[test]
+    fn merge_explicit_selection_rejects_more_than_the_shape() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let wallet = sol_wallet(&keypair);
+        let hashes: Vec<[u8; 32]> = (0..9u8).map(|i| [i; 32]).collect();
+
+        let error = match select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(hashes),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("more than 8 inputs must be rejected"),
+        };
+
+        assert!(matches!(
+            error,
+            ClientError::TooManyInputs {
+                got: 9,
+                max: MERGE_INPUTS
+            }
+        ));
+    }
+
+    #[test]
+    fn merge_explicit_selection_needs_at_least_two_utxos() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+
+        let error = match select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(vec![a]),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("a single named utxo cannot be merged"),
+        };
+
+        assert!(matches!(error, ClientError::NothingToMerge { asset } if asset == SOL_MINT));
+    }
+
+    #[test]
+    fn merge_explicit_selection_rejects_an_unknown_utxo() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let missing = [0xabu8; 32];
+
+        let error = match select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(vec![a, missing]),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("an unknown utxo must be rejected"),
+        };
+
+        assert!(matches!(error, ClientError::InputUtxoUnavailable { hash } if hash == missing));
+    }
+
+    /// A named utxo that exists but lives on another tree is reported as a tree
+    /// mismatch (with both trees), not as "unavailable" -- the owner can see the
+    /// hash in their own `wallet utxos` listing.
+    #[test]
+    fn merge_explicit_selection_reports_a_wrong_tree_utxo() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let b = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
+        let other_tree = Address::new_from_array([9u8; 32]);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == b)
+            .expect("pushed utxo")
+            .output_context
+            .tree = other_tree;
+
+        let error = match select_merge_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            &keypair,
+            Some(vec![a, b]),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("a wrong-tree utxo must be rejected"),
+        };
+
+        assert!(matches!(
+            error,
+            ClientError::InputUtxoTreeMismatch { hash, utxo_tree, spend_tree }
+                if hash == b && utxo_tree == other_tree && spend_tree == Address::default()
+        ));
+    }
+
+    /// Auto-select must pick the largest utxo that actually divides into
+    /// `parts`, not the largest overall: an indivisible larger utxo must not
+    /// shadow a smaller splittable one.
+    #[test]
+    fn split_auto_select_skips_an_indivisible_larger_utxo() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 1001, [1u8; 31]);
+        let divisible = push_utxo(&mut wallet, &keypair, 800, [2u8; 31]);
+
+        let (input, per_output) = select_split_utxo(&wallet, Address::default(), SOL_MINT, 2, None)
+            .expect("select the divisible utxo");
+
+        assert_eq!(input.utxo_hash, divisible);
+        assert_eq!(per_output, 400);
+    }
+
+    /// When plain utxos exist but none divide into `parts`, the error names the
+    /// divisibility problem (on the largest candidate) rather than claiming an
+    /// empty balance.
+    #[test]
+    fn split_auto_select_reports_indivisible_when_no_candidate_divides() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 1000, [1u8; 31]);
+
+        let error = match select_split_utxo(&wallet, Address::default(), SOL_MINT, 3, None) {
+            Err(error) => error,
+            Ok(_) => panic!("an indivisible balance must be rejected"),
+        };
+
+        assert!(matches!(
+            error,
+            ClientError::SplitNotDivisible {
+                amount: 1000,
+                parts: 3
+            }
+        ));
+    }
+
+    /// An ineligible (zone-bound or data-carrying) utxo on a second tree must not
+    /// make the split/merge spend tree ambiguous: eligibility filters tree
+    /// resolution.
+    #[test]
+    fn resolve_spend_tree_ignores_ineligible_utxos_on_other_trees() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let zone_bound = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
+        let entry = wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == zone_bound)
+            .expect("pushed utxo");
+        entry.output_context.tree = Address::new_from_array([9u8; 32]);
+        entry.utxo.zone_program_id = Some(Address::new_from_array([7u8; 32]));
+
+        let tree = resolve_spend_tree(&wallet, SOL_MINT, is_plain_utxo)
+            .expect("the zone utxo on another tree must not block a plain spend");
+
+        assert_eq!(tree, Address::default());
+    }
+
+    #[test]
+    fn create_merge_auto_sweep_reports_count_amount_and_tree() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for (index, amount) in [10u64, 20, 30].into_iter().enumerate() {
+            push_utxo(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);
+        }
+
+        let created = create_merge(MergeParams {
+            wallet: &wallet,
+            keypair: &keypair,
+            asset: SOL_MINT,
+            inputs: None,
+        })
+        .expect("merge");
+
+        assert_eq!(created.num_inputs, 3);
+        assert_eq!(created.merged_amount, 60);
+        assert_eq!(created.tree, Address::default());
+        assert_eq!(created.prepared.inputs.len(), MERGE_INPUTS);
+        assert_eq!(created.prepared.output.amount, 60);
     }
 }

@@ -26,7 +26,7 @@ use zolana_client::{
     prover::merge_zone::MergeZoneProver, ProverClient, SpendProof, TransferSpendInput,
 };
 use zolana_interface::instruction::{
-    instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeZone,
+    instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeZone, P256Proof,
 };
 use zolana_keypair::random_blinding;
 use zolana_test_utils::test_validator_asserts::{
@@ -74,7 +74,7 @@ impl ZoneLifecycleWorld {
         };
 
         // Per-input SpendProof, fetched exactly as the transfer path does. The
-        // proof's root indices flow through `MergeZoneProofResult` (real slots from
+        // proof's root indices flow through `MergeProofResult` (real slots from
         // the SpendProofs, dummy slots mirroring the first real input). The zone is
         // stamped on each real input by `MergeZoneProver::build`, so the
         // SpendProofs must be taken against the UTXO hash carrying that zone.
@@ -167,7 +167,7 @@ impl ZoneLifecycleWorld {
         // rejects it. Use the derived `merge_view_tag` (HKDF, 31 bytes) keyed by the
         // submitting payer as the merge authority; photon indexes the output under it.
         let merge_view_tag = keypair.get_merge_view_tag(0)?;
-        let data = result.instruction_data(pack_proof(&proof)?, merge_view_tag);
+        let data = result.zone_instruction_data(pack_proof(&proof)?, merge_view_tag);
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let payer = self.payer.insecure_clone();
@@ -344,9 +344,9 @@ impl ZoneLifecycleWorld {
 
         // Assemble the instruction data exactly as the happy path does (derived
         // merge_view_tag so the nullifier-queue insert is valid), then zero the
-        // 192-byte proof so verification is the only thing that fails.
+        // proof so verification is the only thing that fails.
         let merge_view_tag = keypair.get_merge_view_tag(0)?;
-        let data = result.instruction_data([0u8; 192], merge_view_tag);
+        let data = result.zone_instruction_data(P256Proof::zeroed(), merge_view_tag);
 
         let payer = self.payer.insecure_clone();
         let merge_ix = MergeZone {

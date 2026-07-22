@@ -1,3 +1,4 @@
+use rand::{rngs::OsRng, Rng, RngCore};
 use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
@@ -7,7 +8,8 @@ use zolana_keypair::{
     random_salt,
     shielded::ShieldedAddress,
     viewing_key::random_blinding,
-    P256Pubkey, PublicKey, ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
+    P256Pubkey, PublicKey, ShieldedKeypairTrait, SignatureType, SigningKey, ViewingKey,
+    ViewingKeyTrait,
 };
 
 use super::{
@@ -343,12 +345,24 @@ impl PreparedTransfer {
         let (sender_tag, sender_resolved) =
             sender_owner_tag(&owner.signing_pubkey, &payer_pubkey_hash)?;
 
-        // Each padded slot gets one random view tag, shared between its dummy
-        // output (folded into the proof's owner-tag chain) and its dummy
-        // ciphertext, so the dummy is indistinguishable from a real recipient.
+        // Each padded slot gets one throwaway-key view tag, shared between its
+        // dummy output (folded into the proof's owner-tag chain) and its dummy
+        // ciphertext. The tag's rail is sampled from this transaction's real
+        // recipients so a curve-membership test on the published tag cannot single
+        // out a dummy (see `dummy_view_tag` / `dummy_rail`). Real recipients occupy
+        // the slots past the two sender change positions.
+        let recipient_rails = outputs
+            .get(SENDER_SLOT_COUNT..)
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|output| output.owner_address.as_ref())
+            .map(|address| address.signing_pubkey.signature_type())
+            .collect::<Result<Vec<_>, _>>()?;
+        let sender_rail = owner.signing_pubkey.signature_type()?;
+
         let dummy_recipient_count = shape.n_outputs().saturating_sub(outputs.len());
         let dummy_tags = (0..dummy_recipient_count)
-            .map(|_| random_view_tag())
+            .map(|_| dummy_view_tag(dummy_rail(&recipient_rails, sender_rail)))
             .collect::<Result<Vec<_>, _>>()?;
         for tag in &dummy_tags {
             outputs.push(SppProofOutputUtxo {
@@ -458,25 +472,48 @@ fn sender_owner_tag(
     Ok((tag, resolved))
 }
 
-/// A view tag for a dummy output slot: the Poseidon hash of 31 random bytes. The
-/// result is a 32-byte field element, indistinguishable from a real owner-pubkey
-/// tag, so a dummy slot does not stand out and leak the recipient count. The 31
-/// random bytes are left-padded to a 32-byte big-endian field element (leading byte
-/// zero keeps it below the BN254 modulus).
-fn random_view_tag() -> Result<[u8; VIEW_TAG_LEN], TransactionError> {
-    let mut input = [0u8; 32];
-    input[1..].copy_from_slice(&random_blinding());
-    Ok(zolana_keypair::hash::poseidon(&[&input])?)
+/// A view tag for a padded (dummy) output slot: the `confidential_view_tag` of a
+/// fresh throwaway signing key on `rail`. This is the exact same derivation, and
+/// thus the exact same byte distribution, as a real recipient's tag on that rail,
+/// so a padded slot is indistinguishable from a real recipient and does not leak
+/// the recipient count.
+///
+/// Two properties matter, each defeated by a naive tag:
+/// - A Poseidon-derived tag is always a BN254 field element (`< r`, leading
+///   big-endian byte `<= 0x30`), whereas a real tag is a raw curve encoding whose
+///   leading byte reaches `0xFF`. An observer could flag every slot with a leading
+///   byte above `0x30` as provably real.
+/// - A fixed-rail tag (always a P256 x-coordinate) is a valid point on only one
+///   curve. An observer curve-testing the 32 bytes could flag the ~half of ed25519
+///   recipient tags that fail the P256 curve equation as provably real, since a
+///   P256 dummy never fails it. Sampling `rail` from the real recipients (see
+///   [`dummy_rail`]) keeps dummies in every curve-test bucket the reals occupy.
+fn dummy_view_tag(rail: SignatureType) -> Result<[u8; VIEW_TAG_LEN], TransactionError> {
+    let signing_key = match rail {
+        SignatureType::P256 => SigningKey::new(),
+        SignatureType::Ed25519 => SigningKey::new_ed25519(),
+    };
+    Ok(signing_key.pubkey().confidential_view_tag()?)
+}
+
+/// The rail for a padded slot's dummy tag: a random draw from this transaction's
+/// real recipient rails, so each dummy is distributed identically to a real
+/// recipient. With no real recipients (a change-only transfer) there is no
+/// distribution to match, so the dummy takes the sender's rail -- the only identity
+/// in play. Drawing a rail the recipients do not use would let an observer flag the
+/// off-distribution slots as dummies and recover the recipient count.
+fn dummy_rail(recipient_rails: &[SignatureType], sender_rail: SignatureType) -> SignatureType {
+    if recipient_rails.is_empty() {
+        return sender_rail;
+    }
+    let index = OsRng.gen_range(0..recipient_rails.len());
+    recipient_rails.get(index).copied().unwrap_or(sender_rail)
 }
 
 /// Random `len` bytes for a dummy output slot.
 fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
-    let mut data = Vec::with_capacity(len);
-    while data.len() < len {
-        let chunk = random_blinding();
-        let take = (len - data.len()).min(chunk.len());
-        data.extend_from_slice(&chunk[..take]);
-    }
+    let mut data = vec![0u8; len];
+    OsRng.fill_bytes(&mut data);
     data
 }
 
@@ -546,5 +583,75 @@ mod tests {
         let (tag, got_resolved) = sender_owner_tag(&pk, &[0u8; 32]).unwrap();
         assert_eq!(tag, OwnerTag::P256SigningKey);
         assert_eq!(got_resolved, resolved);
+    }
+
+    /// Regression guard for the recipient-count leak: on either rail a padded
+    /// slot's dummy tag must share the real recipient tag distribution -- a raw
+    /// curve encoding whose leading big-endian byte reaches `0xFF` -- and must NOT
+    /// be a Poseidon field element (always `< r`, so a leading byte `<= 0x30`). If
+    /// dummy tags were Poseidon-derived, every real recipient tag with a leading
+    /// byte above `0x30` (~81% of them) would be provably distinguishable from a
+    /// dummy, leaking a lower bound on the recipient count. `0x30` is the leading
+    /// byte of the BN254 scalar modulus. Over 128 samples an all-`<= 0x30` run is
+    /// astronomically unlikely (~0.19^128) for a raw curve encoding, so this fails
+    /// deterministically if the derivation regresses to Poseidon.
+    #[test]
+    fn dummy_view_tag_shares_recipient_distribution_not_poseidon_range() {
+        const BN254_R_LEADING_BYTE: u8 = 0x30;
+        for rail in [SignatureType::P256, SignatureType::Ed25519] {
+            let saw_above_modulus_range = (0..128).any(|_| {
+                let tag = dummy_view_tag(rail).expect("dummy tag is infallible");
+                tag.first().is_some_and(|&byte| byte > BN254_R_LEADING_BYTE)
+            });
+            assert!(
+                saw_above_modulus_range,
+                "{rail:?} dummy tags never exceeded the BN254 modulus range; they \
+                 look Poseidon-derived and are distinguishable from real recipient tags"
+            );
+        }
+    }
+
+    /// With no real recipients (a change-only transfer) the dummy rail falls back
+    /// to the sender's rail -- the only identity in the transaction.
+    #[test]
+    fn dummy_rail_falls_back_to_sender_without_recipients() {
+        assert_eq!(
+            dummy_rail(&[], SignatureType::Ed25519),
+            SignatureType::Ed25519
+        );
+        assert_eq!(dummy_rail(&[], SignatureType::P256), SignatureType::P256);
+    }
+
+    /// Mixed-rail recipients: dummy rails span the recipient distribution (both
+    /// rails appear) so no curve-test bucket is dummy-free.
+    #[test]
+    fn dummy_rail_spans_mixed_recipient_rails() {
+        let recipients = [SignatureType::P256, SignatureType::Ed25519];
+        let mut saw_p256 = false;
+        let mut saw_ed25519 = false;
+        for _ in 0..128 {
+            match dummy_rail(&recipients, SignatureType::P256) {
+                SignatureType::P256 => saw_p256 = true,
+                SignatureType::Ed25519 => saw_ed25519 = true,
+            }
+        }
+        assert!(
+            saw_p256 && saw_ed25519,
+            "dummy rails must cover every rail the real recipients use"
+        );
+    }
+
+    /// Single-rail recipients: dummies never adopt a rail the recipients do not
+    /// use, even when the sender is on the other rail. Otherwise the off-rail
+    /// dummies would be provably dummies and leak the recipient count.
+    #[test]
+    fn dummy_rail_never_leaves_a_single_recipient_rail() {
+        let recipients = [SignatureType::Ed25519, SignatureType::Ed25519];
+        for _ in 0..64 {
+            assert_eq!(
+                dummy_rail(&recipients, SignatureType::P256),
+                SignatureType::Ed25519
+            );
+        }
     }
 }

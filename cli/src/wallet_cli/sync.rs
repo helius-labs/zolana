@@ -1,9 +1,7 @@
-use std::{thread::sleep, time::SystemTime};
-
-use anyhow::{bail, Result};
+use anyhow::{Context, Result};
 use solana_signature::Signature;
-use zolana_client::{Rpc, ZolanaIndexer};
-use zolana_transaction::Wallet;
+use zolana_client::{IndexerPollConfig, Rpc, ZolanaIndexer};
+use zolana_transaction::{Address, Wallet};
 use zolana_wallet::sync_wallet as client_sync_wallet;
 
 use super::{
@@ -50,24 +48,48 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     })
 }
 
+/// The CLI's indexer poll schedule: [`INDEXER_POLL`] between attempts (constant,
+/// no backoff growth) for a total budget of [`INDEXER_TIMEOUT`].
+fn indexer_poll() -> IndexerPollConfig {
+    let delay_ms = INDEXER_POLL.as_millis() as u64;
+    let retries = (INDEXER_TIMEOUT.as_millis() / INDEXER_POLL.as_millis().max(1)) as u32;
+    IndexerPollConfig::new(retries, delay_ms, delay_ms)
+}
+
 pub(super) fn wait_for_indexed_utxo(
     indexer: &ZolanaIndexer,
     tag: [u8; 32],
     signature: Signature,
 ) -> Result<()> {
-    let started = SystemTime::now();
-    loop {
-        let response = indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50), None)?;
-        if response
-            .matches
-            .iter()
-            .any(|item| item.tx_signature == signature)
-        {
-            return Ok(());
-        }
-        if started.elapsed().unwrap_or_default() >= INDEXER_TIMEOUT {
-            bail!("timed out waiting for Photon to index {signature}");
-        }
-        sleep(INDEXER_POLL);
-    }
+    indexer_poll()
+        .poll_until(
+            || indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50), None),
+            |response| {
+                response
+                    .matches
+                    .iter()
+                    .any(|item| item.tx_signature == signature)
+            },
+        )
+        .with_context(|| format!("timed out waiting for Photon to index {signature}"))?;
+    Ok(())
+}
+
+/// Poll the indexer until `leaf` is present in `tree`. Merge's `merge_transact`
+/// output is not on the view-tag confirmation path a transfer uses, so a caller
+/// that reads the consolidated note back immediately must wait for its state leaf
+/// to be appended.
+pub(super) fn wait_for_indexed_leaf<R: Rpc>(rpc: &R, tree: Address, leaf: [u8; 32]) -> Result<()> {
+    indexer_poll()
+        .poll_until(
+            || rpc.get_merkle_proofs(tree, vec![leaf], None),
+            |response| {
+                response
+                    .proofs
+                    .iter()
+                    .any(|proof| proof.leaf == leaf && proof.merkle_context.tree == tree)
+            },
+        )
+        .context("timed out waiting for Photon to index leaf")?;
+    Ok(())
 }
