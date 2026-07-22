@@ -42,6 +42,8 @@ pub enum BatchedMerkleTreeError {
     CachedTreeUpdateIndexOutOfRange,
     #[error("Hash chain for the requested zkp batch is not finalized.")]
     HashChainNotReady,
+    #[error("Arithmetic overflow.")]
+    ArithmeticOverflow,
 }
 
 impl From<BatchedMerkleTreeError> for u32 {
@@ -57,6 +59,7 @@ impl From<BatchedMerkleTreeError> for u32 {
             BatchedMerkleTreeError::BloomFilterNotZeroed => 14312,
             BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange => 14313,
             BatchedMerkleTreeError::HashChainNotReady => 14314,
+            BatchedMerkleTreeError::ArithmeticOverflow => 14315,
             BatchedMerkleTreeError::Hasher(e) => e.into(),
             BatchedMerkleTreeError::ZeroCopy(e) => e.into(),
             BatchedMerkleTreeError::MerkleTreeMetadata(e) => e.into(),
