@@ -346,7 +346,7 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
     let mut updates = 0usize;
     let mut slot = 1u64;
 
-    for _ in 0..num_batches {
+    for cycle in 0..num_batches {
         let mut prepared = fill_pending_batch_and_prepare(
             &mut account_data,
             &pubkey,
@@ -358,6 +358,12 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
         );
         slot += batch_size as u64;
         assert_eq!(prepared.len(), zkp_batches_per_batch);
+
+        // The batch filled this cycle covers the queue range one rotation past
+        // its previous coverage: start_index = init next_index + cycle * batch_size.
+        let account = load_nullifier_tree(&mut account_data, &pubkey);
+        let filled_batch = account.queue_batches.batches.get(cycle % 2).unwrap();
+        assert_eq!(filled_batch.start_index, 1 + (cycle * batch_size) as u64);
 
         let expected_new_roots: Vec<[u8; 32]> = prepared.iter().map(|prep| prep.new_root).collect();
         prepared.shuffle(&mut rng);
