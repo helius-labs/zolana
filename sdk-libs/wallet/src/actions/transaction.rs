@@ -264,7 +264,11 @@ pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientErro
         }
         .into());
     }
-    let tree = resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?;
+    let tree = match request.input {
+        Some(hash) => named_input_tree(request.wallet, request.asset, hash)?,
+        None => resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?,
+    };
+
     let (input, per_output_amount) = select_split_utxo(
         request.wallet,
         tree,
@@ -419,7 +423,13 @@ pub struct MergeParams<'a> {
 /// viewing key, so it does not build an [`UnsignedPrivateTransaction`] or take an
 /// authority signing step; the keypair is threaded straight to submission.
 pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientError> {
-    let tree = resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?;
+    // Explicitly named inputs bind the spend to the first named utxo's tree
+    // (the rest must match it), so `Merge::new` can report precise per-input
+    // reasons; auto-sweep resolves the tree over the eligible (plain) utxos.
+    let tree = match request.inputs.as_ref().and_then(|hashes| hashes.first()) {
+        Some(&hash) => named_input_tree(request.wallet, request.asset, hash)?,
+        None => resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?,
+    };
     let inputs = select_merge_inputs(
         request.wallet,
         tree,
@@ -793,6 +803,24 @@ fn withdrawal_target(
             token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
         }),
     ))
+}
+
+/// The tree an explicitly named input binds the spend to: the named utxo's own
+/// tree. Explicit selection needs no eligibility scan; the downstream per-input
+/// checks report precise reasons for ineligible utxos.
+fn named_input_tree(
+    wallet: &Wallet,
+    asset: Address,
+    hash: [u8; 32],
+) -> Result<Address, ClientError> {
+    wallet
+        .utxos
+        .iter()
+        .find(|entry| {
+            !entry.spent && entry.utxo.asset == asset && entry.output_context.hash == hash
+        })
+        .map(|entry| entry.output_context.tree)
+        .ok_or(ClientError::InputUtxoUnavailable { hash })
 }
 
 /// Resolve the single tree a spend of `asset` binds, considering only the utxos
