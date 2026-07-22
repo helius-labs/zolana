@@ -38,7 +38,12 @@ impl ZoneHarness {
     /// the zone's `zone_auth` PDA on the CPI into SPP. Records `last_merge` and
     /// tracks the merged output (consumed inputs marked spent) so
     /// `assert_merged_zone` matches the synced wallet.
-    pub(crate) fn merge_zone(&mut self, name: &str, asset: Address, count: usize) -> Result<()> {
+    pub(crate) fn merge_zone(
+        &mut self,
+        name: &str,
+        asset: Address,
+        count: usize,
+    ) -> Result<solana_signature::Signature> {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
@@ -198,7 +203,7 @@ impl ZoneHarness {
             actor: name.to_string(),
             output_hash: result.output_hash,
         });
-        Ok(())
+        Ok(sig)
     }
 
     /// Confirm the consolidated zone output is present on-chain: the inclusion +

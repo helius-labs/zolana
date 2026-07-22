@@ -31,7 +31,7 @@ pub(crate) struct SplDepositAccounts {
 }
 
 /// One shielded participant: its key material, the wallet it syncs into, the
-/// notes it can currently spend, and the full set of notes its wallet is expected
+/// UTXOs it can currently spend, and the full set of UTXOs its wallet is expected
 /// to hold after a sync (with `spent` flags), tracked for full-struct assertions.
 pub(crate) struct Actor {
     pub(crate) keypair: ShieldedKeypair,

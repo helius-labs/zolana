@@ -78,21 +78,16 @@ fn tree_creation_rejects_unconfigured_authority() {
 fn pause_tree_rejects_unconfigured_authority_atomically() {
     let mut pool = Pool::initialized();
     let impostor = pool.funded_signer(1_000_000_000);
-    let before = pool
-        .rpc
-        .account_data(&pool.tree.pubkey())
-        .expect("tree account");
 
     let err = pool
         .rpc
         .pause_tree(&impostor, &pool.tree, true)
         .expect_err("impostor pause must fail");
     assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
-    assert_eq!(
-        pool.rpc.account_data(&pool.tree.pubkey()),
-        Some(before),
-        "failed pause must not change the tree"
-    );
+    pool.rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
 }
 
 #[test]

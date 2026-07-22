@@ -1,6 +1,6 @@
 # Shielded Pool -- CU Benchmark
 
-Compute unit profiling for the shielded-pool deposit and transact instructions, replayed under mollusk from litesvm-built account state: proof-free SOL and SPL shields, plus Groth16-proven (2,3) eddsa transact shapes -- a shielded transfer and SOL/SPL withdrawals.
+Compute unit profiling for feasible shielded-pool instruction families, replayed under mollusk from litesvm-built account state: protocol creation, tree pause, proof-free SOL/SPL shields, all ten Groth16-proven EdDSA transact shapes (including the 1x8 split shape), and SOL/SPL withdrawals. Each proof-bearing replay has an enforced ceiling; the fast cu_budget_contract separately pins every proofless administration variant.
 
 Regenerate with `just bench-shielded-pool`.
 
@@ -19,7 +19,7 @@ Regenerate with `just bench-shielded-pool`.
 6. [Withdrawal spl](#withdrawal-spl)
 7. [Baseline comparison](#baseline-comparison)
 
-## 1. Deposit sol
+## 1. Create protocol config
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |

@@ -49,8 +49,10 @@ use zolana_program_test::{
     create_tree_instructions, rpc_state_root, system_create_account_ix, ZolanaProgramTest,
 };
 use zolana_smart_account_client::{execute_sync_ix, SMART_ACCOUNT_PROGRAM_ID};
-use zolana_test_utils::prover::spawn_workspace_prover;
 use zolana_test_utils::smart_account::{self, StandardSigners};
+use zolana_test_utils::{
+    prover::spawn_workspace_prover, test_validator_asserts::assert_transaction_compute_units,
+};
 use zolana_transaction::{
     instructions::transact::PrivateTxHash,
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
@@ -78,6 +80,7 @@ const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
 const LOCALNET_NULLIFIER_ZKP_BATCH_SIZE: u64 = 10;
 const LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT: u64 = 20;
 const LOCALNET_NULLIFIERS_PER_QUEUE_TX: u64 = 2;
+const BATCH_NULLIFIER_TREE_CU_LIMIT: u64 = 500_000;
 
 type TestResult<T = ()> = anyhow::Result<T>;
 
@@ -1255,13 +1258,13 @@ struct LatestTreeRoots {
     nullifier_root: [u8; 32],
 }
 
-struct RealSpendNote {
+struct RealSpendUtxo {
     utxo: Utxo,
     hash: [u8; 32],
     nullifier: [u8; 32],
 }
 
-impl RealSpendNote {
+impl RealSpendUtxo {
     fn new(
         utxo: Utxo,
         nullifier_key: &NullifierKey,

@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+autotests = false
 
 [features]
 default = []
@@ -17,6 +18,7 @@ proofs = []
 anyhow = { workspace = true }
 solana-instruction = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
+solana-clock = { workspace = true }
 serial_test = { workspace = true }
 solana-address = { workspace = true }
 solana-keypair = { workspace = true }
@@ -61,6 +63,86 @@ mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
 proptest = { workspace = true }
 
 [[test]]
+name = "admin_functional"
+path = "tests/admin_functional.rs"
+
+[[test]]
+name = "admin_rejection"
+path = "tests/admin_rejection.rs"
+
+[[test]]
+name = "deposit_functional"
+path = "tests/deposit_functional.rs"
+
+[[test]]
+name = "deposit_rejection"
+path = "tests/deposit_rejection.rs"
+
+[[test]]
+name = "deposit_model"
+path = "tests/deposit_model.rs"
+
+[[test]]
+name = "deposit_mutation"
+path = "tests/deposit_mutation.rs"
+
+[[test]]
+name = "dispatch_contract"
+path = "tests/dispatch_contract.rs"
+
+[[test]]
+name = "protocol_config_contract"
+path = "tests/protocol_config_contract.rs"
+
+[[test]]
+name = "tree_contract"
+path = "tests/tree_contract.rs"
+
+[[test]]
+name = "spl_interface_contract"
+path = "tests/spl_interface_contract.rs"
+
+[[test]]
+name = "zone_config_contract"
+path = "tests/zone_config_contract.rs"
+
+[[test]]
+name = "merge_contract"
+path = "tests/merge_contract.rs"
+
+[[test]]
+name = "protocol_model"
+path = "tests/protocol_model.rs"
+
+[[test]]
+name = "temporal_contract"
+path = "tests/temporal_contract.rs"
+
+[[test]]
+name = "authorization_contract"
+path = "tests/authorization_contract.rs"
+
+[[test]]
+name = "nullifier_batch_contract"
+path = "tests/nullifier_batch_contract.rs"
+
+[[test]]
+name = "evolution_contract"
+path = "tests/evolution_contract.rs"
+
+[[test]]
+name = "cu_budget_contract"
+path = "tests/cu_budget_contract.rs"
+
+[[test]]
+name = "spl_functional"
+path = "tests/spl_functional.rs"
+
+[[test]]
+name = "spl_rejection"
+path = "tests/spl_rejection.rs"
+
+[[test]]
 name = "bench_cu"
 path = "tests/bench_cu.rs"
 required-features = ["proofs"]
@@ -86,12 +168,12 @@ path = "tests/localnet_wallet_cli_e2e.rs"
 required-features = ["localnet"]
 
 [[test]]
-name = "transact"
+name = "transact_contract"
 path = "tests/transact/transact.rs"
 required-features = ["proofs"]
 
 [[test]]
-name = "shield_withdraw"
+name = "withdrawal_contract"
 path = "tests/transact/shield_withdraw.rs"
 required-features = ["proofs"]
 

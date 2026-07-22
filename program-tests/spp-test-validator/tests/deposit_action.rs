@@ -16,7 +16,7 @@ use zolana_interface::instruction::{
 use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{Data, Utxo, SOL_MINT};
 
-/// Outcome of a shield: the on-chain signature and the created note, ready to
+/// Outcome of a shield: the on-chain signature and the created UTXO, ready to
 /// spend (and re-discoverable by `Wallet::sync` from the deposit's `owner`).
 #[derive(Clone, Debug)]
 pub struct DepositResult {
@@ -38,7 +38,7 @@ pub struct DepositResult {
 pub struct Deposit<'a> {
     /// State tree the deposit appends to.
     pub tree: Pubkey,
-    /// Public shielded identity the note becomes spendable by and discoverable for.
+    /// Public shielded identity the UTXO becomes spendable by and discoverable for.
     pub recipient: &'a ShieldedAddress,
     /// Funding account: a SOL system account or an SPL token account. The asset
     /// (and, for SPL, the mint/interface/token-program) is detected from it.
@@ -59,7 +59,7 @@ impl Deposit<'_> {
     ) -> Result<DepositResult, ClientError> {
         // The recipient `owner_hash` is computed from public address material and
         // a fresh blinding is sent in the clear, so the depositor needs no shared
-        // secret; the recipient re-derives the note from the deposit event.
+        // secret; the recipient re-derives the UTXO from the deposit event.
         let owner = self.recipient.owner_hash()?;
         let blinding = random_blinding();
         let view_tag = self.recipient.viewing_pubkey.x();

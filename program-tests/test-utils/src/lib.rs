@@ -8,10 +8,12 @@
 //! Helpers are `#[track_caller]` so an assertion failure points at the test
 //! that called the helper, not the helper body.
 
+pub mod backend;
 pub mod litesvm_asserts;
 pub mod localnet;
 pub mod prover;
 pub mod smart_account;
 pub mod spl;
+pub mod state_model;
 pub mod test_validator_asserts;
 pub mod transact;

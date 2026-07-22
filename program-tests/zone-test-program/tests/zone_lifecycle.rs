@@ -79,7 +79,7 @@ fn zone_merge_consolidates_inputs() -> Result<()> {
 
 #[test]
 #[serial]
-fn zone_authority_transfer_reowns_a_note() -> Result<()> {
+fn zone_authority_transfer_reowns_a_utxo() -> Result<()> {
     let mut harness = ZoneHarness::new()?;
     harness.create_enabled_zone_config()?;
     harness.zone_shield_sol("henry", 1_000_000_000)?;

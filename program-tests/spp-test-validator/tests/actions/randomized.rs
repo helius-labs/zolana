@@ -120,7 +120,7 @@ fn pick_action(rng: &mut StdRng) -> Action {
 impl LifecycleHarness {
     /// Drive `cfg.target_txs` randomized state-changing transactions. Sets up the SPL
     /// assets and eddsa actors, then loops: pick a weighted action and actor, sync the
-    /// actor so its change/received notes are spendable, and either execute the action
+    /// actor so its change/received UTXOs are spendable, and either execute the action
     /// (when its inputs are available) or fall back to a deposit that replenishes the
     /// missing asset. Each submitted transaction is fully asserted. Finishes with a
     /// per-actor sync+assert and an on-chain conservation check.

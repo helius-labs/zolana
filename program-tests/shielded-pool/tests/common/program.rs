@@ -5,38 +5,7 @@ use solana_signer::Signer;
 use zolana_interface::{instruction::tag, pda};
 use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
 
-use crate::common::{program_test, tree_account_size};
-
-pub struct Pool {
-    pub rpc: ZolanaProgramTest,
-    pub authority: Keypair,
-    pub tree: Keypair,
-}
-
-impl Pool {
-    pub fn initialized() -> Self {
-        let mut rpc = program_test();
-        let authority = Keypair::new();
-        rpc.create_protocol_config(&authority)
-            .expect("create protocol config");
-        let tree = rpc
-            .create_tree(tree_account_size(), &authority)
-            .expect("create pool tree");
-        Self {
-            rpc,
-            authority,
-            tree,
-        }
-    }
-
-    pub fn funded_signer(&mut self, lamports: u64) -> Keypair {
-        let signer = Keypair::new();
-        self.rpc
-            .airdrop(&signer.pubkey(), lamports)
-            .expect("fund signer");
-        signer
-    }
-}
+pub use zolana_test_utils::backend::LiteSvmPoolBackend as Pool;
 
 pub fn sol_deposit_accounts(
     rpc: &ZolanaProgramTest,

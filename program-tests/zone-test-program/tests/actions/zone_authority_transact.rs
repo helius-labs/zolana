@@ -346,12 +346,12 @@ impl ZoneHarness {
             })
             .ok_or_else(|| anyhow!("accepted authority spend input disappeared from fixture"))?;
         actor.spendable.remove(position);
-        if let Some(note) = actor
+        if let Some(utxo) = actor
             .expected
             .iter_mut()
-            .find(|note| note.output_context.hash == consumed_hash)
+            .find(|utxo| utxo.output_context.hash == consumed_hash)
         {
-            note.spent = true;
+            utxo.spent = true;
         }
         Ok(())
     }

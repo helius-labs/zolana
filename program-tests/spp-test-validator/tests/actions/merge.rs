@@ -107,7 +107,7 @@ impl LifecycleHarness {
         owner_solana: &Keypair,
         asset: Address,
         count: usize,
-    ) -> Result<()> {
+    ) -> Result<solana_signature::Signature> {
         self.ensure_actor(name)?;
         let keypair = self.actor(name).keypair.clone();
 
@@ -305,13 +305,13 @@ impl LifecycleHarness {
         // Mark consumed inputs spent if they were decrypted (tracked) UTXOs.
         for input in &inputs {
             let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO)?;
-            if let Some(note) = self
+            if let Some(utxo) = self
                 .actor_mut(name)
                 .expected
                 .iter_mut()
                 .find(|n| n.output_context.hash == consumed_hash)
             {
-                note.spent = true;
+                utxo.spent = true;
             }
         }
 
@@ -322,7 +322,7 @@ impl LifecycleHarness {
             actor: name.to_string(),
             output_hash: result.output_hash,
         });
-        Ok(())
+        Ok(sig)
     }
 
     /// Functional assert for the consolidated output, the standard
@@ -372,7 +372,7 @@ impl LifecycleHarness {
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let spendable_before = self.actor(name).spendable.clone();
         match self.merge(name, owner_solana, asset, count) {
-            Ok(()) => Err(anyhow!(
+            Ok(_) => Err(anyhow!(
                 "merge unexpectedly succeeded for a disabled service"
             )),
             Err(error) => {
@@ -384,7 +384,7 @@ impl LifecycleHarness {
                 assert_eq!(
                     self.actor(name).spendable,
                     spendable_before,
-                    "rejected merge changed fixture spendable notes"
+                    "rejected merge changed fixture spendable UTXOs"
                 );
                 Ok(())
             }

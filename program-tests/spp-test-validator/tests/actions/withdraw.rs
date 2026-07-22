@@ -176,13 +176,13 @@ impl LifecycleHarness {
         let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
         for input in &inputs {
             let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO)?;
-            if let Some(note) = self
+            if let Some(utxo) = self
                 .actor_mut(from)
                 .expected
                 .iter_mut()
                 .find(|n| n.output_context.hash == consumed_hash)
             {
-                note.spent = true;
+                utxo.spent = true;
             }
         }
 

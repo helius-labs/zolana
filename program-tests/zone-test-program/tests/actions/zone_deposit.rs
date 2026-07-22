@@ -89,7 +89,7 @@ impl ZoneHarness {
         .instruction()?;
         let signature = send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
 
-        // Make the zone-owned note spendable for `name` so later zone_transact /
+        // Make the zone-owned UTXO spendable for `name` so later zone_transact /
         // merge_zone steps can consume it (its zone_program_id is the zone the
         // ZoneConfig binds).
         let owner = self.actor(name).keypair.signing_pubkey();

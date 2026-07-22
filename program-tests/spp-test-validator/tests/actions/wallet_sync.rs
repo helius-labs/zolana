@@ -12,7 +12,7 @@ impl LifecycleHarness {
         self.ensure_actor(name)?;
         let indexed = self.indexed.clone();
         // Actors may exist before assets are registered, so refresh the wallet's
-        // asset registry before decoding SPL notes.
+        // asset registry before decoding SPL UTXOs.
         let assets = self.assets.clone();
         let actor = self.actor_mut(name);
         actor.wallet.registry = assets;

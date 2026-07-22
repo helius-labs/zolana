@@ -17,6 +17,7 @@
 mod common;
 
 use num_bigint::BigUint;
+use solana_clock::Clock;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -59,6 +60,7 @@ fn on_chain_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([
 
 struct TransactEnv {
     rpc: ZolanaProgramTest,
+    authority: Keypair,
     tree: Keypair,
 }
 
@@ -72,12 +74,16 @@ impl TransactEnv {
         let tree = rpc
             .create_tree(common::tree_account_size(), &authority)
             .expect("create tree");
-        Self { rpc, tree }
+        Self {
+            rpc,
+            authority,
+            tree,
+        }
     }
 }
 
 #[test]
-fn shield_then_withdraw_sol() {
+fn shield_before_authority_rotation_then_withdraw_sol() {
     let mut env = TransactEnv::boot();
 
     let tree = env.tree.pubkey();
@@ -112,6 +118,13 @@ fn shield_then_withdraw_sol() {
         utxo_hash, event.utxo_hash,
         "client utxo hash must match on-chain"
     );
+
+    // Evolution contract: rotating every protocol authority after creation must
+    // not invalidate an existing UTXO or its historical tree root.
+    let next_authority = Keypair::new();
+    env.rpc
+        .update_protocol_config(&env.authority, &next_authority)
+        .expect("rotate protocol authorities after shielding");
 
     // The UTXO is leaf 0; its inclusion proof is against the root AFTER the
     // shield append (history index 1).
@@ -191,6 +204,10 @@ fn shield_then_withdraw_sol() {
         vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
     );
+    let boundary_clock = env.rpc.svm.get_sysvar::<Clock>();
+    let expiry = u64::try_from(boundary_clock.unix_timestamp)
+        .expect("LiteSVM clock timestamp must be non-negative");
+    transact_ix_data.expiry_unix_ts = expiry;
 
     // All three outputs are dummies; stamp their confidential owner tags from the
     // program's `hash_bytes(resolved_owner_tag)` mapping (nullifier_pk 0 =
@@ -258,6 +275,24 @@ fn shield_then_withdraw_sol() {
     }
     .instruction();
 
+    // The proof is bound to this exact expiry. Submit it one second late first
+    // and verify complete rollback, then restore the boundary clock and submit
+    // the byte-identical instruction successfully. Rejection must not consume
+    // the nullifiers or prevent a corrected retry.
+    let mut expired_clock = boundary_clock.clone();
+    expired_clock.unix_timestamp += 1;
+    env.rpc.svm.set_sysvar(&expired_clock);
+    let expired = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix.clone()], &[])
+        .expect_err("transaction one second past expiry must fail");
+    Rejection::pool(ShieldedPoolError::ExpiredTransaction).assert_litesvm(expired);
+    env.rpc
+        .last_transaction_trace()
+        .expect("expired transaction trace")
+        .assert_rolled_back_except(&[payer.pubkey()]);
+
+    env.rpc.svm.set_sysvar(&boundary_clock);
     let result = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[]);

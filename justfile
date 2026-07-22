@@ -77,10 +77,15 @@ test-program-fast: build-programs
     cargo test -p shielded-pool-tests
     cargo test -p swap-program --tests
 
+# Run one shielded-pool intent-level binary, for example:
+# `just test-shielded-pool-case deposit_model`.
+test-shielded-pool-case case: build-programs
+    cargo test -p shielded-pool-tests --test {{case}}
+
 # Account-aware Mollusk failures and property mutations for SPP and swap.
 test-program-mollusk: build-programs
-    cargo test -p shielded-pool-tests --test admin
-    cargo test -p shielded-pool-tests --test deposit
+    cargo test -p shielded-pool-tests --test admin_functional --test admin_rejection
+    cargo test -p shielded-pool-tests --test deposit_functional --test deposit_rejection --test deposit_mutation
     cargo test -p swap-program --test failing
 
 # Swap wrapper unit, wire-contract, and SBF-backed negative tests.
@@ -89,7 +94,7 @@ test-swap-program: build-programs
 
 # Groth16-backed program and client matrices, separated from fast state tests.
 test-program-proofs: build-programs build-prover-server build-cli
-    cargo test -p shielded-pool-tests --features proofs --test transact --test shield_withdraw --test p256 --test both_amounts
+    cargo test -p shielded-pool-tests --features proofs --test transact_contract --test withdrawal_contract --test p256_contract --test settlement_guard_contract
     cargo test -p zolana-client --test transaction_proving --test merge_proving --test merge_zone_proving --test zone_authority_proving --test zone_transfer_proving
 
 # Export Mollusk's exact-error cases as replayable fuzz fixtures.
@@ -521,6 +526,26 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
       ZOLANA_PROVER_URL="{{localnet-prover-url}}" ZOLANA_TREE="$tree" \
       tools/cli_smoke.sh
 
+# Run only the proof-bearing batch nullifier-tree lifecycle and its per-batch CU ceiling.
+test-nullifier-batch-proof-cu: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e \
+      forester::nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer -- --exact --nocapture
+
 # Decrypt-and-spend lifecycle tests over a fresh validator + Photon per test
 # (program-tests/spp-test-validator).
 test-spp-validator: build-programs build-prover-server build-cli ensure-photon
@@ -538,7 +563,25 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle
+      cargo test -p spp-test-validator --test lifecycle --test proof_cu
+
+# Run only real-validator CU ceilings for P256 transact and maximal 8x1 merge.
+test-spp-validator-proof-cu: build-programs build-prover-server build-cli ensure-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p spp-test-validator --test proof_cu -- --nocapture
 
 # Run the transfer case that also decodes the emitted event.
 test-spp-validator-decode: build-programs build-prover-server build-cli ensure-photon
@@ -659,7 +702,28 @@ test-zone-validator: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p zone-test-program --test zone_lifecycle --release
+      cargo test -p zone-test-program --test zone_lifecycle --test proof_cu --release
+
+# Run only real-validator CU ceilings for zone EdDSA/P256 transact,
+# zone-authority transact, and maximal 8x1 merge-zone.
+test-zone-validator-proof-cu: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
+    export ZONE_TEST_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p zone-test-program --test proof_cu --release -- --nocapture
 
 # Fully-inlined create+fill and create+cancel swap flows over a fresh validator
 # (sdk-tests/zk-program-swap/test/tests/{swap,cancel}.rs). Each test binary boots

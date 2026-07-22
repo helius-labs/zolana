@@ -21,6 +21,7 @@ use solana_transaction_error::TransactionError;
 pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
 use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
+    SolanaRpc,
 };
 use zolana_interface::{instruction::AssetDeposit, state::state_root_offset};
 use zolana_program_test::DepositOutput;
@@ -113,6 +114,30 @@ pub fn fetch_optional_account<R: Rpc>(
     pubkey: &Pubkey,
 ) -> Result<Option<Account>, ClientError> {
     rpc.get_account(to_address(pubkey))
+}
+
+/// Read the runtime's confirmed transaction metadata and pin a proof-bearing
+/// transaction to an explicit compute-unit ceiling.
+#[track_caller]
+pub fn assert_transaction_compute_units(
+    rpc: &SolanaRpc,
+    signature: &Signature,
+    label: &str,
+    limit: u64,
+) -> Result<u64, ClientError> {
+    let transaction = rpc.fetch_confirmed_transaction(signature)?;
+    let meta = transaction.transaction.meta.ok_or_else(|| {
+        ClientError::Rpc(format!("{label}: confirmed transaction has no metadata"))
+    })?;
+    let consumed = meta
+        .compute_units_consumed
+        .expect("confirmed transaction metadata must include compute units");
+    assert!(
+        consumed <= limit,
+        "{label} consumed {consumed} CU (limit {limit})"
+    );
+    println!("{label}: {consumed} CU (limit {limit})");
+    Ok(consumed)
 }
 
 /// Extract the transaction failure without depending on validator error text.

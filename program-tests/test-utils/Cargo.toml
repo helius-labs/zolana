@@ -22,7 +22,7 @@ solana-rpc-client-api = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction-error = { workspace = true }
-zolana-client = { workspace = true }
+zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-interface = { workspace = true }
 zolana-smart-account-client = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }

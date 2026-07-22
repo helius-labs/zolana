@@ -7,7 +7,8 @@ use zolana_interface::pda;
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::{
-    litesvm_assert_deposit, litesvm_assert_zone_deposit, DepositAssertArgs, ZoneDepositAssertArgs,
+    litesvm_assert_deposit, litesvm_assert_zone_deposit, DepositAssertArgs, SolDepositOracle,
+    ZoneDepositAssertArgs,
 };
 use zolana_transaction::{
     owner_utxo_hash, AssetRegistry, LocalWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
@@ -38,44 +39,19 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
     data.memo = Some(b"manual program test".to_vec());
 
     let tree = pool.tree.pubkey();
+    let mut oracle = SolDepositOracle::capture(&pool.rpc, &tree, &depositor.pubkey());
     let root_before = pool.rpc.state_root(&tree).expect("state root");
     assert_eq!(
         pool.rpc.indexer().root(),
         root_before,
         "empty reference indexer and on-chain tree must start at the same root"
     );
-    let depositor_before = pool
-        .rpc
-        .svm
-        .get_account(&depositor.pubkey())
-        .expect("depositor")
-        .lamports;
-    let vault_before = pool
-        .rpc
-        .svm
-        .get_account(&pda::sol_interface())
-        .map_or(0, |account| account.lamports);
     let event = pool
         .rpc
         .deposit(&tree, &depositor, &data)
         .expect("SOL deposit");
-
-    assert_eq!(
-        pool.rpc
-            .svm
-            .get_account(&depositor.pubkey())
-            .expect("depositor")
-            .lamports,
-        depositor_before - 750_000_000
-    );
-    assert_eq!(
-        pool.rpc
-            .svm
-            .get_account(&pda::sol_interface())
-            .expect("SOL vault")
-            .lamports,
-        vault_before + 750_000_000
-    );
+    oracle.record_accepted(&data, &event);
+    oracle.assert_matches(&pool.rpc, &tree, &depositor.pubkey());
     litesvm_assert_deposit(
         &mut pool.rpc,
         &mut recipient,
@@ -90,17 +66,6 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
         },
     );
     assert_eq!(recipient.utxos.len(), 1);
-    let owner_hash = owner_utxo_hash(&data.owner, &data.blinding).expect("owner UTXO hash");
-    let indexed = pool
-        .rpc
-        .indexer()
-        .fetch_by_owner_utxo_hash(&owner_hash)
-        .expect("deposit indexed by owner UTXO hash");
-    assert_eq!(indexed.leaf_index, event.leaf_index);
-    assert_eq!(
-        indexed.proofless().expect("proofless payload").amount,
-        750_000_000
-    );
 }
 
 #[test]
@@ -122,6 +87,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
     );
 
     let depositor = pool.funded_signer(10_000_000_000);
+    let mut oracle = SolDepositOracle::capture(&pool.rpc, &tree, &depositor.pubkey());
     let recipient_keypair = ShieldedKeypair::new().expect("recipient keypair");
     let mut recipient = Wallet::new(
         recipient_keypair
@@ -141,16 +107,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
             ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient.identity, &seed, i as u8)
                 .expect("wallet deposit data");
         let event = pool.rpc.deposit(&tree, &depositor, &data).expect("deposit");
-        assert_eq!(
-            event.output.amount, amount,
-            "event must carry the settled amount"
-        );
-        assert_eq!(
-            event.output.asset, [0u8; 32],
-            "SOL asset is the zero address"
-        );
-        assert_eq!(event.output.owner, data.owner);
-        assert_eq!(event.output.blinding, data.blinding);
+        oracle.record_accepted(&data, &event);
         let before = recipient.utxos.len();
         recipient
             .sync(
@@ -174,6 +131,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
             pool.rpc.state_root(&tree).expect("state root"),
             "indexed tree must track the on-chain root after deposit {i}"
         );
+        oracle.assert_matches(&pool.rpc, &tree, &depositor.pubkey());
     }
 
     let indexer = pool.rpc.indexer();
