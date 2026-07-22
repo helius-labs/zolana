@@ -87,12 +87,9 @@ impl TransactionTrace {
         self.accounts.iter().filter(|account| account.changed())
     }
 
-    /// Assert that the journaled snapshots of a rejected transaction show no
-    /// message account changed beyond the accounts listed in `allowed`. The
-    /// runtime itself guarantees rollback; this catches journal drift and
-    /// unexpected writes. Callers are expected to pass the fee payer in
-    /// `allowed`: a failed Solana transaction still charges the fee, so the
-    /// payer's lamports legitimately decrease.
+    /// Assert that a rejected transaction rolled back every message account.
+    /// The transaction fee payer is intentionally excluded because a failed
+    /// Solana transaction may still charge a fee.
     #[track_caller]
     pub fn assert_rolled_back_except(&self, allowed: &[Pubkey]) {
         let allowed: BTreeSet<Pubkey> = allowed.iter().copied().collect();
