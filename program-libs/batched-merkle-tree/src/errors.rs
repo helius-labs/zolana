@@ -2,9 +2,31 @@ use thiserror::Error;
 use zolana_account_checks::error::AccountError;
 use zolana_bloom_filter::BloomFilterError;
 use zolana_hasher::HasherError;
-use zolana_merkle_tree_metadata::errors::MerkleTreeMetadataError;
 
 use crate::{verify::VerifierError, zero_copy::ZeroCopyError};
+
+#[derive(Debug, Error, PartialEq)]
+pub enum MerkleTreeMetadataError {
+    #[error("Invalid tree type.")]
+    InvalidTreeType,
+    #[error("Invalid Height.")]
+    InvalidHeight,
+}
+
+impl From<MerkleTreeMetadataError> for u32 {
+    fn from(e: MerkleTreeMetadataError) -> u32 {
+        match e {
+            MerkleTreeMetadataError::InvalidTreeType => 14007,
+            MerkleTreeMetadataError::InvalidHeight => 14009,
+        }
+    }
+}
+
+impl From<MerkleTreeMetadataError> for solana_program_error::ProgramError {
+    fn from(e: MerkleTreeMetadataError) -> Self {
+        solana_program_error::ProgramError::Custom(e.into())
+    }
+}
 
 #[derive(Debug, Error, PartialEq)]
 pub enum BatchedMerkleTreeError {

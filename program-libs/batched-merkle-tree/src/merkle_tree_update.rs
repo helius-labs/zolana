@@ -1,11 +1,10 @@
 use zolana_hasher::hash_chain::create_hash_chain_from_array;
-use zolana_merkle_tree_metadata::{
-    errors::MerkleTreeMetadataError, events::batch::BatchAddressAppendEvent, TreeType,
-};
 
 use crate::{
-    errors::BatchedMerkleTreeError,
+    errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
+    events::BatchAddressAppendEvent,
     merkle_tree::{BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs},
+    merkle_tree_metadata::TreeType,
     verify::verify_batch_address_update,
     zero_copy::CachedTreeUpdate,
 };
@@ -74,7 +73,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .cached_tree_updates
             .get(pending_batch_index)
             .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
-            .data
             .len();
         let zkp_batch_index = usize::from(instruction_data.zkp_batch_index);
         if zkp_batch_index >= cached_tree_update_capacity {
@@ -107,7 +105,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .cached_tree_updates
             .get(pending_batch_index)
             .ok_or(BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange)?
-            .data
             .get(zkp_batch_index)
             .map(|cached_update| cached_update.is_occupied())
             .unwrap_or(false);
@@ -143,7 +140,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .layout
             .cached_tree_updates
             .get_mut(pending_batch_index)
-            .and_then(|update_vec| update_vec.data.get_mut(zkp_batch_index))
+            .and_then(|updates| updates.get_mut(zkp_batch_index))
             .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
         *cached_update = CachedTreeUpdate {
             old_root: instruction_data.old_root,
@@ -191,7 +188,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                 .layout
                 .cached_tree_updates
                 .get(pending_batch_index)
-                .and_then(|update_vec| update_vec.data.get(zkp_batch_index))
+                .and_then(|updates| updates.get(zkp_batch_index))
             {
                 Some(cached_update) if cached_update.is_occupied() => *cached_update,
                 _ => return Ok(event),
@@ -281,7 +278,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .layout
             .cached_tree_updates
             .get_mut(pending_batch_index)
-            .and_then(|update_vec| update_vec.data.get_mut(zkp_batch_index))
+            .and_then(|updates| updates.get_mut(zkp_batch_index))
             .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
         *cached_update = CachedTreeUpdate::default();
         Ok(())

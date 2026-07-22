@@ -1,9 +1,5 @@
 use solana_address::Address as Pubkey;
 use zolana_account_checks::AccountView;
-use zolana_merkle_tree_metadata::{
-    access::AccessMetadata, fee::compute_rollover_fee, merkle_tree::MerkleTreeMetadata,
-    rollover::RolloverMetadata, TreeType,
-};
 
 use crate::{
     constants::{
@@ -13,71 +9,28 @@ use crate::{
     },
     errors::BatchedMerkleTreeError,
     merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount},
+    merkle_tree_metadata::TreeType,
     rent::check_account_balance_is_rent_exempt,
     zero_copy::TreeAccountLayout,
     BorshDeserialize, BorshSerialize,
 };
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct InitAddressTreeAccountsInstructionData {
-    pub index: u64,
-    pub program_owner: Option<Pubkey>,
-    pub forester: Option<Pubkey>,
     pub input_queue_batch_size: u64,
     pub input_queue_zkp_batch_size: u64,
     pub root_history_capacity: u32,
-    pub network_fee: Option<u64>,
-    pub rollover_threshold: Option<u64>,
-    pub close_threshold: Option<u64>,
     pub height: u32,
-}
-
-impl BorshSerialize for InitAddressTreeAccountsInstructionData {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        self.index.serialize(writer)?;
-        crate::serialize_option_address(&self.program_owner, writer)?;
-        crate::serialize_option_address(&self.forester, writer)?;
-        self.input_queue_batch_size.serialize(writer)?;
-        self.input_queue_zkp_batch_size.serialize(writer)?;
-        self.root_history_capacity.serialize(writer)?;
-        self.network_fee.serialize(writer)?;
-        self.rollover_threshold.serialize(writer)?;
-        self.close_threshold.serialize(writer)?;
-        self.height.serialize(writer)
-    }
-}
-
-impl BorshDeserialize for InitAddressTreeAccountsInstructionData {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        Ok(Self {
-            index: BorshDeserialize::deserialize_reader(reader)?,
-            program_owner: crate::deserialize_option_address(reader)?,
-            forester: crate::deserialize_option_address(reader)?,
-            input_queue_batch_size: BorshDeserialize::deserialize_reader(reader)?,
-            input_queue_zkp_batch_size: BorshDeserialize::deserialize_reader(reader)?,
-            root_history_capacity: BorshDeserialize::deserialize_reader(reader)?,
-            network_fee: BorshDeserialize::deserialize_reader(reader)?,
-            rollover_threshold: BorshDeserialize::deserialize_reader(reader)?,
-            close_threshold: BorshDeserialize::deserialize_reader(reader)?,
-            height: BorshDeserialize::deserialize_reader(reader)?,
-        })
-    }
 }
 
 impl Default for InitAddressTreeAccountsInstructionData {
     fn default() -> Self {
         Self {
-            index: 0,
-            program_owner: None,
-            forester: None,
             input_queue_batch_size: DEFAULT_ADDRESS_BATCH_SIZE,
             input_queue_zkp_batch_size: DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
             height: DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
             root_history_capacity: DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN,
-            network_fee: Some(10000),
-            rollover_threshold: Some(95),
-            close_threshold: None,
         }
     }
 }
@@ -87,10 +40,9 @@ impl Default for InitAddressTreeAccountsInstructionData {
 /// 2. Initialized the address Merkle tree account.
 pub fn init_batched_address_merkle_tree_from_account_info(
     params: InitAddressTreeAccountsInstructionData,
-    owner: Pubkey,
     mt_account_info: &mut AccountView,
 ) -> Result<(), BatchedMerkleTreeError> {
-    init_batched_indexed_merkle_tree_from_account_info(params, owner, mt_account_info, None)
+    init_batched_indexed_merkle_tree_from_account_info(params, mt_account_info, None)
 }
 
 /// Initializes a batched nullifier Merkle tree account.
@@ -101,12 +53,10 @@ pub fn init_batched_address_merkle_tree_from_account_info(
 /// It otherwise reuses the address-tree account layout and parameters.
 pub fn init_batched_nullifier_merkle_tree_from_account_info(
     params: InitAddressTreeAccountsInstructionData,
-    owner: Pubkey,
     mt_account_info: &mut AccountView,
 ) -> Result<(), BatchedMerkleTreeError> {
     init_batched_indexed_merkle_tree_from_account_info(
         params,
-        owner,
         mt_account_info,
         Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
@@ -119,7 +69,6 @@ pub fn init_batched_nullifier_merkle_tree_from_account_info(
 /// 2. Initialize the indexed Merkle tree account.
 fn init_batched_indexed_merkle_tree_from_account_info(
     params: InitAddressTreeAccountsInstructionData,
-    owner: Pubkey,
     mt_account_info: &mut AccountView,
     address_init_root: Option<[u8; 32]>,
 ) -> Result<(), BatchedMerkleTreeError> {
@@ -130,7 +79,7 @@ fn init_batched_indexed_merkle_tree_from_account_info(
         { crate::constants::ADDRESS_TREE_DEFAULT_BLOOM },
         { crate::constants::ADDRESS_TREE_DEFAULT_ZKP },
     >();
-    let merkle_tree_rent = check_account_balance_is_rent_exempt(mt_account_info, mt_account_size)?;
+    check_account_balance_is_rent_exempt(mt_account_info, mt_account_size)?;
     let mt_pubkey = *mt_account_info.address();
     // 2. Initialize the indexed Merkle tree account.
     let mt_data = &mut mt_account_info.try_borrow_mut()?;
@@ -139,14 +88,7 @@ fn init_batched_indexed_merkle_tree_from_account_info(
         { crate::constants::ADDRESS_TREE_DEFAULT_NUM_ITERS },
         { crate::constants::ADDRESS_TREE_DEFAULT_BLOOM },
         { crate::constants::ADDRESS_TREE_DEFAULT_ZKP },
-    >(
-        owner,
-        params,
-        mt_data,
-        merkle_tree_rent,
-        mt_pubkey,
-        address_init_root,
-    )?;
+    >(params, mt_data, mt_pubkey, address_init_root)?;
     Ok(())
 }
 
@@ -156,20 +98,11 @@ pub fn init_batched_address_merkle_tree_account<
     const BLOOM: usize,
     const ZKP: usize,
 >(
-    owner: Pubkey,
     params: InitAddressTreeAccountsInstructionData,
     mt_account_data: &mut [u8],
-    merkle_tree_rent: u64,
     pubkey: Pubkey,
 ) -> Result<BatchedMerkleTreeAccount<'_, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError> {
-    init_batched_indexed_merkle_tree_account(
-        owner,
-        params,
-        mt_account_data,
-        merkle_tree_rent,
-        pubkey,
-        None,
-    )
+    init_batched_indexed_merkle_tree_account(params, mt_account_data, pubkey, None)
 }
 
 /// Initializes a batched nullifier Merkle tree account into `mt_account_data`,
@@ -180,17 +113,13 @@ pub fn init_batched_nullifier_merkle_tree_account<
     const BLOOM: usize,
     const ZKP: usize,
 >(
-    owner: Pubkey,
     params: InitAddressTreeAccountsInstructionData,
     mt_account_data: &mut [u8],
-    merkle_tree_rent: u64,
     pubkey: Pubkey,
 ) -> Result<BatchedMerkleTreeAccount<'_, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError> {
     init_batched_indexed_merkle_tree_account(
-        owner,
         params,
         mt_account_data,
-        merkle_tree_rent,
         pubkey,
         Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
@@ -205,18 +134,14 @@ fn init_batched_indexed_merkle_tree_account<
     const BLOOM: usize,
     const ZKP: usize,
 >(
-    owner: Pubkey,
     params: InitAddressTreeAccountsInstructionData,
     mt_account_data: &mut [u8],
-    merkle_tree_rent: u64,
     pubkey: Pubkey,
     address_init_root: Option<[u8; 32]>,
 ) -> Result<BatchedMerkleTreeAccount<'_, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError> {
-    let metadata = indexed_merkle_tree_metadata(owner, params, merkle_tree_rent)?;
     BatchedMerkleTreeAccount::init(
         mt_account_data,
         &pubkey,
-        metadata,
         params.root_history_capacity,
         params.input_queue_batch_size,
         params.input_queue_zkp_batch_size,
@@ -236,17 +161,13 @@ pub fn init_batched_nullifier_merkle_tree_into_layout<
     const BLOOM: usize,
     const ZKP: usize,
 >(
-    owner: Pubkey,
     params: InitAddressTreeAccountsInstructionData,
     layout: &mut TreeAccountLayout<RH, NUM_ITERS, BLOOM, ZKP>,
-    merkle_tree_rent: u64,
     pubkey: Pubkey,
 ) -> Result<BatchedMerkleTreeAccount<'_, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError> {
-    let metadata = indexed_merkle_tree_metadata(owner, params, merkle_tree_rent)?;
     BatchedMerkleTreeAccount::init_from_layout(
         layout,
         &pubkey,
-        metadata,
         params.root_history_capacity,
         params.input_queue_batch_size,
         params.input_queue_zkp_batch_size,
@@ -254,40 +175,6 @@ pub fn init_batched_nullifier_merkle_tree_into_layout<
         TreeType::AddressV2,
         Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
-}
-
-fn indexed_merkle_tree_metadata(
-    owner: Pubkey,
-    params: InitAddressTreeAccountsInstructionData,
-    merkle_tree_rent: u64,
-) -> Result<MerkleTreeMetadata, BatchedMerkleTreeError> {
-    let height = params.height;
-
-    let rollover_fee = match params.rollover_threshold {
-        Some(rollover_threshold) => {
-            let rent = merkle_tree_rent;
-            compute_rollover_fee(rollover_threshold, height, rent)?
-        }
-        None => 0,
-    };
-    #[cfg(feature = "log")]
-    solana_msg::msg!("rollover fee {}", rollover_fee);
-    #[cfg(feature = "log")]
-    solana_msg::msg!("rollover threshold {:?}", params.rollover_threshold);
-
-    Ok(MerkleTreeMetadata {
-        next_merkle_tree: Pubkey::default(),
-        access_metadata: AccessMetadata::new(owner, params.program_owner, params.forester),
-        rollover_metadata: RolloverMetadata::new(
-            params.index,
-            rollover_fee,
-            params.rollover_threshold,
-            params.network_fee.unwrap_or_default(),
-            params.close_threshold,
-            None,
-        ),
-        associated_queue: Pubkey::default(),
-    })
 }
 
 /// Only used for testing. For production use the default config.
@@ -316,7 +203,6 @@ pub fn validate_batched_address_tree_params(params: InitAddressTreeAccountsInstr
         required_capacity
     );
 
-    assert_eq!(params.close_threshold, None);
     assert_eq!(params.height, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT);
 }
 /// Only 10 and 250 are supported.
@@ -343,45 +229,27 @@ pub mod test_utils {
     impl InitAddressTreeAccountsInstructionData {
         pub fn test_default() -> Self {
             Self {
-                index: 0,
-                program_owner: None,
-                forester: None,
                 input_queue_batch_size: TEST_DEFAULT_BATCH_SIZE,
                 input_queue_zkp_batch_size: TEST_DEFAULT_ZKP_BATCH_SIZE,
                 height: 40,
                 root_history_capacity: DEFAULT_BATCH_ROOT_HISTORY_LEN,
-                network_fee: Some(10000),
-                rollover_threshold: Some(95),
-                close_threshold: None,
             }
         }
 
         pub fn e2e_test_default() -> Self {
             Self {
-                index: 0,
-                program_owner: None,
-                forester: None,
                 input_queue_batch_size: 500,
                 input_queue_zkp_batch_size: TEST_DEFAULT_ZKP_BATCH_SIZE,
                 height: 40,
                 root_history_capacity: DEFAULT_BATCH_ROOT_HISTORY_LEN,
-                network_fee: Some(10000),
-                rollover_threshold: Some(95),
-                close_threshold: None,
             }
         }
         pub fn testnet_default() -> Self {
             Self {
-                index: 0,
-                program_owner: None,
-                forester: None,
                 input_queue_batch_size: 15000,
                 input_queue_zkp_batch_size: DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
                 height: 40,
                 root_history_capacity: DEFAULT_BATCH_ROOT_HISTORY_LEN,
-                network_fee: Some(10000),
-                rollover_threshold: Some(95),
-                close_threshold: None,
             }
         }
     }
@@ -426,16 +294,6 @@ fn test_root_history_capacity_zero() {
 
 #[test]
 #[should_panic]
-fn test_close_threshold_not_none() {
-    let params = InitAddressTreeAccountsInstructionData {
-        close_threshold: Some(10),
-        ..InitAddressTreeAccountsInstructionData::default()
-    };
-    validate_batched_address_tree_params(params);
-}
-
-#[test]
-#[should_panic]
 fn test_height_not_40() {
     let params = InitAddressTreeAccountsInstructionData {
         height: 30,
@@ -469,7 +327,6 @@ fn test_init_indexed_tree_init_roots() {
     use crate::constants::{ADDRESS_TREE_INIT_ROOT_40, NULLIFIER_TREE_INIT_ROOT_40};
 
     let params = InitAddressTreeAccountsInstructionData::default();
-    let rent = 1_000_000_000;
 
     // Nullifier tree is seeded with the BN254 p-1 sentinel root.
     let mut nullifier_data = vec![0u8; get_address_merkle_tree_account_size()];
@@ -478,13 +335,7 @@ fn test_init_indexed_tree_init_roots() {
         { crate::constants::ADDRESS_TREE_DEFAULT_NUM_ITERS },
         { crate::constants::ADDRESS_TREE_DEFAULT_BLOOM },
         { crate::constants::ADDRESS_TREE_DEFAULT_ZKP },
-    >(
-        Pubkey::new_unique(),
-        params,
-        &mut nullifier_data,
-        rent,
-        Pubkey::new_unique(),
-    )
+    >(params, &mut nullifier_data, Pubkey::new_unique())
     .unwrap();
     assert_eq!(
         *nullifier_account.layout.root_history.data.first().unwrap(),
@@ -499,13 +350,7 @@ fn test_init_indexed_tree_init_roots() {
         { crate::constants::ADDRESS_TREE_DEFAULT_NUM_ITERS },
         { crate::constants::ADDRESS_TREE_DEFAULT_BLOOM },
         { crate::constants::ADDRESS_TREE_DEFAULT_ZKP },
-    >(
-        Pubkey::new_unique(),
-        params,
-        &mut address_data,
-        rent,
-        Pubkey::new_unique(),
-    )
+    >(params, &mut address_data, Pubkey::new_unique())
     .unwrap();
     assert_eq!(
         *address_account.layout.root_history.data.first().unwrap(),

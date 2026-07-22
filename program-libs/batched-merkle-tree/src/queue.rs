@@ -13,14 +13,12 @@ use crate::{
 ///    with a bloom filter must be zeroed by a forester before reuse.
 /// 2. Insert value into the current batch.
 /// 3. If batch is full, increment currently_processing_batch_index.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn insert_into_current_queue_batch<const NUM_ITERS: usize, const BYTES: usize>(
     batch_metadata: &mut QueueBatches,
     bloom_filters: &mut [BloomFilter<NUM_ITERS, BYTES>; 2],
     hash_chain_stores: &mut [BoundedVecView<'_>],
     hash_chain_value: &[u8; 32],
     bloom_filter_value: &[u8; 32],
-    current_slot: &u64,
 ) -> Result<(), BatchedMerkleTreeError> {
     let batch_index = batch_metadata.currently_processing_batch_index as usize;
     // A batch reaches Inserted only after exactly batch_size insertions, so on
@@ -70,7 +68,6 @@ pub(crate) fn insert_into_current_queue_batch<const NUM_ITERS: usize, const BYTE
         bloom_filters,
         hash_chain_store.data,
         batch_index,
-        current_slot,
     )?;
     // Keep the bounded hash-chain length header consistent with upstream:
     // length == number of hash-chain slots written so far.
@@ -117,7 +114,6 @@ mod tests {
             &mut hash_chain_stores,
             value,
             value,
-            &1u64,
         )
     }
 
