@@ -206,6 +206,8 @@ jobs:
             recipe: test-swap-and-escrow-validator
           - name: dynamic-swap lifecycle
             recipe: test-dynamic-swap
+          - name: rfq settlement
+            recipe: test-rfq-validator
     env:
       AGAVE_VERSION: v4.0.2
       # GH_TOKEN is for the gh-release swap/escrow key downloads (ensure-swap-keys /

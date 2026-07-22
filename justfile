@@ -279,6 +279,19 @@ bench-swap: ensure-swap-keys
         -- --features bpf-entrypoint,profile-program
     cargo test -p swap-test-validator --test bench_cu -- --ignored --nocapture
 
+# Confidential RFQ settlement CU benchmark: profiles a single co-signed
+# shielded-pool `transact` (SOL for USDC, no escrow, no custom program) under
+# mollusk. The shielded-pool program is built with profile-program so its
+# `#[profile]` functions appear in the CU table; it must never land in
+# target/deploy, so build into a dedicated dir matching PROFILING_SBF_DIR in
+# bench_cu.rs.
+bench-rfq:
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/rfq-bench \
+        --manifest-path programs/shielded-pool/Cargo.toml \
+        -- --features bpf-entrypoint,profile-program
+    cargo test -p rfq-test --test bench_cu -- --ignored --nocapture
+
 # Fetch the pinned escrow/withdraw proving keys from the escrow-keys release
 # and verify them against the committed manifest. groth16.Setup is
 # non-deterministic, so the published keys are the only set matching the
@@ -635,6 +648,28 @@ test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-se
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p dynamic-swap-test {{args}} -- --nocapture
+
+# Confidential RFQ settlement on a local validator: the maker and taker co-sign
+# one shielded-pool transact that swaps SOL for USDC with no escrow and no custom
+# program (sdk-tests/rfq/tests/rfq.rs). Boots solana-test-validator via the
+# `zolana` CLI with the shielded pool, the user registry, and the Squads smart
+# account, plus Photon and the SPP prover -- mirroring test-client-example.
+test-rfq-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p rfq-test --test rfq -- --nocapture
 
 install-surfpool:
     #!/usr/bin/env bash
