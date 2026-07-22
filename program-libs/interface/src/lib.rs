@@ -17,7 +17,29 @@ macro_rules! pubkey_array {
     }};
 }
 
-pub const UTXO_DOMAIN: u16 = 1;
+/// UTXO domain tags: the circuit classifies input and output slots by the
+/// domain tag alone (mirrors Go `circuits/spp_transaction/shared`).
+pub const DUMMY_DOMAIN: u16 = 1;
+pub const ADDRESS_DOMAIN: u16 = 2;
+pub const UTXO_DOMAIN: u16 = 3;
+
+/// Number of distinct public asset movement slots in every SPP transaction
+/// circuit. Ordered settlement legs are aggregated by resolved asset before
+/// filling these slots.
+pub const N_PUBLIC_SLOTS: usize = 3;
+
+/// Largest public-leg count representable by the instruction's
+/// `FixIntLen<u8>` wire prefix. This is an encoding bound, not a protocol
+/// transaction-shape limit; Solana's transaction size is normally tighter.
+pub const MAX_WIRE_PUBLIC_LEGS: usize = u8::MAX as usize;
+
+/// Native-SOL asset id in the SPP public transcript and UTXO commitments:
+/// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The
+/// prover mirrors this as `SolAsset()` (Go `circuits/spp_transaction/shared`).
+pub const SOL_ASSET_FIELD: [u8; 32] = [
+    0x20, 0x98, 0xf5, 0xfb, 0x9e, 0x23, 0x9e, 0xab, 0x3c, 0xea, 0xc3, 0xf2, 0x7b, 0x81, 0xe4, 0x81,
+    0xdc, 0x31, 0x24, 0xd5, 0x5f, 0xfe, 0xd5, 0x23, 0xa8, 0x39, 0xee, 0x84, 0x46, 0xb6, 0x48, 0x64,
+];
 
 /// Development program id for the shielded-pool program.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =
@@ -39,7 +61,6 @@ pub const DEFAULT_SOL_INTERFACE_INDEX_SEED: &[u8] = &[0];
 /// Seed for the shielded-pool program's own CPI authority PDA, used as the SPL
 /// vault authority for public SPL settlement.
 pub const SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED: &[u8] = b"cpi_authority";
-pub const SPP_ZONE_CONFIG_PDA_SEED: &[u8] = b"spp_zone_config";
 /// Seed for the shielded-pool protocol-config PDA. The config is the singleton
 /// authority oracle for admin instructions, so it is a canonical PDA the
 /// program creates and address-checks; a substituted config can't name a new
@@ -59,6 +80,10 @@ pub const SHIELDED_POOL_CPI_AUTHORITY: [u8; 32] = [
     160, 99, 112, 248, 135, 246, 47, 245, 181, 43,
 ];
 
+/// [`SHIELDED_POOL_CPI_AUTHORITY`] as a `Pubkey`.
+pub const SHIELDED_POOL_CPI_AUTHORITY_PUBKEY: solana_pubkey::Pubkey =
+    solana_pubkey::Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
+
 /// Bump for `SHIELDED_POOL_CPI_AUTHORITY`.
 pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 254;
 
@@ -70,6 +95,9 @@ pub const SOL_INTERFACE: [u8; 32] = [
     153, 202, 212, 28, 214, 25, 170, 103, 127, 203, 31, 129, 56, 221, 77, 131, 217, 62, 194, 23,
     222, 98, 111, 179, 160, 182, 255, 213, 208, 236, 115, 61,
 ];
+
+/// Canonical bump for [`SOL_INTERFACE`].
+pub const SOL_INTERFACE_BUMP: u8 = 252;
 
 /// [`SOL_INTERFACE`] as a `Pubkey`.
 pub const SOL_INTERFACE_PUBKEY: solana_pubkey::Pubkey =

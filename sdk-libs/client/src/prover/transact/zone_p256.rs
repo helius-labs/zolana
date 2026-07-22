@@ -6,6 +6,7 @@
 //! no output-owner chain, and the shared `p256_signing_pk_field` is not folded
 //! into the hash.
 
+use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{
@@ -13,7 +14,9 @@ use zolana_keypair::{
     PublicKey,
 };
 use zolana_transaction::{
-    instructions::transact::PrivateTxHash, utxo::program_id_field, ExternalData, SppProofOutputUtxo,
+    instructions::transact::{PrivateTxHash, PublicMovements},
+    utxo::program_id_field,
+    ExternalData, SppProofOutputUtxo,
 };
 
 use crate::{
@@ -22,8 +25,7 @@ use crate::{
         field::be,
         resolve_shape,
         transact::p256_and_eddsa::{
-            assemble_inputs, assemble_outputs, OwnerMode, P256Owner, PublicAmounts,
-            TransferSpendInput,
+            assemble_inputs, assemble_outputs, OwnerMode, P256Owner, TransferSpendInput,
         },
         Shape, TransferP256Inputs,
     },
@@ -39,8 +41,9 @@ pub struct ZoneTransferP256Prover {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
-    pub public_amounts: PublicAmounts,
+    pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
+    pub allow_dummy_inputs: bool,
     pub p256_owner: P256Owner,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
@@ -96,27 +99,31 @@ impl ZoneTransferP256Prover {
         // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone P256 public-input layout: the 13-element base chain (input owner
-        // pk_fields committed, but P256 owners contribute the 0 sentinel so identities
-        // stay private), with the real hash_field(p256_message_hash) at the
-        // p256-message position. No output-owner chain and no p256_signing_pk_field.
+        // Zone P256 public-input layout: the 12-element base, then the tail of the
+        // real hash_field(p256_message_hash) and the input owner pk_field chain
+        // (committed, but P256 owners contribute the 0 sentinel so identities stay
+        // private). No output-owner chain and no p256_signing_pk_field.
         // Mirrors PublicInputHash with ZoneAuthority=false, Confidential=false in
         // prover/server/prover-test/spp/protocol/public_inputs.go.
-        let public_input = create_hash_chain_from_slice(&[
+        let slots = self.public_movements.interleaved();
+        let mut elements = Vec::with_capacity(10 + slots.len());
+        elements.extend([
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
-            hash_field(&p256_message_hash)?,
             external_data_hash,
-            self.public_amounts.sol,
-            self.public_amounts.spl,
-            self.public_amounts.asset,
+        ]);
+        elements.extend(slots);
+        elements.extend([
             zone_program_id,
             self.payer_pubkey_hash,
+            super::p256_and_eddsa::bool_field(self.allow_dummy_inputs),
+            hash_field(&p256_message_hash)?,
             create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
-        ])?;
+        ]);
+        let public_input = create_hash_chain_from_slice(&elements)?;
 
         let inputs = TransferP256Inputs {
             inputs: assembled_inputs.inputs,
@@ -129,11 +136,11 @@ impl ZoneTransferP256Prover {
             private_tx_hash: be(&private_tx),
             p256_message_hash_low: be(&p256_message_low),
             p256_message_hash_high: be(&p256_message_high),
-            public_sol_amount: be(&self.public_amounts.sol),
-            public_spl_amount: be(&self.public_amounts.spl),
-            public_spl_asset_pubkey: be(&self.public_amounts.asset),
+            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             p256_signing_pk_field: be(&p256_signing_pk_field),
             public_input_hash: be(&public_input),
         };

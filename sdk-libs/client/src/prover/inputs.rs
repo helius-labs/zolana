@@ -1,4 +1,5 @@
 use num_bigint::BigUint;
+use zolana_interface::N_PUBLIC_SLOTS;
 use zolana_transaction::{instructions::types::SppProofInputUtxo, ProofInputUtxo};
 
 use crate::{
@@ -30,7 +31,7 @@ impl TransferInput {
     /// indices, and owner hash are mirrored from the first real input by the caller;
     /// the circuit skips ownership, inclusion, and the nullifier check for it.
     pub fn new_dummy(
-        blinding: &[u8; 31],
+        blinding: &[u8; 32],
         utxo_tree_root: &[u8; 32],
         nullifier_tree_root: &[u8; 32],
         owner_pk_hash: &[u8; 32],
@@ -88,11 +89,13 @@ pub struct TransferP256Inputs {
     /// both 0 on the Solana-only rail.
     pub p256_message_hash_low: BigUint,
     pub p256_message_hash_high: BigUint,
-    pub public_sol_amount: BigUint,
-    pub public_spl_amount: BigUint,
-    pub public_spl_asset_pubkey: BigUint,
+    /// Uniform public movement slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
+    /// slots are (0, 0).
+    pub public_assets: [BigUint; N_PUBLIC_SLOTS],
+    pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
     pub zone_program_id: BigUint,
     pub payer_pubkey_hash: BigUint,
+    pub allow_dummy_inputs: BigUint,
     /// Confidential variant: the shared P256 signing key's pk_field, exposed so the
     /// circuit routes ownership by equality. 0 on the eddsa rail (no P256 owner).
     pub p256_signing_pk_field: BigUint,
@@ -108,22 +111,24 @@ pub struct TransferP256Inputs {
 pub struct MergeInputs {
     pub inputs: Vec<TransferInput>,
     pub output: TransferOutput,
-    /// Shared owner P256 signing pubkey coordinates and nullifier secret/commitment.
-    /// On the Solana (ed25519) rail the coordinates are a discarded dummy point and
-    /// `owner_pk_hash` carries the owner's pk_field; it is 0 on the P256 rail.
-    pub p256_pub_x: BigUint,
-    pub p256_pub_y: BigUint,
+    /// Shared owner identity: `owner_pk_hash` carries the owner's pk_field on
+    /// both owner rails.
     pub owner_pk_hash: BigUint,
     pub user_nullifier_pk: BigUint,
     pub user_nullifier_secret: BigUint,
-    /// Ephemeral P-256 scalar (must be < BN254 modulus so it is a valid circuit
-    /// witness as well as a P-256 scalar) and the owner's viewing pubkey as the
-    /// 65 bytes of the uncompressed point.
-    pub tx_viewing_sk: BigUint,
-    pub user_viewing_pubkey: Vec<BigUint>,
+    /// Single-use nonce driving the in-circuit output-blinding and
+    /// dummy-nullifier derivations; folded into the public-input hash.
+    pub merge_view_tag: BigUint,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
+    /// Merges always legitimately pad with dummy slots, so the dummy-input
+    /// guard is `1` here.
+    pub allow_dummy_inputs: BigUint,
     pub public_input_hash: BigUint,
+    /// Policy-zone merge only: the output zone-data hash the calling zone
+    /// program carries in the instruction/event, asserted against
+    /// `Output.ZoneDataHash`. `0` for the default merge.
+    pub output_zone_data_hash: BigUint,
     /// Policy-zone merge only: the zone program's `pk_field`, the merge-zone
     /// circuit's top-level public input. `0` for the default merge.
     pub zone_program_id: BigUint,
@@ -158,10 +163,12 @@ pub struct TransferInputs {
     pub outputs: Vec<TransferOutput>,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
-    pub public_sol_amount: BigUint,
-    pub public_spl_amount: BigUint,
-    pub public_spl_asset_pubkey: BigUint,
+    /// Uniform public movement slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
+    /// slots are (0, 0).
+    pub public_assets: [BigUint; N_PUBLIC_SLOTS],
+    pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
     pub zone_program_id: BigUint,
     pub payer_pubkey_hash: BigUint,
+    pub allow_dummy_inputs: BigUint,
     pub public_input_hash: BigUint,
 }

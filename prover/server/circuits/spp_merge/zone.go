@@ -3,63 +3,70 @@ package merge
 import (
 	"github.com/consensys/gnark/frontend"
 
-	transaction "zolana/prover/circuits/spp_transaction"
+	"zolana/prover/circuits/gadget"
+	mergeshared "zolana/prover/circuits/spp_merge/shared"
 )
 
+// ZoneCircuit is the policy-zone merge rail. Owner identity stays private;
+// the merge view tag, the output zone-data hash, and the zone program are
+// appended to the common merge public-input-hash preimage.
 type ZoneCircuit struct {
 	NumInputs int `gnark:"-"`
 
 	Inputs []Input
 	Output Output
 
-	P256Pub             transaction.P256PublicKey
+	Asset frontend.Variable
+
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
 
-	TxViewingSk       frontend.Variable
-	UserViewingPubkey [65]frontend.Variable
+	mergeshared.CommonPublicInputs
 
-	ExternalDataHash frontend.Variable
-	PrivateTxHash    frontend.Variable
-	ZoneProgramID    frontend.Variable
+	// OutputZoneDataHash is the zone-data hash the calling zone program carries
+	// in the instruction/event; asserting it against Output.ZoneDataHash binds
+	// the carried value to Output.Utxo.ZoneDataHash. Zone state stays under the
+	// zone proof; this proof only binds the hash.
+	OutputZoneDataHash frontend.Variable
+	ZoneProgramID      frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
 func NewMergeZoneCircuit() *ZoneCircuit {
-	c := &ZoneCircuit{
-		NumInputs: MergeInputs,
-		Inputs:    make([]Input, MergeInputs),
+	return &ZoneCircuit{
+		NumInputs:          MergeInputs,
+		Inputs:             mergeshared.NewInputs(),
+		CommonPublicInputs: mergeshared.NewCommonPublicInputs(),
 	}
-	for i := range c.Inputs {
-		c.Inputs[i].StatePathElements = make([]frontend.Variable, transaction.StateTreeHeight)
-		c.Inputs[i].NullifierLowPathElements = make([]frontend.Variable, transaction.NullifierTreeHeight)
+}
+
+func (c *ZoneCircuit) transaction() mergeshared.Transaction {
+	return mergeshared.Transaction{
+		Inputs:              c.Inputs,
+		Output:              c.Output,
+		Asset:               c.Asset,
+		OwnerPkHash:         c.OwnerPkHash,
+		UserNullifierPk:     c.UserNullifierPk,
+		UserNullifierSecret: c.UserNullifierSecret,
+		Public:              c.CommonPublicInputs,
+		ZoneProgramID:       c.ZoneProgramID,
 	}
-	return c
 }
 
 func (c *ZoneCircuit) Define(api frontend.API) error {
-	if err := validateLayout(c.NumInputs, c.Inputs); err != nil {
+	tx := c.transaction()
+	if err := tx.ValidateLayout(c.NumInputs); err != nil {
 		return err
 	}
-	publicInputHash, err := defineMerge(api, mergeSignals{
-		inputs:              c.Inputs,
-		output:              c.Output,
-		p256Pub:             c.P256Pub,
-		ownerPkHash:         c.OwnerPkHash,
-		userNullifierPk:     c.UserNullifierPk,
-		userNullifierSecret: c.UserNullifierSecret,
-		txViewingSk:         c.TxViewingSk,
-		userViewingPubkey:   c.UserViewingPubkey,
-		externalDataHash:    c.ExternalDataHash,
-		privateTxHash:       c.PrivateTxHash,
-		zone:                true,
-		zoneProgramID:       c.ZoneProgramID,
-	})
-	if err != nil {
+	if _, err := tx.Constrain(api); err != nil {
 		return err
 	}
-	api.AssertIsEqual(c.PublicInputHash, publicInputHash)
+	api.AssertIsEqual(c.OutputZoneDataHash, c.Output.ZoneDataHash)
+
+	fields := c.CommonPublicInputs.Prefix(api)
+	fields = append(fields, c.MergeViewTag, c.OutputZoneDataHash, c.ZoneProgramID)
+	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, fields))
 	return nil
 }

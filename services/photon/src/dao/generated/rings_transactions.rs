@@ -19,6 +19,7 @@ pub struct Model {
     pub first_output_leaf_index: i64,
     #[sea_orm(column_type = "VarBinary(StringLen::None)", nullable)]
     pub tx_viewing_pk: Option<Vec<u8>>,
+    pub merge_view_tag: Option<Vec<u8>>,
     #[sea_orm(column_type = "VarBinary(StringLen::None)", nullable)]
     pub salt: Option<Vec<u8>>,
     pub proofless: bool,

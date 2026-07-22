@@ -3,9 +3,10 @@
 //! the input commitments to fetch Merkle proofs for. Merge proves ownership
 //! in-circuit from the nullifier secret, so there is no signing step.
 
-use p256::SecretKey;
 use solana_address::Address;
-use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, ShieldedKeypairTrait};
+use zolana_keypair::{
+    merge::merge_output_blinding, viewing_key::random_blinding, PublicKey, ShieldedKeypairTrait,
+};
 
 use crate::{
     error::TransactionError,
@@ -25,8 +26,10 @@ pub struct Merge {
     output: SppProofOutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
-    user_viewing_pk: P256Pubkey,
-    tx_viewing_sk: SecretKey,
+    /// Single-use nonce driving the output-blinding and dummy-nullifier
+    /// derivations. Random (31 bytes right-aligned, so always a valid field
+    /// element); uniqueness is enforced on-chain via nullifier-queue insertion.
+    pub merge_view_tag: [u8; 32],
 }
 
 impl Merge {
@@ -48,7 +51,13 @@ impl Merge {
             Ok(())
         })?;
 
-        let output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?;
+        // The output blinding is derived, not random: slot 0 is always real
+        // (validation rejects empty inputs), and the circuit derives the same
+        // value from the first input's blinding and the merge view tag. The
+        // wallet later reconstructs the output the same way.
+        let merge_view_tag = random_blinding();
+        let mut output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?;
+        output.blinding = merge_output_blinding(&inputs[0].utxo.blinding, &merge_view_tag)?;
 
         Ok(Self {
             inputs,
@@ -57,8 +66,7 @@ impl Merge {
             // expiry`, so set this explicitly for a relayer deadline.
             expiry_unix_ts: u64::MAX,
             signing_pubkey: keypair.signing_pubkey(),
-            user_viewing_pk: keypair.viewing_pubkey(),
-            tx_viewing_sk: fresh_tx_viewing_sk()?,
+            merge_view_tag,
         })
     }
 
@@ -75,8 +83,7 @@ impl Merge {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            user_viewing_pk,
-            tx_viewing_sk,
+            merge_view_tag,
         } = self;
         pad_with_dummies(&mut inputs);
         PreparedMerge {
@@ -84,8 +91,7 @@ impl Merge {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            user_viewing_pk,
-            tx_viewing_sk,
+            merge_view_tag,
         }
     }
 }
@@ -136,15 +142,6 @@ pub(crate) fn validate_merge_inputs<K: ShieldedKeypairTrait>(
     Ok((asset, total))
 }
 
-/// A fresh ephemeral transaction viewing key: 31 random bytes are < BN254
-/// modulus, so the value is both a valid P-256 scalar and a valid circuit
-/// witness.
-pub(crate) fn fresh_tx_viewing_sk() -> Result<SecretKey, TransactionError> {
-    let mut sk_bytes = [0u8; 32];
-    sk_bytes[1..].copy_from_slice(&random_blinding());
-    SecretKey::from_slice(&sk_bytes).map_err(|e| TransactionError::P256(e.to_string()))
-}
-
 /// Pad to [`MERGE_INPUTS`] with dummy inputs, real inputs first.
 pub(crate) fn pad_with_dummies(inputs: &mut Vec<SppProofInputUtxo>) {
     while inputs.len() < MERGE_INPUTS {
@@ -185,8 +182,7 @@ pub struct PreparedMerge {
     pub output: SppProofOutputUtxo,
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,
-    pub user_viewing_pk: P256Pubkey,
-    pub tx_viewing_sk: SecretKey,
+    pub merge_view_tag: [u8; 32],
 }
 
 impl PreparedMerge {
@@ -330,7 +326,7 @@ mod tests {
     #[test]
     fn rejects_input_on_a_different_rail() {
         let mut seed = [0u8; 32];
-        seed[1..].copy_from_slice(&random_blinding());
+        seed.copy_from_slice(&random_blinding());
         let eddsa = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa keypair");
         let p256 = ShieldedKeypair::new().expect("p256 keypair");
         // A P256-owned input under an ed25519 merging keypair mismatches the rail.

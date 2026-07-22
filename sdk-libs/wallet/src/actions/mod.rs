@@ -20,5 +20,6 @@ pub use transaction::{
 pub use transaction::{
     create_merge, create_split, create_transfer, create_transfer_sync, create_withdrawal,
     CreatedMerge, CreatedSplit, CreatedTransfer, CreatedWithdrawal, MergeParams, ResolvedAddress,
-    SplitParams, TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalParams,
+    SplitParams, TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalLeg,
+    WithdrawalParams,
 };

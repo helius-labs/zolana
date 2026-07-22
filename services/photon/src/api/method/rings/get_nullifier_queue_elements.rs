@@ -118,6 +118,7 @@ mod tests {
             first_output_leaf_index: Set(0),
             tx_viewing_pk: Set(None),
             salt: Set(None),
+            merge_view_tag: Set(None),
             proofless: Set(false),
         })
         .exec(&db)

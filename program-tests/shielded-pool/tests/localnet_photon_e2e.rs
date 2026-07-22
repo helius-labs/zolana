@@ -35,8 +35,8 @@ use zolana_event::OutputDataEncoding;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::{
     instruction::{
-        CreateProtocolConfig, CreateTree, Deposit, Transact, TransactSolWithdrawal,
-        TransactWithdrawal,
+        instruction_data::transact::{PublicLeg, ResolvedPublicLeg},
+        CreateProtocolConfig, CreateTree, Deposit, Transact, TransactLegAccounts, TransactSolLeg,
     },
     pda,
     state::{
@@ -62,10 +62,11 @@ use zolana_transaction::{
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
-    pack_proof, prove_and_verify_transfer, public_input_hash, public_sol_field, real_output,
-    set_output_owner_tags, start_prover, transfer_output, TransferProverInputsArgs,
+    build_transfer_prover_inputs, dummy_input_with_proof, dummy_nullifier, dummy_transfer_output,
+    eddsa_input_utxo, external_data_hash, fe, inline_outputs, new_transact_ix_data,
+    output_owner_pk_hashes, pack_proof, prove_and_verify_transfer, public_input_hash,
+    public_sol_field, real_output, set_output_owner_tags, sol_public_slots, start_prover,
+    transfer_output, TransferProverInputsArgs,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -189,24 +190,19 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
 
     let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
+    let shield_view_tag = shield_data.view_tag;
     let shield_ix = Deposit {
         tree: tree_pubkey,
         depositor: payer.pubkey(),
-        spl: None,
-        view_tag: shield_data.view_tag,
-        owner: shield_data.owner,
-        blinding: shield_data.blinding,
-        amount: shield_data.amount,
-        utxo_data: shield_data.utxo_data,
-        memo: shield_data.memo,
+        deposits: vec![shield_data],
     }
-    .instruction();
+    .instruction()?;
     let shield_sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
     print_signature("deposit", &shield_sig);
 
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
-    let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, shield_sig)?;
-    assert_eq!(indexed_deposit.output_slot.view_tag, shield_data.view_tag);
+    let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_view_tag, shield_sig)?;
+    assert_eq!(indexed_deposit.output_slot.view_tag, shield_view_tag);
     assert_eq!(indexed_deposit.tx_signature, shield_sig);
     assert_eq!(
         indexed_deposit.output_slot.output_context.hash,
@@ -287,7 +283,9 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     );
     let change_hash = change_output.hash()?;
     let recipient_hash = recipient_output.hash()?;
-    let transfer_dummy_nullifier = fe(20);
+    let transfer_dummy_nullifier = dummy_nullifier(&[20u8; 31])?;
+    let transfer_dummy_nf =
+        wait_for_non_inclusion_proof(&indexer, tree_address, transfer_dummy_nullifier)?;
     let transfer_roots = (payer_state_proof.root, payer_nullifier_proof.root);
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
@@ -303,7 +301,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
             eddsa_input_utxo(payer_nullifier, payer_state_proof.root_index),
             eddsa_input_utxo(transfer_dummy_nullifier, payer_state_proof.root_index),
         ],
-        None,
+        Vec::new(),
         inline_outputs(
             &[change_hash, recipient_hash, transfer_dummy_hash],
             &transfer_view_tags,
@@ -322,7 +320,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &transfer_owner_pk_hashes,
         &[payer_nullifier_pk, recipient_nullifier_pk, zero],
     );
-    let transfer_external_hash = external_data_hash(&transfer_ix_data, &zero)?;
+    let transfer_external_hash = external_data_hash(&transfer_ix_data, &[])?;
     let transfer_private_tx = PrivateTxHash::new(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
@@ -330,6 +328,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     )
     .hash()?;
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
+    let (transfer_public_slot_assets, transfer_public_slot_amounts) = sol_public_slots(zero);
     let transfer_public_input_hash = public_input_hash(
         &[payer_nullifier, transfer_dummy_nullifier],
         &[change_hash, recipient_hash, transfer_dummy_hash],
@@ -337,7 +336,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &[transfer_roots.1, transfer_roots.1],
         &transfer_private_tx,
         &transfer_external_hash,
-        &zero,
+        &transfer_public_slot_assets,
+        &transfer_public_slot_amounts,
         &payer_pubkey_hash,
         &[payer_owner_pk_hash, payer_owner_pk_hash],
         &transfer_owner_pk_hashes,
@@ -346,16 +346,18 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
             payer_spend_input,
-            dummy_input(
-                &transfer_dummy_nullifier,
+            dummy_input_with_proof(
+                &[20u8; 31],
+                &transfer_dummy_nf,
                 transfer_roots,
                 &payer_owner_pk_hash,
-            ),
+            )?,
         ],
         outputs: transfer_outputs,
         external_data_hash: transfer_external_hash,
         private_tx_hash: transfer_private_tx,
-        public_sol_amount: zero,
+        public_slot_assets: transfer_public_slot_assets,
+        public_slot_amounts: transfer_public_slot_amounts,
         payer_pubkey_hash,
         public_input_hash: transfer_public_input_hash,
     });
@@ -369,7 +371,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        withdrawal: None,
+        legs: Vec::new(),
         data: transfer_ix_data,
     }
     .instruction();
@@ -444,7 +446,9 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let public_recipient_before = account_lamports(&rpc, &public_recipient)?;
     let vault = pda::sol_interface();
     let vault_before = account_lamports(&rpc, &vault)?;
-    let withdraw_dummy_nullifier = fe(21);
+    let withdraw_dummy_nullifier = dummy_nullifier(&[21u8; 31])?;
+    let withdraw_dummy_nf =
+        wait_for_non_inclusion_proof(&indexer, tree_address, withdraw_dummy_nullifier)?;
     let withdraw_roots = (recipient_state_proof.root, recipient_nullifier_proof.root);
     let withdraw_dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
@@ -467,7 +471,10 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
             eddsa_input_utxo(recipient_nullifier, recipient_state_proof.root_index),
             eddsa_input_utxo(withdraw_dummy_nullifier, recipient_state_proof.root_index),
         ],
-        Some(-(TRANSFER_AMOUNT as i64)),
+        vec![PublicLeg::Sol {
+            is_deposit: false,
+            amount: TRANSFER_AMOUNT,
+        }],
         inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
         None,
     );
@@ -478,15 +485,20 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &withdraw_owner_pk_hashes,
         &[zero, zero, zero],
     );
-    let withdraw_external_hash =
-        external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())?;
+    let withdraw_resolved_legs = [ResolvedPublicLeg::Sol {
+        is_deposit: false,
+        amount: TRANSFER_AMOUNT,
+        recipient: public_recipient.to_bytes(),
+    }];
+    let withdraw_external_hash = external_data_hash(&withdraw_ix_data, &withdraw_resolved_legs)?;
     let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[zero, zero, zero],
         &withdraw_external_hash,
     )
     .hash()?;
-    let public_sol_field = public_sol_field(withdraw_ix_data.public_sol_amount);
+    let public_sol_field = public_sol_field(Some(-(TRANSFER_AMOUNT as i64)));
+    let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
     let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes)?;
     let withdraw_public_input_hash = public_input_hash(
         &[recipient_nullifier, withdraw_dummy_nullifier],
@@ -495,7 +507,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &[withdraw_roots.1, withdraw_roots.1],
         &withdraw_private_tx,
         &withdraw_external_hash,
-        &public_sol_field,
+        &public_slot_assets,
+        &public_slot_amounts,
         &recipient_pubkey_hash,
         &[recipient_owner_pk_hash, recipient_owner_pk_hash],
         &withdraw_owner_pk_hashes,
@@ -504,16 +517,18 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let withdraw_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
             recipient_spend_input,
-            dummy_input(
-                &withdraw_dummy_nullifier,
+            dummy_input_with_proof(
+                &[21u8; 31],
+                &withdraw_dummy_nf,
                 withdraw_roots,
                 &recipient_owner_pk_hash,
-            ),
+            )?,
         ],
         outputs: withdraw_outputs,
         external_data_hash: withdraw_external_hash,
         private_tx_hash: withdraw_private_tx,
-        public_sol_amount: public_sol_field,
+        public_slot_assets,
+        public_slot_amounts,
         payer_pubkey_hash: recipient_pubkey_hash,
         public_input_hash: withdraw_public_input_hash,
     });
@@ -527,9 +542,9 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
         tree: tree_pubkey,
-        withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
+        legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
             recipient: public_recipient,
-        })),
+        })],
         data: withdraw_ix_data,
     }
     .instruction();
@@ -850,23 +865,18 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             data: Data::default(),
         };
         let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, blinding);
+        let shield_view_tag = shield_data.view_tag;
         let shield_ix = Deposit {
             tree: tree_pubkey,
             depositor: payer.pubkey(),
-            spl: None,
-            view_tag: shield_data.view_tag,
-            owner: shield_data.owner,
-            blinding: shield_data.blinding,
-            amount: shield_data.amount,
-            utxo_data: shield_data.utxo_data,
-            memo: shield_data.memo,
+            deposits: vec![shield_data],
         }
-        .instruction();
+        .instruction()?;
         let sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         print_signature(&format!("seed_deposit_{deposit_index}"), &sig);
 
         let note = RealSpendNote::new(utxo, &payer_nullifier_key, &payer_nullifier_pk, &zero)?;
-        let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, sig)?;
+        let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_view_tag, sig)?;
         assert_eq!(indexed_deposit.output_slot.output_context.hash, note.hash);
         spendable_notes.push_back(note);
     }
@@ -949,6 +959,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
                     nullifier: second_nullifier_proof,
                 },
             ],
+            &[],
         )?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::Eddsa(inputs) => ProverClient::local().prove_transfer(inputs)?,
@@ -963,7 +974,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         let tx_ix = Transact {
             payer: payer.pubkey(),
             tree: tree_pubkey,
-            withdrawal: None,
+            legs: Vec::new(),
             data: ix_data,
         }
         .instruction();
@@ -1608,15 +1619,9 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         let shield_ix = Deposit {
             tree: tree_pubkey,
             depositor: payer.pubkey(),
-            spl: None,
-            view_tag: shield_data.view_tag,
-            owner: shield_data.owner,
-            blinding: shield_data.blinding,
-            amount: shield_data.amount,
-            utxo_data: shield_data.utxo_data,
-            memo: shield_data.memo,
+            deposits: vec![shield_data],
         }
-        .instruction();
+        .instruction()?;
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
@@ -1636,8 +1641,17 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         let nullifier = wait_for_non_inclusion_proof(&indexer, tree_address, commitment.nullifier)?;
         spend_proofs.push(SpendProof { state, nullifier });
     }
+    // Each padding dummy needs a real non-inclusion witness for its own nullifier.
+    let mut dummy_proofs = Vec::new();
+    for nullifier in proof_inputs.dummy_nullifiers()? {
+        dummy_proofs.push(wait_for_non_inclusion_proof(
+            &indexer,
+            tree_address,
+            nullifier,
+        )?);
+    }
 
-    let assembled = zolana_client::assemble(proof_inputs, &spend_proofs)?;
+    let assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
     let proof = match (&assembled.prover_inputs, expected_rail) {
         (ProverInputs::P256(inputs), SpendRail::P256) => {
             ProverClient::local().prove_transfer_p256(inputs)?
@@ -1662,7 +1676,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        withdrawal: None,
+        legs: Vec::new(),
         data: ix_data,
     }
     .instruction();

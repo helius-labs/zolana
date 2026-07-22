@@ -3,14 +3,13 @@
 //! ([`crate::prover::merge::MergeProver::common`]) and differs in two deltas: the merged
 //! output and every input are bound to a shared `zone_program_id`, which is
 //! appended as the final element of the merge public-input hash (SPP binds it
-//! from the CPI-calling `zone_config`); and the owner signing/viewing
-//! `pk_field` are omitted from the public inputs (a policy zone has no registry
-//! to bind owner identity against).
+//! from the CPI-calling `zone_config`); and the owner signing `pk_field` is
+//! omitted from the public inputs (a policy zone has no registry to bind owner
+//! identity against).
 
-use p256::SecretKey;
 use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
+use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{
     instructions::merge_zone::PreparedMergeZone, utxo::program_id_field, SppProofOutputUtxo,
 };
@@ -28,10 +27,9 @@ use crate::{
 };
 
 /// Policy-zone merge consolidates up to 8 inputs sharing one owner, asset,
-/// nullifier secret, and `zone_program_id` into one output, verifiably encrypted
-/// to the owner's viewing key. Identical to [`crate::prover::merge::MergeProver`]
-/// except for the shared `zone_program_id` folded into the public-input hash and
-/// stamped on every UTXO.
+/// nullifier secret, and `zone_program_id` into one output. Identical to
+/// [`crate::prover::merge::MergeProver`] except for the shared `zone_program_id`
+/// and the output `zone_data_hash` folded into the public-input hash.
 pub struct MergeZoneProver {
     pub inputs: Vec<TransferSpendInput>,
     pub output: SppProofOutputUtxo,
@@ -43,10 +41,9 @@ pub struct MergeZoneProver {
     /// `nullifier_pk` and every input nullifier).
     pub signing_pubkey: PublicKey,
     pub nullifier_key: NullifierKey,
-    /// Owner viewing key (encryption recipient) and the ephemeral scalar. The
-    /// scalar must be < BN254 modulus so it is a valid circuit witness.
-    pub user_viewing_pk: P256Pubkey,
-    pub tx_viewing_sk: SecretKey,
+    /// Single-use nonce driving the output-blinding and dummy-nullifier
+    /// derivations; SPP inserts it into the nullifier queue.
+    pub merge_view_tag: [u8; 32],
     /// Zone program every input and the output are owned by. Its `pk_field`
     /// (`program_id_field(&Some(zone))` == on-chain `solana_pk_hash(zone)`) is the
     /// final public-input element and the value SPP binds from `zone_config`.
@@ -64,6 +61,11 @@ impl MergeZoneProver {
         }
         self.output.zone_program_id = Some(self.zone_program_id);
 
+        // The output zone-data hash the zone program selected; the merge-zone
+        // circuit asserts it against the output's ZoneDataHash and folds it into
+        // the public-input hash after the merge view tag.
+        let output_zone_data_hash = self.output.zone_data_hash.unwrap_or([0u8; 32]);
+
         // A zone merge is the default merge plus a zone binding: reuse its
         // shared computation under the `merge_zone` instruction tag.
         let zone_program_id = self.zone_program_id;
@@ -73,28 +75,29 @@ impl MergeZoneProver {
             expiry_unix_ts: self.expiry_unix_ts,
             signing_pubkey: self.signing_pubkey,
             nullifier_key: self.nullifier_key,
-            user_viewing_pk: self.user_viewing_pk,
-            tx_viewing_sk: self.tx_viewing_sk,
+            merge_view_tag: self.merge_view_tag,
         }
         .common(zolana_interface::instruction::tag::ZONE_MERGE_TRANSACT)?;
 
-        // The policy-zone merge omits the owner-identity public inputs (no registry
-        // binds them) and instead commits the zone's pk_field as the final element,
-        // after the ciphertext hash. `zone_program_id_field` equals the on-chain
-        // `solana_pk_hash(zone)` the program derives from the calling `zone_config`.
+        // The policy-zone merge omits the owner-identity public input (no registry
+        // binds it) and instead commits the merge view tag, the output zone-data
+        // hash, and the zone's pk_field as the final elements.
+        // `zone_program_id_field` equals the on-chain `solana_pk_hash(zone)` the
+        // program derives from the calling `zone_config`.
         let zone_program_id_field = program_id_field(&Some(zone_program_id))?;
         let mut elements = merge.head.to_vec();
         elements.extend([
-            merge.tx_pk_lo,
-            merge.tx_pk_hi,
-            merge.ct_hash,
+            merge.merge_view_tag,
+            output_zone_data_hash,
             zone_program_id_field,
         ]);
         let public_input = create_hash_chain_from_slice(&elements)?;
 
-        // The zone binding is a top-level witness the merge-zone circuit checks;
-        // it equals the final hash element and every per-UTXO zone_program_id.
-        Ok(merge.finish(public_input, be(&zone_program_id_field)))
+        Ok(merge.finish(
+            public_input,
+            be(&zone_program_id_field),
+            be(&output_zone_data_hash),
+        ))
     }
 }
 
@@ -122,12 +125,11 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            user_viewing_pk,
-            tx_viewing_sk,
+            merge_view_tag,
             zone_program_id,
         } = prepared;
 
-        let spends = attach_input_proofs(inputs, &proofs)?;
+        let spends = attach_input_proofs(inputs, &proofs, &[])?;
 
         Ok(MergeZoneProver {
             inputs: spends,
@@ -135,8 +137,7 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             expiry_unix_ts,
             signing_pubkey,
             nullifier_key,
-            user_viewing_pk,
-            tx_viewing_sk,
+            merge_view_tag,
             zone_program_id,
         })
     }

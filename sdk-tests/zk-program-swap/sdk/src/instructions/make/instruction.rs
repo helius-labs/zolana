@@ -76,7 +76,7 @@ impl Make {
 mod tests {
     use solana_address::Address;
     use solana_keypair::Keypair;
-    use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedKeypair};
+    use zolana_keypair::shielded::ShieldedKeypair;
     use zolana_transaction::{
         instructions::{
             transact::{
@@ -117,7 +117,7 @@ mod tests {
             owner: owner_keypair.signing_pubkey(),
             asset: SOL_MINT,
             amount: input_amount,
-            blinding: [5u8; BLINDING_LEN],
+            blinding: crate::shared::test_blinding(5),
             zone_program_id: None,
             data: Data::default(),
         };
@@ -127,7 +127,7 @@ mod tests {
             owner_address: Some(order_keypair.shielded_address().expect("order address")),
             asset: SOL_MINT,
             amount: order_utxo_amount,
-            blinding: [11u8; BLINDING_LEN],
+            blinding: crate::shared::test_blinding(11),
             ..Default::default()
         }
         .with_utxo_data(vec![1, 2, 3, 4], data_hash_bytes(0xAB));
@@ -253,7 +253,7 @@ mod tests {
             owner: owner_keypair.signing_pubkey(),
             asset: SOL_MINT,
             amount,
-            blinding: [6u8; BLINDING_LEN],
+            blinding: crate::shared::test_blinding(6),
             zone_program_id: None,
             data: Data::default(),
         };
@@ -263,7 +263,7 @@ mod tests {
             owner_address: Some(order_keypair.shielded_address().expect("order address")),
             asset: SOL_MINT,
             amount,
-            blinding: [12u8; BLINDING_LEN],
+            blinding: crate::shared::test_blinding(12),
             ..Default::default()
         }
         .with_utxo_data(vec![9, 9], data_hash_bytes(0xCD));

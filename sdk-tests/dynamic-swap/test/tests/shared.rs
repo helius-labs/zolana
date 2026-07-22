@@ -309,7 +309,7 @@ pub fn setup() -> Result<TestEnv> {
         memo: None,
     })?;
     user_deposit.send(&rpc, &payer, tree, &payer)?;
-    let user_spl_blinding = user_deposit.data.blinding;
+    let user_spl_blinding = user_deposit.deposit.blinding;
 
     // Register both parties in the user directory (keyed by their Solana
     // pubkeys). On settle, the caller resolves the recipient's shielded address

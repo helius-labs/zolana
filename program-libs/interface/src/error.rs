@@ -66,14 +66,13 @@ pub enum ShieldedPoolError {
     InvalidUserRecord = 7018,
     #[error("merge_transact instruction shape is invalid")]
     InvalidMergeShape = 7019,
-    #[error("merge output ciphertext must be verifiably encrypted")]
-    InvalidMergeOutputScheme = 7020,
-    #[error("transact proof rail does not match the instruction inputs")]
-    MismatchedTransactProofRail = 7021,
+    // 7020 retired: was `InvalidMergeOutputScheme` (merge output ciphertext had
+    // to be verifiably encrypted); merge outputs are now deterministically
+    // derived, so there is no ciphertext scheme to check.
+    #[error("transact proof variant does not match the instruction inputs")]
+    MismatchedTransactProofVariant = 7021,
     #[error("zone_authority_transact is disabled for this zone")]
     ZoneAuthorityTransactDisabled = 7022,
-    #[error("transact sets both public_sol_amount and public_spl_amount; at most one is allowed")]
-    BothPublicAmountsSet = 7023,
     #[error("output owner tag references the p256 signing key but p256_signing_pk_x is absent")]
     MissingP256SigningKey = 7024,
     #[error("output owner tag account index is out of range")]
@@ -84,6 +83,30 @@ pub enum ShieldedPoolError {
     InsufficientForesterFeeBalance = 7027,
     #[error("system program account is invalid")]
     InvalidSystemProgram = 7028,
+    #[error("deposit batch contains no entries")]
+    EmptyDepositBatch = 7029,
+    #[error("deposit entry references an asset index out of range")]
+    InvalidDepositAssetIndex = 7030,
+    #[error("deposit settlement accounts contain a duplicate asset")]
+    DuplicateDepositAsset = 7031,
+    #[error("deposit batch amounts overflow for an asset")]
+    DepositAmountOverflow = 7032,
+    #[error("deposit settlement asset is not referenced by any entry")]
+    UnreferencedDepositAsset = 7033,
+    #[error("deposit batch exceeds the maximum number of assets")]
+    TooManyDepositAssets = 7034,
+    #[error("transact public settlement leg count exceeds the u8 wire encoding")]
+    TooManyPublicLegs = 7035,
+    #[error("transact public settlement legs must have nonzero amounts")]
+    ZeroPublicLegAmount = 7036,
+    #[error("transact exceeds the maximum number of distinct public assets")]
+    TooManyPublicAssets = 7037,
+    #[error("transact public settlement amounts overflow while aggregating an asset")]
+    PublicAssetAmountOverflow = 7038,
+    #[error("circuit selector type does not match the dispatched instruction")]
+    MismatchedCircuitType = 7039,
+    #[error("circuit selector variant does not match p256_signing_pk_x or the input signers")]
+    MismatchedCircuitVariant = 7040,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -108,6 +131,7 @@ impl From<TreeError> for ShieldedPoolError {
     fn from(error: TreeError) -> Self {
         match error {
             TreeError::Paused => ShieldedPoolError::TreePaused,
+            TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed,
             _ => ShieldedPoolError::InvalidTreeAccounts,
         }
     }
@@ -141,15 +165,25 @@ mod tests {
             (MergeDisabled as u32, 7017),
             (InvalidUserRecord as u32, 7018),
             (InvalidMergeShape as u32, 7019),
-            (InvalidMergeOutputScheme as u32, 7020),
-            (MismatchedTransactProofRail as u32, 7021),
+            (MismatchedTransactProofVariant as u32, 7021),
             (ZoneAuthorityTransactDisabled as u32, 7022),
-            (BothPublicAmountsSet as u32, 7023),
             (MissingP256SigningKey as u32, 7024),
             (OwnerTagAccountMissing as u32, 7025),
             (InvalidForesterFee as u32, 7026),
             (InsufficientForesterFeeBalance as u32, 7027),
             (InvalidSystemProgram as u32, 7028),
+            (EmptyDepositBatch as u32, 7029),
+            (InvalidDepositAssetIndex as u32, 7030),
+            (DuplicateDepositAsset as u32, 7031),
+            (DepositAmountOverflow as u32, 7032),
+            (UnreferencedDepositAsset as u32, 7033),
+            (TooManyDepositAssets as u32, 7034),
+            (TooManyPublicLegs as u32, 7035),
+            (ZeroPublicLegAmount as u32, 7036),
+            (TooManyPublicAssets as u32, 7037),
+            (PublicAssetAmountOverflow as u32, 7038),
+            (MismatchedCircuitType as u32, 7039),
+            (MismatchedCircuitVariant as u32, 7040),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

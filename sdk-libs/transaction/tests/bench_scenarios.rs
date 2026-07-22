@@ -303,6 +303,7 @@ impl Scenario {
                 messages: Vec::new(),
                 nullifiers: vec![first_nullifier],
                 proofless: false,
+                merge_view_tag: None,
             });
         }
     }

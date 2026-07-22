@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"strings"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/internal/p256key"
 	"zolana/prover/prover-test/spp/parse"
 

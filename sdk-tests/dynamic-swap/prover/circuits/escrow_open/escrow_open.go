@@ -4,7 +4,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"zolana/prover/circuits/gadget"
-	spp "zolana/prover/circuits/spp_transaction"
+	spp "zolana/prover/circuits/spp_transaction/shared"
 )
 
 // Circuit binds create_escrow's 2-in/3-out real shape (taker's source UTXO +

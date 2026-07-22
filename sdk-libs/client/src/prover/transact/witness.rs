@@ -1,9 +1,9 @@
 use zolana_interface::instruction::instruction_data::transact::{
-    InputUtxo, TransactIxData, TransactProof,
+    CircuitId, CircuitVariant, InputUtxo, TransactIxData, TransactProof,
 };
 use zolana_keypair::SignatureType;
 use zolana_transaction::instructions::{
-    transact::{inputs_require_p256, SppProofInputs},
+    transact::{inputs_proof_variant, SppProofInputs},
     types::SppProofInputUtxo,
 };
 
@@ -12,7 +12,7 @@ use crate::{
     prover::{
         transact::{
             eddsa::TransferProver,
-            p256_and_eddsa::{P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput},
+            p256_and_eddsa::{P256Owner, TransferP256Prover, TransferSpendInput},
         },
         ProofCompressed, ProverClient, TransferInputs, TransferP256Inputs,
     },
@@ -27,25 +27,32 @@ pub struct SpendProof {
 }
 
 /// Attach the fetched Merkle proofs to the proof inputs positionally: each real
-/// input (non-zero owner) consumes the next proof, dummy slots stay proofless
-/// and mirror the first real input's roots during assembly. Shared by every
-/// witness builder (transact, merge, merge-zone, zone-authority).
+/// input (non-zero owner) consumes the next spend proof, each dummy slot consumes
+/// the next dummy non-inclusion proof (the transact circuit checks non-inclusion
+/// for every slot). Callers whose circuit skips dummy non-inclusion (merge,
+/// merge-zone) pass no dummy proofs; those dummies mirror the first real input's
+/// witness during assembly. Shared by every witness builder (transact, merge,
+/// merge-zone, zone-authority).
 pub(crate) fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,
     proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
 ) -> Result<Vec<TransferSpendInput>, ClientError> {
     let mut spends = Vec::with_capacity(inputs.len());
     let mut real_index = 0;
+    let mut dummy_index = 0;
     for spend in inputs {
-        let proof = if spend.utxo.owner.is_zero() {
-            None
+        let (proof, nullifier_proof) = if spend.utxo.owner.is_zero() {
+            let nullifier_proof = dummy_nullifier_proofs.get(dummy_index).cloned();
+            dummy_index += 1;
+            (None, nullifier_proof)
         } else {
             let proof = proofs
                 .get(real_index)
                 .ok_or(ClientError::MissingInputMerkleProof { index: real_index })?
                 .clone();
             real_index += 1;
-            Some(proof)
+            (Some(proof), None)
         };
         spends.push(TransferSpendInput {
             utxo: spend.utxo,
@@ -53,24 +60,26 @@ pub(crate) fn attach_input_proofs(
             data_hash: spend.data_hash,
             zone_data_hash: spend.zone_data_hash,
             proof,
+            nullifier_proof,
         });
     }
     Ok(spends)
 }
 
-pub enum CircuitType {
+pub enum ProverVariant {
     P256(TransferP256Prover),
     Eddsa(TransferProver),
 }
 
 /// A built circuit ready to hand to the prover client.
 pub struct BuiltCircuit {
-    pub circuit: CircuitType,
+    pub circuit: ProverVariant,
 }
 
-/// Sentinel `eddsa_signer_index` marking a P256-owned input; the program uses it
-/// to select the P256 verifying key and skip the eddsa signer check. Mirrors
-/// `P256_OWNED_SIGNER` in the shielded-pool program.
+/// Sentinel `eddsa_signer_index` marking a P256-owned input: it routes the
+/// input to the transaction's shared P256 signing key and skips the eddsa
+/// signer check. Valid only when the declared circuit selector is a P256
+/// variant. Mirrors `P256_OWNED_SIGNER` in the shielded-pool program.
 const P256_OWNED_SIGNER: u8 = 255;
 
 /// Default output-tree slot every input is placed at (`tree_index` 0).
@@ -109,23 +118,34 @@ impl ProverClient {
         &self,
         proof_inputs: SppProofInputs,
         input_proofs: &[SpendProof],
+        dummy_nullifier_proofs: &[NonInclusionProof],
     ) -> Result<TransactIxData, ClientError> {
-        let assembled = assemble(proof_inputs, input_proofs)?;
+        self.prove_transact_with_dummy_policy(
+            proof_inputs,
+            input_proofs,
+            dummy_nullifier_proofs,
+            true,
+        )
+    }
+
+    pub fn prove_transact_with_dummy_policy(
+        &self,
+        proof_inputs: SppProofInputs,
+        input_proofs: &[SpendProof],
+        dummy_nullifier_proofs: &[NonInclusionProof],
+        allow_dummy_inputs: bool,
+    ) -> Result<TransactIxData, ClientError> {
+        let assembled = assemble_with_dummy_policy(
+            proof_inputs,
+            input_proofs,
+            dummy_nullifier_proofs,
+            allow_dummy_inputs,
+        )?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => self.prove_transfer_p256(inputs)?,
             ProverInputs::Eddsa(inputs) => self.prove_transfer(inputs)?,
         };
         Ok(assembled.with_proof(ProofCompressed::try_from(proof)?.to_transact_proof()))
-    }
-}
-
-fn client_public_amounts(
-    amounts: zolana_transaction::instructions::transact::PublicAmounts,
-) -> PublicAmounts {
-    PublicAmounts {
-        sol: amounts.sol,
-        spl: amounts.spl,
-        asset: amounts.asset,
     }
 }
 
@@ -158,15 +178,40 @@ fn p256_owner(proof_inputs: &SppProofInputs) -> Result<P256Owner, ClientError> {
 pub fn into_prover(
     proof_inputs: SppProofInputs,
     input_merkle_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
 ) -> Result<BuiltCircuit, ClientError> {
-    let requires_p256 = inputs_require_p256(&proof_inputs.input_utxos)?;
-    let p256_owner = if requires_p256 {
+    into_prover_with_dummy_policy(
+        proof_inputs,
+        input_merkle_proofs,
+        dummy_nullifier_proofs,
+        true,
+    )
+}
+
+pub fn into_prover_with_dummy_policy(
+    proof_inputs: SppProofInputs,
+    input_merkle_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+    allow_dummy_inputs: bool,
+) -> Result<BuiltCircuit, ClientError> {
+    if !allow_dummy_inputs
+        && proof_inputs
+            .input_utxos
+            .iter()
+            .any(|input| input.is_dummy())
+    {
+        return Err(ClientError::DummyInputsNotAllowed);
+    }
+    // Derived here, once: the variant drives the prover witness below and the
+    // `circuit` selector stamped by `assemble`, so they agree by construction.
+    let variant = inputs_proof_variant(&proof_inputs.input_utxos)?;
+    let p256_owner = if variant == CircuitVariant::P256 {
         Some(p256_owner(&proof_inputs)?)
     } else {
         None
     };
     let shape = proof_inputs.check_shape()?;
-    let public_amounts = client_public_amounts(proof_inputs.public_amounts()?);
+    let public_movements = proof_inputs.public_movements()?;
     let SppProofInputs {
         input_utxos: inputs,
         output_utxos: outputs,
@@ -175,26 +220,28 @@ pub fn into_prover(
         ..
     } = proof_inputs;
 
-    let spends = attach_input_proofs(inputs, input_merkle_proofs)?;
+    let spends = attach_input_proofs(inputs, input_merkle_proofs, dummy_nullifier_proofs)?;
 
-    let circuit = if requires_p256 {
+    let circuit = if variant == CircuitVariant::P256 {
         let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
-        CircuitType::P256(TransferP256Prover {
+        ProverVariant::P256(TransferP256Prover {
             inputs: spends,
             outputs,
             external_data,
-            public_amounts,
+            public_movements,
             payer_pubkey_hash,
+            allow_dummy_inputs,
             p256_owner,
             shape: Some(shape),
         })
     } else {
-        CircuitType::Eddsa(TransferProver {
+        ProverVariant::Eddsa(TransferProver {
             inputs: spends,
             outputs,
             external_data,
-            public_amounts,
+            public_movements,
             payer_pubkey_hash,
+            allow_dummy_inputs,
             shape: Some(shape),
         })
     };
@@ -211,6 +258,16 @@ pub fn into_prover(
 pub fn assemble(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+) -> Result<AssembledTransfer, ClientError> {
+    assemble_with_dummy_policy(proof_inputs, input_proofs, dummy_nullifier_proofs, true)
+}
+
+pub fn assemble_with_dummy_policy(
+    proof_inputs: SppProofInputs,
+    input_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+    allow_dummy_inputs: bool,
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
 
@@ -233,9 +290,7 @@ pub fn assemble(
 
     let zolana_transaction::ExternalData {
         expiry_unix_ts,
-        relayer_fee,
-        public_sol_amount,
-        public_spl_amount,
+        public_legs,
         data_hash,
         zone_data_hash,
         tx_viewing_pk,
@@ -244,12 +299,27 @@ pub fn assemble(
         messages,
         ..
     } = proof_inputs.external_data.clone();
+    let public_legs = public_legs
+        .iter()
+        .copied()
+        .map(zolana_transaction::instructions::transact::SettlementLeg::public_leg)
+        .collect();
 
-    let BuiltCircuit { circuit } = into_prover(proof_inputs, input_proofs)?;
+    // The circuit selector derives from the same variant decision as the prover
+    // witness: the spending key material, never a user choice. `assemble` only
+    // builds default-zone `transact` data, so the type is always confidential.
+    let circuit_id = CircuitId::confidential(inputs_proof_variant(&proof_inputs.input_utxos)?);
+
+    let BuiltCircuit { circuit } = into_prover_with_dummy_policy(
+        proof_inputs,
+        input_proofs,
+        dummy_nullifier_proofs,
+        allow_dummy_inputs,
+    )?;
 
     let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices, p256_signing_pk_x) =
         match circuit {
-            CircuitType::P256(prover) => {
+            ProverVariant::P256(prover) => {
                 let result = prover.build()?;
                 (
                     ProverInputs::P256(result.inputs),
@@ -260,7 +330,7 @@ pub fn assemble(
                     Some(result.p256_signing_pk_x),
                 )
             }
-            CircuitType::Eddsa(prover) => {
+            ProverVariant::Eddsa(prover) => {
                 let result = prover.build()?;
                 (
                     ProverInputs::Eddsa(result.inputs),
@@ -315,12 +385,11 @@ pub fn assemble(
     let ix = TransactIxData {
         proof: TransactProof::zeroed_eddsa(),
         expiry_unix_ts,
-        relayer_fee,
         private_tx_hash: private_tx,
+        circuit: circuit_id,
         p256_signing_pk_x,
         inputs,
-        public_sol_amount,
-        public_spl_amount,
+        public_legs,
         data_hash,
         zone_data_hash,
         tx_viewing_pk,
@@ -334,4 +403,87 @@ pub fn assemble(
         public_input_hash,
         ix,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_address::Address;
+    use zolana_transaction::{
+        instructions::{
+            transact::{spp_proof_inputs::asset_field, SettlementLeg, SppProofInputs},
+            types::SppProofInputUtxo,
+        },
+        ExternalData, SppProofOutputUtxo,
+    };
+
+    use super::{attach_input_proofs, into_prover, ProverVariant};
+    use crate::rpc::{MerkleContext, NonInclusionProof, NULLIFIER_TREE_HEIGHT};
+
+    #[test]
+    fn attaches_dummy_nullifier_proofs_in_slot_order() {
+        let inputs = vec![
+            SppProofInputUtxo::new_dummy(),
+            SppProofInputUtxo::new_dummy(),
+        ];
+        let proofs = [dummy_nullifier_proof(1), dummy_nullifier_proof(2)];
+
+        let spends = attach_input_proofs(inputs, &[], &proofs).expect("attach dummy proofs");
+
+        assert_eq!(spends[0].nullifier_proof.as_ref(), Some(&proofs[0]));
+        assert_eq!(spends[1].nullifier_proof.as_ref(), Some(&proofs[1]));
+    }
+
+    #[test]
+    fn spl_only_movement_occupies_public_slot_zero() {
+        let mint = Address::new_from_array([41u8; 32]);
+        let external_data =
+            ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new())
+                .with_public_leg(SettlementLeg::Spl {
+                    mint,
+                    is_deposit: false,
+                    amount: 9,
+                    user_spl_token: Address::new_from_array([42u8; 32]),
+                    spl_token_interface: Address::new_from_array([43u8; 32]),
+                })
+                .expect("valid SPL settlement");
+        let proof_inputs = SppProofInputs::new(
+            vec![SppProofInputUtxo::new_dummy()],
+            vec![SppProofOutputUtxo::default()],
+            external_data,
+            Address::default(),
+        );
+
+        let built = into_prover(proof_inputs, &[], &[]).expect("assemble prover");
+        let ProverVariant::Eddsa(prover) = built.circuit else {
+            panic!("dummy-only proof inputs use the eddsa rail");
+        };
+        assert_eq!(
+            prover.public_movements.assets.first().copied(),
+            Some(asset_field(&mint).expect("asset field"))
+        );
+        assert!(prover
+            .public_movements
+            .assets
+            .iter()
+            .skip(1)
+            .all(|asset| *asset == [0u8; 32]));
+    }
+
+    fn dummy_nullifier_proof(marker: u8) -> NonInclusionProof {
+        NonInclusionProof {
+            leaf: [marker; 32],
+            merkle_context: MerkleContext {
+                tree_type: 1,
+                tree: Address::new_from_array([marker; 32]),
+            },
+            path: vec![[marker; 32]; NULLIFIER_TREE_HEIGHT],
+            low_element: [0u8; 32],
+            low_element_index: 0,
+            high_element: [u8::MAX; 32],
+            high_element_index: 1,
+            root: [marker; 32],
+            root_seq: u64::from(marker),
+            root_index: u16::from(marker),
+        }
+    }
 }

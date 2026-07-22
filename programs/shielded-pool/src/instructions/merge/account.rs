@@ -34,10 +34,9 @@ impl<'a> MergeTransactAccounts<'a> {
     }
 }
 
-/// The two registry-derived owner identity public inputs: the already-derived
-/// `pk_field` of the signing key (rail-selected) and the compressed viewing key
-/// (its `pk_field` is computed by the processor). Feeding these into the
-/// recomputed public-input hash binds the proof to the registered keys.
+/// The registry-derived owner identity public inputs: the already-derived
+/// `pk_field` of the signing key and its owner-pubkey index tag. Feeding these
+/// into the recomputed public-input hash binds the proof to the registered key.
 ///
 /// `signing_view_tag` is the owner-pubkey index tag for the merged output (the
 /// confidential default-zone tag): the signing key's 32-byte x-coordinate for a
@@ -45,7 +44,6 @@ impl<'a> MergeTransactAccounts<'a> {
 pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],
     pub signing_view_tag: [u8; 32],
-    pub viewing: [u8; 33],
     pub merging_enabled: bool,
 }
 
@@ -84,7 +82,6 @@ pub fn load_user_record(
     Ok(UserPkFields {
         signing_pk_field,
         signing_view_tag,
-        viewing: record.viewing_pubkey,
         merging_enabled,
     })
 }

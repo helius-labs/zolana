@@ -2,7 +2,10 @@ use groth16_solana::groth16::negate_g1_be;
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
-use zolana_interface::instruction::instruction_data::transact::{P256Proof, TransactProof};
+use zolana_interface::instruction::instruction_data::{
+    merge_transact::MergeProof,
+    transact::{P256Proof, TransactProof},
+};
 
 use crate::error::ClientError;
 
@@ -105,11 +108,20 @@ impl ProofCompressed {
         })
     }
 
-    /// The `merge_transact` proof. The merge circuit is the P256 BSB22 rail, so
-    /// this is exactly [`Self::to_p256_proof`]: mandatory commitment, and a proof
-    /// without one is not a valid merge proof.
-    pub fn to_merge_proof(&self) -> Result<P256Proof, ClientError> {
-        self.to_p256_proof()
+    /// The merge proof: a vanilla Groth16 triple ([`MergeProof`]). The merge
+    /// circuit carries no P256 gadget, so it has no BSB22 commitment; one is
+    /// rejected (wrong rail?).
+    pub fn to_merge_proof(&self) -> Result<MergeProof, ClientError> {
+        if self.commitment.is_some() {
+            return Err(ClientError::ProofParse(
+                "merge proof carries an unexpected BSB22 commitment (wrong rail?)".to_string(),
+            ));
+        }
+        Ok(MergeProof {
+            a: self.a,
+            b: self.b,
+            c: self.c,
+        })
     }
 }
 
@@ -204,37 +216,25 @@ mod tests {
     }
 
     #[test]
-    fn to_merge_proof_maps_points_and_commitment() {
-        let proof = proof_with_commitment()
-            .to_merge_proof()
-            .expect("merge proof maps");
-
-        assert_eq!(proof.a, [1u8; 32]);
-        assert_eq!(proof.b, [2u8; 64]);
-        assert_eq!(proof.c, [3u8; 32]);
-        assert_eq!(proof.commitment, [4u8; 32]);
-        assert_eq!(proof.commitment_pok, [5u8; 32]);
-    }
-
-    /// The transact P256 variant and the merge proof must be the same
-    /// five-tuple: one packing definition serves both instruction formats.
-    #[test]
-    fn transact_p256_and_merge_proof_are_the_same_tuple() {
-        let compressed = proof_with_commitment();
-        let merge = compressed.to_merge_proof().expect("merge proof maps");
-        assert_eq!(compressed.to_transact_proof(), TransactProof::P256(merge));
-    }
-
-    #[test]
-    fn to_merge_proof_rejects_a_proof_without_a_commitment() {
+    fn to_merge_proof_maps_points() {
         let vanilla = ProofCompressed {
             commitment: None,
             ..proof_with_commitment()
         };
+        let proof = vanilla.to_merge_proof().expect("merge proof maps");
 
-        let error = vanilla
+        assert_eq!(proof.a, [1u8; 32]);
+        assert_eq!(proof.b, [2u8; 64]);
+        assert_eq!(proof.c, [3u8; 32]);
+    }
+
+    /// The merge circuit has no P256 gadget: a BSB22-committed proof is not a
+    /// merge proof.
+    #[test]
+    fn to_merge_proof_rejects_a_proof_with_a_commitment() {
+        let error = proof_with_commitment()
             .to_merge_proof()
-            .expect_err("a vanilla proof is not a merge proof");
+            .expect_err("a committed proof is not a merge proof");
 
         assert!(matches!(error, ClientError::ProofParse(_)));
     }

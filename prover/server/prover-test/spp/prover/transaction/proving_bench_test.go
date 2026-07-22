@@ -45,7 +45,7 @@ func benchmarkProveShape(b *testing.B, shape protocol.Shape, p256 bool) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	assignment := built.circuit
+	assignment := built.witness
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -98,7 +98,6 @@ func benchmarkTransaction(shape protocol.Shape, p256 bool) (ProofTransactionRequ
 		InstructionDiscriminator: 1,
 		ExpiryUnixTs:             123,
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
-		PublicAmountMode:         0,
 		EncryptedUtxos:           "00",
 		DataHash:                 proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:             proofFieldInput(big.NewInt(0)),

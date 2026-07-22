@@ -3,7 +3,6 @@ use solana_address::Address;
 use swap_program::instructions::shared::u64_right_align;
 use swap_prover::TAKE_ENC_KDF_DOMAIN;
 use zolana_keypair::{
-    constants::BLINDING_LEN,
     hash::{hash_field, poseidon},
     merge::{merge_ciphertext_hash, symmetric_apply, MERGE_INFO},
 };
@@ -22,10 +21,12 @@ pub fn destination_ciphertext_with_hash(
     destination_amount: u64,
     destination_output_blinding: &Blinding,
 ) -> Result<(Vec<u8>, [u8; 32])> {
-    let mut plaintext = Vec::with_capacity(8 + 32 + BLINDING_LEN);
+    // The take circuit packs the blinding as its low 31 bytes; keep that wire
+    // layout (the blinding is a 32-byte field element with a zero top byte).
+    let mut plaintext = Vec::with_capacity(8 + 32 + 31);
     plaintext.extend_from_slice(&destination_amount.to_be_bytes());
     plaintext.extend_from_slice(&hash_field(destination_mint.as_array()).map_err(err)?);
-    plaintext.extend_from_slice(destination_output_blinding);
+    plaintext.extend_from_slice(&destination_output_blinding[1..]);
     symmetric_apply(
         &take_shared_secret(order_utxo_blinding)?,
         MERGE_INFO,

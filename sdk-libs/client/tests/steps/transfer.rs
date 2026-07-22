@@ -10,16 +10,15 @@ use borsh::BorshDeserialize;
 use cucumber::{then, when};
 use solana_address::Address;
 use zolana_client::{
-    CircuitType, ConfidentialTransfer, PublicAmounts, Rpc, SppProofInputUtxo, WithdrawalTarget,
+    ConfidentialTransfer, ProverVariant, PublicMovements, Rpc, SettlementTarget, SppProofInputUtxo,
 };
 use zolana_event::OutputDataEncoding;
-use zolana_keypair::{
-    constants::BLINDING_LEN, shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey,
-};
+use zolana_interface::SOL_ASSET_FIELD;
+use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::{
     instructions::transact::{
         spp_proof_inputs::{asset_field, signed_to_field},
-        SENDER_SLOT_COUNT,
+        SettlementLeg, SENDER_SLOT_COUNT,
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::derive_blinding,
@@ -85,10 +84,15 @@ impl TransferWorld {
                 };
                 match input.owner {
                     crate::world::Owner::P256 => SppProofInputUtxo::new(utxo, &sender),
-                    crate::world::Owner::Solana => SppProofInputUtxo::new(
-                        utxo,
-                        NullifierKey::from_secret(random_blinding(&mut rng)),
-                    ),
+                    crate::world::Owner::Solana => {
+                        let secret = random_blinding(&mut rng);
+                        SppProofInputUtxo::new(
+                            utxo,
+                            NullifierKey::from_secret(
+                                secret[1..].try_into().expect("31-byte nullifier secret"),
+                            ),
+                        )
+                    }
                 }
             })
             .collect();
@@ -120,10 +124,10 @@ impl TransferWorld {
         }
         if let Some(withdraw) = &plan.withdraw {
             let target = match withdraw.asset {
-                Asset::Sol => WithdrawalTarget::Sol {
+                Asset::Sol => SettlementTarget::Sol {
                     user_sol_account: Address::new_from_array([7u8; 32]),
                 },
-                Asset::Spl => WithdrawalTarget::Spl {
+                Asset::Spl => SettlementTarget::Spl {
                     user_spl_token: Address::new_from_array([8u8; 32]),
                     spl_token_interface: Address::new_from_array([9u8; 32]),
                 },
@@ -146,14 +150,20 @@ impl TransferWorld {
         let input_merkle_proofs = indexer
             .get_input_merkle_proofs(&commitments, None)
             .expect("input merkle proofs");
-        match zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
+        let dummy_proofs: Vec<_> = proof_inputs
+            .dummy_nullifiers()
+            .expect("dummy nullifiers")
+            .into_iter()
+            .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
+            .collect();
+        match zolana_client::into_prover(proof_inputs, &input_merkle_proofs, &dummy_proofs)
             .expect("into prover")
             .circuit
         {
-            CircuitType::P256(prover) => {
+            ProverVariant::P256(prover) => {
                 assert_outputs(
                     &prover.outputs,
-                    &prover.public_amounts,
+                    &prover.public_movements,
                     &prover.external_data,
                     plan,
                     &sender,
@@ -163,10 +173,10 @@ impl TransferWorld {
                 );
                 prove_and_verify_p256(&prover.build().expect("build"));
             }
-            CircuitType::Eddsa(prover) => {
+            ProverVariant::Eddsa(prover) => {
                 assert_outputs(
                     &prover.outputs,
-                    &prover.public_amounts,
+                    &prover.public_movements,
                     &prover.external_data,
                     plan,
                     &sender,
@@ -186,13 +196,13 @@ impl TransferWorld {
 #[allow(clippy::too_many_arguments)]
 fn assert_outputs(
     outputs: &[SppProofOutputUtxo],
-    public_amounts: &PublicAmounts,
+    public_movements: &PublicMovements,
     external_data: &ExternalData,
     plan: &TransferPlan,
     sender: &ShieldedKeypair,
     recipients: &[ShieldedKeypair],
     first_nullifier: &[u8; 32],
-    seed: [u8; BLINDING_LEN],
+    seed: [u8; 32],
 ) {
     let net_public = |asset: Asset| -> i128 {
         match &plan.withdraw {
@@ -310,53 +320,51 @@ fn assert_outputs(
     let padding = outputs.get(expected.len()..).unwrap_or(&[]);
     assert!(padding.iter().all(|o| o.is_dummy() && o.amount == 0));
 
-    // Public amounts: signed net per asset, with the SPL asset pinned to 0 when
-    // there is no public SPL movement.
-    assert_eq!(
-        public_amounts,
-        &PublicAmounts {
-            sol: signed_to_field(
-                i64::try_from(net_public(Asset::Sol)).expect("public amount fits i64")
-            ),
-            spl: signed_to_field(
-                i64::try_from(net_public(Asset::Spl)).expect("public amount fits i64")
-            ),
-            asset: if net_public(Asset::Spl) != 0 {
-                asset_field(&spl_mint()).unwrap()
-            } else {
-                [0u8; 32]
-            },
-        }
-    );
+    // Ordered non-zero public assets occupy the leading slots; idle slots remain zero.
+    let net_sol = i64::try_from(net_public(Asset::Sol)).expect("public amount fits i64");
+    let net_spl = i64::try_from(net_public(Asset::Spl)).expect("public amount fits i64");
+    let mut expected_movements = PublicMovements::default();
+    let (asset, amount) = if net_sol != 0 {
+        (SOL_ASSET_FIELD, net_sol)
+    } else if net_spl != 0 {
+        (asset_field(&spl_mint()).unwrap(), net_spl)
+    } else {
+        ([0u8; 32], 0)
+    };
+    if let (Some(asset_slot), Some(amount_slot)) = (
+        expected_movements.assets.first_mut(),
+        expected_movements.amounts.first_mut(),
+    ) {
+        *asset_slot = asset;
+        *amount_slot = signed_to_field(amount);
+    }
+    assert_eq!(public_movements, &expected_movements);
 
     // External data: transact discriminator, withdrawal magnitudes + accounts,
     // everything else defaulted; the random ciphertext is passed through.
-    let (user_sol_account, user_spl_token, spl_token_interface) = match &plan.withdraw {
-        Some(w) if w.asset == Asset::Sol => (
-            Address::new_from_array([7u8; 32]),
-            Address::default(),
-            Address::default(),
-        ),
-        Some(_) => (
-            Address::default(),
-            Address::new_from_array([8u8; 32]),
-            Address::new_from_array([9u8; 32]),
-        ),
-        None => (Address::default(), Address::default(), Address::default()),
-    };
     let sol_public = net_public(Asset::Sol);
     let spl_public = net_public(Asset::Spl);
+    let public_legs = match &plan.withdraw {
+        Some(w) if w.asset == Asset::Sol => vec![SettlementLeg::Sol {
+            is_deposit: sol_public >= 0,
+            amount: u64::try_from(sol_public.unsigned_abs()).expect("public magnitude fits u64"),
+            user_sol_account: Address::new_from_array([7u8; 32]),
+        }],
+        Some(_) => vec![SettlementLeg::Spl {
+            mint: spl_mint(),
+            is_deposit: spl_public >= 0,
+            amount: u64::try_from(spl_public.unsigned_abs()).expect("public magnitude fits u64"),
+            user_spl_token: Address::new_from_array([8u8; 32]),
+            spl_token_interface: Address::new_from_array([9u8; 32]),
+        }],
+        None => Vec::new(),
+    };
     assert_eq!(
         external_data,
         &ExternalData {
             instruction_discriminator: 0,
             expiry_unix_ts: u64::MAX,
-            relayer_fee: 0,
-            public_sol_amount: (sol_public != 0).then_some(sol_public as i64),
-            public_spl_amount: (spl_public != 0).then_some(spl_public as i64),
-            user_sol_account,
-            user_spl_token,
-            spl_token_interface,
+            public_legs,
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: external_data.tx_viewing_pk,

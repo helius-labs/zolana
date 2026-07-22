@@ -107,16 +107,16 @@ pub(crate) struct TransferP256InputsJson {
     pub p256_message_hash_low: String,
     #[serde(rename = "p256MessageHashHigh")]
     pub p256_message_hash_high: String,
-    #[serde(rename = "publicSolAmount")]
-    pub public_sol_amount: String,
-    #[serde(rename = "publicSplAmount")]
-    pub public_spl_amount: String,
-    #[serde(rename = "publicSplAssetPubkey")]
-    pub public_spl_asset_pubkey: String,
+    #[serde(rename = "publicAssets")]
+    pub public_assets: Vec<String>,
+    #[serde(rename = "publicAmounts")]
+    pub public_amounts: Vec<String>,
     #[serde(rename = "zoneProgramId")]
     pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
     pub payer_pubkey_hash: String,
+    #[serde(rename = "allowDummyInputs")]
+    pub allow_dummy_inputs: String,
     #[serde(rename = "p256SigningPkField")]
     pub p256_signing_pk_field: String,
     #[serde(rename = "publicInputHash")]
@@ -139,16 +139,16 @@ pub(crate) struct TransferInputsJson {
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
-    #[serde(rename = "publicSolAmount")]
-    pub public_sol_amount: String,
-    #[serde(rename = "publicSplAmount")]
-    pub public_spl_amount: String,
-    #[serde(rename = "publicSplAssetPubkey")]
-    pub public_spl_asset_pubkey: String,
+    #[serde(rename = "publicAssets")]
+    pub public_assets: Vec<String>,
+    #[serde(rename = "publicAmounts")]
+    pub public_amounts: Vec<String>,
     #[serde(rename = "zoneProgramId")]
     pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
     pub payer_pubkey_hash: String,
+    #[serde(rename = "allowDummyInputs")]
+    pub allow_dummy_inputs: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -219,11 +219,19 @@ fn transfer_p256_inputs_json(inputs: &TransferP256Inputs, circuit_type: &str) ->
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         p256_message_hash_low: big_uint_to_string(&inputs.p256_message_hash_low),
         p256_message_hash_high: big_uint_to_string(&inputs.p256_message_hash_high),
-        public_sol_amount: big_uint_to_string(&inputs.public_sol_amount),
-        public_spl_amount: big_uint_to_string(&inputs.public_spl_amount),
-        public_spl_asset_pubkey: big_uint_to_string(&inputs.public_spl_asset_pubkey),
+        public_assets: inputs
+            .public_assets
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        public_amounts: inputs
+            .public_amounts
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
+        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
         p256_signing_pk_field: big_uint_to_string(&inputs.p256_signing_pk_field),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
@@ -240,37 +248,83 @@ pub(crate) fn to_json_p256_zone(inputs: &TransferP256Inputs) -> String {
     transfer_p256_inputs_json(inputs, "transfer-p256-zone")
 }
 
+/// Merge input slot. Only the free per-slot leaf fields are sent; the merge
+/// circuit reconstructs the shared owner/asset and the constant data/zone-program
+/// fields itself, so they are not transmitted (unlike the transfer shape).
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct MergeInputParamsJson {
+    #[serde(rename = "domain")]
+    pub domain: String,
+    #[serde(rename = "amount")]
+    pub amount: String,
+    #[serde(rename = "blinding")]
+    pub blinding: String,
+    #[serde(rename = "zoneDataHash")]
+    pub zone_data_hash: String,
+    #[serde(rename = "statePathElements")]
+    pub state_path_elements: Vec<String>,
+    #[serde(rename = "statePathIndex")]
+    pub state_path_index: String,
+    #[serde(rename = "nullifierLowValue")]
+    pub nullifier_low_value: String,
+    #[serde(rename = "nullifierNextValue")]
+    pub nullifier_next_value: String,
+    #[serde(rename = "nullifierLowPathElements")]
+    pub nullifier_low_path_elements: Vec<String>,
+    #[serde(rename = "nullifierLowPathIndex")]
+    pub nullifier_low_path_index: String,
+    #[serde(rename = "utxoTreeRoot")]
+    pub utxo_tree_root: String,
+    #[serde(rename = "nullifierTreeRoot")]
+    pub nullifier_tree_root: String,
+    #[serde(rename = "nullifier")]
+    pub nullifier: String,
+}
+
+/// Merge output slot: the only free leaf field plus the committed hash. Amount
+/// is assembled from the input sum and the blinding is derived in-circuit;
+/// owner/asset/domain/data are shared/constant.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct MergeOutputParamsJson {
+    #[serde(rename = "zoneDataHash")]
+    pub zone_data_hash: String,
+    #[serde(rename = "hash")]
+    pub hash: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct MergeParametersJson {
     #[serde(rename = "circuitType")]
     pub circuit_type: String,
-    // Reuses the transfer input/output JSON. The merge circuit ignores the
-    // transfer-only per-input `ownerPkHash`/`nullifierSecret` and output
-    // `isDummy` (Go drops unknown keys), so no merge-specific shape is needed.
     #[serde(rename = "inputs")]
-    pub inputs: Vec<InputParamsJson>,
+    pub inputs: Vec<MergeInputParamsJson>,
     #[serde(rename = "output")]
-    pub output: OutputParamsJson,
-    #[serde(rename = "p256PubX")]
-    pub p256_pub_x: String,
-    #[serde(rename = "p256PubY")]
-    pub p256_pub_y: String,
+    pub output: MergeOutputParamsJson,
+    /// The single asset shared by every real input and the merged output.
+    #[serde(rename = "asset")]
+    pub asset: String,
     #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
     pub user_nullifier_pk: String,
     #[serde(rename = "userNullifierSecret")]
     pub user_nullifier_secret: String,
-    #[serde(rename = "txViewingSk")]
-    pub tx_viewing_sk: String,
-    #[serde(rename = "userViewingPubkey")]
-    pub user_viewing_pubkey: Vec<String>,
+    /// Single-use nonce driving the in-circuit output-blinding and
+    /// dummy-nullifier derivations.
+    #[serde(rename = "mergeViewTag")]
+    pub merge_view_tag: String,
     #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
+    #[serde(rename = "allowDummyInputs")]
+    pub allow_dummy_inputs: String,
+    /// Output zone-data hash carried by the merge_zone instruction; `0x0` for
+    /// the default merge.
+    #[serde(rename = "outputZoneDataHash")]
+    pub output_zone_data_hash: String,
     /// Top-level zone program pk_field; `0x0` for the default merge,
     /// the zone's pk_field for merge-zone (the circuit's top-level public input).
     #[serde(rename = "zoneProgramId")]
@@ -280,25 +334,54 @@ pub(crate) struct MergeParametersJson {
 /// Serialize a merge witness under the given circuit type. The default merge and
 /// merge-zone share the witness shape and differ only by the circuit type and the
 /// `zoneProgramId` value (`0` for default merge).
-fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
-    let json = MergeParametersJson {
-        circuit_type: circuit_type.to_string(),
-        inputs: inputs.inputs.iter().map(input_to_json).collect(),
-        output: output_to_json(&inputs.output),
-        p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
-        p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
-        owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
-        user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
-        user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
-        tx_viewing_sk: big_uint_to_string(&inputs.tx_viewing_sk),
-        user_viewing_pubkey: inputs
-            .user_viewing_pubkey
+fn merge_input_to_json(input: &TransferInput) -> MergeInputParamsJson {
+    MergeInputParamsJson {
+        domain: fe_to_string(&input.utxo.domain),
+        amount: fe_to_string(&input.utxo.amount),
+        blinding: fe_to_string(&input.utxo.blinding),
+        zone_data_hash: fe_to_string(&input.utxo.zone_data_hash),
+        state_path_elements: input
+            .state_path_elements
             .iter()
             .map(big_uint_to_string)
             .collect(),
+        state_path_index: big_uint_to_string(&input.state_path_index),
+        nullifier_low_value: big_uint_to_string(&input.nullifier_low_value),
+        nullifier_next_value: big_uint_to_string(&input.nullifier_next_value),
+        nullifier_low_path_elements: input
+            .nullifier_low_path_elements
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        nullifier_low_path_index: big_uint_to_string(&input.nullifier_low_path_index),
+        utxo_tree_root: big_uint_to_string(&input.utxo_tree_root),
+        nullifier_tree_root: big_uint_to_string(&input.nullifier_tree_root),
+        nullifier: big_uint_to_string(&input.nullifier),
+    }
+}
+
+fn merge_output_to_json(output: &TransferOutput) -> MergeOutputParamsJson {
+    MergeOutputParamsJson {
+        zone_data_hash: fe_to_string(&output.utxo.zone_data_hash),
+        hash: big_uint_to_string(&output.hash),
+    }
+}
+
+fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
+    let json = MergeParametersJson {
+        circuit_type: circuit_type.to_string(),
+        inputs: inputs.inputs.iter().map(merge_input_to_json).collect(),
+        output: merge_output_to_json(&inputs.output),
+        asset: fe_to_string(&inputs.output.utxo.asset),
+        owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
+        user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
+        user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
+        merge_view_tag: big_uint_to_string(&inputs.merge_view_tag),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
+        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
+        output_zone_data_hash: big_uint_to_string(&inputs.output_zone_data_hash),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -391,11 +474,19 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
-        public_sol_amount: big_uint_to_string(&inputs.public_sol_amount),
-        public_spl_amount: big_uint_to_string(&inputs.public_spl_amount),
-        public_spl_asset_pubkey: big_uint_to_string(&inputs.public_spl_asset_pubkey),
+        public_assets: inputs
+            .public_assets
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        public_amounts: inputs
+            .public_amounts
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
+        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -472,16 +563,15 @@ mod merge_tests {
                 owner_pk_hash: BigUint::ZERO,
                 nullifier_pk: BigUint::ZERO,
             },
-            p256_pub_x: BigUint::from(1u8),
-            p256_pub_y: BigUint::from(2u8),
             owner_pk_hash: BigUint::ZERO,
             user_nullifier_pk: BigUint::from(3u8),
             user_nullifier_secret: BigUint::from(4u8),
-            tx_viewing_sk: BigUint::from(5u8),
-            user_viewing_pubkey: (0..65u32).map(BigUint::from).collect(),
+            merge_view_tag: BigUint::from(5u8),
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
+            allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: BigUint::from(8u8),
+            output_zone_data_hash: BigUint::ZERO,
             zone_program_id: BigUint::ZERO,
         };
 
@@ -490,36 +580,49 @@ mod merge_tests {
         for key in [
             "inputs",
             "output",
-            "p256PubX",
-            "p256PubY",
+            "asset",
             "ownerPkHash",
             "userNullifierPk",
             "userNullifierSecret",
-            "txViewingSk",
-            "userViewingPubkey",
+            "mergeViewTag",
             "externalDataHash",
             "privateTxHash",
+            "allowDummyInputs",
             "publicInputHash",
+            "outputZoneDataHash",
+            "zoneProgramId",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }
         assert_eq!(value["inputs"].as_array().unwrap().len(), 8);
-        assert_eq!(value["userViewingPubkey"].as_array().unwrap().len(), 65);
         let in0 = &value["inputs"][0];
         for key in [
-            "utxo",
-            "isDummy",
+            "domain",
+            "amount",
+            "blinding",
+            "zoneDataHash",
             "statePathElements",
+            "statePathIndex",
+            "nullifierLowValue",
+            "nullifierNextValue",
+            "nullifierLowPathElements",
+            "nullifierLowPathIndex",
+            "utxoTreeRoot",
             "nullifierTreeRoot",
             "nullifier",
         ] {
             assert!(!in0[key].is_null(), "missing input key {key}");
         }
-        // Inputs reuse the transfer JSON; the merge circuit ignores these
-        // transfer-only fields server-side.
-        assert!(!in0["ownerPkHash"].is_null());
-        assert!(!in0["nullifierSecret"].is_null());
+        assert!(
+            value["output"]["blinding"].is_null(),
+            "merge output blinding is derived in-circuit"
+        );
+        assert_eq!(value["output"]["zoneDataHash"], "0x0");
         assert_eq!(value["output"]["hash"], "0xabc");
+        assert!(
+            in0["utxo"].is_null(),
+            "merge inputs must use the flat schema"
+        );
     }
 
     // Guards the zone-authority request against the Go server: it must carry the
@@ -553,11 +656,11 @@ mod merge_tests {
             }],
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
-            public_sol_amount: BigUint::ZERO,
-            public_spl_amount: BigUint::ZERO,
-            public_spl_asset_pubkey: BigUint::ZERO,
+            public_assets: core::array::from_fn(|_| BigUint::ZERO),
+            public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             zone_program_id: BigUint::from(0x55u8),
             payer_pubkey_hash: BigUint::from(8u8),
+            allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: BigUint::from(9u8),
         };
 
@@ -571,15 +674,23 @@ mod merge_tests {
             "outputs",
             "externalDataHash",
             "privateTxHash",
-            "publicSolAmount",
-            "publicSplAmount",
-            "publicSplAssetPubkey",
+            "publicAssets",
+            "publicAmounts",
             "zoneProgramId",
             "payerPubkeyHash",
+            "allowDummyInputs",
             "publicInputHash",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }
+        assert_eq!(
+            value["publicAssets"].as_array().map(|a| a.len()),
+            Some(zolana_interface::N_PUBLIC_SLOTS)
+        );
+        assert_eq!(
+            value["publicAmounts"].as_array().map(|a| a.len()),
+            Some(zolana_interface::N_PUBLIC_SLOTS)
+        );
         // Solana-only rail: no P256 fields on the request.
         assert!(value.get("p256PubX").is_none());
         assert_eq!(value["zoneProgramId"], "0x55");

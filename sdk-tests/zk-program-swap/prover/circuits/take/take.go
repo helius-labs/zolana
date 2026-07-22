@@ -6,7 +6,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"zolana/prover/circuits/gadget"
-	spp "zolana/prover/circuits/spp_transaction"
+	spp "zolana/prover/circuits/spp_transaction/shared"
 )
 
 const DestinationBlindingDomain uint64 = 0x46494C4C44455256

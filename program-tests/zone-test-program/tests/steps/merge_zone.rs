@@ -18,7 +18,6 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::{then, when};
-use p256::SecretKey;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
@@ -26,9 +25,10 @@ use zolana_client::{
     prover::merge_zone::MergeZoneProver, ProverClient, SpendProof, TransferSpendInput,
 };
 use zolana_interface::instruction::{
-    instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeZone, P256Proof,
+    instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT},
+    MergeZone,
 };
-use zolana_keypair::random_blinding;
+use zolana_keypair::{merge::merge_output_blinding, random_blinding};
 use zolana_test_utils::test_validator_asserts::{
     assert_merge_zone, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_non_inclusion_proof, MergeZoneAssertArgs,
@@ -98,6 +98,7 @@ impl ZoneLifecycleWorld {
                     state,
                     nullifier: nf,
                 }),
+                nullifier_proof: None,
             });
         }
 
@@ -119,13 +120,14 @@ impl ZoneLifecycleWorld {
                 data_hash: None,
                 zone_data_hash: None,
                 proof: None,
+                nullifier_proof: None,
             });
         }
 
-        // The single consolidated zone-owned output, owned by the merger, with a
-        // fresh random blinding the owner recovers by decrypting the published
-        // merge ciphertext. `MergeZoneProver::build` stamps the shared zone on it.
-        let output_blinding = random_blinding();
+        // The single consolidated zone-owned output is reconstructed from the
+        // first real input and the proof-wide, single-use merge tag.
+        let merge_view_tag = keypair.get_merge_view_tag(0)?;
+        let output_blinding = merge_output_blinding(&inputs[0].blinding, &merge_view_tag)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
@@ -138,13 +140,6 @@ impl ZoneLifecycleWorld {
             data: Data::default(),
         };
 
-        // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the
-        // value is both a valid P-256 scalar and a valid circuit witness.
-        let mut sk_bytes = [0u8; 32];
-        sk_bytes[1..].copy_from_slice(&random_blinding());
-        let tx_viewing_sk = SecretKey::from_slice(&sk_bytes)
-            .map_err(|e| anyhow!("invalid ephemeral viewing scalar: {e}"))?;
-
         let expiry_unix_ts = u64::MAX;
 
         let result = MergeZoneProver {
@@ -153,8 +148,7 @@ impl ZoneLifecycleWorld {
             expiry_unix_ts,
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
-            user_viewing_pk: keypair.viewing_pubkey(),
-            tx_viewing_sk,
+            merge_view_tag,
             zone_program_id: zone,
         }
         .build()?;
@@ -166,8 +160,7 @@ impl ZoneLifecycleWorld {
         // owner-pubkey confidential tag is a raw pubkey (not reduced) and the queue
         // rejects it. Use the derived `merge_view_tag` (HKDF, 31 bytes) keyed by the
         // submitting payer as the merge authority; photon indexes the output under it.
-        let merge_view_tag = keypair.get_merge_view_tag(0)?;
-        let data = result.zone_instruction_data(pack_proof(&proof)?, merge_view_tag);
+        let data = result.zone_instruction_data(pack_proof(&proof)?, ZERO);
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let payer = self.payer.insecure_clone();
@@ -176,7 +169,7 @@ impl ZoneLifecycleWorld {
             zone_program_id: self.zone_program_id,
             payer: payer.pubkey(),
             data: data.merge.clone(),
-            merge_view_tag: data.merge_view_tag,
+            output_zone_data_hash: data.output_zone_data_hash,
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
@@ -291,6 +284,7 @@ impl ZoneLifecycleWorld {
                     state,
                     nullifier: nf,
                 }),
+                nullifier_proof: None,
             });
         }
 
@@ -310,14 +304,16 @@ impl ZoneLifecycleWorld {
                 data_hash: None,
                 zone_data_hash: None,
                 proof: None,
+                nullifier_proof: None,
             });
         }
 
+        let merge_view_tag = keypair.get_merge_view_tag(0)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
             amount: total,
-            blinding: random_blinding(),
+            blinding: merge_output_blinding(&inputs[0].blinding, &merge_view_tag)?,
             zone_program_id: None,
             zone_data_hash: None,
             data_hash: None,
@@ -325,19 +321,13 @@ impl ZoneLifecycleWorld {
             data: Data::default(),
         };
 
-        let mut sk_bytes = [0u8; 32];
-        sk_bytes[1..].copy_from_slice(&random_blinding());
-        let tx_viewing_sk = SecretKey::from_slice(&sk_bytes)
-            .map_err(|e| anyhow!("invalid ephemeral viewing scalar: {e}"))?;
-
         let result = MergeZoneProver {
             inputs: spend_inputs,
             output,
             expiry_unix_ts: u64::MAX,
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
-            user_viewing_pk: keypair.viewing_pubkey(),
-            tx_viewing_sk,
+            merge_view_tag,
             zone_program_id: zone,
         }
         .build()?;
@@ -345,8 +335,7 @@ impl ZoneLifecycleWorld {
         // Assemble the instruction data exactly as the happy path does (derived
         // merge_view_tag so the nullifier-queue insert is valid), then zero the
         // proof so verification is the only thing that fails.
-        let merge_view_tag = keypair.get_merge_view_tag(0)?;
-        let data = result.zone_instruction_data(P256Proof::zeroed(), merge_view_tag);
+        let data = result.zone_instruction_data(MergeProof::zeroed(), ZERO);
 
         let payer = self.payer.insecure_clone();
         let merge_ix = MergeZone {
@@ -354,7 +343,7 @@ impl ZoneLifecycleWorld {
             zone_program_id: self.zone_program_id,
             payer: payer.pubkey(),
             data: data.merge.clone(),
-            merge_view_tag: data.merge_view_tag,
+            output_zone_data_hash: data.output_zone_data_hash,
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);

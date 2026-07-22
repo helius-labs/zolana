@@ -333,7 +333,10 @@ fn tx_size(args: Vec<String>) {
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
     use zolana_interface::{
-        instruction::{tag, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof},
+        instruction::{
+            tag, CircuitId, CircuitVariant, InputUtxo, OwnerTag, P256Proof, PublicLeg,
+            TransactIxData, TransactOutput, TransactProof,
+        },
         SHIELDED_POOL_PROGRAM_ID,
     };
     use zolana_transaction::instructions::transact::SENDER_SLOT_COUNT;
@@ -401,9 +404,10 @@ fn tx_size(args: Vec<String>) {
     // length (`None` = a covered position carrying `data: None`). Since outputs
     // now fold the utxo hash, owner tag, and ciphertext into one `TransactOutput`,
     // this descriptor is all a shape needs.
-    let build_ix_data = |public_spl: Option<i64>,
+    let build_ix_data = |public_legs: Vec<PublicLeg>,
                          n: usize,
                          p256_signing_pk_x: Option<[u8; 32]>,
+                         proof: TransactProof,
                          outputs_spec: &[(OwnerTag, Option<usize>)]|
      -> TransactIxData {
         let inputs = (0..n)
@@ -424,14 +428,17 @@ fn tx_size(args: Vec<String>) {
             })
             .collect();
         TransactIxData {
-            proof: TransactProof::zeroed_eddsa(),
+            proof,
             expiry_unix_ts: 0,
-            relayer_fee: 0,
             private_tx_hash: [0u8; 32],
+            circuit: CircuitId::confidential(if p256_signing_pk_x.is_some() {
+                CircuitVariant::P256
+            } else {
+                CircuitVariant::Eddsa
+            }),
             p256_signing_pk_x,
             inputs,
-            public_sol_amount: None,
-            public_spl_amount: public_spl,
+            public_legs,
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: [0u8; 33],
@@ -482,6 +489,30 @@ fn tx_size(args: Vec<String>) {
             .collect()
     };
 
+    let repeated_spl_withdraw_accounts = |leg_count: usize| {
+        use solana_instruction::AccountMeta;
+        use zolana_interface::SHIELDED_POOL_CPI_AUTHORITY_PUBKEY;
+
+        let mut accounts = vec![
+            AccountMeta::new(payer_pk, true),
+            AccountMeta::new(tree_pk, false),
+        ];
+        for index in 0..leg_count {
+            let recipient = Pubkey::from([20 + index as u8; 32]);
+            let user_token = Pubkey::from([40 + index as u8; 32]);
+            accounts.push(AccountMeta::new_readonly(
+                SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
+                false,
+            ));
+            accounts.push(AccountMeta::new(vault_pk, false));
+            accounts.push(AccountMeta::new(recipient, false));
+            accounts.push(AccountMeta::new(user_token, false));
+            accounts.push(AccountMeta::new_readonly(token_program_pk, false));
+        }
+        accounts.push(AccountMeta::new_readonly(spp_pk, false));
+        accounts
+    };
+
     let make_ix_bytes = |data: &TransactIxData| -> Vec<u8> {
         let mut d = vec![tag::TRANSACT];
         d.extend_from_slice(&data.serialize().unwrap());
@@ -500,26 +531,36 @@ fn tx_size(args: Vec<String>) {
         bincode::serialize(&tx).unwrap().len()
     };
 
-    // TransactIxData.proof is now a wincode enum: a 1-byte rail tag plus the
-    // compressed Groth16 points. The EdDSA (Solana) rail is vanilla Groth16 (128 B,
-    // no commitment); the P256 rail adds 32 B proof_commitment + 32 B
-    // proof_commitment_pok (192 B). The fixture above bakes the EdDSA variant.
+    // TransactIxData.proof is a wincode enum: a 1-byte rail tag plus the
+    // compressed Groth16 points. The EdDSA (Solana) rail is vanilla Groth16
+    // (128 B, no commitment); the P256 rail includes the 64-byte BSB22
+    // commitment and proof of knowledge.
     const RAIL_TAG_LEN: usize = 1;
     const EDDSA_PROOF_LEN: usize = 128;
-    // Serialized proof bytes the fixture bakes (EdDSA rail): tag + payload.
-    const FIXTURE_PROOF_SER_LEN: usize = RAIL_TAG_LEN + EDDSA_PROOF_LEN;
+    const EDDSA_PROOF_SER_LEN: usize = RAIL_TAG_LEN + EDDSA_PROOF_LEN;
     // Legacy flat proof (pre-enum, always 192 B, no tag) for the baseline table.
     const LEGACY_PROOF_LEN: usize = 192;
 
     let make_tx_sizes = |outputs_spec: &[(OwnerTag, Option<usize>)],
                          n: usize,
                          p256_signing_pk_x: Option<[u8; 32]>,
-                         proof_len: usize|
+                         proof: TransactProof,
+                         serialized_proof_len: usize|
      -> (usize, usize, usize, usize, usize) {
-        let transfer_data = build_ix_data(None, n, p256_signing_pk_x, outputs_spec);
-        let shield_data = build_ix_data(Some(1000), n, p256_signing_pk_x, outputs_spec);
+        let transfer_data = build_ix_data(Vec::new(), n, p256_signing_pk_x, proof, outputs_spec);
+        let shield_data = build_ix_data(
+            vec![PublicLeg::Spl {
+                is_deposit: true,
+                amount: 1000,
+                vault_bump: 0,
+            }],
+            n,
+            p256_signing_pk_x,
+            proof,
+            outputs_spec,
+        );
 
-        let adj = proof_len as isize - FIXTURE_PROOF_SER_LEN as isize;
+        let adj = serialized_proof_len as isize - EDDSA_PROOF_SER_LEN as isize;
         let adjust = |v: usize| (v as isize + adj) as usize;
 
         let ix_len = adjust(make_ix_bytes(&transfer_data).len());
@@ -588,7 +629,13 @@ fn tx_size(args: Vec<String>) {
             current_sender_data_len(r),
             current_recipient_data_len,
         );
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, None, LEGACY_PROOF_LEN);
+        let (ix, tl, tv, sl, sv) = make_tx_sizes(
+            &spec,
+            n,
+            None,
+            TransactProof::zeroed_eddsa(),
+            LEGACY_PROOF_LEN,
+        );
         let fmt = |v: usize, show: bool| {
             if show {
                 v.to_string()
@@ -634,7 +681,13 @@ fn tx_size(args: Vec<String>) {
             OPT_SENDER_DATA_LEN,
             OPT_RECIPIENT_DATA_LEN,
         );
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, None, FIXTURE_PROOF_SER_LEN);
+        let (ix, tl, tv, sl, sv) = make_tx_sizes(
+            &spec,
+            n,
+            None,
+            TransactProof::zeroed_eddsa(),
+            EDDSA_PROOF_SER_LEN,
+        );
         let fmt = |v: usize, show: bool| {
             if show {
                 v.to_string()
@@ -679,7 +732,13 @@ fn tx_size(args: Vec<String>) {
     ];
     for &(label, tag, tag_bytes) in &sender_tag_kinds {
         let spec = transfer_layout(3, tag, OPT_SENDER_DATA_LEN, OPT_RECIPIENT_DATA_LEN);
-        let (ix, tl, tv, _sl, _sv) = make_tx_sizes(&spec, 3, None, FIXTURE_PROOF_SER_LEN);
+        let (ix, tl, tv, _sl, _sv) = make_tx_sizes(
+            &spec,
+            3,
+            None,
+            TransactProof::zeroed_eddsa(),
+            EDDSA_PROOF_SER_LEN,
+        );
         println!(
             "| {:<16} | {:>13} | {:>11} | {:>16} | {:>13} |",
             label, tag_bytes, ix, tl, tv,
@@ -706,7 +765,13 @@ fn tx_size(args: Vec<String>) {
     );
     let (n, m) = (1usize, 8usize);
     let spec = split_layout(m, OPT_SENDER_DATA_LEN);
-    let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, None, FIXTURE_PROOF_SER_LEN);
+    let (ix, tl, tv, sl, sv) = make_tx_sizes(
+        &spec,
+        n,
+        None,
+        TransactProof::zeroed_eddsa(),
+        EDDSA_PROOF_SER_LEN,
+    );
     println!(
         "| {:<14} | {} | {} | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
         format!("{n} in {m} out"),
@@ -718,6 +783,66 @@ fn tx_size(args: Vec<String>) {
         sl,
         sv,
     );
+
+    println!();
+    println!(
+        "Public-leg and proof-encoding sensitivity (3 in 3 out, repeated same-asset SPL withdrawals):"
+    );
+    println!(
+        "| {:>11} | {:>17} | {:>16} | {:>17} | {:>16} |",
+        "public legs", "EdDSA ix data (B)", "EdDSA tx (B)", "P256 ix data (B)", "P256 tx (B)",
+    );
+    println!(
+        "|{:-<13}|{:-<19}|{:-<18}|{:-<19}|{:-<18}|",
+        "", "", "", "", ""
+    );
+    let spec = transfer_layout(
+        3,
+        OwnerTag::Account(0),
+        OPT_SENDER_DATA_LEN,
+        OPT_RECIPIENT_DATA_LEN,
+    );
+    for leg_count in [0usize, 1, 5] {
+        let public_legs = (0..leg_count)
+            .map(|_| PublicLeg::Spl {
+                is_deposit: false,
+                amount: 1,
+                vault_bump: 0,
+            })
+            .collect::<Vec<_>>();
+        let eddsa_data = build_ix_data(
+            public_legs.clone(),
+            3,
+            None,
+            TransactProof::zeroed_eddsa(),
+            &spec,
+        );
+        let p256_data = build_ix_data(
+            public_legs,
+            3,
+            None,
+            TransactProof::P256(P256Proof::zeroed()),
+            &spec,
+        );
+        let eddsa_ix = Instruction {
+            program_id: spp_pk,
+            accounts: repeated_spl_withdraw_accounts(leg_count),
+            data: make_ix_bytes(&eddsa_data),
+        };
+        let p256_ix = Instruction {
+            program_id: spp_pk,
+            accounts: repeated_spl_withdraw_accounts(leg_count),
+            data: make_ix_bytes(&p256_data),
+        };
+        println!(
+            "| {:>11} | {:>17} | {:>16} | {:>17} | {:>16} |",
+            leg_count,
+            eddsa_ix.data.len(),
+            legacy_tx_len(eddsa_ix),
+            p256_ix.data.len(),
+            legacy_tx_len(p256_ix),
+        );
+    }
 }
 
 fn transfer_accounts(

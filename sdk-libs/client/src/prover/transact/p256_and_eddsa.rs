@@ -6,7 +6,8 @@ use zolana_keypair::{
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
 use zolana_transaction::{
-    instructions::transact::PrivateTxHash, ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
+    instructions::transact::{PrivateTxHash, PublicMovements},
+    ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{
@@ -17,7 +18,7 @@ use crate::{
         transact::witness::SpendProof,
         Shape, TransferInput, TransferOutput, TransferP256Inputs,
     },
-    rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
+    rpc::{NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
 
 #[derive(Clone)]
@@ -27,26 +28,14 @@ pub struct TransferSpendInput {
     pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy mirrors
-    /// the first real input's roots, so it has no proof of its own.
+    /// the first real input's state root, so it has no state proof of its own.
     pub proof: Option<SpendProof>,
+    /// Padding slots only: the fetched non-inclusion proof for the dummy's own
+    /// nullifier. The circuit checks non-inclusion for every slot, dummies
+    /// included, so a dummy needs a real low-element witness.
+    pub nullifier_proof: Option<NonInclusionProof>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PublicAmounts {
-    pub sol: [u8; 32],
-    pub spl: [u8; 32],
-    pub asset: [u8; 32],
-}
-
-impl PublicAmounts {
-    pub fn transfer() -> Self {
-        Self {
-            sol: [0u8; 32],
-            spl: [0u8; 32],
-            asset: [0u8; 32],
-        }
-    }
-}
 /// The P256 ownership signature, computed once over the finalized transaction in
 /// [`zolana_transaction::instructions::transact::Transaction::sign`]. The prover only converts it
 /// into witness coordinates; it never signs.
@@ -61,8 +50,9 @@ pub struct TransferP256Prover {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
-    pub public_amounts: PublicAmounts,
+    pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
+    pub allow_dummy_inputs: bool,
     pub p256_owner: P256Owner,
     pub shape: Option<Shape>,
 }
@@ -88,18 +78,15 @@ pub struct TransferP256ProofResult {
 impl TransferP256Prover {
     pub fn build(self) -> Result<TransferP256ProofResult, ClientError> {
         resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
-        // The shared P256 signing key's pk_field: the value every P256-owned input
-        // exposes as its owner tag and that the circuit asserts equals its in-circuit
-        // P256 pk_field. Folded into the confidential public-input hash. The raw
-        // x-coordinate is the pre-hash value the instruction carries so the program
-        // reproduces `pk_field` on-chain.
+        // The shared P256 signing key's pk_field: its own element of the confidential
+        // public-input hash, which the circuit asserts equals its in-circuit P256
+        // pk_field. P256-owned inputs tag themselves with the 0 sentinel and route to
+        // it. The raw x-coordinate is the pre-hash value the instruction carries so
+        // the program reproduces `pk_field` on-chain.
         let signing_pubkey = PublicKey::from_p256(&self.p256_owner.pubkey);
         let p256_signing_pk_x = signing_pubkey.confidential_view_tag()?;
         let p256_signing_pk_field = signing_pubkey.owner_pk_field()?;
-        let assembled_inputs = assemble_inputs(
-            &self.inputs,
-            &OwnerMode::ConfidentialP256(p256_signing_pk_field),
-        )?;
+        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialP256)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let private_tx = PrivateTxHash::new(
@@ -119,9 +106,10 @@ impl TransferP256Prover {
             private_tx: &private_tx,
             p256_message_hash: &p256_message_hash,
             external_data_hash: &external_data_hash,
-            public_amounts: &self.public_amounts,
+            public_movements: &self.public_movements,
             zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
+            allow_dummy_inputs: &bool_field(self.allow_dummy_inputs),
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
             output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
             p256_signing_pk_field: &p256_signing_pk_field,
@@ -139,11 +127,11 @@ impl TransferP256Prover {
             private_tx_hash: be(&private_tx),
             p256_message_hash_low: be(&p256_message_low),
             p256_message_hash_high: be(&p256_message_high),
-            public_sol_amount: be(&self.public_amounts.sol),
-            public_spl_amount: be(&self.public_amounts.spl),
-            public_spl_asset_pubkey: be(&self.public_amounts.asset),
+            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             p256_signing_pk_field: be(&p256_signing_pk_field),
             public_input_hash: be(&public_input),
         };
@@ -226,9 +214,10 @@ pub(crate) struct AssembledOutputs {
 /// public-input chain. A P256-owned input is treated differently per mode; an
 /// ed25519-owned input always uses its own `owner_pk_field()`.
 pub(crate) enum OwnerMode {
-    /// Confidential P256 rail: a P256 owner exposes the shared signing `pk_field`
-    /// (so the circuit routes ownership by equality); ed25519 uses its `pk_field`.
-    ConfidentialP256([u8; 32]),
+    /// Confidential P256 rail: a P256 owner contributes the `0` sentinel that routes
+    /// to the transaction's shared signing key, which the rail publishes as its own
+    /// public input; ed25519 uses its `pk_field`.
+    ConfidentialP256,
     /// Confidential Solana-only rail: P256-owned inputs are rejected (the rail has
     /// no P256 gadget); ed25519 uses its `pk_field`.
     ConfidentialEddsa,
@@ -265,11 +254,24 @@ pub(crate) fn assemble_inputs(
     for (index, spend) in spends.iter().enumerate() {
         let Some(proof) = &spend.proof else {
             let utxo_root = *utxo_roots.first().ok_or(ClientError::NoInputs)?;
-            let nf_root = *nullifier_tree_roots.first().ok_or(ClientError::NoInputs)?;
             let owner = *input_owner_pk_hashes.first().ok_or(ClientError::NoInputs)?;
-            let &(ur_index, nr_index) = root_indices.first().ok_or(ClientError::NoInputs)?;
-            let (input, nullifier) =
+            let &(ur_index, first_nr_index) = root_indices.first().ok_or(ClientError::NoInputs)?;
+            let (nf_root, nr_index) = match &spend.nullifier_proof {
+                Some(nf) => (nf.root, nf.root_index),
+                None => (
+                    *nullifier_tree_roots.first().ok_or(ClientError::NoInputs)?,
+                    first_nr_index,
+                ),
+            };
+            let (mut input, nullifier) =
                 TransferInput::new_dummy(&spend.utxo.blinding, &utxo_root, &nf_root, &owner)?;
+            if let Some(nf) = &spend.nullifier_proof {
+                check_path_length(nf.path.len(), NULLIFIER_TREE_HEIGHT)?;
+                input.nullifier_low_value = be(&nf.low_element);
+                input.nullifier_next_value = be(&nf.high_element);
+                input.nullifier_low_path_elements = nf.path.iter().map(be).collect();
+                input.nullifier_low_path_index = BigUint::from(nf.low_element_index);
+            }
             inputs.push(input);
             input_hashes.push([0u8; 32]);
             nullifiers.push(nullifier);
@@ -297,9 +299,7 @@ pub(crate) fn assemble_inputs(
         // depends on the mode (see OwnerMode); an ed25519 owner always uses
         // its own pk_field.
         let owner_pk_hash = match (owner_mode, is_p256) {
-            (OwnerMode::ConfidentialP256(signing_pk_field), true) => *signing_pk_field,
-            (OwnerMode::Merge, true) => [0u8; 32],
-            (OwnerMode::Zone, true) => [0u8; 32],
+            (OwnerMode::ConfidentialP256 | OwnerMode::Merge | OwnerMode::Zone, true) => [0u8; 32],
             (OwnerMode::ConfidentialEddsa, true) => {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index })
             }
@@ -411,10 +411,11 @@ pub(crate) struct PublicInputs<'a> {
     pub private_tx: &'a [u8; 32],
     pub p256_message_hash: &'a [u8; 32],
     pub external_data_hash: &'a [u8; 32],
-    pub public_amounts: &'a PublicAmounts,
+    pub public_movements: &'a PublicMovements,
     /// Per-tx zone program (pk_field-encoded); 0 on default transact.
     pub zone_program_id: &'a [u8; 32],
     pub payer_pubkey_hash: &'a [u8; 32],
+    pub allow_dummy_inputs: &'a [u8; 32],
     pub input_owner_pk_hashes: &'a [[u8; 32]],
     /// Confidential variant only: appended after the anonymous chain as
     /// `HashChain(output_owner_pk_hashes)` then `p256_signing_pk_field`. Mirrors
@@ -425,26 +426,36 @@ pub(crate) struct PublicInputs<'a> {
 
 impl PublicInputs<'_> {
     pub(crate) fn hash(&self) -> Result<[u8; 32], ClientError> {
-        let elements = [
+        let slots = self.public_movements.interleaved();
+        let mut elements = Vec::with_capacity(12 + slots.len());
+        elements.extend([
             create_hash_chain_from_slice(self.nullifiers)?,
             create_hash_chain_from_slice(self.output_hashes)?,
             create_hash_chain_from_slice(self.utxo_roots)?,
             create_hash_chain_from_slice(self.nullifier_tree_roots)?,
             *self.private_tx,
-            hash_field(self.p256_message_hash)?,
             *self.external_data_hash,
-            self.public_amounts.sol,
-            self.public_amounts.spl,
-            self.public_amounts.asset,
+        ]);
+        elements.extend(slots);
+        elements.extend([
             *self.zone_program_id,
             *self.payer_pubkey_hash,
+            *self.allow_dummy_inputs,
+            // Variant-dependent tail: the P256 message, then the owner tags.
+            hash_field(self.p256_message_hash)?,
             create_hash_chain_from_slice(self.input_owner_pk_hashes)?,
             // Confidential appendix (the client always uses the confidential variant).
             create_hash_chain_from_slice(self.output_owner_pk_hashes)?,
             *self.p256_signing_pk_field,
-        ];
+        ]);
         Ok(create_hash_chain_from_slice(&elements)?)
     }
+}
+
+pub(crate) fn bool_field(value: bool) -> [u8; 32] {
+    let mut field = [0u8; 32];
+    field[31] = u8::from(value);
+    field
 }
 fn check_path_length(got: usize, expected: usize) -> Result<(), ClientError> {
     if got == expected {

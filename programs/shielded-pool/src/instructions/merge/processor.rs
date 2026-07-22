@@ -8,8 +8,7 @@ use zolana_interface::{
     event::{EventKind, Input},
     instruction::{
         instruction_data::merge_transact::{
-            MergeExternalDataHash, MergeTransactIxDataRef, MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
-            MERGE_INPUT_COUNT,
+            MergeExternalDataHash, MergeTransactIxDataRef, MERGE_INPUT_COUNT,
         },
         tag::MERGE_TRANSACT,
     },
@@ -20,7 +19,7 @@ use zolana_tree::{TreeAccount, TreeError};
 use super::{
     account::{load_user_record, MergeTransactAccounts},
     event::{build_merge_event, MergeTreeWrite},
-    verify::{pk_field, MergeOwnerBinding, MergeProof, MergeProofInputs},
+    verify::{MergeOwnerBinding, MergeProof, MergeProofInputs},
 };
 use crate::instructions::{
     event::emit_general_event,
@@ -31,10 +30,6 @@ use crate::instructions::{
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = MergeTransactIxDataRef::from_bytes(data)
         .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
-
-    if ix.encrypted_utxo.first() != Some(&MERGE_ENCRYPTED_UTXO_TYPE_PREFIX) {
-        return Err(ShieldedPoolError::InvalidMergeOutputScheme.into());
-    }
 
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
@@ -50,7 +45,6 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     }
 
     let signing_pk_field = pk_fields.signing_pk_field;
-    let viewing_pk_field = pk_field(&pk_fields.viewing)?;
     // Owner-indexing view tag for the merged output: the owner signing pubkey (the
     // confidential default-zone tag, like every other confidential output). The
     // proof binds `signing_pk_field` to the same registered key, so a relayer cannot
@@ -61,46 +55,43 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         spp_instruction_discriminator: MERGE_TRANSACT,
         expiry_unix_ts: ix.expiry_unix_ts,
         output_utxo_hash: ix.output_utxo_hash,
-        encrypted_utxo: ix.encrypted_utxo,
     }
     .hash()
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
-    let derived = MergeProofInputs {
-        utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
-        nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
-        external_data_hash,
-        owner_binding: MergeOwnerBinding::Registry {
-            signing_pk_field,
-            viewing_pk_field,
-        },
-    };
-
+    // The `merge_view_tag` is single-use on both rails: inserting it into the
+    // nullifier queue rejects a reused tag.
     process_merge_core(
         merge_accounts.tree,
         merge_accounts.payer,
         &ix,
-        derived,
+        external_data_hash,
+        MergeOwnerBinding::Registry { signing_pk_field },
         output_view_tag,
-        None,
+        Some(*ix.merge_view_tag),
+        Vec::new(),
     )
 }
 
 /// Shared tail for `merge_transact` and `merge_zone`: read roots, nullify the
-/// inputs (and, for `merge_zone`, insert the single-use `merge_view_tag`), append
-/// the output, verify the proof, and emit the event. `derived` already carries
-/// the resolved `external_data_hash` and the variant-specific owner binding,
-/// which selects both the public-input shape and the verifying key.
+/// inputs, insert the single-use `merge_view_tag`, append the output, verify
+/// the proof, and emit the event. The tree-derived dummy-input policy is
+/// captured before any queue insertion or state append.
+/// `output_data` is the event's output payload: empty for `merge_transact`, the
+/// output `zone_data_hash` for `merge_zone`.
 #[inline(never)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn process_merge_core(
     tree_account: &mut AccountView,
     payer: &AccountView,
     ix: &MergeTransactIxDataRef<'_>,
-    mut derived: MergeProofInputs,
+    external_data_hash: [u8; 32],
+    owner_binding: MergeOwnerBinding,
     output_view_tag: [u8; 32],
     single_use_tag: Option<[u8; 32]>,
+    output_data: Vec<u8>,
 ) -> ProgramResult {
-    let (tree_write, zkp_batch_size) = {
+    let (tree_write, derived, zkp_batch_size) = {
         let output_tree = tree_account.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
             &mut *tree_account,
@@ -108,12 +99,19 @@ pub(crate) fn process_merge_core(
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
+        let mut derived = MergeProofInputs {
+            utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
+            nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
+            external_data_hash,
+            allow_dummy_inputs: bool_field(tree.allow_dummy_inputs().map_err(tree_error)?),
+            owner_binding,
+        };
         let tree_write = apply_tree(&mut tree, ix, output_tree, &mut derived, single_use_tag)?;
         let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
-        (tree_write, zkp_batch_size)
+        (tree_write, derived, zkp_batch_size)
     };
 
-    let event = build_merge_event(ix, tree_write, output_view_tag);
+    let event = build_merge_event(ix, tree_write, output_view_tag, output_data);
     MergeProof::new(ix, derived).verify()?;
     collect_forester_fee(
         payer,
@@ -156,8 +154,8 @@ fn apply_tree(
         });
     }
 
-    // `merge_zone` indexes the output by a single-use `merge_view_tag`; insert it
-    // into the nullifier queue so a duplicate tag is rejected (replay protection).
+    // The `merge_view_tag` is single-use on both rails; insert it into the
+    // nullifier queue so a duplicate tag is rejected (replay protection).
     if let Some(tag) = single_use_tag {
         tree.nullifer_tree()
             .insert_address_into_queue(&tag)
@@ -165,7 +163,9 @@ fn apply_tree(
     }
 
     let output_leaf_index = tree.utxo_tree().next_index();
-    tree.utxo_tree().append(*ix.output_utxo_hash);
+    tree.utxo_tree()
+        .append(*ix.output_utxo_hash)
+        .map_err(tree_error)?;
 
     Ok(MergeTreeWrite {
         inputs,
@@ -174,10 +174,17 @@ fn apply_tree(
     })
 }
 
+fn bool_field(value: bool) -> [u8; 32] {
+    let mut field = [0u8; 32];
+    field[31] = u8::from(value);
+    field
+}
+
 fn tree_error(e: TreeError) -> ProgramError {
     match e {
         TreeError::Paused => ShieldedPoolError::TreePaused.into(),
         TreeError::InvalidRootIndex => ShieldedPoolError::StaleNullifierRoot.into(),
+        TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed.into(),
         _ => ShieldedPoolError::InvalidTreeAccounts.into(),
     }
 }

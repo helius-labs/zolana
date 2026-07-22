@@ -96,7 +96,7 @@ mod tests {
             owner,
             asset: SOL_MINT,
             amount: 42,
-            blinding: [3u8; 31],
+            blinding: [3u8; 32],
             zone_program_id: None,
             data: Data::new(vec![DataRecord::Memo(b"gm".to_vec())]),
         };

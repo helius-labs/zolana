@@ -14,7 +14,6 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::{given, then, when};
-use p256::SecretKey;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
@@ -23,12 +22,12 @@ use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
 use zolana_interface::instruction::{
     instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact,
 };
-use zolana_keypair::{random_blinding, SignatureType};
+use zolana_keypair::{merge::merge_output_blinding, random_blinding, SignatureType};
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
-use zolana_transaction::{Data, SppProofOutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo, SOL_MINT};
 use zolana_user_registry_interface::{
     instruction::{register, set_merging_enabled, RegisterData},
     user_record_pda,
@@ -148,6 +147,7 @@ impl LifecycleWorld {
                     state,
                     nullifier: nf,
                 }),
+                nullifier_proof: None,
             });
         }
 
@@ -169,12 +169,15 @@ impl LifecycleWorld {
                 data_hash: None,
                 zone_data_hash: None,
                 proof: None,
+                nullifier_proof: None,
             });
         }
 
-        // The single consolidated output, owned by the merger, with a fresh random
-        // blinding the owner recovers by decrypting the published merge ciphertext.
-        let output_blinding = random_blinding();
+        // The circuit derives the consolidated output blinding from the first
+        // real input and this single-use merge nonce. The wallet reconstructs it
+        // from the same public nonce after indexing.
+        let merge_view_tag = random_blinding();
+        let output_blinding = merge_output_blinding(&inputs[0].blinding, &merge_view_tag)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
@@ -187,13 +190,6 @@ impl LifecycleWorld {
             data: Data::default(),
         };
 
-        // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the value
-        // is both a valid P-256 scalar and a valid circuit witness.
-        let mut sk_bytes = [0u8; 32];
-        sk_bytes[1..].copy_from_slice(&random_blinding());
-        let tx_viewing_sk = SecretKey::from_slice(&sk_bytes)
-            .map_err(|e| anyhow!("invalid ephemeral viewing scalar: {e}"))?;
-
         let expiry_unix_ts = u64::MAX;
 
         let result = MergeProver {
@@ -202,8 +198,7 @@ impl LifecycleWorld {
             expiry_unix_ts,
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
-            user_viewing_pk: keypair.viewing_pubkey(),
-            tx_viewing_sk,
+            merge_view_tag,
         }
         .build()?;
 
@@ -242,6 +237,40 @@ impl LifecycleWorld {
         // from the transaction's nullifiers.
         let owner_tag = keypair.signing_pubkey().confidential_view_tag()?;
         let indexed = wait_for_indexed_transaction(&self.indexer, owner_tag, sig);
+
+        // A real wallet would already have discovered the deposits it selected
+        // for this merge. This local lifecycle harness keeps deposits only in its
+        // spendable list, so seed any missing input notes before replaying the
+        // merge event; reconstruction needs their amounts, assets, and first
+        // blinding.
+        for input in &inputs {
+            let input_hash = input.hash(&nullifier_pk, &ZERO, &ZERO)?;
+            if self
+                .actor(name)
+                .wallet
+                .utxos
+                .iter()
+                .any(|note| note.output_context.hash == input_hash)
+            {
+                continue;
+            }
+            let proof = wait_for_merkle_proof(&self.indexer, self.tree_address, input_hash);
+            let note = WalletUtxo {
+                utxo: input.clone(),
+                output_context: OutputContext {
+                    hash: input_hash,
+                    tree: proof.merkle_context.tree,
+                    leaf_index: proof.leaf_index,
+                },
+                nullifier: input.nullifier(&input_hash, &keypair.nullifier_key)?,
+                data_hash: None,
+                zone_data_hash: None,
+                spent: true,
+            };
+            let actor = self.actor_mut(name);
+            actor.wallet.utxos.push(note.clone());
+            actor.expected.push(note);
+        }
 
         // The consolidated output owned by the actor, tracked like a transfer
         // recipient UTXO so `assert_utxos` matches the synced wallet.

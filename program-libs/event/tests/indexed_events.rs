@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use zolana_event::{
     decode_event_instruction, encode_event_instruction, event_kind_from_indexed,
     indexed_events_from_instruction_groups, instruction_may_emit_events, tag, EventKind,
-    GeneralEvent, IndexedEvent, InstructionGroup, ParsedInstruction,
+    GeneralEvent, IndexedEvent, InstructionGroup, Movement, ParsedInstruction,
 };
 
 #[test]
@@ -29,13 +29,35 @@ fn sample_general_event() -> GeneralEvent {
         salt: [0u8; 16],
         first_output_leaf_index: 0,
         output_tree: [0u8; 32],
-        relay_fee: None,
-        deposit_withdraw: None,
+        movements: Vec::new(),
+        merge_view_tag: None,
     }
 }
 
 fn emit_event_data(kind: EventKind) -> Vec<u8> {
     encode_event_instruction(kind, sample_general_event())
+}
+
+#[test]
+fn movement_round_trip_preserves_full_u64_amounts_and_asset_order() {
+    let mut event = sample_general_event();
+    event.movements = vec![
+        Movement {
+            is_deposit: true,
+            amount: u64::MAX,
+            asset: Some([0xA5; 32]),
+        },
+        Movement {
+            is_deposit: true,
+            amount: 7,
+            asset: None,
+        },
+    ];
+
+    let encoded = encode_event_instruction(EventKind::Deposit, event.clone());
+    let decoded = decode_event_instruction(&encoded).expect("decode event");
+
+    assert_eq!(decoded, event);
 }
 
 #[test]

@@ -3,7 +3,7 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
-use zolana_interface::instruction::ZoneDepositIxData;
+use zolana_interface::instruction::ZoneAssetDeposit;
 use zolana_program_test::DepositOutput;
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -15,7 +15,7 @@ use super::{
 pub struct ZoneDepositAssertArgs<'a> {
     pub tree: &'a Pubkey,
     pub event: &'a DepositOutput,
-    pub data: &'a ZoneDepositIxData,
+    pub data: &'a ZoneAssetDeposit,
     pub expected_amount: u64,
     pub expected_asset: Address,
     pub expected_zone_program_id: [u8; 32],
@@ -43,21 +43,21 @@ pub fn assert_zone_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
     } = args;
 
     let expected = DepositOutput {
-        view_tag: data.view_tag,
+        view_tag: data.deposit.view_tag,
         utxo_hash: event.utxo_hash,
         output_tree: event.output_tree,
         leaf_index: event.leaf_index,
         output: zolana_event::ProoflessOutput {
-            owner: data.owner,
-            blinding: data.blinding,
+            owner: data.deposit.owner,
+            blinding: data.deposit.blinding,
             asset: expected_asset.to_bytes(),
             amount: expected_amount,
-            data_hash: data.utxo_data.as_ref().map(|p| p.data_hash),
-            utxo_data: data.utxo_data.as_ref().map(|p| p.data.clone()),
+            data_hash: data.deposit.utxo_data.as_ref().map(|p| p.data_hash),
+            utxo_data: data.deposit.utxo_data.as_ref().map(|p| p.data.clone()),
             zone_program_id: Some(expected_zone_program_id),
             zone_data_hash: Some(data.zone_data_hash),
             zone_data: Some(data.zone_data.clone()),
-            memo: None,
+            memo: data.deposit.memo.clone(),
         },
     };
     assert_eq!(*event, expected, "zone deposit event");
@@ -66,8 +66,8 @@ pub fn assert_zone_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
     let root_after = state_root_from(&fetch_account(rpc, tree)?);
     assert_ne!(root_after, root_before, "leaf must be appended");
 
-    let indexed = wait_for_indexed_utxo(indexer, data.view_tag, signature);
-    assert_indexed_deposit_utxo(&indexed, data.view_tag, signature, tree, event);
+    let indexed = wait_for_indexed_utxo(indexer, data.deposit.view_tag, signature);
+    assert_indexed_deposit_utxo(&indexed, data.deposit.view_tag, signature, tree, event);
 
     let proof = wait_for_merkle_proof(indexer, to_address(tree), event.utxo_hash);
     assert_eq!(

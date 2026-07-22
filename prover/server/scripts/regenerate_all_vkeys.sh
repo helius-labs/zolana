@@ -42,4 +42,6 @@ done
     done
 } >"$vkey_dir/mod.rs"
 
+rustfmt "$vkey_dir"/*.rs
+
 echo "Regenerated verifying keys into $vkey_dir"

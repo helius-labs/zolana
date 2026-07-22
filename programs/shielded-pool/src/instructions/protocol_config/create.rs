@@ -1,4 +1,4 @@
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_account_checks::{checks::check_data_is_zeroed, AccountIterator};
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -41,7 +41,12 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
     .execute()
     .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;
 
-    ProtocolConfigInitParams {
+    let mut account_data = protocol_config.try_borrow_mut()?;
+    check_data_is_zeroed::<1>(&account_data)?;
+    let config: &mut ProtocolConfig = bytemuck::try_from_bytes_mut(&mut account_data[..])
+        .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;
+    *config = ProtocolConfig {
+        discriminator: PROTOCOL_CONFIG,
         protocol_authority: data.protocol_authority,
         tree_creation_authority: data.tree_creation_authority,
         tree_creation_is_permissionless: data.tree_creation_is_permissionless,
@@ -49,35 +54,6 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
         zone_creation_authority: data.zone_creation_authority,
         zone_creation_is_permissionless: data.zone_creation_is_permissionless,
         spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless,
-    }
-    .init(protocol_config)
-}
-
-struct ProtocolConfigInitParams {
-    protocol_authority: Address,
-    tree_creation_authority: Address,
-    tree_creation_is_permissionless: u8,
-    forester_authority: Address,
-    zone_creation_authority: Address,
-    zone_creation_is_permissionless: u8,
-    spl_interface_creation_is_permissionless: u8,
-}
-
-impl ProtocolConfigInitParams {
-    #[inline(always)]
-    fn init(self, account: &mut AccountView) -> ProgramResult {
-        let mut data = account.try_borrow_mut()?;
-        check_data_is_zeroed::<1>(&data)?;
-        let config: &mut ProtocolConfig = bytemuck::from_bytes_mut(&mut data[..]);
-        config.discriminator = PROTOCOL_CONFIG;
-        config.protocol_authority = self.protocol_authority;
-        config.tree_creation_authority = self.tree_creation_authority;
-        config.tree_creation_is_permissionless = self.tree_creation_is_permissionless;
-        config.forester_authority = self.forester_authority;
-        config.zone_creation_authority = self.zone_creation_authority;
-        config.zone_creation_is_permissionless = self.zone_creation_is_permissionless;
-        config.spl_interface_creation_is_permissionless =
-            self.spl_interface_creation_is_permissionless;
-        Ok(())
-    }
+    };
+    Ok(())
 }

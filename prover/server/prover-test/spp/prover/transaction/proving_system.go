@@ -7,7 +7,8 @@ import (
 	"io"
 	"os"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -32,14 +33,14 @@ type ProofSystem struct {
 
 func Compile(shape protocol.Shape, requiresP256 bool) (constraint.ConstraintSystem, error) {
 	var (
-		circuit *txcircuit.Circuit
+		circuit frontend.Circuit
 		err     error
 	)
 	txShape := txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs}
 	if requiresP256 {
-		circuit, err = txcircuit.NewTransferP256ZoneCircuit(txShape)
+		circuit, err = customzone.NewCustomZoneP256Circuit(txShape)
 	} else {
-		circuit, err = txcircuit.NewTransferZoneCircuit(txShape)
+		circuit, err = customzone.NewCustomZoneEddsaOnlyCircuit(txShape)
 	}
 	if err != nil {
 		return nil, err
@@ -70,7 +71,7 @@ func Setup(shape protocol.Shape, requiresP256 bool) (*ProofSystem, error) {
 	}, nil
 }
 
-func Prove(ps *ProofSystem, assignment *txcircuit.Circuit) (groth16.Proof, error) {
+func Prove(ps *ProofSystem, assignment frontend.Circuit) (groth16.Proof, error) {
 	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
 	if err != nil {
 		return nil, err
@@ -78,7 +79,7 @@ func Prove(ps *ProofSystem, assignment *txcircuit.Circuit) (groth16.Proof, error
 	return groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 }
 
-func Verify(ps *ProofSystem, assignment *txcircuit.Circuit, proof groth16.Proof) error {
+func Verify(ps *ProofSystem, assignment frontend.Circuit, proof groth16.Proof) error {
 	witness, err := frontend.NewWitness(
 		assignment,
 		ecc.BN254.ScalarField(),

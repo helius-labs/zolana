@@ -64,23 +64,29 @@ pub enum TransactionError {
     #[error("transaction has no inputs")]
     NoInputs,
 
-    #[error("withdrawal already set")]
-    WithdrawalAlreadySet,
+    #[error("too many public settlement legs: got {got}, max {max}")]
+    TooManyPublicLegs { got: usize, max: usize },
 
-    #[error("public sol leg already set")]
-    PublicSolAlreadySet,
+    #[error("public settlement requires at least one leg")]
+    NoPublicLegs,
 
-    #[error("public spl leg already set")]
-    PublicSplAlreadySet,
+    #[error("public settlement leg amount must be nonzero")]
+    ZeroPublicLegAmount,
+
+    #[error("settlement target type does not match asset {asset}")]
+    SettlementTargetMismatch { asset: Address },
+
+    #[error("public movement sum overflow for asset {asset}")]
+    PublicMovementOverflow { asset: Address },
+
+    #[error("too many active public assets: got {got}, max {max}")]
+    TooManyPublicAssets { got: usize, max: usize },
 
     #[error("zone hashes already set")]
     ZoneHashesAlreadySet,
 
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
-
-    #[error("public spl amount set but no spl asset among the transaction utxos")]
-    MissingPublicSplAsset,
 
     #[error("p256 signing requires a p256 keypair")]
     SignerNotP256,

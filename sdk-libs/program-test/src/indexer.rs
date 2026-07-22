@@ -56,7 +56,7 @@ pub struct ProoflessOutput {
     pub asset: [u8; 32],
     pub amount: u64,
     /// Blinding sent in the clear for the recipient to spend the note.
-    pub blinding: [u8; 31],
+    pub blinding: [u8; 32],
     /// Optional free-form memo emitted in the clear with the deposit.
     pub memo: Option<Vec<u8>>,
 }
@@ -135,9 +135,9 @@ impl TestIndexer {
         for (offset, output) in event.outputs.iter().enumerate() {
             let leaf_index = event.first_output_leaf_index + offset as u64;
             let payload = if event
-                .deposit_withdraw
-                .as_ref()
-                .is_some_and(|deposit| deposit.is_deposit)
+                .movements
+                .first()
+                .is_some_and(|movement| movement.is_deposit)
                 && offset == 0
             {
                 let proofless =
@@ -283,6 +283,7 @@ pub fn shielded_transaction_from_general_event(
         nullifiers,
         proofless,
         messages: event.messages.clone(),
+        merge_view_tag: event.merge_view_tag,
     }
 }
 

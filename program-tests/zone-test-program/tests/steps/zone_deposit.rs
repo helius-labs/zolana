@@ -11,11 +11,11 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::indexed_events_from_instruction_groups;
 use zolana_interface::{
-    instruction::{DepositSplAccounts, ZoneDeposit, ZoneDepositIxData},
-    pda, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+    instruction::{AssetDeposit, DepositAsset, DepositSplAccounts, ZoneAssetDeposit, ZoneDeposit},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::random_blinding;
-use zolana_program_test::{deposit_output_from_event, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{deposit_output_from_event, test_blinding, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::{
     spl::mint_to,
     test_validator_asserts::{assert_zone_deposit, fetch_account, ZoneDepositAssertArgs},
@@ -36,17 +36,25 @@ impl ZoneLifecycleWorld {
     /// Build the recipient-hidden, wallet-discoverable zone deposit data for `name`:
     /// owner = recipient owner-hash, fresh blinding, the recipient bootstrap view
     /// tag, and the public amount. No zone/program data.
-    fn zone_deposit_data(&self, name: &str, amount: u64) -> Result<ZoneDepositIxData> {
+    fn zone_deposit_data(
+        &self,
+        name: &str,
+        amount: u64,
+        asset: DepositAsset,
+    ) -> Result<ZoneAssetDeposit> {
         let keypair = &self.actor(name).keypair;
-        Ok(ZoneDepositIxData {
-            view_tag: keypair.recipient_bootstrap_view_tag(),
-            owner: keypair.owner_hash()?,
-            blinding: random_blinding(),
-            amount,
+        Ok(ZoneAssetDeposit {
+            deposit: AssetDeposit {
+                asset,
+                view_tag: keypair.recipient_bootstrap_view_tag(),
+                owner: keypair.owner_hash()?,
+                blinding: random_blinding(),
+                amount,
+                utxo_data: None,
+                memo: None,
+            },
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            utxo_data: None,
-            memo: None,
         })
     }
 
@@ -61,24 +69,16 @@ impl ZoneLifecycleWorld {
         let depositor = Keypair::new();
         self.rpc.airdrop(&depositor.pubkey(), 5_000_000_000)?;
 
-        let data = self.zone_deposit_data(name, amount)?;
+        let data = self.zone_deposit_data(name, amount, DepositAsset::Sol)?;
         let tree_before = fetch_account(&self.rpc, &tree)?;
 
         let ix = ZoneDeposit {
             tree,
             depositor: depositor.pubkey(),
-            spl: None,
-            view_tag: data.view_tag,
-            owner: data.owner,
-            blinding: data.blinding,
-            amount: data.amount,
             zone_program_id: self.zone_program_id,
-            zone_data_hash: data.zone_data_hash,
-            zone_data: data.zone_data.clone(),
-            utxo_data: data.utxo_data.clone(),
-            memo: None,
+            deposits: vec![data.clone()],
         }
-        .instruction();
+        .instruction()?;
         let signature = send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
 
         // Make the zone-owned note spendable for `name` so later zone_transact /
@@ -90,7 +90,7 @@ impl ZoneLifecycleWorld {
             owner,
             asset: SOL_MINT,
             amount,
-            blinding: data.blinding,
+            blinding: data.deposit.blinding,
             zone_program_id: Some(zone),
             data: Data::default(),
         };
@@ -127,27 +127,18 @@ impl ZoneLifecycleWorld {
         let vault_before = fetch_account(&self.rpc, &vault)?;
         let user_token_before = fetch_account(&self.rpc, &user_token)?;
 
-        let data = self.zone_deposit_data(name, amount)?;
+        let data = self.zone_deposit_data(
+            name,
+            amount,
+            DepositAsset::Spl(DepositSplAccounts { mint, user_token }),
+        )?;
         let ix = ZoneDeposit {
             tree,
             depositor: payer.pubkey(),
-            spl: Some(DepositSplAccounts {
-                user_token,
-                spl_token_interface: vault,
-                registry: pda::spl_asset_registry(&mint),
-                token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
-            }),
-            view_tag: data.view_tag,
-            owner: data.owner,
-            blinding: data.blinding,
-            amount: data.amount,
             zone_program_id: self.zone_program_id,
-            zone_data_hash: data.zone_data_hash,
-            zone_data: data.zone_data.clone(),
-            utxo_data: data.utxo_data.clone(),
-            memo: None,
+            deposits: vec![data.clone()],
         }
-        .instruction();
+        .instruction()?;
         let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
 
         self.actor_mut(name).last_zone_deposit = Some(ZoneDepositRecord {
@@ -223,18 +214,22 @@ impl ZoneLifecycleWorld {
         let mut ix = ZoneDeposit {
             tree,
             depositor: depositor.pubkey(),
-            spl: None,
-            view_tag: [0u8; 32],
-            owner: [3u8; 32],
-            blinding: [4u8; 31],
-            amount: 1_000_000,
             zone_program_id: self.zone_program_id,
-            zone_data_hash: [0u8; 32],
-            zone_data: Vec::new(),
-            utxo_data: None,
-            memo: None,
+            deposits: vec![ZoneAssetDeposit {
+                deposit: AssetDeposit {
+                    asset: DepositAsset::Sol,
+                    view_tag: [0u8; 32],
+                    owner: [3u8; 32],
+                    blinding: test_blinding(4),
+                    amount: 1_000_000,
+                    utxo_data: None,
+                    memo: None,
+                },
+                zone_data_hash: [0u8; 32],
+                zone_data: Vec::new(),
+            }],
         }
-        .cpi_instruction();
+        .cpi_instruction()?;
         // Swap the zone config account (index 2) for a non-PDA signer.
         let meta = ix
             .accounts

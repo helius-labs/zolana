@@ -1,5 +1,9 @@
 use num_bigint::BigUint;
 use solana_address::Address;
+use zolana_interface::{
+    instruction::instruction_data::transact::CircuitVariant, MAX_WIRE_PUBLIC_LEGS, N_PUBLIC_SLOTS,
+    SOL_ASSET_FIELD,
+};
 use zolana_keypair::{
     hash::{hash_field, sha256, sha256_be},
     ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
@@ -30,11 +34,18 @@ fn right_align_slice(bytes: &[u8]) -> [u8; 32] {
 }
 
 pub fn signed_to_field(value: i64) -> [u8; 32] {
-    let magnitude = BigUint::from(value.unsigned_abs());
-    let field = if value < 0 {
-        modulus() - magnitude
-    } else {
+    signed_magnitude_to_field(value >= 0, value.unsigned_abs())
+}
+
+pub fn signed_magnitude_to_field(is_deposit: bool, amount: u64) -> [u8; 32] {
+    if amount == 0 {
+        return [0u8; 32];
+    }
+    let magnitude = BigUint::from(amount);
+    let field = if is_deposit {
         magnitude
+    } else {
+        modulus() - magnitude
     };
     right_align_slice(&field.to_bytes_be())
 }
@@ -43,17 +54,28 @@ pub fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {
     Ok(hash_field(asset.as_array())?)
 }
 
-pub fn inputs_require_p256(inputs: &[SppProofInputUtxo]) -> Result<bool, TransactionError> {
+/// The proving variant the spending key material requires: P256 iff any real
+/// input is P256-owned. This is the single derivation of the variant; the
+/// `circuit` selector stamped on the instruction data and the prover witness
+/// both come from it, so they agree by construction.
+pub fn inputs_proof_variant(
+    inputs: &[SppProofInputUtxo],
+) -> Result<CircuitVariant, TransactionError> {
     for spend in inputs {
-        // A dummy's zero owner reads as P256; skip it so it never forces the rail.
+        // A dummy's zero owner reads as P256; skip it so it never forces the
+        // P256 variant.
         if spend.is_dummy() {
             continue;
         }
         if spend.utxo.owner.signature_type()? == SignatureType::P256 {
-            return Ok(true);
+            return Ok(CircuitVariant::P256);
         }
     }
-    Ok(false)
+    Ok(CircuitVariant::Eddsa)
+}
+
+pub fn inputs_require_p256(inputs: &[SppProofInputUtxo]) -> Result<bool, TransactionError> {
+    Ok(inputs_proof_variant(inputs)? == CircuitVariant::P256)
 }
 
 pub fn first_nullifier(input_utxos: &[SppProofInputUtxo]) -> Result<[u8; 32], TransactionError> {
@@ -71,11 +93,26 @@ pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
     Ok(keypair.get_transaction_viewing_key(&first_nullifier)?)
 }
 
+/// Uniform public movement slots: ordered settlement legs are accumulated per
+/// asset in first-appearance order. Net-zero assets are omitted and idle slots
+/// are `(0, 0)`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PublicAmounts {
-    pub sol: [u8; 32],
-    pub spl: [u8; 32],
-    pub asset: [u8; 32],
+pub struct PublicMovements {
+    pub assets: [[u8; 32]; N_PUBLIC_SLOTS],
+    pub amounts: [[u8; 32]; N_PUBLIC_SLOTS],
+}
+
+impl PublicMovements {
+    pub fn interleaved(&self) -> [[u8; 32]; 2 * N_PUBLIC_SLOTS] {
+        core::array::from_fn(|index| {
+            let slot = index / 2;
+            if index % 2 == 0 {
+                self.assets.get(slot).copied().unwrap_or_default()
+            } else {
+                self.amounts.get(slot).copied().unwrap_or_default()
+            }
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -124,39 +161,77 @@ impl SppProofInputs {
             .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
     }
 
-    pub fn public_amounts(&self) -> Result<PublicAmounts, TransactionError> {
-        let sol = self.external_data.public_sol_amount.unwrap_or(0);
-        let spl = self.external_data.public_spl_amount.unwrap_or(0);
-        let asset = if spl != 0 {
-            asset_field(&self.check_public_spl_asset()?)?
-        } else {
-            [0u8; 32]
-        };
-        Ok(PublicAmounts {
-            sol: signed_to_field(sol),
-            spl: signed_to_field(spl),
-            asset,
-        })
-    }
+    pub fn public_movements(&self) -> Result<PublicMovements, TransactionError> {
+        if self.external_data.public_legs.len() > MAX_WIRE_PUBLIC_LEGS {
+            return Err(TransactionError::TooManyPublicLegs {
+                got: self.external_data.public_legs.len(),
+                max: MAX_WIRE_PUBLIC_LEGS,
+            });
+        }
 
-    fn check_public_spl_asset(&self) -> Result<Address, TransactionError> {
-        let mut found: Option<Address> = None;
-        let assets = self
-            .input_utxos
-            .iter()
-            .map(|spend| spend.utxo.asset)
-            .chain(self.output_utxos.iter().map(|output| output.asset));
-        for asset in assets {
-            if asset != SOL_MINT {
-                match found {
-                    Some(existing) if existing != asset => {
-                        return Err(TransactionError::MultiplePublicSplAssets)
-                    }
-                    _ => found = Some(asset),
-                }
+        let mut aggregated: Vec<(Address, i128)> = Vec::new();
+        for leg in &self.external_data.public_legs {
+            let asset = leg.asset();
+            let amount = leg.amount();
+            if amount == 0 {
+                return Err(TransactionError::ZeroPublicLegAmount);
+            }
+            if leg.public_leg().is_spl() && asset == SOL_MINT {
+                return Err(TransactionError::SettlementTargetMismatch { asset });
+            }
+            let magnitude = i128::from(amount);
+            let signed = if leg.is_deposit() {
+                magnitude
+            } else {
+                -magnitude
+            };
+            if let Some((_, total)) = aggregated
+                .iter_mut()
+                .find(|(existing, _)| *existing == asset)
+            {
+                *total = total
+                    .checked_add(signed)
+                    .ok_or(TransactionError::PublicMovementOverflow { asset })?;
+            } else {
+                aggregated.push((asset, signed));
             }
         }
-        found.ok_or(TransactionError::MissingPublicSplAsset)
+        aggregated.retain(|(_, amount)| *amount != 0);
+        if aggregated.len() > N_PUBLIC_SLOTS {
+            return Err(TransactionError::TooManyPublicAssets {
+                got: aggregated.len(),
+                max: N_PUBLIC_SLOTS,
+            });
+        }
+
+        let mut movements = PublicMovements::default();
+        for ((asset_slot, amount_slot), (asset, amount)) in movements
+            .assets
+            .iter_mut()
+            .zip(movements.amounts.iter_mut())
+            .zip(aggregated)
+        {
+            let magnitude = u64::try_from(amount.unsigned_abs())
+                .map_err(|_| TransactionError::PublicMovementOverflow { asset })?;
+            *asset_slot = if asset == SOL_MINT {
+                SOL_ASSET_FIELD
+            } else {
+                asset_field(&asset)?
+            };
+            *amount_slot = signed_magnitude_to_field(amount > 0, magnitude);
+        }
+        Ok(movements)
+    }
+
+    /// Nullifiers of the padding (dummy) input slots, in slot order. The circuit
+    /// checks nullifier non-inclusion for every slot, so each dummy needs a real
+    /// low-element witness fetched for its own nullifier.
+    pub fn dummy_nullifiers(&self) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.input_utxos
+            .iter()
+            .filter(|spend| spend.is_dummy())
+            .map(|spend| spend.nullifier())
+            .collect()
     }
 
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
@@ -198,16 +273,5 @@ impl SppProofInputs {
         let private_tx =
             PrivateTxHash::new(&input_hashes, &output_hashes, &external_data_hash).hash()?;
         Ok(sha256(&private_tx))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn zero_public_amounts_match_the_field_encoding_of_zero() {
-        assert_eq!(PublicAmounts::default().sol, signed_to_field(0));
-        assert_eq!(PublicAmounts::default().spl, signed_to_field(0));
     }
 }

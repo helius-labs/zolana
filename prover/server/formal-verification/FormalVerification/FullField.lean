@@ -12,8 +12,8 @@ which gnark constrains to the *canonical* (< p) decomposition, modeled by
 compares limb pairs lexicographically. The offset trick `x - y + 2^127` is
 sound for limb-sized operands because the offset sum lies in (0, 2^128) ⊂ [0, p).
 
-Main result: `AssertStrictlyOrdered_zero_rw`:
-`AssertStrictlyOrdered 0 lo mid hi ↔ lo.val < mid.val ∧ mid.val < hi.val`.
+Main result: `AssertStrictlyOrdered_rw`:
+`AssertStrictlyOrdered lo mid hi ↔ lo.val < mid.val ∧ mid.val < hi.val`.
 -/
 
 open ZolanaProver (F Order Gates)
@@ -227,13 +227,10 @@ def isZeroChunk (x y : F) (k : F → Prop) : Prop :=
   k out
 
 /-- Mirror of the extracted `AssertStrictlyOrdered`, definitionally equal. -/
-def AssertStrictlyOrdered' (IsDummy Lo Mid Hi : F) : Prop :=
-  ∃lo, Gates.select IsDummy (0:F) Lo lo ∧
-  ∃mid, Gates.select IsDummy (1:F) Mid mid ∧
-  ∃hi, Gates.select IsDummy (2:F) Hi hi ∧
-  canonicalLimbs lo fun loLo loHi =>
-  canonicalLimbs mid fun midLo midHi =>
-  canonicalLimbs hi fun hiLo hiHi =>
+def AssertStrictlyOrdered' (Lo Mid Hi : F) : Prop :=
+  canonicalLimbs Lo fun loLo loHi =>
+  canonicalLimbs Mid fun midLo midHi =>
+  canonicalLimbs Hi fun hiLo hiHi =>
   isLessChunk loHi midHi fun hiLess₁ =>
   isZeroChunk loHi midHi fun hiEq₁ =>
   isLessChunk loLo midLo fun loLess₁ =>
@@ -248,8 +245,8 @@ def AssertStrictlyOrdered' (IsDummy Lo Mid Hi : F) : Prop :=
   Gates.eq s₂ (1:F) ∧
   True
 
-lemma AssertStrictlyOrdered_mirror {d lo mid hi : F} :
-    ZolanaProver.AssertStrictlyOrdered d lo mid hi ↔ AssertStrictlyOrdered' d lo mid hi :=
+lemma AssertStrictlyOrdered_mirror {lo mid hi : F} :
+    ZolanaProver.AssertStrictlyOrdered lo mid hi ↔ AssertStrictlyOrdered' lo mid hi :=
   ⟨fun h => h, fun h => h⟩
 
 lemma canonicalLimbs_rw {v : F} {k : F → F → Prop} :
@@ -332,10 +329,10 @@ lemma lex_combine {alo ahi blo bhi : ℕ}
 lemma gates_eq_rw {a b : F} : Gates.eq a b ↔ a = b := by
   simp [Gates, GatesGnark12, GatesGnark9, GatesGnark8, GatesDef.eq]
 
-/-- The production ordering gadget with `IsDummy = 0` enforces exactly
+/-- The production ordering gadget enforces exactly
 `lo.val < mid.val < hi.val` over full canonical field values. -/
-theorem AssertStrictlyOrdered_zero_rw {lo mid hi : F} :
-    ZolanaProver.AssertStrictlyOrdered (0:F) lo mid hi ↔
+theorem AssertStrictlyOrdered_rw {lo mid hi : F} :
+    ZolanaProver.AssertStrictlyOrdered lo mid hi ↔
     lo.val < mid.val ∧ mid.val < hi.val := by
   have hOrder := two_pow_127_lt_Order
   have hmodlt : ∀ (v : F), ((v.val % 2^127 : ℕ) : F).val = v.val % 2^127 := fun v =>
@@ -350,7 +347,7 @@ theorem AssertStrictlyOrdered_zero_rw {lo mid hi : F} :
     omega
   rw [AssertStrictlyOrdered_mirror]
   unfold AssertStrictlyOrdered'
-  simp only [select_zero_rw, exists_eq_left, canonicalLimbs_rw]
+  simp only [canonicalLimbs_rw]
   rw [isLessChunk_rw (hdivb lo) (hdivb mid),
     isZeroChunk_rw,
     isLessChunk_rw (hmodb lo) (hmodb mid),

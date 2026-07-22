@@ -17,8 +17,8 @@ use zeroize::Zeroizing;
 
 use crate::{
     constants::{
-        BLINDING_LEN, INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET,
-        INFO_PAIR_DOMAIN_PREFIX, INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
+        INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET, INFO_PAIR_DOMAIN_PREFIX,
+        INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
         INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET,
         INFO_TX_VIEWING, P_CONST_SEC1, SALT_LEN, VIEW_TAG_LEN,
     },
@@ -55,11 +55,12 @@ pub fn random_salt() -> Salt {
     salt
 }
 
-/// A 31-byte blinding is always below the BN254 field modulus, so a fresh
-/// random value needs no rejection sampling.
-pub fn random_blinding() -> [u8; BLINDING_LEN] {
-    let mut blinding = [0u8; BLINDING_LEN];
-    OsRng.fill_bytes(&mut blinding);
+/// A fresh random blinding: a 32-byte big-endian field element with a zero top
+/// byte (31 random bytes right-aligned), always below the BN254 field modulus,
+/// so no rejection sampling is needed.
+pub fn random_blinding() -> [u8; 32] {
+    let mut blinding = [0u8; 32];
+    OsRng.fill_bytes(&mut blinding[1..]);
     blinding
 }
 
@@ -280,24 +281,6 @@ impl ViewingKey {
             &salt,
             slot_index,
         )
-    }
-
-    /// Decrypts a merge ciphertext (Poseidon KDF + AES-256-CTR) to its plaintext
-    /// bundle. The owner reconstructs the merged UTXO from the recovered fields.
-    pub fn decrypt_verifiable(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-    ) -> Result<Vec<u8>, KeypairError> {
-        crate::merge::decrypt_verifiable(&self.secret, tx_viewing_pubkey, ciphertext)
-    }
-
-    pub fn encrypt_verifiable(
-        &self,
-        user_viewing_pk: &P256Pubkey,
-        plaintext: &[u8],
-    ) -> Result<(Vec<u8>, P256Pubkey), KeypairError> {
-        crate::merge::encrypt_verifiable(&self.secret, user_viewing_pk, plaintext)
     }
 
     pub fn encrypt_slot(

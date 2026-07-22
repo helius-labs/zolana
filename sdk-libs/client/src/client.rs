@@ -20,7 +20,7 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction as SolanaTransaction};
 use solana_transaction_status_client_types::TransactionStatus;
-use zolana_interface::instruction::{Transact, TransactIxData};
+use zolana_interface::instruction::{PublicLeg, Transact, TransactIxData, TransactLegAccounts};
 use zolana_keypair::hash::sha256_be;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 
@@ -45,7 +45,7 @@ use crate::{
 /// [`ZolanaClient`]'s submission helpers.
 pub struct SignedPrivateTransaction {
     pub transaction: SppProofInputs,
-    pub withdrawal: Option<zolana_interface::instruction::TransactWithdrawal>,
+    pub settlement_legs: Vec<TransactLegAccounts>,
     pub tree: Address,
 }
 
@@ -197,8 +197,14 @@ impl<R: Rpc> ZolanaClient<R> {
     ) -> Result<TransactIxData, ClientError> {
         let commitments = proof_inputs.input_utxo_hashes()?;
         let spend_proofs = self.get_input_merkle_proofs(&commitments, config)?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs(
+            self.blocking_indexer(),
+            self.tree,
+            &proof_inputs,
+            config,
+        )?;
         self.blocking_prover()
-            .prove_transact(proof_inputs, &spend_proofs)
+            .prove_transact(proof_inputs, &spend_proofs, &dummy_proofs)
     }
 
     pub fn finish_submission_unsigned_sync(
@@ -212,7 +218,13 @@ impl<R: Rpc> ZolanaClient<R> {
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
             fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments, None)?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs(
+            self.blocking_indexer(),
+            self.tree,
+            &signed.transaction,
+            None,
+        )?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => self.blocking_prover().prove_transfer_p256(inputs)?,
             ProverInputs::Eddsa(inputs) => self.blocking_prover().prove_transfer(inputs)?,
@@ -223,7 +235,7 @@ impl<R: Rpc> ZolanaClient<R> {
             self.cu_price_micro_lamports,
             fee_payer,
             signed.tree,
-            signed.withdrawal,
+            signed.settlement_legs.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
         )
@@ -242,14 +254,20 @@ impl<R: Rpc> ZolanaClient<R> {
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
             fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments, None)?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs(
+            self.blocking_indexer(),
+            self.tree,
+            &signed.transaction,
+            None,
+        )?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
         build_unsigned_solana_transaction(
             self.cu_limit,
             self.cu_price_micro_lamports,
             fee_payer,
             signed.tree,
-            signed.withdrawal,
+            signed.settlement_legs.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
         )
@@ -285,7 +303,14 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
             fetch_spend_proofs_async(&self.async_indexer, self.tree, &commitments, None).await?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs_async(
+            &self.async_indexer,
+            self.tree,
+            &signed.transaction,
+            None,
+        )
+        .await?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => self.async_prover.prove_transfer_p256(inputs).await?,
             ProverInputs::Eddsa(inputs) => self.async_prover.prove_transfer(inputs).await?,
@@ -296,7 +321,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             self.cu_price_micro_lamports,
             fee_payer,
             signed.tree,
-            signed.withdrawal,
+            signed.settlement_legs.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
         )
@@ -537,7 +562,10 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     async fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None).await?;
-        let assembled = assemble(transaction, &input_merkle_proofs)?;
+        let dummy_proofs =
+            fetch_dummy_nullifier_proofs_async(&self.async_indexer, self.tree, &transaction, None)
+                .await?;
+        let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (self.async_prover.prove_transfer_p256(inputs).await?, 1),
             ProverInputs::Eddsa(inputs) => (self.async_prover.prove_transfer(inputs).await?, 0),
@@ -741,7 +769,9 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
-        let assembled = assemble(transaction, &input_merkle_proofs)?;
+        let dummy_proofs =
+            fetch_dummy_nullifier_proofs(self.blocking_indexer(), self.tree, &transaction, None)?;
+        let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (self.blocking_prover().prove_transfer_p256(inputs)?, 1),
             ProverInputs::Eddsa(inputs) => (self.blocking_prover().prove_transfer(inputs)?, 0),
@@ -759,14 +789,15 @@ fn build_unsigned_solana_transaction(
     cu_price_micro_lamports: Option<u64>,
     fee_payer: Pubkey,
     tree: Address,
-    withdrawal: Option<zolana_interface::instruction::TransactWithdrawal>,
+    settlement_legs: Vec<TransactLegAccounts>,
     transact_data: zolana_interface::instruction::instruction_data::transact::TransactIxData,
     recent_blockhash: Hash,
 ) -> Result<SolanaTransaction, ClientError> {
+    validate_settlement_legs(&transact_data.public_legs, &settlement_legs)?;
     let transact_ix = Transact {
         payer: fee_payer,
         tree: Pubkey::new_from_array(tree.to_bytes()),
-        withdrawal,
+        legs: settlement_legs,
         data: transact_data,
     }
     .instruction();
@@ -774,6 +805,28 @@ fn build_unsigned_solana_transaction(
     let mut message = Message::new(&instructions, Some(&fee_payer));
     message.recent_blockhash = recent_blockhash;
     Ok(SolanaTransaction::new_unsigned(message))
+}
+
+fn validate_settlement_legs(
+    public_legs: &[PublicLeg],
+    settlement_legs: &[TransactLegAccounts],
+) -> Result<(), ClientError> {
+    if public_legs.len() != settlement_legs.len() {
+        return Err(ClientError::SettlementLegCountMismatch {
+            public_legs: public_legs.len(),
+            settlement_legs: settlement_legs.len(),
+        });
+    }
+    for (index, (leg, accounts)) in public_legs.iter().zip(settlement_legs).enumerate() {
+        if !matches!(
+            (leg, accounts),
+            (PublicLeg::Sol { .. }, TransactLegAccounts::Sol(_))
+                | (PublicLeg::Spl { .. }, TransactLegAccounts::Spl(_))
+        ) {
+            return Err(ClientError::SettlementLegTypeMismatch { index });
+        }
+    }
+    Ok(())
 }
 
 fn validate_fee_payer_pubkey(
@@ -839,6 +892,40 @@ fn fetch_spend_proofs(
         state_response.proofs,
         nullifier_response.proofs,
     )
+}
+
+/// Fetch the non-inclusion witness for each padding (dummy) input slot's
+/// nullifier, in slot order. The circuit checks non-inclusion for every slot,
+/// dummies included.
+fn fetch_dummy_nullifier_proofs(
+    indexer: &ZolanaIndexer,
+    tree: Address,
+    transaction: &SppProofInputs,
+    config: Option<IndexerRpcConfig>,
+) -> Result<Vec<crate::rpc::NonInclusionProof>, ClientError> {
+    let nullifiers = transaction.dummy_nullifiers()?;
+    if nullifiers.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(indexer
+        .get_non_inclusion_proofs(tree, nullifiers, config)?
+        .proofs)
+}
+
+async fn fetch_dummy_nullifier_proofs_async(
+    indexer: &AsyncZolanaIndexer,
+    tree: Address,
+    transaction: &SppProofInputs,
+    config: Option<IndexerRpcConfig>,
+) -> Result<Vec<crate::rpc::NonInclusionProof>, ClientError> {
+    let nullifiers = transaction.dummy_nullifiers()?;
+    if nullifiers.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(indexer
+        .get_non_inclusion_proofs(tree, nullifiers, config)
+        .await?
+        .proofs)
 }
 
 async fn fetch_spend_proofs_async(
@@ -1022,9 +1109,11 @@ mod tests {
         prover::CompressedCommitments,
         rpc::{MerkleContext, MerkleProof, NonInclusionProof},
     };
-    use zolana_interface::instruction::{TransactSolWithdrawal, TransactWithdrawal};
+    use zolana_interface::instruction::{
+        PublicLeg, TransactLegAccounts, TransactSolLeg, TransactSplLeg,
+    };
     use zolana_transaction::instructions::{
-        transact::{ConfidentialTransfer, WithdrawalTarget},
+        transact::{ConfidentialTransfer, SettlementTarget},
         types::SppProofInputUtxo,
     };
 
@@ -1043,6 +1132,74 @@ mod tests {
             client.prover.get().is_none(),
             "blocking prover must be initialized lazily"
         );
+    }
+
+    #[test]
+    fn settlement_accounts_accept_duplicate_sol_recipients_and_mixed_directions() {
+        let spl = TransactSplLeg {
+            vault: Pubkey::new_unique(),
+            recipient: Pubkey::new_unique(),
+            user_token_account: Pubkey::new_unique(),
+            token_program: Pubkey::new_unique(),
+        };
+        let public_legs = [
+            PublicLeg::Sol {
+                is_deposit: false,
+                amount: 7,
+            },
+            PublicLeg::Spl {
+                is_deposit: true,
+                amount: 11,
+                vault_bump: 42,
+            },
+            PublicLeg::Sol {
+                is_deposit: false,
+                amount: 3,
+            },
+        ];
+        let settlement_legs = [
+            TransactLegAccounts::Sol(TransactSolLeg {
+                recipient: Pubkey::new_unique(),
+            }),
+            TransactLegAccounts::Spl(spl),
+            TransactLegAccounts::Sol(TransactSolLeg {
+                recipient: Pubkey::new_unique(),
+            }),
+        ];
+
+        validate_settlement_legs(&public_legs, &settlement_legs)
+            .expect("ordered duplicate-asset account groups are valid");
+    }
+
+    #[test]
+    fn settlement_accounts_reject_count_and_type_mismatches() {
+        let sol_accounts = TransactLegAccounts::Sol(TransactSolLeg {
+            recipient: Pubkey::new_unique(),
+        });
+        assert!(matches!(
+            validate_settlement_legs(
+                &[PublicLeg::Sol {
+                    is_deposit: false,
+                    amount: 1,
+                }],
+                &[],
+            ),
+            Err(ClientError::SettlementLegCountMismatch {
+                public_legs: 1,
+                settlement_legs: 0,
+            })
+        ));
+        assert!(matches!(
+            validate_settlement_legs(
+                &[PublicLeg::Spl {
+                    is_deposit: false,
+                    amount: 1,
+                    vault_bump: 42,
+                }],
+                &[sol_accounts],
+            ),
+            Err(ClientError::SettlementLegTypeMismatch { index: 0 })
+        ));
     }
 
     #[test]
@@ -1065,7 +1222,7 @@ mod tests {
             .withdraw(
                 SOL_MINT,
                 4,
-                WithdrawalTarget::Sol {
+                SettlementTarget::Sol {
                     user_sol_account: recipient,
                 },
             )
@@ -1075,7 +1232,7 @@ mod tests {
             .expect("sign");
         let shielded = SignedPrivateTransaction {
             transaction: proof_inputs,
-            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+            settlement_legs: vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })],
             tree,
         };
         let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);
@@ -1281,11 +1438,13 @@ mod tests {
             AssetRegistry::default(),
         )
         .expect("wallet");
+        let mut blinding = [0u8; 32];
+        blinding[1..].fill(7);
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset: SOL_MINT,
             amount,
-            blinding: [7u8; 31],
+            blinding,
             zone_program_id: None,
             data: Data::default(),
         };

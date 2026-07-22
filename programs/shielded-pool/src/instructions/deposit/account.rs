@@ -1,3 +1,4 @@
+use light_array_map::pubkey_eq;
 use pinocchio::{
     address::{address_eq, Address},
     error::ProgramError,
@@ -5,11 +6,14 @@ use pinocchio::{
 };
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    error::ShieldedPoolError, state::SplAssetRegistry, SHIELDED_POOL_CPI_AUTHORITY,
-    SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
+    error::ShieldedPoolError,
+    instruction::{DepositAssetKind, MAX_DEPOSIT_ASSETS},
+    state::SplAssetRegistry,
+    SHIELDED_POOL_CPI_AUTHORITY, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
 };
 
 use crate::instructions::{
+    hash::solana_pk_hash,
     settlement::{
         read_token_account, validate_sol_interface, Settlement, SettlementAccountsSol,
         SettlementAccountsSpl,
@@ -19,27 +23,53 @@ use crate::instructions::{
 
 const SYSTEM_PROGRAM_ID: Address = Address::new_from_array([0u8; 32]);
 
-/// Validated accounts for a proofless deposit. `deposit` carries no SPP
+/// One deposited asset: its validated settlement accounts plus the asset
+/// identity committed into UTXO hashes. `asset_field` is `solana_pk_hash`
+/// of `asset`, computed once per group so batch entries reuse it.
+pub struct DepositAssetGroup<'a> {
+    /// Deposited asset: the SPL mint, or all-zero for native SOL.
+    pub asset: [u8; 32],
+    pub asset_field: [u8; 32],
+    /// Reuses `transact`'s settlement shape; proofless deposits only ever produce
+    /// the deposit variants (SOL into the interface, SPL into the vault).
+    pub settlement: Settlement<'a>,
+}
+
+/// Validated accounts for a proofless deposit batch. `deposit` carries no SPP
 /// proof, so the settlement accounts the proof would otherwise constrain (vault
 /// PDA, asset registry, token-account mints/owners) are verified here on-chain.
 pub struct DepositAccounts<'a> {
     pub tree: &'a mut AccountView,
-    /// Reuses `transact`'s settlement shape; proofless deposits only ever produce
-    /// the deposit variants (SOL into the interface, SPL into the vault).
-    pub settlement: Settlement<'a>,
-    /// Deposited asset: the SPL mint, or all-zero for native SOL.
-    pub asset: [u8; 32],
+    /// Settlement groups in account order: the SOL group first when present,
+    /// then one group per SPL mint. `DepositEntry::asset_index` indexes this.
+    pub groups: Vec<DepositAssetGroup<'a>>,
 }
 
 impl<'a> DepositAccounts<'a> {
+    /// Account layout after `tree`, `depositor` (and `zone_config` on the zone
+    /// rail): one group per entry of `assets`, in that order, then the program
+    /// account. A `Sol` group reads (`system_program`, `sol_interface`); an `Spl`
+    /// group reads (`token_program`, `user_token`, `vault`, `registry`). The
+    /// instruction data declares the layout, so nothing is inferred from the
+    /// account count: too few accounts hits NotEnoughAccountKeys and too many
+    /// leaves the iterator non-empty (InvalidSettlementAccounts).
     pub fn validate_and_parse<const HAS_ZONE: bool>(
         program_id: &Address,
         accounts: &'a mut [AccountView],
+        assets: &[DepositAssetKind],
     ) -> Result<(Self, Option<[u8; 32]>), ProgramError> {
+        if assets.is_empty() {
+            return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
+        }
+        if assets.len() > MAX_DEPOSIT_ASSETS {
+            return Err(ShieldedPoolError::TooManyDepositAssets.into());
+        }
+
         let mut iter = AccountIterator::new(accounts);
 
         let tree = iter.next_mut("tree")?;
-        let depositor = iter.next_account("depositor")?;
+        // Either spl token account authority, or source for deposited SOL.
+        let depositor = iter.next_signer("depositor")?;
 
         // `zone_deposit` passes the `ZoneConfig` account (the zone's `zone_auth`
         // PDA) first. It must sign and is validated by owner/discriminator -- the
@@ -54,56 +84,61 @@ impl<'a> DepositAccounts<'a> {
             None
         };
 
-        // SOL settlement is 3 accounts, SPL is 4; with the trailing program
-        // account that is 4 (SOL) or 5 (SPL) remaining. Pick the branch by
-        // count and let each validator pin its own accounts. Malformed counts
-        // fall out of the reads below: too few hits NotEnoughAccountKeys, too
-        // many leaves the iterator non-empty (InvalidSettlementAccounts).
-        let needs_spl = iter.len().saturating_sub(iter.position()) >= 5;
-
-        let (settlement, asset) = if needs_spl {
-            let user_token = iter.next_account("user_token")?;
-            let vault = iter.next_account("vault")?;
-            let registry = iter.next_account("registry")?;
-            let token_program = iter.next_account("token_program")?;
-            let mint = validate_spl(
-                program_id,
-                depositor,
-                user_token,
-                vault,
-                registry,
-                token_program,
-            )?;
-            (
-                Settlement::Spl(SettlementAccountsSpl {
-                    cpi_authority: None,
-                    vault,
-                    recipient: depositor,
-                    user_token_account: user_token,
-                    token_program,
-                }),
-                mint,
-            )
-        } else {
-            let system_program = iter.next_account("system_program")?;
-            let sol_interface = iter.next_account("sol_interface")?;
-            let user_sol = iter.next_account("user_sol")?;
-            let bump = validate_sol(
-                program_id,
-                depositor,
-                system_program,
-                sol_interface,
-                user_sol,
-            )?;
-            (
-                Settlement::Sol(SettlementAccountsSol {
-                    sol_interface,
-                    sol_interface_bump: bump,
-                    recipient: user_sol,
-                }),
-                [0u8; 32],
-            )
-        };
+        let mut groups: Vec<DepositAssetGroup<'_>> = Vec::with_capacity(assets.len());
+        for kind in assets {
+            let group = match kind {
+                DepositAssetKind::Sol => {
+                    let system_program = iter.next_account("system_program")?;
+                    let sol_interface = iter.next_account("sol_interface")?;
+                    let bump = validate_sol(depositor, system_program, sol_interface)?;
+                    DepositAssetGroup {
+                        asset: [0u8; 32],
+                        asset_field: solana_pk_hash(&[0u8; 32])?,
+                        settlement: Settlement::Sol(SettlementAccountsSol {
+                            sol_interface,
+                            sol_interface_bump: bump,
+                            recipient: depositor,
+                        }),
+                    }
+                }
+                DepositAssetKind::Spl { vault_bump } => {
+                    let token_program = iter.next_account("token_program")?;
+                    let user_token = iter.next_account("user_token")?;
+                    let vault = iter.next_account("vault")?;
+                    let registry = iter.next_account("registry")?;
+                    let mint = validate_spl(
+                        program_id,
+                        depositor,
+                        user_token,
+                        vault,
+                        registry,
+                        token_program,
+                        *vault_bump,
+                    )?;
+                    DepositAssetGroup {
+                        asset: mint,
+                        asset_field: solana_pk_hash(&mint)?,
+                        settlement: Settlement::Spl(SettlementAccountsSpl {
+                            cpi_authority: None,
+                            mint,
+                            vault,
+                            recipient: depositor,
+                            user_token_account: user_token,
+                            token_program,
+                        }),
+                    }
+                }
+            };
+            // Two groups naming the same asset would split one asset's settlement
+            // across two transfers and let an entry pick either.
+            if groups
+                .iter()
+                .any(|existing| pubkey_eq(&existing.asset, &group.asset))
+            {
+                return Err(ShieldedPoolError::DuplicateDepositAsset.into());
+            }
+            groups.push(group);
+        }
 
         let program_account = iter.next_account("program")?;
         if !address_eq(program_account.address(), program_id) {
@@ -113,38 +148,26 @@ impl<'a> DepositAccounts<'a> {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
         }
 
-        Ok((
-            Self {
-                tree,
-                settlement,
-                asset,
-            },
-            zone_program_id,
-        ))
+        Ok((Self { tree, groups }, zone_program_id))
     }
 }
 
 /// Validate the native-SOL deposit accounts and return the interface PDA bump.
+/// Deposit lamports leave the depositor signer, so it must be writable.
 fn validate_sol(
-    program_id: &Address,
     depositor: &AccountView,
     system_program: &AccountView,
     sol_interface: &AccountView,
-    user_sol: &AccountView,
 ) -> Result<u8, ProgramError> {
     if !address_eq(system_program.address(), &SYSTEM_PROGRAM_ID)
         || !sol_interface.is_writable()
-        || !user_sol.is_writable()
+        || !depositor.is_writable()
         || !sol_interface.owned_by(&SYSTEM_PROGRAM_ID)
     {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
-    // Deposit lamports leave the depositor; pin the funder to the signer.
-    if !address_eq(user_sol.address(), depositor.address()) {
-        return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
-    }
 
-    validate_sol_interface(program_id, sol_interface)
+    validate_sol_interface(sol_interface)
 }
 
 /// Validate the SPL deposit accounts and return the deposited mint. The vault is
@@ -157,8 +180,9 @@ fn validate_spl(
     vault: &AccountView,
     registry: &AccountView,
     token_program: &AccountView,
+    vault_bump: u8,
 ) -> Result<[u8; 32], ProgramError> {
-    let spl_token_program_id = Address::from(SPL_TOKEN_PROGRAM_ID);
+    let spl_token_program_id = Address::from(SPL_TOKEN_PROGRAM_ID); // TODO: support t22
     if !address_eq(token_program.address(), &spl_token_program_id)
         || !user_token.is_writable()
         || !vault.is_writable()
@@ -178,9 +202,11 @@ fn validate_spl(
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    let (expected_vault, _) =
-        Address::derive_program_address(&[SPL_ASSET_VAULT_PDA_SEED, mint.as_slice()], program_id)
-            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+    let expected_vault = Address::derive_address(
+        &[SPL_ASSET_VAULT_PDA_SEED, mint.as_slice()],
+        Some(vault_bump),
+        program_id,
+    );
     if !address_eq(vault.address(), &expected_vault) {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }

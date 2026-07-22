@@ -552,6 +552,11 @@ pub struct ShieldedTransaction {
     pub nullifiers: Vec<Hash>,
     /// True when at least one output in this transaction is proofless.
     pub proofless: bool,
+    /// The single-use merge nonce, present on merge transactions only. The
+    /// wallet reconstructs the merged output from it and its spent inputs.
+    /// Absent when the indexer predates this field.
+    #[serde(default)]
+    pub merge_view_tag: Option<Hash>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

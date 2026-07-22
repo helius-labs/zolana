@@ -115,11 +115,15 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 		"private_tx_hash",
 		"p256_message_hash",
 		"external_data_hash",
-		"public_sol_amount",
-		"public_spl_amount",
-		"public_spl_asset_pubkey",
+		"public_asset_0",
+		"public_amount_0",
+		"public_asset_1",
+		"public_amount_1",
+		"public_asset_2",
+		"public_amount_2",
 		"zone_program_id",
 		"payer_pubkey_hash",
+		"allow_dummy_inputs",
 		"input_owner_pk_hashes",
 	}
 

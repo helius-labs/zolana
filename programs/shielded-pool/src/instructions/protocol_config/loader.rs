@@ -20,14 +20,8 @@ pub fn load_protocol_config<'a>(
     let data = account
         .try_borrow()
         .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;
-    if data.len() != ProtocolConfig::SIZE {
-        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
-    }
-    let config = Ref::map(data, |d| from_bytes::<ProtocolConfig>(d));
-    config
-        .check_discriminator()
-        .map_err(ShieldedPoolError::from)?;
-    Ok(config)
+    ProtocolConfig::from_account_bytes(&data).map_err(ShieldedPoolError::from)?;
+    Ok(Ref::map(data, |d| from_bytes::<ProtocolConfig>(d)))
 }
 
 #[inline(always)]
@@ -40,14 +34,8 @@ pub fn load_protocol_config_mut<'a>(
     let data = account
         .try_borrow_mut()
         .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;
-    if data.len() != ProtocolConfig::SIZE {
-        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
-    }
-    let config = RefMut::map(data, |d| from_bytes_mut::<ProtocolConfig>(d));
-    config
-        .check_discriminator()
-        .map_err(ShieldedPoolError::from)?;
-    Ok(config)
+    ProtocolConfig::from_account_bytes(&data).map_err(ShieldedPoolError::from)?;
+    Ok(RefMut::map(data, |d| from_bytes_mut::<ProtocolConfig>(d)))
 }
 
 /// Load the protocol config and require `authority` to be a signer that matches

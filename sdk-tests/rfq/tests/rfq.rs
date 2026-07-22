@@ -87,7 +87,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
     let mut ix = Transact {
         payer: maker_solana.pubkey(),
         tree,
-        withdrawal: None,
+        legs: Vec::new(),
         data,
     }
     .instruction();

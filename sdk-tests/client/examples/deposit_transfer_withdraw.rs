@@ -2,12 +2,14 @@ use anyhow::{anyhow, Result};
 use client_example::{setup, SetupContext};
 use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
-use zolana_interface::instruction::{Deposit, Transact, TransactSolWithdrawal, TransactWithdrawal};
+use zolana_interface::instruction::{
+    AssetDeposit, Deposit, DepositAsset, Transact, TransactLegAccounts, TransactSolLeg,
+};
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
     decrypt_transactions,
     instructions::{
-        transact::{ConfidentialTransfer, WithdrawalTarget},
+        transact::{ConfidentialTransfer, SettlementTarget},
         types::SppProofInputUtxo,
     },
     AssetRegistry, SOL_MINT,
@@ -41,15 +43,17 @@ fn main() -> Result<()> {
         let deposit_ix = Deposit {
             tree,
             depositor: alice_solana_keypair.pubkey(),
-            spl: None,
-            view_tag: alice_shielded_address.confidential_view_tag()?,
-            owner: alice_shielded_address.owner_hash()?,
-            blinding: random_blinding(),
-            amount: DEPOSIT_AMOUNT,
-            utxo_data: None,
-            memo: None,
+            deposits: vec![AssetDeposit {
+                asset: DepositAsset::Sol,
+                view_tag: alice_shielded_address.confidential_view_tag()?,
+                owner: alice_shielded_address.owner_hash()?,
+                blinding: random_blinding(),
+                amount: DEPOSIT_AMOUNT,
+                utxo_data: None,
+                memo: None,
+            }],
         }
-        .instruction();
+        .instruction()?;
         client.create_and_send_transaction(
             &[deposit_ix],
             alice_solana_keypair.pubkey(),
@@ -102,7 +106,7 @@ fn main() -> Result<()> {
         let transfer_ix = Transact {
             payer: alice_solana_keypair.pubkey(),
             tree,
-            withdrawal: None,
+            legs: Vec::new(),
             data: transfer_data,
         }
         .instruction();
@@ -171,7 +175,7 @@ fn main() -> Result<()> {
         withdrawal.withdraw(
             SOL_MINT,
             WITHDRAW_AMOUNT,
-            WithdrawalTarget::Sol {
+            SettlementTarget::Sol {
                 user_sol_account: alice_solana_keypair.pubkey(),
             },
         )?;
@@ -185,9 +189,9 @@ fn main() -> Result<()> {
         let withdraw_ix = Transact {
             payer: alice_solana_keypair.pubkey(),
             tree,
-            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
+            legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
                 recipient: alice_solana_keypair.pubkey(),
-            })),
+            })],
             data: withdrawal_data,
         }
         .instruction();

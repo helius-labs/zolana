@@ -12,61 +12,33 @@ Regenerate with `just bench-shielded-pool`.
 ## Table of Contents
 
 1. [Deposit sol](#deposit-sol)
-2. [Deposit spl](#deposit-spl)
-3. [Transfer](#transfer)
-4. [Withdrawal sol](#withdrawal-sol)
-5. [Withdrawal spl](#withdrawal-spl)
+2. [Deposit sol batch 3](#deposit-sol-batch-3)
+3. [Deposit spl](#deposit-spl)
 
 ## 1. Deposit sol
 
 | Function              |   Total CU |     Net CU |
 | --------------------- | ---------- | ---------- |
 | `settle_sol`          |      1,224 |      1,224 |
-| `process_instruction` |         36 |         36 |
-| `process_deposit`     |     33,280 |     32,020 |
-| `process_instruction` |     33,336 |         56 |
+| `process_instruction` |         31 |         31 |
+| `process_deposit`     |     39,954 |     38,699 |
+| `process_instruction` |     40,006 |         52 |
 
-## 2. Deposit spl
+## 2. Deposit sol batch 3
+
+| Function              |   Total CU |     Net CU |
+| --------------------- | ---------- | ---------- |
+| `settle_sol`          |      1,224 |      1,224 |
+| `process_instruction` |         31 |         31 |
+| `process_deposit`     |     51,890 |     50,635 |
+| `process_instruction` |     51,942 |         52 |
+
+## 3. Deposit spl
 
 | Function              |   Total CU |     Net CU |
 | --------------------- | ---------- | ---------- |
 | `settle_spl`          |      1,195 |      1,195 |
-| `process_instruction` |         36 |         36 |
-| `process_deposit`     |     33,957 |     32,726 |
-| `process_instruction` |     34,013 |         56 |
-
-## 3. Transfer
-
-| Function              |   Total CU |     Net CU |
-| --------------------- | ---------- | ---------- |
-| `check_input_signers` |      1,845 |      1,845 |
-| `apply_tree`          |     26,364 |     26,364 |
-| `verify_groth16`      |     93,344 |     93,344 |
-| `process_instruction` |         36 |         36 |
-| `process_transact_ix` |    147,784 |     26,195 |
-| `process_instruction` |    147,839 |         55 |
-
-## 4. Withdrawal sol
-
-| Function              |   Total CU |     Net CU |
-| --------------------- | ---------- | ---------- |
-| `check_input_signers` |      1,845 |      1,845 |
-| `apply_tree`          |     26,364 |     26,364 |
-| `verify_groth16`      |     93,344 |     93,344 |
-| `settle_sol`          |      1,243 |      1,243 |
-| `process_instruction` |         36 |         36 |
-| `process_transact_ix` |    150,758 |     27,926 |
-| `process_instruction` |    150,813 |         55 |
-
-## 5. Withdrawal spl
-
-| Function              |   Total CU |     Net CU |
-| --------------------- | ---------- | ---------- |
-| `check_input_signers` |      1,845 |      1,845 |
-| `apply_tree`          |     26,364 |     26,364 |
-| `verify_groth16`      |     93,344 |     93,344 |
-| `settle_spl`          |      1,208 |      1,208 |
-| `process_instruction` |         36 |         36 |
-| `process_transact_ix` |    152,328 |     29,531 |
-| `process_instruction` |    152,383 |         55 |
+| `process_instruction` |         31 |         31 |
+| `process_deposit`     |     41,409 |     40,183 |
+| `process_instruction` |     41,461 |         52 |
 

@@ -56,6 +56,7 @@ pub enum RingsTransactions {
     TxViewingPk,
     Salt,
     Proofless,
+    MergeViewTag,
 }
 
 #[derive(Copy, Clone, Iden)]

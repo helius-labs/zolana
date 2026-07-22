@@ -5,7 +5,7 @@ use solana_account::Account;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use zolana_interface::instruction::DepositIxData;
+use zolana_interface::instruction::AssetDeposit;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 
@@ -15,7 +15,7 @@ use zolana_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 #[derive(Clone)]
 pub(crate) struct DepositRecord {
     pub(crate) signature: Signature,
-    pub(crate) data: DepositIxData,
+    pub(crate) data: AssetDeposit,
     pub(crate) tree_before: Account,
     pub(crate) spl: Option<SplDepositAccounts>,
 }

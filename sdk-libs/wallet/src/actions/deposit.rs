@@ -8,9 +8,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction as SolanaTransaction;
-use zolana_interface::{
-    instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
-    pda, SPL_TOKEN_PROGRAM_ID,
+use zolana_interface::instruction::{
+    AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
 use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{ProofInputUtxo, SOL_MINT};
@@ -26,10 +25,9 @@ use zolana_client::{
 /// manually coordinate salt, blinding, owner commitment, and UTXO hash rules.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Deposit {
-    pub data: DepositIxData,
+    pub deposit: AssetDeposit,
     pub utxo_hash: [u8; 32],
     pub asset: Address,
-    pub spl: Option<DepositSplAccounts>,
 }
 
 pub struct DepositParams<'a> {
@@ -51,9 +49,9 @@ impl Deposit {
         let view_tag = request.recipient.viewing_pubkey.x();
         let utxo_hash =
             ProofInputUtxo::new(owner, &request.asset, request.amount, &blinding)?.hash()?;
-        let spl = spl_accounts(request.asset, request.spl_token_account)?;
         Ok(Self {
-            data: DepositIxData {
+            deposit: AssetDeposit {
+                asset: deposit_asset(request.asset, request.spl_token_account)?,
                 view_tag,
                 owner,
                 blinding,
@@ -63,12 +61,11 @@ impl Deposit {
             },
             utxo_hash,
             asset: request.asset,
-            spl,
         })
     }
 
-    pub fn instruction(&self, tree: Pubkey, depositor: Pubkey) -> Instruction {
-        deposit_instruction(tree, depositor, self.spl, &self.data)
+    pub fn instruction(&self, tree: Pubkey, depositor: Pubkey) -> Result<Instruction, ClientError> {
+        deposit_instruction(tree, depositor, &self.deposit)
     }
 
     /// Build an unsigned deposit transaction for one or more external signers.
@@ -100,11 +97,11 @@ impl Deposit {
         tree: Pubkey,
         depositor: &Keypair,
     ) -> Result<Signature, ClientError> {
-        deposit(rpc, payer, tree, depositor, self.spl, &self.data)
+        deposit(rpc, payer, tree, depositor, &self.deposit)
     }
 
     pub fn view_tag(&self) -> [u8; 32] {
-        self.data.view_tag
+        self.deposit.view_tag
     }
 }
 
@@ -122,7 +119,7 @@ pub async fn build_deposit_transaction<R: AsyncRpc>(
     let (blockhash, _) = rpc.get_latest_blockhash().await?;
     Ok(unsigned_deposit_transaction(
         payer,
-        deposit.instruction(tree, depositor),
+        deposit.instruction(tree, depositor)?,
         blockhash,
     ))
 }
@@ -137,7 +134,7 @@ pub fn build_deposit_transaction_sync<R: Rpc>(
     let (blockhash, _) = rpc.get_latest_blockhash()?;
     Ok(unsigned_deposit_transaction(
         payer,
-        deposit.instruction(tree, depositor),
+        deposit.instruction(tree, depositor)?,
         blockhash,
     ))
 }
@@ -153,10 +150,9 @@ pub fn deposit<R: Rpc>(
     payer: &Keypair,
     tree: Pubkey,
     depositor: &Keypair,
-    spl: Option<DepositSplAccounts>,
-    data: &DepositIxData,
+    deposit_fields: &AssetDeposit,
 ) -> Result<Signature, ClientError> {
-    let ix = deposit_instruction(tree, depositor.pubkey(), spl, data);
+    let ix = deposit_instruction(tree, depositor.pubkey(), deposit_fields)?;
     let mut signers: Vec<&Keypair> = vec![payer];
     if depositor.pubkey() != payer.pubkey() {
         signers.push(depositor);
@@ -168,21 +164,14 @@ pub fn deposit<R: Rpc>(
 fn deposit_instruction(
     tree: Pubkey,
     depositor: Pubkey,
-    spl: Option<DepositSplAccounts>,
-    data: &DepositIxData,
-) -> Instruction {
-    DepositInstruction {
+    deposit: &AssetDeposit,
+) -> Result<Instruction, ClientError> {
+    Ok(DepositInstruction {
         tree,
         depositor,
-        spl,
-        view_tag: data.view_tag,
-        owner: data.owner,
-        blinding: data.blinding,
-        amount: data.amount,
-        utxo_data: data.utxo_data.clone(),
-        memo: data.memo.clone(),
+        deposits: vec![deposit.clone()],
     }
-    .instruction()
+    .instruction()?)
 }
 
 fn unsigned_deposit_transaction(
@@ -195,21 +184,16 @@ fn unsigned_deposit_transaction(
     SolanaTransaction::new_unsigned(message)
 }
 
-fn spl_accounts(
+fn deposit_asset(
     asset: Address,
     spl_token_account: Option<Pubkey>,
-) -> Result<Option<DepositSplAccounts>, ClientError> {
+) -> Result<DepositAsset, ClientError> {
     if asset == SOL_MINT {
-        return Ok(None);
+        return Ok(DepositAsset::Sol);
     }
     let mint = Pubkey::new_from_array(asset.to_bytes());
     let user_token = spl_token_account.ok_or(ClientError::MissingSplTokenAccount { mint })?;
-    Ok(Some(DepositSplAccounts {
-        user_token,
-        spl_token_interface: pda::spl_asset_vault(&mint),
-        registry: pda::spl_asset_registry(&mint),
-        token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
-    }))
+    Ok(DepositAsset::Spl(DepositSplAccounts { mint, user_token }))
 }
 
 #[cfg(test)]
@@ -256,30 +240,28 @@ mod tests {
         let payer = Keypair::new();
         let depositor = Keypair::new();
         let tree = Pubkey::new_unique();
-        let data = DepositIxData {
+        let mut blinding = [3u8; 32];
+        blinding[0] = 0;
+        let entry = AssetDeposit {
+            asset: DepositAsset::Sol,
             view_tag: [1u8; 32],
             owner: [2u8; 32],
-            blinding: [3u8; 31],
+            blinding,
             amount: 1_000,
             utxo_data: None,
             memo: Some(b"thanks".to_vec()),
         };
 
-        deposit(&rpc, &payer, tree, &depositor, None, &data).expect("action");
+        deposit(&rpc, &payer, tree, &depositor, &entry).expect("action");
 
         let sent = rpc.sent.borrow().clone().expect("transaction recorded");
         let expected = DepositInstruction {
             tree,
             depositor: depositor.pubkey(),
-            spl: None,
-            view_tag: data.view_tag,
-            owner: data.owner,
-            blinding: data.blinding,
-            amount: data.amount,
-            utxo_data: data.utxo_data.clone(),
-            memo: data.memo.clone(),
+            deposits: vec![entry.clone()],
         }
-        .instruction();
+        .instruction()
+        .expect("valid deposit");
         assert_eq!(sent.message.instructions.len(), 1);
         assert_eq!(sent.message.instructions[0].data, expected.data);
         assert!(sent.message.account_keys.contains(&payer.pubkey()));
@@ -299,10 +281,10 @@ mod tests {
         })
         .expect("prepared deposit");
 
-        assert_eq!(prepared.data.view_tag, recipient.viewing_pubkey().x());
-        assert_eq!(prepared.data.amount, 1_000);
-        assert_ne!(prepared.data.blinding, [0u8; 31]);
-        assert_ne!(prepared.data.owner, [0u8; 32]);
+        assert_eq!(prepared.deposit.view_tag, recipient.viewing_pubkey().x());
+        assert_eq!(prepared.deposit.amount, 1_000);
+        assert_ne!(prepared.deposit.blinding, [0u8; 32]);
+        assert_ne!(prepared.deposit.owner, [0u8; 32]);
         assert_ne!(prepared.utxo_hash, [0u8; 32]);
     }
 
@@ -351,15 +333,10 @@ mod tests {
         .expect("prepared deposit");
 
         assert_eq!(prepared.asset, asset);
-        assert_eq!(prepared.data.amount, 1_000);
+        assert_eq!(prepared.deposit.amount, 1_000);
         assert_eq!(
-            prepared.spl,
-            Some(DepositSplAccounts {
-                user_token,
-                spl_token_interface: pda::spl_asset_vault(&mint),
-                registry: pda::spl_asset_registry(&mint),
-                token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
-            })
+            prepared.deposit.asset,
+            DepositAsset::Spl(DepositSplAccounts { mint, user_token })
         );
     }
 }

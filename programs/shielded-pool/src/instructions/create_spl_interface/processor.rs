@@ -18,11 +18,15 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
     }
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
+    // If spl interface account creation is not permissionless check authority matches.
     let protocol_config = iter.next_account("protocol_config")?;
+    // Asset counter pda, provides the unique asset id. Is incremented.
     let asset_counter = iter.next_mut("asset_counter")?;
-    let registry = iter.next_mut("registry")?;
+    // Registered mint pda, maps asset id to mint pubkey.
+    let registry_entry = iter.next_mut("registry_entry")?;
+    // Checked by cpi to token program for spl_interface account creation.
     let mint = iter.next_account("mint")?;
-    let vault = iter.next_mut("vault")?;
+    let spl_interface = iter.next_mut("spl_interface")?;
     let system_program = iter.next_account("system_program")?;
     let token_program = iter.next_account("token_program")?;
 
@@ -45,21 +49,6 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
 
     let mint_key = *mint.address();
 
-    let registry_bump = verify_pda(
-        registry.address(),
-        &[SplAssetRegistry::SEED, mint_key.as_ref()],
-        &crate::ID,
-    )?;
-    let vault_bump = verify_pda(
-        vault.address(),
-        &[SPL_ASSET_VAULT_PDA_SEED, mint_key.as_ref()],
-        &crate::ID,
-    )?;
-
-    if registry.data_len() != 0 {
-        return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
-    }
-
     let asset_id = {
         let mut counter = load_spl_asset_counter_mut(asset_counter)?;
         counter
@@ -69,37 +58,57 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
             .allocate_id()
             .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?
     };
-
-    CreatePdaAccount {
-        fee_payer: authority,
-        new_account: &mut *registry,
-        space: SplAssetRegistry::SIZE,
-        owner: &crate::ID,
-        signer_seeds: [SplAssetRegistry::SEED, mint_key.as_ref()],
-        bump: registry_bump,
+    // Create asset registry account.
+    {
+        let registry_bump = verify_pda(
+            registry_entry.address(),
+            &[SplAssetRegistry::SEED, mint_key.as_ref()],
+            &crate::ID,
+        )?;
+        if registry_entry.data_len() != 0 {
+            return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
+        }
+        CreatePdaAccount {
+            fee_payer: authority,
+            new_account: &mut *registry_entry,
+            space: SplAssetRegistry::SIZE,
+            owner: &crate::ID,
+            signer_seeds: [SplAssetRegistry::SEED, mint_key.as_ref()],
+            bump: registry_bump,
+        }
+        .execute()
+        .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
+        RegistryInitParams {
+            mint: mint_key,
+            asset_id,
+        }
+        .init(registry_entry)?;
     }
-    .execute()
-    .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
-    RegistryInitParams {
-        mint: mint_key,
-        asset_id,
+    // Spl interface account.
+    {
+        let spl_interface_bump = verify_pda(
+            spl_interface.address(),
+            &[SPL_ASSET_VAULT_PDA_SEED, mint_key.as_ref()],
+            &crate::ID,
+        )?;
+        if spl_interface.data_len() != 0 {
+            return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
+        }
+        CreatePdaAccount {
+            fee_payer: authority,
+            new_account: &mut *spl_interface,
+            space: SPL_TOKEN_ACCOUNT_LEN,
+            owner: token_program.address(),
+            signer_seeds: [SPL_ASSET_VAULT_PDA_SEED, mint_key.as_ref()],
+            bump: spl_interface_bump,
+        }
+        .execute()
+        .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
+        SplInterfaceInitParams {
+            token_program,
+            spl_interface,
+            mint,
+        }
+        .init()
     }
-    .init(registry)?;
-
-    CreatePdaAccount {
-        fee_payer: authority,
-        new_account: &mut *vault,
-        space: SPL_TOKEN_ACCOUNT_LEN,
-        owner: token_program.address(),
-        signer_seeds: [SPL_ASSET_VAULT_PDA_SEED, mint_key.as_ref()],
-        bump: vault_bump,
-    }
-    .execute()
-    .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
-    SplInterfaceInitParams {
-        token_program,
-        vault,
-        mint,
-    }
-    .init()
 }

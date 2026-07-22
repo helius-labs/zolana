@@ -10,17 +10,18 @@ use crate::{
 /// [`super::merge_transact::MergeTransact`]. The account layout mirrors the
 /// program loader (`MergeZoneAccounts::validate_and_parse`): `tree` (writable),
 /// `zone_config` (the zone's `zone_auth` PDA), `payer` (signer), and the program
-/// account last for the `emit_event` self-CPI. Instruction data is the single-use
-/// `merge_view_tag` followed by the `MergeTransactIxData` body.
+/// account last for the `emit_event` self-CPI. Instruction data is the output
+/// `zone_data_hash` followed by the `MergeTransactIxData` body (which carries
+/// the single-use `merge_view_tag`).
 pub struct MergeZone {
     pub tree: Pubkey,
     /// Calling zone program; its `zone_config` (canonical `zone_auth` PDA) signs.
     pub zone_program_id: Pubkey,
     pub payer: Pubkey,
     pub data: MergeTransactIxData,
-    /// Single-use tag indexing the merged output (inserted into the nullifier
-    /// queue for replay protection).
-    pub merge_view_tag: [u8; 32],
+    /// The output `zone_data_hash` the zone program selected; the merge proof
+    /// binds it to `Output.Utxo.ZoneDataHash`.
+    pub output_zone_data_hash: [u8; 32],
 }
 
 impl MergeZone {
@@ -40,7 +41,7 @@ impl MergeZone {
         let zone_config = pda::zone_auth(&self.zone_program_id).0;
 
         let ix_data = MergeZoneIxData {
-            merge_view_tag: self.merge_view_tag,
+            output_zone_data_hash: self.output_zone_data_hash,
             merge: self.data.clone(),
         };
         let mut instruction_data = vec![tag::ZONE_MERGE_TRANSACT];
@@ -69,25 +70,25 @@ impl MergeZone {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::P256Proof;
+    use crate::instruction::instruction_data::merge_transact::MergeProof;
 
     fn data() -> MergeTransactIxData {
         MergeTransactIxData {
             expiry_unix_ts: u64::MAX,
-            proof: P256Proof::zeroed(),
+            proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
             nullifiers: vec![[0u8; 32]; 8],
             utxo_tree_root_index: vec![0; 8],
             nullifier_tree_root_index: vec![0; 8],
             private_tx_hash: [0u8; 32],
-            encrypted_utxo: vec![0u8; 110],
+            merge_view_tag: [7u8; 32],
             eddsa_owner: false,
         }
     }
 
     /// The instruction targets the zone program, lays out `tree`, `zone_config`,
     /// `payer`, program account, and tags the data with `ZONE_MERGE_TRANSACT`
-    /// followed by the 32-byte `merge_view_tag`.
+    /// followed by the 32-byte output `zone_data_hash`.
     #[test]
     fn instruction_account_order_and_zone_config() {
         let zone_program_id = Pubkey::new_unique();
@@ -96,7 +97,7 @@ mod tests {
             zone_program_id,
             payer: Pubkey::new_unique(),
             data: data(),
-            merge_view_tag: [7u8; 32],
+            output_zone_data_hash: [7u8; 32],
         };
 
         let ix = builder.instruction();
@@ -130,7 +131,7 @@ mod tests {
             zone_program_id,
             payer: Pubkey::new_unique(),
             data: data(),
-            merge_view_tag: [0u8; 32],
+            output_zone_data_hash: [0u8; 32],
         };
 
         let ix = builder.cpi_instruction();

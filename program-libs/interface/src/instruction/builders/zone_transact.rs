@@ -2,8 +2,11 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{builders::transact::TransactWithdrawal, tag, TransactIxData},
-    pda, PROGRAM_ID_PUBKEY, SOL_INTERFACE_PUBKEY,
+    instruction::{
+        builders::transact::{append_public_leg_accounts, TransactLegAccounts},
+        tag, TransactIxData,
+    },
+    pda, PROGRAM_ID_PUBKEY,
 };
 
 /// Builder for the `zone_transact` instruction, the anonymous policy-zone analog
@@ -18,7 +21,7 @@ pub struct ZoneTransact {
     pub tree: Pubkey,
     /// Calling zone program; its `ZoneConfig` (canonical `zone_auth` PDA) signs.
     pub zone_program_id: Pubkey,
-    pub withdrawal: Option<TransactWithdrawal>,
+    pub legs: Vec<TransactLegAccounts>,
     pub data: TransactIxData,
 }
 
@@ -52,24 +55,7 @@ impl ZoneTransact {
             AccountMeta::new(self.tree, false),
             AccountMeta::new_readonly(zone_config, auth_signer),
         ];
-        match &self.withdrawal {
-            Some(TransactWithdrawal::Sol(sol)) => {
-                accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
-                accounts.push(AccountMeta::new(sol.recipient, false));
-            }
-            Some(TransactWithdrawal::Spl(spl)) => {
-                if let Some(cpi_authority) = spl.cpi_authority {
-                    accounts.push(AccountMeta::new_readonly(cpi_authority, false));
-                }
-                accounts.push(AccountMeta::new(spl.spl_token_interface, false));
-                accounts.push(AccountMeta::new(spl.recipient, false));
-                accounts.push(AccountMeta::new(spl.user_token_account, false));
-                accounts.push(AccountMeta::new_readonly(spl.token_program, false));
-            }
-            None => {}
-        }
-        accounts.push(AccountMeta::new_readonly(Pubkey::default(), false));
-        // Program account, loadable for the `emit_event` self-CPI.
+        append_public_leg_accounts(&mut accounts, &self.data.public_legs, &self.legs);
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Instruction {
@@ -83,20 +69,21 @@ impl ZoneTransact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::instruction_data::transact::{TransactIxData, TransactProof};
+    use crate::instruction::instruction_data::transact::{
+        CircuitId, TransactIxData, TransactProof,
+    };
 
     fn empty_data() -> TransactIxData {
         TransactIxData {
             proof: TransactProof::zeroed_eddsa(),
             expiry_unix_ts: u64::MAX,
-            relayer_fee: 0,
             private_tx_hash: [0u8; 32],
+            circuit: CircuitId::ZoneEddsa,
             p256_signing_pk_x: None,
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
             inputs: Vec::new(),
-            public_sol_amount: None,
-            public_spl_amount: None,
+            public_legs: Vec::new(),
             data_hash: None,
             zone_data_hash: None,
             outputs: Vec::new(),
@@ -114,7 +101,7 @@ mod tests {
             payer: Pubkey::new_unique(),
             tree: Pubkey::new_unique(),
             zone_program_id,
-            withdrawal: None,
+            legs: Vec::new(),
             data: empty_data(),
         };
 
@@ -148,7 +135,7 @@ mod tests {
             payer: Pubkey::new_unique(),
             tree: Pubkey::new_unique(),
             zone_program_id,
-            withdrawal: None,
+            legs: Vec::new(),
             data: empty_data(),
         };
 

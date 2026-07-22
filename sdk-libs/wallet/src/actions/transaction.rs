@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
+    instruction::{TransactLegAccounts, TransactSolLeg, TransactSplLeg},
     pda,
     shape::Shape,
-    SPL_TOKEN_PROGRAM_ID,
+    MAX_WIRE_PUBLIC_LEGS, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair, SignatureType,
@@ -15,7 +15,7 @@ use zolana_transaction::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
         transact::{
             ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
-            SppProofInputs, WithdrawalTarget,
+            SettlementTarget, SppProofInputs,
         },
         types::SppProofInputUtxo,
     },
@@ -54,7 +54,7 @@ pub enum TransferRecipient {
     Registered(ResolvedAddress),
     PublicWithdrawal {
         recipient: Pubkey,
-        withdrawal: TransactWithdrawal,
+        settlement_legs: Vec<TransactLegAccounts>,
     },
 }
 
@@ -70,10 +70,12 @@ impl TransferRecipient {
         matches!(self, Self::PublicWithdrawal { .. })
     }
 
-    pub fn withdrawal(&self) -> Option<&TransactWithdrawal> {
+    pub fn settlement_legs(&self) -> &[TransactLegAccounts] {
         match self {
-            Self::Registered(_) => None,
-            Self::PublicWithdrawal { withdrawal, .. } => Some(withdrawal),
+            Self::Registered(_) => &[],
+            Self::PublicWithdrawal {
+                settlement_legs, ..
+            } => settlement_legs,
         }
     }
 }
@@ -81,7 +83,7 @@ impl TransferRecipient {
 #[derive(Clone)]
 pub struct CreatedWithdrawal {
     pub transaction: UnsignedPrivateTransaction,
-    pub withdrawal: TransactWithdrawal,
+    pub settlement_legs: Vec<TransactLegAccounts>,
 }
 
 #[derive(Clone)]
@@ -90,7 +92,7 @@ pub struct UnsignedPrivateTransaction {
     tree: Address,
     inputs: Vec<UnsignedSpendInput>,
     action: PrivateTransactionAction,
-    withdrawal: Option<TransactWithdrawal>,
+    settlement_legs: Vec<TransactLegAccounts>,
     approval_summary: String,
 }
 
@@ -105,6 +107,10 @@ impl UnsignedPrivateTransaction {
 
     pub fn input_count(&self) -> usize {
         self.inputs.len()
+    }
+
+    pub fn settlement_legs(&self) -> &[TransactLegAccounts] {
+        &self.settlement_legs
     }
 }
 
@@ -125,15 +131,20 @@ enum PrivateTransactionAction {
         amount: u64,
     },
     Withdrawal {
-        asset: Address,
-        amount: u64,
-        target: WithdrawalTarget,
+        legs: Vec<UnsignedWithdrawalLeg>,
     },
     Split {
         asset: Address,
         num_outputs: u8,
         per_output_amount: u64,
     },
+}
+
+#[derive(Clone, Copy)]
+struct UnsignedWithdrawalLeg {
+    asset: Address,
+    amount: u64,
+    target: SettlementTarget,
 }
 
 pub struct TransferParams<'a, R> {
@@ -145,12 +156,17 @@ pub struct TransferParams<'a, R> {
     pub amount: u64,
 }
 
-pub struct WithdrawalParams<'a> {
-    pub wallet: &'a Wallet,
-    pub payer: Address,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WithdrawalLeg {
     pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
+}
+
+pub struct WithdrawalParams<'a> {
+    pub wallet: &'a Wallet,
+    pub payer: Address,
+    pub legs: Vec<WithdrawalLeg>,
 }
 
 pub async fn create_transfer<R: AsyncRpc>(
@@ -176,15 +192,17 @@ fn create_transfer_with_recipient<R>(
         let withdrawal = create_withdrawal(WithdrawalParams {
             wallet: request.wallet,
             payer: request.payer,
-            recipient: request.recipient,
-            asset: request.asset,
-            amount: request.amount,
+            legs: vec![WithdrawalLeg {
+                recipient: request.recipient,
+                asset: request.asset,
+                amount: request.amount,
+            }],
         })?;
         return Ok(CreatedTransfer {
             transaction: withdrawal.transaction,
             recipient: TransferRecipient::PublicWithdrawal {
                 recipient: request.recipient,
-                withdrawal: withdrawal.withdrawal,
+                settlement_legs: withdrawal.settlement_legs,
             },
         });
     };
@@ -199,7 +217,7 @@ fn create_transfer_with_recipient<R>(
                 asset: request.asset,
                 amount: request.amount,
             },
-            withdrawal: None,
+            settlement_legs: Vec::new(),
             approval_summary: format!(
                 "private transaction transfer of {} to {}",
                 request.amount, request.recipient
@@ -210,26 +228,36 @@ fn create_transfer_with_recipient<R>(
 }
 
 pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdrawal, ClientError> {
-    let tree = resolve_spend_tree(request.wallet, request.asset, |_| true)?;
-    let inputs = select_inputs(request.wallet, tree, request.asset, request.amount)?;
-    let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
+    validate_withdrawal_legs(&request.legs)?;
+    let required = aggregate_withdrawal_amounts(&request.legs)?;
+    let (tree, inputs) = select_withdrawal_inputs(request.wallet, &required)?;
+    let mut action_legs = Vec::with_capacity(request.legs.len());
+    let mut settlement_legs = Vec::with_capacity(request.legs.len());
+    for leg in &request.legs {
+        let (target, accounts) = withdrawal_target(leg.recipient, leg.asset);
+        action_legs.push(UnsignedWithdrawalLeg {
+            asset: leg.asset,
+            amount: leg.amount,
+            target,
+        });
+        settlement_legs.push(accounts);
+    }
+    let approval_summary = request
+        .legs
+        .iter()
+        .map(|leg| format!("{} to {}", leg.amount, leg.recipient))
+        .collect::<Vec<_>>()
+        .join(", ");
     Ok(CreatedWithdrawal {
         transaction: UnsignedPrivateTransaction {
             payer: request.payer,
             tree,
             inputs,
-            action: PrivateTransactionAction::Withdrawal {
-                asset: request.asset,
-                amount: request.amount,
-                target,
-            },
-            withdrawal: Some(withdrawal),
-            approval_summary: format!(
-                "private transaction withdrawal of {} to {}",
-                request.amount, request.recipient
-            ),
+            action: PrivateTransactionAction::Withdrawal { legs: action_legs },
+            settlement_legs: settlement_legs.clone(),
+            approval_summary: format!("private transaction withdrawal of {approval_summary}"),
         },
-        withdrawal,
+        settlement_legs,
     })
 }
 
@@ -287,7 +315,7 @@ pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientErro
                 num_outputs,
                 per_output_amount,
             },
-            withdrawal: None,
+            settlement_legs: Vec::new(),
             approval_summary: format!(
                 "private transaction split into {num_outputs} utxos of {per_output_amount}"
             ),
@@ -651,13 +679,11 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
             )
             .await?
         }
-        PrivateTransactionAction::Withdrawal {
-            asset,
-            amount,
-            target,
-        } => {
+        PrivateTransactionAction::Withdrawal { legs } => {
             let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
-            tx.withdraw(asset, amount, target)?;
+            for leg in legs {
+                tx.withdraw(leg.asset, leg.amount, leg.target)?;
+            }
             let prepared = tx.prepare()?;
             sign_prepared(
                 prepared,
@@ -695,7 +721,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     };
     Ok(SignedPrivateTransaction {
         transaction: signed,
-        withdrawal: transaction.withdrawal,
+        settlement_legs: transaction.settlement_legs,
         tree: transaction.tree,
     })
 }
@@ -774,35 +800,105 @@ async fn apply_p256_signature<A: WalletAuthority + ?Sized>(
     Ok(())
 }
 
-fn withdrawal_target(
-    recipient: Pubkey,
-    asset: Address,
-) -> Result<(WithdrawalTarget, TransactWithdrawal), ClientError> {
+fn withdrawal_target(recipient: Pubkey, asset: Address) -> (SettlementTarget, TransactLegAccounts) {
     if asset == SOL_MINT {
-        return Ok((
-            WithdrawalTarget::Sol {
+        return (
+            SettlementTarget::Sol {
                 user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
-            TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }),
-        ));
+            TransactLegAccounts::Sol(TransactSolLeg { recipient }),
+        );
     }
 
     let mint = Pubkey::new_from_array(asset.to_bytes());
     let user_spl_token = pda::associated_token_address(&recipient, &mint);
     let vault = pda::spl_asset_vault(&mint);
-    Ok((
-        WithdrawalTarget::Spl {
+    (
+        SettlementTarget::Spl {
             user_spl_token: Address::new_from_array(user_spl_token.to_bytes()),
             spl_token_interface: Address::new_from_array(vault.to_bytes()),
         },
-        TransactWithdrawal::Spl(TransactSplWithdrawal {
-            cpi_authority: Some(pda::shielded_pool_cpi_authority()),
-            spl_token_interface: vault,
+        TransactLegAccounts::Spl(TransactSplLeg {
+            vault,
             recipient,
             user_token_account: user_spl_token,
             token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
         }),
-    ))
+    )
+}
+
+fn validate_withdrawal_legs(legs: &[WithdrawalLeg]) -> Result<(), ClientError> {
+    if legs.is_empty() {
+        return Err(TransactionError::NoPublicLegs.into());
+    }
+    if legs.len() > MAX_WIRE_PUBLIC_LEGS {
+        return Err(TransactionError::TooManyPublicLegs {
+            got: legs.len(),
+            max: MAX_WIRE_PUBLIC_LEGS,
+        }
+        .into());
+    }
+    for leg in legs {
+        if leg.amount == 0 {
+            return Err(TransactionError::ZeroPublicLegAmount.into());
+        }
+    }
+    Ok(())
+}
+
+fn aggregate_withdrawal_amounts(
+    legs: &[WithdrawalLeg],
+) -> Result<Vec<(Address, u64)>, ClientError> {
+    let mut required = Vec::<(Address, u64)>::new();
+    for leg in legs {
+        if let Some((_, amount)) = required.iter_mut().find(|(asset, _)| *asset == leg.asset) {
+            *amount = amount
+                .checked_add(leg.amount)
+                .ok_or(ClientError::SelectedBalanceOverflow)?;
+        } else {
+            required.push((leg.asset, leg.amount));
+        }
+    }
+    Ok(required)
+}
+
+fn select_withdrawal_inputs(
+    wallet: &Wallet,
+    required: &[(Address, u64)],
+) -> Result<(Address, Vec<UnsignedSpendInput>), ClientError> {
+    let (first_asset, _) = required
+        .first()
+        .copied()
+        .ok_or(TransactionError::NoPublicLegs)?;
+    let tree = resolve_spend_tree(wallet, first_asset, |_| true)?;
+    let mut inputs = Vec::new();
+
+    for (asset, amount) in required {
+        let asset_tree = resolve_spend_tree(wallet, *asset, |_| true)?;
+        if asset_tree != tree {
+            let hash = wallet
+                .utxos
+                .iter()
+                .find(|entry| {
+                    !entry.spent
+                        && entry.utxo.asset == *asset
+                        && entry.output_context.tree == asset_tree
+                })
+                .map(|entry| entry.output_context.hash)
+                .ok_or(ClientError::InsufficientBalance {
+                    requested: *amount,
+                    available: 0,
+                })?;
+            return Err(ClientError::InputUtxoTreeMismatch {
+                hash,
+                utxo_tree: asset_tree,
+                spend_tree: tree,
+            });
+        }
+        inputs.extend(select_inputs(wallet, tree, *asset, *amount)?);
+    }
+
+    Ok((tree, inputs))
 }
 
 /// The tree an explicitly named input binds the spend to: the named utxo's own
@@ -908,7 +1004,9 @@ mod tests {
     use borsh::to_vec;
     use solana_account::Account;
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{Data, DataRecord, Utxo, WalletUtxo};
+    use zolana_transaction::{
+        instructions::transact::SettlementLeg, Data, DataRecord, Utxo, WalletUtxo,
+    };
     use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
     use super::*;
@@ -954,11 +1052,13 @@ mod tests {
             registry,
         )
         .expect("wallet");
+        let mut blinding = [7u8; 32];
+        blinding[0] = 0;
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset,
             amount,
-            blinding: [7u8; 31],
+            blinding,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -982,6 +1082,13 @@ mod tests {
             spent: false,
         });
         wallet
+    }
+
+    fn withdrawal_error(result: Result<CreatedWithdrawal, ClientError>) -> ClientError {
+        match result {
+            Err(error) => error,
+            Ok(_) => panic!("withdrawal was expected to fail"),
+        }
     }
 
     #[test]
@@ -1012,7 +1119,7 @@ mod tests {
                 },
             )),
         };
-        let wallet = wallet_with_sol(sender.clone(), 10);
+        let wallet = wallet_with_sol(sender, 10);
 
         let result = create_transfer_sync(TransferParams {
             rpc: &rpc,
@@ -1028,7 +1135,7 @@ mod tests {
             result.recipient,
             TransferRecipient::Registered(resolved) if resolved.owner == owner
         ));
-        assert!(result.recipient.withdrawal().is_none());
+        assert!(result.recipient.settlement_legs().is_empty());
     }
 
     #[tokio::test]
@@ -1099,8 +1206,11 @@ mod tests {
             result.recipient,
             TransferRecipient::PublicWithdrawal {
                 recipient: pubkey,
-                withdrawal: TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }),
+                settlement_legs,
             } if pubkey == recipient
+                && settlement_legs == vec![
+                    TransactLegAccounts::Sol(TransactSolLeg { recipient })
+                ]
         ));
     }
 
@@ -1125,14 +1235,13 @@ mod tests {
         .expect("public withdrawal fallback");
 
         assert_eq!(
-            result.recipient.withdrawal(),
-            Some(&TransactWithdrawal::Spl(TransactSplWithdrawal {
-                cpi_authority: Some(pda::shielded_pool_cpi_authority()),
-                spl_token_interface: pda::spl_asset_vault(&mint),
+            result.recipient.settlement_legs(),
+            &[TransactLegAccounts::Spl(TransactSplLeg {
+                vault: pda::spl_asset_vault(&mint),
                 recipient,
                 user_token_account: token_account,
                 token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
-            }))
+            })]
         );
     }
 
@@ -1148,22 +1257,326 @@ mod tests {
         let result = create_withdrawal(WithdrawalParams {
             wallet: &wallet,
             payer: Address::default(),
-            recipient,
-            asset,
-            amount: 1,
+            legs: vec![WithdrawalLeg {
+                recipient,
+                asset,
+                amount: 1,
+            }],
         })
         .expect("withdrawal");
 
         assert_eq!(
-            result.withdrawal,
-            TransactWithdrawal::Spl(TransactSplWithdrawal {
-                cpi_authority: Some(pda::shielded_pool_cpi_authority()),
-                spl_token_interface: pda::spl_asset_vault(&mint),
+            result.settlement_legs,
+            vec![TransactLegAccounts::Spl(TransactSplLeg {
+                vault: pda::spl_asset_vault(&mint),
                 recipient,
                 user_token_account: token_account,
                 token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+            })]
+        );
+    }
+
+    #[test]
+    fn create_withdrawal_rejects_invalid_wire_count_and_zero_amounts() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_sol(sender, 10);
+        let payer = Address::default();
+
+        let empty = withdrawal_error(create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer,
+            legs: Vec::new(),
+        }));
+        assert!(matches!(
+            empty,
+            ClientError::Transaction(TransactionError::NoPublicLegs)
+        ));
+
+        let too_many = withdrawal_error(create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer,
+            legs: (0..=MAX_WIRE_PUBLIC_LEGS)
+                .map(|_| WithdrawalLeg {
+                    recipient: Pubkey::new_unique(),
+                    asset: SOL_MINT,
+                    amount: 1,
+                })
+                .collect(),
+        }));
+        assert!(matches!(
+            too_many,
+            ClientError::Transaction(TransactionError::TooManyPublicLegs {
+                got,
+                max
+            }) if got == MAX_WIRE_PUBLIC_LEGS + 1 && max == MAX_WIRE_PUBLIC_LEGS
+        ));
+
+        let zero = withdrawal_error(create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer,
+            legs: vec![WithdrawalLeg {
+                recipient: Pubkey::new_unique(),
+                asset: SOL_MINT,
+                amount: 0,
+            }],
+        }));
+        assert!(matches!(
+            zero,
+            ClientError::Transaction(TransactionError::ZeroPublicLegAmount)
+        ));
+    }
+
+    #[test]
+    fn create_withdrawal_accepts_more_than_five_same_asset_legs() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_sol(sender, 12);
+        let legs = (0..12)
+            .map(|_| WithdrawalLeg {
+                recipient: Pubkey::new_unique(),
+                asset: SOL_MINT,
+                amount: 1,
+            })
+            .collect();
+
+        let created = create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            legs,
+        })
+        .expect("same-asset legs above the old five-leg cap");
+
+        assert_eq!(created.settlement_legs.len(), 12);
+    }
+
+    #[test]
+    fn create_withdrawal_supports_full_u64_amount() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let authority =
+            crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
+        let wallet = wallet_with_sol(sender.clone(), u64::MAX);
+        let recipient = Pubkey::new_unique();
+        let created = create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            legs: vec![WithdrawalLeg {
+                recipient,
+                asset: SOL_MINT,
+                amount: u64::MAX,
+            }],
+        })
+        .expect("full-u64 withdrawal");
+
+        let signed =
+            sign_shielded_transaction_sync(created.transaction, &wallet, &authority).unwrap();
+        assert_eq!(
+            signed.transaction.external_data.public_legs.first(),
+            Some(&SettlementLeg::Sol {
+                is_deposit: false,
+                amount: u64::MAX,
+                user_sol_account: Address::new_from_array(recipient.to_bytes()),
             })
         );
+    }
+
+    #[test]
+    fn create_withdrawal_preserves_two_sol_recipients() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let authority =
+            crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
+        let wallet = wallet_with_sol(sender.clone(), 10);
+        let user = Pubkey::new_unique();
+        let relayer = Pubkey::new_unique();
+        let created = create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            legs: vec![
+                WithdrawalLeg {
+                    recipient: user,
+                    asset: SOL_MINT,
+                    amount: 6,
+                },
+                WithdrawalLeg {
+                    recipient: relayer,
+                    asset: SOL_MINT,
+                    amount: 2,
+                },
+            ],
+        })
+        .expect("two-recipient withdrawal");
+
+        assert_eq!(
+            created.settlement_legs,
+            vec![
+                TransactLegAccounts::Sol(TransactSolLeg { recipient: user }),
+                TransactLegAccounts::Sol(TransactSolLeg { recipient: relayer }),
+            ]
+        );
+        let signed =
+            sign_shielded_transaction_sync(created.transaction, &wallet, &authority).unwrap();
+        assert_eq!(
+            signed.transaction.external_data.public_legs,
+            vec![
+                SettlementLeg::Sol {
+                    is_deposit: false,
+                    amount: 6,
+                    user_sol_account: Address::new_from_array(user.to_bytes()),
+                },
+                SettlementLeg::Sol {
+                    is_deposit: false,
+                    amount: 2,
+                    user_sol_account: Address::new_from_array(relayer.to_bytes()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn create_withdrawal_aggregates_repeated_spl_mint_once() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let mint = Pubkey::new_unique();
+        let asset = Address::new_from_array(mint.to_bytes());
+        let wallet = wallet_with_asset(sender, asset, 10);
+
+        let created = create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            legs: vec![
+                WithdrawalLeg {
+                    recipient: Pubkey::new_unique(),
+                    asset,
+                    amount: 6,
+                },
+                WithdrawalLeg {
+                    recipient: Pubkey::new_unique(),
+                    asset,
+                    amount: 4,
+                },
+            ],
+        })
+        .expect("repeated SPL mint");
+
+        assert_eq!(created.transaction.input_count(), 1);
+        assert_eq!(created.settlement_legs.len(), 2);
+        assert!(created
+            .settlement_legs
+            .iter()
+            .all(|leg| matches!(leg, TransactLegAccounts::Spl(_))));
+    }
+
+    #[test]
+    fn create_withdrawal_supports_mixed_sol_and_spl_assets() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let mint = Pubkey::new_unique();
+        let asset = Address::new_from_array(mint.to_bytes());
+        let mut wallet = wallet_with_sol(sender.clone(), 10);
+        wallet.registry.insert(2, asset).expect("register SPL mint");
+        let spl_input = wallet_with_asset(sender, asset, 10)
+            .utxos
+            .into_iter()
+            .next()
+            .expect("SPL input");
+        wallet.utxos.push(spl_input);
+
+        let created = create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            legs: vec![
+                WithdrawalLeg {
+                    recipient: Pubkey::new_unique(),
+                    asset: SOL_MINT,
+                    amount: 3,
+                },
+                WithdrawalLeg {
+                    recipient: Pubkey::new_unique(),
+                    asset,
+                    amount: 4,
+                },
+            ],
+        })
+        .expect("mixed withdrawal");
+
+        assert_eq!(created.transaction.input_count(), 2);
+        assert!(matches!(
+            created.settlement_legs.first(),
+            Some(TransactLegAccounts::Sol(_))
+        ));
+        assert!(matches!(
+            created.settlement_legs.get(1),
+            Some(TransactLegAccounts::Spl(_))
+        ));
+    }
+
+    #[test]
+    fn create_withdrawal_reports_aggregate_insufficient_balance() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_sol(sender, 10);
+        let error = withdrawal_error(create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            legs: vec![
+                WithdrawalLeg {
+                    recipient: Pubkey::new_unique(),
+                    asset: SOL_MINT,
+                    amount: 6,
+                },
+                WithdrawalLeg {
+                    recipient: Pubkey::new_unique(),
+                    asset: SOL_MINT,
+                    amount: 5,
+                },
+            ],
+        }));
+
+        assert!(matches!(
+            error,
+            ClientError::InsufficientBalance {
+                requested: 11,
+                available: 10
+            }
+        ));
+    }
+
+    #[test]
+    fn create_withdrawal_rejects_inputs_on_different_trees() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let mint = Pubkey::new_unique();
+        let asset = Address::new_from_array(mint.to_bytes());
+        let mut wallet = wallet_with_sol(sender.clone(), 10);
+        wallet.registry.insert(2, asset).expect("register SPL mint");
+        let second_tree = Address::new_from_array([9u8; 32]);
+        let mut spl_input = wallet_with_asset(sender, asset, 10)
+            .utxos
+            .into_iter()
+            .next()
+            .expect("SPL input");
+        spl_input.output_context.tree = second_tree;
+        wallet.utxos.push(spl_input);
+
+        let error = withdrawal_error(create_withdrawal(WithdrawalParams {
+            wallet: &wallet,
+            payer: Address::default(),
+            legs: vec![
+                WithdrawalLeg {
+                    recipient: Pubkey::new_unique(),
+                    asset: SOL_MINT,
+                    amount: 3,
+                },
+                WithdrawalLeg {
+                    recipient: Pubkey::new_unique(),
+                    asset,
+                    amount: 4,
+                },
+            ],
+        }));
+
+        assert!(matches!(
+            error,
+            ClientError::InputUtxoTreeMismatch {
+                utxo_tree,
+                spend_tree,
+                ..
+            } if utxo_tree == second_tree && spend_tree == Address::default()
+        ));
     }
 
     #[test]
@@ -1175,9 +1588,11 @@ mod tests {
         let unsigned = create_withdrawal(WithdrawalParams {
             wallet: &wallet,
             payer: Address::default(),
-            recipient: Pubkey::new_unique(),
-            asset: SOL_MINT,
-            amount: 1,
+            legs: vec![WithdrawalLeg {
+                recipient: Pubkey::new_unique(),
+                asset: SOL_MINT,
+                amount: 1,
+            }],
         })
         .expect("withdrawal")
         .transaction;
@@ -1219,9 +1634,11 @@ mod tests {
         let unsigned = create_withdrawal(WithdrawalParams {
             wallet: &wallet,
             payer: Address::default(),
-            recipient: Pubkey::new_unique(),
-            asset: SOL_MINT,
-            amount: 1,
+            legs: vec![WithdrawalLeg {
+                recipient: Pubkey::new_unique(),
+                asset: SOL_MINT,
+                amount: 1,
+            }],
         })
         .unwrap()
         .transaction;
@@ -1244,9 +1661,11 @@ mod tests {
         let created = create_withdrawal(WithdrawalParams {
             wallet: &wallet,
             payer: Address::default(),
-            recipient: Pubkey::new_unique(),
-            asset: SOL_MINT,
-            amount: 8,
+            legs: vec![WithdrawalLeg {
+                recipient: Pubkey::new_unique(),
+                asset: SOL_MINT,
+                amount: 8,
+            }],
         })
         .expect("tree with enough balance");
 
@@ -1295,9 +1714,11 @@ mod tests {
         let created = create_withdrawal(WithdrawalParams {
             wallet: &wallet,
             payer: Address::default(),
-            recipient: Pubkey::new_unique(),
-            asset: SOL_MINT,
-            amount: 1,
+            legs: vec![WithdrawalLeg {
+                recipient: Pubkey::new_unique(),
+                asset: SOL_MINT,
+                amount: 1,
+            }],
         })
         .expect("withdrawal");
 
@@ -1446,11 +1867,13 @@ mod tests {
         amount: u64,
         blinding: [u8; 31],
     ) -> [u8; 32] {
+        let mut canonical_blinding = [0u8; 32];
+        canonical_blinding[1..].copy_from_slice(&blinding);
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset: SOL_MINT,
             amount,
-            blinding,
+            blinding: canonical_blinding,
             zone_program_id: None,
             data: Data::default(),
         };

@@ -96,6 +96,25 @@ impl TestIndexer {
 
         Ok(SpendProof { state, nullifier })
     }
+
+    pub fn dummy_nullifier_proof(&self, nullifier: [u8; 32]) -> NonInclusionProof {
+        let proof = self
+            .nullifier_tree
+            .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+            .expect("dummy nullifier non-inclusion proof");
+        NonInclusionProof {
+            leaf: nullifier,
+            merkle_context: test_merkle_context(),
+            path: proof.merkle_proof.to_vec(),
+            low_element: proof.leaf_lower_range_value,
+            low_element_index: proof.leaf_index as u64,
+            high_element: proof.leaf_higher_range_value,
+            high_element_index: 0,
+            root: proof.root,
+            root_seq: 0,
+            root_index: 0,
+        }
+    }
 }
 
 impl Default for TestIndexer {
@@ -119,7 +138,12 @@ impl Rpc for TestIndexer {
     fn prove(&self, proof_inputs: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = proof_inputs.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
-        let assembled = zolana_client::assemble(proof_inputs, &input_merkle_proofs)?;
+        let dummy_proofs: Vec<NonInclusionProof> = proof_inputs
+            .dummy_nullifiers()?
+            .into_iter()
+            .map(|nullifier| self.dummy_nullifier_proof(nullifier))
+            .collect();
+        let assembled = zolana_client::assemble(proof_inputs, &input_merkle_proofs, &dummy_proofs)?;
         // circuit_id has no formal registry yet: 1 = P256 rail, 0 = eddsa rail.
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (ProverClient::local().prove_transfer_p256(inputs)?, 1),

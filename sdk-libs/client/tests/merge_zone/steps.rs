@@ -13,10 +13,8 @@ use zolana_client::{
     Rpc, SppProofInputUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_zone_8_1;
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
-use zolana_transaction::{
-    instructions::transact::spp_proof_inputs::asset_field, Data, SppProofOutputUtxo, Utxo,
-};
+use zolana_keypair::{merge::merge_output_blinding, random_blinding, ShieldedKeypair, ViewingKey};
+use zolana_transaction::{Data, Utxo};
 
 use crate::{test_indexer::TestIndexer, world::MergeZoneWorld};
 
@@ -51,7 +49,7 @@ impl MergeZoneWorld {
 
         let sender = if self.plan.eddsa {
             let mut seed = [0u8; 32];
-            seed[1..].copy_from_slice(&random_blinding());
+            seed.copy_from_slice(&random_blinding());
             ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa sender keypair")
         } else {
             ShieldedKeypair::new().expect("sender keypair")
@@ -83,6 +81,7 @@ impl MergeZoneWorld {
             indexer.add_utxo(utxo_hash);
             inputs.push(SppProofInputUtxo::new(utxo, &sender).with_zone_data_hash(zone_data_hash));
         }
+        let first_blinding = inputs[0].utxo.blinding;
 
         // The plan derives the merged zone-owned output and owner identity; preparing
         // it pads to MERGE_INPUTS, and the MergeZoneWitness folds in the owner
@@ -93,6 +92,7 @@ impl MergeZoneWorld {
             .expect("build merge-zone plan")
             .with_expiry(0);
         let prepared = merge.prepare();
+        let expected_output = prepared.output.clone();
         let commitments = prepared.input_utxo_hashes().expect("input commitments");
         let proofs = indexer
             .get_input_merkle_proofs(&commitments, None)
@@ -127,36 +127,18 @@ impl MergeZoneWorld {
             .verify()
             .expect("merge-zone groth16 proof verifies");
 
-        // Owner decrypts the published ciphertext with their viewing key and
-        // reconstructs the merged zone-owned UTXO purely from the recovered fields,
-        // proving the verifiable encryption yields a spendable output.
-        let recovered = sender
-            .decrypt_verifiable(&result.tx_viewing_pk, &result.ciphertext)
-            .expect("decrypt merge-zone ciphertext");
-        assert_eq!(recovered.len(), 8 + 32 + 31, "merge-zone plaintext length");
-        let amount = u64::from_be_bytes(recovered[0..8].try_into().unwrap());
-        let recovered_asset: [u8; 32] = recovered[8..40].try_into().unwrap();
-        let blinding: [u8; 31] = recovered[40..71].try_into().unwrap();
+        // The owner reconstructs the ciphertext-free merge-zone output from the
+        // first real input and the event's proof-wide merge tag.
         assert_eq!(
-            recovered_asset,
-            asset_field(&asset).expect("asset field"),
-            "recovered asset field",
+            merge_output_blinding(&first_blinding, &result.merge_view_tag)
+                .expect("derive merge-zone output blinding"),
+            expected_output.blinding,
+            "owner reconstructs the merged zone output blinding",
         );
-        let reconstructed = SppProofOutputUtxo {
-            owner_address: Some(sender.shielded_address().expect("shielded address")),
-            asset,
-            amount,
-            blinding,
-            zone_program_id: Some(zone),
-            zone_data_hash: Some(output_zone_data_hash),
-            data_hash: None,
-            owner_tag: None,
-            data: Data::default(),
-        };
         assert_eq!(
-            reconstructed.hash().expect("reconstructed utxo hash"),
+            expected_output.hash().expect("reconstructed utxo hash"),
             result.output_hash,
-            "owner reconstructs the merged zone output from the ciphertext",
+            "owner reconstructs the merged zone output from the merge tag",
         );
     }
 }

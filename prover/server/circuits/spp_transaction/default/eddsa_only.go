@@ -1,0 +1,124 @@
+package defaultzone
+
+import (
+	"zolana/prover/circuits/gadget"
+	"zolana/prover/circuits/spp_transaction/shared"
+
+	"github.com/consensys/gnark/frontend"
+)
+
+// DefaultZoneEddsaOnlyPublic is the confidential Solana-only rail's
+// public-input-hash preimage. The rail carries no P256 witness: the
+// p256_message_hash and p256_signing_pk_field preimage slots are the constants
+// the host feeds (Poseidon(0, 0) and 0), baked into publicInputHash.
+type DefaultZoneEddsaOnlyPublic struct {
+	Nullifiers         []frontend.Variable
+	OutputHashes       []frontend.Variable
+	UtxoTreeRoots      []frontend.Variable
+	NullifierTreeRoots []frontend.Variable
+	PrivateTxHash      frontend.Variable
+	ExternalDataHash   frontend.Variable
+	// PublicAssets/PublicAmounts are the uniform public movement slots: a
+	// signed net flow per asset (SOL is an ordinary asset id). Idle slots are
+	// pinned to (0, 0) by AssertBalanceConservation.
+	PublicAssets        [shared.NPublicSlots]frontend.Variable
+	PublicAmounts       [shared.NPublicSlots]frontend.Variable
+	ZoneProgramID       frontend.Variable
+	PayerPubkeyHash     frontend.Variable
+	AllowDummyInputs    frontend.Variable
+	InputOwnerPkHashes  []frontend.Variable
+	OutputOwnerPkHashes []frontend.Variable
+
+	PublicInputHash frontend.Variable `gnark:",public"`
+}
+
+type DefaultZoneEddsaOnlyPrivate struct {
+	Inputs  []shared.Input
+	Outputs []shared.UtxoCircuitFields
+	// OutputNullifierPks are the witnessed nullifier pubkeys that recompute
+	// each output owner from its public tag.
+	OutputNullifierPks []frontend.Variable
+}
+
+type DefaultZoneEddsaOnlyCircuit struct {
+	Shape   shared.Shape `gnark:"-"`
+	Public  DefaultZoneEddsaOnlyPublic
+	Private DefaultZoneEddsaOnlyPrivate
+}
+
+func NewDefaultZoneEddsaOnlyCircuit(shape shared.Shape) (*DefaultZoneEddsaOnlyCircuit, error) {
+	if err := shape.Validate(); err != nil {
+		return nil, err
+	}
+	return &DefaultZoneEddsaOnlyCircuit{
+		Shape: shape,
+		Public: DefaultZoneEddsaOnlyPublic{
+			Nullifiers:          make([]frontend.Variable, shape.NInputs),
+			OutputHashes:        make([]frontend.Variable, shape.NOutputs),
+			UtxoTreeRoots:       make([]frontend.Variable, shape.NInputs),
+			NullifierTreeRoots:  make([]frontend.Variable, shape.NInputs),
+			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
+			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
+		},
+		Private: DefaultZoneEddsaOnlyPrivate{
+			Inputs:             shared.NewInputs(shape.NInputs),
+			Outputs:            make([]shared.UtxoCircuitFields, shape.NOutputs),
+			OutputNullifierPks: make([]frontend.Variable, shape.NOutputs),
+		},
+	}, nil
+}
+
+// transaction views this rail's witness as the shared transaction. Its preimage
+// tail publishes both owner-tag chains and the shared P256 signing key, which is
+// the constant 0 the host feeds here; the message slot is Poseidon(0, 0) for the
+// same reason.
+func (c *DefaultZoneEddsaOnlyCircuit) transaction(api frontend.API) shared.Transaction {
+	return shared.Transaction{
+		Shape:              c.Shape,
+		Nullifiers:         c.Public.Nullifiers,
+		OutputHashes:       c.Public.OutputHashes,
+		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
+		NullifierTreeRoots: c.Public.NullifierTreeRoots,
+		Inputs:             c.Private.Inputs,
+		Outputs:            c.Private.Outputs,
+		PrivateTxHash:      c.Public.PrivateTxHash,
+		ExternalDataHash:   c.Public.ExternalDataHash,
+		PublicAssets:       c.Public.PublicAssets,
+		PublicAmounts:      c.Public.PublicAmounts,
+		ZoneProgramID:      c.Public.ZoneProgramID,
+		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
+		AllowDummyInputs:   c.Public.AllowDummyInputs,
+		PublicInputHash:    c.Public.PublicInputHash,
+		PreimageTail: []frontend.Variable{
+			gadget.PoseidonHash(api, []frontend.Variable{0, 0}),
+			gadget.HashChain(api, c.Public.InputOwnerPkHashes),
+			gadget.HashChain(api, c.Public.OutputOwnerPkHashes),
+			frontend.Variable(0),
+		},
+	}
+}
+
+func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
+	tx := c.transaction(api)
+	if err := tx.ValidateLayout(
+		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Public.InputOwnerPkHashes), Want: c.Shape.NInputs},
+		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Public.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
+		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},
+	); err != nil {
+		return err
+	}
+
+	shared.AssertDefaultZone(api, tx.Inputs, tx.Outputs)
+	api.AssertIsEqual(c.Public.ZoneProgramID, 0)
+	if err := shared.AssertOutputOwnerTags(
+		api,
+		tx.Outputs,
+		c.Public.OutputOwnerPkHashes,
+		c.Private.OutputNullifierPks,
+	); err != nil {
+		return err
+	}
+
+	signers := shared.EddsaOnlySigners(api, tx.Inputs, c.Public.InputOwnerPkHashes)
+	return tx.Constrain(api, signers, signers.ContainsEach(api, c.Public.OutputOwnerPkHashes))
+}

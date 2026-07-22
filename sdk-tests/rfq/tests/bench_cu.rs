@@ -109,7 +109,7 @@ fn build_tree_fixture(
         )
         .expect("init tree account");
         for leaf in leaves {
-            account.utxo_tree().append(*leaf);
+            account.utxo_tree().append(*leaf).expect("append leaf");
         }
         (
             account.get_utxo_tree_root(root_index).expect("utxo root"),
@@ -235,11 +235,11 @@ fn prove_transact_timed(
     prover: &ProverClient,
 ) -> (TransactIxData, Duration) {
     prover
-        .prove_transact(proof_inputs.clone(), spend_proofs)
+        .prove_transact(proof_inputs.clone(), spend_proofs, &[])
         .expect("warm prove transact");
     let start = Instant::now();
     let transact = prover
-        .prove_transact(proof_inputs, spend_proofs)
+        .prove_transact(proof_inputs, spend_proofs, &[])
         .expect("prove transact");
     (transact, start.elapsed())
 }
@@ -445,7 +445,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut C
     let mut ix = Transact {
         payer: maker_payer.pubkey(),
         tree,
-        withdrawal: None,
+        legs: Vec::new(),
         data: transact,
     }
     .instruction();

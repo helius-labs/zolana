@@ -19,10 +19,9 @@ mod test_indexer;
 
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use rand::RngCore;
-use solana_address::Address;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, ProverClient, PublicAmounts, Rpc, Shape, TransferProver,
+    spawn_prover, InputUtxoContext, ProverClient, PublicMovements, Rpc, Shape, TransferProver,
     TransferSpendInput,
 };
 use zolana_interface::{
@@ -35,7 +34,9 @@ use zolana_interface::{
     },
 };
 use zolana_keypair::{NullifierKey, PublicKey};
-use zolana_transaction::{Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{
+    instructions::types::SppProofInputUtxo, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+};
 
 use crate::test_indexer::TestIndexer;
 
@@ -99,12 +100,7 @@ fn dummy_external_data() -> ExternalData {
     ExternalData {
         instruction_discriminator: 0,
         expiry_unix_ts: 0,
-        relayer_fee: 0,
-        public_sol_amount: None,
-        public_spl_amount: None,
-        user_sol_account: Address::default(),
-        user_spl_token: Address::default(),
-        spl_token_interface: Address::default(),
+        public_legs: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
@@ -127,8 +123,8 @@ fn real_input() -> TransferSpendInput {
     let mut rng = rand::thread_rng();
     let mut owner_bytes = [0u8; 32];
     rng.fill_bytes(&mut owner_bytes);
-    let mut blinding = [0u8; 31];
-    rng.fill_bytes(&mut blinding);
+    let mut blinding = [0u8; 32];
+    rng.fill_bytes(&mut blinding[1..]);
     let mut secret = [0u8; 31];
     rng.fill_bytes(&mut secret);
     let nullifier_key = NullifierKey::from_secret(secret);
@@ -171,14 +167,17 @@ fn real_input() -> TransferSpendInput {
         data_hash: None,
         zone_data_hash: None,
         proof: Some(proof),
+        nullifier_proof: None,
     }
 }
 
-/// A padding input: zero owner, random blinding, no proof. The prover mirrors the
-/// first real input's roots onto it.
+/// A padding input: zero owner, random blinding, no state proof. The prover
+/// mirrors the first real input's state root onto it; the non-inclusion witness
+/// for its own nullifier comes from a fresh tree (the circuit checks
+/// non-inclusion per slot against the slot's own root).
 fn dummy_input() -> TransferSpendInput {
-    let mut blinding = [0u8; 31];
-    rand::thread_rng().fill_bytes(&mut blinding);
+    let mut blinding = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut blinding[1..]);
     let utxo = Utxo {
         owner: PublicKey::zeroed(),
         asset: SOL_MINT,
@@ -187,19 +186,24 @@ fn dummy_input() -> TransferSpendInput {
         zone_program_id: None,
         data: Data::default(),
     };
+    let mut spend = SppProofInputUtxo::new_dummy();
+    spend.utxo.blinding = blinding;
+    let nullifier = spend.nullifier().expect("dummy nullifier");
+    let nullifier_proof = TestIndexer::new().dummy_nullifier_proof(nullifier);
     TransferSpendInput {
         utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         data_hash: None,
         zone_data_hash: None,
         proof: None,
+        nullifier_proof: Some(nullifier_proof),
     }
 }
 
 /// A padding output: zero owner hash, random blinding.
 fn dummy_output() -> SppProofOutputUtxo {
-    let mut blinding = [0u8; 31];
-    rand::thread_rng().fill_bytes(&mut blinding);
+    let mut blinding = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut blinding[1..]);
     SppProofOutputUtxo {
         blinding,
         ..Default::default()
@@ -238,12 +242,9 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         inputs,
         outputs,
         external_data: dummy_external_data(),
-        public_amounts: PublicAmounts {
-            sol: [0u8; 32],
-            spl: [0u8; 32],
-            asset: [0u8; 32],
-        },
+        public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
+        allow_dummy_inputs: true,
         shape: Some(Shape::new(n_in, n_out)),
     };
     let result = prover
@@ -299,12 +300,9 @@ fn dummy_transfer_2_3_proof_verifies() {
         inputs: vec![real_input(), dummy_input()],
         outputs: vec![dummy_output(), dummy_output(), dummy_output()],
         external_data: dummy_external_data(),
-        public_amounts: PublicAmounts {
-            sol: [0u8; 32],
-            spl: [0u8; 32],
-            asset: [0u8; 32],
-        },
+        public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
+        allow_dummy_inputs: true,
         shape: Some(Shape::new(2, 3)),
     };
 

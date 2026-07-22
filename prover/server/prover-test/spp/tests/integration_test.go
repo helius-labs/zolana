@@ -134,7 +134,6 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 			InstructionDiscriminator: 1,
 			ExpiryUnixTs:             123,
 			SenderViewTag:            fieldInput(big.NewInt(9)),
-			PublicAmountMode:         0,
 			EncryptedUtxos:           "00",
 			StateEntries: []txprover.ProofStateEntry{{
 				Index: 0,

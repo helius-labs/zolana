@@ -9,9 +9,9 @@ use zolana_interface::{
 };
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    AssetBalance, EncryptedScheme, OutputContext, OutputSlot, PrivateTransaction,
-    ShieldedTransaction, SyncReport, SyncWalletAuthority, TransactionError, Wallet,
-    WalletAuthority, WalletSyncMaterial, DEFAULT_TAG_WINDOW,
+    AssetBalance, OutputContext, OutputSlot, PrivateTransaction, ShieldedTransaction, SyncReport,
+    SyncWalletAuthority, TransactionError, Wallet, WalletAuthority, WalletSyncMaterial,
+    DEFAULT_TAG_WINDOW,
 };
 
 use zolana_client::{
@@ -372,7 +372,7 @@ fn fetch_shielded_transactions<I: Rpc>(
                 // shielded transfers.
                 if tx.proofless
                     || ((tx.tx_viewing_pk.is_none() || tx.salt.is_none())
-                        && !has_merge_ciphertext(&tx))
+                        && tx.merge_view_tag.is_none())
                 {
                     continue;
                 }
@@ -409,7 +409,7 @@ async fn fetch_shielded_transactions_async<I: AsyncRpc>(
             for tx in response.transactions {
                 if tx.proofless
                     || ((tx.tx_viewing_pk.is_none() || tx.salt.is_none())
-                        && !has_merge_ciphertext(&tx))
+                        && tx.merge_view_tag.is_none())
                 {
                     continue;
                 }
@@ -423,23 +423,6 @@ async fn fetch_shielded_transactions_async<I: AsyncRpc>(
         }
     }
     Ok(())
-}
-
-fn has_merge_ciphertext(tx: &RpcShieldedTransaction) -> bool {
-    tx.output_slots.iter().any(|slot| {
-        let Ok(output_data) = borsh::from_slice::<zolana_event::OutputDataEncoding>(&slot.payload)
-        else {
-            return false;
-        };
-        let blob = match output_data {
-            zolana_event::OutputDataEncoding::Encrypted(blob)
-            | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
-            | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
-        };
-        blob.first()
-            .and_then(|b| EncryptedScheme::from_byte(*b).ok())
-            == Some(EncryptedScheme::Merge)
-    })
 }
 
 fn fetch_proofless_deposits<I>(
@@ -554,6 +537,7 @@ fn proofless_deposit_from_indexed_match(
         messages: Vec::new(),
         nullifiers: Vec::new(),
         proofless: true,
+        merge_view_tag: None,
     }))
 }
 
@@ -582,6 +566,7 @@ fn convert_sync_transaction(
         messages: tx.messages,
         nullifiers: tx.nullifiers,
         proofless: false,
+        merge_view_tag: tx.merge_view_tag,
     })
 }
 
@@ -598,19 +583,16 @@ mod tests {
 
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
-    use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair, ViewingKey};
+    use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{
         instructions::{
             merge::Merge as MergePlan,
             transact::{
-                ConfidentialTransfer, SppProofInputs, WithdrawalTarget, SPP_SUPPORTED_SHAPES,
+                ConfidentialTransfer, SettlementTarget, SppProofInputs, SPP_SUPPORTED_SHAPES,
             },
             types::SppProofInputUtxo,
         },
-        serialization::{
-            merge::{Merge, MergeEncode},
-            Proofless,
-        },
+        serialization::Proofless,
         Address, AssetRegistry, Data, LocalWalletAuthority, OwnerCx, PrivateTransactionDirection,
         PrivateTransactionKind, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
     };
@@ -922,13 +904,12 @@ mod tests {
 
     #[test]
     fn sync_wallet_records_merge_history() {
-        let assets = AssetRegistry::default();
         let alice = ShieldedKeypair::new().expect("alice");
         let inputs = vec![
             SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 30, 10), &alice),
             SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 70, 11), &alice),
         ];
-        let tx = merge_tx(&alice, inputs, 1, &assets);
+        let tx = merge_tx(&alice, inputs, 1);
         let mut wallet = wallet_with_utxos(&alice, &[(SOL_MINT, 30, 10), (SOL_MINT, 70, 11)]);
 
         let report = sync_wallet(
@@ -971,6 +952,7 @@ mod tests {
                 messages: Vec::new(),
                 nullifiers: Vec::new(),
                 proofless: false,
+                merge_view_tag: None,
             }],
             matches: Vec::new(),
             program_accounts: Vec::new(),
@@ -1196,7 +1178,7 @@ mod tests {
             .withdraw(
                 withdraw_asset,
                 withdraw_amount,
-                WithdrawalTarget::Sol {
+                SettlementTarget::Sol {
                     user_sol_account: Address::new_from_array([9u8; 32]),
                 },
             )
@@ -1220,7 +1202,7 @@ mod tests {
             .withdraw(
                 asset,
                 amount,
-                WithdrawalTarget::Sol {
+                SettlementTarget::Sol {
                     user_sol_account: Address::new_from_array([9u8; 32]),
                 },
             )
@@ -1268,6 +1250,7 @@ mod tests {
             messages,
             nullifiers,
             proofless: false,
+            merge_view_tag: None,
         }
     }
 
@@ -1275,7 +1258,6 @@ mod tests {
         owner: &ShieldedKeypair,
         inputs: Vec<SppProofInputUtxo>,
         slot: u64,
-        assets: &AssetRegistry,
     ) -> ShieldedTransaction {
         let merge = MergePlan::new(owner, inputs).expect("merge plan");
         let prepared = merge.prepare();
@@ -1295,37 +1277,23 @@ mod tests {
                 &[0u8; 32],
             )
             .expect("output hash");
-        let tx_key = ViewingKey::new();
-        let ciphertext = Merge::encode(
-            std::slice::from_ref(&output),
-            &OwnerCx {
-                owner: owner.signing_pubkey(),
-                assets,
-                zone_program_id: None,
-            },
-            owner
-                .signing_pubkey()
-                .confidential_view_tag()
-                .expect("owner tag"),
-            &MergeEncode {
-                tx: tx_key,
-                user_viewing_pk: owner.viewing_pubkey(),
-            },
-        )
-        .expect("merge ciphertext");
+        let output_view_tag = owner
+            .signing_pubkey()
+            .confidential_view_tag()
+            .expect("owner tag");
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
             tx_viewing_pk: None,
             salt: None,
             output_slots: vec![OutputSlot {
-                view_tag: ciphertext.view_tag,
+                view_tag: output_view_tag,
                 output_context: OutputContext {
                     hash: output_hash,
                     tree: Address::new_from_array([slot as u8; 32]),
                     leaf_index: 0,
                 },
-                payload: ciphertext.data,
+                payload: Vec::new(),
             }],
             messages: Vec::new(),
             nullifiers: commitments
@@ -1333,6 +1301,7 @@ mod tests {
                 .map(|commitment| commitment.nullifier)
                 .collect(),
             proofless: false,
+            merge_view_tag: Some(prepared.merge_view_tag),
         }
     }
 
@@ -1388,20 +1357,24 @@ mod tests {
     }
 
     fn test_utxo(owner: &ShieldedKeypair, asset: Address, amount: u64, seed: u8) -> Utxo {
+        let mut blinding = [seed; 32];
+        blinding[0] = 0;
         Utxo {
             owner: owner.signing_pubkey(),
             asset,
             amount,
-            blinding: [seed; BLINDING_LEN],
+            blinding,
             zone_program_id: None,
             data: Data::default(),
         }
     }
 
     fn proofless_output_for_keypair(keypair: &ShieldedKeypair, amount: u64) -> ProoflessOutput {
+        let mut blinding = [9u8; 32];
+        blinding[0] = 0;
         ProoflessOutput {
             owner: keypair.owner_hash().expect("owner hash"),
-            blinding: [9u8; BLINDING_LEN],
+            blinding,
             asset: SOL_MINT.to_bytes(),
             amount,
             data_hash: None,

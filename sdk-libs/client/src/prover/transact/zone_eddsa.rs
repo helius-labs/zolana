@@ -9,15 +9,18 @@
 //! owner pk_field chain stays in the public-input preimage so SPP can route the
 //! per-input signer check. This matches the Go `Confidential=false,
 //! ZoneAuthority=false` case in
-//! `prover/server/prover-test/spp/protocol/public_inputs.go`: the 13-element base
-//! chain INCLUDING `input_owner_pk_hashes`, EXCLUDING the output-owner chain and
-//! `p256_signing_pk_field`.
+//! `prover/server/prover-test/spp/protocol/public_inputs.go`: the 12-element base
+//! chain, then a tail of the P256 message and `input_owner_pk_hashes`, EXCLUDING
+//! the output-owner chain and `p256_signing_pk_field`.
 
+use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::hash::hash_field;
 use zolana_transaction::{
-    instructions::transact::PrivateTxHash, utxo::program_id_field, ExternalData, SppProofOutputUtxo,
+    instructions::transact::{PrivateTxHash, PublicMovements},
+    utxo::program_id_field,
+    ExternalData, SppProofOutputUtxo,
 };
 
 use crate::{
@@ -26,7 +29,7 @@ use crate::{
         field::be,
         resolve_shape,
         transact::p256_and_eddsa::{
-            assemble_inputs, assemble_outputs, OwnerMode, PublicAmounts, TransferSpendInput,
+            assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput,
         },
         Shape, TransferInputs,
     },
@@ -39,8 +42,9 @@ pub struct ZoneTransferProver {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
-    pub public_amounts: PublicAmounts,
+    pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
+    pub allow_dummy_inputs: bool,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
     pub zone_program_id: Option<Address>,
@@ -76,38 +80,42 @@ impl ZoneTransferProver {
         // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone eddsa-rail public-input layout: the 13-element base chain
-        // (Confidential=false, ZoneAuthority=false in public_inputs.go), i.e. the 12
-        // base elements PLUS create_hash_chain_from_slice(input_owner_pk_hashes), with NO confidential
-        // appendix (no output-owner chain, no p256_signing_pk_field). hash_field(&[0;32])
-        // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element on
-        // the eddsa rail.
-        let public_input = create_hash_chain_from_slice(&[
+        // Zone eddsa-rail public-input layout (Confidential=false,
+        // ZoneAuthority=false in public_inputs.go): the 12-element base, then the
+        // tail of the P256 message and create_hash_chain_from_slice(
+        // input_owner_pk_hashes), with NO confidential appendix (no output-owner
+        // chain, no p256_signing_pk_field). hash_field(&[0;32]) == Poseidon(0, 0),
+        // matching the circuit's zeroed P256 message on the eddsa rail.
+        let slots = self.public_movements.interleaved();
+        let mut elements = Vec::with_capacity(10 + slots.len());
+        elements.extend([
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
-            hash_field(&[0u8; 32])?,
             external_data_hash,
-            self.public_amounts.sol,
-            self.public_amounts.spl,
-            self.public_amounts.asset,
+        ]);
+        elements.extend(slots);
+        elements.extend([
             zone_program_id,
             self.payer_pubkey_hash,
+            super::p256_and_eddsa::bool_field(self.allow_dummy_inputs),
+            hash_field(&[0u8; 32])?,
             create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
-        ])?;
+        ]);
+        let public_input = create_hash_chain_from_slice(&elements)?;
 
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
-            public_sol_amount: be(&self.public_amounts.sol),
-            public_spl_amount: be(&self.public_amounts.spl),
-            public_spl_asset_pubkey: be(&self.public_amounts.asset),
+            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             public_input_hash: be(&public_input),
         };
 

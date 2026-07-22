@@ -3486,6 +3486,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "light-array-map"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9bdd13b18028ac9d80d0a987551c0dad7fe81be8140e87cc9d568b80f3728203"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
 name = "light-poseidon"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5906,6 +5915,7 @@ dependencies = [
  "borsh",
  "bytemuck",
  "groth16-solana",
+ "light-array-map",
  "light-program-profiler",
  "pinocchio 0.11.2",
  "pinocchio-system",
@@ -11448,6 +11458,7 @@ name = "zolana-tree"
 version = "0.1.0"
 dependencies = [
  "pinocchio 0.11.2",
+ "thiserror 2.0.18",
  "wincode",
  "zolana-batched-merkle-tree",
  "zolana-hasher",

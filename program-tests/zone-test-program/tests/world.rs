@@ -43,7 +43,7 @@ use crate::{
         restart_localnet, send_transaction, start_prover, DEFAULT_INDEXER_URL, DEFAULT_RPC_URL,
         ZERO,
     },
-    support::{MergeZoneRecord, Rail, SplAsset},
+    support::{MergeZoneRecord, SplAsset, Variant},
 };
 
 // SOL occupies asset id 1; the first registered SPL mint gets id 2.
@@ -72,7 +72,7 @@ pub struct ZoneLifecycleWorld {
     /// the `merge_zone` step can derive the `user_record` PDA the program reads.
     pub(crate) merge_owners: BTreeMap<String, Keypair>,
     /// Which rail the last zone transact / merge took.
-    pub(crate) last_rail: Option<Rail>,
+    pub(crate) last_rail: Option<Variant>,
     /// The most recent `zone_transact` instruction and its transaction signature,
     /// kept so a decode step can re-parse the exact bytes and accounts that were sent.
     pub(crate) last_transact: Option<(Signature, Instruction)>,
@@ -329,7 +329,7 @@ impl ZoneLifecycleWorld {
         owner: PublicKey,
         asset: Address,
         amount: u64,
-        blinding: [u8; 31],
+        blinding: [u8; 32],
         tx: &ShieldedTransaction,
     ) -> Result<WalletUtxo> {
         let keypair = &self.actor(name).keypair;
@@ -452,7 +452,7 @@ pub(crate) fn decode_output_blinding(
     viewing_key: &zolana_keypair::ViewingKey,
     indexed: &ShieldedTransaction,
     slot_index: u32,
-) -> Result<[u8; 31]> {
+) -> Result<[u8; 32]> {
     let first_nullifier = indexed
         .nullifiers
         .first()

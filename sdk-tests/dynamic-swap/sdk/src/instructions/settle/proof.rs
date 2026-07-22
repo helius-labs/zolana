@@ -4,7 +4,7 @@ use dynamic_swap_prover::{
     EscrowSettleProofInputs, ProofInputUtxo, MAKER_COUNTER_BLINDING_DOMAIN,
     MAKER_SOURCE_BLINDING_DOMAIN, RECIPIENT_BLINDING_DOMAIN,
 };
-use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon};
+use zolana_keypair::hash::poseidon;
 use zolana_transaction::{
     instructions::{
         transact::{PrivateTxHash, SppProofOutputUtxo},
@@ -36,8 +36,11 @@ pub fn derive_settle_output_blinding(
         &u64_right_align(domain),
     ])
     .map_err(err)?;
-    let mut blinding = [0u8; BLINDING_LEN];
-    blinding.copy_from_slice(derived.get(1..32).ok_or_else(|| err("blinding tail"))?);
+    // The swap circuit derives the blinding with a 31-byte truncation
+    // (`DeriveOutputBlinding` keeps the low 248 bits), so mirror it: zero the
+    // top byte of the Poseidon output.
+    let mut blinding = derived;
+    blinding[0] = 0;
     Ok(blinding)
 }
 

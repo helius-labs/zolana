@@ -22,17 +22,21 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
-    AsyncRpc, CircuitType, ClientError, ConfidentialTransfer, MerkleContext, MerkleProof,
-    NonInclusionProof, PublicAmounts, Rpc, SpendProof, SppProofInputUtxo, SppProofInputs,
-    TransferP256Prover, WithdrawalTarget, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    AsyncRpc, ClientError, ConfidentialTransfer, MerkleContext, MerkleProof, NonInclusionProof,
+    ProverVariant, PublicMovements, Rpc, SettlementTarget, SpendProof, SppProofInputUtxo,
+    SppProofInputs, TransferP256Prover, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputDataEncoding;
+use zolana_interface::SOL_ASSET_FIELD;
+
 use zolana_interface::instruction::instruction_data::transact::{
     OwnerTag, TransactIxData, TransactProof,
 };
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::{spp_proof_inputs::signed_to_field, Shape, SENDER_SLOT_COUNT},
+    instructions::transact::{
+        spp_proof_inputs::signed_to_field, SettlementLeg, Shape, SENDER_SLOT_COUNT,
+    },
     serialization::{
         confidential::{Confidential, ConfidentialOutputPlaintext},
         DecodeCx, UtxoSerialization,
@@ -44,12 +48,12 @@ use zolana_transaction::{
 use zolana_wallet::{
     create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
     ApprovalRequest, EncryptedTransfer, LocalWalletAuthority, P256Signature, SyncWalletAuthority,
-    TransferParams, WalletAuthority, WithdrawalParams,
+    TransferParams, WalletAuthority, WithdrawalLeg, WithdrawalParams,
 };
 
-fn blinding(rng: &mut ThreadRng) -> [u8; 31] {
-    let mut b = [0u8; 31];
-    rng.fill_bytes(&mut b);
+fn blinding(rng: &mut ThreadRng) -> [u8; 32] {
+    let mut b = [0u8; 32];
+    rng.fill_bytes(&mut b[1..]);
     b
 }
 
@@ -180,12 +184,12 @@ fn prover_of(proof_inputs: SppProofInputs) -> TransferP256Prover {
     let input_merkle_proofs = indexer
         .get_input_merkle_proofs(&commitments, None)
         .expect("input merkle proofs");
-    match zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
+    match zolana_client::into_prover(proof_inputs, &input_merkle_proofs, &[])
         .expect("into prover")
         .circuit
     {
-        CircuitType::P256(prover) => prover,
-        CircuitType::Eddsa(_) => panic!("expected P256 rail"),
+        ProverVariant::P256(prover) => prover,
+        ProverVariant::Eddsa(_) => panic!("expected P256 rail"),
     }
 }
 
@@ -331,7 +335,7 @@ fn transfer_round_trip_outputs_and_slots() {
     );
 
     // A pure transfer moves no public value.
-    assert_eq!(prover.public_amounts, PublicAmounts::transfer());
+    assert_eq!(prover.public_movements, PublicMovements::default());
 
     // External data: transact discriminator, no public movement, defaulted
     // accounts; the random ciphertext is passed through.
@@ -340,12 +344,7 @@ fn transfer_round_trip_outputs_and_slots() {
         ExternalData {
             instruction_discriminator: 0,
             expiry_unix_ts: u64::MAX,
-            relayer_fee: 0,
-            public_sol_amount: None,
-            public_spl_amount: None,
-            user_sol_account: Address::default(),
-            user_spl_token: Address::default(),
-            spl_token_interface: Address::default(),
+            public_legs: Vec::new(),
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
@@ -421,7 +420,7 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
         let proof_inputs = sign(transfer, &sender).unwrap();
         let commitments = proof_inputs.input_utxo_hashes().unwrap();
         let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
-        zolana_client::assemble(proof_inputs, &proofs)
+        zolana_client::assemble(proof_inputs, &proofs, &[])
             .unwrap()
             .with_proof(TransactProof::zeroed_eddsa())
     };
@@ -487,7 +486,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let first_nullifier = commitments.first().unwrap().nullifier;
     let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
 
-    let assembled = zolana_client::assemble(proof_inputs, &proofs).unwrap();
+    let assembled = zolana_client::assemble(proof_inputs, &proofs, &[]).unwrap();
     let ix = assembled.with_proof(TransactProof::zeroed_eddsa());
 
     // The single real input is padded with one mirrored dummy to the (2,3) shape.
@@ -502,8 +501,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
     assert_ne!(dummy.nullifier_hash, first_nullifier);
 
     // A pure transfer moves no public value.
-    assert_eq!(ix.public_sol_amount, None);
-    assert_eq!(ix.public_spl_amount, None);
+    assert!(ix.public_legs.is_empty());
 
     // Output 0 is the sender's change slot. The P256-owned sender carries the
     // shared signing key tag, resolved on-chain from `p256_signing_pk_x` (the
@@ -592,7 +590,7 @@ fn withdrawal_sets_external_data_and_change() {
         .withdraw(
             SOL_MINT,
             30,
-            WithdrawalTarget::Sol {
+            SettlementTarget::Sol {
                 user_sol_account: dest,
             },
         )
@@ -648,11 +646,10 @@ fn withdrawal_sets_external_data_and_change() {
     );
     assert!(recipients.is_empty());
     assert_eq!(
-        prover.public_amounts,
-        PublicAmounts {
-            sol: signed_to_field(-30),
-            spl: [0u8; 32],
-            asset: [0u8; 32],
+        prover.public_movements,
+        PublicMovements {
+            assets: [SOL_ASSET_FIELD, [0u8; 32], [0u8; 32]],
+            amounts: [signed_to_field(-30), [0u8; 32], [0u8; 32]],
         }
     );
     assert_eq!(
@@ -660,12 +657,11 @@ fn withdrawal_sets_external_data_and_change() {
         ExternalData {
             instruction_discriminator: 0,
             expiry_unix_ts: u64::MAX,
-            relayer_fee: 0,
-            public_sol_amount: Some(-30),
-            public_spl_amount: None,
-            user_sol_account: dest,
-            user_spl_token: Address::default(),
-            spl_token_interface: Address::default(),
+            public_legs: vec![SettlementLeg::Sol {
+                is_deposit: false,
+                amount: 30,
+                user_sol_account: dest,
+            }],
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
@@ -697,7 +693,11 @@ fn rail_follows_input_owner_type() {
         zone_program_id: None,
         data: Data::default(),
     };
-    let ed_input = SppProofInputUtxo::new(ed_utxo, NullifierKey::from_secret(blinding(&mut rng)));
+    let secret = blinding(&mut rng);
+    let ed_input = SppProofInputUtxo::new(
+        ed_utxo,
+        NullifierKey::from_secret(secret[1..].try_into().expect("31-byte nullifier secret")),
+    );
     let ed_transfer = ConfidentialTransfer::new(
         sender.shielded_address().unwrap(),
         vec![ed_input],
@@ -713,10 +713,10 @@ fn rail_follows_input_owner_type() {
     }
     let input_merkle_proofs = indexer.get_input_merkle_proofs(&commitments, None).unwrap();
     assert!(matches!(
-        zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
+        zolana_client::into_prover(proof_inputs, &input_merkle_proofs, &[])
             .unwrap()
             .circuit,
-        CircuitType::Eddsa(_)
+        ProverVariant::Eddsa(_)
     ));
 }
 
@@ -825,9 +825,11 @@ fn async_authority_signs_p256_and_invokes_approval() {
     let unsigned = create_withdrawal(WithdrawalParams {
         wallet: &wallet,
         payer: Address::default(),
-        recipient: Pubkey::new_unique(),
-        asset: SOL_MINT,
-        amount: 60,
+        legs: vec![WithdrawalLeg {
+            recipient: Pubkey::new_unique(),
+            asset: SOL_MINT,
+            amount: 60,
+        }],
     })
     .expect("created")
     .transaction;
@@ -891,7 +893,7 @@ fn oversend_is_insufficient_balance() {
 }
 
 #[test]
-fn second_withdraw_is_rejected() {
+fn repeated_withdrawals_are_preserved() {
     let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
     let mut transfer = ConfidentialTransfer::new(
@@ -903,21 +905,21 @@ fn second_withdraw_is_rejected() {
         .withdraw(
             SOL_MINT,
             10,
-            WithdrawalTarget::Sol {
+            SettlementTarget::Sol {
                 user_sol_account: Address::default(),
             },
         )
         .unwrap();
-    assert!(matches!(
-        transfer.withdraw(
+    transfer
+        .withdraw(
             SOL_MINT,
             5,
-            WithdrawalTarget::Sol {
+            SettlementTarget::Sol {
                 user_sol_account: Address::default(),
             },
-        ),
-        Err(TransactionError::WithdrawalAlreadySet)
-    ));
+        )
+        .expect("second public leg");
+    assert_eq!(transfer.public_movements.len(), 2);
 }
 
 #[test]
@@ -983,7 +985,11 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
         owner: sender.signing_pubkey(),
         asset: SOL_MINT,
         amount: 10,
-        blinding: [7u8; 31],
+        blinding: {
+            let mut blinding = [7u8; 32];
+            blinding[0] = 0;
+            blinding
+        },
         zone_program_id: None,
         data: Data::default(),
     };

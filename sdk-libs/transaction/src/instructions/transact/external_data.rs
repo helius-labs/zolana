@@ -1,11 +1,99 @@
 use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_interface::instruction::{
-    instruction_data::transact::{ExternalDataHash, ResolvedOutput, TransactOutput},
+    instruction_data::transact::{
+        ExternalDataHash, PublicLeg, ResolvedOutput, ResolvedPublicLeg, TransactOutput,
+    },
     tag,
 };
+use zolana_interface::pda;
+use zolana_interface::MAX_WIRE_PUBLIC_LEGS;
 
-use crate::error::TransactionError;
+use crate::{error::TransactionError, SOL_MINT};
+
+/// One ordered public settlement leg, including the accounts committed by the
+/// canonical external-data hash. SPL legs retain their mint so proof public
+/// movements can be derived without inspecting private inputs or outputs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SettlementLeg {
+    Sol {
+        is_deposit: bool,
+        amount: u64,
+        user_sol_account: Address,
+    },
+    Spl {
+        mint: Address,
+        is_deposit: bool,
+        amount: u64,
+        user_spl_token: Address,
+        spl_token_interface: Address,
+    },
+}
+
+impl SettlementLeg {
+    pub const fn amount(self) -> u64 {
+        match self {
+            Self::Sol { amount, .. } | Self::Spl { amount, .. } => amount,
+        }
+    }
+
+    pub const fn is_deposit(self) -> bool {
+        match self {
+            Self::Sol { is_deposit, .. } | Self::Spl { is_deposit, .. } => is_deposit,
+        }
+    }
+
+    pub const fn asset(self) -> Address {
+        match self {
+            Self::Sol { .. } => SOL_MINT,
+            Self::Spl { mint, .. } => mint,
+        }
+    }
+
+    pub fn public_leg(self) -> PublicLeg {
+        match self {
+            Self::Sol {
+                is_deposit, amount, ..
+            } => PublicLeg::Sol { is_deposit, amount },
+            Self::Spl {
+                mint,
+                is_deposit,
+                amount,
+                ..
+            } => PublicLeg::Spl {
+                is_deposit,
+                amount,
+                vault_bump: pda::spl_asset_vault_bump(mint.as_array()),
+            },
+        }
+    }
+
+    fn resolved(self) -> ResolvedPublicLeg {
+        match self {
+            Self::Sol {
+                is_deposit,
+                amount,
+                user_sol_account,
+            } => ResolvedPublicLeg::Sol {
+                is_deposit,
+                amount,
+                recipient: *user_sol_account.as_array(),
+            },
+            Self::Spl {
+                is_deposit,
+                amount,
+                user_spl_token,
+                spl_token_interface,
+                ..
+            } => ResolvedPublicLeg::Spl {
+                is_deposit,
+                amount,
+                user_token_account: *user_spl_token.as_array(),
+                vault: *spl_token_interface.as_array(),
+            },
+        }
+    }
+}
 
 /// Transaction-level public data the proofs commit to via `external_data_hash`.
 /// The hash is computed by the canonical [`ExternalDataHash`] from the interface
@@ -17,12 +105,7 @@ use crate::error::TransactionError;
 pub struct ExternalData {
     pub instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
-    pub relayer_fee: u16,
-    pub public_sol_amount: Option<i64>,
-    pub public_spl_amount: Option<i64>,
-    pub user_sol_account: Address,
-    pub user_spl_token: Address,
-    pub spl_token_interface: Address,
+    pub public_legs: Vec<SettlementLeg>,
     /// Optional transaction-level UTXO- and zone-specific external data
     /// digests folded into `external_data_hash`; `None` for a default-zone
     /// `transact`.
@@ -52,12 +135,7 @@ impl ExternalData {
         Self {
             instruction_discriminator: tag::TRANSACT,
             expiry_unix_ts: u64::MAX, // default no expiry, not necessary for confidential transfers
-            relayer_fee: 0,
-            public_sol_amount: None,
-            public_spl_amount: None,
-            user_sol_account: Address::default(),
-            user_spl_token: Address::default(),
-            spl_token_interface: Address::default(),
+            public_legs: Vec::new(),
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk,
@@ -68,31 +146,33 @@ impl ExternalData {
         }
     }
 
-    pub fn with_public_sol(
-        mut self,
-        amount: i64,
-        user_sol_account: Address,
-    ) -> Result<Self, TransactionError> {
-        if self.public_sol_amount.is_some() {
-            return Err(TransactionError::PublicSolAlreadySet);
+    pub fn with_public_leg(mut self, leg: SettlementLeg) -> Result<Self, TransactionError> {
+        validate_settlement_legs(&self.public_legs)?;
+        validate_settlement_leg(leg)?;
+        let len =
+            self.public_legs
+                .len()
+                .checked_add(1)
+                .ok_or(TransactionError::TooManyPublicLegs {
+                    got: usize::MAX,
+                    max: MAX_WIRE_PUBLIC_LEGS,
+                })?;
+        if len > MAX_WIRE_PUBLIC_LEGS {
+            return Err(TransactionError::TooManyPublicLegs {
+                got: len,
+                max: MAX_WIRE_PUBLIC_LEGS,
+            });
         }
-        self.public_sol_amount = Some(amount);
-        self.user_sol_account = user_sol_account;
+        self.public_legs.push(leg);
         Ok(self)
     }
 
-    pub fn with_public_spl(
+    pub fn with_public_legs(
         mut self,
-        amount: i64,
-        user_spl_token: Address,
-        spl_token_interface: Address,
+        public_legs: Vec<SettlementLeg>,
     ) -> Result<Self, TransactionError> {
-        if self.public_spl_amount.is_some() {
-            return Err(TransactionError::PublicSplAlreadySet);
-        }
-        self.public_spl_amount = Some(amount);
-        self.user_spl_token = user_spl_token;
-        self.spl_token_interface = spl_token_interface;
+        validate_settlement_legs(&public_legs)?;
+        self.public_legs = public_legs;
         Ok(self)
     }
 
@@ -113,6 +193,7 @@ impl ExternalData {
     /// Builds [`ResolvedOutput`]s from the outputs paired with their resolved
     /// owner tags, so the client and program hash the identical preimage.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
+        validate_settlement_legs(&self.public_legs)?;
         if self.outputs.len() != self.resolved_owner_tags.len() {
             return Err(TransactionError::Hash(
                 "resolved owner tags do not pair 1:1 with outputs".to_string(),
@@ -128,15 +209,16 @@ impl ExternalData {
                 data: output.data.as_deref(),
             })
             .collect();
+        let public_legs: Vec<_> = self
+            .public_legs
+            .iter()
+            .copied()
+            .map(SettlementLeg::resolved)
+            .collect();
         ExternalDataHash {
             spp_instruction_discriminator: self.instruction_discriminator,
             expiry_unix_ts: self.expiry_unix_ts,
-            relayer_fee: self.relayer_fee,
-            public_sol_amount: self.public_sol_amount,
-            public_spl_amount: self.public_spl_amount,
-            user_sol_account: self.user_sol_account.as_array(),
-            user_spl_token_account: self.user_spl_token.as_array(),
-            spl_token_interface: self.spl_token_interface.as_array(),
+            public_legs: &public_legs,
             data_hash: self.data_hash,
             zone_data_hash: self.zone_data_hash,
             outputs: &resolved,
@@ -145,4 +227,27 @@ impl ExternalData {
         .hash()
         .map_err(|e| TransactionError::Hash(format!("{e:?}")))
     }
+}
+
+fn validate_settlement_legs(legs: &[SettlementLeg]) -> Result<(), TransactionError> {
+    if legs.len() > MAX_WIRE_PUBLIC_LEGS {
+        return Err(TransactionError::TooManyPublicLegs {
+            got: legs.len(),
+            max: MAX_WIRE_PUBLIC_LEGS,
+        });
+    }
+    for leg in legs {
+        validate_settlement_leg(*leg)?;
+    }
+    Ok(())
+}
+
+fn validate_settlement_leg(leg: SettlementLeg) -> Result<(), TransactionError> {
+    if leg.amount() == 0 {
+        return Err(TransactionError::ZeroPublicLegAmount);
+    }
+    if matches!(leg, SettlementLeg::Spl { mint, .. } if mint == SOL_MINT) {
+        return Err(TransactionError::SettlementTargetMismatch { asset: SOL_MINT });
+    }
+    Ok(())
 }

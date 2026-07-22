@@ -1,5 +1,4 @@
 use crate::{
-    constants::BLINDING_LEN,
     error::KeypairError,
     nullifier_key::NullifierKey,
     pubkey::{P256Pubkey, PublicKey, SignatureType},
@@ -39,7 +38,7 @@ pub trait ShieldedKeypairTrait {
     fn nullifier(
         &self,
         utxo_hash: &[u8; 32],
-        blinding: &[u8; BLINDING_LEN],
+        blinding: &[u8; 32],
     ) -> Result<[u8; 32], KeypairError>;
 
     /// The owner's nullifier key, used to build spendable inputs.
@@ -81,7 +80,7 @@ impl ShieldedKeypairTrait for ShieldedKeypair {
     fn nullifier(
         &self,
         utxo_hash: &[u8; 32],
-        blinding: &[u8; BLINDING_LEN],
+        blinding: &[u8; 32],
     ) -> Result<[u8; 32], KeypairError> {
         self.nullifier(utxo_hash, blinding)
     }

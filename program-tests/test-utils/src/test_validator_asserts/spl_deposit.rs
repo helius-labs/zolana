@@ -2,7 +2,7 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
-use zolana_interface::instruction::DepositIxData;
+use zolana_interface::instruction::AssetDeposit;
 use zolana_program_test::DepositOutput;
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -17,7 +17,7 @@ pub struct SplDepositAssertArgs<'a> {
     pub vault: &'a Pubkey,
     pub user_token: &'a Pubkey,
     pub event: &'a DepositOutput,
-    pub data: &'a DepositIxData,
+    pub data: &'a AssetDeposit,
     pub expected_amount: u64,
     pub signature: Signature,
     pub tree_before: &'a Account,

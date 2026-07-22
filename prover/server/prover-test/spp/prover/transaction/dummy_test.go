@@ -55,7 +55,7 @@ func proveAndVerify(t *testing.T, shape protocol.Shape, tx ProofTransactionReque
 	if err != nil {
 		t.Fatalf("build assignment: %v", err)
 	}
-	assignment := built.circuit
+	assignment := built.witness
 	proof, err := Prove(ps, assignment)
 	if err != nil {
 		t.Fatalf("prove: %v", err)
@@ -119,7 +119,6 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 		InstructionDiscriminator: 1,
 		ExpiryUnixTs:             123,
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
-		PublicAmountMode:         publicAmountTransfer,
 		EncryptedUtxos:           "00",
 		DataHash:                 proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:             proofFieldInput(big.NewInt(0)),
@@ -141,16 +140,18 @@ func TestProveShieldWithAllDummyInputs(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	_, payerHash, owner, _ := proveTestOwner(t)
 
-	deposit := uint64(100)
 	tx := ProofTransactionRequest{
 		InstructionDiscriminator: 1,
 		ExpiryUnixTs:             123,
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
-		PublicAmountMode:         publicAmountShield,
-		PublicSolAmount:          &deposit,
-		EncryptedUtxos:           "00",
-		DataHash:                 proofFieldInput(big.NewInt(0)),
-		ZoneDataHash:             proofFieldInput(big.NewInt(0)),
+		PublicLegs: []PublicLegRequest{{
+			IsDeposit:   true,
+			Amount:      100,
+			UserAccount: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+		}},
+		EncryptedUtxos: "00",
+		DataHash:       proofFieldInput(big.NewInt(0)),
+		ZoneDataHash:   proofFieldInput(big.NewInt(0)),
 		Outputs: []ProofUtxoRequest{
 			solOutput(owner, 60, 2000),
 			solOutput(owner, 40, 2001),
@@ -158,4 +159,158 @@ func TestProveShieldWithAllDummyInputs(t *testing.T) {
 	}
 
 	proveAndVerify(t, shape, tx, payerHash)
+}
+
+func TestProveMixedDirectionPublicLegs(t *testing.T) {
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	tx, payerHash, err := benchmarkTransaction(shape, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	splAsset := testSplAsset(t, testMintA)
+	tx.Inputs[1].Utxo.Asset = proofFieldInput(splAsset)
+	tx.Outputs[1].Asset = proofFieldInput(splAsset)
+	tx.Outputs[0].Amount = proofFieldInput(big.NewInt(25))
+	tx.Outputs[1].Amount = proofFieldInput(big.NewInt(13))
+	refreshStateEntry(t, &tx, 1)
+	tx.PublicLegs = []PublicLegRequest{
+		{
+			IsSpl:       true,
+			Asset:       testMintA,
+			Amount:      7,
+			UserAccount: stringsOfByte(0x41),
+			PoolAccount: stringsOfByte(0x61),
+		},
+		{
+			IsDeposit:   true,
+			Amount:      5,
+			UserAccount: stringsOfByte(0x21),
+		},
+	}
+
+	proveAndVerify(t, shape, tx, payerHash)
+}
+
+func TestProveSixSameAssetPublicLegs(t *testing.T) {
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	tx, payerHash, err := benchmarkTransaction(shape, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	splAsset := testSplAsset(t, testMintA)
+	tx.Inputs[0].Utxo.Asset = proofFieldInput(splAsset)
+	for i := range tx.Outputs {
+		tx.Outputs[i].Asset = proofFieldInput(splAsset)
+	}
+	tx.Outputs[0].Amount = proofFieldInput(big.NewInt(13))
+	tx.Outputs[1].Amount = proofFieldInput(big.NewInt(9))
+	refreshStateEntry(t, &tx, 0)
+	tx.PublicLegs = []PublicLegRequest{
+		{
+			IsSpl:       true,
+			IsDeposit:   true,
+			Asset:       testMintA,
+			Amount:      5,
+			UserAccount: stringsOfByte(0x41),
+			PoolAccount: stringsOfByte(0x61),
+		},
+		{
+			IsSpl:       true,
+			Asset:       testMintA,
+			Amount:      2,
+			UserAccount: stringsOfByte(0x42),
+			PoolAccount: stringsOfByte(0x62),
+		},
+		{
+			IsSpl:       true,
+			IsDeposit:   true,
+			Asset:       testMintA,
+			Amount:      4,
+			UserAccount: stringsOfByte(0x43),
+			PoolAccount: stringsOfByte(0x63),
+		},
+		{
+			IsSpl:       true,
+			Asset:       testMintA,
+			Amount:      3,
+			UserAccount: stringsOfByte(0x44),
+			PoolAccount: stringsOfByte(0x64),
+		},
+		{
+			IsSpl:       true,
+			Asset:       testMintA,
+			Amount:      1,
+			UserAccount: stringsOfByte(0x45),
+			PoolAccount: stringsOfByte(0x65),
+		},
+		{
+			IsSpl:       true,
+			Asset:       testMintA,
+			Amount:      1,
+			UserAccount: stringsOfByte(0x46),
+			PoolAccount: stringsOfByte(0x66),
+		},
+	}
+
+	proveAndVerify(t, shape, tx, payerHash)
+}
+
+func TestProveThreeDistinctPublicAssets(t *testing.T) {
+	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
+	tx, payerHash, err := benchmarkTransaction(shape, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assetA := testSplAsset(t, testMintA)
+	assetB := testSplAsset(t, testMintB)
+	tx.Inputs[1].Utxo.Asset = proofFieldInput(assetA)
+	tx.Inputs[2].Utxo.Asset = proofFieldInput(assetB)
+	tx.Outputs[1].Asset = proofFieldInput(assetA)
+	tx.Outputs[2].Asset = proofFieldInput(assetB)
+	tx.Outputs[0].Amount = proofFieldInput(big.NewInt(35))
+	tx.Outputs[1].Amount = proofFieldInput(big.NewInt(23))
+	tx.Outputs[2].Amount = proofFieldInput(big.NewInt(32))
+	refreshStateEntry(t, &tx, 1)
+	refreshStateEntry(t, &tx, 2)
+	tx.PublicLegs = []PublicLegRequest{
+		{IsDeposit: true, Amount: 5, UserAccount: stringsOfByte(0x21)},
+		{
+			IsSpl:       true,
+			Asset:       testMintA,
+			Amount:      7,
+			UserAccount: stringsOfByte(0x41),
+			PoolAccount: stringsOfByte(0x61),
+		},
+		{
+			IsSpl:       true,
+			IsDeposit:   true,
+			Asset:       testMintB,
+			Amount:      2,
+			UserAccount: stringsOfByte(0x42),
+			PoolAccount: stringsOfByte(0x62),
+		},
+	}
+
+	proveAndVerify(t, shape, tx, payerHash)
+}
+
+func testSplAsset(t *testing.T, mintHex string) *big.Int {
+	t.Helper()
+	mint, err := parse.Hex32(mintHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset, err := protocol.SolanaPkField(mint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return asset
+}
+
+func stringsOfByte(value byte) string {
+	bytes := make([]byte, 32)
+	for i := range bytes {
+		bytes[i] = value
+	}
+	return parse.BytesHex(bytes)
 }

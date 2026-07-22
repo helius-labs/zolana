@@ -1,11 +1,15 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_hasher::HasherError;
+use zolana_interface::instruction::DepositBuildError;
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error("deposit builder error: {0}")]
+    DepositBuild(#[from] DepositBuildError),
+
     #[error("keypair error: {0}")]
     Keypair(#[from] KeypairError),
 
@@ -59,6 +63,17 @@ pub enum ClientError {
     #[error("address resolution error: {0}")]
     AddressResolution(String),
 
+    #[error(
+        "public legs and settlement account groups must have equal lengths: {public_legs} legs, {settlement_legs} account groups"
+    )]
+    SettlementLegCountMismatch {
+        public_legs: usize,
+        settlement_legs: usize,
+    },
+
+    #[error("public leg {index} does not match its settlement account group type")]
+    SettlementLegTypeMismatch { index: usize },
+
     #[error("user registry record not found for {owner}: {record}")]
     UserRegistryRecordNotFound { owner: Pubkey, record: Pubkey },
 
@@ -70,6 +85,9 @@ pub enum ClientError {
 
     #[error("a transaction must spend at least one input")]
     NoInputs,
+
+    #[error("the current tree capacity does not allow dummy input slots")]
+    DummyInputsNotAllowed,
 
     #[error(
         "input {index} is not Solana-owned; the transfer-eddsa rail rejects P256-owned inputs"

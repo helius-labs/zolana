@@ -5,9 +5,12 @@ import (
 	"math/big"
 	"strings"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
+
+	"github.com/consensys/gnark/frontend"
 )
 
 // TransactionRequiresP256 reports whether a transaction uses the P256 ownership
@@ -49,7 +52,7 @@ type stateWitnesses struct {
 // transcript. Returning a struct keeps callers from positionally
 // unpacking six values.
 type proofAssignment struct {
-	circuit         *txcircuit.Circuit
+	witness         frontend.Circuit
 	publicInputs    protocol.PublicInputs
 	publicInputHash *big.Int
 	// p256MessageDigest is the full SHA-256 ECDSA message the P256 owner signs;
@@ -84,7 +87,11 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	external, err := buildExternalData(tx)
+	realOutputHashes, err := instructionOutputHashes(outputs.hashes, len(tx.Outputs))
+	if err != nil {
+		return proofAssignment{}, err
+	}
+	external, err := buildExternalData(tx, realOutputHashes)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -130,25 +137,17 @@ func buildProofAssignment(
 		return proofAssignment{}, err
 	}
 
-	assignment := &txcircuit.Circuit{
-		Shape:                txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs},
-		RequiresP256:         requiresP256,
-		Inputs:               inputs.inputs,
-		Outputs:              outputs.outputs,
-		P256SigningPkField:   big.NewInt(0),
-		ExternalDataHash:     external.hash,
-		P256Pub:              p256Pub,
-		P256Sig:              p256Sig,
-		PrivateTxHash:        privateTxHash,
-		P256MessageHashLow:   p256MessageLow,
-		P256MessageHashHigh:  p256MessageHigh,
-		PublicSolAmount:      publicInputs.PublicSolAmount,
-		PublicSplAmount:      publicInputs.PublicSplAmount,
-		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
-		ZoneProgramID:        publicInputs.ZoneProgramID,
-		PayerPubkeyHash:      publicInputs.PayerPubkeyHash,
-		PublicInputHash:      publicInputHash,
-	}
+	witness := customZoneWitness(
+		inputs,
+		outputs,
+		publicInputs,
+		publicInputHash,
+		p256MessageLow,
+		p256MessageHigh,
+		p256Pub,
+		p256Sig,
+		requiresP256,
+	)
 	transcript := assignmentTranscript{
 		inputHashes:              inputs.hashes,
 		outputHashes:             outputs.hashes,
@@ -157,13 +156,103 @@ func buildProofAssignment(
 		requiresP256OwnerWitness: inputs.requiresP256OwnerWitness,
 	}
 	return proofAssignment{
-		circuit:           assignment,
+		witness:           witness,
 		publicInputs:      publicInputs,
 		publicInputHash:   publicInputHash,
 		p256MessageDigest: p256MessageDigest,
 		outputUtxos:       outputs.responses,
 		transcript:        transcript,
 	}, nil
+}
+
+// instructionOutputHashes selects exactly the hashes represented by
+// TransactIxData.outputs. Circuit-only dummy padding is not serialized into the
+// instruction and therefore must not enter the canonical ExternalDataHash.
+func instructionOutputHashes(outputHashes []*big.Int, realOutputCount int) ([]*big.Int, error) {
+	if realOutputCount < 0 || realOutputCount > len(outputHashes) {
+		return nil, fmt.Errorf(
+			"real output count %d exceeds derived output hash count %d",
+			realOutputCount,
+			len(outputHashes),
+		)
+	}
+	return outputHashes[:realOutputCount:realOutputCount], nil
+}
+
+// customZoneWitness materializes the rail-specific circuit assignment. This
+// package proves only the custom-zone variants; the Public struct is filled
+// straight from the host-computed protocol.PublicInputs.
+func customZoneWitness(
+	inputs inputWitnesses,
+	outputs outputWitnesses,
+	publicInputs protocol.PublicInputs,
+	publicInputHash *big.Int,
+	p256MessageLow, p256MessageHigh *big.Int,
+	p256Pub txcircuit.P256PublicKey,
+	p256Sig txcircuit.P256Signature,
+	requiresP256 bool,
+) frontend.Circuit {
+	var publicAssets, publicAmounts [txcircuit.NPublicSlots]frontend.Variable
+	for i := 0; i < txcircuit.NPublicSlots; i++ {
+		publicAssets[i] = publicInputs.PublicAssets[i]
+		publicAmounts[i] = publicInputs.PublicAmounts[i]
+	}
+	if requiresP256 {
+		return &customzone.CustomZoneP256Circuit{
+			Public: customzone.CustomZoneP256Public{
+				Nullifiers:          fieldVariables(publicInputs.Nullifiers),
+				OutputHashes:        fieldVariables(publicInputs.OutputUtxoHashes),
+				UtxoTreeRoots:       fieldVariables(publicInputs.UtxoTreeRoots),
+				NullifierTreeRoots:  fieldVariables(publicInputs.NullifierTreeRoots),
+				PrivateTxHash:       publicInputs.PrivateTxHash,
+				P256MessageHashLow:  p256MessageLow,
+				P256MessageHashHigh: p256MessageHigh,
+				ExternalDataHash:    publicInputs.ExternalDataHash,
+				PublicAssets:        publicAssets,
+				PublicAmounts:       publicAmounts,
+				ZoneProgramID:       publicInputs.ZoneProgramID,
+				PayerPubkeyHash:     publicInputs.PayerPubkeyHash,
+				AllowDummyInputs:    publicInputs.AllowDummyInputs,
+				InputOwnerPkHashes:  fieldVariables(publicInputs.InputOwnerPkHashes),
+				PublicInputHash:     publicInputHash,
+			},
+			Private: customzone.CustomZoneP256Private{
+				Inputs:  inputs.inputs,
+				Outputs: outputs.outputs,
+				P256Pub: p256Pub,
+				P256Sig: p256Sig,
+			},
+		}
+	}
+	return &customzone.CustomZoneEddsaOnlyCircuit{
+		Public: customzone.CustomZoneEddsaOnlyPublic{
+			Nullifiers:         fieldVariables(publicInputs.Nullifiers),
+			OutputHashes:       fieldVariables(publicInputs.OutputUtxoHashes),
+			UtxoTreeRoots:      fieldVariables(publicInputs.UtxoTreeRoots),
+			NullifierTreeRoots: fieldVariables(publicInputs.NullifierTreeRoots),
+			PrivateTxHash:      publicInputs.PrivateTxHash,
+			ExternalDataHash:   publicInputs.ExternalDataHash,
+			PublicAssets:       publicAssets,
+			PublicAmounts:      publicAmounts,
+			ZoneProgramID:      publicInputs.ZoneProgramID,
+			PayerPubkeyHash:    publicInputs.PayerPubkeyHash,
+			AllowDummyInputs:   publicInputs.AllowDummyInputs,
+			InputOwnerPkHashes: fieldVariables(publicInputs.InputOwnerPkHashes),
+			PublicInputHash:    publicInputHash,
+		},
+		Private: customzone.CustomZoneEddsaOnlyPrivate{
+			Inputs:  inputs.inputs,
+			Outputs: outputs.outputs,
+		},
+	}
+}
+
+func fieldVariables(values []*big.Int) []frontend.Variable {
+	out := make([]frontend.Variable, len(values))
+	for i, v := range values {
+		out[i] = v
+	}
+	return out
 }
 
 func validateProofShape(shape protocol.Shape, tx ProofTransactionRequest) error {
@@ -240,18 +329,18 @@ func buildPublicInputs(
 	p256MessageHash *big.Int,
 ) protocol.PublicInputs {
 	return protocol.PublicInputs{
-		Nullifiers:           inputs.nullifiers,
-		OutputUtxoHashes:     outputs.hashes,
-		UtxoTreeRoots:        inputs.utxoRoots,
-		NullifierTreeRoots:   inputs.nullifierTreeRoots,
-		PrivateTxHash:        privateTxHash,
-		P256MessageHash:      p256MessageHash,
-		ExternalDataHash:     external.hash,
-		PublicSolAmount:      external.publicSolAmount,
-		PublicSplAmount:      external.publicSplAmount,
-		PublicSplAssetPubkey: external.publicSplAsset,
-		ZoneProgramID:        external.zoneProgramID,
-		PayerPubkeyHash:      new(big.Int).Set(payerHash),
-		InputOwnerPkHashes:   inputs.inputOwnerPkHashes,
+		Nullifiers:         inputs.nullifiers,
+		OutputUtxoHashes:   outputs.hashes,
+		UtxoTreeRoots:      inputs.utxoRoots,
+		NullifierTreeRoots: inputs.nullifierTreeRoots,
+		PrivateTxHash:      privateTxHash,
+		P256MessageHash:    p256MessageHash,
+		ExternalDataHash:   external.hash,
+		PublicAssets:       external.publicSlots.assets,
+		PublicAmounts:      external.publicSlots.amounts,
+		ZoneProgramID:      external.zoneProgramID,
+		PayerPubkeyHash:    new(big.Int).Set(payerHash),
+		AllowDummyInputs:   big.NewInt(1),
+		InputOwnerPkHashes: inputs.inputOwnerPkHashes,
 	}
 }

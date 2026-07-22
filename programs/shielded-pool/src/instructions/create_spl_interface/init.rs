@@ -31,12 +31,12 @@ impl RegistryInitParams {
     }
 }
 
-/// Initialize the per-mint SPL token vault via the token program's
-/// `InitializeAccount3`, fixing the vault authority to the shielded-pool CPI
+/// Initialize the per-mint SPL token spl_interface via the token program's
+/// `InitializeAccount3`, fixing the spl_interface authority to the shielded-pool CPI
 /// authority.
 pub struct SplInterfaceInitParams<'a> {
     pub token_program: &'a AccountView,
-    pub vault: &'a AccountView,
+    pub spl_interface: &'a AccountView,
     pub mint: &'a AccountView,
 }
 
@@ -44,7 +44,7 @@ impl SplInterfaceInitParams<'_> {
     #[inline(always)]
     pub fn init(self) -> ProgramResult {
         let instruction_accounts = [
-            InstructionAccount::writable(self.vault.address()),
+            InstructionAccount::writable(self.spl_interface.address()),
             InstructionAccount::readonly(self.mint.address()),
         ];
         let mut instruction_data = [0u8; 33];
@@ -55,7 +55,7 @@ impl SplInterfaceInitParams<'_> {
             accounts: &instruction_accounts,
             data: &instruction_data,
         };
-        invoke(&instruction, &[self.vault, self.mint])
+        invoke(&instruction, &[self.spl_interface, self.mint])
             .map_err(|_| ProgramError::from(ShieldedPoolError::InvalidSplAssetRegistry))
     }
 }

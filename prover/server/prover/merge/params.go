@@ -6,24 +6,15 @@ import (
 	"zolana/prover/prover/common"
 )
 
-// UtxoParams mirrors transaction.UtxoCircuitFields as already-computed field
-// elements supplied by the client.
-type UtxoParams struct {
-	Domain        *big.Int
-	Owner         *big.Int
-	Asset         *big.Int
-	Amount        *big.Int
-	Blinding      *big.Int
-	DataHash      *big.Int
-	ZoneDataHash  *big.Int
-	ZoneProgramID *big.Int
-}
-
-// InputParams mirrors merge.Input. Every value is pre-computed client-side; the
-// prover only assigns them onto circuit signals.
+// InputParams mirrors merge.Input. Only the free per-slot UTXO fields are
+// carried; the shared owner/asset and the constant data/zone-program fields are
+// reconstructed in-circuit. Every value is pre-computed client-side; the prover
+// only assigns them onto circuit signals.
 type InputParams struct {
-	Utxo    UtxoParams
-	IsDummy *big.Int
+	Domain       *big.Int
+	Amount       *big.Int
+	Blinding     *big.Int
+	ZoneDataHash *big.Int
 
 	StatePathElements []*big.Int // len StateTreeHeight
 	StatePathIndex    *big.Int
@@ -38,10 +29,11 @@ type InputParams struct {
 	Nullifier         *big.Int
 }
 
-// OutputParams mirrors merge.Output.
+// OutputParams mirrors merge.Output: only the free leaf field plus the
+// committed hash.
 type OutputParams struct {
-	Utxo UtxoParams
-	Hash *big.Int
+	ZoneDataHash *big.Int
+	Hash         *big.Int
 }
 
 // MergeParameters is the flat, pre-computed witness for the 8-in/1-out merge
@@ -57,27 +49,35 @@ type MergeParameters struct {
 	Inputs []InputParams
 	Output OutputParams
 
+	// Asset is the single asset shared by every real input and the merged output.
+	Asset *big.Int
+
 	// ZoneProgramID is the policy-zone merge circuit's top-level public
 	// ZoneProgramID input (the zone program's pk_field). Every real input and the
 	// output UTXO must carry this same value in their per-UTXO ZoneProgramID. It is
 	// unused (and zero) on the default merge rail.
 	ZoneProgramID *big.Int
 
-	// Shared owner identity: P256 signing pubkey coordinates and the nullifier
-	// secret/commitment. OwnerPkHash is the owner's pk_field: 0 means P256-owned
-	// (P256 path), a non-zero value is the Ed25519 owner's pk_field; it selects the rail.
-	P256PubX            *big.Int
-	P256PubY            *big.Int
+	// Shared owner identity: the owner's pk_field and the nullifier
+	// secret/commitment.
 	OwnerPkHash         *big.Int
 	UserNullifierPk     *big.Int
 	UserNullifierSecret *big.Int
 
-	// Verifiable-encryption witnesses.
-	TxViewingSk       *big.Int
-	UserViewingPubkey []*big.Int // len 65, byte values of the uncompressed point
+	// MergeViewTag is the single-use nonce driving the in-circuit
+	// output-blinding and dummy-nullifier derivations, folded into the
+	// public-input hash.
+	MergeViewTag *big.Int
+
+	// OutputZoneDataHash is the zone-data hash the calling zone program carries
+	// in the merge_zone instruction/event. The zone circuit asserts it against
+	// Output.ZoneDataHash and folds it into the public-input hash. Zero on the
+	// default rail.
+	OutputZoneDataHash *big.Int
 
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int
+	AllowDummyInputs *big.Int
 
 	PublicInputHash *big.Int
 }

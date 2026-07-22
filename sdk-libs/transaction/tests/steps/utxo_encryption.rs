@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use cucumber::then;
 use zolana_event::MessageData;
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt, PublicKey};
+use zolana_keypair::{viewing_key::random_salt, PublicKey};
 use zolana_transaction::{
     data::{Data, DataRecord},
     serialization::{
@@ -34,7 +34,7 @@ fn input_utxo(owner: PublicKey, asset: Address, amount: u64, seed: u8) -> Utxo {
         owner,
         asset,
         amount,
-        blinding: [seed; BLINDING_LEN],
+        blinding: [seed; 32],
         zone_program_id: None,
         data: Data::default(),
     }
@@ -82,7 +82,7 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
         owner: alice.signing_pubkey(),
         asset: spl_mint(),
         amount: 30,
-        blinding: [1u8; BLINDING_LEN],
+        blinding: [1u8; 32],
         zone_program_id: None,
         data: Data::default(),
     };
@@ -92,7 +92,7 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
         spl_asset_id: SPL_ASSET_ID,
         spl_amount: 70,
         sol_amount: 999_000,
-        blinding_seed: [2u8; BLINDING_LEN],
+        blinding_seed: [2u8; 32],
         recipient_viewing_pks: vec![alice.viewing_pubkey()],
         spl_data: Data::default(),
         sol_data: Data::default(),
@@ -121,7 +121,7 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
             self_pubkey: sender.viewing_pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: [2u8; BLINDING_LEN],
+            blinding_seed: [2u8; 32],
             recipient_viewing_pks: vec![alice.viewing_pubkey()],
         },
     )
@@ -187,7 +187,7 @@ fn zone_owned_with_data_round_trips(world: &mut TransactionWorld, name: String) 
         owner: kp.signing_pubkey(),
         asset: spl_mint(),
         amount: 30,
-        blinding: [1u8; BLINDING_LEN],
+        blinding: [1u8; 32],
         zone_program_id,
         data: Data::new(vec![DataRecord::ZoneData(vec![4, 5, 6])]),
     };
@@ -202,7 +202,7 @@ fn zone_data_without_id_rejected(world: &mut TransactionWorld, name: String) {
     let pt = ConfidentialOutputPlaintext {
         asset_id: SPL_ASSET_ID,
         amount: 30,
-        blinding: [1u8; BLINDING_LEN],
+        blinding: [1u8; 32],
         zone_program_id: None,
         data: Data::new(vec![DataRecord::ZoneData(vec![1])]),
     };
@@ -220,7 +220,7 @@ fn zone_id_carried_onto_utxo(world: &mut TransactionWorld, name: String) {
     let pt = ConfidentialOutputPlaintext {
         asset_id: SPL_ASSET_ID,
         amount: 30,
-        blinding: [1u8; BLINDING_LEN],
+        blinding: [1u8; 32],
         zone_program_id,
         data: Data::default(),
     };
@@ -237,7 +237,7 @@ fn data_without_output_rejected(world: &mut TransactionWorld, name: String) {
         spl_asset_id: SPL_ASSET_ID,
         spl_amount: 0,
         sol_amount: 5,
-        blinding_seed: [2u8; BLINDING_LEN],
+        blinding_seed: [2u8; 32],
         recipient_viewing_pks: vec![],
         spl_data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
         sol_data: Data::default(),
@@ -251,7 +251,7 @@ fn data_without_output_rejected(world: &mut TransactionWorld, name: String) {
         spl_asset_id: SPL_ASSET_ID,
         spl_amount: 5,
         sol_amount: 0,
-        blinding_seed: [2u8; BLINDING_LEN],
+        blinding_seed: [2u8; 32],
         recipient_viewing_pks: vec![],
         spl_data: Data::default(),
         sol_data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
@@ -272,7 +272,7 @@ fn split_round_trips(world: &mut TransactionWorld, name: String) {
         num_outputs: 4,
         asset_id: SPL_ASSET_ID,
         asset_amount: 200,
-        blinding_seed: [3u8; BLINDING_LEN],
+        blinding_seed: [3u8; 32],
         data: Data::default(),
     };
     let expected = split_pt.clone().into_utxos(&registry, None).unwrap();
@@ -296,7 +296,7 @@ fn split_round_trips(world: &mut TransactionWorld, name: String) {
             recipient_pubkey: owner.viewing_pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: [3u8; BLINDING_LEN],
+            blinding_seed: [3u8; 32],
         },
     )
     .unwrap();
