@@ -154,9 +154,6 @@ func (c *Circuit) Define(api frontend.API) error {
 	env := spendEnv{
 		requiresP256:       c.RequiresP256,
 		isCustomZone:       c.Confidential,
-		zone:               isCustomZone,
-		zoneAuthority:      c.ZoneAuthority,
-		zoneProgramID:      c.ZoneProgramID,
 		p256SigningPkField: c.P256SigningPkField,
 	}
 	if c.RequiresP256 {
@@ -388,4 +385,10 @@ func assertEqualWhen(api frontend.API, cond, a, b frontend.Variable) {
 // assertZeroWhen constrains v == 0 only when cond == 1 (see gadget.AssertZeroWhen).
 func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
 	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: cond, V: v})
+}
+
+// assertWhen constrains check == 1 only when cond == 1. Check functions return
+// an ungated satisfied bit; the kind gate is applied only at the call site.
+func assertWhen(api frontend.API, cond, check frontend.Variable) {
+	assertZeroWhen(api, cond, api.Sub(1, check))
 }

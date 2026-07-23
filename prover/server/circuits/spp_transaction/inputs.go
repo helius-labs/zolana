@@ -20,23 +20,6 @@ type spendEnv struct {
 	// P256 key's pk_field) instead of the 0 sentinel, so P256 input owners are public.
 	isCustomZone       bool
 	p256SigningPkField frontend.Variable
-	zone               bool
-	zoneAuthority      bool
-	zoneProgramID      frontend.Variable
-}
-
-func constrainProgramZone(api frontend.API, notDummy frontend.Variable, u UtxoCircuitFields, zone, strictZone bool, zoneProgramID frontend.Variable) {
-	if zone {
-		if strictZone {
-			assertEqualWhen(api, notDummy, u.ZoneProgramID, zoneProgramID)
-		} else {
-			bindIfSet(api, notDummy, u.ZoneProgramID, zoneProgramID)
-		}
-		requireIdWhenDataSet(api, notDummy, u.ZoneDataHash, u.ZoneProgramID)
-	} else {
-		assertZeroWhen(api, notDummy, u.ZoneDataHash)
-		assertZeroWhen(api, notDummy, u.ZoneProgramID)
-	}
 }
 
 func bindIfSet(api frontend.API, notDummy, field, public frontend.Variable) {
@@ -60,55 +43,58 @@ func (c *Circuit) assertInputs(api frontend.API, env spendEnv) ([]frontend.Varia
 
 // TODO: add wrapper functions constrainZoneInput, constrainDefaultZoneInput, constrainEddsaOnlyInput, constrainP256Input
 //
-// An input slot is one of three kinds: a real spend (IsDummy == 0), an address
-// creation (IsDummy == 1 with a data hash), or padding (IsDummy == 1 without).
-// checkDummy/checkAddress pin the fields the respective kind must not carry;
-// checkSpendable runs the spend checks, degraded per kind by its gate flags.
+// An input slot is one of three kinds: a spendable utxo (IsDummy == 0), an
+// address utxo (IsDummy == 1 with a data hash), or a dummy utxo (IsDummy == 1
+// without). Every kind carries the utxo domain and proves nullifier
+// non-inclusion; checkSpendable, checkDummy, and checkAddress hold the
+// remaining per-kind checks, with spendable and address utxos binding their
+// owner via checkOwnership. All other utxo fields are bound by the utxo hash;
+// the blinding stays unconstrained for every kind so dummy and address
+// nullifiers are indistinguishable from spendable ones.
 func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
 	api.AssertIsBoolean(in.IsDummy)
-	dataIsSet := api.Sub(1, api.IsZero(in.Utxo.DataHash))
-	isAddress := api.Mul(in.IsDummy, dataIsSet)
-	isDummyNotAddress := api.Sub(in.IsDummy, isAddress)
-	realOrAddress := api.Sub(1, isDummyNotAddress)
 
-	in.checkDummy(api, isDummyNotAddress)
-	in.checkAddress(api, isAddress)
-	utxoHash := in.checkSpendable(api, env, realOrAddress)
+	api.AssertIsEqual(in.Utxo.Domain, UtxoDomain)
+	utxoHash := UtxoHashCircuit(api, in.Utxo)
+	in.checkNonInclusion(api, utxoHash)
+
+	assertWhen(api, in.isReal(api), in.checkSpendable(api, utxoHash))
+	assertWhen(api, in.isDummy(api), in.checkDummy(api))
+	assertWhen(api, in.isAddress(api), in.checkAddress(api))
+	assertWhen(api, in.isRealOrAddress(api), in.checkOwnership(api, env))
 
 	inputHash := api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
-	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
+	addressHash := api.Select(in.isAddress(api), utxoHash, frontend.Variable(0))
 	return inputHash, addressHash
 }
 
-// checkDummy: no dummy (address or padding) moves value, and padding carries no
-// owner either.
-func (in Input) checkDummy(api frontend.API, isDummyNotAddress frontend.Variable) {
-	assertZeroWhen(api, in.IsDummy, in.Utxo.Amount)
-	assertZeroWhen(api, isDummyNotAddress, in.Utxo.Owner)
+// isReal: the slot spends an existing utxo.
+func (in Input) isReal(api frontend.API) frontend.Variable {
+	return api.Sub(1, in.IsDummy)
 }
 
-// checkAddress: an address entry is only owner + data hash; the value and zone
-// fields must be empty.
-func (in Input) checkAddress(api frontend.API, isAddress frontend.Variable) {
-	assertZeroWhen(api, isAddress, in.Utxo.Blinding)
-	assertZeroWhen(api, isAddress, in.Utxo.Asset)
-	assertZeroWhen(api, isAddress, in.Utxo.ZoneDataHash)
-	assertZeroWhen(api, isAddress, in.Utxo.ZoneProgramID)
+// isAddress: a dummy slot whose data hash is set creates an address, owner signed.
+func (in Input) isAddress(api frontend.API) frontend.Variable {
+	dataIsSet := api.Sub(1, api.IsZero(in.Utxo.DataHash))
+	return api.Mul(in.IsDummy, dataIsSet)
 }
 
-// checkSpendable runs the spend checks and returns the input's UTXO hash. The
-// gates degrade per kind: a real spend (notDummy and realOrAddress both 1) gets
-// every check, an address (realOrAddress 1) skips the tree checks but still
-// binds domain, owner, and nullifier, and padding passes vacuously.
-func (in Input) checkSpendable(api frontend.API, env spendEnv, realOrAddress frontend.Variable) frontend.Variable {
-	notDummy := api.Sub(1, in.IsDummy)
+// isDummy: a dummy slot all fields other than domain and blinding are zero values.
+func (in Input) isDummy(api frontend.API) frontend.Variable {
+	return api.Sub(in.IsDummy, in.isAddress(api))
+}
 
-	assertEqualWhen(api, realOrAddress, in.Utxo.Domain, UtxoDomain)
-	constrainProgramZone(api, notDummy, in.Utxo, env.zone, env.zoneAuthority, env.zoneProgramID)
+// isRealOrAddress: the slot carries content — a spendable or an address utxo.
+func (in Input) isRealOrAddress(api frontend.API) frontend.Variable {
+	return api.Sub(1, in.isDummy(api))
+}
 
-	utxoHash := UtxoHashCircuit(api, in.Utxo)
-	// TODO: extract into function check inclusion
-	// Inclusion: utxoHash is a leaf of the state tree at UtxoTreeRoot.
+// checkSpendable — spendable utxo: returns 1 iff the utxo is a leaf of the
+// state tree at UtxoTreeRoot. Ownership is checked via checkOwnership; asset
+// and amount are constrained by balance conservation; blinding, data hash, and
+// the zone fields carry no additional checks (the zone fields were bound when
+// the utxo was created as an output).
+func (in Input) checkSpendable(api frontend.API, utxoHash frontend.Variable) frontend.Variable {
 	statePathIndices := api.ToBinary(in.StatePathIndex, StateTreeHeight)
 	stateRoot := abstractor.Call(api, gadgetlib.MerkleRootGadget{
 		Hash:   utxoHash,
@@ -116,15 +102,51 @@ func (in Input) checkSpendable(api frontend.API, env spendEnv, realOrAddress fro
 		Path:   in.StatePathElements,
 		Height: StateTreeHeight,
 	})
-	// Dummy and address utxos are not included in the state root.
-	assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
+	return api.IsZero(api.Sub(stateRoot, in.UtxoTreeRoot))
+}
 
-	// TODO: extract into function checkOwnerShip
-	// Owner check: select the input's path and bind the owner. Anonymous routes on
-	// the 0 sentinel — 0 binds to the shared P256 key (substituted via Select),
-	// non-zero to the entry. Confidential routes by equality to the public
-	// p256SigningPkField, so a P256 owner's pk_field is public in OwnerPkHash and is
-	// already the owner key — no substitution, so the Select is omitted.
+// checkDummy — dummy utxo: returns 1 iff every field except the blinding is
+// zero, so the slot carries nothing. The zero data hash is the kind classifier
+// itself.
+func (in Input) checkDummy(api frontend.API) frontend.Variable {
+	return allZero(api,
+		in.Utxo.Owner,
+		in.Utxo.Asset,
+		in.Utxo.Amount,
+		in.Utxo.ZoneDataHash,
+		in.Utxo.ZoneProgramID,
+	)
+}
+
+// checkAddress — address utxo: returns 1 iff only the owner and data hash
+// carry content — the value and zone fields are zero. Ownership is checked via
+// checkOwnership.
+func (in Input) checkAddress(api frontend.API) frontend.Variable {
+	return allZero(api,
+		in.Utxo.Asset,
+		in.Utxo.Amount,
+		in.Utxo.ZoneDataHash,
+		in.Utxo.ZoneProgramID,
+	)
+}
+
+func allZero(api frontend.API, values ...frontend.Variable) frontend.Variable {
+	zero := frontend.Variable(1)
+	for _, v := range values {
+		zero = api.Mul(zero, api.IsZero(v))
+	}
+	return zero
+}
+
+// checkOwnership returns 1 iff the owner binds to the witnessed keys: select
+// the input's path and recompute the owner. Anonymous routes on the 0 sentinel
+// — 0 binds to the shared P256 key (substituted via Select), non-zero to the
+// entry. Confidential routes by equality to the public p256SigningPkField, so
+// a P256 owner's pk_field is public in OwnerPkHash and is already the owner
+// key — no substitution, so the Select is omitted. A P256 owner additionally
+// needs the valid shared signature; the Solana-only rail rejects P256 owners
+// outright.
+func (in Input) checkOwnership(api frontend.API, env spendEnv) frontend.Variable {
 	var isP256, ownerKeyHash frontend.Variable
 	if env.isCustomZone {
 		isP256 = api.IsZero(api.Sub(in.OwnerPkHash, env.p256SigningPkField))
@@ -133,10 +155,6 @@ func (in Input) checkSpendable(api frontend.API, env spendEnv, realOrAddress fro
 		isP256 = api.IsZero(in.OwnerPkHash)
 		ownerKeyHash = api.Select(isP256, env.p256PkField, in.OwnerPkHash)
 	}
-	if !env.requiresP256 {
-		assertZeroWhen(api, realOrAddress, isP256)
-	}
-	// TODO: extract into function checkNonInclusion
 	nullifierPk := abstractor.Call(api, NullifierPkGadget{
 		NullifierSecret: in.NullifierSecret,
 	})
@@ -144,9 +162,19 @@ func (in Input) checkSpendable(api frontend.API, env spendEnv, realOrAddress fro
 		OwnerKeyHash: ownerKeyHash,
 		NullifierPk:  nullifierPk,
 	})
-	assertEqualWhen(api, realOrAddress, ownerHash, in.Utxo.Owner)
-	assertZeroWhen(api, api.Mul(realOrAddress, isP256), api.Sub(1, env.p256SigValid))
+	ok := api.IsZero(api.Sub(ownerHash, in.Utxo.Owner))
+	if env.requiresP256 {
+		ok = api.Mul(ok, api.Select(isP256, env.p256SigValid, frontend.Variable(1)))
+	} else {
+		ok = api.Mul(ok, api.Sub(1, isP256))
+	}
+	return ok
+}
 
+// checkNonInclusion: the nullifier is bound to the utxo and absent from the
+// nullifier tree — the low leaf is in the tree and brackets the nullifier
+// (NullifierLowValue < Nullifier < NullifierNextValue).
+func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable) {
 	nullifier := abstractor.Call(api, NullifierGadget{
 		UtxoHash:        utxoHash,
 		Blinding:        in.Utxo.Blinding,
@@ -154,8 +182,6 @@ func (in Input) checkSpendable(api frontend.API, env spendEnv, realOrAddress fro
 	})
 	api.AssertIsEqual(nullifier, in.Nullifier)
 
-	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
-	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
 	lowLeafHash := gadgetlib.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
 	nfPathIndices := api.ToBinary(in.NullifierLowPathIndex, NullifierTreeHeight)
 	nfRoot := abstractor.Call(api, gadgetlib.MerkleRootGadget{
@@ -166,8 +192,6 @@ func (in Input) checkSpendable(api frontend.API, env spendEnv, realOrAddress fro
 	})
 	api.AssertIsEqual(nfRoot, in.NullifierTreeRoot)
 	assertStrictlyOrdered(api, in.NullifierLowValue, in.Nullifier, in.NullifierNextValue)
-
-	return utxoHash
 }
 
 func (c *Circuit) assertDistinctNullifiers(api frontend.API) {
