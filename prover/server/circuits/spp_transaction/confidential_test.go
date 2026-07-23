@@ -73,13 +73,13 @@ func refreshConfidentialPublicInputHash(t testing.TB, assignment *Circuit) {
 	refreshPublicInputHashVariant(t, assignment, true, false)
 }
 
-// emptyOutputUtxo is an unspendable empty UTXO (owner = amount = 0) used as a
-// dummy output slot; see spec Empty UTXO.
-func emptyOutputUtxo(asset *big.Int) protocol.Utxo {
+// emptyOutputUtxo is a dummy output slot (DummyDomain, every field zero except
+// the blinding); see spec Empty UTXO.
+func emptyOutputUtxo() protocol.Utxo {
 	return protocol.Utxo{
-		Domain:        spptest.Fe(0),
+		Domain:        spptest.Fe(DummyDomain),
 		Owner:         spptest.Fe(0),
-		Asset:         new(big.Int).Set(asset),
+		Asset:         spptest.Fe(0),
 		Amount:        spptest.Fe(0),
 		Blinding:      spptest.Fe(777),
 		DataHash:      spptest.Fe(0),
@@ -142,7 +142,7 @@ func TestConfidentialDummyOutputUnconstrained(t *testing.T) {
 		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(100))},
 		[]protocol.Utxo{
 			sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(100)),
-			emptyOutputUtxo(solAsset),
+			emptyOutputUtxo(),
 		},
 		spptest.Fe(0),
 		spptest.Fe(0),
@@ -157,7 +157,6 @@ func TestConfidentialDummyOutputUnconstrained(t *testing.T) {
 	assignment.Outputs[0].OwnerPkHash = pkField
 	assignment.Outputs[0].NullifierPk = nullifierPk
 	// Dummy slot: an arbitrary tag must not be rejected.
-	assignment.Outputs[1].IsDummy = spptest.Fe(1)
 	assignment.Outputs[1].OwnerPkHash = spptest.Fe(424242)
 	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
 

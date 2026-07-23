@@ -214,7 +214,6 @@ func buildCircuitAssignmentExact(
 	for i := 0; i < shape.NInputs; i++ {
 		inputs[i] = Input{
 			Utxo:                     inputCircuitUtxos[i],
-			IsDummy:                  spptest.Fe(0),
 			StatePathElements:        statePathElementsVars[i],
 			StatePathIndex:           statePathIndexVars[i],
 			NullifierLowValue:        nfLowValueVars[i],
@@ -232,7 +231,6 @@ func buildCircuitAssignmentExact(
 	for i := 0; i < shape.NOutputs; i++ {
 		outputs[i] = Output{
 			Utxo:        outputCircuitUtxos[i],
-			IsDummy:     spptest.Fe(0),
 			Hash:        outputHashVariables[i],
 			OwnerPkHash: spptest.Fe(0),
 			NullifierPk: spptest.Fe(0),

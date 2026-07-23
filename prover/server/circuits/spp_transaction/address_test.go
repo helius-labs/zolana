@@ -15,25 +15,24 @@ import (
 func addressNullifier(t testing.TB, fields UtxoCircuitFields, nullifierSecret *big.Int) *big.Int {
 	t.Helper()
 	utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(fields))
-	return spptest.MustNullifier(t, utxoHash, big.NewInt(0), nullifierSecret)
+	return spptest.MustNullifier(t, utxoHash, spptest.AsBigInt(fields.Blinding), nullifierSecret)
 }
 
 func makeAddressSlot(t testing.TB, assignment *Circuit, idx int, ownerPkHash, seed *big.Int) {
 	t.Helper()
-	nullifierSecret := spptest.Fe(99)
+	nullifierSecret := spptest.Fe(0)
 	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
 	owner, err := protocol.OwnerHash(ownerPkHash, nullifierPk)
 	if err != nil {
 		t.Fatalf("address slot owner hash: %v", err)
 	}
 	in := &assignment.Inputs[idx]
-	in.IsDummy = spptest.Fe(1)
-	in.Utxo.Domain = spptest.Fe(protocol.UtxoDomain)
+	in.Utxo.Domain = spptest.Fe(AddressDomain)
 	in.Utxo.Owner = owner
 	in.Utxo.Asset = spptest.Fe(0)
 	in.Utxo.Amount = spptest.Fe(0)
-	in.Utxo.Blinding = spptest.Fe(0)
-	in.Utxo.DataHash = seed
+	in.Utxo.Blinding = seed
+	in.Utxo.DataHash = spptest.Fe(0)
 	in.Utxo.ZoneDataHash = spptest.Fe(0)
 	in.Utxo.ZoneProgramID = spptest.Fe(0)
 	in.OwnerPkHash = ownerPkHash
@@ -47,15 +46,14 @@ func finalizeAddressAssignment(t testing.TB, assignment *Circuit, requiresP256, 
 	addressHashes := make([]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {
 		in := assignment.Inputs[i]
-		isDummy := spptest.AsBigInt(in.IsDummy).Sign() != 0
-		isAddress := isDummy && spptest.AsBigInt(in.Utxo.DataHash).Sign() != 0
+		domain := spptest.AsBigInt(in.Utxo.Domain).Int64()
 		utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
-		if isDummy {
-			inputHashes[i] = big.NewInt(0)
-		} else {
+		if domain == UtxoDomain {
 			inputHashes[i] = utxoHash
+		} else {
+			inputHashes[i] = big.NewInt(0)
 		}
-		if isAddress {
+		if domain == AddressDomain {
 			addressHashes[i] = utxoHash
 		} else {
 			addressHashes[i] = big.NewInt(0)
@@ -63,7 +61,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *Circuit, requiresP256, 
 	}
 	outputHashes := make([]*big.Int, len(assignment.Outputs))
 	for i := range assignment.Outputs {
-		if spptest.AsBigInt(assignment.Outputs[i].IsDummy).Sign() != 0 {
+		if spptest.AsBigInt(assignment.Outputs[i].Utxo.Domain).Int64() == DummyDomain {
 			outputHashes[i] = big.NewInt(0)
 			continue
 		}
