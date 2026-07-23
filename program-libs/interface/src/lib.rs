@@ -17,7 +17,7 @@ macro_rules! pubkey_array {
     }};
 }
 
-pub const UTXO_DOMAIN: u16 = 1;
+pub const UTXO_DOMAIN: u16 = 3;
 
 /// Development program id for the shielded-pool program.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =

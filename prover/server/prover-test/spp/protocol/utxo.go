@@ -27,7 +27,7 @@ func SolAsset() *big.Int {
 	return new(big.Int).Set(solAssetValue)
 }
 
-const UtxoDomain = 1
+const UtxoDomain = 3
 
 type Utxo struct {
 	Domain        *big.Int
