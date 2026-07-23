@@ -69,3 +69,12 @@ func constrainProgramZone(api frontend.API, notDummy frontend.Variable, u UtxoCi
 		assertZeroWhen(api, notDummy, u.ZoneProgramID)
 	}
 }
+func bindIfSet(api frontend.API, notDummy, field, public frontend.Variable) {
+	isSet := api.Sub(1, api.IsZero(field))
+	assertEqualWhen(api, api.Mul(notDummy, isSet), field, public)
+}
+
+func requireIdWhenDataSet(api frontend.API, notDummy, dataHash, id frontend.Variable) {
+	dataIsSet := api.Sub(1, api.IsZero(dataHash))
+	assertZeroWhen(api, api.Mul(notDummy, dataIsSet), api.IsZero(id))
+}

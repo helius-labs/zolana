@@ -22,16 +22,6 @@ type spendEnv struct {
 	p256SigningPkField frontend.Variable
 }
 
-func bindIfSet(api frontend.API, notDummy, field, public frontend.Variable) {
-	isSet := api.Sub(1, api.IsZero(field))
-	assertEqualWhen(api, api.Mul(notDummy, isSet), field, public)
-}
-
-func requireIdWhenDataSet(api frontend.API, notDummy, dataHash, id frontend.Variable) {
-	dataIsSet := api.Sub(1, api.IsZero(dataHash))
-	assertZeroWhen(api, api.Mul(notDummy, dataIsSet), api.IsZero(id))
-}
-
 func (c *Circuit) assertInputs(api frontend.API, env spendEnv) ([]frontend.Variable, []frontend.Variable) {
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
 	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
@@ -42,16 +32,6 @@ func (c *Circuit) assertInputs(api frontend.API, env spendEnv) ([]frontend.Varia
 }
 
 // TODO: add wrapper functions constrainZoneInput, constrainDefaultZoneInput, constrainEddsaOnlyInput, constrainP256Input
-//
-// An input slot is one of three kinds, told apart by the domain tag alone: a
-// spendable utxo (UtxoDomain), an address utxo (AddressDomain), or a dummy
-// utxo (DummyDomain). Exactly one tag must hold, so the tags both classify the
-// slot and separate the three hash and nullifier domains. Every kind proves
-// nullifier non-inclusion; checkSpendable, checkDummy, and checkAddress hold
-// the remaining per-kind checks, with spendable and address utxos binding
-// their owner via checkOwnership. All other utxo fields are bound by the utxo
-// hash; the blinding stays unconstrained for every kind so dummy and address
-// nullifiers are indistinguishable from spendable ones.
 func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
 	isReal := in.isReal(api)
 	isAddress := in.isAddress(api)
