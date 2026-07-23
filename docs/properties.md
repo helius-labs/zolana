@@ -28,7 +28,7 @@
     1. UTXO hash does not reveal, owner, amount, asset, or data stored inside
     2. nullifier does not reveal which UTXO it belongs to
 10. **Address:**
-    1. only a signer can create an address
+    1. only a signer can create an address for herself
     2. an address cannot collide with a nullifier of a real UTXO
 11. **Private Transaction Hash**
     1. contains all input, output, address UTXO hashes

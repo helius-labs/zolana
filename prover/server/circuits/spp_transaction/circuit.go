@@ -149,11 +149,7 @@ func (c *Circuit) Define(api frontend.API) error {
 
 	isCustomZone := !c.Confidential
 
-	env := spendEnv{
-		requiresP256:       c.RequiresP256,
-		isCustomZone:       c.Confidential,
-		p256SigningPkField: c.P256SigningPkField,
-	}
+	env := spendEnv{}
 	if c.RequiresP256 {
 		ownerKeyHash, err := OwnerPkFieldFromPubkeyCircuit(api, c.P256Pub)
 		if err != nil {

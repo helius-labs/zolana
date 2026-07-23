@@ -13,26 +13,84 @@ import (
 type spendEnv struct {
 	p256PkField  frontend.Variable
 	p256SigValid frontend.Variable
-	// requiresP256 is false for the Solana-only circuit variant, which omits the
-	// P256 gadget and must therefore reject P256-owned inputs.
-	requiresP256 bool
-	// isCustomZone routes ownership by equality to p256SigningPkField (the shared
-	// P256 key's pk_field) instead of the 0 sentinel, so P256 input owners are public.
-	isCustomZone       bool
-	p256SigningPkField frontend.Variable
+	// p256Sentinel marks a P256-owned entry: an OwnerPkHash equal to it routes
+	// ownership to the shared P256 key. The default zone uses the public
+	// p256SigningPkField, so P256 input owners are public; the custom zone
+	// variants route anonymously on the 0 sentinel.
+	p256Sentinel frontend.Variable
 }
 
 func (c *Circuit) assertInputs(api frontend.API, env spendEnv) ([]frontend.Variable, []frontend.Variable) {
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
 	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
-		inputHashes[i], addressHashes[i] = constrainInput(api, c.Inputs[i], env)
+		if c.Confidential {
+			inputHashes[i], addressHashes[i] = c.constrainDefaultZoneInput(api, c.Inputs[i], env)
+		} else {
+			inputHashes[i], addressHashes[i] = c.constrainZoneInput(api, c.Inputs[i], env)
+		}
 	}
 	return inputHashes, addressHashes
 }
 
-// TODO: add wrapper functions constrainZoneInput, constrainDefaultZoneInput, constrainEddsaOnlyInput, constrainP256Input
-func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
+// constrainDefaultZoneInput — default zone: a real input must not be a member
+// of a zone, and P256 owners are public (the sentinel is the shared signing
+// key).
+func (c *Circuit) constrainDefaultZoneInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
+	assertWhen(api, in.isReal(api), in.Utxo.checkNotInZone(api))
+	env.p256Sentinel = c.P256SigningPkField
+	if c.RequiresP256 {
+		return constrainP256Input(api, in, env)
+	}
+	return constrainEddsaOnlyInput(api, in, env)
+}
+
+// constrainZoneInput — custom zone: a real input is either owned by the public
+// zone or not a member of any zone; the zone-authority variant requires zone
+// ownership for every real input. P256 owners route anonymously on the 0
+// sentinel.
+func (c *Circuit) constrainZoneInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
+	if c.ZoneAuthority {
+		assertWhen(api, in.isReal(api), c.checkZoneMember(api, in.Utxo))
+	} else {
+		assertWhen(api, in.isReal(api), c.checkZoneMemberOrFree(api, in.Utxo))
+	}
+	env.p256Sentinel = frontend.Variable(0)
+	if c.RequiresP256 {
+		return constrainP256Input(api, in, env)
+	}
+	return constrainEddsaOnlyInput(api, in, env)
+}
+
+// constrainP256Input — P256 rail: a P256-owned entry needs the valid shared
+// signature.
+func constrainP256Input(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
+	assertWhen(api, in.isRealOrAddress(api), in.checkOwnershipP256(api, env))
+	return constrainInputShared(api, in)
+}
+
+// constrainEddsaOnlyInput — Solana-only rail: P256-owned entries are rejected.
+func constrainEddsaOnlyInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
+	assertWhen(api, in.isRealOrAddress(api), in.checkOwnershipEddsaOnly(api, env))
+	return constrainInputShared(api, in)
+}
+
+// checkZoneMember returns 1 iff the utxo is owned by the public zone.
+func (c *Circuit) checkZoneMember(api frontend.API, u UtxoCircuitFields) frontend.Variable {
+	return api.IsZero(api.Sub(u.ZoneProgramID, c.ZoneProgramID))
+}
+
+// checkZoneMemberOrFree returns 1 iff the utxo is owned by the public zone or
+// is not a member of any zone; zone data always needs a zone program.
+func (c *Circuit) checkZoneMemberOrFree(api frontend.API, u UtxoCircuitFields) frontend.Variable {
+	inZone := api.Sub(1, api.IsZero(u.ZoneProgramID))
+	member := api.IsZero(api.Sub(u.ZoneProgramID, c.ZoneProgramID))
+	dataSet := api.Sub(1, api.IsZero(u.ZoneDataHash))
+	ok := api.Select(inZone, member, frontend.Variable(1))
+	return api.Mul(ok, api.Select(dataSet, inZone, frontend.Variable(1)))
+}
+
+func constrainInputShared(api frontend.API, in Input) (frontend.Variable, frontend.Variable) {
 	isReal := in.isReal(api)
 	isAddress := in.isAddress(api)
 	api.AssertIsEqual(api.Add(isReal, isAddress, in.isDummy(api)), 1)
@@ -43,7 +101,6 @@ func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable
 	assertWhen(api, isReal, in.checkSpendable(api, utxoHash))
 	assertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
 	assertWhen(api, isAddress, in.checkAddress(api))
-	assertWhen(api, in.isRealOrAddress(api), in.checkOwnership(api, env))
 
 	inputHash := api.Select(isReal, utxoHash, frontend.Variable(0))
 	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
@@ -71,10 +128,9 @@ func (in Input) isRealOrAddress(api frontend.API) frontend.Variable {
 }
 
 // checkSpendable — spendable utxo: returns 1 iff the utxo is a leaf of the
-// state tree at UtxoTreeRoot. Ownership is checked via checkOwnership; asset
-// and amount are constrained by balance conservation; blinding, data hash, and
-// the zone fields carry no additional checks (the zone fields were bound when
-// the utxo was created as an output).
+// state tree at UtxoTreeRoot. Ownership is checked via checkOwnership and the
+// zone fields via the zone wrappers; asset and amount are constrained by
+// balance conservation; blinding and data hash carry no additional checks.
 func (in Input) checkSpendable(api frontend.API, utxoHash frontend.Variable) frontend.Variable {
 	statePathIndices := api.ToBinary(in.StatePathIndex, StateTreeHeight)
 	stateRoot := abstractor.Call(api, gadgetlib.MerkleRootGadget{
@@ -110,23 +166,13 @@ func allZero(api frontend.API, values ...frontend.Variable) frontend.Variable {
 	return zero
 }
 
-// checkOwnership returns 1 iff the owner binds to the witnessed keys: select
-// the input's path and recompute the owner. Anonymous routes on the 0 sentinel
-// — 0 binds to the shared P256 key (substituted via Select), non-zero to the
-// entry. Confidential routes by equality to the public p256SigningPkField, so
-// a P256 owner's pk_field is public in OwnerPkHash and is already the owner
-// key — no substitution, so the Select is omitted. A P256 owner additionally
-// needs the valid shared signature; the Solana-only rail rejects P256 owners
-// outright.
-func (in Input) checkOwnership(api frontend.API, env spendEnv) frontend.Variable {
-	var isP256, ownerKeyHash frontend.Variable
-	if env.isCustomZone {
-		isP256 = api.IsZero(api.Sub(in.OwnerPkHash, env.p256SigningPkField))
-		ownerKeyHash = in.OwnerPkHash
-	} else {
-		isP256 = api.IsZero(in.OwnerPkHash)
-		ownerKeyHash = api.Select(isP256, env.p256PkField, in.OwnerPkHash)
-	}
+// checkOwnership returns 1 iff the owner binds to the witnessed keys, plus the
+// isP256 bit for the caller's rail rule: an OwnerPkHash equal to the P256
+// sentinel routes to the shared P256 key (substituted via Select), any other
+// entry is the owner key itself.
+func (in Input) checkOwnership(api frontend.API, env spendEnv) (frontend.Variable, frontend.Variable) {
+	isP256 := api.IsZero(api.Sub(in.OwnerPkHash, env.p256Sentinel))
+	ownerKeyHash := api.Select(isP256, env.p256PkField, in.OwnerPkHash)
 	nullifierPk := abstractor.Call(api, NullifierPkGadget{
 		NullifierSecret: in.NullifierSecret,
 	})
@@ -135,12 +181,20 @@ func (in Input) checkOwnership(api frontend.API, env spendEnv) frontend.Variable
 		NullifierPk:  nullifierPk,
 	})
 	ok := api.IsZero(api.Sub(ownerHash, in.Utxo.Owner))
-	if env.requiresP256 {
-		ok = api.Mul(ok, api.Select(isP256, env.p256SigValid, frontend.Variable(1)))
-	} else {
-		ok = api.Mul(ok, api.Sub(1, isP256))
-	}
-	return ok
+	return ok, isP256
+}
+
+// checkOwnershipP256 — P256 rail: a P256-owned entry additionally needs the
+// valid shared signature.
+func (in Input) checkOwnershipP256(api frontend.API, env spendEnv) frontend.Variable {
+	ok, isP256 := in.checkOwnership(api, env)
+	return api.Mul(ok, api.Select(isP256, env.p256SigValid, frontend.Variable(1)))
+}
+
+// checkOwnershipEddsaOnly — Solana-only rail: P256-owned entries are rejected.
+func (in Input) checkOwnershipEddsaOnly(api frontend.API, env spendEnv) frontend.Variable {
+	ok, isP256 := in.checkOwnership(api, env)
+	return api.Mul(ok, api.Sub(1, isP256))
 }
 
 // checkNonInclusion: the nullifier is bound to the utxo and absent from the
