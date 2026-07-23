@@ -6,47 +6,64 @@ import (
 )
 
 func (c *Circuit) assertOutputs(api frontend.API) []frontend.Variable {
+	signers := c.signerOwners(api)
 	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := 0; i < c.Shape.NOutputs; i++ {
 		if c.Confidential {
-			outputHashes[i] = c.constrainDefaultZoneOutput(api, c.Outputs[i])
+			outputHashes[i] = c.constrainDefaultZoneOutput(api, c.Outputs[i], signers)
 		} else {
-			outputHashes[i] = c.constrainZoneOutput(api, c.Outputs[i])
+			outputHashes[i] = c.constrainZoneOutput(api, c.Outputs[i], signers)
 		}
 	}
 	return outputHashes
 }
 
+// signerOwners collects the owner hash of every real input slot — the
+// identities checkOwnership binds to a verified signer. Non-real slots are
+// masked to zero, which checkOwnerSigned never matches.
+func (c *Circuit) signerOwners(api frontend.API) []frontend.Variable {
+	signers := make([]frontend.Variable, len(c.Inputs))
+	for i, in := range c.Inputs {
+		signers[i] = api.Mul(in.isReal(api), in.Utxo.Owner)
+	}
+	return signers
+}
+
 // constrainDefaultZoneOutput — default zone: a real output must not be a
 // member of a zone, and checkOwnerIsPublicInput.
-func (c *Circuit) constrainDefaultZoneOutput(api frontend.API, out Output) frontend.Variable {
+func (c *Circuit) constrainDefaultZoneOutput(api frontend.API, out Output, signers []frontend.Variable) frontend.Variable {
 	assertWhen(api, out.isReal(api), out.Utxo.checkNotInZone(api))
 	assertWhen(api, out.isReal(api), out.checkOwnerIsPublicInput(api))
-	return constrainOutputShared(api, out)
+	return constrainOutputShared(api, out, signers)
 }
 
 // constrainZoneOutput — custom zone: a real output is either owned by the
 // public zone or not a member of any zone; the zone-authority variant requires
 // zone ownership for every real output.
-func (c *Circuit) constrainZoneOutput(api frontend.API, out Output) frontend.Variable {
+func (c *Circuit) constrainZoneOutput(api frontend.API, out Output, signers []frontend.Variable) frontend.Variable {
 	if c.ZoneAuthority {
 		assertWhen(api, out.isReal(api), c.checkZoneMember(api, out.Utxo))
 	} else {
 		assertWhen(api, out.isReal(api), c.checkZoneMemberOrFree(api, out.Utxo))
 	}
-	return constrainOutputShared(api, out)
+	return constrainOutputShared(api, out, signers)
 }
 
 // constrainOutputShared verifies one created output and returns its UTXO hash
 // (0 for a dummy) for the transaction-hash chain (step 4). An output slot is
 // one of two kinds, told apart by the domain tag alone: a created utxo
 // (UtxoDomain) or a dummy utxo (DummyDomain); exactly one tag must hold. Every
-// output binds its hash; checkDummy holds the dummy-kind checks.
-func constrainOutputShared(api frontend.API, out Output) frontend.Variable {
+// output binds its hash; checkDummy holds the dummy-kind checks. A real output
+// carrying utxo data must be owned by a signer, so data can only be attached
+// to an owner that authorized it.
+func constrainOutputShared(api frontend.API, out Output, signers []frontend.Variable) frontend.Variable {
 	isReal := out.isReal(api)
 	api.AssertIsEqual(api.Add(isReal, out.isDummy(api)), 1)
 
 	assertWhen(api, out.isDummy(api), out.Utxo.checkDummy(api))
+
+	dataIsSet := api.Sub(1, api.IsZero(out.Utxo.DataHash))
+	assertWhen(api, api.Mul(isReal, dataIsSet), checkOwnerSigned(api, out.Utxo.Owner, signers))
 
 	utxoHash := UtxoHashCircuit(api, out.Utxo)
 	api.AssertIsEqual(utxoHash, out.Hash)
@@ -54,12 +71,22 @@ func constrainOutputShared(api frontend.API, out Output) frontend.Variable {
 	return api.Select(isReal, utxoHash, frontend.Variable(0))
 }
 
+// checkOwnerSigned returns 1 iff owner is non-zero and equals one of signers,
+// so the utxo belongs to an owner whose signature this proof verifies. The
+// non-zero requirement keeps zero-masked signer slots from ever matching.
+func checkOwnerSigned(api frontend.API, owner frontend.Variable, signers []frontend.Variable) frontend.Variable {
+	prod := frontend.Variable(1)
+	for _, signer := range signers {
+		prod = api.Mul(prod, api.Sub(owner, signer))
+	}
+	return api.Mul(api.IsZero(prod), api.Sub(1, api.IsZero(owner)))
+}
+
 // isReal: the slot creates a utxo.
 func (out Output) isReal(api frontend.API) frontend.Variable {
 	return api.IsZero(api.Sub(out.Utxo.Domain, UtxoDomain))
 }
 
-// isDummy: the slot is padding and carries nothing.
 func (out Output) isDummy(api frontend.API) frontend.Variable {
 	return api.IsZero(api.Sub(out.Utxo.Domain, DummyDomain))
 }

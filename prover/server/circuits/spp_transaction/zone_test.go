@@ -28,6 +28,25 @@ func TestZoneCircuitAcceptsDataHashOnOutput(t *testing.T) {
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
+// A data-carrying output must be owned by a signer (an input owner); data on
+// an output owned by anyone else must not solve.
+func TestZoneCircuitRejectsDataHashOnUnsignedOwnerOutput(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+
+	inputs, outputs := defaultBalancedUtxos(t, shape)
+	outputs[0].DataHash = spptest.Fe(0x99)
+	outputs[0].Owner = testOwnerHashForNullifierSecret(spptest.Fe(123))
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
+	refreshZonePublicInputHash(t, assignment)
+
+	circuit, err := NewTransferP256ZoneCircuit(Shape(shape))
+	if err != nil {
+		t.Fatalf("new zone circuit: %v", err)
+	}
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
 func TestZoneCircuitRejectsZoneDataHashWithoutZoneProgramID(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
