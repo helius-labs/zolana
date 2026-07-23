@@ -19,6 +19,7 @@ use zolana_transaction::instructions::transact::SppProofInputs;
 
 use crate::{
     error::ClientError,
+    profile::{profile_active, profile_log},
     prover::{transact::SpendProof, ProverClient},
     retry::IndexerRpcConfig,
     rpc::{
@@ -45,20 +46,60 @@ fn wait_for_indexer<T>(
     mut request: impl FnMut() -> Result<T, ClientError>,
 ) -> Result<T, ClientError> {
     let Some(config) = config.filter(|config| config.wait_for_indexer) else {
-        return request();
+        if !profile_active() {
+            return request();
+        }
+        let started = Instant::now();
+        let response = request()?;
+        profile_log(
+            "photon_http",
+            started.elapsed().as_millis(),
+            &[("wait_for_indexer", "false"), ("attempts", "1")],
+        );
+        return Ok(response);
     };
     let target = now_unix_seconds();
     let mut latest = i64::MIN;
+    let mut attempts = 0u32;
+    let mut sleep_ms_total = 0u128;
+    let mut http_ms_total = 0u128;
     for delay in std::iter::once(Duration::ZERO).chain(config.poll.backoff()) {
         if !delay.is_zero() {
+            let sleep_started = Instant::now();
             sleep(delay);
+            sleep_ms_total += sleep_started.elapsed().as_millis();
         }
+        let http_started = Instant::now();
         let response = request()?;
+        http_ms_total += http_started.elapsed().as_millis();
+        attempts += 1;
         latest = block_time(&response);
         if latest >= target {
+            profile_log(
+                "wait_for_indexer",
+                http_ms_total + sleep_ms_total,
+                &[
+                    ("attempts", &attempts.to_string()),
+                    ("http_ms", &http_ms_total.to_string()),
+                    ("sleep_ms", &sleep_ms_total.to_string()),
+                    ("block_time", &latest.to_string()),
+                    ("caught_up", "true"),
+                ],
+            );
             return Ok(response);
         }
     }
+    profile_log(
+        "wait_for_indexer",
+        http_ms_total + sleep_ms_total,
+        &[
+            ("attempts", &attempts.to_string()),
+            ("http_ms", &http_ms_total.to_string()),
+            ("sleep_ms", &sleep_ms_total.to_string()),
+            ("block_time", &latest.to_string()),
+            ("caught_up", "false"),
+        ],
+    );
     Err(ClientError::IndexerNotCaughtUp {
         target,
         latest,

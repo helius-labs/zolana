@@ -14,6 +14,7 @@ use zolana_keypair::{
 pub mod data;
 pub mod error;
 pub mod instructions;
+pub mod profile;
 pub mod serialization;
 pub mod utxo;
 pub mod wallet;

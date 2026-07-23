@@ -125,7 +125,7 @@ impl SolanaRpc {
     pub fn new(url: impl Into<String>) -> Self {
         Self::with_client(RpcClient::new_with_commitment(
             url.into(),
-            CommitmentConfig::confirmed(),
+            CommitmentConfig::processed(),
         ))
     }
 

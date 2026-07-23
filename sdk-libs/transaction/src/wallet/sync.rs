@@ -717,6 +717,7 @@ impl Wallet {
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
+        let started = std::time::Instant::now();
         let identity = material.identity;
         if identity != self.identity {
             return Err(TransactionError::WalletAuthorityMismatch);
@@ -734,7 +735,9 @@ impl Wallet {
         }
 
         let mut report = SyncReport::default();
-        let index = TxIndex::build(transactions, &mut report);
+        let index = crate::profile::profile_span("sync_with_material/tx_index", || {
+            TxIndex::build(transactions, &mut report)
+        });
 
         // Borrow the registry up front, before `ctx` takes `&mut self.utxos`;
         // disjoint-field borrows let this immutable borrow of `self.registry`
@@ -875,21 +878,39 @@ impl Wallet {
         }
 
         let report = ctx.report;
+        let stored = report.stored_utxos;
+        let undecryptable = report.undecryptable_candidates;
+        let unparsed = report.unparsed_transactions;
 
-        self.nullifiers.extend(
-            transactions
-                .iter()
-                .flat_map(|tx| tx.nullifiers.iter().copied()),
-        );
-        for utxo in self.utxos.iter_mut() {
-            if self.nullifiers.contains(&utxo.nullifier) {
-                utxo.spent = true;
+        crate::profile::profile_span("sync_with_material/nullifiers_spent", || {
+            self.nullifiers.extend(
+                transactions
+                    .iter()
+                    .flat_map(|tx| tx.nullifiers.iter().copied()),
+            );
+            for utxo in self.utxos.iter_mut() {
+                if self.nullifiers.contains(&utxo.nullifier) {
+                    utxo.spent = true;
+                }
             }
-        }
-        self.transactions.sort_by(|a, b| {
-            (a.id.slot, &a.id.signature, a.id.index).cmp(&(b.id.slot, &b.id.signature, b.id.index))
+        });
+        crate::profile::profile_span("sync_with_material/sort_history", || {
+            self.transactions.sort_by(|a, b| {
+                (a.id.slot, &a.id.signature, a.id.index)
+                    .cmp(&(b.id.slot, &b.id.signature, b.id.index))
+            });
         });
         self.last_synced = synced_at;
+        crate::profile::profile_log(
+            "sync_with_material",
+            started.elapsed().as_millis(),
+            &[
+                ("txs", &transactions.len().to_string()),
+                ("stored_utxos", &stored.to_string()),
+                ("undecryptable", &undecryptable.to_string()),
+                ("unparsed", &unparsed.to_string()),
+            ],
+        );
         Ok(report)
     }
 }

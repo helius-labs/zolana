@@ -24,6 +24,7 @@ pub mod client;
 pub mod error;
 #[cfg(feature = "indexer-api")]
 pub mod indexer;
+pub mod profile;
 pub mod prover;
 pub mod retry;
 pub mod rpc;
@@ -51,6 +52,10 @@ pub use client::{ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
+pub use profile::{
+    begin_profile, install_profile, profile_active, profile_count, profile_log, profile_span,
+    profile_try, snapshot_profile, with_wallet_label, ProfileGuard, ProfileSnapshot,
+};
 pub use prover::{
     canonical_shape,
     merge::MergeWitness,
@@ -88,8 +93,9 @@ pub use wallet_authority::{
     P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
 pub use wallet_sync::{
-    get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_async,
-    sync_wallet_with_config, sync_wallet_with_config_async, SyncWalletConfig,
+    apply_indexed_transaction, apply_indexed_transaction_async, get_private_token_balances,
+    get_private_transactions, sync_wallet, sync_wallet_async, sync_wallet_with_config,
+    sync_wallet_with_config_async, SyncWalletConfig,
 };
 pub use zolana_transaction::{
     instructions::{

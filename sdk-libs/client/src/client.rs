@@ -5,7 +5,11 @@
 //! Submit that transaction through the client's RPC adapter, then confirm on-chain and wait
 //! for Photon indexing with [`ZolanaClient::confirm_private_transaction`].
 
-use std::{sync::OnceLock, thread::sleep, time::Duration};
+use std::{
+    sync::OnceLock,
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
 use solana_account::Account;
@@ -28,6 +32,7 @@ use crate::{
     actions::SignedPrivateTransaction,
     error::ClientError,
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
+    profile::{profile_count, profile_log, profile_try},
     prover::{
         transact::witness::{assemble, ProverInputs, SpendProof},
         AsyncProverClient, ProofCompressed, ProverClient,
@@ -36,7 +41,7 @@ use crate::{
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, ProveResult, Rpc,
-        ShieldedTransactionStream,
+        ShieldedTransaction, ShieldedTransactionStream,
     },
 };
 
@@ -186,10 +191,22 @@ impl<R: Rpc> ZolanaClient<R> {
         proof_inputs: SppProofInputs,
         config: Option<IndexerRpcConfig>,
     ) -> Result<TransactIxData, ClientError> {
+        let total_started = Instant::now();
         let commitments = proof_inputs.input_utxo_hashes()?;
-        let spend_proofs = self.get_input_merkle_proofs(&commitments, config)?;
-        self.blocking_prover()
-            .prove_transact(proof_inputs, &spend_proofs)
+        let input_count = commitments.len();
+        let spend_proofs = profile_try("prove_transact/merkle_proofs", || {
+            self.get_input_merkle_proofs(&commitments, config)
+        })?;
+        let data = profile_try("prove_transact/prover", || {
+            self.blocking_prover()
+                .prove_transact(proof_inputs, &spend_proofs)
+        })?;
+        profile_log(
+            "prove_transact",
+            total_started.elapsed().as_millis(),
+            &[("inputs", &input_count.to_string())],
+        );
+        Ok(data)
     }
 
     pub(crate) fn finish_submission_unsigned_sync(
@@ -246,21 +263,34 @@ impl<R: Rpc> ZolanaClient<R> {
         )
     }
 
-    /// Wait until the transaction is confirmed on-chain and Photon has indexed it.
+    /// Confirm on-chain, then return the exact Photon-indexed [`ShieldedTransaction`].
     pub fn confirm_private_transaction_sync(
         &self,
         signature: Signature,
-    ) -> Result<(), ClientError> {
-        wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
-        let tags = self
-            .rpc()
-            .transact_output_view_tags_from_signature(signature)?;
-        wait_for_indexed_transaction(
-            self.blocking_indexer(),
-            &tags,
-            signature,
-            self.indexer_config.poll,
-        )
+    ) -> Result<ShieldedTransaction, ClientError> {
+        let total_started = Instant::now();
+        profile_try("confirm/rpc", || {
+            wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)
+        })?;
+        let tags = profile_try("confirm/view_tags_from_signature", || {
+            self.rpc()
+                .transact_output_view_tags_from_signature(signature)
+        })?;
+        profile_count("confirm/view_tag_count", tags.len() as u128, &[]);
+        let indexed = profile_try("confirm/indexed", || {
+            wait_for_indexed_transaction(
+                self.blocking_indexer(),
+                &tags,
+                signature,
+                self.indexer_config.poll,
+            )
+        })?;
+        profile_log(
+            "confirm_private_transaction",
+            total_started.elapsed().as_millis(),
+            &[],
+        );
+        Ok(indexed)
     }
 }
 
@@ -293,11 +323,11 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         )
     }
 
-    /// Wait until the transaction is confirmed on-chain and Photon has indexed it.
+    /// Confirm on-chain, then return the exact Photon-indexed [`ShieldedTransaction`].
     pub async fn confirm_private_transaction(
         &self,
         signature: Signature,
-    ) -> Result<(), ClientError> {
+    ) -> Result<ShieldedTransaction, ClientError> {
         wait_for_rpc_confirmation_async(self.rpc(), signature, self.indexer_config.poll).await?;
         let tags = self
             .rpc()
@@ -901,14 +931,37 @@ fn wait_for_rpc_confirmation<R: Rpc>(
     signature: Signature,
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
+    let mut attempts = 0u32;
+    let mut sleep_ms = 0u128;
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
+            let sleep_started = Instant::now();
             sleep(delay);
+            sleep_ms += sleep_started.elapsed().as_millis();
         }
+        attempts += 1;
         if rpc.confirm_transaction(signature)? {
+            profile_log(
+                "confirm/rpc_poll",
+                sleep_ms,
+                &[
+                    ("attempts", &attempts.to_string()),
+                    ("sleep_ms", &sleep_ms.to_string()),
+                    ("confirmed", "true"),
+                ],
+            );
             return Ok(());
         }
     }
+    profile_log(
+        "confirm/rpc_poll",
+        sleep_ms,
+        &[
+            ("attempts", &attempts.to_string()),
+            ("sleep_ms", &sleep_ms.to_string()),
+            ("confirmed", "false"),
+        ],
+    );
     Err(ClientError::Rpc(format!(
         "signature not confirmed: {signature}"
     )))
@@ -932,6 +985,12 @@ async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
     )))
 }
 
+/// Max Photon pages scanned per poll attempt when looking up a signature by
+/// output view tags. Photon returns matching transactions oldest-first, so a
+/// busy shared recipient tag can push a brand-new signature past the first page.
+const INDEXED_TX_PAGE_LIMIT: u32 = 50;
+const INDEXED_TX_MAX_PAGES_PER_ATTEMPT: usize = 32;
+
 /// Poll the indexer until the sent transaction is visible under any output
 /// `view_tag` from the confirmed `TRANSACT` instruction. The indexer lags the
 /// chain, so a plain on-chain confirmation is not enough for a caller that
@@ -941,27 +1000,94 @@ fn wait_for_indexed_transaction(
     tags: &[[u8; 32]],
     signature: Signature,
     retry: IndexerPollConfig,
-) -> Result<(), ClientError> {
+) -> Result<ShieldedTransaction, ClientError> {
     if tags.is_empty() {
         return Err(ClientError::Rpc(
             "confirmed TRANSACT instruction has no output view tags".into(),
         ));
     }
+    let total_started = Instant::now();
+    let mut attempts = 0u32;
+    let mut sleep_ms = 0u128;
+    let mut pages_total = 0u32;
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
+            let sleep_started = Instant::now();
             sleep(delay);
+            sleep_ms += sleep_started.elapsed().as_millis();
         }
-        let response =
-            indexer.get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50), None)?;
-        if response
-            .transactions
-            .iter()
-            .any(|item| item.tx_signature == signature)
-        {
-            return Ok(());
+        attempts += 1;
+        let (matched, pages) = find_indexed_transaction(indexer, tags, signature)?;
+        pages_total += pages;
+        if let Some(transaction) = matched {
+            profile_log(
+                "confirm/indexed_poll",
+                total_started.elapsed().as_millis(),
+                &[
+                    ("attempts", &attempts.to_string()),
+                    ("pages", &pages_total.to_string()),
+                    ("sleep_ms", &sleep_ms.to_string()),
+                    ("found", "true"),
+                ],
+            );
+            return Ok(transaction);
         }
     }
+    profile_log(
+        "confirm/indexed_poll",
+        total_started.elapsed().as_millis(),
+        &[
+            ("attempts", &attempts.to_string()),
+            ("pages", &pages_total.to_string()),
+            ("sleep_ms", &sleep_ms.to_string()),
+            ("found", "false"),
+        ],
+    );
     Err(ClientError::IndexerTimeout)
+}
+
+fn find_indexed_transaction(
+    indexer: &ZolanaIndexer,
+    tags: &[[u8; 32]],
+    signature: Signature,
+) -> Result<(Option<ShieldedTransaction>, u32), ClientError> {
+    let mut cursor: Option<Vec<u8>> = None;
+    let mut seen_cursors = std::collections::HashSet::<Vec<u8>>::new();
+    let mut pages = 0u32;
+    for _ in 0..INDEXED_TX_MAX_PAGES_PER_ATTEMPT {
+        if let Some(current) = cursor.as_ref() {
+            if !seen_cursors.insert(current.clone()) {
+                break;
+            }
+        }
+        let page_started = Instant::now();
+        let response = indexer.get_shielded_transactions_by_tags(
+            tags.to_vec(),
+            cursor,
+            Some(INDEXED_TX_PAGE_LIMIT),
+            None,
+        )?;
+        pages += 1;
+        let rows = response.transactions.len();
+        let matched = response
+            .transactions
+            .into_iter()
+            .find(|item| item.tx_signature == signature);
+        let found = matched.is_some();
+        profile_log(
+            &format!("confirm/indexed_page_{pages}"),
+            page_started.elapsed().as_millis(),
+            &[("rows", &rows.to_string()), ("found", &found.to_string())],
+        );
+        if let Some(transaction) = matched {
+            return Ok((Some(transaction), pages));
+        }
+        match response.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    Ok((None, pages))
 }
 
 async fn wait_for_indexed_transaction_async(
@@ -969,7 +1095,7 @@ async fn wait_for_indexed_transaction_async(
     tags: &[[u8; 32]],
     signature: Signature,
     retry: IndexerPollConfig,
-) -> Result<(), ClientError> {
+) -> Result<ShieldedTransaction, ClientError> {
     if tags.is_empty() {
         return Err(ClientError::Rpc(
             "confirmed TRANSACT instruction has no output view tags".into(),
@@ -979,18 +1105,47 @@ async fn wait_for_indexed_transaction_async(
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
         }
-        let response = indexer
-            .get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50), None)
-            .await?;
-        if response
-            .transactions
-            .iter()
-            .any(|item| item.tx_signature == signature)
-        {
-            return Ok(());
+        if let Some(transaction) = find_indexed_transaction_async(indexer, tags, signature).await? {
+            return Ok(transaction);
         }
     }
     Err(ClientError::IndexerTimeout)
+}
+
+async fn find_indexed_transaction_async(
+    indexer: &AsyncZolanaIndexer,
+    tags: &[[u8; 32]],
+    signature: Signature,
+) -> Result<Option<ShieldedTransaction>, ClientError> {
+    let mut cursor: Option<Vec<u8>> = None;
+    let mut seen_cursors = std::collections::HashSet::<Vec<u8>>::new();
+    for _ in 0..INDEXED_TX_MAX_PAGES_PER_ATTEMPT {
+        if let Some(current) = cursor.as_ref() {
+            if !seen_cursors.insert(current.clone()) {
+                break;
+            }
+        }
+        let response = indexer
+            .get_shielded_transactions_by_tags(
+                tags.to_vec(),
+                cursor,
+                Some(INDEXED_TX_PAGE_LIMIT),
+                None,
+            )
+            .await?;
+        if let Some(transaction) = response
+            .transactions
+            .into_iter()
+            .find(|item| item.tx_signature == signature)
+        {
+            return Ok(Some(transaction));
+        }
+        match response.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -1093,11 +1248,14 @@ mod tests {
             .try_sign(&[&payer], blockhash)
             .expect("sign native transaction");
         let result = client.rpc().send_transaction(&transaction).expect("send");
-        client
+        let indexed = client
             .confirm_private_transaction_sync(result)
             .expect("indexed");
 
         assert_eq!(result, signature);
+        assert_eq!(indexed.tx_signature, signature);
+        assert_eq!(indexed.slot, 11);
+        assert!(!indexed.proofless);
         let sent = sent.lock().unwrap();
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].message.instructions.len(), 3);
@@ -1224,6 +1382,60 @@ mod tests {
         let _ = server.requests();
 
         assert!(matches!(error, ClientError::IndexerTimeout));
+    }
+
+    #[test]
+    fn confirm_private_transaction_sync_follows_next_cursor() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let signature = Signature::from([11u8; 64]);
+        let cursor = STANDARD.encode([7u8, 8u8, 9u8]);
+        let fillers = (0..50u8)
+            .map(|i| {
+                let mut bytes = [i; 64];
+                bytes[0] = 0;
+                json!({
+                    "slot": i as u64,
+                    "tx_signature": Signature::from(bytes).to_string(),
+                    "tx_viewing_pk": null,
+                    "output_slots": [],
+                    "messages": [],
+                    "nullifiers": [],
+                    "proofless": false,
+                })
+            })
+            .collect::<Vec<_>>();
+        let page_one = rpc_result(json!({
+            "context": { "block_time": 12 },
+            "transactions": fillers,
+            "next_cursor": cursor,
+        }));
+        let page_two = indexed_transaction_response(signature);
+        let server = MockIndexerServer::respond_with(vec![page_one, page_two]);
+        let rpc = MockSubmitRpc::new(signature);
+        let client = ZolanaClient::new(
+            rpc,
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
+
+        let indexed = client
+            .confirm_private_transaction_sync(signature)
+            .expect("target on page two must be found via next_cursor");
+
+        assert_eq!(indexed.tx_signature, signature);
+        assert_eq!(indexed.slot, 11);
+        assert_eq!(
+            server.requests(),
+            [
+                "/get_shielded_transactions_by_tags",
+                "/get_shielded_transactions_by_tags",
+            ]
+        );
     }
 
     fn state_proof(tree: Address, leaf: [u8; 32]) -> MerkleProof {

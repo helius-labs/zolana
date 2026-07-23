@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use solana_address::Address;
@@ -16,6 +16,7 @@ use zolana_transaction::{
 
 use crate::{
     error::ClientError,
+    profile::{profile_count, profile_log, profile_try},
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
 };
@@ -78,19 +79,39 @@ where
     A: SyncWalletAuthority + ?Sized,
     I: Rpc,
 {
+    let total_started = Instant::now();
     let config = normalized_config(config);
     let rpc_config = indexer_rpc_config(config);
-    let material = authority.sync_material()?;
+    let material = profile_try("sync_material", || authority.sync_material())?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut report = SyncReport::default();
     let mut txs: Vec<ShieldedTransaction> = Vec::new();
+    let mut rounds_ran = 0usize;
 
-    for _ in 0..config.rounds {
+    for round in 1..=config.rounds {
+        let round_started = Instant::now();
         let before = (transactions.len(), proofless_deposits.len());
-        let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
-        fetch_shielded_transactions(indexer, &tags, &mut transactions, config, rpc_config)?;
-        fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config, rpc_config)?;
+        let tags = profile_try(&format!("round_{round}/wallet_query_tags"), || {
+            wallet_query_tags(wallet, &material, config.tag_window)
+        })?;
+        profile_count(
+            &format!("round_{round}/tag_count"),
+            tags.len() as u128,
+            &[
+                ("wait_for_indexer", &config.wait_for_indexer.to_string()),
+                ("page_limit", &config.page_limit.to_string()),
+            ],
+        );
+        fetch_shielded_transactions(indexer, &tags, &mut transactions, config, rpc_config, round)?;
+        fetch_proofless_deposits(
+            indexer,
+            &tags,
+            &mut proofless_deposits,
+            config,
+            rpc_config,
+            round,
+        )?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
@@ -112,9 +133,22 @@ where
                 ))
         });
         txs.extend(deposits);
-        report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
+        report = profile_try(&format!("round_{round}/sync_with_material"), || {
+            wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)
+        })?;
+        rounds_ran = round;
 
-        if before == (transactions.len(), proofless_deposits.len()) {
+        let early_exit = before == (transactions.len(), proofless_deposits.len());
+        profile_log(
+            &format!("round_{round}"),
+            round_started.elapsed().as_millis(),
+            &[
+                ("shielded", &transactions.len().to_string()),
+                ("proofless", &proofless_deposits.len().to_string()),
+                ("early_exit", &early_exit.to_string()),
+            ],
+        );
+        if early_exit {
             break;
         }
     }
@@ -125,10 +159,58 @@ where
     // after the refresh it is genuinely not on chain, so we stop rather than
     // loop. A refresh source that cannot enumerate accounts (RPC without
     // `get_program_accounts`) is a soft miss: sync keeps today's behaviour.
-    if !report.unknown_asset_ids.is_empty() && refresh_registry_from_chain(wallet, indexer)? > 0 {
-        report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
+    if !report.unknown_asset_ids.is_empty() {
+        let inserted = profile_try("refresh_registry_from_chain", || {
+            refresh_registry_from_chain(wallet, indexer)
+        })?;
+        if inserted > 0 {
+            report = profile_try("sync_with_material/after_registry_refresh", || {
+                wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)
+            })?;
+        }
     }
 
+    profile_log(
+        "sync_wallet_with_config",
+        total_started.elapsed().as_millis(),
+        &[
+            ("rounds_ran", &rounds_ran.to_string()),
+            ("rounds_cap", &config.rounds.to_string()),
+            ("wait_for_indexer", &config.wait_for_indexer.to_string()),
+        ],
+    );
+    Ok(report)
+}
+
+/// Apply one indexed transaction via [`Wallet::sync_with_material`] (no tag scan).
+pub fn apply_indexed_transaction<A, I>(
+    wallet: &mut Wallet,
+    authority: &A,
+    indexer: &I,
+    transaction: &ShieldedTransaction,
+) -> Result<SyncReport, ClientError>
+where
+    A: SyncWalletAuthority + ?Sized,
+    I: Rpc,
+{
+    let material = authority.sync_material()?;
+    let mut report = wallet.sync_with_material(
+        &material,
+        std::slice::from_ref(transaction),
+        now_unix_ts(),
+        DEFAULT_TAG_WINDOW,
+    )?;
+    if !report.unknown_asset_ids.is_empty() {
+        let inserted = refresh_registry_from_chain(wallet, indexer)?;
+        if inserted > 0 {
+            report = wallet.sync_with_material(
+                &material,
+                std::slice::from_ref(transaction),
+                now_unix_ts(),
+                DEFAULT_TAG_WINDOW,
+            )?;
+        }
+    }
     Ok(report)
 }
 
@@ -203,6 +285,36 @@ where
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
     }
 
+    Ok(report)
+}
+
+pub async fn apply_indexed_transaction_async<A, I>(
+    wallet: &mut Wallet,
+    authority: &A,
+    indexer: &I,
+    transaction: &ShieldedTransaction,
+) -> Result<SyncReport, ClientError>
+where
+    A: WalletAuthority + ?Sized,
+    I: AsyncRpc,
+{
+    let material = authority.sync_material().await?;
+    let mut report = wallet.sync_with_material(
+        &material,
+        std::slice::from_ref(transaction),
+        now_unix_ts(),
+        DEFAULT_TAG_WINDOW,
+    )?;
+    if !report.unknown_asset_ids.is_empty()
+        && refresh_registry_from_chain_async(wallet, indexer).await? > 0
+    {
+        report = wallet.sync_with_material(
+            &material,
+            std::slice::from_ref(transaction),
+            now_unix_ts(),
+            DEFAULT_TAG_WINDOW,
+        )?;
+    }
     Ok(report)
 }
 
@@ -355,16 +467,26 @@ fn fetch_shielded_transactions<I: Rpc>(
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    round: usize,
 ) -> Result<(), ClientError> {
-    for chunk in tags.chunks(config.tag_query_chunk) {
+    let fetch_started = Instant::now();
+    let mut pages = 0u32;
+    let mut rows = 0u32;
+    let mut new_txs = 0u32;
+    for (chunk_idx, chunk) in tags.chunks(config.tag_query_chunk).enumerate() {
         let mut cursor = None;
+        let mut page_idx = 0u32;
         loop {
+            let page_started = Instant::now();
+            let before = out.len();
             let response = indexer.get_shielded_transactions_by_tags(
                 chunk.to_vec(),
                 cursor,
                 Some(config.page_limit),
                 rpc_config,
             )?;
+            let page_rows = response.transactions.len();
+            rows += page_rows as u32;
             for tx in response.transactions {
                 // Photon may surface proofless/plaintext deposits from this
                 // endpoint before marking them as proofless. They are discovered
@@ -377,14 +499,37 @@ fn fetch_shielded_transactions<I: Rpc>(
                     continue;
                 }
                 let key = tx.tx_signature.to_string();
-                out.entry(key).or_insert(convert_sync_transaction(tx)?);
+                if let std::collections::hash_map::Entry::Vacant(entry) = out.entry(key) {
+                    entry.insert(convert_sync_transaction(tx)?);
+                    new_txs += 1;
+                }
             }
+            pages += 1;
+            profile_log(
+                &format!("round_{round}/shielded chunk_{chunk_idx} page_{page_idx}"),
+                page_started.elapsed().as_millis(),
+                &[
+                    ("rows", &page_rows.to_string()),
+                    ("new", &(out.len() - before).to_string()),
+                    ("tags", &chunk.len().to_string()),
+                ],
+            );
+            page_idx += 1;
             cursor = response.next_cursor;
             if cursor.is_none() {
                 break;
             }
         }
     }
+    profile_log(
+        &format!("round_{round}/fetch_shielded_transactions"),
+        fetch_started.elapsed().as_millis(),
+        &[
+            ("pages", &pages.to_string()),
+            ("rows", &rows.to_string()),
+            ("new", &new_txs.to_string()),
+        ],
+    );
     Ok(())
 }
 
@@ -448,19 +593,29 @@ fn fetch_proofless_deposits<I>(
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    round: usize,
 ) -> Result<(), ClientError>
 where
     I: Rpc,
 {
-    for chunk in tags.chunks(config.tag_query_chunk) {
+    let fetch_started = Instant::now();
+    let mut pages = 0u32;
+    let mut rows = 0u32;
+    let mut new_txs = 0u32;
+    for (chunk_idx, chunk) in tags.chunks(config.tag_query_chunk).enumerate() {
         let mut cursor = None;
+        let mut page_idx = 0u32;
         loop {
+            let page_started = Instant::now();
+            let before = out.len();
             let response = indexer.get_encrypted_utxos_by_tags(
                 chunk.to_vec(),
                 cursor,
                 Some(config.page_limit),
                 rpc_config,
             )?;
+            let page_rows = response.matches.len();
+            rows += page_rows as u32;
             for item in response.matches {
                 if item.tx_viewing_pk.is_some() || item.salt.is_some() {
                     continue;
@@ -474,14 +629,35 @@ where
                 }
                 if let Some(view) = proofless_deposit_from_indexed_match(item)? {
                     out.insert(key, view);
+                    new_txs += 1;
                 }
             }
+            pages += 1;
+            profile_log(
+                &format!("round_{round}/proofless chunk_{chunk_idx} page_{page_idx}"),
+                page_started.elapsed().as_millis(),
+                &[
+                    ("rows", &page_rows.to_string()),
+                    ("new", &(out.len() - before).to_string()),
+                    ("tags", &chunk.len().to_string()),
+                ],
+            );
+            page_idx += 1;
             cursor = response.next_cursor;
             if cursor.is_none() {
                 break;
             }
         }
     }
+    profile_log(
+        &format!("round_{round}/fetch_proofless_deposits"),
+        fetch_started.elapsed().as_millis(),
+        &[
+            ("pages", &pages.to_string()),
+            ("rows", &rows.to_string()),
+            ("new", &new_txs.to_string()),
+        ],
+    );
     Ok(())
 }
 
@@ -594,7 +770,7 @@ fn now_unix_ts() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{cell::Cell, collections::HashMap, rc::Rc};
 
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
@@ -664,6 +840,55 @@ mod tests {
                 transactions: self.transactions.clone(),
                 next_cursor: None,
             })
+        }
+    }
+
+    struct TrackingIndexer {
+        inner: MockIndexer,
+        tag_history_calls: Rc<Cell<u32>>,
+        program_account_calls: Rc<Cell<u32>>,
+    }
+
+    impl TrackingIndexer {
+        fn new(inner: MockIndexer) -> Self {
+            Self {
+                inner,
+                tag_history_calls: Rc::new(Cell::new(0)),
+                program_account_calls: Rc::new(Cell::new(0)),
+            }
+        }
+    }
+
+    impl Rpc for TrackingIndexer {
+        fn get_program_accounts(
+            &self,
+            program_id: Address,
+        ) -> Result<Vec<(Address, solana_account::Account)>, ClientError> {
+            self.program_account_calls
+                .set(self.program_account_calls.get() + 1);
+            Rpc::get_program_accounts(&self.inner, program_id)
+        }
+
+        fn get_encrypted_utxos_by_tags(
+            &self,
+            tags: Vec<ViewTag>,
+            cursor: Option<Vec<u8>>,
+            limit: Option<u32>,
+            config: Option<IndexerRpcConfig>,
+        ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
+            self.tag_history_calls.set(self.tag_history_calls.get() + 1);
+            Rpc::get_encrypted_utxos_by_tags(&self.inner, tags, cursor, limit, config)
+        }
+
+        fn get_shielded_transactions_by_tags(
+            &self,
+            tags: Vec<ViewTag>,
+            cursor: Option<Vec<u8>>,
+            limit: Option<u32>,
+            config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+            self.tag_history_calls.set(self.tag_history_calls.get() + 1);
+            Rpc::get_shielded_transactions_by_tags(&self.inner, tags, cursor, limit, config)
         }
     }
 
@@ -983,6 +1208,7 @@ mod tests {
             &mut out,
             SyncWalletConfig::default(),
             None,
+            1,
         )
         .expect("skip plaintext row");
 
@@ -1007,6 +1233,7 @@ mod tests {
             &mut out,
             SyncWalletConfig::default(),
             None,
+            1,
         )
         .expect("decode proofless payload");
 
@@ -1125,6 +1352,7 @@ mod tests {
             &mut out,
             SyncWalletConfig::default(),
             None,
+            1,
         )
         .expect("skip encrypted row");
 
@@ -1561,5 +1789,202 @@ mod tests {
         assert_eq!(balances.len(), 1);
         assert_eq!(balances[0].mint, SPL_MINT);
         assert_eq!(balances[0].amount, 100);
+    }
+
+    #[test]
+    fn apply_indexed_transaction_skips_history_tag_scan() {
+        let assets = AssetRegistry::default();
+        let sender = ShieldedKeypair::new().expect("sender");
+        let alice = ShieldedKeypair::new().expect("alice");
+        let transfer = confidential_transfer_tx(&sender, &alice, SOL_MINT, 100, 1, &assets);
+        let mut wallet = Wallet::new(alice.shielded_address().expect("shielded address"), assets)
+            .expect("wallet");
+        let indexer = TrackingIndexer::new(MockIndexer::default());
+
+        apply_indexed_transaction(&mut wallet, &local_authority(&alice), &indexer, &transfer)
+            .expect("apply");
+
+        assert_eq!(indexer.tag_history_calls.get(), 0);
+        assert_eq!(wallet.utxos.len(), 1);
+        assert_eq!(wallet.utxos[0].utxo.amount, 100);
+    }
+
+    #[test]
+    fn apply_indexed_transaction_sender_spend_and_change() {
+        let assets = AssetRegistry::default();
+        let alice = ShieldedKeypair::new().expect("alice");
+        let bob = ShieldedKeypair::new().expect("bob");
+        let funding = confidential_transfer_tx(&bob, &alice, SOL_MINT, 100, 1, &assets);
+        let mut alice_wallet = Wallet::new(
+            alice.shielded_address().expect("shielded address"),
+            assets.clone(),
+        )
+        .expect("wallet");
+        apply_indexed_transaction(
+            &mut alice_wallet,
+            &local_authority(&alice),
+            &MockIndexer::default(),
+            &funding,
+        )
+        .expect("apply funding");
+
+        let spend = SppProofInputUtxo::new(alice_wallet.utxos[0].utxo.clone(), &alice);
+        let outbound = signed_to_shielded_tx(
+            confidential_send(&alice, vec![spend], &bob, SOL_MINT, 40, &assets),
+            2,
+        );
+        apply_indexed_transaction(
+            &mut alice_wallet,
+            &local_authority(&alice),
+            &MockIndexer::default(),
+            &outbound,
+        )
+        .expect("apply outbound");
+
+        assert!(alice_wallet.utxos.iter().any(|u| u.spent));
+        let change = alice_wallet
+            .utxos
+            .iter()
+            .find(|u| !u.spent)
+            .expect("change utxo");
+        assert_eq!(change.utxo.amount, 60);
+        let balances = alice_wallet.balances(true).expect("balances");
+        assert_eq!(balances.len(), 1);
+        assert_eq!(balances[0].amount, 60);
+    }
+
+    #[test]
+    fn apply_indexed_transaction_recipient_receipt() {
+        let assets = AssetRegistry::default();
+        let alice = ShieldedKeypair::new().expect("alice");
+        let bob = ShieldedKeypair::new().expect("bob");
+        let transfer = confidential_transfer_tx(&alice, &bob, SOL_MINT, 40, 2, &assets);
+        let mut bob_wallet =
+            Wallet::new(bob.shielded_address().expect("shielded address"), assets).expect("wallet");
+
+        apply_indexed_transaction(
+            &mut bob_wallet,
+            &local_authority(&bob),
+            &MockIndexer::default(),
+            &transfer,
+        )
+        .expect("apply receipt");
+
+        assert_eq!(bob_wallet.utxos.len(), 1);
+        assert!(!bob_wallet.utxos[0].spent);
+        assert_eq!(bob_wallet.utxos[0].utxo.amount, 40);
+        let inbound = bob_wallet.private_transactions().first().expect("inbound");
+        assert_eq!(inbound.kind, PrivateTransactionKind::PrivateTransfer);
+        assert_eq!(inbound.direction, PrivateTransactionDirection::Inbound);
+        assert_eq!(inbound.amount, 40);
+    }
+
+    #[test]
+    fn apply_indexed_transaction_is_idempotent() {
+        let assets = AssetRegistry::default();
+        let sender = ShieldedKeypair::new().expect("sender");
+        let alice = ShieldedKeypair::new().expect("alice");
+        let transfer = confidential_transfer_tx(&sender, &alice, SOL_MINT, 100, 1, &assets);
+        let mut wallet = Wallet::new(alice.shielded_address().expect("shielded address"), assets)
+            .expect("wallet");
+        let indexer = MockIndexer::default();
+
+        apply_indexed_transaction(&mut wallet, &local_authority(&alice), &indexer, &transfer)
+            .expect("first apply");
+        apply_indexed_transaction(&mut wallet, &local_authority(&alice), &indexer, &transfer)
+            .expect("second apply");
+
+        assert_eq!(wallet.utxos.len(), 1);
+        assert_eq!(wallet.private_transactions().len(), 1);
+        assert_eq!(wallet.balances(true).expect("balances")[0].amount, 100);
+    }
+
+    #[test]
+    fn apply_indexed_transaction_refreshes_unknown_asset_registry() {
+        let full = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("full registry");
+        let sender = ShieldedKeypair::new().expect("sender");
+        let alice = ShieldedKeypair::new().expect("alice");
+        let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
+        let mut wallet = Wallet::new(
+            alice.shielded_address().expect("shielded address"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
+        let indexer = TrackingIndexer::new(MockIndexer {
+            transactions: Vec::new(),
+            matches: Vec::new(),
+            program_accounts: vec![spl_registry_account(SPL_MINT, SPL_ASSET_ID)],
+        });
+
+        let report =
+            apply_indexed_transaction(&mut wallet, &local_authority(&alice), &indexer, &transfer)
+                .expect("apply with registry refresh");
+
+        assert_eq!(indexer.tag_history_calls.get(), 0);
+        assert_eq!(indexer.program_account_calls.get(), 1);
+        assert_eq!(report.stored_utxos, 1);
+        assert!(report.unknown_asset_ids.is_empty());
+        let balances = wallet.balances(true).expect("balances");
+        assert_eq!(balances.len(), 1);
+        assert_eq!(balances[0].mint, SPL_MINT);
+        assert_eq!(balances[0].amount, 100);
+    }
+
+    #[tokio::test]
+    async fn apply_indexed_transaction_async_recipient_receipt() {
+        let assets = AssetRegistry::default();
+        let sender = ShieldedKeypair::new().expect("sender");
+        let alice = ShieldedKeypair::new().expect("alice");
+        let transfer = confidential_transfer_tx(&sender, &alice, SOL_MINT, 55, 3, &assets);
+        let mut wallet = Wallet::new(alice.shielded_address().expect("shielded address"), assets)
+            .expect("wallet");
+
+        apply_indexed_transaction_async(
+            &mut wallet,
+            &local_authority(&alice),
+            &MockIndexer::default(),
+            &transfer,
+        )
+        .await
+        .expect("async apply");
+
+        assert_eq!(wallet.utxos.len(), 1);
+        assert_eq!(wallet.utxos[0].utxo.amount, 55);
+    }
+
+    #[test]
+    fn apply_indexed_transaction_enables_immediate_next_spend() {
+        let assets = AssetRegistry::default();
+        let alice = ShieldedKeypair::new().expect("alice");
+        let bob = ShieldedKeypair::new().expect("bob");
+        let funding = confidential_transfer_tx(&bob, &alice, SOL_MINT, 100, 1, &assets);
+        let mut alice_wallet = Wallet::new(
+            alice.shielded_address().expect("shielded address"),
+            assets.clone(),
+        )
+        .expect("wallet");
+        apply_indexed_transaction(
+            &mut alice_wallet,
+            &local_authority(&alice),
+            &MockIndexer::default(),
+            &funding,
+        )
+        .expect("apply funding");
+
+        let spend = SppProofInputUtxo::new(
+            alice_wallet
+                .utxos
+                .iter()
+                .find(|u| !u.spent)
+                .expect("unspent")
+                .utxo
+                .clone(),
+            &alice,
+        );
+        let next = confidential_send(&alice, vec![spend], &bob, SOL_MINT, 25, &assets);
+        assert!(
+            next.external_data.outputs.len() >= 2,
+            "send must produce recipient + change outputs"
+        );
     }
 }

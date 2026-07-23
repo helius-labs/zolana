@@ -21,6 +21,7 @@ use solana_transaction::Transaction as SolanaTransaction;
 
 use crate::{
     error::ClientError,
+    profile::{profile_log, profile_try},
     rpc::{AsyncRpc, Rpc},
     user_registry::{try_resolve_registered_address, try_resolve_registered_address_async},
     wallet_authority::{ApprovalRequest, SyncWalletAuthority, WalletAuthority},
@@ -158,15 +159,33 @@ pub async fn create_transfer<R: AsyncRpc>(
 pub fn create_transfer_sync<R: Rpc>(
     request: TransferParams<'_, R>,
 ) -> Result<CreatedTransfer, ClientError> {
-    let recipient = try_resolve_registered_address(request.rpc, request.recipient)?;
-    create_transfer_with_recipient(request, recipient)
+    let total_started = std::time::Instant::now();
+    let recipient = profile_try("create_transfer/resolve_registered_address", || {
+        try_resolve_registered_address(request.rpc, request.recipient)
+    })?;
+    let created = create_transfer_with_recipient(request, recipient)?;
+    profile_log(
+        "create_transfer_sync",
+        total_started.elapsed().as_millis(),
+        &[(
+            "recipient",
+            if matches!(created.recipient, TransferRecipient::Registered(_)) {
+                "registered"
+            } else {
+                "public_withdrawal"
+            },
+        )],
+    );
+    Ok(created)
 }
 
 fn create_transfer_with_recipient<R>(
     request: TransferParams<'_, R>,
     recipient: Option<ResolvedAddress>,
 ) -> Result<CreatedTransfer, ClientError> {
-    let tree = resolve_spend_tree(request.wallet, request.asset)?;
+    let tree = profile_try("create_transfer/resolve_spend_tree", || {
+        resolve_spend_tree(request.wallet, request.asset)
+    })?;
     let Some(recipient) = recipient else {
         let withdrawal = create_withdrawal(WithdrawalParams {
             wallet: request.wallet,
@@ -183,7 +202,9 @@ fn create_transfer_with_recipient<R>(
             },
         });
     };
-    let inputs = select_inputs(request.wallet, tree, request.asset, request.amount)?;
+    let inputs = profile_try("create_transfer/select_inputs", || {
+        select_inputs(request.wallet, tree, request.asset, request.amount)
+    })?;
     Ok(CreatedTransfer {
         transaction: UnsignedPrivateTransaction {
             payer: request.payer,
@@ -351,7 +372,9 @@ pub fn sign_shielded_transaction_sync<A: SyncWalletAuthority + ?Sized>(
     wallet: &Wallet,
     authority: &A,
 ) -> Result<SignedPrivateTransaction, ClientError> {
-    futures::executor::block_on(sign_shielded_transaction(transaction, wallet, authority))
+    profile_try("sign_shielded_transaction", || {
+        futures::executor::block_on(sign_shielded_transaction(transaction, wallet, authority))
+    })
 }
 
 async fn sign_prepared<A: WalletAuthority + ?Sized>(
