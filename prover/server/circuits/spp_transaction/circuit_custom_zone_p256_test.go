@@ -9,28 +9,68 @@ import (
 	"zolana/prover/prover-test/spp/spptest"
 
 	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/backend"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 )
 
-func TestZoneCircuitAcceptsDataHashOnOutput(t *testing.T) {
+func MustNewCustomZoneP256Circuit(shape Shape) *CustomZoneP256Circuit {
+	circuit, err := NewCustomZoneP256Circuit(shape)
+	if err != nil {
+		panic(err)
+	}
+	return circuit
+}
+
+func TestCustomZoneP256CompilesForSupportedShapes(t *testing.T) {
+	for _, shape := range protocol.SupportedShapes {
+		shape := shape
+		t.Run(shape.String(), func(t *testing.T) {
+			circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+			if _, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300)); err != nil {
+				t.Fatalf("compile SPP circuit %s: %v", shape, err)
+			}
+		})
+	}
+}
+
+func TestCustomZoneP256ProvesForSupportedShapes(t *testing.T) {
+	for _, shape := range protocol.SupportedShapes {
+		shape := shape
+		t.Run(shape.String(), func(t *testing.T) {
+			assert := test.NewAssert(t)
+			circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+			assignment := buildCircuitAssignment(t, shape)
+
+			assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+			assert.ProverSucceeded(
+				circuit,
+				asCustomZoneP256(assignment),
+				test.WithBackends(backend.GROTH16),
+				test.WithCurves(ecc.BN254),
+				test.NoSerializationChecks(),
+			)
+		})
+	}
+}
+
+func TestCustomZoneP256AcceptsDataHashOnOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
-	refreshZonePublicInputHash(t, assignment)
+	refreshCustomZonePublicInputHash(t, assignment)
 
-	circuit, err := NewCustomZoneP256Circuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone circuit: %v", err)
-	}
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A data-carrying output must be owned by a signer (an input owner); data on
 // an output owned by anyone else must not solve.
-func TestZoneCircuitRejectsDataHashOnUnsignedOwnerOutput(t *testing.T) {
+func TestCustomZoneP256RejectsDataHashOnUnsignedOwnerOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
@@ -38,32 +78,26 @@ func TestZoneCircuitRejectsDataHashOnUnsignedOwnerOutput(t *testing.T) {
 	outputs[0].DataHash = spptest.Fe(0x99)
 	outputs[0].Owner = testOwnerHashForNullifierSecret(spptest.Fe(123))
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
-	refreshZonePublicInputHash(t, assignment)
+	refreshCustomZonePublicInputHash(t, assignment)
 
-	circuit, err := NewCustomZoneP256Circuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone circuit: %v", err)
-	}
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestZoneCircuitRejectsZoneDataHashWithoutZoneProgramID(t *testing.T) {
+func TestCustomZoneP256RejectsZoneDataHashWithoutZoneProgramID(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].ZoneDataHash = spptest.Fe(0x99)
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
-	refreshZonePublicInputHash(t, assignment)
+	refreshCustomZonePublicInputHash(t, assignment)
 
-	circuit, err := NewCustomZoneP256Circuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone circuit: %v", err)
-	}
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestZoneCircuitBindsMatchingZoneProgramID(t *testing.T) {
+func TestCustomZoneP256BindsMatchingZoneProgramID(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	zoneProgramID := spptest.Fe(0x42)
@@ -77,16 +111,13 @@ func TestZoneCircuitBindsMatchingZoneProgramID(t *testing.T) {
 	}
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
 	assignment.ZoneProgramID = zoneProgramID
-	refreshZonePublicInputHash(t, assignment)
+	refreshCustomZonePublicInputHash(t, assignment)
 
-	circuit, err := NewCustomZoneP256Circuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone circuit: %v", err)
-	}
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestZoneCircuitRejectsMismatchedZoneProgramID(t *testing.T) {
+func TestCustomZoneP256RejectsMismatchedZoneProgramID(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	zoneProgramID := spptest.Fe(0x42)
@@ -102,15 +133,12 @@ func TestZoneCircuitRejectsMismatchedZoneProgramID(t *testing.T) {
 	outputs[0].ZoneProgramID = new(big.Int).Set(otherZone)
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
 	assignment.ZoneProgramID = zoneProgramID
-	refreshZonePublicInputHash(t, assignment)
+	refreshCustomZonePublicInputHash(t, assignment)
 
-	circuit, err := NewCustomZoneP256Circuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone circuit: %v", err)
-	}
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-func refreshZonePublicInputHash(t testing.TB, assignment *Circuit) {
+func refreshCustomZonePublicInputHash(t testing.TB, assignment *Circuit) {
 	refreshPublicInputHashVariant(t, assignment, false, false)
 }

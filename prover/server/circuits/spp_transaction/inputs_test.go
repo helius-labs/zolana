@@ -20,7 +20,7 @@ import (
 func TestCircuitRejectsBadStatePathElements(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].StatePathElements[0] = spptest.Fe(999)
 
@@ -30,7 +30,7 @@ func TestCircuitRejectsBadStatePathElements(t *testing.T) {
 func TestCircuitRejectsBadStatePathIndex(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].StatePathIndex = new(big.Int).Add(spptest.AsBigInt(assignment.Inputs[0].StatePathIndex), big.NewInt(1))
 
@@ -40,7 +40,7 @@ func TestCircuitRejectsBadStatePathIndex(t *testing.T) {
 func TestCircuitRejectsBadNullifierNonInclusionPath(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].NullifierLowPathElements[0] = spptest.Fe(999)
 
@@ -95,7 +95,7 @@ func reassignInputToFreshTrees(t testing.TB, assignment *Circuit, idx int) (stat
 func TestCircuitAcceptsInputsFromDifferentRoots(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	stateRoot, nullifierRoot := reassignInputToFreshTrees(t, assignment, 1)
 
@@ -115,7 +115,7 @@ func TestCircuitAcceptsInputsFromDifferentRoots(t *testing.T) {
 func TestCircuitRejectsInputClaimingWrongStateRoot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	reassignInputToFreshTrees(t, assignment, 1)
 	assignment.Inputs[1].UtxoTreeRoot = spptest.AsBigInt(assignment.Inputs[0].UtxoTreeRoot)
@@ -131,7 +131,7 @@ func TestCircuitRejectsInputClaimingWrongStateRoot(t *testing.T) {
 func TestCircuitRejectsInputClaimingWrongNullifierRoot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	reassignInputToFreshTrees(t, assignment, 1)
 	assignment.Inputs[1].NullifierTreeRoot = spptest.AsBigInt(assignment.Inputs[0].NullifierTreeRoot)
@@ -143,7 +143,7 @@ func TestCircuitRejectsInputClaimingWrongNullifierRoot(t *testing.T) {
 func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	asset := spptest.Fe(7)
 	input := sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100))
 	// A zone-owned input must be spent via zone_transact (zone PDA authorization),
@@ -168,7 +168,7 @@ func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
 func TestCircuitRejectsSolanaOwnerKeyMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].OwnerPkHash = spptest.Fe(12345)
 	refreshPublicInputHash(t, assignment)
@@ -176,43 +176,11 @@ func TestCircuitRejectsSolanaOwnerKeyMismatch(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-// The Solana-only circuit variant (no P256 gadget) proves a Solana-owned
-// transaction. P256MessageHash must be 0 on this rail (no signature).
-func TestSolanaCircuitSolvesSolanaInputs(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewSolanaCircuit(Shape(shape))
-	assignment := buildCircuitAssignment(t, shape)
-	assignment.P256MessageHashLow = spptest.Fe(0)
-	assignment.P256MessageHashHigh = spptest.Fe(0)
-	refreshPublicInputHash(t, assignment)
-
-	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
-}
-
-// Soundness guard: the Solana-only variant must reject a P256-owned input
-// (input_owner_pk_hashes[i] == 0 on a real slot), since it skips the
-// signature gadget. Otherwise a UTXO owned by OwnerHash(0, nullifier_pk)
-// could be spent with no signature.
-func TestSolanaCircuitRejectsP256Input(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewSolanaCircuit(Shape(shape))
-	assignment := buildCircuitAssignment(t, shape)
-	priv := spptest.FixedP256Key(t, 11)
-	rewriteSingleInputAsP256(t, assignment, priv, priv)
-	assignment.P256MessageHashLow = spptest.Fe(0)
-	assignment.P256MessageHashHigh = spptest.Fe(0)
-	refreshPublicInputHash(t, assignment)
-
-	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
-}
-
 // Spec UTXO Ownership: each input's input_owner_pk_hashes entry selects its own path
 func TestCircuitAcceptsMixedP256AndSolanaInputs(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteInputAsP256(t, assignment, 0, priv, priv)
@@ -225,7 +193,7 @@ func TestCircuitAcceptsMixedP256AndSolanaInputs(t *testing.T) {
 func TestCircuitAcceptsDistinctSolanaOwners(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	rewriteInputAsSolanaOwner(t, assignment, 1, 0x43, spptest.Fe(777))
 
@@ -238,7 +206,7 @@ func TestCircuitAcceptsDistinctSolanaOwners(t *testing.T) {
 func TestCircuitRejectsForeignSolanaOwnerEntry(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	rewriteInputAsSolanaOwner(t, assignment, 1, 0x43, spptest.Fe(777))
 	assignment.Inputs[1].OwnerPkHash = testSolanaPkField(t)
@@ -253,7 +221,7 @@ func TestCircuitRejectsForeignSolanaOwnerEntry(t *testing.T) {
 func TestCircuitRejectsP256OwnerWithNonZeroOwnerKey(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
@@ -329,7 +297,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 func TestDummyInputSlotSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(buildDummyInputShield(t, 125)), test.WithCurves(ecc.BN254))
 }
 
@@ -340,7 +308,7 @@ func TestDummyInputSlotSolves(t *testing.T) {
 func TestDummyInputRejectsMimickedPublicColumns(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(7)
 	assignment.Inputs[0].UtxoTreeRoot = spptest.Fe(8)
@@ -357,7 +325,7 @@ func TestDummyInputRejectsMimickedPublicColumns(t *testing.T) {
 func TestDummyInputRejectsNonZeroAmount(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Utxo.Amount = spptest.Fe(1)
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))

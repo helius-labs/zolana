@@ -13,30 +13,32 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
+func MustNewCustomZoneAuthorityCircuit(shape Shape) *CustomZoneAuthorityCircuit {
+	circuit, err := NewCustomZoneAuthorityCircuit(shape)
+	if err != nil {
+		panic(err)
+	}
+	return circuit
+}
+
 func zoneAuthorityZone() *big.Int { return spptest.Fe(0x5a) }
 
-func TestZoneAuthorityCircuitSolvesForSupportedShapes(t *testing.T) {
+func TestCustomZoneAuthoritySolvesForSupportedShapes(t *testing.T) {
 	for _, shape := range protocol.SupportedShapes {
 		shape := shape
 		t.Run(shape.String(), func(t *testing.T) {
 			assert := test.NewAssert(t)
-			circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
-			if err != nil {
-				t.Fatalf("new zone-authority circuit: %v", err)
-			}
+			circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
 			assignment := buildZoneAuthorityAssignment(t, shape)
 			assert.SolvingSucceeded(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
 		})
 	}
 }
 
-func TestZoneAuthorityCircuitProves(t *testing.T) {
+func TestCustomZoneAuthorityProves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
-	circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone-authority circuit: %v", err)
-	}
+	circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
 	assignment := buildZoneAuthorityAssignment(t, shape)
 	assert.ProverSucceeded(
 		circuit,
@@ -47,13 +49,10 @@ func TestZoneAuthorityCircuitProves(t *testing.T) {
 	)
 }
 
-func TestZoneAuthorityCircuitRejectsWrongNullifierSecret(t *testing.T) {
+func TestCustomZoneAuthorityRejectsWrongNullifierSecret(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone-authority circuit: %v", err)
-	}
+	circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
 	assignment := buildZoneAuthorityAssignment(t, shape)
 	assignment.Inputs[0].NullifierSecret = spptest.Fe(12345)
 	refreshZoneAuthorityPublicInputHash(t, assignment)
@@ -61,37 +60,28 @@ func TestZoneAuthorityCircuitRejectsWrongNullifierSecret(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestZoneAuthorityCircuitRejectsDefaultZoneInput(t *testing.T) {
+func TestCustomZoneAuthorityRejectsDefaultZoneInput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone-authority circuit: %v", err)
-	}
+	circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
 	assignment := buildZoneAuthorityAssignmentWithZone(t, shape, zoneAuthorityZone(), big.NewInt(0))
 
 	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestZoneAuthorityCircuitRejectsZeroZoneProgramID(t *testing.T) {
+func TestCustomZoneAuthorityRejectsZeroZoneProgramID(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone-authority circuit: %v", err)
-	}
+	circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
 	assignment := buildZoneAuthorityAssignmentWithZone(t, shape, big.NewInt(0), big.NewInt(0))
 
 	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestZoneAuthorityCircuitRejectsDefaultZoneOutput(t *testing.T) {
+func TestCustomZoneAuthorityRejectsDefaultZoneOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone-authority circuit: %v", err)
-	}
+	circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
 	zone := zoneAuthorityZone()
 	assignment := buildZoneAuthorityAssignmentZones(t, shape, zone, zone, big.NewInt(0))
 

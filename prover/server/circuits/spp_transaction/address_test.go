@@ -111,7 +111,7 @@ func buildZoneAddressAssignment(t testing.TB) (*Circuit, *big.Int, *big.Int) {
 func TestAddressSlotZoneSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment, _, _ := buildZoneAddressAssignment(t)
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
@@ -120,7 +120,7 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	solAsset := protocol.SolAsset()
-	circuit := MustNewSolanaConfidentialCircuit(Shape(shape))
+	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
 
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -146,7 +146,7 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 func TestAddressSlotRejectsWrongOwner(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment, _, _ := buildZoneAddressAssignment(t)
 
 	assignment.Inputs[0].Utxo.Owner = testSolanaPkFieldSeed(t, 0x77)
@@ -159,7 +159,7 @@ func TestAddressSlotRejectsWrongOwner(t *testing.T) {
 func TestAddressSlotRejectsWrongNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment, _, _ := buildZoneAddressAssignment(t)
 
 	assignment.Inputs[0].Nullifier = spptest.Fe(0xDEAD)
@@ -184,7 +184,7 @@ func TestAddressSlotRejectsUnpinnedField(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assert := test.NewAssert(t)
 			shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-			circuit := MustNewCircuit(Shape(shape))
+			circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 			assignment, _, _ := buildZoneAddressAssignment(t)
 
 			tc.set(&assignment.Inputs[0])
@@ -200,7 +200,7 @@ func TestAddressSlotRejectsDuplicate(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	solAsset := protocol.SolAsset()
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -226,7 +226,7 @@ func TestAddressSlotRejectsDuplicate(t *testing.T) {
 func TestPaddingDummyRejectsNonZeroOwner(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 
 	assignment.Inputs[0].Utxo.Owner = testSolanaPkFieldSeed(t, 0x33)

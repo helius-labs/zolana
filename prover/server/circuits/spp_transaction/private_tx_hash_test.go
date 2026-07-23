@@ -14,7 +14,7 @@ import (
 func TestCircuitRejectsExternalDataHashMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.ExternalDataHash = spptest.Fe(301)
 	refreshPublicInputHash(t, assignment)

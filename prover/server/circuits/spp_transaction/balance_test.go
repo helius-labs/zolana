@@ -17,7 +17,7 @@ import (
 func TestCircuitRejectsBalanceMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	asset := spptest.Fe(7)
 	inputs := []protocol.Utxo{
 		sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100)),
@@ -81,7 +81,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 
 	t.Run("deposit", func(t *testing.T) {
 		assert := test.NewAssert(t)
-		circuit := MustNewCircuit(Shape(shape))
+		circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 		assignment := buildCircuitAssignmentFromUtxos(
 			t,
 			shape,
@@ -97,7 +97,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 
 	t.Run("withdraw", func(t *testing.T) {
 		assert := test.NewAssert(t)
-		circuit := MustNewCircuit(Shape(shape))
+		circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 		assignment := buildCircuitAssignmentFromUtxos(
 			t,
 			shape,
@@ -115,7 +115,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 func TestCircuitAcceptsPublicSplDeposit(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	publicSplAssetPubkey := spptest.Fe(77)
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -133,7 +133,7 @@ func TestCircuitAcceptsPublicSplDeposit(t *testing.T) {
 func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	privateAsset := spptest.Fe(77)
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -151,7 +151,7 @@ func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
 func TestCircuitRejectsPublicSplMovementOnSolAsset(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	solAsset := protocol.SolAsset()
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -169,7 +169,7 @@ func TestCircuitRejectsPublicSplMovementOnSolAsset(t *testing.T) {
 func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	privateAsset := spptest.Fe(77)
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -189,7 +189,7 @@ func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 func TestCircuitConservesTwoDistinctAssets(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	a := spptest.Fe(77)
 	b := spptest.Fe(91)
 	assignment := buildCircuitAssignmentFromUtxos(
@@ -216,7 +216,7 @@ func TestCircuitConservesTwoDistinctAssets(t *testing.T) {
 func TestCircuitRejectsCrossAssetValueConversion(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	a := spptest.Fe(77)
 	b := spptest.Fe(91)
 	assignment := buildCircuitAssignmentFromUtxos(
@@ -242,7 +242,7 @@ func TestCircuitRejectsCrossAssetValueConversion(t *testing.T) {
 func TestCircuitConservesPublicSplAlongsidePrivateAsset(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	publicAsset := spptest.Fe(77)
 	privateAsset := spptest.Fe(91)
 	assignment := buildCircuitAssignmentFromUtxos(
@@ -267,7 +267,7 @@ func TestCircuitConservesPublicSplAlongsidePrivateAsset(t *testing.T) {
 func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	asset := spptest.Fe(77)
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -290,7 +290,7 @@ func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
 func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	solAsset := protocol.SolAsset()
 	splAsset := spptest.Fe(77)
 
@@ -321,7 +321,7 @@ func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 func TestCircuitRejectsNonZeroPublicSplAssetWithoutAmount(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	asset := spptest.Fe(7)
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,

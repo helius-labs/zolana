@@ -18,7 +18,7 @@ import (
 func TestCircuitAcceptsP256Owner(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
@@ -29,7 +29,7 @@ func TestCircuitAcceptsP256Owner(t *testing.T) {
 func TestCircuitRejectsBadP256Signature(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	wrongSigner := spptest.FixedP256Key(t, 12)
@@ -41,7 +41,7 @@ func TestCircuitRejectsBadP256Signature(t *testing.T) {
 func TestCircuitRejectsBadP256MessageHash(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
@@ -54,7 +54,7 @@ func TestCircuitRejectsBadP256MessageHash(t *testing.T) {
 func TestCircuitRejectsP256PubkeyOwnerMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	ownerPriv := spptest.FixedP256Key(t, 11)
 	signingPriv := spptest.FixedP256Key(t, 12)

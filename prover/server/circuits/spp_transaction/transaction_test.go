@@ -12,61 +12,20 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 
-	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/backend"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/std/math/emulated"
-	"github.com/consensys/gnark/test"
 )
 
-func TestCircuitCompilesForSupportedShapes(t *testing.T) {
-	for _, shape := range protocol.SupportedShapes {
-		shape := shape
-		t.Run(shape.String(), func(t *testing.T) {
-			circuit := MustNewCircuit(Shape(shape))
-			if _, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300)); err != nil {
-				t.Fatalf("compile SPP circuit %s: %v", shape, err)
-			}
-		})
+func TestShapeValidate(t *testing.T) {
+	if err := (Shape{NInputs: 0, NOutputs: 1}).Validate(); err == nil {
+		t.Fatal("expected error for zero inputs")
 	}
-}
-
-func TestCircuitProvesForSupportedShapes(t *testing.T) {
-	for _, shape := range protocol.SupportedShapes {
-		shape := shape
-		t.Run(shape.String(), func(t *testing.T) {
-			assert := test.NewAssert(t)
-			circuit := MustNewCircuit(Shape(shape))
-			assignment := buildCircuitAssignment(t, shape)
-
-			assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
-			assert.ProverSucceeded(
-				circuit,
-				asCustomZoneP256(assignment),
-				test.WithBackends(backend.GROTH16),
-				test.WithCurves(ecc.BN254),
-				test.NoSerializationChecks(),
-			)
-		})
+	if err := (Shape{NInputs: 1, NOutputs: 0}).Validate(); err == nil {
+		t.Fatal("expected error for zero outputs")
 	}
-}
-
-func MustNewCircuit(shape Shape) *CustomZoneP256Circuit {
-	circuit, err := NewCustomZoneP256Circuit(shape)
-	if err != nil {
-		panic(err)
+	if err := (Shape{NInputs: 1, NOutputs: 1}).Validate(); err != nil {
+		t.Fatalf("valid shape rejected: %v", err)
 	}
-	return circuit
-}
-
-// MustNewSolanaCircuit builds the Solana-only circuit and panics on error.
-func MustNewSolanaCircuit(shape Shape) *CustomZoneEddsaOnlyCircuit {
-	circuit, err := NewCustomZoneEddsaOnlyCircuit(shape)
-	if err != nil {
-		panic(err)
-	}
-	return circuit
 }
 
 func asCustomZoneP256(a *Circuit) frontend.Circuit { return &CustomZoneP256Circuit{Circuit: *a} }
