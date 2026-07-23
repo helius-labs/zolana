@@ -1,0 +1,58 @@
+{
+  "name": "@zolana/wallet",
+  "version": "0.1.0",
+  "description": "Zolana wallet authorities, actions, registration, and synchronization.",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./authority": {
+      "types": "./dist/authority/index.d.ts",
+      "browser": "./dist/authority/index.js",
+      "import": "./dist/authority/index.js",
+      "default": "./dist/authority/index.js"
+    },
+    "./registry": {
+      "types": "./dist/registry/index.d.ts",
+      "browser": "./dist/registry/index.js",
+      "import": "./dist/registry/index.js",
+      "default": "./dist/registry/index.js"
+    },
+    "./actions": {
+      "types": "./dist/actions/index.d.ts",
+      "browser": "./dist/actions/index.js",
+      "import": "./dist/actions/index.js",
+      "default": "./dist/actions/index.js"
+    },
+    "./sync": {
+      "types": "./dist/sync/index.d.ts",
+      "browser": "./dist/sync/index.js",
+      "import": "./dist/sync/index.js",
+      "default": "./dist/sync/index.js"
+    }
+  },
+  "dependencies": {
+    "@zolana/client": "0.1.0",
+    "@zolana/interface": "0.1.0",
+    "@zolana/keypair": "0.1.0",
+    "@zolana/transaction": "0.1.0"
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs wallet",
+    "typecheck": "node ../config/typecheck.mjs wallet",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:browser": "node ../config/browser-check.mjs",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}

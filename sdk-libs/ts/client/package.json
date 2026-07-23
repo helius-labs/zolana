@@ -1,0 +1,41 @@
+{
+  "name": "@zolana/client",
+  "version": "0.1.0",
+  "description": "Zolana RPC, indexer, prover, transaction assembly, and confirmation.",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./prover": {
+      "types": "./dist/prover/index.d.ts",
+      "browser": "./dist/prover/index.js",
+      "import": "./dist/prover/index.js",
+      "default": "./dist/prover/index.js"
+    }
+  },
+  "dependencies": {
+    "@zolana/api": "0.1.0",
+    "@zolana/indexer-api": "0.1.0",
+    "@zolana/interface": "0.1.0",
+    "@zolana/keypair": "0.1.0",
+    "@zolana/transaction": "0.1.0"
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs client",
+    "typecheck": "node ../config/typecheck.mjs client",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:browser": "node ../config/browser-check.mjs",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}

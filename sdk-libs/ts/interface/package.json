@@ -1,0 +1,46 @@
+{
+  "name": "@zolana/interface",
+  "version": "0.1.0",
+  "description": "Canonical Zolana program types, codecs, addresses, and instructions.",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./pda": {
+      "types": "./dist/pda/index.d.ts",
+      "browser": "./dist/pda/index.js",
+      "import": "./dist/pda/index.js",
+      "default": "./dist/pda/index.js"
+    },
+    "./codecs": {
+      "types": "./dist/codecs/index.d.ts",
+      "browser": "./dist/codecs/index.js",
+      "import": "./dist/codecs/index.js",
+      "default": "./dist/codecs/index.js"
+    },
+    "./instructions": {
+      "types": "./dist/instructions/index.d.ts",
+      "browser": "./dist/instructions/index.js",
+      "import": "./dist/instructions/index.js",
+      "default": "./dist/instructions/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs interface",
+    "typecheck": "node ../config/typecheck.mjs interface",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:browser": "node ../config/browser-check.mjs",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}

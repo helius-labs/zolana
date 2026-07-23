@@ -1,0 +1,31 @@
+{
+  "name": "@zolana/smart-account-client",
+  "version": "0.1.0",
+  "description": "Browser-safe Zolana smart-account instruction builders.",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@zolana/interface": "0.1.0"
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs smart-account-client",
+    "typecheck": "node ../config/typecheck.mjs smart-account-client",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:browser": "node ../config/browser-check.mjs",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}

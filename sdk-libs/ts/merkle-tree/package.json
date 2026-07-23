@@ -1,0 +1,31 @@
+{
+  "name": "@zolana/merkle-tree",
+  "version": "0.1.0",
+  "description": "Deterministic Zolana Merkle and indexed Merkle trees.",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@zolana/interface": "0.1.0"
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs merkle-tree",
+    "typecheck": "node ../config/typecheck.mjs merkle-tree",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:browser": "node ../config/browser-check.mjs",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}

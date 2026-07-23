@@ -1,0 +1,48 @@
+{
+  "name": "@zolana/test-kit",
+  "version": "0.1.0",
+  "description": "Private Node-only test support for Zolana packages.",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.js",
+      "default": "./dist/node/index.js"
+    },
+    "./fixtures": {
+      "types": "./dist/fixtures/index.d.ts",
+      "import": "./dist/fixtures/index.js",
+      "default": "./dist/fixtures/index.js"
+    }
+  },
+  "dependencies": {
+    "@zolana/api": "0.1.0",
+    "@zolana/client": "0.1.0",
+    "@zolana/indexer-api": "0.1.0",
+    "@zolana/interface": "0.1.0",
+    "@zolana/keypair": "0.1.0",
+    "@zolana/merkle-tree": "0.1.0",
+    "@zolana/smart-account-client": "0.1.0",
+    "@zolana/transaction": "0.1.0",
+    "@zolana/wallet": "0.1.0"
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs test-kit",
+    "typecheck": "node ../config/typecheck.mjs test-kit",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}

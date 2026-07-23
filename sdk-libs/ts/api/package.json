@@ -1,0 +1,32 @@
+{
+  "name": "@zolana/api",
+  "version": "0.1.0",
+  "description": "Browser-safe transport for the Zolana indexer API.",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@zolana/indexer-api": "0.1.0",
+    "@zolana/interface": "0.1.0"
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs api",
+    "typecheck": "node ../config/typecheck.mjs api",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:browser": "node ../config/browser-check.mjs",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}

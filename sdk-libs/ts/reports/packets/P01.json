@@ -1,0 +1,154 @@
+{
+  "apiDiff": {
+    "added": [],
+    "changed": [],
+    "removed": []
+  },
+  "qualityPass": {
+    "commentCorrections": [],
+    "edits": [
+      "centralized each package's exact entry points, browser status, and internal dependency allowlist",
+      "reject extra export paths, export conditions, legacy entry fields, dependency drift, and missing package artifacts",
+      "typecheck packed declarations in a fresh ESM consumer and reject tarball build metadata",
+      "invoke the installed TypeScript compiler directly instead of allowing npx resolution",
+      "align Node declarations with the minimum supported Node 20 runtime",
+      "remove unused composite build configuration and keep build metadata out of package tarballs"
+    ],
+    "cargoXtaskBlocker": {
+      "command": "rustup run 1.97.0 cargo xtask ts-fixtures --check",
+      "exitStatus": "101",
+      "reason": "Cargo reports no such command because .cargo/config.toml defines no xtask alias; the existing xtask binary also has no ts-fixtures dispatch arm.",
+      "futureOwner": "P14",
+      "paths": [".cargo/config.toml", "xtask/src/main.rs"],
+      "scope": "P14 must first receive explicit ownership of the Cargo alias and shared xtask dispatch paths; neither path is P01-owned."
+    }
+  },
+  "commands": [
+    {
+      "command": "npm ci",
+      "exitStatus": "0",
+      "responsibility": "clean deterministic workspace install"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "responsibility": "build, typecheck, lint, format, unit, inventory, export, dependency, and API scaffold checks"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "responsibility": "nine production tarballs installed, declaration-checked, and imported in fresh Node 20, Node 22, and browser-bundle consumers"
+    },
+    {
+      "command": "npm run test:browser",
+      "exitStatus": "0",
+      "responsibility": "all production roots and subpaths bundled for browsers and scanned for forbidden imports and globals"
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "0",
+      "responsibility": "canonical P00 generator verified 12 fixtures and 182 inventory rows"
+    },
+    {
+      "command": "npm run test:inventory",
+      "exitStatus": "0",
+      "responsibility": "root P00 inventory validation"
+    },
+    {
+      "command": "npm run build --workspaces --if-present",
+      "exitStatus": "0",
+      "responsibility": "all ten package build configurations"
+    },
+    {
+      "command": "npm run typecheck --workspaces --if-present",
+      "exitStatus": "0",
+      "responsibility": "all ten strict package TypeScript configurations"
+    },
+    {
+      "command": "npm run test:unit --workspaces --if-present",
+      "exitStatus": "0",
+      "responsibility": "all ten package test configurations"
+    },
+    {
+      "command": "cargo xtask ts-fixtures --check",
+      "exitStatus": "blocked",
+      "responsibility": "the repository has no cargo-xtask dispatcher; npm run fixtures:check invokes the P00-owned binary without modifying P00 code"
+    },
+    {
+      "command": "git diff --check",
+      "exitStatus": "0",
+      "responsibility": "whitespace validation"
+    },
+    {
+      "command": "git diff --exit-code 07b5000e -- planning docs program-libs programs program-tests sdk-libs/ts/fixtures sdk-libs/ts/reports/inventory.json sdk-libs/ts/reports/packets/P00.json xtask",
+      "exitStatus": "0",
+      "responsibility": "planning, P00 artifacts, and Rust production or test code remain unchanged"
+    }
+  ],
+  "dependencies": {
+    "@eslint/js": "^10.0.1",
+    "@microsoft/api-extractor": "^7.58.12",
+    "@types/node": "^20.19.43",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.7.0",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.65.0",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  },
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "inventoryRows": [
+    "sdk-libs/client/Cargo.toml",
+    "sdk-libs/indexer-api/Cargo.toml",
+    "sdk-libs/keypair/Cargo.toml",
+    "sdk-libs/merkle-tree/Cargo.toml",
+    "sdk-libs/program-test/Cargo.toml",
+    "sdk-libs/smart-account-client/Cargo.toml",
+    "sdk-libs/transaction/Cargo.toml",
+    "sdk-libs/wallet/Cargo.toml",
+    "sdk-libs/zolana-api/Cargo.toml"
+  ],
+  "ownedChangedPaths": [
+    "eslint.config.js",
+    "package-lock.json",
+    "package.json",
+    "prettier.config.js",
+    "sdk-libs/ts/.gitignore",
+    "sdk-libs/ts/api/package.json",
+    "sdk-libs/ts/api/tsconfig.json",
+    "sdk-libs/ts/client/package.json",
+    "sdk-libs/ts/client/tsconfig.json",
+    "sdk-libs/ts/config/browser-check.mjs",
+    "sdk-libs/ts/config/build.mjs",
+    "sdk-libs/ts/config/inventory-check.mjs",
+    "sdk-libs/ts/config/pack-check.mjs",
+    "sdk-libs/ts/config/packages.mjs",
+    "sdk-libs/ts/config/tsconfig.base.json",
+    "sdk-libs/ts/config/typecheck.mjs",
+    "sdk-libs/ts/config/vitest.package.config.js",
+    "sdk-libs/ts/config/workspace-check.mjs",
+    "sdk-libs/ts/indexer-api/package.json",
+    "sdk-libs/ts/indexer-api/tsconfig.json",
+    "sdk-libs/ts/interface/package.json",
+    "sdk-libs/ts/interface/tsconfig.json",
+    "sdk-libs/ts/keypair/package.json",
+    "sdk-libs/ts/keypair/tsconfig.json",
+    "sdk-libs/ts/merkle-tree/package.json",
+    "sdk-libs/ts/merkle-tree/tsconfig.json",
+    "sdk-libs/ts/reports/packets/P01.json",
+    "sdk-libs/ts/smart-account-client/package.json",
+    "sdk-libs/ts/smart-account-client/tsconfig.json",
+    "sdk-libs/ts/test-kit/package.json",
+    "sdk-libs/ts/test-kit/tsconfig.json",
+    "sdk-libs/ts/transaction/package.json",
+    "sdk-libs/ts/transaction/tsconfig.json",
+    "sdk-libs/ts/wallet/package.json",
+    "sdk-libs/ts/wallet/tsconfig.json",
+    "tsconfig.json",
+    "vitest.config.js"
+  ],
+  "packet": "P01",
+  "schema": "zolana-ts-packet-evidence-v1"
+}

@@ -1,0 +1,59 @@
+{
+  "name": "zolana-typescript-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@10.9.8",
+  "engines": {
+    "node": ">=20 <23",
+    "npm": ">=10 <11"
+  },
+  "workspaces": [
+    "sdk-libs/ts/interface",
+    "sdk-libs/ts/keypair",
+    "sdk-libs/ts/transaction",
+    "sdk-libs/ts/indexer-api",
+    "sdk-libs/ts/api",
+    "sdk-libs/ts/client",
+    "sdk-libs/ts/wallet",
+    "sdk-libs/ts/merkle-tree",
+    "sdk-libs/ts/smart-account-client",
+    "sdk-libs/ts/test-kit"
+  ],
+  "scripts": {
+    "build": "node sdk-libs/ts/config/build.mjs",
+    "typecheck": "node sdk-libs/ts/config/typecheck.mjs",
+    "lint": "eslint eslint.config.js prettier.config.js vitest.config.js sdk-libs/ts/config",
+    "format": "prettier --write package.json package-lock.json eslint.config.js prettier.config.js tsconfig.json vitest.config.js sdk-libs/ts/config sdk-libs/ts/{interface,keypair,transaction,indexer-api,api,client,wallet,merkle-tree,smart-account-client,test-kit}/{package.json,tsconfig.json} sdk-libs/ts/reports/packets/P01.json",
+    "format:check": "prettier --check package.json package-lock.json eslint.config.js prettier.config.js tsconfig.json vitest.config.js sdk-libs/ts/config sdk-libs/ts/{interface,keypair,transaction,indexer-api,api,client,wallet,merkle-tree,smart-account-client,test-kit}/{package.json,tsconfig.json} sdk-libs/ts/reports/packets/P01.json",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run --passWithNoTests",
+    "test:vectors": "npm run test:vectors --workspaces --if-present",
+    "test:property": "npm run test:property --workspaces --if-present",
+    "test:cross": "npm run test:cross --workspaces --if-present",
+    "test:prover": "npm run test:prover --workspaces --if-present",
+    "test:e2e:actions": "npm run test:e2e:actions --workspaces --if-present",
+    "test:e2e:instructions": "npm run test:e2e:instructions --workspaces --if-present",
+    "test:inventory": "node sdk-libs/ts/config/inventory-check.mjs",
+    "test:exports": "node sdk-libs/ts/config/workspace-check.mjs exports",
+    "test:dependencies": "node sdk-libs/ts/config/workspace-check.mjs dependencies",
+    "test:browser": "npm run build && node sdk-libs/ts/config/browser-check.mjs",
+    "api:check": "node sdk-libs/ts/config/workspace-check.mjs api",
+    "pack:check": "npm run build && node sdk-libs/ts/config/pack-check.mjs",
+    "fixtures:check": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check",
+    "check": "npm run build && npm run typecheck && npm run lint && npm run format:check && npm run test:unit && npm run test:inventory && npm run test:exports && npm run test:dependencies && npm run api:check"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@microsoft/api-extractor": "^7.58.12",
+    "@types/node": "^20.19.43",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.7.0",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.65.0",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  }
+}

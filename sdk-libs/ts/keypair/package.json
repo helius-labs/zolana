@@ -1,0 +1,34 @@
+{
+  "name": "@zolana/keypair",
+  "version": "0.1.0",
+  "description": "Zolana private key material, signatures, viewing, and encryption.",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./merge": {
+      "types": "./dist/merge/index.d.ts",
+      "browser": "./dist/merge/index.js",
+      "import": "./dist/merge/index.js",
+      "default": "./dist/merge/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs keypair",
+    "typecheck": "node ../config/typecheck.mjs keypair",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:browser": "node ../config/browser-check.mjs",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}
