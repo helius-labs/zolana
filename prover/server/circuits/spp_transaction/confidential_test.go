@@ -15,16 +15,16 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-func MustNewSolanaConfidentialCircuit(shape Shape) *Circuit {
-	circuit, err := NewTransferConfidentialCircuit(shape)
+func MustNewSolanaConfidentialCircuit(shape Shape) *DefaultZoneEddsaOnlyCircuit {
+	circuit, err := NewDefaultZoneEddsaOnlyCircuit(shape)
 	if err != nil {
 		panic(err)
 	}
 	return circuit
 }
 
-func MustNewP256ConfidentialCircuit(shape Shape) *Circuit {
-	circuit, err := NewTransferP256ConfidentialCircuit(shape)
+func MustNewP256ConfidentialCircuit(shape Shape) *DefaultZoneP256Circuit {
+	circuit, err := NewDefaultZoneP256Circuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -56,7 +56,6 @@ func mustP256PkField(t testing.TB, priv *ecdsa.PrivateKey) *big.Int {
 // P256 signing field, and refresh the confidential public-input hash.
 func makeConfidential(t testing.TB, assignment *Circuit, p256SigningPkField *big.Int) {
 	t.Helper()
-	assignment.Confidential = true
 	if p256SigningPkField == nil {
 		p256SigningPkField = spptest.Fe(0)
 	}
@@ -105,10 +104,10 @@ func TestConfidentialSolanaSolves(t *testing.T) {
 	circuit := MustNewSolanaConfidentialCircuit(Shape(shape))
 	assignment := buildSolanaConfidentialAssignment(t, shape)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 	assert.ProverSucceeded(
 		circuit,
-		assignment,
+		asDefaultZoneEddsaOnly(assignment),
 		test.WithBackends(backend.GROTH16),
 		test.WithCurves(ecc.BN254),
 		test.NoSerializationChecks(),
@@ -125,7 +124,7 @@ func TestConfidentialRejectsMistaggedOutput(t *testing.T) {
 	assignment.Outputs[0].OwnerPkHash = spptest.Fe(424242)
 	refreshConfidentialPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A dummy output skips the owner binding, so an arbitrary tag still solves once
@@ -149,7 +148,6 @@ func TestConfidentialDummyOutputUnconstrained(t *testing.T) {
 		spptest.Fe(0),
 	)
 
-	assignment.Confidential = true
 	assignment.P256SigningPkField = spptest.Fe(0)
 	assignment.P256MessageHashLow = spptest.Fe(0)
 	assignment.P256MessageHashHigh = spptest.Fe(0)
@@ -172,7 +170,7 @@ func TestConfidentialDummyOutputUnconstrained(t *testing.T) {
 	assignment.PrivateTxHash = privateTxHash
 	refreshConfidentialPublicInputHash(t, assignment)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The P256 confidential rail exposes the P256 input owner: input_owner_pk_hashes
@@ -189,7 +187,7 @@ func TestConfidentialP256ExposesInputOwner(t *testing.T) {
 	assignment.Inputs[0].OwnerPkHash = pkField
 	makeConfidential(t, assignment, pkField)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asDefaultZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The P256 confidential rail proves end to end (groth16), matching the Solana
@@ -205,10 +203,10 @@ func TestConfidentialP256Solves(t *testing.T) {
 	assignment.Inputs[0].OwnerPkHash = pkField
 	makeConfidential(t, assignment, pkField)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asDefaultZoneP256(assignment), test.WithCurves(ecc.BN254))
 	assert.ProverSucceeded(
 		circuit,
-		assignment,
+		asDefaultZoneP256(assignment),
 		test.WithBackends(backend.GROTH16),
 		test.WithCurves(ecc.BN254),
 		test.NoSerializationChecks(),
@@ -228,5 +226,5 @@ func TestConfidentialP256RejectsWrongSigningPkField(t *testing.T) {
 	assignment.Inputs[0].OwnerPkHash = pkField
 	makeConfidential(t, assignment, spptest.Fe(424242))
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asDefaultZoneP256(assignment), test.WithCurves(ecc.BN254))
 }

@@ -20,12 +20,12 @@ func TestZoneAuthorityCircuitSolvesForSupportedShapes(t *testing.T) {
 		shape := shape
 		t.Run(shape.String(), func(t *testing.T) {
 			assert := test.NewAssert(t)
-			circuit, err := NewTransferZoneAuthorityCircuit(Shape(shape))
+			circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
 			if err != nil {
 				t.Fatalf("new zone-authority circuit: %v", err)
 			}
 			assignment := buildZoneAuthorityAssignment(t, shape)
-			assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+			assert.SolvingSucceeded(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
 		})
 	}
 }
@@ -33,14 +33,14 @@ func TestZoneAuthorityCircuitSolvesForSupportedShapes(t *testing.T) {
 func TestZoneAuthorityCircuitProves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
-	circuit, err := NewTransferZoneAuthorityCircuit(Shape(shape))
+	circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone-authority circuit: %v", err)
 	}
 	assignment := buildZoneAuthorityAssignment(t, shape)
 	assert.ProverSucceeded(
 		circuit,
-		assignment,
+		asCustomZoneAuthority(assignment),
 		test.WithBackends(backend.GROTH16),
 		test.WithCurves(ecc.BN254),
 		test.NoSerializationChecks(),
@@ -50,7 +50,7 @@ func TestZoneAuthorityCircuitProves(t *testing.T) {
 func TestZoneAuthorityCircuitRejectsWrongNullifierSecret(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit, err := NewTransferZoneAuthorityCircuit(Shape(shape))
+	circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone-authority circuit: %v", err)
 	}
@@ -58,44 +58,44 @@ func TestZoneAuthorityCircuitRejectsWrongNullifierSecret(t *testing.T) {
 	assignment.Inputs[0].NullifierSecret = spptest.Fe(12345)
 	refreshZoneAuthorityPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestZoneAuthorityCircuitRejectsDefaultZoneInput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit, err := NewTransferZoneAuthorityCircuit(Shape(shape))
+	circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone-authority circuit: %v", err)
 	}
 	assignment := buildZoneAuthorityAssignmentWithZone(t, shape, zoneAuthorityZone(), big.NewInt(0))
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestZoneAuthorityCircuitRejectsZeroZoneProgramID(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit, err := NewTransferZoneAuthorityCircuit(Shape(shape))
+	circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone-authority circuit: %v", err)
 	}
 	assignment := buildZoneAuthorityAssignmentWithZone(t, shape, big.NewInt(0), big.NewInt(0))
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestZoneAuthorityCircuitRejectsDefaultZoneOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit, err := NewTransferZoneAuthorityCircuit(Shape(shape))
+	circuit, err := NewCustomZoneAuthorityCircuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone-authority circuit: %v", err)
 	}
 	zone := zoneAuthorityZone()
 	assignment := buildZoneAuthorityAssignmentZones(t, shape, zone, zone, big.NewInt(0))
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
 func buildZoneAuthorityAssignment(t testing.TB, shape protocol.Shape) *Circuit {

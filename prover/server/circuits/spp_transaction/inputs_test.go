@@ -24,7 +24,7 @@ func TestCircuitRejectsBadStatePathElements(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].StatePathElements[0] = spptest.Fe(999)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsBadStatePathIndex(t *testing.T) {
@@ -34,7 +34,7 @@ func TestCircuitRejectsBadStatePathIndex(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].StatePathIndex = new(big.Int).Add(spptest.AsBigInt(assignment.Inputs[0].StatePathIndex), big.NewInt(1))
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsBadNullifierNonInclusionPath(t *testing.T) {
@@ -44,7 +44,7 @@ func TestCircuitRejectsBadNullifierNonInclusionPath(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].NullifierLowPathElements[0] = spptest.Fe(999)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // reassignInputToFreshTrees moves input idx onto an independent state tree and an
@@ -106,7 +106,7 @@ func TestCircuitAcceptsInputsFromDifferentRoots(t *testing.T) {
 		t.Fatal("expected distinct nullifier roots across inputs")
 	}
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // An input proving inclusion in one state root cannot claim a different root:
@@ -121,7 +121,7 @@ func TestCircuitRejectsInputClaimingWrongStateRoot(t *testing.T) {
 	assignment.Inputs[1].UtxoTreeRoot = spptest.AsBigInt(assignment.Inputs[0].UtxoTreeRoot)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // An input's non-inclusion witness is checked against one nullifier root:
@@ -137,7 +137,7 @@ func TestCircuitRejectsInputClaimingWrongNullifierRoot(t *testing.T) {
 	assignment.Inputs[1].NullifierTreeRoot = spptest.AsBigInt(assignment.Inputs[0].NullifierTreeRoot)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
@@ -162,7 +162,7 @@ func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
 		spptest.Fe(0),
 	)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsSolanaOwnerKeyMismatch(t *testing.T) {
@@ -173,7 +173,7 @@ func TestCircuitRejectsSolanaOwnerKeyMismatch(t *testing.T) {
 	assignment.Inputs[0].OwnerPkHash = spptest.Fe(12345)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The Solana-only circuit variant (no P256 gadget) proves a Solana-owned
@@ -187,7 +187,7 @@ func TestSolanaCircuitSolvesSolanaInputs(t *testing.T) {
 	assignment.P256MessageHashHigh = spptest.Fe(0)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // Soundness guard: the Solana-only variant must reject a P256-owned input
@@ -205,7 +205,7 @@ func TestSolanaCircuitRejectsP256Input(t *testing.T) {
 	assignment.P256MessageHashHigh = spptest.Fe(0)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // Spec UTXO Ownership: each input's input_owner_pk_hashes entry selects its own path
@@ -217,7 +217,7 @@ func TestCircuitAcceptsMixedP256AndSolanaInputs(t *testing.T) {
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteInputAsP256(t, assignment, 0, priv, priv)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // Spec UTXO Ownership: Ed25519 owners may differ per input -- each entry binds
@@ -229,7 +229,7 @@ func TestCircuitAcceptsDistinctSolanaOwners(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	rewriteInputAsSolanaOwner(t, assignment, 1, 0x43, spptest.Fe(777))
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // An input's entry must match the key committed in that input's owner hash:
@@ -244,7 +244,7 @@ func TestCircuitRejectsForeignSolanaOwnerEntry(t *testing.T) {
 	assignment.Inputs[1].OwnerPkHash = testSolanaPkField(t)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A non-zero entry binds the input's owner to the entry, never to the P256
@@ -260,7 +260,7 @@ func TestCircuitRejectsP256OwnerWithNonZeroOwnerKey(t *testing.T) {
 	assignment.Inputs[0].OwnerPkHash = testSolanaPkField(t)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // buildDummyInputShield builds a valid SOL shield in the {1,2} shape whose only
@@ -330,7 +330,7 @@ func TestDummyInputSlotSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, buildDummyInputShield(t, 125), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(buildDummyInputShield(t, 125)), test.WithCurves(ecc.BN254))
 }
 
 // Non-inclusion is unconditional: a dummy slot's nullifier and roots are
@@ -346,7 +346,7 @@ func TestDummyInputRejectsMimickedPublicColumns(t *testing.T) {
 	assignment.Inputs[0].UtxoTreeRoot = spptest.Fe(8)
 	assignment.Inputs[0].NullifierTreeRoot = spptest.Fe(9)
 	refreshPublicInputHash(t, assignment)
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // TestDummyInputRejectsNonZeroAmount pins the dummy-slot inertness constraint
@@ -360,7 +360,7 @@ func TestDummyInputRejectsNonZeroAmount(t *testing.T) {
 	circuit := MustNewCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Utxo.Amount = spptest.Fe(1)
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // isLessCircuit exercises the full-field comparator alone, so its constraints

@@ -27,14 +27,11 @@ func utxoFields(u UtxoParams) txcircuit.UtxoCircuitFields {
 // declared-but-unconstrained P256 signals are assigned zero emulated values and
 // both P256 message-hash limbs are pinned to 0 (the circuit asserts this). No
 // hashing.
-func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
+func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	circuit := &txcircuit.Circuit{
-		Shape:         txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
-		RequiresP256:  false,
-		Confidential:  p.Variant == ConfidentialVariant,
-		ZoneAuthority: p.Variant == ZoneAuthorityVariant,
-		Inputs:        make([]txcircuit.Input, p.NInputs),
-		Outputs:       make([]txcircuit.Output, p.NOutputs),
+		Shape:   txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
+		Inputs:  make([]txcircuit.Input, p.NInputs),
+		Outputs: make([]txcircuit.Output, p.NOutputs),
 
 		// Solana-only rail has no P256 owner, so the shared signing field is 0.
 		P256SigningPkField: big.NewInt(0),
@@ -94,7 +91,7 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 		}
 	}
 
-	return circuit, nil
+	return wrapVariantAssignment(p.Variant, *circuit), nil
 }
 
 // orZero returns big.NewInt(0) for a nil pointer so gnark always sees an assigned

@@ -9,7 +9,7 @@ type CustomZoneP256Circuit struct {
 }
 
 func NewCustomZoneP256Circuit(shape Shape) (*CustomZoneP256Circuit, error) {
-	base, err := newCircuit(shape, isP256, isZone)
+	base, err := newCircuit(shape)
 	if err != nil {
 		return nil, err
 	}

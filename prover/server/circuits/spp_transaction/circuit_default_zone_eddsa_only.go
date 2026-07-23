@@ -11,7 +11,7 @@ type DefaultZoneEddsaOnlyCircuit struct {
 }
 
 func NewDefaultZoneEddsaOnlyCircuit(shape Shape) (*DefaultZoneEddsaOnlyCircuit, error) {
-	base, err := newCircuit(shape, isEddsaOnly, isConfidential)
+	base, err := newCircuit(shape)
 	if err != nil {
 		return nil, err
 	}

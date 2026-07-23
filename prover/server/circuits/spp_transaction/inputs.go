@@ -7,6 +7,24 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
+type Input struct {
+	Utxo              UtxoCircuitFields
+	StatePathElements []frontend.Variable
+	StatePathIndex    frontend.Variable
+
+	NullifierLowValue        frontend.Variable
+	NullifierNextValue       frontend.Variable
+	NullifierLowPathElements []frontend.Variable
+	NullifierLowPathIndex    frontend.Variable
+
+	UtxoTreeRoot      frontend.Variable
+	NullifierTreeRoot frontend.Variable
+	Nullifier         frontend.Variable
+
+	OwnerPkHash     frontend.Variable
+	NullifierSecret frontend.Variable
+}
+
 // spendEnv holds the per-proof values shared by every input-spend check: the
 // one witnessed P256 key and the one signature over private_tx_hash that
 // authorize all P256-owned inputs.
@@ -18,49 +36,6 @@ type spendEnv struct {
 	// p256SigningPkField, so P256 input owners are public; the custom zone
 	// variants route anonymously on the 0 sentinel.
 	p256Sentinel frontend.Variable
-}
-
-func (c *Circuit) assertInputs(api frontend.API, env spendEnv) ([]frontend.Variable, []frontend.Variable) {
-	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
-	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
-	for i := 0; i < c.Shape.NInputs; i++ {
-		if c.Confidential {
-			inputHashes[i], addressHashes[i] = c.constrainDefaultZoneInput(api, c.Inputs[i], env)
-		} else {
-			inputHashes[i], addressHashes[i] = c.constrainZoneInput(api, c.Inputs[i], env)
-		}
-	}
-	c.assertDistinctNullifiers(api)
-	return inputHashes, addressHashes
-}
-
-// constrainDefaultZoneInput — default zone: a real input must not be a member
-// of a zone, and P256 owners are public (the sentinel is the shared signing
-// key).
-func (c *Circuit) constrainDefaultZoneInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
-	assertWhen(api, in.isReal(api), in.Utxo.checkNotInZone(api))
-	env.p256Sentinel = c.P256SigningPkField
-	if c.RequiresP256 {
-		return constrainP256Input(api, in, env)
-	}
-	return constrainEddsaOnlyInput(api, in, env)
-}
-
-// constrainZoneInput — custom zone: a real input is either owned by the public
-// zone or not a member of any zone; the zone-authority variant requires zone
-// ownership for every real input. P256 owners route anonymously on the 0
-// sentinel.
-func (c *Circuit) constrainZoneInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
-	if c.ZoneAuthority {
-		assertWhen(api, in.isReal(api), c.checkZoneMember(api, in.Utxo))
-	} else {
-		assertWhen(api, in.isReal(api), c.checkZoneMemberOrFree(api, in.Utxo))
-	}
-	env.p256Sentinel = frontend.Variable(0)
-	if c.RequiresP256 {
-		return constrainP256Input(api, in, env)
-	}
-	return constrainEddsaOnlyInput(api, in, env)
 }
 
 // constrainP256Input — P256 rail: a P256-owned entry needs the valid shared
@@ -219,6 +194,46 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable) 
 	})
 	api.AssertIsEqual(nfRoot, in.NullifierTreeRoot)
 	assertStrictlyOrdered(api, in.NullifierLowValue, in.Nullifier, in.NullifierNextValue)
+}
+
+func (c *Circuit) inputUtxos() []UtxoCircuitFields {
+	out := make([]UtxoCircuitFields, len(c.Inputs))
+	for i := range c.Inputs {
+		out[i] = c.Inputs[i].Utxo
+	}
+	return out
+}
+
+func (c *Circuit) InputNullifiers() []frontend.Variable {
+	out := make([]frontend.Variable, len(c.Inputs))
+	for i := range c.Inputs {
+		out[i] = c.Inputs[i].Nullifier
+	}
+	return out
+}
+
+func (c *Circuit) InputUtxoRoots() []frontend.Variable {
+	out := make([]frontend.Variable, len(c.Inputs))
+	for i := range c.Inputs {
+		out[i] = c.Inputs[i].UtxoTreeRoot
+	}
+	return out
+}
+
+func (c *Circuit) InputNullifierTreeRoots() []frontend.Variable {
+	out := make([]frontend.Variable, len(c.Inputs))
+	for i := range c.Inputs {
+		out[i] = c.Inputs[i].NullifierTreeRoot
+	}
+	return out
+}
+
+func (c *Circuit) InputOwnerPkHashes() []frontend.Variable {
+	out := make([]frontend.Variable, len(c.Inputs))
+	for i := range c.Inputs {
+		out[i] = c.Inputs[i].OwnerPkHash
+	}
+	return out
 }
 
 func (c *Circuit) assertDistinctNullifiers(api frontend.API) {

@@ -11,7 +11,7 @@ type DefaultZoneP256Circuit struct {
 }
 
 func NewDefaultZoneP256Circuit(shape Shape) (*DefaultZoneP256Circuit, error) {
-	base, err := newCircuit(shape, isP256, isConfidential)
+	base, err := newCircuit(shape)
 	if err != nil {
 		return nil, err
 	}

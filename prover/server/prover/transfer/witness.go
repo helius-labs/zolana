@@ -25,13 +25,11 @@ func utxoFields(u UtxoParams) txcircuit.UtxoCircuitFields {
 // CreateWitness assigns the pre-computed parameters onto the P256-capable
 // spp_transaction circuit. It performs no hashing — every signal is taken
 // verbatim from the client-supplied params.
-func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
+func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	circuit := &txcircuit.Circuit{
-		Shape:        txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
-		RequiresP256: true,
-		Confidential: p.Confidential,
-		Inputs:       make([]txcircuit.Input, p.NInputs),
-		Outputs:      make([]txcircuit.Output, p.NOutputs),
+		Shape:   txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
+		Inputs:  make([]txcircuit.Input, p.NInputs),
+		Outputs: make([]txcircuit.Output, p.NOutputs),
 
 		P256SigningPkField: orZero(p.P256SigningPkField),
 		ExternalDataHash:   p.ExternalDataHash,
@@ -90,7 +88,7 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 		}
 	}
 
-	return circuit, nil
+	return wrapP256Assignment(p.Confidential, *circuit), nil
 }
 
 // orZero returns big.NewInt(0) for a nil pointer so gnark always sees an assigned

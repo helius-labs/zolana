@@ -18,5 +18,5 @@ func TestCircuitRejectsBadOutputHash(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Outputs[0].Hash = spptest.Fe(999)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }

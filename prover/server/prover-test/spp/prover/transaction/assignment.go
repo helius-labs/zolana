@@ -132,7 +132,6 @@ func buildProofAssignment(
 
 	assignment := &txcircuit.Circuit{
 		Shape:                txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs},
-		RequiresP256:         requiresP256,
 		Inputs:               inputs.inputs,
 		Outputs:              outputs.outputs,
 		P256SigningPkField:   big.NewInt(0),

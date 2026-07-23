@@ -14,8 +14,7 @@ import (
 // system the committed verifying key was produced with; do not drop it.
 func R1CSTransfer(nInputs uint32, nOutputs uint32, variant Variant) (constraint.ConstraintSystem, error) {
 	shape := txcircuit.Shape{NInputs: int(nInputs), NOutputs: int(nOutputs)}
-	newCircuit := selectConstructor(variant)
-	circuit, err := newCircuit(shape)
+	circuit, err := newVariantCircuit(variant, shape)
 	if err != nil {
 		return nil, err
 	}

@@ -36,7 +36,7 @@ func TestCircuitRejectsBalanceMismatch(t *testing.T) {
 		spptest.Fe(0),
 	)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 type signedAmountRangeCircuit struct {
@@ -92,7 +92,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 			spptest.Fe(0),
 		)
 
-		assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+		assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 	})
 
 	t.Run("withdraw", func(t *testing.T) {
@@ -108,7 +108,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 			spptest.Fe(0),
 		)
 
-		assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+		assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 	})
 }
 
@@ -127,7 +127,7 @@ func TestCircuitAcceptsPublicSplDeposit(t *testing.T) {
 		publicSplAssetPubkey,
 	)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
@@ -145,7 +145,7 @@ func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
 		spptest.Fe(88),
 	)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsPublicSplMovementOnSolAsset(t *testing.T) {
@@ -163,7 +163,7 @@ func TestCircuitRejectsPublicSplMovementOnSolAsset(t *testing.T) {
 		solAsset,
 	)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
@@ -181,7 +181,7 @@ func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 		spptest.Fe(88),
 	)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // Pure private transfer of two distinct SPL assets: each conserved on its own
@@ -207,7 +207,7 @@ func TestCircuitConservesTwoDistinctAssets(t *testing.T) {
 		big.NewInt(0),
 		spptest.Fe(0),
 	)
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // Conservation is per-asset, not total: a transaction whose total balances but
@@ -234,7 +234,7 @@ func TestCircuitRejectsCrossAssetValueConversion(t *testing.T) {
 		big.NewInt(0),
 		spptest.Fe(0),
 	)
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A public SPL deposit on asset a coexists with a purely private transfer of
@@ -260,7 +260,7 @@ func TestCircuitConservesPublicSplAlongsidePrivateAsset(t *testing.T) {
 		big.NewInt(25),
 		publicAsset,
 	)
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // SPL unshield (withdraw): the symmetric partner to TestCircuitAcceptsPublicSplDeposit.
@@ -278,7 +278,7 @@ func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
 		big.NewInt(-25),
 		asset,
 	)
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // C-01: the balance circuit conserves SOL and the public SPL asset on independent
@@ -312,7 +312,7 @@ func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 		splAsset,
 	)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The public SPL mint id must be 0 when no SPL amount moves: a balanced,
@@ -332,5 +332,5 @@ func TestCircuitRejectsNonZeroPublicSplAssetWithoutAmount(t *testing.T) {
 		big.NewInt(0),
 		spptest.Fe(88),
 	)
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }

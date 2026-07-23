@@ -19,5 +19,5 @@ func TestCircuitRejectsExternalDataHashMismatch(t *testing.T) {
 	assignment.ExternalDataHash = spptest.Fe(301)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }

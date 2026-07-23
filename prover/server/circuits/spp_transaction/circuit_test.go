@@ -40,10 +40,10 @@ func TestCircuitProvesForSupportedShapes(t *testing.T) {
 			circuit := MustNewCircuit(Shape(shape))
 			assignment := buildCircuitAssignment(t, shape)
 
-			assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+			assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 			assert.ProverSucceeded(
 				circuit,
-				assignment,
+				asCustomZoneP256(assignment),
 				test.WithBackends(backend.GROTH16),
 				test.WithCurves(ecc.BN254),
 				test.NoSerializationChecks(),
@@ -52,8 +52,8 @@ func TestCircuitProvesForSupportedShapes(t *testing.T) {
 	}
 }
 
-func MustNewCircuit(shape Shape) *Circuit {
-	circuit, err := NewTransferP256ZoneCircuit(shape)
+func MustNewCircuit(shape Shape) *CustomZoneP256Circuit {
+	circuit, err := NewCustomZoneP256Circuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -61,12 +61,28 @@ func MustNewCircuit(shape Shape) *Circuit {
 }
 
 // MustNewSolanaCircuit builds the Solana-only circuit and panics on error.
-func MustNewSolanaCircuit(shape Shape) *Circuit {
-	circuit, err := NewTransferZoneCircuit(shape)
+func MustNewSolanaCircuit(shape Shape) *CustomZoneEddsaOnlyCircuit {
+	circuit, err := NewCustomZoneEddsaOnlyCircuit(shape)
 	if err != nil {
 		panic(err)
 	}
 	return circuit
+}
+
+func asCustomZoneP256(a *Circuit) frontend.Circuit { return &CustomZoneP256Circuit{Circuit: *a} }
+
+func asCustomZoneEddsaOnly(a *Circuit) frontend.Circuit {
+	return &CustomZoneEddsaOnlyCircuit{Circuit: *a}
+}
+
+func asCustomZoneAuthority(a *Circuit) frontend.Circuit {
+	return &CustomZoneAuthorityCircuit{Circuit: *a}
+}
+
+func asDefaultZoneP256(a *Circuit) frontend.Circuit { return &DefaultZoneP256Circuit{Circuit: *a} }
+
+func asDefaultZoneEddsaOnly(a *Circuit) frontend.Circuit {
+	return &DefaultZoneEddsaOnlyCircuit{Circuit: *a}
 }
 
 func buildCircuitAssignment(t testing.TB, shape protocol.Shape) *Circuit {

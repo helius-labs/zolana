@@ -23,7 +23,7 @@ func TestCircuitAcceptsP256Owner(t *testing.T) {
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsBadP256Signature(t *testing.T) {
@@ -35,7 +35,7 @@ func TestCircuitRejectsBadP256Signature(t *testing.T) {
 	wrongSigner := spptest.FixedP256Key(t, 12)
 	rewriteSingleInputAsP256(t, assignment, priv, wrongSigner)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsBadP256MessageHash(t *testing.T) {
@@ -48,7 +48,7 @@ func TestCircuitRejectsBadP256MessageHash(t *testing.T) {
 	assignment.P256MessageHashLow = new(big.Int).Add(spptest.AsBigInt(assignment.P256MessageHashLow), big.NewInt(1))
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsP256PubkeyOwnerMismatch(t *testing.T) {
@@ -61,7 +61,7 @@ func TestCircuitRejectsP256PubkeyOwnerMismatch(t *testing.T) {
 	rewriteSingleInputAsP256(t, assignment, ownerPriv, signingPriv)
 	assignment.P256Pub = spptest.P256PubkeyAssignment(signingPriv)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // p256PkFieldUnitCircuit wraps P256PkFieldFromPubkeyCircuit alone. The gnark

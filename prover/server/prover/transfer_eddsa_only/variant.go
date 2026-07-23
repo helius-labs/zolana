@@ -3,6 +3,8 @@ package transfereddsaonly
 import (
 	txcircuit "zolana/prover/circuits/spp_transaction"
 	"zolana/prover/prover/common"
+
+	"github.com/consensys/gnark/frontend"
 )
 
 // Variant selects which Solana-only spp_transaction instantiation to build. The
@@ -49,15 +51,27 @@ func variantFromCircuitType(ct common.CircuitType) Variant {
 	}
 }
 
-// selectConstructor picks the Solana-only rail circuit constructor for the
-// variant.
-func selectConstructor(v Variant) func(txcircuit.Shape) (*txcircuit.Circuit, error) {
+// newVariantCircuit builds the Solana-only rail circuit for the variant.
+func newVariantCircuit(v Variant, shape txcircuit.Shape) (frontend.Circuit, error) {
 	switch v {
 	case ConfidentialVariant:
-		return txcircuit.NewTransferConfidentialCircuit
+		return txcircuit.NewDefaultZoneEddsaOnlyCircuit(shape)
 	case ZoneAuthorityVariant:
-		return txcircuit.NewTransferZoneAuthorityCircuit
+		return txcircuit.NewCustomZoneAuthorityCircuit(shape)
 	default:
-		return txcircuit.NewTransferZoneCircuit
+		return txcircuit.NewCustomZoneEddsaOnlyCircuit(shape)
+	}
+}
+
+// wrapVariantAssignment wraps a filled witness core in the variant circuit type
+// so gnark sees the same schema the constraint system was compiled with.
+func wrapVariantAssignment(v Variant, core txcircuit.Circuit) frontend.Circuit {
+	switch v {
+	case ConfidentialVariant:
+		return &txcircuit.DefaultZoneEddsaOnlyCircuit{Circuit: core}
+	case ZoneAuthorityVariant:
+		return &txcircuit.CustomZoneAuthorityCircuit{Circuit: core}
+	default:
+		return &txcircuit.CustomZoneEddsaOnlyCircuit{Circuit: core}
 	}
 }

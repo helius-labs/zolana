@@ -21,11 +21,11 @@ func TestZoneCircuitAcceptsDataHashOnOutput(t *testing.T) {
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
 	refreshZonePublicInputHash(t, assignment)
 
-	circuit, err := NewTransferP256ZoneCircuit(Shape(shape))
+	circuit, err := NewCustomZoneP256Circuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone circuit: %v", err)
 	}
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A data-carrying output must be owned by a signer (an input owner); data on
@@ -40,11 +40,11 @@ func TestZoneCircuitRejectsDataHashOnUnsignedOwnerOutput(t *testing.T) {
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
 	refreshZonePublicInputHash(t, assignment)
 
-	circuit, err := NewTransferP256ZoneCircuit(Shape(shape))
+	circuit, err := NewCustomZoneP256Circuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone circuit: %v", err)
 	}
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestZoneCircuitRejectsZoneDataHashWithoutZoneProgramID(t *testing.T) {
@@ -56,11 +56,11 @@ func TestZoneCircuitRejectsZoneDataHashWithoutZoneProgramID(t *testing.T) {
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
 	refreshZonePublicInputHash(t, assignment)
 
-	circuit, err := NewTransferP256ZoneCircuit(Shape(shape))
+	circuit, err := NewCustomZoneP256Circuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone circuit: %v", err)
 	}
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestZoneCircuitBindsMatchingZoneProgramID(t *testing.T) {
@@ -79,11 +79,11 @@ func TestZoneCircuitBindsMatchingZoneProgramID(t *testing.T) {
 	assignment.ZoneProgramID = zoneProgramID
 	refreshZonePublicInputHash(t, assignment)
 
-	circuit, err := NewTransferP256ZoneCircuit(Shape(shape))
+	circuit, err := NewCustomZoneP256Circuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone circuit: %v", err)
 	}
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestZoneCircuitRejectsMismatchedZoneProgramID(t *testing.T) {
@@ -104,11 +104,11 @@ func TestZoneCircuitRejectsMismatchedZoneProgramID(t *testing.T) {
 	assignment.ZoneProgramID = zoneProgramID
 	refreshZonePublicInputHash(t, assignment)
 
-	circuit, err := NewTransferP256ZoneCircuit(Shape(shape))
+	circuit, err := NewCustomZoneP256Circuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone circuit: %v", err)
 	}
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
 func refreshZonePublicInputHash(t testing.TB, assignment *Circuit) {

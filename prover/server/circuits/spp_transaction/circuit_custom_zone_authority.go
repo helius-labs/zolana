@@ -6,19 +6,19 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-type CustomZoneEddsaOnlyCircuit struct {
+type CustomZoneAuthorityCircuit struct {
 	Circuit
 }
 
-func NewCustomZoneEddsaOnlyCircuit(shape Shape) (*CustomZoneEddsaOnlyCircuit, error) {
+func NewCustomZoneAuthorityCircuit(shape Shape) (*CustomZoneAuthorityCircuit, error) {
 	base, err := newCircuit(shape)
 	if err != nil {
 		return nil, err
 	}
-	return &CustomZoneEddsaOnlyCircuit{Circuit: *base}, nil
+	return &CustomZoneAuthorityCircuit{Circuit: *base}, nil
 }
 
-func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
+func (c *CustomZoneAuthorityCircuit) Define(api frontend.API) error {
 	if err := c.validateLayout(); err != nil {
 		return err
 	}
@@ -29,7 +29,7 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
 		in := c.Inputs[i]
-		assertWhen(api, in.isReal(api), c.checkZoneMemberOrFree(api, in.Utxo))
+		assertWhen(api, in.isReal(api), c.checkZoneMember(api, in.Utxo))
 		inputHashes[i], addressHashes[i] = constrainEddsaOnlyInput(api, in, env)
 	}
 	c.assertDistinctNullifiers(api)
@@ -38,7 +38,7 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := 0; i < c.Shape.NOutputs; i++ {
 		out := c.Outputs[i]
-		assertWhen(api, out.isReal(api), c.checkZoneMemberOrFree(api, out.Utxo))
+		assertWhen(api, out.isReal(api), c.checkZoneMember(api, out.Utxo))
 		outputHashes[i] = constrainOutputShared(api, out, signers)
 	}
 
@@ -51,6 +51,8 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		c.PublicSplAssetPubkey,
 	)
 
+	api.AssertIsDifferent(c.ZoneProgramID, 0)
+
 	privateTxHash := PrivateTxHashCircuit(
 		api,
 		inputHashes,
@@ -60,11 +62,11 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	)
 	api.AssertIsEqual(privateTxHash, c.PrivateTxHash)
 
-	api.AssertIsEqual(c.PublicInputHash, c.customZonePublicInputHash(api))
+	api.AssertIsEqual(c.PublicInputHash, c.zoneAuthorityPublicInputHash(api))
 	return nil
 }
 
-func (c *Circuit) customZonePublicInputHash(api frontend.API) frontend.Variable {
+func (c *Circuit) zoneAuthorityPublicInputHash(api frontend.API) frontend.Variable {
 	return gadget.HashChain(api, []frontend.Variable{
 		gadget.HashChain(api, c.InputNullifiers()),
 		gadget.HashChain(api, c.OutputHashes()),
@@ -78,6 +80,5 @@ func (c *Circuit) customZonePublicInputHash(api frontend.API) frontend.Variable 
 		c.PublicSplAssetPubkey,
 		c.ZoneProgramID,
 		c.PayerPubkeyHash,
-		gadget.HashChain(api, c.InputOwnerPkHashes()),
 	})
 }

@@ -5,17 +5,38 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
-func (c *Circuit) assertOutputs(api frontend.API) []frontend.Variable {
-	signers := c.signerOwners(api)
-	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
-	for i := 0; i < c.Shape.NOutputs; i++ {
-		if c.Confidential {
-			outputHashes[i] = c.constrainDefaultZoneOutput(api, c.Outputs[i], signers)
-		} else {
-			outputHashes[i] = c.constrainZoneOutput(api, c.Outputs[i], signers)
-		}
+type Output struct {
+	Utxo UtxoCircuitFields
+	Hash frontend.Variable
+
+	// Default-zone variants only: OwnerPkHash is the public owner tag, NullifierPk
+	// the witnessed nullifier pubkey; together they recompute Utxo.Owner.
+	OwnerPkHash frontend.Variable
+	NullifierPk frontend.Variable
+}
+
+func (c *Circuit) outputUtxos() []UtxoCircuitFields {
+	out := make([]UtxoCircuitFields, len(c.Outputs))
+	for i := range c.Outputs {
+		out[i] = c.Outputs[i].Utxo
 	}
-	return outputHashes
+	return out
+}
+
+func (c *Circuit) OutputHashes() []frontend.Variable {
+	out := make([]frontend.Variable, len(c.Outputs))
+	for i := range c.Outputs {
+		out[i] = c.Outputs[i].Hash
+	}
+	return out
+}
+
+func (c *Circuit) OutputOwnerPkHashes() []frontend.Variable {
+	out := make([]frontend.Variable, len(c.Outputs))
+	for i := range c.Outputs {
+		out[i] = c.Outputs[i].OwnerPkHash
+	}
+	return out
 }
 
 // signerOwners collects the owner hash of every real input slot — the
@@ -34,18 +55,6 @@ func (c *Circuit) signerOwners(api frontend.API) []frontend.Variable {
 func (c *Circuit) constrainDefaultZoneOutput(api frontend.API, out Output, signers []frontend.Variable) frontend.Variable {
 	assertWhen(api, out.isReal(api), out.Utxo.checkNotInZone(api))
 	assertWhen(api, out.isReal(api), out.checkOwnerIsPublicInput(api))
-	return constrainOutputShared(api, out, signers)
-}
-
-// constrainZoneOutput — custom zone: a real output is either owned by the
-// public zone or not a member of any zone; the zone-authority variant requires
-// zone ownership for every real output.
-func (c *Circuit) constrainZoneOutput(api frontend.API, out Output, signers []frontend.Variable) frontend.Variable {
-	if c.ZoneAuthority {
-		assertWhen(api, out.isReal(api), c.checkZoneMember(api, out.Utxo))
-	} else {
-		assertWhen(api, out.isReal(api), c.checkZoneMemberOrFree(api, out.Utxo))
-	}
 	return constrainOutputShared(api, out, signers)
 }
 
@@ -91,8 +100,8 @@ func (out Output) isDummy(api frontend.API) frontend.Variable {
 	return api.IsZero(api.Sub(out.Utxo.Domain, DummyDomain))
 }
 
-// checkOwnerIsPublicInput — confidential variant only: returns 1 iff the public owner
-// tag matches the output owner_hash.
+// checkOwnerIsPublicInput — default-zone variants only: returns 1 iff the public
+// owner tag matches the output owner_hash.
 func (out Output) checkOwnerIsPublicInput(api frontend.API) frontend.Variable {
 	ownerHash := abstractor.Call(api, OwnerHashGadget{
 		OwnerKeyHash: out.OwnerPkHash,
