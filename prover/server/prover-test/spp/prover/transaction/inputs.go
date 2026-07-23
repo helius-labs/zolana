@@ -136,7 +136,6 @@ func buildInputWitnesses(
 
 func newInputWitness() txcircuit.Input {
 	return txcircuit.Input{
-		IsDummy:                  big.NewInt(0),
 		StatePathElements:        zeroVariables(protocol.StateTreeHeight),
 		StatePathIndex:           big.NewInt(0),
 		NullifierLowPathElements: zeroVariables(protocol.NullifierTreeHeight),
@@ -156,7 +155,6 @@ func newInputWitness() txcircuit.Input {
 // on-chain verifier treats missing root indices as zero.
 func dummyInputWitness(utxo txcircuit.UtxoCircuitFields, nullifier *big.Int) txcircuit.Input {
 	witness := newInputWitness()
-	witness.IsDummy = big.NewInt(1)
 	witness.Utxo = utxo
 	witness.Nullifier = nullifier
 	return witness

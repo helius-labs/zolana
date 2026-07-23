@@ -43,45 +43,46 @@ func (c *Circuit) assertInputs(api frontend.API, env spendEnv) ([]frontend.Varia
 
 // TODO: add wrapper functions constrainZoneInput, constrainDefaultZoneInput, constrainEddsaOnlyInput, constrainP256Input
 //
-// An input slot is one of three kinds: a spendable utxo (IsDummy == 0), an
-// address utxo (IsDummy == 1 with a data hash), or a dummy utxo (IsDummy == 1
-// without). Every kind carries the utxo domain and proves nullifier
-// non-inclusion; checkSpendable, checkDummy, and checkAddress hold the
-// remaining per-kind checks, with spendable and address utxos binding their
-// owner via checkOwnership. All other utxo fields are bound by the utxo hash;
-// the blinding stays unconstrained for every kind so dummy and address
+// An input slot is one of three kinds, told apart by the domain tag alone: a
+// spendable utxo (UtxoDomain), an address utxo (AddressDomain), or a dummy
+// utxo (DummyDomain). Exactly one tag must hold, so the tags both classify the
+// slot and separate the three hash and nullifier domains. Every kind proves
+// nullifier non-inclusion; checkSpendable, checkDummy, and checkAddress hold
+// the remaining per-kind checks, with spendable and address utxos binding
+// their owner via checkOwnership. All other utxo fields are bound by the utxo
+// hash; the blinding stays unconstrained for every kind so dummy and address
 // nullifiers are indistinguishable from spendable ones.
 func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
-	api.AssertIsBoolean(in.IsDummy)
+	isReal := in.isReal(api)
+	isAddress := in.isAddress(api)
+	api.AssertIsEqual(api.Add(isReal, isAddress, in.isDummy(api)), 1)
 
-	api.AssertIsEqual(in.Utxo.Domain, UtxoDomain)
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 	in.checkNonInclusion(api, utxoHash)
 
-	assertWhen(api, in.isReal(api), in.checkSpendable(api, utxoHash))
-	assertWhen(api, in.isDummy(api), in.checkDummy(api))
-	assertWhen(api, in.isAddress(api), in.checkAddress(api))
+	assertWhen(api, isReal, in.checkSpendable(api, utxoHash))
+	assertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
+	assertWhen(api, isAddress, in.checkAddress(api))
 	assertWhen(api, in.isRealOrAddress(api), in.checkOwnership(api, env))
 
-	inputHash := api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
-	addressHash := api.Select(in.isAddress(api), utxoHash, frontend.Variable(0))
+	inputHash := api.Select(isReal, utxoHash, frontend.Variable(0))
+	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
 	return inputHash, addressHash
 }
 
 // isReal: the slot spends an existing utxo.
 func (in Input) isReal(api frontend.API) frontend.Variable {
-	return api.Sub(1, in.IsDummy)
+	return api.IsZero(api.Sub(in.Utxo.Domain, UtxoDomain))
 }
 
-// isAddress: a dummy slot whose data hash is set creates an address, owner signed.
+// isAddress: the slot creates an address, owner signed.
 func (in Input) isAddress(api frontend.API) frontend.Variable {
-	dataIsSet := api.Sub(1, api.IsZero(in.Utxo.DataHash))
-	return api.Mul(in.IsDummy, dataIsSet)
+	return api.IsZero(api.Sub(in.Utxo.Domain, AddressDomain))
 }
 
-// isDummy: a dummy slot all fields other than domain and blinding are zero values.
+// isDummy: the slot is padding and carries nothing.
 func (in Input) isDummy(api frontend.API) frontend.Variable {
-	return api.Sub(in.IsDummy, in.isAddress(api))
+	return api.IsZero(api.Sub(in.Utxo.Domain, DummyDomain))
 }
 
 // isRealOrAddress: the slot carries content — a spendable or an address utxo.
@@ -105,28 +106,19 @@ func (in Input) checkSpendable(api frontend.API, utxoHash frontend.Variable) fro
 	return api.IsZero(api.Sub(stateRoot, in.UtxoTreeRoot))
 }
 
-// checkDummy — dummy utxo: returns 1 iff every field except the blinding is
-// zero, so the slot carries nothing. The zero data hash is the kind classifier
-// itself.
-func (in Input) checkDummy(api frontend.API) frontend.Variable {
-	return allZero(api,
-		in.Utxo.Owner,
-		in.Utxo.Asset,
-		in.Utxo.Amount,
-		in.Utxo.ZoneDataHash,
-		in.Utxo.ZoneProgramID,
-	)
-}
-
-// checkAddress — address utxo: returns 1 iff only the owner and data hash
-// carry content — the value and zone fields are zero. Ownership is checked via
-// checkOwnership.
 func (in Input) checkAddress(api frontend.API) frontend.Variable {
+	// Owner is signer.
+	// Blinding is seed.
+	// NullifierSecret is 0, so the address nullifier is derivable from
+	// (owner, seed) alone.
+	// -> domain separated nullifier by owner which can be used as address
 	return allZero(api,
 		in.Utxo.Asset,
 		in.Utxo.Amount,
+		in.Utxo.DataHash,
 		in.Utxo.ZoneDataHash,
 		in.Utxo.ZoneProgramID,
+		in.NullifierSecret,
 	)
 }
 

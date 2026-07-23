@@ -49,7 +49,6 @@ type Circuit struct {
 
 type Input struct {
 	Utxo              UtxoCircuitFields
-	IsDummy           frontend.Variable
 	StatePathElements []frontend.Variable
 	StatePathIndex    frontend.Variable
 
@@ -67,9 +66,8 @@ type Input struct {
 }
 
 type Output struct {
-	Utxo    UtxoCircuitFields
-	IsDummy frontend.Variable
-	Hash    frontend.Variable
+	Utxo UtxoCircuitFields
+	Hash frontend.Variable
 
 	// Confidential variant only: OwnerPkHash is the public owner tag, NullifierPk
 	// the witnessed nullifier pubkey; together they recompute Utxo.Owner.
@@ -357,8 +355,13 @@ func (s Shape) Validate() error {
 // depends on no host code (see circuits/CLAUDE.md). They must stay in sync with
 // prover/spp/protocol.
 const (
-	// UtxoDomain is the domain tag folded into every UTXO commitment.
+	// UtxoDomain is the domain tag folded into every spendable UTXO commitment.
 	UtxoDomain = 1
+	// AddressDomain is the domain tag for address utxos, separating address
+	// hashes and nullifiers from spendable ones.
+	AddressDomain = 2
+	// DummyDomain is the domain tag for dummy (padding) utxos.
+	DummyDomain = 3
 	// StateTreeHeight is the SPP state (UTXO) merkle tree height.
 	StateTreeHeight = 32
 	// NullifierTreeHeight is the SPP nullifier tree height.

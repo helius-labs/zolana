@@ -41,7 +41,6 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 		}
 		outputs.outputs[i] = txcircuit.Output{
 			Utxo:        toProofCircuitFields(parsed.utxo),
-			IsDummy:     big.NewInt(0),
 			Hash:        outputHash,
 			OwnerPkHash: big.NewInt(0),
 			NullifierPk: big.NewInt(0),
@@ -66,7 +65,6 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 		}
 		outputs.outputs[i] = txcircuit.Output{
 			Utxo:        dummyUtxoFields(blinding),
-			IsDummy:     big.NewInt(1),
 			Hash:        hash,
 			OwnerPkHash: big.NewInt(0),
 			NullifierPk: big.NewInt(0),

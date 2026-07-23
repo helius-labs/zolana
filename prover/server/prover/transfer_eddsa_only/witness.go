@@ -70,7 +70,6 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 		}
 		circuit.Inputs[i] = txcircuit.Input{
 			Utxo:                     utxoFields(in.Utxo),
-			IsDummy:                  in.IsDummy,
 			StatePathElements:        statePath,
 			StatePathIndex:           in.StatePathIndex,
 			NullifierLowValue:        in.NullifierLowValue,
@@ -89,7 +88,6 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 		out := p.Outputs[i]
 		circuit.Outputs[i] = txcircuit.Output{
 			Utxo:        utxoFields(out.Utxo),
-			IsDummy:     out.IsDummy,
 			Hash:        out.Hash,
 			OwnerPkHash: orZero(out.OwnerPkHash),
 			NullifierPk: orZero(out.NullifierPk),

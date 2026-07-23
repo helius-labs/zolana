@@ -14,47 +14,36 @@ func (c *Circuit) assertOutputs(api frontend.API) []frontend.Variable {
 	return outputHashes
 }
 
-// constrainOutput verifies one created output and returns its UTXO hash (0 for a
-// dummy) for the transaction-hash chain (step 4). Every output binds its hash;
-// checkDummy and checkReal hold the per-kind checks.
+// constrainOutput verifies one created output and returns its UTXO hash (0 for
+// a dummy) for the transaction-hash chain (step 4). An output slot is one of
+// two kinds, told apart by the domain tag alone: a created utxo (UtxoDomain)
+// or a dummy utxo (DummyDomain); exactly one tag must hold. Every output binds
+// its hash; checkDummy holds the dummy-kind checks.
 func constrainOutput(api frontend.API, out Output, confidential, zone, zoneAuthority bool, zoneProgramID frontend.Variable) frontend.Variable {
-	api.AssertIsBoolean(out.IsDummy)
+	isReal := out.isReal(api)
+	api.AssertIsEqual(api.Add(isReal, out.isDummy(api)), 1)
 
-	assertWhen(api, out.IsDummy, out.checkDummy(api))
-	assertWhen(api, out.isReal(api), out.checkReal(api))
-	constrainProgramZone(api, out.isReal(api), out.Utxo, zone, zoneAuthority, zoneProgramID)
+	assertWhen(api, out.isDummy(api), out.Utxo.checkDummy(api))
+	constrainProgramZone(api, isReal, out.Utxo, zone, zoneAuthority, zoneProgramID)
 	if confidential {
 		// Check that owner is a public input.
-		assertWhen(api, out.isReal(api), out.checkOwnership(api))
+		assertWhen(api, isReal, out.checkOwnership(api))
 	}
 
 	utxoHash := UtxoHashCircuit(api, out.Utxo)
 	api.AssertIsEqual(utxoHash, out.Hash)
 
-	return api.Select(out.IsDummy, frontend.Variable(0), utxoHash)
+	return api.Select(isReal, utxoHash, frontend.Variable(0))
 }
 
 // isReal: the slot creates a utxo.
 func (out Output) isReal(api frontend.API) frontend.Variable {
-	return api.Sub(1, out.IsDummy)
-}
-
-// checkDummy — dummy output: returns 1 iff the amount is zero, so the slot
-// carries no value; the remaining fields stay free so dummy hashes are
-// indistinguishable from real ones.
-func (out Output) checkDummy(api frontend.API) frontend.Variable {
-	return allZero(api,
-		out.Utxo.Asset,
-		out.Utxo.Amount,
-		out.Utxo.Owner,
-		out.Utxo.ZoneDataHash,
-		out.Utxo.ZoneProgramID,
-	)
-}
-
-// checkReal — created output: returns 1 iff the utxo carries the utxo domain.
-func (out Output) checkReal(api frontend.API) frontend.Variable {
 	return api.IsZero(api.Sub(out.Utxo.Domain, UtxoDomain))
+}
+
+// isDummy: the slot is padding and carries nothing.
+func (out Output) isDummy(api frontend.API) frontend.Variable {
+	return api.IsZero(api.Sub(out.Utxo.Domain, DummyDomain))
 }
 
 // checkOwnership — confidential variant only: returns 1 iff the public owner
