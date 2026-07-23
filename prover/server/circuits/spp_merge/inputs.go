@@ -73,11 +73,11 @@ func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecr
 		Height: transaction.NullifierTreeHeight,
 	})
 	assertEqualWhen(api, notDummy, nfRoot, in.NullifierTreeRoot)
+	// Dummy entries are remapped to the trivially ordered 0 < 1 < 2.
 	abstractor.CallVoid(api, transaction.AssertStrictlyOrdered{
-		IsDummy: in.IsDummy,
-		Lo:      in.NullifierLowValue,
-		Mid:     in.Nullifier,
-		Hi:      in.NullifierNextValue,
+		Lo:  api.Select(in.IsDummy, frontend.Variable(0), in.NullifierLowValue),
+		Mid: api.Select(in.IsDummy, frontend.Variable(1), in.Nullifier),
+		Hi:  api.Select(in.IsDummy, frontend.Variable(2), in.NullifierNextValue),
 	})
 
 	return api.Select(in.IsDummy, frontend.Variable(0), utxoHash)

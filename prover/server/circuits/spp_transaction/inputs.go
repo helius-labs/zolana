@@ -59,31 +59,55 @@ func (c *Circuit) assertInputs(api frontend.API, env spendEnv) ([]frontend.Varia
 }
 
 // TODO: add wrapper functions constrainZoneInput, constrainDefaultZoneInput, constrainEddsaOnlyInput, constrainP256Input
+//
+// An input slot is one of three kinds: a real spend (IsDummy == 0), an address
+// creation (IsDummy == 1 with a data hash), or padding (IsDummy == 1 without).
+// checkDummy/checkAddress pin the fields the respective kind must not carry;
+// checkSpendable runs the spend checks, degraded per kind by its gate flags.
 func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
 	api.AssertIsBoolean(in.IsDummy)
-	nullifierPk := abstractor.Call(api, NullifierPkGadget{
-		NullifierSecret: in.NullifierSecret,
-	})
-	notDummy := api.Sub(1, in.IsDummy)
-	// TODO: restructure into methods checkAddress, checkDummy, checkSpendable
 	dataIsSet := api.Sub(1, api.IsZero(in.Utxo.DataHash))
 	isAddress := api.Mul(in.IsDummy, dataIsSet)
 	isDummyNotAddress := api.Sub(in.IsDummy, isAddress)
 	realOrAddress := api.Sub(1, isDummyNotAddress)
 
+	in.checkDummy(api, isDummyNotAddress)
+	in.checkAddress(api, isAddress)
+	utxoHash := in.checkSpendable(api, env, realOrAddress)
+
+	inputHash := api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
+	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
+	return inputHash, addressHash
+}
+
+// checkDummy: no dummy (address or padding) moves value, and padding carries no
+// owner either.
+func (in Input) checkDummy(api frontend.API, isDummyNotAddress frontend.Variable) {
 	assertZeroWhen(api, in.IsDummy, in.Utxo.Amount)
 	assertZeroWhen(api, isDummyNotAddress, in.Utxo.Owner)
+}
 
+// checkAddress: an address entry is only owner + data hash; the value and zone
+// fields must be empty.
+func (in Input) checkAddress(api frontend.API, isAddress frontend.Variable) {
 	assertZeroWhen(api, isAddress, in.Utxo.Blinding)
 	assertZeroWhen(api, isAddress, in.Utxo.Asset)
 	assertZeroWhen(api, isAddress, in.Utxo.ZoneDataHash)
 	assertZeroWhen(api, isAddress, in.Utxo.ZoneProgramID)
+}
+
+// checkSpendable runs the spend checks and returns the input's UTXO hash. The
+// gates degrade per kind: a real spend (notDummy and realOrAddress both 1) gets
+// every check, an address (realOrAddress 1) skips the tree checks but still
+// binds domain, owner, and nullifier, and padding passes vacuously.
+func (in Input) checkSpendable(api frontend.API, env spendEnv, realOrAddress frontend.Variable) frontend.Variable {
+	notDummy := api.Sub(1, in.IsDummy)
 
 	assertEqualWhen(api, realOrAddress, in.Utxo.Domain, UtxoDomain)
 	constrainProgramZone(api, notDummy, in.Utxo, env.zone, env.zoneAuthority, env.zoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
-
+	// TODO: extract into function check inclusion
 	// Inclusion: utxoHash is a leaf of the state tree at UtxoTreeRoot.
 	statePathIndices := api.ToBinary(in.StatePathIndex, StateTreeHeight)
 	stateRoot := abstractor.Call(api, gadgetlib.MerkleRootGadget{
@@ -92,8 +116,10 @@ func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable
 		Path:   in.StatePathElements,
 		Height: StateTreeHeight,
 	})
+	// Dummy and address utxos are not included in the state root.
 	assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
 
+	// TODO: extract into function checkOwnerShip
 	// Owner check: select the input's path and bind the owner. Anonymous routes on
 	// the 0 sentinel — 0 binds to the shared P256 key (substituted via Select),
 	// non-zero to the entry. Confidential routes by equality to the public
@@ -110,6 +136,10 @@ func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable
 	if !env.requiresP256 {
 		assertZeroWhen(api, realOrAddress, isP256)
 	}
+	// TODO: extract into function checkNonInclusion
+	nullifierPk := abstractor.Call(api, NullifierPkGadget{
+		NullifierSecret: in.NullifierSecret,
+	})
 	ownerHash := abstractor.Call(api, OwnerHashGadget{
 		OwnerKeyHash: ownerKeyHash,
 		NullifierPk:  nullifierPk,
@@ -122,7 +152,7 @@ func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable
 		Blinding:        in.Utxo.Blinding,
 		NullifierSecret: in.NullifierSecret,
 	})
-	assertEqualWhen(api, realOrAddress, nullifier, in.Nullifier)
+	api.AssertIsEqual(nullifier, in.Nullifier)
 
 	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
@@ -134,12 +164,10 @@ func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable
 		Path:   in.NullifierLowPathElements,
 		Height: NullifierTreeHeight,
 	})
-	assertEqualWhen(api, notDummy, nfRoot, in.NullifierTreeRoot)
-	assertStrictlyOrdered(api, in.IsDummy, in.NullifierLowValue, in.Nullifier, in.NullifierNextValue)
+	api.AssertIsEqual(nfRoot, in.NullifierTreeRoot)
+	assertStrictlyOrdered(api, in.NullifierLowValue, in.Nullifier, in.NullifierNextValue)
 
-	inputHash := api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
-	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
-	return inputHash, addressHash
+	return utxoHash
 }
 
 func (c *Circuit) assertDistinctNullifiers(api frontend.API) {
@@ -175,30 +203,25 @@ func (gadget NullifierGadget) DefineGadget(api frontend.API) interface{} {
 	})
 }
 
-// AssertStrictlyOrdered constrains lo < mid < hi for a real entry, comparing
-// full field values (see gadget.IsLessLimbs) — the nullifier tree's
-// indexed-value domain spans the whole field. Dummy entries (IsDummy == 1) are
-// remapped to 0 < 1 < 2, so the check always passes for them. Backs the
-// non-inclusion check in step 3.6.
+// AssertStrictlyOrdered constrains lo < mid < hi, comparing full field values
+// (see gadget.IsLessLimbs) — the nullifier tree's indexed-value domain spans
+// the whole field. Backs the non-inclusion check in step 3.6. Callers with
+// dummy slots must remap them to trivially ordered values before calling.
 type AssertStrictlyOrdered struct {
-	IsDummy frontend.Variable
-	Lo      frontend.Variable
-	Mid     frontend.Variable
-	Hi      frontend.Variable
+	Lo  frontend.Variable
+	Mid frontend.Variable
+	Hi  frontend.Variable
 }
 
 func (gadget AssertStrictlyOrdered) DefineGadget(api frontend.API) interface{} {
-	lo := api.Select(gadget.IsDummy, frontend.Variable(0), gadget.Lo)
-	mid := api.Select(gadget.IsDummy, frontend.Variable(1), gadget.Mid)
-	hi := api.Select(gadget.IsDummy, frontend.Variable(2), gadget.Hi)
-	loLimbs := gadgetlib.CanonicalLimbs(api, lo)
-	midLimbs := gadgetlib.CanonicalLimbs(api, mid)
-	hiLimbs := gadgetlib.CanonicalLimbs(api, hi)
+	loLimbs := gadgetlib.CanonicalLimbs(api, gadget.Lo)
+	midLimbs := gadgetlib.CanonicalLimbs(api, gadget.Mid)
+	hiLimbs := gadgetlib.CanonicalLimbs(api, gadget.Hi)
 	api.AssertIsEqual(gadgetlib.IsLessLimbs(api, loLimbs, midLimbs), 1)
 	api.AssertIsEqual(gadgetlib.IsLessLimbs(api, midLimbs, hiLimbs), 1)
 	return []frontend.Variable{}
 }
 
-func assertStrictlyOrdered(api frontend.API, isDummy, lo, mid, hi frontend.Variable) {
-	abstractor.CallVoid(api, AssertStrictlyOrdered{IsDummy: isDummy, Lo: lo, Mid: mid, Hi: hi})
+func assertStrictlyOrdered(api frontend.API, lo, mid, hi frontend.Variable) {
+	abstractor.CallVoid(api, AssertStrictlyOrdered{Lo: lo, Mid: mid, Hi: hi})
 }
