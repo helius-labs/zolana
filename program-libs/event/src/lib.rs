@@ -62,7 +62,7 @@ pub enum EventKind {
     Transact = 2,
     Merge = 3,
     /// Address/nullifier-tree batch append. Body is a
-    /// `zolana_merkle_tree_metadata::events::batch::BatchAddressAppendEvent`
+    /// `zolana_batched_merkle_tree::events::BatchAddressAppendEvent`
     /// (one cascade event per update), not a [`GeneralEvent`].
     BatchAddressAppend = 4,
 }

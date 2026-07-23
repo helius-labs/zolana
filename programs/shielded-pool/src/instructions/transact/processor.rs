@@ -49,7 +49,6 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
         &ix,
         &mut proof_inputs,
         transact_accounts,
-        clock.slot,
         TRANSACT,
         &resolved_outputs,
     )
@@ -117,7 +116,6 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
     ix: &TransactIxDataRef<'_>,
     proof_inputs: &mut TransactProofInputs,
     transact_accounts: TransactAccounts<'_>,
-    current_slot: u64,
     discriminator: u8,
     resolved_outputs: &[ResolvedOutput],
 ) -> ProgramResult {
@@ -137,7 +135,7 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
         )
         .map_err(tree_error)?;
 
-        apply_tree(&mut tree, ix, current_slot, output_tree, proof_inputs)?
+        apply_tree(&mut tree, ix, output_tree, proof_inputs)?
     };
 
     let (user_sol_account, user_spl_token_account, spl_token_interface) =
@@ -202,7 +200,6 @@ fn settlement_accounts(accounts: &TransactAccounts) -> ([u8; 32], [u8; 32], [u8;
 fn apply_tree(
     tree: &mut TreeAccount<'_>,
     ix: &TransactIxDataRef<'_>,
-    current_slot: u64,
     output_tree: [u8; 32],
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<TreeWrite, ProgramError> {
@@ -217,7 +214,7 @@ fn apply_tree(
             .get_nullifier_tree_root(input.nullifier_tree_root_index)
             .map_err(tree_error)?;
         tree.nullifer_tree()
-            .insert_address_into_queue(&input.nullifier_hash, &current_slot)
+            .insert_address_into_queue(&input.nullifier_hash)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
             tree: output_tree,

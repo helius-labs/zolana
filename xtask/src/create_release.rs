@@ -412,8 +412,8 @@ fn git_head() -> Result<String> {
 
 /// Build the initialized account set fully in-process with LiteSVM. No maintainer
 /// keypairs and no running validator are needed: every authority is generated
-/// here, and the pool tree is pre-allocated directly at DEFAULT_TREE_ADDRESS so
-/// its baked-in `hashed_pubkey` stays correct without the tree keypair.
+/// here, and the pool tree is pre-allocated directly at DEFAULT_TREE_ADDRESS
+/// without the tree keypair.
 fn generate_account_snapshots(options: &Options, accounts_dir: &Path) -> Result<()> {
     let shielded_so = options.deploy_dir.join("shielded_pool_program.so");
     let mut test = ZolanaProgramTest::with_program_path(&shielded_so)
@@ -448,7 +448,6 @@ fn generate_account_snapshots(options: &Options, accounts_dir: &Path) -> Result<
     let create_tree_ix = CreateTree {
         authority: authority.pubkey(),
         tree,
-        owner: authority.pubkey(),
     }
     .instruction();
     test.create_and_send_default_payer_transaction(&[create_tree_ix], &[&authority])

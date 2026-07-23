@@ -13,7 +13,6 @@ mod entrypoint {
 
 const HEIGHT: u8 = 26;
 const DISCRIMINATOR: u8 = 7;
-const OWNER: [u8; 32] = [1u8; 32];
 
 const ADDRESS_RH: usize = 120;
 const ADDRESS_NUM_ITERS: usize = 10;
@@ -90,7 +89,7 @@ pub fn process_instruction(
 #[profile]
 fn bench_init(bytes: &mut [u8], pubkey: [u8; 32]) -> ProgramResult {
     let params = InitAddressTreeAccountsInstructionData::default();
-    TreeAccount::init(bytes, DISCRIMINATOR, HEIGHT, OWNER, pubkey, params)
+    TreeAccount::init(bytes, DISCRIMINATOR, HEIGHT, pubkey, params)
         .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }
@@ -130,9 +129,9 @@ fn bench_batch_address_update(
 #[profile]
 fn bench_nullifier_insert(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> ProgramResult {
     let mut nullifier = tree.nullifer_tree();
-    for (i, value) in values.iter().enumerate() {
+    for value in values.iter() {
         nullifier
-            .insert_address_into_queue(value, &(i as u64))
+            .insert_address_into_queue(value)
             .map_err(|_| ProgramError::InvalidAccountData)?;
     }
     Ok(())

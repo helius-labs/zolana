@@ -9,7 +9,6 @@ members = [
     "program-libs/indexed-array",
     "program-libs/interface",
     "program-libs/user-registry-interface",
-    "program-libs/merkle-tree-metadata",
     "program-libs/tree",
     "program-tests/shielded-pool",
     "program-tests/spp-test-validator",
@@ -91,7 +90,6 @@ zolana-batched-merkle-tree = { path = "program-libs/batched-merkle-tree", versio
 zolana-bloom-filter = { path = "program-libs/bloom-filter", version = "0.6.0" }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
-zolana-merkle-tree-metadata = { path = "program-libs/merkle-tree-metadata", version = "0.11.0" }
 light-poseidon = "0.4.0"
 light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", rev = "862df52dd8c6099c11f795553514c654f3c2c459" }
 light-sparse-merkle-tree = "0.3.0"
