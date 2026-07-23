@@ -77,24 +77,32 @@ type Output struct {
 	NullifierPk frontend.Variable
 }
 
+const (
+	isP256      = true
+	isEddsaOnly = false
+
+	isConfidential = true
+	isZone         = false
+)
+
 func NewTransferP256ConfidentialCircuit(shape Shape) (*Circuit, error) {
-	return newCircuit(shape, true, true)
+	return newCircuit(shape, isP256, isConfidential)
 }
 
 func NewTransferConfidentialCircuit(shape Shape) (*Circuit, error) {
-	return newCircuit(shape, false, true)
+	return newCircuit(shape, isEddsaOnly, isConfidential)
 }
 
 func NewTransferP256ZoneCircuit(shape Shape) (*Circuit, error) {
-	return newCircuit(shape, true, false)
+	return newCircuit(shape, isP256, isZone)
 }
 
 func NewTransferZoneCircuit(shape Shape) (*Circuit, error) {
-	return newCircuit(shape, false, false)
+	return newCircuit(shape, isEddsaOnly, isZone)
 }
 
 func NewTransferZoneAuthorityCircuit(shape Shape) (*Circuit, error) {
-	c, err := newCircuit(shape, false, false)
+	c, err := newCircuit(shape, isEddsaOnly, isZone)
 	if err != nil {
 		return nil, err
 	}
@@ -123,31 +131,30 @@ func newCircuit(shape Shape, requiresP256, confidential bool) (*Circuit, error) 
 // Define runs the proof in the order below; each step lives in the named file.
 //
 //  1. validate layout                          (circuit.go)
-//  2. create nullifier pubkeys                 (inputs.go)
-//  3. verify p256 signature                    (p256.go)
-//  4. inputs (inputs.go):
-//     4.1. create utxo hashes
-//     4.2. verify owner binding
-//     4.3. create nullifiers
-//     4.4. verify inclusion proof
-//     4.5. verify nullifier non-inclusion proof
-//     4.6. verify every nullifier is unique
-//  5. outputs: create output utxo hashes       (outputs.go)
-//  6. verify balance conservation              (balance.go)
-//  7. check private transaction hash           (private_tx_hash.go)
-//  8. check public inputs hash                 (circuit.go)
+//  2. verify p256 signature                    (p256.go)
+//  3. inputs (inputs.go):
+//     3.1. create nullifier pubkeys
+//     3.2. create utxo hashes
+//     3.3. verify owner binding
+//     3.4. create nullifiers
+//     3.5. verify inclusion proof
+//     3.6. verify nullifier non-inclusion proof
+//     3.7. verify every nullifier is unique
+//  4. outputs: create output utxo hashes       (outputs.go)
+//  5. verify balance conservation              (balance.go)
+//  6. check private transaction hash           (private_tx_hash.go)
+//  7. check public inputs hash                 (circuit.go)
 func (c *Circuit) Define(api frontend.API) error {
 	if err := c.validateLayout(); err != nil {
 		return err
 	}
 
-	zone := !c.Confidential
+	isCustomZone := !c.Confidential
 
-	// Ownership
 	env := spendEnv{
 		requiresP256:       c.RequiresP256,
-		confidential:       c.Confidential,
-		zone:               zone,
+		isCustomZone:       c.Confidential,
+		zone:               isCustomZone,
 		zoneAuthority:      c.ZoneAuthority,
 		zoneProgramID:      c.ZoneProgramID,
 		p256SigningPkField: c.P256SigningPkField,
@@ -183,25 +190,9 @@ func (c *Circuit) Define(api frontend.API) error {
 	if c.Confidential {
 		api.AssertIsEqual(c.P256SigningPkField, env.p256PkField)
 	}
-	// Inputs
-	// TODO: move this into constrainInput
-	nullifierPks := make([]frontend.Variable, c.Shape.NInputs)
-	for i := 0; i < c.Shape.NInputs; i++ {
-		nullifierPks[i] = abstractor.Call(api, NullifierPkGadget{
-			NullifierSecret: c.Inputs[i].NullifierSecret,
-		})
-	}
-	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
-	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
-	for i := 0; i < c.Shape.NInputs; i++ {
-		inputHashes[i], addressHashes[i] = constrainInput(api, c.Inputs[i], nullifierPks[i], env)
-	}
+	inputHashes, addressHashes := c.assertInputs(api, env)
 	c.assertDistinctNullifiers(api)
-	// Outputs
-	OutputHashes := make([]frontend.Variable, c.Shape.NOutputs)
-	for i := 0; i < c.Shape.NOutputs; i++ {
-		OutputHashes[i] = constrainOutput(api, c.Outputs[i], c.Confidential, zone, c.ZoneAuthority, c.ZoneProgramID)
-	}
+	outputHashes := c.assertOutputs(api)
 
 	// Sumcheck
 	assertBalanceConservation(
@@ -213,7 +204,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		c.PublicSplAssetPubkey,
 	)
 
-	if !zone {
+	if !isCustomZone {
 		api.AssertIsEqual(c.ZoneProgramID, 0)
 	}
 	if c.ZoneAuthority {
@@ -223,7 +214,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	privateTxHash := PrivateTxHashCircuit(
 		api,
 		inputHashes,
-		OutputHashes,
+		outputHashes,
 		addressHashes,
 		c.ExternalDataHash,
 	)

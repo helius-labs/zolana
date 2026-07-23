@@ -16,9 +16,9 @@ type spendEnv struct {
 	// requiresP256 is false for the Solana-only circuit variant, which omits the
 	// P256 gadget and must therefore reject P256-owned inputs.
 	requiresP256 bool
-	// confidential routes ownership by equality to p256SigningPkField (the shared
+	// isCustomZone routes ownership by equality to p256SigningPkField (the shared
 	// P256 key's pk_field) instead of the 0 sentinel, so P256 input owners are public.
-	confidential       bool
+	isCustomZone       bool
 	p256SigningPkField frontend.Variable
 	zone               bool
 	zoneAuthority      bool
@@ -49,24 +49,37 @@ func requireIdWhenDataSet(api frontend.API, notDummy, dataHash, id frontend.Vari
 	assertZeroWhen(api, api.Mul(notDummy, dataIsSet), api.IsZero(id))
 }
 
-func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, env spendEnv) (frontend.Variable, frontend.Variable) {
-	api.AssertIsBoolean(in.IsDummy)
-	notDummy := api.Sub(1, in.IsDummy)
+func (c *Circuit) assertInputs(api frontend.API, env spendEnv) ([]frontend.Variable, []frontend.Variable) {
+	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
+	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
+	for i := 0; i < c.Shape.NInputs; i++ {
+		inputHashes[i], addressHashes[i] = constrainInput(api, c.Inputs[i], env)
+	}
+	return inputHashes, addressHashes
+}
 
+// TODO: add wrapper functions constrainZoneInput, constrainDefaultZoneInput, constrainEddsaOnlyInput, constrainP256Input
+func constrainInput(api frontend.API, in Input, env spendEnv) (frontend.Variable, frontend.Variable) {
+	api.AssertIsBoolean(in.IsDummy)
+	nullifierPk := abstractor.Call(api, NullifierPkGadget{
+		NullifierSecret: in.NullifierSecret,
+	})
+	notDummy := api.Sub(1, in.IsDummy)
+	// TODO: restructure into methods checkAddress, checkDummy, checkSpendable
 	dataIsSet := api.Sub(1, api.IsZero(in.Utxo.DataHash))
 	isAddress := api.Mul(in.IsDummy, dataIsSet)
-	isPadding := api.Sub(in.IsDummy, isAddress)
-	spendOrAddress := api.Sub(1, isPadding)
+	isDummyNotAddress := api.Sub(in.IsDummy, isAddress)
+	realOrAddress := api.Sub(1, isDummyNotAddress)
 
 	assertZeroWhen(api, in.IsDummy, in.Utxo.Amount)
-	assertZeroWhen(api, isPadding, in.Utxo.Owner)
+	assertZeroWhen(api, isDummyNotAddress, in.Utxo.Owner)
 
 	assertZeroWhen(api, isAddress, in.Utxo.Blinding)
 	assertZeroWhen(api, isAddress, in.Utxo.Asset)
 	assertZeroWhen(api, isAddress, in.Utxo.ZoneDataHash)
 	assertZeroWhen(api, isAddress, in.Utxo.ZoneProgramID)
 
-	assertEqualWhen(api, spendOrAddress, in.Utxo.Domain, UtxoDomain)
+	assertEqualWhen(api, realOrAddress, in.Utxo.Domain, UtxoDomain)
 	constrainProgramZone(api, notDummy, in.Utxo, env.zone, env.zoneAuthority, env.zoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
@@ -87,7 +100,7 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	// p256SigningPkField, so a P256 owner's pk_field is public in OwnerPkHash and is
 	// already the owner key — no substitution, so the Select is omitted.
 	var isP256, ownerKeyHash frontend.Variable
-	if env.confidential {
+	if env.isCustomZone {
 		isP256 = api.IsZero(api.Sub(in.OwnerPkHash, env.p256SigningPkField))
 		ownerKeyHash = in.OwnerPkHash
 	} else {
@@ -95,21 +108,21 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 		ownerKeyHash = api.Select(isP256, env.p256PkField, in.OwnerPkHash)
 	}
 	if !env.requiresP256 {
-		assertZeroWhen(api, spendOrAddress, isP256)
+		assertZeroWhen(api, realOrAddress, isP256)
 	}
 	ownerHash := abstractor.Call(api, OwnerHashGadget{
 		OwnerKeyHash: ownerKeyHash,
 		NullifierPk:  nullifierPk,
 	})
-	assertEqualWhen(api, spendOrAddress, ownerHash, in.Utxo.Owner)
-	assertZeroWhen(api, api.Mul(spendOrAddress, isP256), api.Sub(1, env.p256SigValid))
+	assertEqualWhen(api, realOrAddress, ownerHash, in.Utxo.Owner)
+	assertZeroWhen(api, api.Mul(realOrAddress, isP256), api.Sub(1, env.p256SigValid))
 
 	nullifier := abstractor.Call(api, NullifierGadget{
 		UtxoHash:        utxoHash,
 		Blinding:        in.Utxo.Blinding,
 		NullifierSecret: in.NullifierSecret,
 	})
-	assertEqualWhen(api, spendOrAddress, nullifier, in.Nullifier)
+	assertEqualWhen(api, realOrAddress, nullifier, in.Nullifier)
 
 	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
@@ -137,7 +150,7 @@ func (c *Circuit) assertDistinctNullifiers(api frontend.API) {
 	}
 }
 
-// NullifierPkGadget derives the public nullifier key from the secret (step 2).
+// NullifierPkGadget derives the public nullifier key from the secret (step 3.1).
 type NullifierPkGadget struct {
 	NullifierSecret frontend.Variable
 }
@@ -147,7 +160,7 @@ func (gadget NullifierPkGadget) DefineGadget(api frontend.API) interface{} {
 }
 
 // NullifierGadget derives a nullifier from the UTXO hash, its blinding, and the
-// spender's nullifier secret (step 4.3).
+// spender's nullifier secret (step 3.4).
 type NullifierGadget struct {
 	UtxoHash        frontend.Variable
 	Blinding        frontend.Variable
@@ -166,7 +179,7 @@ func (gadget NullifierGadget) DefineGadget(api frontend.API) interface{} {
 // full field values (see gadget.IsLessLimbs) — the nullifier tree's
 // indexed-value domain spans the whole field. Dummy entries (IsDummy == 1) are
 // remapped to 0 < 1 < 2, so the check always passes for them. Backs the
-// non-inclusion check in step 4.5.
+// non-inclusion check in step 3.6.
 type AssertStrictlyOrdered struct {
 	IsDummy frontend.Variable
 	Lo      frontend.Variable

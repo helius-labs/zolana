@@ -36,7 +36,7 @@ func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
 }
 
 // OwnerHashGadget binds an owner key hash to a nullifier public key — the owner
-// commitment verified in step 4.2.
+// commitment verified in step 3.3.
 type OwnerHashGadget struct {
 	OwnerKeyHash frontend.Variable
 	NullifierPk  frontend.Variable
