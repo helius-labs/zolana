@@ -182,7 +182,6 @@ func (c *Circuit) Define(api frontend.API) error {
 		api.AssertIsEqual(c.P256SigningPkField, env.p256PkField)
 	}
 	inputHashes, addressHashes := c.assertInputs(api, env)
-	c.assertDistinctNullifiers(api)
 	outputHashes := c.assertOutputs(api)
 
 	// Sumcheck

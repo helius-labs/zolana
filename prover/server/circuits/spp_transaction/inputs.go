@@ -30,6 +30,7 @@ func (c *Circuit) assertInputs(api frontend.API, env spendEnv) ([]frontend.Varia
 			inputHashes[i], addressHashes[i] = c.constrainZoneInput(api, c.Inputs[i], env)
 		}
 	}
+	c.assertDistinctNullifiers(api)
 	return inputHashes, addressHashes
 }
 
