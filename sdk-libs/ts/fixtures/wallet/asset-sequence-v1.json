@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "reservedError": {
+      "code": "ReservedAssetId",
+      "details": "ReservedAssetId(1)"
+    },
+    "resolvedMintBytes": "2020202020202020202020202020202020202020202020202020202020202020"
+  },
+  "id": "fx-p00-wallet-sequence-v1",
+  "inputs": {
+    "insertAssetId": "2",
+    "mintBytes": "2020202020202020202020202020202020202020202020202020202020202020"
+  },
+  "inventoryRow": "sdk-libs/wallet/tests/transaction.rs",
+  "owningPacket": "P00",
+  "responsibility": "pure wallet asset state sequence and error evidence",
+  "rustPath": "sdk-libs/transaction/src/wallet/asset.rs",
+  "rustSymbol": "AssetRegistry",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

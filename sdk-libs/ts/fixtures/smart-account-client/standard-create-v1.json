@@ -1,0 +1,197 @@
+{
+  "expected": {
+    "instructions": [
+      {
+        "accounts": [
+          {
+            "address": "GmY9kVi3FhrCUn2MJkzzpE6C5618YoHuGsgqHU78cKus",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "CvxpwskyftbvvXLSwsMoW7QByjo7yBeYY85nRM6WMsqy",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "2ktgiq7GNkitdMWCLmUtZm4qM8UEWerKXcL4WtAaRfPP",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "11111111111111111111111111111111",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "41gqrPgijYycTaCCzKyLfvqikMEH9fzGCwZYAKQHvMbd",
+            "signer": false,
+            "writable": true
+          }
+        ],
+        "dataBytes": "c566fde74d543211000100010000001b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b07000000000000",
+        "programId": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
+      },
+      {
+        "accounts": [
+          {
+            "address": "GmY9kVi3FhrCUn2MJkzzpE6C5618YoHuGsgqHU78cKus",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "CvxpwskyftbvvXLSwsMoW7QByjo7yBeYY85nRM6WMsqy",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "2ktgiq7GNkitdMWCLmUtZm4qM8UEWerKXcL4WtAaRfPP",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "11111111111111111111111111111111",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "9pits5NtSr7qjgYxf8CAiRbST3CfpsVs58ExNyW9YJnn",
+            "signer": false,
+            "writable": true
+          }
+        ],
+        "dataBytes": "c566fde74d54321101ca77f5636e4c00c96eae141e79ee412bc0ac098d26d010b958fb13800aa4c82c0100010000001c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c07000000000000",
+        "programId": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
+      },
+      {
+        "accounts": [
+          {
+            "address": "GmY9kVi3FhrCUn2MJkzzpE6C5618YoHuGsgqHU78cKus",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "CvxpwskyftbvvXLSwsMoW7QByjo7yBeYY85nRM6WMsqy",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "2ktgiq7GNkitdMWCLmUtZm4qM8UEWerKXcL4WtAaRfPP",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "11111111111111111111111111111111",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "4ozU3bD11Bij9sBWaRctx3eQChbeYaBDA4csb5gENoDY",
+            "signer": false,
+            "writable": true
+          }
+        ],
+        "dataBytes": "c566fde74d54321101ca77f5636e4c00c96eae141e79ee412bc0ac098d26d010b958fb13800aa4c82c0100010000001d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d07000000000000",
+        "programId": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
+      },
+      {
+        "accounts": [
+          {
+            "address": "GmY9kVi3FhrCUn2MJkzzpE6C5618YoHuGsgqHU78cKus",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "CvxpwskyftbvvXLSwsMoW7QByjo7yBeYY85nRM6WMsqy",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "2ktgiq7GNkitdMWCLmUtZm4qM8UEWerKXcL4WtAaRfPP",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "11111111111111111111111111111111",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "DgnxgGSgo81CuGtVHZy8ZWQsKuU6RQwUYiDjgdZdc4Qp",
+            "signer": false,
+            "writable": true
+          }
+        ],
+        "dataBytes": "c566fde74d54321101ca77f5636e4c00c96eae141e79ee412bc0ac098d26d010b958fb13800aa4c82c0100010000001e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e07000000000000",
+        "programId": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
+      },
+      {
+        "accounts": [
+          {
+            "address": "GmY9kVi3FhrCUn2MJkzzpE6C5618YoHuGsgqHU78cKus",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "CvxpwskyftbvvXLSwsMoW7QByjo7yBeYY85nRM6WMsqy",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "2ktgiq7GNkitdMWCLmUtZm4qM8UEWerKXcL4WtAaRfPP",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "11111111111111111111111111111111",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "7GfwwYesGFkWvAqh8vebkUFgubtpaCEfh6GvoX5f194s",
+            "signer": false,
+            "writable": true
+          }
+        ],
+        "dataBytes": "c566fde74d54321101ca77f5636e4c00c96eae141e79ee412bc0ac098d26d010b958fb13800aa4c82c0100010000001f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f07000000000000",
+        "programId": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
+      }
+    ]
+  },
+  "id": "fx-p00-smart-account-create-v1",
+  "inputs": {
+    "creator": "2ktgiq7GNkitdMWCLmUtZm4qM8UEWerKXcL4WtAaRfPP"
+  },
+  "inventoryRow": "sdk-libs/smart-account-client/src/lib.rs",
+  "owningPacket": "P00",
+  "responsibility": "smart-account production builder bytes and account flags",
+  "rustPath": "program-tests/test-utils/src/smart_account.rs",
+  "rustSymbol": "StandardAccounts::create_ixs",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

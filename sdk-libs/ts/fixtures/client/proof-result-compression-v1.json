@@ -1,0 +1,24 @@
+{
+  "expected": {
+    "aBytes": "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+    "bBytes": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+    "cBytes": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+    "commitmentBytes": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
+    "commitmentPokBytes": "1010101010101010101010101010101010101010101010101010101010101010",
+    "error": {
+      "code": "ProofParse",
+      "details": "ProofParse(\"P256-rail proof is missing its BSB22 commitment (wrong rail?)\")"
+    }
+  },
+  "id": "fx-p00-client-proof-compression-v1",
+  "inputs": {
+    "compressed": true
+  },
+  "inventoryRow": "sdk-libs/client/tests/transaction_proving.rs",
+  "owningPacket": "P00",
+  "responsibility": "prover result conversion, commitment fields, and wrong-rail error",
+  "rustPath": "sdk-libs/client/src/prover/proof.rs",
+  "rustSymbol": "ProofCompressed::to_p256_proof",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

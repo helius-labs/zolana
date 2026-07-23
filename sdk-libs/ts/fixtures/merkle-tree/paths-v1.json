@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "dummyNullifierBytes": "03fab1ba5804db36e0ad61b06ce143b73ac2c9cd9e4f5b3265f7407496a14836",
+    "indexerEmptyRootBytes": "2f68a1c58e257e42a17a6c61dff5551ed560b9922ab119d5ac8e184c9734ead9",
+    "nonInclusionPathLength": "40",
+    "statePathLength": "32"
+  },
+  "id": "fx-p00-merkle-paths-v1",
+  "inputs": {
+    "dummyBlindingBytes": "08080808080808080808080808080808080808080808080808080808080808",
+    "nullifierRootBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "stateRootBytes": "0909090909090909090909090909090909090909090909090909090909090909",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/program-test/src/indexer.rs",
+  "owningPacket": "P00",
+  "responsibility": "Merkle and non-inclusion path dimensions consumed by production witness assembly",
+  "rustPath": "sdk-libs/client/src/prover/inputs.rs",
+  "rustSymbol": "TransferInput::new_dummy",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "isDummy": "1",
+    "nullifierBytes": "03fab1ba5804db36e0ad61b06ce143b73ac2c9cd9e4f5b3265f7407496a14836",
+    "nullifierTreeRoot": "4540866244600635114649842549360310111892940575123159374096375843447573711370",
+    "utxoTreeRoot": "4086779620140571603184858294424279100703646517610843436686738259102816340233"
+  },
+  "id": "fx-p00-client-proof-input-v1",
+  "inputs": {
+    "dummyBlindingBytes": "08080808080808080808080808080808080808080808080808080808080808",
+    "ownerHashBytes": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/client/tests/steps/mod.rs",
+  "owningPacket": "P00",
+  "responsibility": "proof input field and path evidence",
+  "rustPath": "sdk-libs/client/src/prover/inputs.rs",
+  "rustSymbol": "TransferInput::new_dummy",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

@@ -1,0 +1,155 @@
+{
+  "apiDiff": {
+    "added": [],
+    "changed": [],
+    "removed": []
+  },
+  "commands": [
+    {
+      "command": "rustup run 1.97.0 cargo check -p xtask --bin ts-fixtures",
+      "exitStatus": "0",
+      "responsibility": "fixture generator compilation"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo test -p xtask --bin ts-fixtures",
+      "exitStatus": "0",
+      "responsibility": "inventory, fixture ID, secret marking, and canonical JSON tests"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo clippy -p xtask --bin ts-fixtures -- -D warnings",
+      "exitStatus": "0",
+      "responsibility": "fixture generator lint"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo fmt --all -- --check",
+      "exitStatus": "0",
+      "responsibility": "Rust formatting"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures",
+      "exitStatus": "0",
+      "responsibility": "fixture generation"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check",
+      "exitStatus": "0",
+      "responsibility": "deterministic regeneration and Rust verification"
+    },
+    {
+      "command": "cargo xtask ts-fixtures --check",
+      "exitStatus": "blocked",
+      "responsibility": "canonical command; existing xtask dispatch is outside P00 ownership"
+    },
+    {
+      "command": "npm run test:inventory",
+      "exitStatus": "blocked",
+      "responsibility": "root npm workspace is owned by P01"
+    },
+    {
+      "command": "git diff --exit-code -- sdk-libs/ts/fixtures",
+      "exitStatus": "0",
+      "responsibility": "tracked fixture diff is clean; the initial baseline remains untracked until committed"
+    },
+    {
+      "command": "git diff --check",
+      "exitStatus": "0",
+      "responsibility": "whitespace validation"
+    }
+  ],
+  "counts": {
+    "fixtureFiles": "12",
+    "inventoryDuplicate": "0",
+    "inventoryMissing": "0",
+    "inventoryRows": "182",
+    "inventoryUnknownPackets": "0",
+    "p00Rows": "7"
+  },
+  "fixtureIds": [
+    "fx-p00-api-prover-request-v1",
+    "fx-p00-client-proof-compression-v1",
+    "fx-p00-client-proof-input-v1",
+    "fx-p00-indexer-schema-v1",
+    "fx-p00-interface-deposit-v1",
+    "fx-p00-keypair-test-secret-v1",
+    "fx-p00-merkle-paths-v1",
+    "fx-p00-smart-account-create-v1",
+    "fx-p00-test-kit-standard-accounts-v1",
+    "fx-p00-transaction-values-errors-v1",
+    "fx-p00-wallet-sequence-v1",
+    "fx-workflow-instruction-deposit-v1"
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "ownedChangedPaths": [
+    "sdk-libs/ts/fixtures/api/prover-request-v1.json",
+    "sdk-libs/ts/fixtures/client/proof-input-v1.json",
+    "sdk-libs/ts/fixtures/client/proof-result-compression-v1.json",
+    "sdk-libs/ts/fixtures/indexer-api/schema-v1.json",
+    "sdk-libs/ts/fixtures/interface/deposit-instruction-v1.json",
+    "sdk-libs/ts/fixtures/keypair/test-secret-blinding-v1.json",
+    "sdk-libs/ts/fixtures/manifest.json",
+    "sdk-libs/ts/fixtures/merkle-tree/paths-v1.json",
+    "sdk-libs/ts/fixtures/smart-account-client/standard-create-v1.json",
+    "sdk-libs/ts/fixtures/test-kit/standard-accounts-v1.json",
+    "sdk-libs/ts/fixtures/transaction/values-and-errors-v1.json",
+    "sdk-libs/ts/fixtures/wallet/asset-sequence-v1.json",
+    "sdk-libs/ts/fixtures/workflows/deposit-v1.json",
+    "sdk-libs/ts/reports/inventory.json",
+    "sdk-libs/ts/reports/packets/P00.json",
+    "xtask/src/bin/ts-fixtures.rs"
+  ],
+  "p00InventoryRows": [
+    "sdk-libs/client/tests/merge/main.rs",
+    "sdk-libs/client/tests/merge_zone/main.rs",
+    "sdk-libs/client/tests/steps/mod.rs",
+    "sdk-libs/client/tests/zone_authority/main.rs",
+    "sdk-libs/client/tests/zone_transfer/main.rs",
+    "sdk-libs/keypair/tests/steps/mod.rs",
+    "sdk-libs/transaction/tests/steps/mod.rs"
+  ],
+  "p00RowEvidence": [
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/client/tests/merge/main.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/client/tests/merge_zone/main.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/client/tests/steps/mod.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/client/tests/zone_authority/main.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/client/tests/zone_transfer/main.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/keypair/tests/steps/mod.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/transaction/tests/steps/mod.rs",
+      "test": "test-inventory-exclusion-check"
+    }
+  ],
+  "packet": "P00",
+  "schema": "zolana-ts-packet-evidence-v1"
+}
