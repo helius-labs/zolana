@@ -47,8 +47,8 @@
     },
     {
       "command": "git diff --exit-code -- sdk-libs/ts/fixtures",
-      "exitStatus": "0",
-      "responsibility": "tracked fixture diff is clean; the initial baseline remains untracked until committed"
+      "exitStatus": "1 (expected)",
+      "responsibility": "reopened P00 changes the tracked Merkle fixture and manifest"
     },
     {
       "command": "git diff --check",
@@ -95,7 +95,8 @@
     "sdk-libs/ts/fixtures/workflows/deposit-v1.json",
     "sdk-libs/ts/reports/inventory.json",
     "sdk-libs/ts/reports/packets/P00.json",
-    "xtask/src/bin/ts-fixtures.rs"
+    "xtask/src/bin/ts-fixtures.rs",
+    "xtask/src/ts_fixtures_merkle.rs"
   ],
   "p00InventoryRows": [
     "sdk-libs/client/tests/merge/main.rs",

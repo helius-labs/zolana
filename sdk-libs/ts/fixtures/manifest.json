@@ -26,7 +26,7 @@
     },
     {
       "path": "merkle-tree/paths-v1.json",
-      "sha256": "d29fe860b308a5c810630a12207c6662c59110dfb18f2605a8f0886517c2500e"
+      "sha256": "58065def205d20fc6b77386fcba7b982f635c8463fc8a5eb2a0b37d93612ab15"
     },
     {
       "path": "smart-account-client/standard-create-v1.json",
@@ -67,11 +67,25 @@
       },
       {
         "features": [
+          "poseidon",
+          "sha256",
+          "keccak"
+        ],
+        "name": "zolana-hasher"
+      },
+      {
+        "features": [
           "default",
           "tree",
           "verifying-keys"
         ],
         "name": "zolana-interface"
+      },
+      {
+        "features": [
+          "default"
+        ],
+        "name": "zolana-merkle-tree"
       },
       {
         "features": [

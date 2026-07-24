@@ -28,11 +28,14 @@ const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
 const EXPECTED_FIXTURE_COUNT: usize = 12;
-const FROZEN_SOURCE_PATHS: [&str; 9] = [
+const FROZEN_SOURCE_PATHS: [&str; 12] = [
+    "program-libs/hasher/src",
+    "program-libs/indexed-array/src",
     "program-libs/interface/src/instruction",
     "program-tests/test-utils/src/smart_account.rs",
     "sdk-libs/client/src/prover",
     "sdk-libs/client/src/rpc.rs",
+    "sdk-libs/merkle-tree/src",
     "sdk-libs/program-test/src/indexer.rs",
     "sdk-libs/transaction/src/data.rs",
     "sdk-libs/transaction/src/instructions",
@@ -270,7 +273,7 @@ fn generate(root: &Path, out: &Path, inventory: &[InventoryRow]) -> Result<()> {
     }
     fs::create_dir_all(out.join("reports/packets"))?;
 
-    let records = production_fixtures()?;
+    let records = production_fixtures(root)?;
     if records.len() != EXPECTED_FIXTURE_COUNT {
         bail!(
             "generated {} fixtures, expected {EXPECTED_FIXTURE_COUNT}",
@@ -313,7 +316,7 @@ macro_rules! fixture_base {
     };
 }
 
-fn production_fixtures() -> Result<Vec<(&'static str, Value)>> {
+fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     let tree = Address::new_from_array([1; 32]);
     let depositor = Address::new_from_array([2; 32]);
     let deposit = Deposit {
@@ -434,6 +437,7 @@ fn production_fixtures() -> Result<Vec<(&'static str, Value)>> {
         public_input_hash: dummy.is_dummy.clone(),
     };
     let (prover_request, prover_result_error) = capture_prover_request(&transfer_inputs)?;
+    let merkle_vectors = production_merkle_vectors(root)?;
 
     Ok(vec![
         (
@@ -552,22 +556,35 @@ fn production_fixtures() -> Result<Vec<(&'static str, Value)>> {
             "merkle-tree/paths-v1.json",
             fixture_base!(
                 "fx-p00-merkle-paths-v1",
-                "sdk-libs/client/src/prover/inputs.rs",
-                "TransferInput::new_dummy",
+                "sdk-libs/merkle-tree/src/lib.rs; sdk-libs/merkle-tree/src/indexed.rs; program-libs/hasher/src",
+                "MerkleTree; IndexedMerkleTree; Poseidon; Sha256; Keccak",
                 "sdk-libs/program-test/src/indexer.rs",
                 "P00",
-                "Merkle and non-inclusion path dimensions consumed by production witness assembly",
+                "exact production hasher, Merkle path, indexed ordering, and non-inclusion proof bytes",
                 json!({
+                    "canopyDepth":"1",
                     "dummyBlindingBytes":hex(&[8;31]),
+                    "height":"4",
+                    "indexedInsertions":["30","10","20"],
+                    "leafBytePatterns":["01","02","03","04"],
+                    "nonInclusionQueries":["5","15","25","35"],
                     "nullifierRootBytes":hex(&[10;32]),
                     "stateRootBytes":hex(&[9;32]),
                     "testOnlySecret":true
                 }),
                 json!({
                     "dummyNullifierBytes":hex(&dummy_nullifier),
+                    "hashers":merkle_vectors["hashers"],
                     "indexerEmptyRootBytes":hex(&indexer_root),
+                    "indexed":merkle_vectors["indexed"],
                     "nonInclusionPathLength":dummy.nullifier_low_path_elements.len().to_string(),
-                    "statePathLength":dummy.state_path_elements.len().to_string()
+                    "statePathLength":dummy.state_path_elements.len().to_string(),
+                    "vectorCounts":{
+                        "hasherVectors":"3",
+                        "inclusionProofs":"12",
+                        "indexedVectors":"3",
+                        "nonInclusionProofs":"12"
+                    }
                 }),
             ),
         ),
@@ -713,6 +730,161 @@ fn capture_prover_request(inputs: &TransferInputs) -> Result<(Value, Value)> {
     Ok((request, error_json(&result_error)))
 }
 
+fn production_merkle_vectors(root: &Path) -> Result<Value> {
+    let build = Command::new("rustup")
+        .current_dir(root)
+        .args([
+            "run",
+            "1.97.0",
+            "cargo",
+            "build",
+            "-p",
+            "zolana-merkle-tree",
+            "-p",
+            "zolana-hasher",
+            "-p",
+            "num-bigint",
+        ])
+        .output()
+        .context("build production Merkle crates")?;
+    if !build.status.success() {
+        bail!(
+            "build production Merkle crates: {}",
+            String::from_utf8_lossy(&build.stderr)
+        );
+    }
+
+    let metadata: Value = serde_json::from_str(&command_text(
+        root,
+        "rustup",
+        &[
+            "run",
+            "1.97.0",
+            "cargo",
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+        ],
+    )?)?;
+    let target = PathBuf::from(
+        metadata["target_directory"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("cargo metadata lacks target_directory"))?,
+    );
+    let deps = target.join("debug/deps");
+    let binary = target.join("ts-fixtures-merkle");
+    let extern_arg = |name: &str, path: PathBuf| format!("{name}={}", path.display());
+    let compile = Command::new("rustup")
+        .current_dir(root)
+        .args([
+            "run",
+            "1.97.0",
+            "rustc",
+            "--edition=2021",
+            "xtask/src/ts_fixtures_merkle.rs",
+            "-L",
+        ])
+        .arg(format!("dependency={}", deps.display()))
+        .args(["--extern"])
+        .arg(extern_arg(
+            "zolana_merkle_tree",
+            target.join("debug/libzolana_merkle_tree.rlib"),
+        ))
+        .args(["--extern"])
+        .arg(extern_arg(
+            "zolana_hasher",
+            target.join("debug/libzolana_hasher.rlib"),
+        ))
+        .args(["--extern"])
+        .arg(extern_arg(
+            "num_bigint",
+            target.join("debug/libnum_bigint.rlib"),
+        ))
+        .arg("-o")
+        .arg(&binary)
+        .output()
+        .context("compile production Merkle fixture oracle")?;
+    if !compile.status.success() {
+        bail!(
+            "compile production Merkle fixture oracle: {}",
+            String::from_utf8_lossy(&compile.stderr)
+        );
+    }
+
+    let output = Command::new(&binary)
+        .output()
+        .context("run production Merkle fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "run production Merkle fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let start = output
+        .stdout
+        .iter()
+        .position(|byte| *byte == b'{')
+        .ok_or_else(|| anyhow::anyhow!("Merkle fixture oracle produced no JSON"))?;
+    let vectors: Value = serde_json::from_slice(&output.stdout[start..])?;
+    verify_merkle_vectors(&vectors)?;
+    Ok(vectors)
+}
+
+fn verify_merkle_vectors(vectors: &Value) -> Result<()> {
+    let hashers = vectors["hashers"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("Merkle hashers are not an array"))?;
+    let indexed = vectors["indexed"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("indexed Merkle vectors are not an array"))?;
+    if hashers.len() != 3 || indexed.len() != 3 {
+        bail!("Merkle oracle must emit three hasher and indexed vectors");
+    }
+    let mut ids = BTreeSet::new();
+    for vector in hashers {
+        register_vector_id(vector, &mut ids)?;
+        let proofs = vector["proofs"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Merkle proofs are not an array"))?;
+        if proofs.len() != 4 || proofs.iter().any(|proof| proof["verified"] != true) {
+            bail!("each hasher must emit four verified inclusion proofs");
+        }
+        for proof in proofs {
+            register_vector_id(proof, &mut ids)?;
+        }
+    }
+    for vector in indexed {
+        register_vector_id(vector, &mut ids)?;
+        let proofs = vector["nonInclusionProofs"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("non-inclusion proofs are not an array"))?;
+        if proofs.len() != 4 || proofs.iter().any(|proof| proof["verified"] != true) {
+            bail!("each hasher must emit four verified non-inclusion proofs");
+        }
+        for proof in proofs {
+            register_vector_id(proof, &mut ids)?;
+        }
+    }
+    if ids.len() != 30 {
+        bail!(
+            "Merkle oracle emitted {} unique vector IDs, expected 30",
+            ids.len()
+        );
+    }
+    Ok(())
+}
+
+fn register_vector_id(vector: &Value, ids: &mut BTreeSet<String>) -> Result<()> {
+    let id = vector["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Merkle vector lacks an ID"))?;
+    if !ids.insert(id.to_string()) {
+        bail!("duplicate Merkle vector ID {id}");
+    }
+    Ok(())
+}
+
 fn error_json(error: &impl std::fmt::Debug) -> Value {
     let debug = format!("{error:?}");
     let code = debug
@@ -785,7 +957,9 @@ fn write_manifest(root: &Path, fixtures: &Path) -> Result<()> {
             "rust":{
                 "packages":[
                     {"features":["default","solana-rpc"],"name":"zolana-client"},
+                    {"features":["poseidon","sha256","keccak"],"name":"zolana-hasher"},
                     {"features":["default","tree","verifying-keys"],"name":"zolana-interface"},
+                    {"features":["default"],"name":"zolana-merkle-tree"},
                     {"features":["default"],"name":"zolana-program-test"},
                     {"features":[],"name":"zolana-test-utils"},
                     {"features":[],"name":"zolana-transaction"}
@@ -815,6 +989,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
         "sdk-libs/ts/reports/inventory.json".to_string(),
         "sdk-libs/ts/reports/packets/P00.json".to_string(),
         "xtask/src/bin/ts-fixtures.rs".to_string(),
+        "xtask/src/ts_fixtures_merkle.rs".to_string(),
     ]);
     changed_paths.sort();
     write_json(
@@ -830,7 +1005,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check","exitStatus":"0","responsibility":"deterministic regeneration and Rust verification"},
                 {"command":"cargo xtask ts-fixtures --check","exitStatus":"blocked","responsibility":"canonical command; existing xtask dispatch is outside P00 ownership"},
                 {"command":"npm run test:inventory","exitStatus":"blocked","responsibility":"root npm workspace is owned by P01"},
-                {"command":"git diff --exit-code -- sdk-libs/ts/fixtures","exitStatus":"0","responsibility":"tracked fixture diff is clean; the initial baseline remains untracked until committed"},
+                {"command":"git diff --exit-code -- sdk-libs/ts/fixtures","exitStatus":"1 (expected)","responsibility":"reopened P00 changes the tracked Merkle fixture and manifest"},
                 {"command":"git diff --check","exitStatus":"0","responsibility":"whitespace validation"}
             ],
             "counts":{
@@ -1087,7 +1262,8 @@ mod tests {
 
     #[test]
     fn production_fixture_ids_are_unique_and_secrets_are_marked() {
-        let fixtures = production_fixtures().expect("production fixtures");
+        let root = workspace_root().expect("workspace root");
+        let fixtures = production_fixtures(&root).expect("production fixtures");
         assert_eq!(fixtures.len(), EXPECTED_FIXTURE_COUNT);
         let ids = fixtures
             .iter()
