@@ -495,8 +495,8 @@ func TestQueueNameForCircuitType(t *testing.T) {
 		expectedQueue string
 	}{
 		{common.BatchAddressAppendCircuitType, "zk_address_append_queue"},
-		{common.TransferConfidentialCircuitType, ""},     // Not queued
-		{common.TransferP256ConfidentialCircuitType, ""}, // Not queued
+		{common.TransferConfidentialCircuitType, "zk_transfer_queue"},
+		{common.TransferP256ConfidentialCircuitType, "zk_transfer_queue"},
 	}
 
 	for _, test := range tests {
@@ -951,15 +951,16 @@ func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
 		})
 	}
 
-	nonBatchTests := []common.CircuitType{
+	// Transfer circuits queue too: they route to the shared transfer queue.
+	transferTests := []common.CircuitType{
 		common.TransferConfidentialCircuitType,
 		common.TransferP256ConfidentialCircuitType,
 	}
 
-	for _, circuitType := range nonBatchTests {
-		t.Run(fmt.Sprintf("NonBatchOperation_%s", string(circuitType)), func(t *testing.T) {
+	for _, circuitType := range transferTests {
+		t.Run(fmt.Sprintf("TransferOperation_%s", string(circuitType)), func(t *testing.T) {
 			queueName := server.GetQueueNameForCircuit(circuitType)
-			expectedQueue := ""
+			expectedQueue := "zk_transfer_queue"
 			if queueName != expectedQueue {
 				t.Errorf("Expected circuit type %s to route to %s, got %s",
 					string(circuitType), expectedQueue, queueName)
