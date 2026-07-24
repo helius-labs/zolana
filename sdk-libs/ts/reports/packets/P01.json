@@ -20,6 +20,8 @@
       "select the API schema-to-transport cross-contract suite explicitly",
       "select the client cross-package and prover suites explicitly through the shared package Vitest configuration",
       "select the wallet action suite explicitly as its non-vacuous cross-package gate",
+      "route action and instruction E2E suites through independent exact Vitest selectors that reject empty suites",
+      "run live-stack E2E files serially with validated test and hook timeout overrides",
       "ignore only nested generated package artifacts and caches"
     ],
     "cargoXtaskBlocker": {
@@ -216,6 +218,36 @@
       "command": "npm run check/lint/lint:packages/format:check/test:browser/api:check/test:exports/test:dependencies/pack:check",
       "exitStatus": "0",
       "responsibility": "root build, typecheck, configuration and package lint, format, 263 unit tests, browser, API, export, dependency, inventory, and packed-consumer gates"
+    },
+    {
+      "command": "ZOLANA_PORT_OFFSET=300 npm run test:e2e:actions",
+      "exitStatus": "1",
+      "responsibility": "intentional routing probe: Vitest selected sdk-libs/ts/e2e/actions/**/*.test.ts and rejected the not-yet-created P12 suite with no test files found"
+    },
+    {
+      "command": "ZOLANA_PORT_OFFSET=400 npm run test:e2e:instructions",
+      "exitStatus": "1",
+      "responsibility": "independent routing probe: Vitest selected sdk-libs/ts/e2e/instructions/**/*.test.ts and rejected the not-yet-created P13 suite with no test files found"
+    },
+    {
+      "command": "npx eslint sdk-libs/ts/config/vitest.e2e.config.js sdk-libs/ts/config/vitest.e2e-actions.config.js sdk-libs/ts/config/vitest.e2e-instructions.config.js --max-warnings=0",
+      "exitStatus": "0",
+      "responsibility": "targeted E2E configuration lint"
+    },
+    {
+      "command": "npx prettier --check package.json sdk-libs/ts/config/vitest.e2e.config.js sdk-libs/ts/config/vitest.e2e-actions.config.js sdk-libs/ts/config/vitest.e2e-instructions.config.js",
+      "exitStatus": "0",
+      "responsibility": "targeted manifest and E2E configuration format check"
+    },
+    {
+      "command": "ZOLANA_E2E_TEST_TIMEOUT_MS=610000 ZOLANA_E2E_HOOK_TIMEOUT_MS=620000 node --input-type=module -e <assert imported action config timeouts>",
+      "exitStatus": "0",
+      "responsibility": "validated live-stack test and hook timeout environment overrides"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "responsibility": "root build, typecheck, lint, format, 304 unit tests, inventory, exports, dependencies, and API checks after E2E routing changes"
     }
   ],
   "dependencies": {
@@ -328,6 +360,9 @@
     "sdk-libs/ts/config/tsconfig.base.json",
     "sdk-libs/ts/config/typecheck.mjs",
     "sdk-libs/ts/config/vitest.api-cross.config.js",
+    "sdk-libs/ts/config/vitest.e2e-actions.config.js",
+    "sdk-libs/ts/config/vitest.e2e-instructions.config.js",
+    "sdk-libs/ts/config/vitest.e2e.config.js",
     "sdk-libs/ts/config/vitest.package.config.js",
     "sdk-libs/ts/config/vitest.property.config.js",
     "sdk-libs/ts/config/vitest.vectors.config.js",
@@ -356,8 +391,8 @@
   "packet": "P01",
   "readiness": {
     "packetCheckpoint": "ready",
-    "reopenedBlocker": "P09 and P10 can invoke non-vacuous client, prover, and wallet cross-package gates through the shared package Vitest configuration.",
-    "resolvedBlocker": "The @zolana/wallet test:cross script explicitly runs test/wallet.test.ts and propagates Vitest failures."
+    "reopenedBlocker": "P12-BLOCKER-COMMAND and the matching P13 routing gap made both stable E2E commands pass without collecting tests.",
+    "resolvedBlocker": "The root action and instruction commands now invoke separate exact Vitest selectors, inherit the Zolana service environment, support validated E2E timeout overrides, run files serially, fail on zero tests, and propagate test failures."
   },
   "schema": "zolana-ts-packet-evidence-v1"
 }
