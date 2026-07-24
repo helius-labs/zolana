@@ -1,4 +1,4 @@
-package transaction
+package shared
 
 import (
 	gadgetlib "zolana/prover/circuits/gadget"

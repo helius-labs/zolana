@@ -13,7 +13,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"zolana/prover/circuits/gadget"
-	transaction "zolana/prover/circuits/spp_transaction"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/circuits/verifiable-encryption/aes"
 	"zolana/prover/circuits/verifiable-encryption/p256"
 )

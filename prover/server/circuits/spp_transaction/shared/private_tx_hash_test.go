@@ -1,8 +1,8 @@
-package transaction_test
+package shared_test
 
 import (
 	"testing"
-	. "zolana/prover/circuits/spp_transaction"
+	. "zolana/prover/circuits/spp_transaction/shared"
 
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
@@ -11,12 +11,13 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-func TestCircuitRejectsBadOutputHash(t *testing.T) {
+func TestCircuitRejectsExternalDataHashMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.Outputs[0].Hash = spptest.Fe(999)
+	assignment.ExternalDataHash = spptest.Fe(301)
+	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }

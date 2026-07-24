@@ -1,9 +1,11 @@
-package transaction_test
+package shared_test
 
 import (
 	"math/big"
 	"testing"
-	. "zolana/prover/circuits/spp_transaction"
+
+	defaultzone "zolana/prover/circuits/spp_transaction/default"
+	. "zolana/prover/circuits/spp_transaction/shared"
 
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
@@ -13,8 +15,8 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-func MustNewDefaultZoneEddsaOnlyCircuit(shape Shape) *DefaultZoneEddsaOnlyCircuit {
-	circuit, err := NewDefaultZoneEddsaOnlyCircuit(shape)
+func MustNewDefaultZoneEddsaOnlyCircuit(shape Shape) *defaultzone.DefaultZoneEddsaOnlyCircuit {
+	circuit, err := defaultzone.NewDefaultZoneEddsaOnlyCircuit(shape)
 	if err != nil {
 		panic(err)
 	}

@@ -5,7 +5,8 @@ import (
 	"math/big"
 	"testing"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
 
@@ -32,8 +33,8 @@ func refreshStateEntry(t *testing.T, tx *ProofTransactionRequest, i int) {
 
 // mustNewCircuit builds the P256-capable circuit and panics on error -- a test
 // convenience over the error-returning txcircuit.NewCustomZoneP256Circuit.
-func mustNewCircuit(shape txcircuit.Shape) *txcircuit.CustomZoneP256Circuit {
-	circuit, err := txcircuit.NewCustomZoneP256Circuit(shape)
+func mustNewCircuit(shape txcircuit.Shape) *customzone.CustomZoneP256Circuit {
+	circuit, err := customzone.NewCustomZoneP256Circuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -41,8 +42,8 @@ func mustNewCircuit(shape txcircuit.Shape) *txcircuit.CustomZoneP256Circuit {
 }
 
 // mustNewSolanaCircuit builds the Solana-only circuit and panics on error.
-func mustNewSolanaCircuit(shape txcircuit.Shape) *txcircuit.CustomZoneEddsaOnlyCircuit {
-	circuit, err := txcircuit.NewCustomZoneEddsaOnlyCircuit(shape)
+func mustNewSolanaCircuit(shape txcircuit.Shape) *customzone.CustomZoneEddsaOnlyCircuit {
+	circuit, err := customzone.NewCustomZoneEddsaOnlyCircuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -54,10 +55,10 @@ func solveAssignment(t *testing.T, shape protocol.Shape, built proofAssignment) 
 	var circuit, witness frontend.Circuit
 	if built.transcript.requiresP256OwnerWitness {
 		circuit = mustNewCircuit(txcircuit.Shape(shape))
-		witness = &txcircuit.CustomZoneP256Circuit{Circuit: *built.circuit}
+		witness = &customzone.CustomZoneP256Circuit{Circuit: *built.circuit}
 	} else {
 		circuit = mustNewSolanaCircuit(txcircuit.Shape(shape))
-		witness = &txcircuit.CustomZoneEddsaOnlyCircuit{Circuit: *built.circuit}
+		witness = &customzone.CustomZoneEddsaOnlyCircuit{Circuit: *built.circuit}
 	}
 	if err := test.IsSolved(circuit, witness, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("assignment must solve the circuit: %v", err)

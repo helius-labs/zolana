@@ -1,10 +1,10 @@
-package transaction_test
+package shared_test
 
 import (
 	"math/big"
 	"testing"
 	"zolana/prover/circuits/gadget"
-	. "zolana/prover/circuits/spp_transaction"
+	. "zolana/prover/circuits/spp_transaction/shared"
 
 	"zolana/prover/prover-test/poseidon"
 	"zolana/prover/prover-test/spp/protocol"

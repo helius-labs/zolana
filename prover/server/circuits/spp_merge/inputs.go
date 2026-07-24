@@ -5,7 +5,7 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"zolana/prover/circuits/gadget"
-	transaction "zolana/prover/circuits/spp_transaction"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
 // constrainInput verifies one merged input: cleanliness, ownership and asset

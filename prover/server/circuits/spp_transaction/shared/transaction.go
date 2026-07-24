@@ -1,4 +1,4 @@
-package transaction
+package shared
 
 import (
 	"fmt"
@@ -11,12 +11,12 @@ import (
 )
 
 // Circuit is the shared witness layout of every SPP transaction circuit
-// variant. It carries no constraints itself; each variant embeds it and defines
-// the proof in the order below (each step lives in the named file):
+// variant. It carries no constraints itself; each variant (in the default/ and
+// custom/ packages) embeds it and defines the proof in the order below:
 //
-//  1. validate layout                          (transaction.go)
-//  2. build the spend env                      (p256 rail: circuit_default_zone_p256.go,
-//     eddsa rail: circuit_default_zone_eddsa_only.go)
+//  1. validate layout                          (ValidateLayout, transaction.go)
+//  2. build the spend env                      (P256SpendEnv / EddsaOnlySpendEnv,
+//     spend_env.go)
 //  3. inputs (inputs.go):
 //     3.1. create nullifier pubkeys
 //     3.2. create utxo hashes
@@ -57,7 +57,7 @@ type Circuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
-func newCircuit(shape Shape) (*Circuit, error) {
+func NewCircuit(shape Shape) (*Circuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func newCircuit(shape Shape) (*Circuit, error) {
 	return c, nil
 }
 
-func (c *Circuit) validateLayout() error {
+func (c *Circuit) ValidateLayout() error {
 	in, out := c.Shape.NInputs, c.Shape.NOutputs
 	if len(c.Inputs) != in {
 		return fmt.Errorf("spp: input count mismatch: got %d want %d", len(c.Inputs), in)
@@ -153,8 +153,8 @@ func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
 	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: cond, V: v})
 }
 
-// assertWhen constrains check == 1 only when cond == 1. Check functions return
+// AssertWhen constrains check == 1 only when cond == 1. Check functions return
 // an ungated satisfied bit; the kind gate is applied only at the call site.
-func assertWhen(api frontend.API, cond, check frontend.Variable) {
+func AssertWhen(api frontend.API, cond, check frontend.Variable) {
 	assertZeroWhen(api, cond, api.Sub(1, check))
 }

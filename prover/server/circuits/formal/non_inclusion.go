@@ -5,7 +5,7 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"zolana/prover/circuits/gadget"
-	transaction "zolana/prover/circuits/spp_transaction"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
 // NonInclusionProof mirrors the live nullifier-tree non-inclusion block

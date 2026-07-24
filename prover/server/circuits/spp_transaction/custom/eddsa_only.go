@@ -1,17 +1,18 @@
-package transaction
+package customzone
 
 import (
 	"zolana/prover/circuits/gadget"
+	"zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark/frontend"
 )
 
 type CustomZoneEddsaOnlyCircuit struct {
-	Circuit
+	shared.Circuit
 }
 
-func NewCustomZoneEddsaOnlyCircuit(shape Shape) (*CustomZoneEddsaOnlyCircuit, error) {
-	base, err := newCircuit(shape)
+func NewCustomZoneEddsaOnlyCircuit(shape shared.Shape) (*CustomZoneEddsaOnlyCircuit, error) {
+	base, err := shared.NewCircuit(shape)
 	if err != nil {
 		return nil, err
 	}
@@ -19,39 +20,39 @@ func NewCustomZoneEddsaOnlyCircuit(shape Shape) (*CustomZoneEddsaOnlyCircuit, er
 }
 
 func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
-	if err := c.validateLayout(); err != nil {
+	if err := c.ValidateLayout(); err != nil {
 		return err
 	}
 
-	env := c.eddsaOnlySpendEnv(api)
+	env := c.EddsaOnlySpendEnv(api)
 
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
 	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
 		in := c.Inputs[i]
-		assertWhen(api, in.isReal(api), c.checkZoneMemberOrFree(api, in.Utxo))
-		inputHashes[i], addressHashes[i] = constrainEddsaOnlyInput(api, in, env)
+		shared.AssertWhen(api, in.IsReal(api), c.CheckZoneMemberOrFree(api, in.Utxo))
+		inputHashes[i], addressHashes[i] = shared.ConstrainEddsaOnlyInput(api, in, env)
 	}
-	c.assertDistinctNullifiers(api)
+	c.AssertDistinctNullifiers(api)
 
-	signers := c.signerOwners(api)
+	signers := c.SignerOwners(api)
 	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := 0; i < c.Shape.NOutputs; i++ {
 		out := c.Outputs[i]
-		assertWhen(api, out.isReal(api), c.checkZoneMemberOrFree(api, out.Utxo))
-		outputHashes[i] = constrainOutputShared(api, out, signers)
+		shared.AssertWhen(api, out.IsReal(api), c.CheckZoneMemberOrFree(api, out.Utxo))
+		outputHashes[i] = shared.ConstrainOutputShared(api, out, signers)
 	}
 
-	assertBalanceConservation(
+	shared.AssertBalanceConservation(
 		api,
-		c.inputUtxos(),
-		c.outputUtxos(),
+		c.InputUtxos(),
+		c.OutputUtxos(),
 		c.PublicSolAmount,
 		c.PublicSplAmount,
 		c.PublicSplAssetPubkey,
 	)
 
-	privateTxHash := PrivateTxHashCircuit(
+	privateTxHash := shared.PrivateTxHashCircuit(
 		api,
 		inputHashes,
 		outputHashes,
@@ -60,11 +61,11 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	)
 	api.AssertIsEqual(privateTxHash, c.PrivateTxHash)
 
-	api.AssertIsEqual(c.PublicInputHash, c.customZonePublicInputHash(api))
+	api.AssertIsEqual(c.PublicInputHash, customZonePublicInputHash(api, &c.Circuit))
 	return nil
 }
 
-func (c *Circuit) customZonePublicInputHash(api frontend.API) frontend.Variable {
+func customZonePublicInputHash(api frontend.API, c *shared.Circuit) frontend.Variable {
 	return gadget.HashChain(api, []frontend.Variable{
 		gadget.HashChain(api, c.InputNullifiers()),
 		gadget.HashChain(api, c.OutputHashes()),

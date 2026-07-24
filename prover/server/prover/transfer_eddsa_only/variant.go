@@ -1,7 +1,9 @@
 package transfereddsaonly
 
 import (
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	defaultzone "zolana/prover/circuits/spp_transaction/default"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark/frontend"
@@ -55,11 +57,11 @@ func variantFromCircuitType(ct common.CircuitType) Variant {
 func newVariantCircuit(v Variant, shape txcircuit.Shape) (frontend.Circuit, error) {
 	switch v {
 	case ConfidentialVariant:
-		return txcircuit.NewDefaultZoneEddsaOnlyCircuit(shape)
+		return defaultzone.NewDefaultZoneEddsaOnlyCircuit(shape)
 	case ZoneAuthorityVariant:
-		return txcircuit.NewCustomZoneAuthorityCircuit(shape)
+		return customzone.NewCustomZoneAuthorityCircuit(shape)
 	default:
-		return txcircuit.NewCustomZoneEddsaOnlyCircuit(shape)
+		return customzone.NewCustomZoneEddsaOnlyCircuit(shape)
 	}
 }
 
@@ -68,10 +70,10 @@ func newVariantCircuit(v Variant, shape txcircuit.Shape) (frontend.Circuit, erro
 func wrapVariantAssignment(v Variant, core txcircuit.Circuit) frontend.Circuit {
 	switch v {
 	case ConfidentialVariant:
-		return &txcircuit.DefaultZoneEddsaOnlyCircuit{Circuit: core}
+		return &defaultzone.DefaultZoneEddsaOnlyCircuit{Circuit: core}
 	case ZoneAuthorityVariant:
-		return &txcircuit.CustomZoneAuthorityCircuit{Circuit: core}
+		return &customzone.CustomZoneAuthorityCircuit{Circuit: core}
 	default:
-		return &txcircuit.CustomZoneEddsaOnlyCircuit{Circuit: core}
+		return &customzone.CustomZoneEddsaOnlyCircuit{Circuit: core}
 	}
 }

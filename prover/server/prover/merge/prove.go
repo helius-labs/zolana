@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	mergecircuit "zolana/prover/circuits/spp_merge"
-	transaction "zolana/prover/circuits/spp_transaction"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark-crypto/ecc"

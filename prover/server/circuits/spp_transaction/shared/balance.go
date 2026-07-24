@@ -1,4 +1,4 @@
-package transaction
+package shared
 
 import (
 	"math/big"
@@ -12,7 +12,7 @@ const (
 	signedAmountBits = AmountBits + 1
 )
 
-func assertBalanceConservation(
+func AssertBalanceConservation(
 	api frontend.API,
 	inputs []UtxoCircuitFields,
 	outputs []UtxoCircuitFields,

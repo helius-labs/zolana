@@ -7,7 +7,8 @@ import (
 	"io"
 	"os"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -37,9 +38,9 @@ func Compile(shape protocol.Shape, requiresP256 bool) (constraint.ConstraintSyst
 	)
 	txShape := txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs}
 	if requiresP256 {
-		circuit, err = txcircuit.NewCustomZoneP256Circuit(txShape)
+		circuit, err = customzone.NewCustomZoneP256Circuit(txShape)
 	} else {
-		circuit, err = txcircuit.NewCustomZoneEddsaOnlyCircuit(txShape)
+		circuit, err = customzone.NewCustomZoneEddsaOnlyCircuit(txShape)
 	}
 	if err != nil {
 		return nil, err
@@ -94,9 +95,9 @@ func Verify(ps *ProofSystem, assignment *txcircuit.Circuit, proof groth16.Proof)
 // system was compiled with, selected by the ownership rail.
 func (ps *ProofSystem) wrapAssignment(assignment *txcircuit.Circuit) frontend.Circuit {
 	if ps.RequiresP256 {
-		return &txcircuit.CustomZoneP256Circuit{Circuit: *assignment}
+		return &customzone.CustomZoneP256Circuit{Circuit: *assignment}
 	}
-	return &txcircuit.CustomZoneEddsaOnlyCircuit{Circuit: *assignment}
+	return &customzone.CustomZoneEddsaOnlyCircuit{Circuit: *assignment}
 }
 
 func WriteProofSystem(ps *ProofSystem, path string, vkeyPath string) error {

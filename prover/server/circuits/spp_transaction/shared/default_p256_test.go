@@ -1,11 +1,13 @@
-package transaction_test
+package shared_test
 
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"math/big"
 	"testing"
-	. "zolana/prover/circuits/spp_transaction"
+
+	defaultzone "zolana/prover/circuits/spp_transaction/default"
+	. "zolana/prover/circuits/spp_transaction/shared"
 
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
@@ -15,8 +17,8 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-func MustNewDefaultZoneP256Circuit(shape Shape) *DefaultZoneP256Circuit {
-	circuit, err := NewDefaultZoneP256Circuit(shape)
+func MustNewDefaultZoneP256Circuit(shape Shape) *defaultzone.DefaultZoneP256Circuit {
+	circuit, err := defaultzone.NewDefaultZoneP256Circuit(shape)
 	if err != nil {
 		panic(err)
 	}

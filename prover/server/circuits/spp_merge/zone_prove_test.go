@@ -10,7 +10,7 @@ import (
 	"github.com/consensys/gnark/test"
 
 	merge "zolana/prover/circuits/spp_merge"
-	transaction "zolana/prover/circuits/spp_transaction"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
 )
 

@@ -1,4 +1,4 @@
-package transaction_test
+package shared_test
 
 import (
 	"crypto/ecdsa"
@@ -7,7 +7,10 @@ import (
 	"crypto/rand"
 	"math/big"
 	"testing"
-	. "zolana/prover/circuits/spp_transaction"
+
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	defaultzone "zolana/prover/circuits/spp_transaction/default"
+	. "zolana/prover/circuits/spp_transaction/shared"
 
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
@@ -28,20 +31,24 @@ func TestShapeValidate(t *testing.T) {
 	}
 }
 
-func asCustomZoneP256(a *Circuit) frontend.Circuit { return &CustomZoneP256Circuit{Circuit: *a} }
+func asCustomZoneP256(a *Circuit) frontend.Circuit {
+	return &customzone.CustomZoneP256Circuit{Circuit: *a}
+}
 
 func asCustomZoneEddsaOnly(a *Circuit) frontend.Circuit {
-	return &CustomZoneEddsaOnlyCircuit{Circuit: *a}
+	return &customzone.CustomZoneEddsaOnlyCircuit{Circuit: *a}
 }
 
 func asCustomZoneAuthority(a *Circuit) frontend.Circuit {
-	return &CustomZoneAuthorityCircuit{Circuit: *a}
+	return &customzone.CustomZoneAuthorityCircuit{Circuit: *a}
 }
 
-func asDefaultZoneP256(a *Circuit) frontend.Circuit { return &DefaultZoneP256Circuit{Circuit: *a} }
+func asDefaultZoneP256(a *Circuit) frontend.Circuit {
+	return &defaultzone.DefaultZoneP256Circuit{Circuit: *a}
+}
 
 func asDefaultZoneEddsaOnly(a *Circuit) frontend.Circuit {
-	return &DefaultZoneEddsaOnlyCircuit{Circuit: *a}
+	return &defaultzone.DefaultZoneEddsaOnlyCircuit{Circuit: *a}
 }
 
 func buildCircuitAssignment(t testing.TB, shape protocol.Shape) *Circuit {

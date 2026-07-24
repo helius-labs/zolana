@@ -1,8 +1,10 @@
-package transaction_test
+package shared_test
 
 import (
 	"testing"
-	. "zolana/prover/circuits/spp_transaction"
+
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	. "zolana/prover/circuits/spp_transaction/shared"
 
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
@@ -12,8 +14,8 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-func MustNewCustomZoneEddsaOnlyCircuit(shape Shape) *CustomZoneEddsaOnlyCircuit {
-	circuit, err := NewCustomZoneEddsaOnlyCircuit(shape)
+func MustNewCustomZoneEddsaOnlyCircuit(shape Shape) *customzone.CustomZoneEddsaOnlyCircuit {
+	circuit, err := customzone.NewCustomZoneEddsaOnlyCircuit(shape)
 	if err != nil {
 		panic(err)
 	}

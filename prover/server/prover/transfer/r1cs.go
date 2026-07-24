@@ -1,7 +1,9 @@
 package transfer
 
 import (
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	defaultzone "zolana/prover/circuits/spp_transaction/default"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"
@@ -31,16 +33,16 @@ func R1CSTransfer(nInputs uint32, nOutputs uint32, confidential bool) (constrain
 // (confidential) and custom zone (anonymous).
 func newP256Circuit(confidential bool, shape txcircuit.Shape) (frontend.Circuit, error) {
 	if confidential {
-		return txcircuit.NewDefaultZoneP256Circuit(shape)
+		return defaultzone.NewDefaultZoneP256Circuit(shape)
 	}
-	return txcircuit.NewCustomZoneP256Circuit(shape)
+	return customzone.NewCustomZoneP256Circuit(shape)
 }
 
 // wrapP256Assignment wraps a filled witness core in the variant circuit type so
 // gnark sees the same schema the constraint system was compiled with.
 func wrapP256Assignment(confidential bool, core txcircuit.Circuit) frontend.Circuit {
 	if confidential {
-		return &txcircuit.DefaultZoneP256Circuit{Circuit: core}
+		return &defaultzone.DefaultZoneP256Circuit{Circuit: core}
 	}
-	return &txcircuit.CustomZoneP256Circuit{Circuit: core}
+	return &customzone.CustomZoneP256Circuit{Circuit: core}
 }
