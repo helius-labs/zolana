@@ -10,9 +10,10 @@ use zolana_indexer_api::{
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
     GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
-    GetShieldedTransactionsByTagsResponse, Hash, Limit, MerkleContext, MerkleProof,
-    NonInclusionProof, NullifierQueueElement, RingsMessage, RingsOutputContext, RingsOutputSlot,
-    SerializablePubkey, SerializableSignature, ShieldedTransaction,
+    GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
+    GetShieldedTransactionsByTagsResponse, Hash, IndexedShieldedTransaction, Limit, MerkleContext,
+    MerkleProof, NonInclusionProof, NullifierQueueElement, RingsMessage, RingsOutputContext,
+    RingsOutputSlot, SerializablePubkey, SerializableSignature, ShieldedTransaction,
 };
 
 use crate::common::relative_project_path;
@@ -54,6 +55,9 @@ const RINGS_API_TEST_SPEC_FILE: &str = "rings.test.yaml";
     RingsOutputContext,
     RingsOutputSlot,
     ShieldedTransaction,
+    IndexedShieldedTransaction,
+    GetShieldedTransactionsBySignatureRequest,
+    GetShieldedTransactionsBySignatureResponse,
     GetShieldedTransactionsByTagsResponse,
     GetMerkleProofsRequest,
     GetMerkleProofsResponse,

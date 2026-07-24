@@ -6,7 +6,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetShieldedTransactionsByTags,
+        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags,
     },
     RpcMethod,
 };
@@ -16,8 +16,9 @@ pub use zolana_indexer_api::{
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
     GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
-    GetShieldedTransactionsByTagsResponse, Hash, Limit, MerkleContext, MerkleProof,
-    NonInclusionProof, NullifierQueueElement, RingsOutputContext, RingsOutputSlot,
+    GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
+    GetShieldedTransactionsByTagsResponse, Hash, IndexedShieldedTransaction, Limit, MerkleContext,
+    MerkleProof, NonInclusionProof, NullifierQueueElement, RingsOutputContext, RingsOutputSlot,
     SerializablePubkey, SerializableSignature, ShieldedTransaction, PAGE_LIMIT,
 };
 
@@ -192,6 +193,16 @@ impl ZolanaApi {
         .await
     }
 
+    pub async fn get_shielded_transactions_by_signature(
+        &self,
+        tx_signature: SerializableSignature,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ApiError> {
+        self.call::<GetShieldedTransactionsBySignature>(GetShieldedTransactionsBySignatureRequest {
+            tx_signature,
+        })
+        .await
+    }
+
     pub async fn get_merkle_proofs(
         &self,
         tree_account: SerializablePubkey,
@@ -325,6 +336,15 @@ impl BlockingZolanaApi {
             tags,
             cursor,
             limit: optional_limit(limit)?,
+        })
+    }
+
+    pub fn get_shielded_transactions_by_signature(
+        &self,
+        tx_signature: SerializableSignature,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ApiError> {
+        self.call::<GetShieldedTransactionsBySignature>(GetShieldedTransactionsBySignatureRequest {
+            tx_signature,
         })
     }
 

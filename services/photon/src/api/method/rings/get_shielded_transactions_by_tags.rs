@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use super::common::{
     bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, hash_from_vec, int_list_sql,
     next_cursor_from_rows, rings_output_slot_from_parts, signature_from_bytes, tags_sql,
-    tx_cursor_sql_condition, u64_from_i64, validate_tags,
+    tx_cursor_sql_condition, u16_from_i16, u64_from_i64, validate_tags,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::indexer_context::extract as extract_context;
@@ -14,12 +14,12 @@ use sea_orm::{
 };
 use solana_signature::SIGNATURE_BYTES;
 use zolana_indexer_api::{
-    Base64String, GetRingsByTagsRequest, GetShieldedTransactionsByTagsResponse, Hash, RingsMessage,
-    RingsOutputSlot, ShieldedTransaction,
+    Base64String, GetRingsByTagsRequest, GetShieldedTransactionsByTagsResponse, Hash,
+    IndexedShieldedTransaction, RingsMessage, RingsOutputSlot, ShieldedTransaction,
 };
 
 #[derive(FromQueryResult, Debug)]
-struct MatchedRingsTxRow {
+pub(super) struct MatchedRingsTxRow {
     rings_tx_id: i64,
     slot: i64,
     signature: Vec<u8>,
@@ -82,14 +82,33 @@ pub async fn get_shielded_transactions_by_tags(
         fetch_matching_rings_transactions(&tx, &request.tags, cursor.as_ref(), limit).await?;
     let next_cursor = next_cursor_from_rows(&matched_txs, limit, shielded_tx_cursor_from_row)?;
 
+    let transactions = hydrate_shielded_transactions(&tx, matched_txs)
+        .await?
+        .into_iter()
+        .map(|item| item.transaction)
+        .collect();
+
+    tx.commit().await?;
+
+    Ok(GetShieldedTransactionsByTagsResponse {
+        context,
+        transactions,
+        next_cursor,
+    })
+}
+
+pub(super) async fn hydrate_shielded_transactions(
+    tx: &DatabaseTransaction,
+    matched_txs: Vec<MatchedRingsTxRow>,
+) -> Result<Vec<IndexedShieldedTransaction>, PhotonApiError> {
     let rings_tx_ids = matched_txs
         .iter()
         .map(|row| row.rings_tx_id)
         .collect::<Vec<_>>();
 
-    let output_rows = fetch_rings_outputs(&tx, &rings_tx_ids).await?;
-    let message_rows = fetch_rings_messages(&tx, &rings_tx_ids).await?;
-    let nullifier_rows = fetch_rings_nullifiers(&tx, &rings_tx_ids).await?;
+    let output_rows = fetch_rings_outputs(tx, &rings_tx_ids).await?;
+    let message_rows = fetch_rings_messages(tx, &rings_tx_ids).await?;
+    let nullifier_rows = fetch_rings_nullifiers(tx, &rings_tx_ids).await?;
 
     let mut outputs_by_tx: BTreeMap<i64, Vec<RingsOutputSlot>> = BTreeMap::new();
     for row in output_rows {
@@ -124,31 +143,26 @@ pub async fn get_shielded_transactions_by_tags(
             .push(hash_from_vec(row.nullifier)?);
     }
 
-    let transactions = matched_txs
+    matched_txs
         .into_iter()
         .map(|row| {
-            Ok(ShieldedTransaction {
-                slot: u64_from_i64(row.slot, "slot")?,
-                tx_signature: signature_from_bytes(&row.signature)?,
-                tx_viewing_pk: row.tx_viewing_pk.map(Base64String),
-                salt: row.salt.map(Base64String),
-                output_slots: outputs_by_tx.remove(&row.rings_tx_id).unwrap_or_default(),
-                messages: messages_by_tx.remove(&row.rings_tx_id).unwrap_or_default(),
-                nullifiers: nullifiers_by_tx
-                    .remove(&row.rings_tx_id)
-                    .unwrap_or_default(),
-                proofless: row.proofless,
+            Ok(IndexedShieldedTransaction {
+                event_index: u16_from_i16(row.event_index, "event index")?,
+                transaction: ShieldedTransaction {
+                    slot: u64_from_i64(row.slot, "slot")?,
+                    tx_signature: signature_from_bytes(&row.signature)?,
+                    tx_viewing_pk: row.tx_viewing_pk.map(Base64String),
+                    salt: row.salt.map(Base64String),
+                    output_slots: outputs_by_tx.remove(&row.rings_tx_id).unwrap_or_default(),
+                    messages: messages_by_tx.remove(&row.rings_tx_id).unwrap_or_default(),
+                    nullifiers: nullifiers_by_tx
+                        .remove(&row.rings_tx_id)
+                        .unwrap_or_default(),
+                    proofless: row.proofless,
+                },
             })
         })
-        .collect::<Result<Vec<_>, PhotonApiError>>()?;
-
-    tx.commit().await?;
-
-    Ok(GetShieldedTransactionsByTagsResponse {
-        context,
-        transactions,
-        next_cursor,
-    })
+        .collect()
 }
 
 async fn fetch_matching_rings_transactions(
