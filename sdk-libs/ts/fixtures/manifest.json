@@ -85,8 +85,60 @@
       "sha256": "3d32fe32c4fe531b3f461aa7357168b1be0f863e76a189ad1db1774ef7544d76"
     },
     {
+      "path": "transaction/asset-v1.json",
+      "sha256": "884ab83f286d3e1b4fd98f52e1c6bf8ab6d1531347a38db0c06c6a65e28cf19a"
+    },
+    {
+      "path": "transaction/authority-v1.json",
+      "sha256": "c77fc97c8a7d8d837c07c4c9312190b844e0315e062e51d587a30af7ae94dad3"
+    },
+    {
+      "path": "transaction/data-v1.json",
+      "sha256": "e469e1dfba8e9ae80e2bad3b5f437ab2115bbf06eb05071e33437e9fb93580d3"
+    },
+    {
+      "path": "transaction/frozen-tests-v1.json",
+      "sha256": "ce1f24cadf5f1871ef122c3d857a671e7630909398b54ce6a4d25a37a7ccd7b0"
+    },
+    {
+      "path": "transaction/merge-v1.json",
+      "sha256": "ac71080a87c8ee460ffed497194f100693dd2ced775408a729c747df8ef9f522"
+    },
+    {
+      "path": "transaction/serialization-v1.json",
+      "sha256": "43c22526eb5b0e5ad921b3dfbc6cd206264467e0511289144b54998379f2701a"
+    },
+    {
+      "path": "transaction/split-v1.json",
+      "sha256": "6a420d9d3e864149a791249257a04b2e5d2943162bf81f43161d6e9d5117bd28"
+    },
+    {
+      "path": "transaction/transact-v1.json",
+      "sha256": "db071277d821570aa5c8e519ddbb29099deed3cefefef990da35d58644a0c576"
+    },
+    {
+      "path": "transaction/transfer-v1.json",
+      "sha256": "427ae297d1771c91290ec93d550274baa770800d49896a854fefb8460c1f976f"
+    },
+    {
+      "path": "transaction/utxo-v1.json",
+      "sha256": "053bcee0a040e5fea9f4b8f4477f560f7ba726c1bdd830e6806b8c050926849c"
+    },
+    {
       "path": "transaction/values-and-errors-v1.json",
       "sha256": "836dd15edee85e2b38794bb49a71ca74887916a433e5c0fd6c9d73bb0dda8fdd"
+    },
+    {
+      "path": "transaction/wallet-state-v1.json",
+      "sha256": "540241a4be8c8d3d10204375a33e54df8883e2298b88f0228d3171108e29c6c3"
+    },
+    {
+      "path": "transaction/wallet-sync-v1.json",
+      "sha256": "54322d4939cf9c4fd5bf1c8e524df3b0b09814eae427139bd637864e40be9682"
+    },
+    {
+      "path": "transaction/zone-v1.json",
+      "sha256": "ce7b443db0f7d9c88e7e17200dee926436d088840c4afea548e2a19111042966"
     },
     {
       "path": "wallet/asset-sequence-v1.json",
@@ -152,7 +204,9 @@
         "name": "zolana-test-utils"
       },
       {
-        "features": [],
+        "features": [
+          "parallel"
+        ],
         "name": "zolana-transaction"
       }
     ],

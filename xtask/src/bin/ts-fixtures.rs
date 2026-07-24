@@ -27,8 +27,8 @@ use zolana_transaction::{
 const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
-const EXPECTED_FIXTURE_COUNT: usize = 24;
-const FROZEN_SOURCE_PATHS: [&str; 13] = [
+const EXPECTED_FIXTURE_COUNT: usize = 37;
+const FROZEN_SOURCE_PATHS: [&str; 11] = [
     "program-libs/hasher/src",
     "program-libs/indexed-array/src",
     "program-libs/interface/src/instruction",
@@ -38,10 +38,8 @@ const FROZEN_SOURCE_PATHS: [&str; 13] = [
     "sdk-libs/keypair/src",
     "sdk-libs/merkle-tree/src",
     "sdk-libs/program-test/src/indexer.rs",
-    "sdk-libs/transaction/src/data.rs",
-    "sdk-libs/transaction/src/instructions",
-    "sdk-libs/transaction/src/utxo.rs",
-    "sdk-libs/transaction/src/wallet/asset.rs",
+    "sdk-libs/transaction/src",
+    "sdk-libs/transaction/tests",
 ];
 const INVENTORY_FILES: [&str; 6] = [
     "planning/typescript-sdk-port/inventory-client.md",
@@ -440,6 +438,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     let (prover_request, prover_result_error) = capture_prover_request(&transfer_inputs)?;
     let merkle_vectors = production_merkle_vectors(root)?;
     let keypair_vectors = production_keypair_vectors(root)?;
+    let transaction_vectors = production_transaction_vectors(root)?;
 
     let mut fixtures = vec![
         (
@@ -667,6 +666,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
         ),
     ];
     fixtures.extend(keypair_fixtures(&keypair_vectors)?);
+    fixtures.extend(transaction_fixtures(&transaction_vectors)?);
     Ok(fixtures)
 }
 
@@ -1218,6 +1218,299 @@ fn keypair_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
         .collect()
 }
 
+fn production_transaction_vectors(root: &Path) -> Result<Value> {
+    let artifacts = cargo_rlibs(
+        root,
+        &[
+            "build",
+            "-p",
+            "zolana-transaction",
+            "-p",
+            "zolana-api",
+            "--features",
+            "zolana-transaction/parallel",
+        ],
+    )?;
+    let metadata: Value = serde_json::from_str(&command_text(
+        root,
+        "rustup",
+        &[
+            "run",
+            "1.97.0",
+            "cargo",
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+        ],
+    )?)?;
+    let target = PathBuf::from(
+        metadata["target_directory"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("cargo metadata lacks target_directory"))?,
+    );
+    let externs = [
+        ("p256", "p256@0.13.2"),
+        ("serde_json", "serde_json@1.0.150"),
+        ("wincode", "wincode@0.5.5"),
+        ("zolana_interface", "zolana-interface@0.1.0"),
+        ("zolana_keypair", "zolana-keypair@0.1.0"),
+        ("zolana_transaction", "zolana-transaction@0.1.0"),
+    ]
+    .into_iter()
+    .map(|(name, package)| Ok((name, rlib(&artifacts, name, package)?)))
+    .collect::<Result<Vec<_>>>()?;
+
+    let binary = target.join("ts-fixtures-transaction");
+    let mut compile = Command::new("rustup");
+    compile
+        .current_dir(root)
+        .args([
+            "run",
+            "1.97.0",
+            "rustc",
+            "--edition=2021",
+            "xtask/src/ts_fixtures_transaction.rs",
+            "-L",
+        ])
+        .arg(format!(
+            "dependency={}",
+            target.join("debug/deps").display()
+        ));
+    for (name, path) in externs {
+        compile
+            .arg("--extern")
+            .arg(format!("{name}={}", path.display()));
+    }
+    let output = compile
+        .arg("-o")
+        .arg(&binary)
+        .output()
+        .context("compile production transaction fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "compile production transaction fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let output = Command::new(&binary)
+        .output()
+        .context("run production transaction fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "run production transaction fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let vectors: Value = serde_json::from_slice(&output.stdout)?;
+    verify_transaction_vectors(&vectors)?;
+    Ok(vectors)
+}
+
+fn verify_transaction_vectors(vectors: &Value) -> Result<()> {
+    let sections = [
+        "asset",
+        "authority",
+        "data",
+        "merge",
+        "serialization",
+        "split",
+        "tests",
+        "transact",
+        "transfer",
+        "utxo",
+        "wallet_state",
+        "wallet_sync",
+        "zone",
+    ];
+    let object = vectors
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("transaction oracle is not an object"))?;
+    if object.len() != sections.len() {
+        bail!(
+            "transaction oracle emitted {} sections, expected {}",
+            object.len(),
+            sections.len()
+        );
+    }
+    for section in sections {
+        if vectors[section]["inputs"]["testOnlySecret"] != true {
+            bail!("{section} transaction fixture does not mark test secrets");
+        }
+    }
+    for (section, check) in [
+        ("data", "roundTripVerified"),
+        ("wallet_sync", "parallelEquivalent"),
+    ] {
+        if section == "data" && vectors[section]["expected"][check] != true {
+            bail!("transaction oracle self-check failed: {section}.{check}");
+        }
+        if section == "wallet_sync"
+            && (vectors[section]["expected"][check]["utxosEqual"] != true
+                || vectors[section]["expected"][check]["historyEqual"] != true)
+        {
+            bail!("transaction oracle self-check failed: {section}.{check}");
+        }
+    }
+    let families = vectors["serialization"]["expected"]["families"]
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("transaction serialization families are not an object"))?;
+    if families.len() != 9 {
+        bail!(
+            "transaction oracle emitted {} serialization families, expected 9",
+            families.len()
+        );
+    }
+    Ok(())
+}
+
+fn transaction_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
+    let domains = [
+        (
+            "data",
+            "transaction/data-v1.json",
+            "fx-p00-transaction-data-v1",
+            "sdk-libs/transaction/src/data.rs",
+            "DataRecord; Data",
+            "sdk-libs/transaction/src/data.rs",
+            "record order, accessors, u16 lengths, round trips, and malformed data",
+        ),
+        (
+            "utxo",
+            "transaction/utxo-v1.json",
+            "fx-p00-transaction-utxo-v1",
+            "sdk-libs/transaction/src/utxo.rs; sdk-libs/transaction/src/instructions/types.rs",
+            "Utxo; ProofInputUtxo; SppProofInputUtxo; derive_blinding; owner_utxo_hash",
+            "sdk-libs/transaction/src/utxo.rs",
+            "UTXO fields, proof fields, hashes, nullifiers, blindings, dummies, and errors",
+        ),
+        (
+            "serialization",
+            "transaction/serialization-v1.json",
+            "fx-p00-transaction-serialization-v1",
+            "sdk-libs/transaction/src/serialization",
+            "all UtxoSerialization families and EncryptedScheme",
+            "sdk-libs/transaction/tests/features/serialization.feature",
+            "exact wincode, Borsh, fixed layouts, length prefixes, round trips, and malformed bytes",
+        ),
+        (
+            "transact",
+            "transaction/transact-v1.json",
+            "fx-p00-transaction-transact-v1",
+            "sdk-libs/transaction/src/instructions/transact",
+            "Shape; ExternalData; SppProofInputs; PrivateTxHash; InputUtxo",
+            "sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs",
+            "shape selection, external hashes, proof inputs, signed fields, wire mapping, and P256 proof widths",
+        ),
+        (
+            "transfer",
+            "transaction/transfer-v1.json",
+            "fx-p00-transaction-transfer-v1",
+            "sdk-libs/transaction/src/instructions/transact/transfer.rs",
+            "ConfidentialTransfer; PreparedTransfer; WithdrawalTarget",
+            "sdk-libs/transaction/tests/features/transfer.feature",
+            "transfer change and recipient slots, conservation, hashes, shapes, and errors",
+        ),
+        (
+            "split",
+            "transaction/split-v1.json",
+            "fx-p00-transaction-split-v1",
+            "sdk-libs/transaction/src/instructions/transact/split.rs",
+            "ConfidentialSplit; PreparedSplit",
+            "sdk-libs/transaction/tests/features/split.feature",
+            "split bundle bytes, conservation, owner-bound padding, blindings, and errors",
+        ),
+        (
+            "merge",
+            "transaction/merge-v1.json",
+            "fx-p00-transaction-merge-v1",
+            "sdk-libs/transaction/src/instructions/merge.rs",
+            "Merge; PreparedMerge; MERGE_INPUTS",
+            "sdk-libs/transaction/src/instructions/merge.rs",
+            "merge contexts, deterministic padding inputs, output hash, and validation errors",
+        ),
+        (
+            "zone",
+            "transaction/zone-v1.json",
+            "fx-p00-transaction-zone-v1",
+            "sdk-libs/transaction/src/instructions/merge_zone.rs; sdk-libs/transaction/src/instructions/zone_authority.rs",
+            "MergeZone; PreparedMergeZone; zone authority inputs",
+            "sdk-libs/transaction/src/instructions/merge_zone.rs",
+            "zone-bound input and output hashes, contexts, deterministic padding, and errors",
+        ),
+        (
+            "asset",
+            "transaction/asset-v1.json",
+            "fx-p00-transaction-asset-v1",
+            "sdk-libs/transaction/src/wallet/asset.rs",
+            "SOL_ASSET_ID; SOL_MINT; AssetRegistry",
+            "sdk-libs/transaction/tests/features/asset.feature",
+            "reserved SOL mapping, insertion, both lookups, field lookup, and conflicts",
+        ),
+        (
+            "authority",
+            "transaction/authority-v1.json",
+            "fx-p00-transaction-authority-v1",
+            "sdk-libs/transaction/src/wallet/authority.rs",
+            "WalletAuthority; SyncWalletAuthority; LocalWalletAuthority; envelopes",
+            "sdk-libs/transaction/src/wallet/authority.rs",
+            "authority material, approval input, deterministic P256 signature, and envelope fields",
+        ),
+        (
+            "wallet_state",
+            "transaction/wallet-state-v1.json",
+            "fx-p00-transaction-wallet-state-v1",
+            "sdk-libs/transaction/src/wallet/state.rs",
+            "Wallet; WalletUtxo; balances; history",
+            "sdk-libs/transaction/tests/wallet_history.rs",
+            "wallet UTXOs, spent state, filtered balances, compact balances, and history ordering",
+        ),
+        (
+            "wallet_sync",
+            "transaction/wallet-sync-v1.json",
+            "fx-p00-transaction-wallet-sync-v1",
+            "sdk-libs/transaction/src/wallet/sync.rs; sdk-libs/transaction/src/wallet/parallel.rs",
+            "Wallet::sync; sync_parallel; decrypt_transactions",
+            "sdk-libs/transaction/tests/wallet_prop.rs",
+            "incremental and idempotent sync, worker equivalence, tamper rejection, and authority errors",
+        ),
+        (
+            "tests",
+            "transaction/frozen-tests-v1.json",
+            "fx-p00-transaction-frozen-tests-v1",
+            "sdk-libs/transaction/tests",
+            "assigned frozen transaction scenarios and persisted regression seeds",
+            "sdk-libs/transaction/tests/wallet_prop.proptest-regressions",
+            "assigned scenario domains and exact persisted property regression seeds",
+        ),
+    ];
+    domains
+        .into_iter()
+        .map(
+            |(section, path, id, rust_path, symbol, inventory_row, responsibility)| {
+                let value = &vectors[section];
+                if !value.is_object() {
+                    bail!("transaction oracle lacks {section}");
+                }
+                Ok((
+                    path,
+                    fixture_base!(
+                        id,
+                        rust_path,
+                        symbol,
+                        inventory_row,
+                        "P00",
+                        responsibility,
+                        value["inputs"].clone(),
+                        value["expected"].clone(),
+                    ),
+                ))
+            },
+        )
+        .collect()
+}
+
 fn error_json(error: &impl std::fmt::Debug) -> Value {
     let debug = format!("{error:?}");
     let code = debug
@@ -1296,7 +1589,7 @@ fn write_manifest(root: &Path, fixtures: &Path) -> Result<()> {
                     {"features":["default"],"name":"zolana-merkle-tree"},
                     {"features":["default"],"name":"zolana-program-test"},
                     {"features":[],"name":"zolana-test-utils"},
-                    {"features":[],"name":"zolana-transaction"}
+                    {"features":["parallel"],"name":"zolana-transaction"}
                 ],
                 "toolchain":rustc.trim()
             },
@@ -1325,6 +1618,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
         "xtask/src/bin/ts-fixtures.rs".to_string(),
         "xtask/src/ts_fixtures_keypair.rs".to_string(),
         "xtask/src/ts_fixtures_merkle.rs".to_string(),
+        "xtask/src/ts_fixtures_transaction.rs".to_string(),
     ]);
     changed_paths.sort();
     write_json(
@@ -1336,12 +1630,14 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 {"command":"rustup run 1.97.0 cargo test -p xtask --bin ts-fixtures","exitStatus":"0","responsibility":"inventory, fixture ID, secret marking, and canonical JSON tests"},
                 {"command":"rustup run 1.97.0 cargo clippy -p xtask --bin ts-fixtures -- -D warnings","exitStatus":"0","responsibility":"fixture generator lint"},
                 {"command":"rustup run 1.97.0 cargo fmt --all -- --check","exitStatus":"0","responsibility":"Rust formatting"},
+                {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_transaction.rs","exitStatus":"0","responsibility":"standalone transaction oracle formatting"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures","exitStatus":"0","responsibility":"fixture generation"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check","exitStatus":"0","responsibility":"deterministic regeneration and Rust verification"},
                 {"command":"npm run test:vectors --workspace @zolana/keypair","exitStatus":"0","responsibility":"P04 vector baseline before fixture-loader follow-up"},
+                {"command":"npm run test:vectors --workspace @zolana/transaction","exitStatus":"0","responsibility":"P05 vector baseline before production fixture-loader follow-up"},
                 {"command":"cargo xtask ts-fixtures --check","exitStatus":"blocked","responsibility":"canonical command; existing xtask dispatch is outside P00 ownership"},
                 {"command":"npm run test:inventory","exitStatus":"blocked","responsibility":"root npm workspace is owned by P01"},
-                {"command":"git diff --exit-code -- sdk-libs/ts/fixtures","exitStatus":"1 (expected)","responsibility":"reopened P00 changes the tracked Merkle fixture and manifest"},
+                {"command":"git diff --exit-code -- sdk-libs/ts/fixtures","exitStatus":"1 (expected)","responsibility":"reopened P00 adds transaction fixtures and updates the manifest"},
                 {"command":"git diff --check","exitStatus":"0","responsibility":"whitespace validation"}
             ],
             "counts":{
@@ -1351,6 +1647,8 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 "inventoryRows":inventory.len().to_string(),
                 "inventoryUnknownPackets":"0",
                 "keypairFixtureFiles":"12",
+                "transactionFixtureFiles":"14",
+                "transactionOracleVectors":"13",
                 "p00Rows":p00_rows.len().to_string()
             },
             "fixtureIds":fixture_ids(&out.join("fixtures"))?,
@@ -1372,6 +1670,31 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                     "signing_key.json","tests.json","viewing_key.json"
                 ],
                 "testFile":"sdk-libs/ts/keypair/test/vectors/keypair-vectors.test.ts"
+            },
+            "p05FollowUp":{
+                "command":"npm run test:vectors --workspace @zolana/transaction",
+                "fixtureFiles":[
+                    "asset-v1.json","authority-v1.json","data-v1.json","frozen-tests-v1.json",
+                    "merge-v1.json","serialization-v1.json","split-v1.json","transact-v1.json",
+                    "transfer-v1.json","utxo-v1.json","values-and-errors-v1.json",
+                    "wallet-state-v1.json","wallet-sync-v1.json","zone-v1.json"
+                ],
+                "sharedFixtureFiles":[
+                    "sdk-libs/ts/fixtures/client/proof-input-v1.json",
+                    "sdk-libs/ts/fixtures/client/proof-result-compression-v1.json"
+                ],
+                "loaderChanges":[
+                    "replace hard-coded Rust literals with manifest-verified reads from sdk-libs/ts/fixtures/transaction",
+                    "parameterize codec tests over expected.families and assert exact bytes plus malformed errors",
+                    "load transfer, split, merge, zone, proof-input, asset, authority, wallet-state, and wallet-sync snapshots by fixture id",
+                    "replay frozen-tests-v1 regression seeds and assert sequential/parallel equivalence"
+                ],
+                "testFiles":[
+                    "sdk-libs/ts/transaction/test/vectors/transaction-vectors.test.ts",
+                    "sdk-libs/ts/transaction/test/serialization.test.ts",
+                    "sdk-libs/ts/transaction/test/transfer.test.ts",
+                    "sdk-libs/ts/transaction/test/wallet-sync.test.ts"
+                ]
             },
             "schema":"zolana-ts-packet-evidence-v1"
         }),

@@ -26,6 +26,11 @@
       "responsibility": "Rust formatting"
     },
     {
+      "command": "rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_transaction.rs",
+      "exitStatus": "0",
+      "responsibility": "standalone transaction oracle formatting"
+    },
+    {
       "command": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures",
       "exitStatus": "0",
       "responsibility": "fixture generation"
@@ -41,6 +46,11 @@
       "responsibility": "P04 vector baseline before fixture-loader follow-up"
     },
     {
+      "command": "npm run test:vectors --workspace @zolana/transaction",
+      "exitStatus": "0",
+      "responsibility": "P05 vector baseline before production fixture-loader follow-up"
+    },
+    {
       "command": "cargo xtask ts-fixtures --check",
       "exitStatus": "blocked",
       "responsibility": "canonical command; existing xtask dispatch is outside P00 ownership"
@@ -53,7 +63,7 @@
     {
       "command": "git diff --exit-code -- sdk-libs/ts/fixtures",
       "exitStatus": "1 (expected)",
-      "responsibility": "reopened P00 changes the tracked Merkle fixture and manifest"
+      "responsibility": "reopened P00 adds transaction fixtures and updates the manifest"
     },
     {
       "command": "git diff --check",
@@ -62,13 +72,15 @@
     }
   ],
   "counts": {
-    "fixtureFiles": "24",
+    "fixtureFiles": "37",
     "inventoryDuplicate": "0",
     "inventoryMissing": "0",
     "inventoryRows": "182",
     "inventoryUnknownPackets": "0",
     "keypairFixtureFiles": "12",
-    "p00Rows": "7"
+    "p00Rows": "7",
+    "transactionFixtureFiles": "14",
+    "transactionOracleVectors": "13"
   },
   "fixtureIds": [
     "fx-p00-api-prover-request-v1",
@@ -92,7 +104,20 @@
     "fx-p00-merkle-paths-v1",
     "fx-p00-smart-account-create-v1",
     "fx-p00-test-kit-standard-accounts-v1",
+    "fx-p00-transaction-asset-v1",
+    "fx-p00-transaction-authority-v1",
+    "fx-p00-transaction-data-v1",
+    "fx-p00-transaction-frozen-tests-v1",
+    "fx-p00-transaction-merge-v1",
+    "fx-p00-transaction-serialization-v1",
+    "fx-p00-transaction-split-v1",
+    "fx-p00-transaction-transact-v1",
+    "fx-p00-transaction-transfer-v1",
+    "fx-p00-transaction-utxo-v1",
     "fx-p00-transaction-values-errors-v1",
+    "fx-p00-transaction-wallet-state-v1",
+    "fx-p00-transaction-wallet-sync-v1",
+    "fx-p00-transaction-zone-v1",
     "fx-p00-wallet-sequence-v1",
     "fx-workflow-instruction-deposit-v1"
   ],
@@ -120,14 +145,28 @@
     "sdk-libs/ts/fixtures/merkle-tree/paths-v1.json",
     "sdk-libs/ts/fixtures/smart-account-client/standard-create-v1.json",
     "sdk-libs/ts/fixtures/test-kit/standard-accounts-v1.json",
+    "sdk-libs/ts/fixtures/transaction/asset-v1.json",
+    "sdk-libs/ts/fixtures/transaction/authority-v1.json",
+    "sdk-libs/ts/fixtures/transaction/data-v1.json",
+    "sdk-libs/ts/fixtures/transaction/frozen-tests-v1.json",
+    "sdk-libs/ts/fixtures/transaction/merge-v1.json",
+    "sdk-libs/ts/fixtures/transaction/serialization-v1.json",
+    "sdk-libs/ts/fixtures/transaction/split-v1.json",
+    "sdk-libs/ts/fixtures/transaction/transact-v1.json",
+    "sdk-libs/ts/fixtures/transaction/transfer-v1.json",
+    "sdk-libs/ts/fixtures/transaction/utxo-v1.json",
     "sdk-libs/ts/fixtures/transaction/values-and-errors-v1.json",
+    "sdk-libs/ts/fixtures/transaction/wallet-state-v1.json",
+    "sdk-libs/ts/fixtures/transaction/wallet-sync-v1.json",
+    "sdk-libs/ts/fixtures/transaction/zone-v1.json",
     "sdk-libs/ts/fixtures/wallet/asset-sequence-v1.json",
     "sdk-libs/ts/fixtures/workflows/deposit-v1.json",
     "sdk-libs/ts/reports/inventory.json",
     "sdk-libs/ts/reports/packets/P00.json",
     "xtask/src/bin/ts-fixtures.rs",
     "xtask/src/ts_fixtures_keypair.rs",
-    "xtask/src/ts_fixtures_merkle.rs"
+    "xtask/src/ts_fixtures_merkle.rs",
+    "xtask/src/ts_fixtures_transaction.rs"
   ],
   "p00InventoryRows": [
     "sdk-libs/client/tests/merge/main.rs",
@@ -199,6 +238,41 @@
       "viewing_key.json"
     ],
     "testFile": "sdk-libs/ts/keypair/test/vectors/keypair-vectors.test.ts"
+  },
+  "p05FollowUp": {
+    "command": "npm run test:vectors --workspace @zolana/transaction",
+    "fixtureFiles": [
+      "asset-v1.json",
+      "authority-v1.json",
+      "data-v1.json",
+      "frozen-tests-v1.json",
+      "merge-v1.json",
+      "serialization-v1.json",
+      "split-v1.json",
+      "transact-v1.json",
+      "transfer-v1.json",
+      "utxo-v1.json",
+      "values-and-errors-v1.json",
+      "wallet-state-v1.json",
+      "wallet-sync-v1.json",
+      "zone-v1.json"
+    ],
+    "loaderChanges": [
+      "replace hard-coded Rust literals with manifest-verified reads from sdk-libs/ts/fixtures/transaction",
+      "parameterize codec tests over expected.families and assert exact bytes plus malformed errors",
+      "load transfer, split, merge, zone, proof-input, asset, authority, wallet-state, and wallet-sync snapshots by fixture id",
+      "replay frozen-tests-v1 regression seeds and assert sequential/parallel equivalence"
+    ],
+    "sharedFixtureFiles": [
+      "sdk-libs/ts/fixtures/client/proof-input-v1.json",
+      "sdk-libs/ts/fixtures/client/proof-result-compression-v1.json"
+    ],
+    "testFiles": [
+      "sdk-libs/ts/transaction/test/vectors/transaction-vectors.test.ts",
+      "sdk-libs/ts/transaction/test/serialization.test.ts",
+      "sdk-libs/ts/transaction/test/transfer.test.ts",
+      "sdk-libs/ts/transaction/test/wallet-sync.test.ts"
+    ]
   },
   "packet": "P00",
   "schema": "zolana-ts-packet-evidence-v1"

@@ -1,0 +1,107 @@
+{
+  "expected": {
+    "decryptTransactionsBalance": "50",
+    "errors": [
+      {
+        "code": "WalletAuthorityMismatch",
+        "details": "WalletAuthorityMismatch"
+      },
+      {
+        "code": "MissingCurrentViewingKey",
+        "details": "MissingCurrentViewingKey"
+      }
+    ],
+    "parallelEquivalent": {
+      "balance": "50",
+      "historyEqual": true,
+      "report": {
+        "storedUtxos": "2",
+        "undecryptableCandidates": "0",
+        "unknownAssetIds": [],
+        "unparsedTransactions": "0"
+      },
+      "utxosEqual": true
+    },
+    "sequential": {
+      "balance": "50",
+      "historyCount": "2",
+      "lastSynced": "30",
+      "reports": [
+        {
+          "storedUtxos": "1",
+          "undecryptableCandidates": "0",
+          "unknownAssetIds": [],
+          "unparsedTransactions": "0"
+        },
+        {
+          "storedUtxos": "1",
+          "undecryptableCandidates": "0",
+          "unknownAssetIds": [],
+          "unparsedTransactions": "0"
+        },
+        {
+          "storedUtxos": "0",
+          "undecryptableCandidates": "0",
+          "unknownAssetIds": [],
+          "unparsedTransactions": "0"
+        }
+      ],
+      "utxoCount": "2"
+    },
+    "tamper": {
+      "report": {
+        "storedUtxos": "1",
+        "undecryptableCandidates": "1",
+        "unknownAssetIds": [],
+        "unparsedTransactions": "0"
+      },
+      "stateCommitRejected": true,
+      "utxoCount": "1"
+    }
+  },
+  "id": "fx-p00-transaction-wallet-sync-v1",
+  "inputs": {
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
+    "testOnlySecret": true,
+    "transactions": [
+      {
+        "nullifiers": [],
+        "outputSlots": [
+          {
+            "hashBytes": "2bc7a76ee4d9a4a73a5de2878fe0126906a07fbc7cbe71e7761bc16622ca9aef",
+            "leafIndex": "1",
+            "payloadBytes": "006e000000002b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa915875e98abbb4043bbd77fa2d8846e15833eaaae791ab2fe1e7b60aa98b3df00000000000000000000000000000000000000000000000000000000000000001400000000000000000000000000",
+            "treeBytes": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+            "viewTagBytes": "28207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+          }
+        ],
+        "proofless": true,
+        "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+        "slot": "100"
+      },
+      {
+        "nullifiers": [],
+        "outputSlots": [
+          {
+            "hashBytes": "0df4e996776bc4c3f50a2afa0a89626737e0d6d50697ceee60296a5daed475b8",
+            "leafIndex": "2",
+            "payloadBytes": "006e000000002b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa94c6a2e8b5ff71af86b3ab97bce0da8cfd29b43991e23bc14048b2f5bc34d1200000000000000000000000000000000000000000000000000000000000000001e00000000000000000000000000",
+            "treeBytes": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+            "viewTagBytes": "28207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+          }
+        ],
+        "proofless": true,
+        "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+        "slot": "101"
+      }
+    ],
+    "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808"
+  },
+  "inventoryRow": "sdk-libs/transaction/tests/wallet_prop.rs",
+  "owningPacket": "P00",
+  "responsibility": "incremental and idempotent sync, worker equivalence, tamper rejection, and authority errors",
+  "rustPath": "sdk-libs/transaction/src/wallet/sync.rs; sdk-libs/transaction/src/wallet/parallel.rs",
+  "rustSymbol": "Wallet::sync; sync_parallel; decrypt_transactions",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}
