@@ -1,0 +1,106 @@
+{
+  "apiDiff": {
+    "added": [],
+    "changed": [],
+    "removed": []
+  },
+  "blockers": [
+    {
+      "command": "npm run check --workspace @zolana/interface",
+      "reason": "The P01-owned interface package manifest has no check script. Its build, typecheck, lint, format, unit, vector, browser, pack, and API responsibilities were run directly.",
+      "status": "blocked"
+    },
+    {
+      "command": "npm run pack:check",
+      "reason": "The shared workspace build stopped in concurrently implemented @zolana/merkle-tree because its P01-owned manifest does not declare @zolana/interface. The interface package itself built and passed npm pack --dry-run.",
+      "status": "blocked"
+    }
+  ],
+  "commands": [
+    {
+      "command": "npm run build --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "ESM, declarations, declaration maps, and source maps"
+    },
+    {
+      "command": "npm run typecheck --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "strict TypeScript validation"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/interface/src/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "production source lint"
+    },
+    {
+      "command": "npx prettier --check \"sdk-libs/ts/interface/src/**/*.ts\" \"sdk-libs/ts/interface/test/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "source and test formatting"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "15 unit, negative, boundary, ownership, property-loop, and mutation tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "P00 deposit fixture bytes, account order, and account flags"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "browser bundle and forbidden-global validation"
+    },
+    {
+      "command": "npm run api:check --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "root and pda, codecs, and instructions export validation"
+    },
+    {
+      "command": "npm pack --dry-run --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "interface tarball contents and four entry points"
+    },
+    {
+      "command": "git diff --check -- sdk-libs/ts/interface/src sdk-libs/ts/interface/test sdk-libs/ts/reports/packets/P02.json",
+      "exitStatus": "0",
+      "responsibility": "owned-path whitespace validation"
+    }
+  ],
+  "counts": {
+    "accountCodecs": "4",
+    "instructionBuilders": "19",
+    "instructionTags": "18",
+    "interfaceDeclarations": "74",
+    "pdaFunctions": "8",
+    "productionDependenciesAdded": "0",
+    "tests": "15",
+    "vectorTests": "1"
+  },
+  "fixtureIds": ["fx-p00-interface-deposit-v1", "fx-workflow-instruction-deposit-v1"],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "ownedChangedPaths": [
+    "sdk-libs/ts/interface/src/codecs/index.ts",
+    "sdk-libs/ts/interface/src/errors.ts",
+    "sdk-libs/ts/interface/src/index.ts",
+    "sdk-libs/ts/interface/src/instructions/index.ts",
+    "sdk-libs/ts/interface/src/internal.ts",
+    "sdk-libs/ts/interface/src/pda/index.ts",
+    "sdk-libs/ts/interface/test/interface.test.ts",
+    "sdk-libs/ts/interface/test/vectors/interface-vector.test.ts",
+    "sdk-libs/ts/reports/packets/P02.json"
+  ],
+  "packet": "P02",
+  "qualityPass": {
+    "comments": "No production comments were required; names express the layouts and validation.",
+    "dependencyDecision": "No dependency is required. Browser-safe base58, SHA-256, Ed25519 point checks, binary readers/writers, and PDA derivation use existing JavaScript primitives.",
+    "simplifications": [
+      "centralized integer, address, byte, reader, writer, and PDA validation",
+      "shared SOL/SPL settlement account construction across transact variants",
+      "shared zone transact construction without exporting implementation helpers",
+      "kept exact public entry-point allowlists while leaving generic machinery internal"
+    ]
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}
