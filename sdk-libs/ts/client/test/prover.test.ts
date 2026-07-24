@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+
+import { ClientError } from "../src/index.js";
+import { compressProof } from "../src/prover/index.js";
+import { parseProof } from "../src/prover/proof.js";
+import "./prover/eddsa.test.js";
+import "./prover/p256.test.js";
+
+const ZERO_POINT = ["0x0", "0x0"];
+const ZERO_PROOF = {
+  ar: ZERO_POINT,
+  bs: [ZERO_POINT, ZERO_POINT],
+  krs: ZERO_POINT,
+};
+
+function expectCode(operation: () => unknown, code: string): ClientError {
+  try {
+    operation();
+  } catch (error) {
+    expect(error).toBeInstanceOf(ClientError);
+    expect((error as ClientError).code).toBe(code);
+    return error as ClientError;
+  }
+  throw new Error("expected operation to fail");
+}
+
+describe("prover proof conversion", () => {
+  it("ports the frozen zero-point gnark response and eddsa packing exactly", () => {
+    const proof = parseProof({ proof: ZERO_PROOF }, false);
+    const compressed = compressProof(proof);
+
+    expect(compressed.a).toEqual(new Uint8Array(32));
+    expect(compressed.b).toEqual(new Uint8Array(64));
+    expect(compressed.c).toEqual(new Uint8Array(32));
+    expect(compressed.toTransactProof()).toEqual({
+      rail: "eddsa",
+      a: new Uint8Array(32),
+      b: new Uint8Array(64),
+      c: new Uint8Array(32),
+    });
+  });
+
+  it("preserves both mandatory P256 commitment points", () => {
+    const proof = parseProof(
+      {
+        ...ZERO_PROOF,
+        proof_commitment: ZERO_POINT,
+        proof_commitment_pok: ZERO_POINT,
+      },
+      true,
+    );
+
+    expect(compressProof(proof).toTransactProof()).toEqual({
+      rail: "p256",
+      a: new Uint8Array(32),
+      b: new Uint8Array(64),
+      c: new Uint8Array(32),
+      commitment: new Uint8Array(32),
+      commitmentPok: new Uint8Array(32),
+    });
+  });
+
+  it("rejects rail confusion, partial commitments, unknown fields, and malformed points", () => {
+    expectCode(() => parseProof(ZERO_PROOF, true), "CLIENT_PROOF_RAIL_MISMATCH");
+    expectCode(
+      () => parseProof({ ...ZERO_PROOF, proof_commitment: ZERO_POINT }, true),
+      "CLIENT_PROOF_PARSE",
+    );
+    expectCode(() => parseProof({ ...ZERO_PROOF, extra: 1 }, false), "CLIENT_PROOF_PARSE");
+    expectCode(
+      () => parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x1"] }, false),
+      "CLIENT_PROOF_POINT",
+    );
+  });
+
+  it("negates proof A over the BN254 base field before compression", () => {
+    const proof = parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x2"], krs: ["0x1", "0x2"] }, false);
+    const compressed = compressProof(proof);
+
+    expect(compressed.a[0]).toBe(0x80);
+    expect(compressed.a[31]).toBe(1);
+    expect((compressed.a[0] ?? 0) & 0x80).toBe(0x80);
+    expect((compressed.c[0] ?? 0) & 0x80).toBe(0);
+  });
+});

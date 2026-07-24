@@ -1,0 +1,247 @@
+{
+  "apiDiff": {
+    "added": [
+      "@zolana/client root: ClientError, IndexerPollConfig, IndexerRpcConfig, RpcContext, MerkleContext, MerkleProof, NonInclusionProof, GetMerkleProofsResponse, GetNonInclusionProofsResponse, SpendProof, Rpc, SolanaRpc, ZolanaIndexer, SignedPrivateTransaction, ZolanaClient",
+      "@zolana/client/prover: Shape, Field, SpendProof, TransferInput, TransferOutput, TransferInputs, TransferP256Inputs, ProverInputs, AssembledTransfer, Proof, CompressedProof, ProverClient, assemble, intoProver, compressProof, canonicalShape, resolveShape"
+    ],
+    "changed": [],
+    "removed": []
+  },
+  "blockers": [],
+  "commands": [
+    {
+      "command": "npm run test:unit --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "56 RPC, indexer, prover, assembly, mixed-rail, retry, malformed/tamper, abort/timeout, unsigned-message, and signature-bound confirmation tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "30 behavioral vectors consuming all five client fixtures plus api/prover-request-v1.json"
+    },
+    {
+      "command": "npm run test:cross --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "12 non-vacuous exact RPC/indexer conversion, ordering, retry, unsigned-response, and confirmation tests"
+    },
+    {
+      "command": "npm run test:prover --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "9 non-vacuous EdDSA/P256 request, proof, mixed-rail, retry, abort, timeout, and malformed tests"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "browser bundle has no Node-only production global"
+    },
+    {
+      "command": "npm run typecheck --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "strict client source and test types"
+    },
+    {
+      "command": "npm run build --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "ES2022 ESM and declarations"
+    },
+    {
+      "command": "npm run api:check --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "exact root and prover allowlist"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/client/{src,test}/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "owned source and test lint"
+    },
+    {
+      "command": "npx prettier --check \"sdk-libs/ts/client/src/**/*.ts\" \"sdk-libs/ts/client/test/**/*.ts\" \"sdk-libs/ts/reports/packets/P09.json\"",
+      "exitStatus": "0",
+      "responsibility": "owned source and test formatting"
+    },
+    {
+      "command": "npm run test:dependencies && npm run test:exports && npm run test:inventory",
+      "exitStatus": "0",
+      "responsibility": "shared dependency, export, and 182-row inventory gates"
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "0",
+      "responsibility": "40 manifest-pinned fixtures with SHA256 verification and 182 inventory rows"
+    },
+    {
+      "command": "npm pack --dry-run --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "49-file package containing manifest and dist output"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "responsibility": "shared build, typecheck, lint, format, 257 tests, inventory, exports, dependencies, and API checks"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "responsibility": "shared packed consumers installed all package entry points"
+    }
+  ],
+  "dependencies": {
+    "production": [
+      "@zolana/api",
+      "@zolana/indexer-api",
+      "@zolana/interface",
+      "@zolana/keypair",
+      "@zolana/transaction"
+    ],
+    "status": "All declared production dependencies resolve; dependency, export, mixed-rail, cross, prover, and fixture gates pass with zero gaps."
+  },
+  "fixtureCoverage": [
+    {
+      "id": "fx-p00-client-proof-input-v1",
+      "tests": ["client/test/vectors/client-vectors.test.ts"],
+      "assertions": "dummy nullifier and dummy marker"
+    },
+    {
+      "id": "fx-p00-client-proof-compression-v1",
+      "tests": ["client/test/vectors/client-vectors.test.ts"],
+      "assertions": "exact compressed A/B/C/commitment/commitment-PoK bytes and wrong-rail error"
+    },
+    {
+      "id": "fx-p00-client-proof-validity-v1",
+      "tests": [
+        "client/test/vectors/proof-compression.test.ts",
+        "client/test/prover/eddsa.test.ts",
+        "client/test/prover/p256.test.ts"
+      ],
+      "assertions": "exact valid vanilla and BSB22 uncompressed/compressed points plus malformed, off-curve, partial-commitment, and wrong-rail rejection"
+    },
+    {
+      "id": "fx-p00-client-prover-shapes-v1",
+      "tests": [
+        "client/test/vectors/prover-inputs.test.ts",
+        "client/test/prover/eddsa.test.ts",
+        "client/test/prover/p256.test.ts"
+      ],
+      "assertions": "all 10 supported shapes on both rails: every witness field, prover JSON field, public-input hash, and transact bytes before/after proof; corrected mixed P256/EdDSA regression"
+    },
+    {
+      "id": "fx-p00-client-rpc-indexer-v1",
+      "tests": [
+        "client/test/indexer-client.test.ts",
+        "client/test/solana-rpc.test.ts",
+        "client/test/vectors/unsigned-message.test.ts"
+      ],
+      "assertions": "exact Merkle/non-inclusion fields, ordered/reordered leaves, capped delays, lag error, direct/inner tags, missing transact, both unsigned legacy messages, and wrong-signature timeout"
+    },
+    {
+      "id": "fx-p00-api-prover-request-v1",
+      "tests": ["client/test/vectors/prover-request.test.ts"],
+      "assertions": "complete deterministic dummy witness request JSON"
+    }
+  ],
+  "fixtureIds": [
+    "fx-p00-client-proof-input-v1",
+    "fx-p00-client-proof-compression-v1",
+    "fx-p00-client-proof-validity-v1",
+    "fx-p00-client-prover-shapes-v1",
+    "fx-p00-client-rpc-indexer-v1",
+    "fx-p00-api-prover-request-v1"
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "inventoryRows": [
+    "sdk-libs/client/src/client.rs",
+    "sdk-libs/client/src/error.rs",
+    "sdk-libs/client/src/indexer.rs",
+    "sdk-libs/client/src/lib.rs",
+    "sdk-libs/client/src/prover/client.rs",
+    "sdk-libs/client/src/prover/field.rs",
+    "sdk-libs/client/src/prover/inputs.rs",
+    "sdk-libs/client/src/prover/json.rs",
+    "sdk-libs/client/src/prover/merge.rs",
+    "sdk-libs/client/src/prover/merge_zone.rs",
+    "sdk-libs/client/src/prover/mod.rs",
+    "sdk-libs/client/src/prover/proof.rs",
+    "sdk-libs/client/src/prover/transact/eddsa.rs",
+    "sdk-libs/client/src/prover/transact/mod.rs",
+    "sdk-libs/client/src/prover/transact/p256_and_eddsa.rs",
+    "sdk-libs/client/src/prover/transact/witness.rs",
+    "sdk-libs/client/src/prover/transact/zone_eddsa.rs",
+    "sdk-libs/client/src/prover/transact/zone_p256.rs",
+    "sdk-libs/client/src/prover/zone_authority.rs",
+    "sdk-libs/client/src/retry.rs",
+    "sdk-libs/client/src/rpc.rs",
+    "sdk-libs/client/src/solana_rpc.rs",
+    "sdk-libs/client/tests/features/eddsa_p256_transaction.feature",
+    "sdk-libs/client/tests/features/eddsa_transaction.feature",
+    "sdk-libs/client/tests/features/p256_transaction.feature",
+    "sdk-libs/client/tests/merge/features/merge.feature",
+    "sdk-libs/client/tests/merge/steps.rs",
+    "sdk-libs/client/tests/merge/world.rs",
+    "sdk-libs/client/tests/merge_zone/features/merge_zone.feature",
+    "sdk-libs/client/tests/merge_zone/steps.rs",
+    "sdk-libs/client/tests/merge_zone/world.rs",
+    "sdk-libs/client/tests/prover.rs",
+    "sdk-libs/client/tests/solana_rpc.rs",
+    "sdk-libs/client/tests/steps/input.rs",
+    "sdk-libs/client/tests/steps/transfer.rs",
+    "sdk-libs/client/tests/test_indexer.rs",
+    "sdk-libs/client/tests/transaction_proving.rs",
+    "sdk-libs/client/tests/transfer_dummy.rs",
+    "sdk-libs/client/tests/world.rs",
+    "sdk-libs/client/tests/zone_authority/features/zone_authority.feature",
+    "sdk-libs/client/tests/zone_authority/steps.rs",
+    "sdk-libs/client/tests/zone_authority/world.rs",
+    "sdk-libs/client/tests/zone_transfer/features/zone_transfer.feature",
+    "sdk-libs/client/tests/zone_transfer/steps.rs",
+    "sdk-libs/client/tests/zone_transfer/world.rs"
+  ],
+  "ownedChangedPaths": [
+    "sdk-libs/ts/client/src/client.ts",
+    "sdk-libs/ts/client/src/error.ts",
+    "sdk-libs/ts/client/src/index.ts",
+    "sdk-libs/ts/client/src/indexer.ts",
+    "sdk-libs/ts/client/src/internal.ts",
+    "sdk-libs/ts/client/src/prover/assembly.ts",
+    "sdk-libs/ts/client/src/prover/client.ts",
+    "sdk-libs/ts/client/src/prover/index.ts",
+    "sdk-libs/ts/client/src/prover/proof.ts",
+    "sdk-libs/ts/client/src/prover/types.ts",
+    "sdk-libs/ts/client/src/rpc.ts",
+    "sdk-libs/ts/client/src/solana-rpc.ts",
+    "sdk-libs/ts/client/test/helpers/prover-vectors.ts",
+    "sdk-libs/ts/client/test/indexer-client.test.ts",
+    "sdk-libs/ts/client/test/prover.test.ts",
+    "sdk-libs/ts/client/test/prover/eddsa.test.ts",
+    "sdk-libs/ts/client/test/prover/p256.test.ts",
+    "sdk-libs/ts/client/test/solana-rpc.test.ts",
+    "sdk-libs/ts/client/test/vectors/client-vectors.test.ts",
+    "sdk-libs/ts/client/test/vectors/proof-compression.test.ts",
+    "sdk-libs/ts/client/test/vectors/prover-inputs.test.ts",
+    "sdk-libs/ts/client/test/vectors/prover-request.test.ts",
+    "sdk-libs/ts/client/test/vectors/unsigned-message.test.ts",
+    "sdk-libs/ts/reports/packets/P09.json"
+  ],
+  "packet": "P09",
+  "qualityPass": {
+    "edits": [
+      "centralized checked fixed-byte, field, base58/base64, Poseidon, timeout, abort, and retry helpers",
+      "kept wire indexer objects separate and copied every semantic proof byte",
+      "used a single witness assembly pass for prover public inputs and instruction fields",
+      "matched frozen PrivateTxHash Poseidon inputs, full-width P256 witness integers, P256 coordinate recovery, and BN254 base-field proof negation",
+      "validated both BN254 point rails and retained BSB22 commitments only on P256",
+      "compiled unsigned legacy Solana messages with canonical account ordering and external signature slots",
+      "applied caller-provided proof polling backoff exactly",
+      "bound Photon completion to both transaction signature and output tags",
+      "removed all resolved P00, P01, and P05 blocker paths after their exact regression gates passed"
+    ],
+    "finalReview": "All 45 rows are implemented and source-proven. The final simplification, code-quality, and comment pass found no narration comments, vague prose, compatibility shim, placeholder, wallet-key acceptance, raw wallet export, or Node-only production global."
+  },
+  "readiness": {
+    "aggregateBlockers": [],
+    "dependencyGaps": 0,
+    "inventoryRowsClosed": 45,
+    "implementation": "complete",
+    "packetCheckpoint": "ready"
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}
