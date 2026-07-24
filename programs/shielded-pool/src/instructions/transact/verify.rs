@@ -156,16 +156,25 @@ impl<'a> TransactProof<'a> {
             [0u8; 32]
         };
 
-        let public_spl_asset_pubkey = match self.derived.spl_mint {
-            Some(mint) => hash_field(&mint)?,
-            None => [0u8; 32],
+        // Public movement slots interleaved as (asset, amount) pairs, slot 0 the
+        // SOL leg and slot 1 the SPL leg. A slot's asset id is public only while
+        // its amount moves; idle slots are pinned to (0, 0) by the circuit.
+        let sol_slot_asset = if self.ix.public_sol_amount.unwrap_or(0) != 0 {
+            zolana_interface::SOL_ASSET_FIELD
+        } else {
+            [0u8; 32]
+        };
+        let spl_slot_asset = match self.derived.spl_mint {
+            Some(mint) if self.ix.public_spl_amount.unwrap_or(0) != 0 => hash_field(&mint)?,
+            _ => [0u8; 32],
         };
 
-        // Mirrors the Go circuit `publicInputHash` (spp_transaction/circuit.go): a
-        // 12-element base, then `input_owner_pk_hashes` for every variant except the
-        // zone-authority one (owners stay private and do not sign), then the
-        // confidential appendix (`output_owner_pk_hashes`, `p256_signing_pk_field`)
-        // only for the confidential (non-zone) variant.
+        // Mirrors the Go circuit variant `publicInputHash` builders
+        // (spp_transaction/default and /custom): a 13-element base, then
+        // `input_owner_pk_hashes` for every variant except the zone-authority one
+        // (owners stay private and do not sign), then the confidential appendix
+        // (`output_owner_pk_hashes`, `p256_signing_pk_field`) only for the
+        // confidential (non-zone) variant.
         let mut fields: ArrayVec<[[u8; 32]; 16]> = ArrayVec::new();
         fields.extend_from_slice(&[
             self.nullifier_chain()?,
@@ -175,9 +184,10 @@ impl<'a> TransactProof<'a> {
             *self.ix.private_tx_hash,
             hash_field(&p256_message_hash)?,
             self.derived.external_data_hash,
+            sol_slot_asset,
             amount_field(self.ix.public_sol_amount),
+            spl_slot_asset,
             amount_field(self.ix.public_spl_amount),
-            public_spl_asset_pubkey,
             self.derived.zone_program_id,
             self.derived.payer_pubkey_hash,
         ]);

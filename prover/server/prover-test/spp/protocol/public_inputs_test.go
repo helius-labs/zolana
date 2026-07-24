@@ -10,39 +10,44 @@ import (
 )
 
 type publicInputHashVector struct {
-	Nullifiers           []string `json:"nullifiers"`
-	OutputUtxoHashes     []string `json:"output_utxo_hashes"`
-	UtxoTreeRoots        []string `json:"utxo_tree_roots"`
-	NullifierTreeRoots   []string `json:"nullifier_tree_roots"`
-	PrivateTxHash        string   `json:"private_tx_hash"`
-	P256MessageHash      string   `json:"p256_message_hash"`
-	ExternalDataHash     string   `json:"external_data_hash"`
-	PublicSolAmount      string   `json:"public_sol_amount"`
-	PublicSplAmount      string   `json:"public_spl_amount"`
-	PublicSplAssetPubkey string   `json:"public_spl_asset_pubkey"`
-	ZoneProgramID        string   `json:"zone_program_id"`
-	PayerPubkeyHash      string   `json:"payer_pubkey_hash"`
-	InputOwnerPkHashes   []string `json:"input_owner_pk_hashes"`
-	PublicInputHash      string   `json:"public_input_hash"`
+	Nullifiers         []string `json:"nullifiers"`
+	OutputUtxoHashes   []string `json:"output_utxo_hashes"`
+	UtxoTreeRoots      []string `json:"utxo_tree_roots"`
+	NullifierTreeRoots []string `json:"nullifier_tree_roots"`
+	PrivateTxHash      string   `json:"private_tx_hash"`
+	P256MessageHash    string   `json:"p256_message_hash"`
+	ExternalDataHash   string   `json:"external_data_hash"`
+	PublicAssets       []string `json:"public_assets"`
+	PublicAmounts      []string `json:"public_amounts"`
+	ZoneProgramID      string   `json:"zone_program_id"`
+	PayerPubkeyHash    string   `json:"payer_pubkey_hash"`
+	InputOwnerPkHashes []string `json:"input_owner_pk_hashes"`
+	PublicInputHash    string   `json:"public_input_hash"`
 }
 
 func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 	vector := readPublicInputHashVector(t)
-	got, err := PublicInputHash(PublicInputs{
-		Nullifiers:           parseFields(t, vector.Nullifiers),
-		OutputUtxoHashes:     parseFields(t, vector.OutputUtxoHashes),
-		UtxoTreeRoots:        parseFields(t, vector.UtxoTreeRoots),
-		NullifierTreeRoots:   parseFields(t, vector.NullifierTreeRoots),
-		PrivateTxHash:        parseField(t, vector.PrivateTxHash),
-		P256MessageHash:      parseField(t, vector.P256MessageHash),
-		ExternalDataHash:     parseField(t, vector.ExternalDataHash),
-		PublicSolAmount:      parseField(t, vector.PublicSolAmount),
-		PublicSplAmount:      parseField(t, vector.PublicSplAmount),
-		PublicSplAssetPubkey: parseField(t, vector.PublicSplAssetPubkey),
-		ZoneProgramID:        parseField(t, vector.ZoneProgramID),
-		PayerPubkeyHash:      parseField(t, vector.PayerPubkeyHash),
-		InputOwnerPkHashes:   parseFields(t, vector.InputOwnerPkHashes),
-	})
+	if len(vector.PublicAssets) != NPublicSlots || len(vector.PublicAmounts) != NPublicSlots {
+		t.Fatalf("vector public slot count: got %d assets and %d amounts, want %d",
+			len(vector.PublicAssets), len(vector.PublicAmounts), NPublicSlots)
+	}
+	inputs := PublicInputs{
+		Nullifiers:         parseFields(t, vector.Nullifiers),
+		OutputUtxoHashes:   parseFields(t, vector.OutputUtxoHashes),
+		UtxoTreeRoots:      parseFields(t, vector.UtxoTreeRoots),
+		NullifierTreeRoots: parseFields(t, vector.NullifierTreeRoots),
+		PrivateTxHash:      parseField(t, vector.PrivateTxHash),
+		P256MessageHash:    parseField(t, vector.P256MessageHash),
+		ExternalDataHash:   parseField(t, vector.ExternalDataHash),
+		ZoneProgramID:      parseField(t, vector.ZoneProgramID),
+		PayerPubkeyHash:    parseField(t, vector.PayerPubkeyHash),
+		InputOwnerPkHashes: parseFields(t, vector.InputOwnerPkHashes),
+	}
+	for i := 0; i < NPublicSlots; i++ {
+		inputs.PublicAssets[i] = parseField(t, vector.PublicAssets[i])
+		inputs.PublicAmounts[i] = parseField(t, vector.PublicAmounts[i])
+	}
+	got, err := PublicInputHash(inputs)
 	if err != nil {
 		t.Fatalf("public input hash: %v", err)
 	}

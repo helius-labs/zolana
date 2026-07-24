@@ -96,12 +96,13 @@ impl ZoneTransferP256Prover {
         // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone P256 public-input layout: the 13-element base chain (input owner
+        // Zone P256 public-input layout: the 14-element base chain (input owner
         // pk_fields committed, but P256 owners contribute the 0 sentinel so identities
         // stay private), with the real hash_field(p256_message_hash) at the
         // p256-message position. No output-owner chain and no p256_signing_pk_field.
         // Mirrors PublicInputHash with ZoneAuthority=false, Confidential=false in
         // prover/server/prover-test/spp/protocol/public_inputs.go.
+        let slots = self.public_amounts.interleaved();
         let public_input = create_hash_chain_from_slice(&[
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
@@ -110,9 +111,10 @@ impl ZoneTransferP256Prover {
             private_tx,
             hash_field(&p256_message_hash)?,
             external_data_hash,
-            self.public_amounts.sol,
-            self.public_amounts.spl,
-            self.public_amounts.asset,
+            slots[0],
+            slots[1],
+            slots[2],
+            slots[3],
             zone_program_id,
             self.payer_pubkey_hash,
             create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
@@ -129,9 +131,8 @@ impl ZoneTransferP256Prover {
             private_tx_hash: be(&private_tx),
             p256_message_hash_low: be(&p256_message_low),
             p256_message_hash_high: be(&p256_message_high),
-            public_sol_amount: be(&self.public_amounts.sol),
-            public_spl_amount: be(&self.public_amounts.spl),
-            public_spl_asset_pubkey: be(&self.public_amounts.asset),
+            public_assets: self.public_amounts.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_amounts.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             p256_signing_pk_field: be(&p256_signing_pk_field),

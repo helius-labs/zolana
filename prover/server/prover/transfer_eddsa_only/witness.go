@@ -1,6 +1,7 @@
 package transfereddsaonly
 
 import (
+	"fmt"
 	"math/big"
 
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
@@ -28,6 +29,12 @@ func utxoFields(u UtxoParams) txcircuit.UtxoCircuitFields {
 // both P256 message-hash limbs are pinned to 0 (the circuit asserts this). No
 // hashing.
 func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
+	if len(p.PublicAssets) != txcircuit.NPublicSlots || len(p.PublicAmounts) != txcircuit.NPublicSlots {
+		return nil, fmt.Errorf(
+			"spp: public slot count mismatch: got %d assets and %d amounts, want %d",
+			len(p.PublicAssets), len(p.PublicAmounts), txcircuit.NPublicSlots,
+		)
+	}
 	circuit := &txcircuit.Circuit{
 		Shape:   txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
 		Inputs:  make([]txcircuit.Input, p.NInputs),
@@ -44,15 +51,16 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			R: emulated.ValueOf[emulated.P256Fr](big.NewInt(0)),
 			S: emulated.ValueOf[emulated.P256Fr](big.NewInt(0)),
 		},
-		PrivateTxHash:        p.PrivateTxHash,
-		P256MessageHashLow:   big.NewInt(0),
-		P256MessageHashHigh:  big.NewInt(0),
-		PublicSolAmount:      p.PublicSolAmount,
-		PublicSplAmount:      p.PublicSplAmount,
-		PublicSplAssetPubkey: p.PublicSplAssetPubkey,
-		ZoneProgramID:        p.ZoneProgramID,
-		PayerPubkeyHash:      p.PayerPubkeyHash,
-		PublicInputHash:      p.PublicInputHash,
+		PrivateTxHash:       p.PrivateTxHash,
+		P256MessageHashLow:  big.NewInt(0),
+		P256MessageHashHigh: big.NewInt(0),
+		ZoneProgramID:       p.ZoneProgramID,
+		PayerPubkeyHash:     p.PayerPubkeyHash,
+		PublicInputHash:     p.PublicInputHash,
+	}
+	for i := 0; i < txcircuit.NPublicSlots; i++ {
+		circuit.PublicAssets[i] = p.PublicAssets[i]
+		circuit.PublicAmounts[i] = p.PublicAmounts[i]
 	}
 
 	for i := range p.Inputs {

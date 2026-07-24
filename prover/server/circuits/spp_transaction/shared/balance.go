@@ -16,27 +16,35 @@ func AssertBalanceConservation(
 	api frontend.API,
 	inputs []UtxoCircuitFields,
 	outputs []UtxoCircuitFields,
-	publicSolAmount frontend.Variable,
-	publicSplAmount frontend.Variable,
-	publicSplAssetPubkey frontend.Variable,
+	publicAssets []frontend.Variable,
+	publicAmounts []frontend.Variable,
 ) {
-	rangeCheckSigned64(api, publicSolAmount)
-	rangeCheckSigned64(api, publicSplAmount)
+	if len(publicAssets) != len(publicAmounts) {
+		panic("spp: public asset and amount slot counts must match")
+	}
 
-	solAsset := SolAsset()
+	amountIsZero := make([]frontend.Variable, len(publicAmounts))
+	for i, amount := range publicAmounts {
+		rangeCheckSigned64(api, amount)
+		amountIsZero[i] = api.IsZero(amount)
+		// An asset id is public only while it moves; pin idle slots to 0 so a
+		// pure-private transfer reveals no asset id in the public transcript
+		// (the asset is otherwise a private per-UTXO field).
+		assertZeroWhen(api, amountIsZero[i], publicAssets[i])
+	}
 
-	// SPL public movement cannot target the SOL asset.
-	splAmountIsZero := api.IsZero(publicSplAmount)
-	splAssetIsSol := api.IsZero(api.Sub(publicSplAssetPubkey, solAsset))
-	api.AssertIsEqual(api.Mul(api.Sub(1, splAmountIsZero), splAssetIsSol), 0)
+	// Active slots must name distinct assets so each public movement maps to
+	// exactly one settlement leg.
+	for i := 0; i < len(publicAssets); i++ {
+		for j := i + 1; j < len(publicAssets); j++ {
+			bothActive := api.Mul(api.Sub(1, amountIsZero[i]), api.Sub(1, amountIsZero[j]))
+			sameAsset := api.IsZero(api.Sub(publicAssets[i], publicAssets[j]))
+			api.AssertIsEqual(api.Mul(bothActive, sameAsset), 0)
+		}
+	}
 
-	// The SPL mint id is public only when it moves; pin it to 0 otherwise so a
-	// SOL-only or pure-private transfer reveals no asset id in the public
-	// transcript (the asset is otherwise a private per-UTXO field).
-	assertZeroWhen(api, splAmountIsZero, publicSplAssetPubkey)
-
-	// Check every private asset plus SOL and the public SPL asset.
-	keys := make([]frontend.Variable, 0, len(inputs)+len(outputs)+2)
+	// Check every private asset plus every public slot asset.
+	keys := make([]frontend.Variable, 0, len(inputs)+len(outputs)+len(publicAssets))
 	for _, input := range inputs {
 		rangeCheck64(api, input.Amount)
 		keys = append(keys, input.Asset)
@@ -46,7 +54,7 @@ func AssertBalanceConservation(
 		keys = append(keys, output.Asset)
 	}
 	// Asset IDs are witness values; Go cannot dedup them safely.
-	keys = append(keys, frontend.Variable(solAsset), publicSplAssetPubkey)
+	keys = append(keys, publicAssets...)
 
 	for _, key := range keys {
 		inSum := frontend.Variable(0)
@@ -61,13 +69,11 @@ func AssertBalanceConservation(
 			outSum = api.Add(outSum, api.Mul(match, output.Amount))
 		}
 
-		solMatch := api.IsZero(api.Sub(key, solAsset))
-		splMatch := api.IsZero(api.Sub(key, publicSplAssetPubkey))
-		adjustedIn := api.Add(
-			inSum,
-			api.Mul(solMatch, publicSolAmount),
-			api.Mul(splMatch, publicSplAmount),
-		)
+		adjustedIn := inSum
+		for i, asset := range publicAssets {
+			match := api.IsZero(api.Sub(key, asset))
+			adjustedIn = api.Add(adjustedIn, api.Mul(match, publicAmounts[i]))
+		}
 		api.AssertIsEqual(adjustedIn, outSum)
 	}
 }

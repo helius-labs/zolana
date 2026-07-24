@@ -197,8 +197,14 @@ impl<R: Rpc> ZolanaClient<R> {
     ) -> Result<TransactIxData, ClientError> {
         let commitments = proof_inputs.input_utxo_hashes()?;
         let spend_proofs = self.get_input_merkle_proofs(&commitments, config)?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs(
+            self.blocking_indexer(),
+            self.tree,
+            &proof_inputs,
+            config,
+        )?;
         self.blocking_prover()
-            .prove_transact(proof_inputs, &spend_proofs)
+            .prove_transact(proof_inputs, &spend_proofs, &dummy_proofs)
     }
 
     pub fn finish_submission_unsigned_sync(
@@ -212,7 +218,13 @@ impl<R: Rpc> ZolanaClient<R> {
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
             fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments, None)?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs(
+            self.blocking_indexer(),
+            self.tree,
+            &signed.transaction,
+            None,
+        )?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => self.blocking_prover().prove_transfer_p256(inputs)?,
             ProverInputs::Eddsa(inputs) => self.blocking_prover().prove_transfer(inputs)?,
@@ -242,7 +254,13 @@ impl<R: Rpc> ZolanaClient<R> {
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
             fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments, None)?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs(
+            self.blocking_indexer(),
+            self.tree,
+            &signed.transaction,
+            None,
+        )?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
         build_unsigned_solana_transaction(
             self.cu_limit,
@@ -285,7 +303,14 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
             fetch_spend_proofs_async(&self.async_indexer, self.tree, &commitments, None).await?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs_async(
+            &self.async_indexer,
+            self.tree,
+            &signed.transaction,
+            None,
+        )
+        .await?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => self.async_prover.prove_transfer_p256(inputs).await?,
             ProverInputs::Eddsa(inputs) => self.async_prover.prove_transfer(inputs).await?,
@@ -537,7 +562,10 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     async fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None).await?;
-        let assembled = assemble(transaction, &input_merkle_proofs)?;
+        let dummy_proofs =
+            fetch_dummy_nullifier_proofs_async(&self.async_indexer, self.tree, &transaction, None)
+                .await?;
+        let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (self.async_prover.prove_transfer_p256(inputs).await?, 1),
             ProverInputs::Eddsa(inputs) => (self.async_prover.prove_transfer(inputs).await?, 0),
@@ -741,7 +769,9 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
-        let assembled = assemble(transaction, &input_merkle_proofs)?;
+        let dummy_proofs =
+            fetch_dummy_nullifier_proofs(self.blocking_indexer(), self.tree, &transaction, None)?;
+        let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (self.blocking_prover().prove_transfer_p256(inputs)?, 1),
             ProverInputs::Eddsa(inputs) => (self.blocking_prover().prove_transfer(inputs)?, 0),
@@ -839,6 +869,40 @@ fn fetch_spend_proofs(
         state_response.proofs,
         nullifier_response.proofs,
     )
+}
+
+/// Fetch the non-inclusion witness for each padding (dummy) input slot's
+/// nullifier, in slot order. The circuit checks non-inclusion for every slot,
+/// dummies included.
+fn fetch_dummy_nullifier_proofs(
+    indexer: &ZolanaIndexer,
+    tree: Address,
+    transaction: &SppProofInputs,
+    config: Option<IndexerRpcConfig>,
+) -> Result<Vec<crate::rpc::NonInclusionProof>, ClientError> {
+    let nullifiers = transaction.dummy_nullifiers()?;
+    if nullifiers.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(indexer
+        .get_non_inclusion_proofs(tree, nullifiers, config)?
+        .proofs)
+}
+
+async fn fetch_dummy_nullifier_proofs_async(
+    indexer: &AsyncZolanaIndexer,
+    tree: Address,
+    transaction: &SppProofInputs,
+    config: Option<IndexerRpcConfig>,
+) -> Result<Vec<crate::rpc::NonInclusionProof>, ClientError> {
+    let nullifiers = transaction.dummy_nullifiers()?;
+    if nullifiers.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(indexer
+        .get_non_inclusion_proofs(tree, nullifiers, config)
+        .await?
+        .proofs)
 }
 
 async fn fetch_spend_proofs_async(

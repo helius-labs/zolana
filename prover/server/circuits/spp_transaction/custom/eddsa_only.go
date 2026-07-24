@@ -47,9 +47,8 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		api,
 		c.InputUtxos(),
 		c.OutputUtxos(),
-		c.PublicSolAmount,
-		c.PublicSplAmount,
-		c.PublicSplAssetPubkey,
+		c.PublicAssets[:],
+		c.PublicAmounts[:],
 	)
 
 	privateTxHash := shared.PrivateTxHashCircuit(
@@ -66,7 +65,7 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 }
 
 func customZonePublicInputHash(api frontend.API, c *shared.Circuit) frontend.Variable {
-	return gadget.HashChain(api, []frontend.Variable{
+	fields := []frontend.Variable{
 		gadget.HashChain(api, c.InputNullifiers()),
 		gadget.HashChain(api, c.OutputHashes()),
 		gadget.HashChain(api, c.InputUtxoRoots()),
@@ -74,11 +73,12 @@ func customZonePublicInputHash(api frontend.API, c *shared.Circuit) frontend.Var
 		c.PrivateTxHash,
 		gadget.PoseidonHash(api, []frontend.Variable{c.P256MessageHashLow, c.P256MessageHashHigh}),
 		c.ExternalDataHash,
-		c.PublicSolAmount,
-		c.PublicSplAmount,
-		c.PublicSplAssetPubkey,
+	}
+	fields = append(fields, c.PublicSlots()...)
+	fields = append(fields,
 		c.ZoneProgramID,
 		c.PayerPubkeyHash,
 		gadget.HashChain(api, c.InputOwnerPkHashes()),
-	})
+	)
+	return gadget.HashChain(api, fields)
 }

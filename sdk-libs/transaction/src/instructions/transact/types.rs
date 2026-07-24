@@ -141,6 +141,9 @@ impl TryFrom<&SppProofOutputUtxo> for ProofInputUtxo {
     type Error = TransactionError;
 
     fn try_from(output: &SppProofOutputUtxo) -> Result<Self, Self::Error> {
+        if output.is_dummy() {
+            return Ok(ProofInputUtxo::new_dummy(&output.blinding));
+        }
         ProofInputUtxo::new(
             output.owner_hash()?,
             &output.asset,

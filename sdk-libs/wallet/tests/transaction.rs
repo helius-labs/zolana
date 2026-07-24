@@ -27,6 +27,8 @@ use zolana_client::{
     TransferP256Prover, WithdrawalTarget, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputDataEncoding;
+use zolana_interface::SOL_ASSET_FIELD;
+
 use zolana_interface::instruction::instruction_data::transact::{
     OwnerTag, TransactIxData, TransactProof,
 };
@@ -180,7 +182,7 @@ fn prover_of(proof_inputs: SppProofInputs) -> TransferP256Prover {
     let input_merkle_proofs = indexer
         .get_input_merkle_proofs(&commitments, None)
         .expect("input merkle proofs");
-    match zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
+    match zolana_client::into_prover(proof_inputs, &input_merkle_proofs, &[])
         .expect("into prover")
         .circuit
     {
@@ -421,7 +423,7 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
         let proof_inputs = sign(transfer, &sender).unwrap();
         let commitments = proof_inputs.input_utxo_hashes().unwrap();
         let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
-        zolana_client::assemble(proof_inputs, &proofs)
+        zolana_client::assemble(proof_inputs, &proofs, &[])
             .unwrap()
             .with_proof(TransactProof::zeroed_eddsa())
     };
@@ -487,7 +489,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let first_nullifier = commitments.first().unwrap().nullifier;
     let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
 
-    let assembled = zolana_client::assemble(proof_inputs, &proofs).unwrap();
+    let assembled = zolana_client::assemble(proof_inputs, &proofs, &[]).unwrap();
     let ix = assembled.with_proof(TransactProof::zeroed_eddsa());
 
     // The single real input is padded with one mirrored dummy to the (2,3) shape.
@@ -650,9 +652,8 @@ fn withdrawal_sets_external_data_and_change() {
     assert_eq!(
         prover.public_amounts,
         PublicAmounts {
-            sol: signed_to_field(-30),
-            spl: [0u8; 32],
-            asset: [0u8; 32],
+            assets: [SOL_ASSET_FIELD, [0u8; 32]],
+            amounts: [signed_to_field(-30), [0u8; 32]],
         }
     );
     assert_eq!(
@@ -713,7 +714,7 @@ fn rail_follows_input_owner_type() {
     }
     let input_merkle_proofs = indexer.get_input_merkle_proofs(&commitments, None).unwrap();
     assert!(matches!(
-        zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
+        zolana_client::into_prover(proof_inputs, &input_merkle_proofs, &[])
             .unwrap()
             .circuit,
         CircuitType::Eddsa(_)

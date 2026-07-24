@@ -100,7 +100,7 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 	}
 
 	for _, item := range vector.PublicAmounts {
-		amounts, err := derivePublicAmounts(ProofTransactionRequest{
+		slots, err := derivePublicSlots(ProofTransactionRequest{
 			PublicAmountMode:     item.Mode,
 			RelayerFee:           item.RelayerFee,
 			PublicSolAmount:      &item.PublicSolAmount,
@@ -110,8 +110,8 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 		if err != nil {
 			t.Fatalf("public amount %s: %v", item.Name, err)
 		}
-		expectField(t, "public_amounts."+item.Name+".sol", amounts.sol, item.Sol)
-		expectField(t, "public_amounts."+item.Name+".spl", amounts.spl, item.Spl)
+		expectField(t, "public_amounts."+item.Name+".sol", slots.amounts[0], item.Sol)
+		expectField(t, "public_amounts."+item.Name+".spl", slots.amounts[1], item.Spl)
 	}
 }
 

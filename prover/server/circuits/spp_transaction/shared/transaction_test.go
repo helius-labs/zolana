@@ -51,19 +51,32 @@ func asDefaultZoneEddsaOnly(a *Circuit) frontend.Circuit {
 	return &defaultzone.DefaultZoneEddsaOnlyCircuit{Circuit: *a}
 }
 
+func noPublicSlots() ([NPublicSlots]*big.Int, [NPublicSlots]*big.Int) {
+	return [NPublicSlots]*big.Int{big.NewInt(0), big.NewInt(0)},
+		[NPublicSlots]*big.Int{big.NewInt(0), big.NewInt(0)}
+}
+
+func solPublicSlot(amount int64) ([NPublicSlots]*big.Int, [NPublicSlots]*big.Int) {
+	assets, amounts := noPublicSlots()
+	if amount != 0 {
+		assets[0] = protocol.SolAsset()
+	}
+	amounts[0] = big.NewInt(amount)
+	return assets, amounts
+}
+
+func splPublicSlot(asset *big.Int, amount int64) ([NPublicSlots]*big.Int, [NPublicSlots]*big.Int) {
+	assets, amounts := noPublicSlots()
+	assets[1] = new(big.Int).Set(asset)
+	amounts[1] = big.NewInt(amount)
+	return assets, amounts
+}
+
 func buildCircuitAssignment(t testing.TB, shape protocol.Shape) *Circuit {
 	t.Helper()
 
 	inputUtxos, outputUtxos := defaultBalancedUtxos(t, shape)
-	return buildCircuitAssignmentFromUtxos(
-		t,
-		shape,
-		inputUtxos,
-		outputUtxos,
-		big.NewInt(0),
-		big.NewInt(0),
-		spptest.Fe(0),
-	)
+	return buildCircuitAssignmentFromUtxos(t, shape, inputUtxos, outputUtxos)
 }
 
 func buildCircuitAssignmentFromUtxos(
@@ -71,20 +84,10 @@ func buildCircuitAssignmentFromUtxos(
 	shape protocol.Shape,
 	inputUtxos []protocol.Utxo,
 	outputUtxos []protocol.Utxo,
-	publicSolAmount *big.Int,
-	publicSplAmount *big.Int,
-	publicSplAssetPubkey *big.Int,
 ) *Circuit {
 	t.Helper()
-	return buildCircuitAssignmentExact(
-		t,
-		shape,
-		inputUtxos,
-		outputUtxos,
-		publicSolAmount,
-		publicSplAmount,
-		publicSplAssetPubkey,
-	)
+	assets, amounts := noPublicSlots()
+	return buildCircuitAssignmentExact(t, shape, inputUtxos, outputUtxos, assets, amounts)
 }
 
 func buildCircuitAssignmentExact(
@@ -92,9 +95,8 @@ func buildCircuitAssignmentExact(
 	shape protocol.Shape,
 	inputUtxos []protocol.Utxo,
 	outputUtxos []protocol.Utxo,
-	publicSolAmount *big.Int,
-	publicSplAmount *big.Int,
-	publicSplAssetPubkey *big.Int,
+	publicAssets [NPublicSlots]*big.Int,
+	publicAmounts [NPublicSlots]*big.Int,
 ) *Circuit {
 	t.Helper()
 	if len(inputUtxos) != shape.NInputs {
@@ -174,20 +176,23 @@ func buildCircuitAssignmentExact(
 	}
 	payerPubkeyHash := testPayerPubkeyHash()
 
+	signedAmounts := [NPublicSlots]*big.Int{}
+	for i := 0; i < NPublicSlots; i++ {
+		signedAmounts[i] = protocol.SignedToField(publicAmounts[i])
+	}
 	publicInputs := protocol.PublicInputs{
-		Nullifiers:           spptest.ToBigInts(nullifiers),
-		OutputUtxoHashes:     OutputHashes,
-		UtxoTreeRoots:        utxoTreeRoots,
-		NullifierTreeRoots:   nullifierTreeRoots,
-		PrivateTxHash:        privateTxHash,
-		P256MessageHash:      p256MessageHashField,
-		ExternalDataHash:     externalDataHash,
-		PublicSolAmount:      protocol.SignedToField(publicSolAmount),
-		PublicSplAmount:      protocol.SignedToField(publicSplAmount),
-		PublicSplAssetPubkey: publicSplAssetPubkey,
-		ZoneProgramID:        spptest.Fe(0),
-		PayerPubkeyHash:      payerPubkeyHash,
-		InputOwnerPkHashes:   inputOwnerPkHashes,
+		Nullifiers:         spptest.ToBigInts(nullifiers),
+		OutputUtxoHashes:   OutputHashes,
+		UtxoTreeRoots:      utxoTreeRoots,
+		NullifierTreeRoots: nullifierTreeRoots,
+		PrivateTxHash:      privateTxHash,
+		P256MessageHash:    p256MessageHashField,
+		ExternalDataHash:   externalDataHash,
+		PublicAssets:       publicAssets,
+		PublicAmounts:      signedAmounts,
+		ZoneProgramID:      spptest.Fe(0),
+		PayerPubkeyHash:    payerPubkeyHash,
+		InputOwnerPkHashes: inputOwnerPkHashes,
 	}
 	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
 	publicInputHash := spptest.MustHash(t, publicInputHashValue, err)
@@ -219,24 +224,26 @@ func buildCircuitAssignmentExact(
 		}
 	}
 
-	return &Circuit{
-		Shape:                Shape(shape),
-		Inputs:               inputs,
-		Outputs:              outputs,
-		ExternalDataHash:     externalDataHash,
-		P256Pub:              p256Pub,
-		P256Sig:              p256Sig,
-		PrivateTxHash:        privateTxHash,
-		P256MessageHashLow:   p256MessageLow,
-		P256MessageHashHigh:  p256MessageHigh,
-		P256SigningPkField:   spptest.Fe(0),
-		PublicSolAmount:      publicInputs.PublicSolAmount,
-		PublicSplAmount:      publicInputs.PublicSplAmount,
-		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
-		ZoneProgramID:        publicInputs.ZoneProgramID,
-		PayerPubkeyHash:      publicInputs.PayerPubkeyHash,
-		PublicInputHash:      publicInputHash,
+	circuit := &Circuit{
+		Shape:               Shape(shape),
+		Inputs:              inputs,
+		Outputs:             outputs,
+		ExternalDataHash:    externalDataHash,
+		P256Pub:             p256Pub,
+		P256Sig:             p256Sig,
+		PrivateTxHash:       privateTxHash,
+		P256MessageHashLow:  p256MessageLow,
+		P256MessageHashHigh: p256MessageHigh,
+		P256SigningPkField:  spptest.Fe(0),
+		ZoneProgramID:       publicInputs.ZoneProgramID,
+		PayerPubkeyHash:     publicInputs.PayerPubkeyHash,
+		PublicInputHash:     publicInputHash,
 	}
+	for i := 0; i < NPublicSlots; i++ {
+		circuit.PublicAssets[i] = publicInputs.PublicAssets[i]
+		circuit.PublicAmounts[i] = publicInputs.PublicAmounts[i]
+	}
+	return circuit
 }
 
 func defaultStateLeafIndex(i int) uint64 {
@@ -273,15 +280,16 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *Circuit, confidenti
 			spptest.AsBigInt(assignment.P256MessageHashLow),
 			spptest.AsBigInt(assignment.P256MessageHashHigh),
 		),
-		ExternalDataHash:     spptest.AsBigInt(assignment.ExternalDataHash),
-		PublicSolAmount:      spptest.AsBigInt(assignment.PublicSolAmount),
-		PublicSplAmount:      spptest.AsBigInt(assignment.PublicSplAmount),
-		PublicSplAssetPubkey: spptest.AsBigInt(assignment.PublicSplAssetPubkey),
-		ZoneProgramID:        spptest.AsBigInt(assignment.ZoneProgramID),
-		PayerPubkeyHash:      spptest.AsBigInt(assignment.PayerPubkeyHash),
-		InputOwnerPkHashes:   spptest.ToBigInts(assignment.InputOwnerPkHashes()),
-		Confidential:         confidential,
-		ZoneAuthority:        zoneAuthority,
+		ExternalDataHash:   spptest.AsBigInt(assignment.ExternalDataHash),
+		ZoneProgramID:      spptest.AsBigInt(assignment.ZoneProgramID),
+		PayerPubkeyHash:    spptest.AsBigInt(assignment.PayerPubkeyHash),
+		InputOwnerPkHashes: spptest.ToBigInts(assignment.InputOwnerPkHashes()),
+		Confidential:       confidential,
+		ZoneAuthority:      zoneAuthority,
+	}
+	for i := 0; i < NPublicSlots; i++ {
+		publicInputs.PublicAssets[i] = spptest.AsBigInt(assignment.PublicAssets[i])
+		publicInputs.PublicAmounts[i] = spptest.AsBigInt(assignment.PublicAmounts[i])
 	}
 	if confidential {
 		publicInputs.OutputOwnerPkHashes = spptest.ToBigInts(assignment.OutputOwnerPkHashes())

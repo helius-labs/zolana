@@ -45,9 +45,8 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		api,
 		c.InputUtxos(),
 		c.OutputUtxos(),
-		c.PublicSolAmount,
-		c.PublicSplAmount,
-		c.PublicSplAssetPubkey,
+		c.PublicAssets[:],
+		c.PublicAmounts[:],
 	)
 
 	api.AssertIsEqual(c.ZoneProgramID, 0)
@@ -66,7 +65,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 }
 
 func defaultZonePublicInputHash(api frontend.API, c *shared.Circuit) frontend.Variable {
-	return gadget.HashChain(api, []frontend.Variable{
+	fields := []frontend.Variable{
 		gadget.HashChain(api, c.InputNullifiers()),
 		gadget.HashChain(api, c.OutputHashes()),
 		gadget.HashChain(api, c.InputUtxoRoots()),
@@ -74,13 +73,14 @@ func defaultZonePublicInputHash(api frontend.API, c *shared.Circuit) frontend.Va
 		c.PrivateTxHash,
 		gadget.PoseidonHash(api, []frontend.Variable{c.P256MessageHashLow, c.P256MessageHashHigh}),
 		c.ExternalDataHash,
-		c.PublicSolAmount,
-		c.PublicSplAmount,
-		c.PublicSplAssetPubkey,
+	}
+	fields = append(fields, c.PublicSlots()...)
+	fields = append(fields,
 		c.ZoneProgramID,
 		c.PayerPubkeyHash,
 		gadget.HashChain(api, c.InputOwnerPkHashes()),
 		gadget.HashChain(api, c.OutputOwnerPkHashes()),
 		c.P256SigningPkField,
-	})
+	)
+	return gadget.HashChain(api, fields)
 }

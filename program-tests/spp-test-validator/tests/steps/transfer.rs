@@ -203,11 +203,20 @@ impl LifecycleWorld {
             );
             spend_proofs.push(SpendProof { state, nullifier });
         }
+        // The circuit checks non-inclusion for every slot, so each padding dummy
+        // needs a real low-element witness for its own nullifier.
+        let dummy_proofs: Vec<_> = proof_inputs
+            .dummy_nullifiers()?
+            .into_iter()
+            .map(|nullifier| {
+                wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier)
+            })
+            .collect();
 
         // The rail follows the input owner type: P256-owned inputs prove on the
         // P256 circuit, ed25519-owned inputs on the vanilla eddsa circuit (where the
         // owner authorizes the spend by signing the transaction).
-        let assembled = assemble(proof_inputs, &spend_proofs)?;
+        let assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
         let (proof, rail) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (
                 ProverClient::local().prove_transfer_p256(inputs)?,

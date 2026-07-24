@@ -70,13 +70,14 @@ type TransferParameters struct {
 	PrivateTxHash *big.Int
 	// P256 ECDSA message digest (full SHA-256) as two big-endian 128-bit limbs.
 	// Both 0 on the Solana-only rail.
-	P256MessageHashLow   *big.Int
-	P256MessageHashHigh  *big.Int
-	PublicSolAmount      *big.Int
-	PublicSplAmount      *big.Int
-	PublicSplAssetPubkey *big.Int
-	ZoneProgramID        *big.Int
-	PayerPubkeyHash      *big.Int
+	P256MessageHashLow  *big.Int
+	P256MessageHashHigh *big.Int
+	// PublicAssets/PublicAmounts are the uniform public movement slots, both of
+	// length shared.NPublicSlots.
+	PublicAssets    []*big.Int
+	PublicAmounts   []*big.Int
+	ZoneProgramID   *big.Int
+	PayerPubkeyHash *big.Int
 
 	// Confidential selects the confidential (non-zone) variant; when false the
 	// anonymous zone variant is used. P256SigningPkField is the shared P256

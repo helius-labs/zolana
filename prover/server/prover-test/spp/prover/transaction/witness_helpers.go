@@ -25,12 +25,13 @@ func toProofCircuitFields(utxo protocol.Utxo) txcircuit.UtxoCircuitFields {
 	}
 }
 
-// dummyUtxo returns a dummy UTXO with random blinding. All fields are zero
-// except the blinding, so its UTXO hash and derived nullifier are
-// indistinguishable from a real UTXO's on the public transcript.
+// dummyUtxo returns a dummy UTXO with random blinding. The circuit classifies
+// slots by the domain tag; every other field is zero, so its UTXO hash and
+// derived nullifier are indistinguishable from a real UTXO's on the public
+// transcript.
 func dummyUtxo(blinding *big.Int) protocol.Utxo {
 	return protocol.Utxo{
-		Domain:        big.NewInt(0),
+		Domain:        big.NewInt(protocol.DummyDomain),
 		Owner:         big.NewInt(0),
 		Asset:         big.NewInt(0),
 		Amount:        big.NewInt(0),

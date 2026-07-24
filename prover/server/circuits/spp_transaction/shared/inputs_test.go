@@ -157,9 +157,6 @@ func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
 			sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(60)),
 			sampleUtxoWithAssetAndAmount(110, asset, spptest.Fe(40)),
 		},
-		big.NewInt(0),
-		big.NewInt(0),
-		spptest.Fe(0),
 	)
 
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
@@ -244,14 +241,14 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 
 	// The real input amount is irrelevant: dummifying the slot zeroes it. Outputs
 	// must sum to the public deposit since the dummy contributes nothing.
-	assignment := buildCircuitAssignmentFromUtxos(
+	assets, amounts := solPublicSlot(deposit)
+	assignment := buildCircuitAssignmentExact(
 		t,
 		shape,
 		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(50))},
 		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(deposit))),
-		big.NewInt(deposit),
-		big.NewInt(0),
-		spptest.Fe(0),
+		assets,
+		amounts,
 	)
 
 	// Turn input[0] into an inert dummy slot: DummyDomain with every utxo field

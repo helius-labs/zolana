@@ -132,35 +132,57 @@ impl ZolanaIndexer {
         tree: Address,
         proof_inputs: SppProofInputs,
     ) -> Result<TransactIxData, ClientError> {
-        let spend_proofs = self.spend_proofs(tree, &proof_inputs)?;
-        ProverClient::local().prove_transact(proof_inputs, &spend_proofs)
+        let (spend_proofs, dummy_nullifier_proofs) = self.spend_proofs(tree, &proof_inputs)?;
+        ProverClient::local().prove_transact(proof_inputs, &spend_proofs, &dummy_nullifier_proofs)
     }
 
+    /// Fetch the per-slot Merkle witnesses: state-inclusion proofs for the real
+    /// inputs, and nullifier non-inclusion proofs for every slot — the circuit
+    /// checks non-inclusion for dummies too, so each padding slot gets a real
+    /// low-element witness for its own (random-blinding) nullifier.
     fn spend_proofs(
         &self,
         tree: Address,
         proof_inputs: &SppProofInputs,
-    ) -> Result<Vec<SpendProof>, ClientError> {
-        let inputs = proof_inputs.input_utxo_hashes()?;
+    ) -> Result<(Vec<SpendProof>, Vec<NonInclusionProof>), ClientError> {
+        let real = proof_inputs.input_utxo_hashes()?;
         let state_proofs = self
-            .get_merkle_proofs(tree, inputs.iter().map(|c| c.utxo_hash).collect(), None)?
+            .get_merkle_proofs(tree, real.iter().map(|c| c.utxo_hash).collect(), None)?
             .proofs;
+        let slot_nullifiers = proof_inputs
+            .input_utxos
+            .iter()
+            .map(|spend| spend.nullifier())
+            .collect::<Result<Vec<_>, _>>()?;
         let nullifier_proofs = self
-            .get_non_inclusion_proofs(tree, inputs.iter().map(|c| c.nullifier).collect(), None)?
+            .get_non_inclusion_proofs(tree, slot_nullifiers, None)?
             .proofs;
-        if state_proofs.len() != inputs.len() || nullifier_proofs.len() != inputs.len() {
+        if state_proofs.len() != real.len()
+            || nullifier_proofs.len() != proof_inputs.input_utxos.len()
+        {
             return Err(ClientError::Rpc(format!(
-                "indexer returned {} state and {} nullifier proofs for {} inputs",
+                "indexer returned {} state proofs for {} real inputs and {} nullifier proofs for {} slots",
                 state_proofs.len(),
+                real.len(),
                 nullifier_proofs.len(),
-                inputs.len()
+                proof_inputs.input_utxos.len()
             )));
         }
-        Ok(state_proofs
-            .into_iter()
-            .zip(nullifier_proofs)
-            .map(|(state, nullifier)| SpendProof { state, nullifier })
-            .collect())
+
+        let mut spend_proofs = Vec::with_capacity(real.len());
+        let mut dummy_nullifier_proofs = Vec::new();
+        let mut state_iter = state_proofs.into_iter();
+        for (spend, nullifier) in proof_inputs.input_utxos.iter().zip(nullifier_proofs) {
+            if spend.is_dummy() {
+                dummy_nullifier_proofs.push(nullifier);
+            } else {
+                let state = state_iter
+                    .next()
+                    .ok_or_else(|| ClientError::Rpc("missing state proof".into()))?;
+                spend_proofs.push(SpendProof { state, nullifier });
+            }
+        }
+        Ok((spend_proofs, dummy_nullifier_proofs))
     }
 }
 

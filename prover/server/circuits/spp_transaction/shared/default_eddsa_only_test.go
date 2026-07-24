@@ -123,9 +123,6 @@ func TestDefaultZoneEddsaOnlyDummyOutputUnconstrained(t *testing.T) {
 			sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(100)),
 			emptyOutputUtxo(),
 		},
-		spptest.Fe(0),
-		spptest.Fe(0),
-		spptest.Fe(0),
 	)
 
 	assignment.P256SigningPkField = spptest.Fe(0)

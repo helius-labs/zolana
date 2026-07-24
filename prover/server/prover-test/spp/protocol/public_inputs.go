@@ -5,6 +5,11 @@ import (
 	"math/big"
 )
 
+// NPublicSlots mirrors the circuit constant of the same name: the number of
+// public (asset, amount) movement slots in every transaction circuit. Host
+// convention: slot 0 is the SOL leg, slot 1 the SPL leg.
+const NPublicSlots = 2
+
 var publicInputNames = [...]string{
 	"nullifiers",
 	"output_utxo_hashes",
@@ -13,9 +18,10 @@ var publicInputNames = [...]string{
 	"private_tx_hash",
 	"p256_message_hash",
 	"external_data_hash",
-	"public_sol_amount",
-	"public_spl_amount",
-	"public_spl_asset_pubkey",
+	"public_asset_0",
+	"public_amount_0",
+	"public_asset_1",
+	"public_amount_1",
 	"zone_program_id",
 	"payer_pubkey_hash",
 	"input_owner_pk_hashes",
@@ -29,19 +35,18 @@ func PublicInputNames() []string {
 }
 
 type PublicInputs struct {
-	Nullifiers           []*big.Int
-	OutputUtxoHashes     []*big.Int
-	UtxoTreeRoots        []*big.Int
-	NullifierTreeRoots   []*big.Int
-	PrivateTxHash        *big.Int
-	P256MessageHash      *big.Int
-	ExternalDataHash     *big.Int
-	PublicSolAmount      *big.Int
-	PublicSplAmount      *big.Int
-	PublicSplAssetPubkey *big.Int
-	ZoneProgramID        *big.Int
-	PayerPubkeyHash      *big.Int
-	InputOwnerPkHashes   []*big.Int
+	Nullifiers         []*big.Int
+	OutputUtxoHashes   []*big.Int
+	UtxoTreeRoots      []*big.Int
+	NullifierTreeRoots []*big.Int
+	PrivateTxHash      *big.Int
+	P256MessageHash    *big.Int
+	ExternalDataHash   *big.Int
+	PublicAssets       [NPublicSlots]*big.Int
+	PublicAmounts      [NPublicSlots]*big.Int
+	ZoneProgramID      *big.Int
+	PayerPubkeyHash    *big.Int
+	InputOwnerPkHashes []*big.Int
 
 	// Confidential appends the output owner tag chain and the shared P256 signing
 	// key's pk_field to the preimage (see spec circuit-variants).
@@ -80,12 +85,14 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.PrivateTxHash,
 		inputs.P256MessageHash,
 		inputs.ExternalDataHash,
-		inputs.PublicSolAmount,
-		inputs.PublicSplAmount,
-		inputs.PublicSplAssetPubkey,
+	}
+	for i := 0; i < NPublicSlots; i++ {
+		fields = append(fields, inputs.PublicAssets[i], inputs.PublicAmounts[i])
+	}
+	fields = append(fields,
 		inputs.ZoneProgramID,
 		inputs.PayerPubkeyHash,
-	}
+	)
 	// The zone-authority variant keeps input owner pk_fields private; every other
 	// variant commits them so SPP can route the per-input signer check.
 	if !inputs.ZoneAuthority {

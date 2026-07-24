@@ -1,5 +1,6 @@
 use num_bigint::BigUint;
 use solana_address::Address;
+use zolana_interface::{N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 use zolana_keypair::{
     hash::{hash_field, sha256, sha256_be},
     ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
@@ -71,11 +72,12 @@ pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
     Ok(keypair.get_transaction_viewing_key(&first_nullifier)?)
 }
 
+/// Uniform public movement slots (slot 0 = SOL leg, slot 1 = SPL leg): a signed
+/// net flow per asset id. Idle slots are (0, 0).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PublicAmounts {
-    pub sol: [u8; 32],
-    pub spl: [u8; 32],
-    pub asset: [u8; 32],
+    pub assets: [[u8; 32]; N_PUBLIC_SLOTS],
+    pub amounts: [[u8; 32]; N_PUBLIC_SLOTS],
 }
 
 #[derive(Clone)]
@@ -127,15 +129,15 @@ impl SppProofInputs {
     pub fn public_amounts(&self) -> Result<PublicAmounts, TransactionError> {
         let sol = self.external_data.public_sol_amount.unwrap_or(0);
         let spl = self.external_data.public_spl_amount.unwrap_or(0);
-        let asset = if spl != 0 {
+        let sol_asset = if sol != 0 { SOL_ASSET_FIELD } else { [0u8; 32] };
+        let spl_asset = if spl != 0 {
             asset_field(&self.check_public_spl_asset()?)?
         } else {
             [0u8; 32]
         };
         Ok(PublicAmounts {
-            sol: signed_to_field(sol),
-            spl: signed_to_field(spl),
-            asset,
+            assets: [sol_asset, spl_asset],
+            amounts: [signed_to_field(sol), signed_to_field(spl)],
         })
     }
 
@@ -157,6 +159,17 @@ impl SppProofInputs {
             }
         }
         found.ok_or(TransactionError::MissingPublicSplAsset)
+    }
+
+    /// Nullifiers of the padding (dummy) input slots, in slot order. The circuit
+    /// checks nullifier non-inclusion for every slot, so each dummy needs a real
+    /// low-element witness fetched for its own nullifier.
+    pub fn dummy_nullifiers(&self) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.input_utxos
+            .iter()
+            .filter(|spend| spend.is_dummy())
+            .map(|spend| spend.nullifier())
+            .collect()
     }
 
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
@@ -198,16 +211,5 @@ impl SppProofInputs {
         let private_tx =
             PrivateTxHash::new(&input_hashes, &output_hashes, &external_data_hash).hash()?;
         Ok(sha256(&private_tx))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn zero_public_amounts_match_the_field_encoding_of_zero() {
-        assert_eq!(PublicAmounts::default().sol, signed_to_field(0));
-        assert_eq!(PublicAmounts::default().spl, signed_to_field(0));
     }
 }

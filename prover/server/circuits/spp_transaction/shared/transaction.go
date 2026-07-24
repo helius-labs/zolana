@@ -46,13 +46,15 @@ type Circuit struct {
 	// P256 ECDSA message digest (full SHA-256) carried as two big-endian 128-bit
 	// limbs: a 256-bit value does not fit in one BN254 element. Both are 0 on the
 	// Solana-only rail.
-	P256MessageHashLow   frontend.Variable
-	P256MessageHashHigh  frontend.Variable
-	PublicSolAmount      frontend.Variable
-	PublicSplAmount      frontend.Variable
-	PublicSplAssetPubkey frontend.Variable
-	ZoneProgramID        frontend.Variable
-	PayerPubkeyHash      frontend.Variable
+	P256MessageHashLow  frontend.Variable
+	P256MessageHashHigh frontend.Variable
+	// PublicAssets/PublicAmounts are the uniform public movement slots: a
+	// signed net flow per asset (SOL is an ordinary asset id). Idle slots are
+	// pinned to (0, 0) by AssertBalanceConservation.
+	PublicAssets    [NPublicSlots]frontend.Variable
+	PublicAmounts   [NPublicSlots]frontend.Variable
+	ZoneProgramID   frontend.Variable
+	PayerPubkeyHash frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -94,6 +96,17 @@ func (c *Circuit) ValidateLayout() error {
 	return nil
 }
 
+// PublicSlots returns the public movement slots interleaved as
+// [asset_0, amount_0, asset_1, amount_1] — the canonical public-input-hash
+// preimage order every variant and host mirror must share.
+func (c *Circuit) PublicSlots() []frontend.Variable {
+	slots := make([]frontend.Variable, 0, 2*NPublicSlots)
+	for i := 0; i < NPublicSlots; i++ {
+		slots = append(slots, c.PublicAssets[i], c.PublicAmounts[i])
+	}
+	return slots
+}
+
 // Shape identifies one fixed-size SPP transaction circuit by its input and
 // output counts. The host mirrors this as protocol.Shape (with the supported-set
 // metadata); the circuit only needs the counts and that they are positive.
@@ -118,6 +131,10 @@ func (s Shape) Validate() error {
 // depends on no host code (see circuits/CLAUDE.md). They must stay in sync with
 // prover/spp/protocol.
 const (
+	// NPublicSlots is the number of public (asset, amount) movement slots in
+	// every transaction circuit. Host convention: slot 0 is the SOL leg, slot 1
+	// the SPL leg.
+	NPublicSlots = 2
 	// DummyDomain is the domain tag for dummy (padding) utxos.
 	DummyDomain = 1
 	// AddressDomain is the domain tag for address utxos, separating address

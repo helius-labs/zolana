@@ -47,9 +47,8 @@ func (c *CustomZoneAuthorityCircuit) Define(api frontend.API) error {
 		api,
 		c.InputUtxos(),
 		c.OutputUtxos(),
-		c.PublicSolAmount,
-		c.PublicSplAmount,
-		c.PublicSplAssetPubkey,
+		c.PublicAssets[:],
+		c.PublicAmounts[:],
 	)
 
 	api.AssertIsDifferent(c.ZoneProgramID, 0)
@@ -68,7 +67,7 @@ func (c *CustomZoneAuthorityCircuit) Define(api frontend.API) error {
 }
 
 func zoneAuthorityPublicInputHash(api frontend.API, c *shared.Circuit) frontend.Variable {
-	return gadget.HashChain(api, []frontend.Variable{
+	fields := []frontend.Variable{
 		gadget.HashChain(api, c.InputNullifiers()),
 		gadget.HashChain(api, c.OutputHashes()),
 		gadget.HashChain(api, c.InputUtxoRoots()),
@@ -76,10 +75,11 @@ func zoneAuthorityPublicInputHash(api frontend.API, c *shared.Circuit) frontend.
 		c.PrivateTxHash,
 		gadget.PoseidonHash(api, []frontend.Variable{c.P256MessageHashLow, c.P256MessageHashHigh}),
 		c.ExternalDataHash,
-		c.PublicSolAmount,
-		c.PublicSplAmount,
-		c.PublicSplAssetPubkey,
+	}
+	fields = append(fields, c.PublicSlots()...)
+	fields = append(fields,
 		c.ZoneProgramID,
 		c.PayerPubkeyHash,
-	})
+	)
+	return gadget.HashChain(api, fields)
 }

@@ -50,9 +50,8 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 		api,
 		c.InputUtxos(),
 		c.OutputUtxos(),
-		c.PublicSolAmount,
-		c.PublicSplAmount,
-		c.PublicSplAssetPubkey,
+		c.PublicAssets[:],
+		c.PublicAmounts[:],
 	)
 
 	privateTxHash := shared.PrivateTxHashCircuit(

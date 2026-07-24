@@ -200,7 +200,36 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         },
     };
 
-    let assembled = assemble(proof_inputs, &[spend_proof]).expect("assemble");
+    // Every padded dummy slot needs a non-inclusion witness for its own
+    // nullifier; the circuit checks non-inclusion per slot.
+    let dummy_nullifier_proofs: Vec<NonInclusionProof> = proof_inputs
+        .dummy_nullifiers()
+        .expect("dummy nullifiers")
+        .into_iter()
+        .map(|nullifier| {
+            let non_inclusion = nf_tree
+                .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+                .expect("dummy non inclusion proof");
+            NonInclusionProof {
+                leaf: nullifier,
+                merkle_context: MerkleContext {
+                    tree_type: 0,
+                    tree: tree_address,
+                },
+                path: non_inclusion.merkle_proof.to_vec(),
+                low_element: non_inclusion.leaf_lower_range_value,
+                low_element_index: non_inclusion.leaf_index as u64,
+                high_element: non_inclusion.leaf_higher_range_value,
+                high_element_index: 0,
+                root: nullifier_root,
+                root_seq: 0,
+                root_index: 0,
+            }
+        })
+        .collect();
+
+    let assembled =
+        assemble(proof_inputs, &[spend_proof], &dummy_nullifier_proofs).expect("assemble");
     let expected_pi = assembled.public_input_hash;
 
     // The keypair-owned input selects the confidential P256 rail.
@@ -317,9 +346,14 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             ix_data.private_tx_hash,
             hash_field(&p256_message_hash).unwrap(),
             external_data_hash,
+            if ix_data.public_sol_amount.unwrap_or(0) != 0 {
+                zolana_interface::SOL_ASSET_FIELD
+            } else {
+                zero
+            },
             signed_to_field(ix_data.public_sol_amount.unwrap_or(0)),
+            zero, // spl slot asset (no mint)
             signed_to_field(ix_data.public_spl_amount.unwrap_or(0)),
-            zero, // public_spl_asset_pubkey (no mint)
             zero, // zone_program_id
             payer_pubkey_hash,
             create_hash_chain_from_slice(&input_owner).unwrap(),

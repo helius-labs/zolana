@@ -26,15 +26,7 @@ func TestCircuitRejectsBalanceMismatch(t *testing.T) {
 		sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(40)),
 		sampleUtxoWithAssetAndAmount(110, asset, spptest.Fe(70)),
 	}
-	assignment := buildCircuitAssignmentFromUtxos(
-		t,
-		shape,
-		inputs,
-		outputs,
-		big.NewInt(0),
-		big.NewInt(0),
-		spptest.Fe(0),
-	)
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
@@ -82,14 +74,14 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 	t.Run("deposit", func(t *testing.T) {
 		assert := test.NewAssert(t)
 		circuit := MustNewCustomZoneP256Circuit(Shape(shape))
-		assignment := buildCircuitAssignmentFromUtxos(
+		assets, amounts := solPublicSlot(25)
+		assignment := buildCircuitAssignmentExact(
 			t,
 			shape,
 			[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(100))},
 			twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(125))),
-			big.NewInt(25),
-			big.NewInt(0),
-			spptest.Fe(0),
+			assets,
+			amounts,
 		)
 
 		assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
@@ -98,33 +90,53 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 	t.Run("withdraw", func(t *testing.T) {
 		assert := test.NewAssert(t)
 		circuit := MustNewCustomZoneP256Circuit(Shape(shape))
-		assignment := buildCircuitAssignmentFromUtxos(
+		assets, amounts := solPublicSlot(-25)
+		assignment := buildCircuitAssignmentExact(
 			t,
 			shape,
 			[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(100))},
 			twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(75))),
-			big.NewInt(-25),
-			big.NewInt(0),
-			spptest.Fe(0),
+			assets,
+			amounts,
 		)
 
 		assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 	})
 }
 
+// Slots are uniform: SOL may move through the second slot just like any other
+// asset.
+func TestCircuitAcceptsPublicSolMovementInSecondSlot(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	solAsset := protocol.SolAsset()
+	assets, amounts := splPublicSlot(solAsset, 25)
+	assignment := buildCircuitAssignmentExact(
+		t,
+		shape,
+		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(100))},
+		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(125))),
+		assets,
+		amounts,
+	)
+
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+}
+
 func TestCircuitAcceptsPublicSplDeposit(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
-	publicSplAssetPubkey := spptest.Fe(77)
-	assignment := buildCircuitAssignmentFromUtxos(
+	publicAsset := spptest.Fe(77)
+	assets, amounts := splPublicSlot(publicAsset, 25)
+	assignment := buildCircuitAssignmentExact(
 		t,
 		shape,
-		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, publicSplAssetPubkey, spptest.Fe(100))},
-		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, publicSplAssetPubkey, spptest.Fe(125))),
-		big.NewInt(0),
-		big.NewInt(25),
-		publicSplAssetPubkey,
+		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, publicAsset, spptest.Fe(100))},
+		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, publicAsset, spptest.Fe(125))),
+		assets,
+		amounts,
 	)
 
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
@@ -135,32 +147,35 @@ func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	privateAsset := spptest.Fe(77)
-	assignment := buildCircuitAssignmentFromUtxos(
+	assets, amounts := splPublicSlot(spptest.Fe(88), 25)
+	assignment := buildCircuitAssignmentExact(
 		t,
 		shape,
 		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, privateAsset, spptest.Fe(100))},
 		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, privateAsset, spptest.Fe(125))),
-		big.NewInt(0),
-		big.NewInt(25),
-		spptest.Fe(88),
+		assets,
+		amounts,
 	)
 
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestCircuitRejectsPublicSplMovementOnSolAsset(t *testing.T) {
+// Two active slots must name distinct assets: splitting one public movement
+// across both slots on the same asset is rejected even though the sums balance.
+func TestCircuitRejectsDuplicateActivePublicAssets(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
-	solAsset := protocol.SolAsset()
-	assignment := buildCircuitAssignmentFromUtxos(
+	asset := spptest.Fe(77)
+	assets := [NPublicSlots]*big.Int{new(big.Int).Set(asset), new(big.Int).Set(asset)}
+	amounts := [NPublicSlots]*big.Int{big.NewInt(10), big.NewInt(15)}
+	assignment := buildCircuitAssignmentExact(
 		t,
 		shape,
-		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(100))},
-		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(125))),
-		big.NewInt(0),
-		big.NewInt(25),
-		solAsset,
+		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100))},
+		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(125))),
+		assets,
+		amounts,
 	)
 
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
@@ -171,14 +186,14 @@ func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	privateAsset := spptest.Fe(77)
-	assignment := buildCircuitAssignmentFromUtxos(
+	assets, amounts := splPublicSlot(spptest.Fe(88), 25)
+	assignment := buildCircuitAssignmentExact(
 		t,
 		shape,
 		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, privateAsset, spptest.Fe(100))},
 		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, privateAsset, spptest.Fe(100))),
-		big.NewInt(0),
-		big.NewInt(25),
-		spptest.Fe(88),
+		assets,
+		amounts,
 	)
 
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
@@ -203,9 +218,6 @@ func TestCircuitConservesTwoDistinctAssets(t *testing.T) {
 			sampleUtxoWithAssetAndAmount(100, a, spptest.Fe(100)),
 			sampleUtxoWithAssetAndAmount(110, b, spptest.Fe(50)),
 		},
-		big.NewInt(0),
-		big.NewInt(0),
-		spptest.Fe(0),
 	)
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
@@ -230,9 +242,6 @@ func TestCircuitRejectsCrossAssetValueConversion(t *testing.T) {
 			sampleUtxoWithAssetAndAmount(100, a, spptest.Fe(90)),
 			sampleUtxoWithAssetAndAmount(110, b, spptest.Fe(60)),
 		},
-		big.NewInt(0),
-		big.NewInt(0),
-		spptest.Fe(0),
 	)
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
@@ -245,7 +254,8 @@ func TestCircuitConservesPublicSplAlongsidePrivateAsset(t *testing.T) {
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	publicAsset := spptest.Fe(77)
 	privateAsset := spptest.Fe(91)
-	assignment := buildCircuitAssignmentFromUtxos(
+	assets, amounts := splPublicSlot(publicAsset, 25)
+	assignment := buildCircuitAssignmentExact(
 		t,
 		shape,
 		[]protocol.Utxo{
@@ -256,9 +266,8 @@ func TestCircuitConservesPublicSplAlongsidePrivateAsset(t *testing.T) {
 			sampleUtxoWithAssetAndAmount(100, publicAsset, spptest.Fe(125)),
 			sampleUtxoWithAssetAndAmount(110, privateAsset, spptest.Fe(50)),
 		},
-		big.NewInt(0),
-		big.NewInt(25),
-		publicAsset,
+		assets,
+		amounts,
 	)
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
@@ -269,23 +278,23 @@ func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	asset := spptest.Fe(77)
-	assignment := buildCircuitAssignmentFromUtxos(
+	assets, amounts := splPublicSlot(asset, -25)
+	assignment := buildCircuitAssignmentExact(
 		t,
 		shape,
 		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(125))},
 		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(100))),
-		big.NewInt(0),
-		big.NewInt(-25),
-		asset,
+		assets,
+		amounts,
 	)
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-// C-01: the balance circuit conserves SOL and the public SPL asset on independent
-// per-asset equations with no mutual-exclusion constraint, so one proof may carry
-// both a positive publicSolAmount and a positive publicSplAmount and mint value in
-// both assets at once. This is the enabling condition for the on-chain settlement
-// bug (the program settles only the SPL leg, leaving the SOL leg unbacked). A
+// C-01: the balance circuit conserves each active slot on independent per-asset
+// equations with no mutual-exclusion constraint, so one proof may carry both a
+// positive SOL amount and a positive SPL amount and mint value in both assets
+// at once. This is the enabling condition for the on-chain settlement bug (the
+// program settles only the SPL leg, leaving the SOL leg unbacked). A
 // mutual-exclusion constraint here would make this witness unsatisfiable.
 func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 	assert := test.NewAssert(t)
@@ -294,9 +303,12 @@ func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 	solAsset := protocol.SolAsset()
 	splAsset := spptest.Fe(77)
 
+	assets := [NPublicSlots]*big.Int{protocol.SolAsset(), new(big.Int).Set(splAsset)}
+	amounts := [NPublicSlots]*big.Int{big.NewInt(25), big.NewInt(25)}
+
 	// No prior value: both inputs are zero-amount; the two outputs are funded
 	// entirely by the two simultaneous public deposits (25 SOL and 25 SPL).
-	assignment := buildCircuitAssignmentFromUtxos(
+	assignment := buildCircuitAssignmentExact(
 		t,
 		shape,
 		[]protocol.Utxo{
@@ -307,30 +319,35 @@ func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 			sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(25)),
 			sampleUtxoWithAssetAndAmount(110, splAsset, spptest.Fe(25)),
 		},
-		big.NewInt(25),
-		big.NewInt(25),
-		splAsset,
+		assets,
+		amounts,
 	)
 
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-// The public SPL mint id must be 0 when no SPL amount moves: a balanced,
-// otherwise-valid transfer carrying a stray publicSplAssetPubkey is rejected,
-// so a no-public-SPL transaction cannot leak a mint id into the transcript.
-func TestCircuitRejectsNonZeroPublicSplAssetWithoutAmount(t *testing.T) {
-	assert := test.NewAssert(t)
+// An asset id is public only while it moves: a balanced, otherwise-valid
+// transfer carrying a stray asset id in a zero-amount slot is rejected, so a
+// no-public-movement transaction cannot leak an asset id into the transcript.
+func TestCircuitRejectsNonZeroPublicAssetWithoutAmount(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	asset := spptest.Fe(7)
-	assignment := buildCircuitAssignmentFromUtxos(
-		t,
-		shape,
-		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100))},
-		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(100))),
-		big.NewInt(0),
-		big.NewInt(0),
-		spptest.Fe(88),
-	)
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+
+	for name, slot := range map[string]int{"first_slot": 0, "second_slot": 1} {
+		t.Run(name, func(t *testing.T) {
+			assert := test.NewAssert(t)
+			circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+			assets, amounts := noPublicSlots()
+			assets[slot] = spptest.Fe(88)
+			assignment := buildCircuitAssignmentExact(
+				t,
+				shape,
+				[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100))},
+				twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(100))),
+				assets,
+				amounts,
+			)
+			assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+		})
+	}
 }

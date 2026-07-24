@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{
     prover::field::be, spawn_prover, Proof, ProofCompressed, ProofInputUtxo, ProverClient,
-    TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    TransferInput, TransferInputs, TransferOutput,
 };
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::{
@@ -16,6 +16,7 @@ use zolana_interface::{
         tag,
     },
     verifying_keys::transfer_confidential_2_3,
+    SOL_ASSET_FIELD,
 };
 use zolana_keypair::hash::hash_field;
 use zolana_transaction::SppProofOutputUtxo;
@@ -47,10 +48,12 @@ pub fn pack_proof(proof: &Proof) -> Result<TransactProof> {
 }
 
 /// Mirror of the confidential `TransactProof::public_input_hash` on the eddsa
-/// rail. The 14-element anonymous chain is followed by the two confidential
-/// elements: `[14] HashChain(output_owner_pk_hashes)` and `[15]
+/// rail. The 15-element anonymous chain is followed by the two confidential
+/// elements: `[15] HashChain(output_owner_pk_hashes)` and `[16]
 /// p256_signing_pk_field` (zero on the eddsa rail). Mirrors the client
-/// `PublicInputs::hash()` exactly.
+/// `PublicInputs::hash()` exactly. Public movement slots interleave as
+/// (asset, amount): slot 0 is the SOL leg (asset = SOL_ASSET_FIELD while the
+/// amount moves), slot 1 the idle SPL leg.
 #[allow(clippy::too_many_arguments)]
 pub fn public_input_hash(
     nullifiers: &[[u8; 32]],
@@ -66,6 +69,11 @@ pub fn public_input_hash(
     p256_signing_pk_field: &[u8; 32],
 ) -> [u8; 32] {
     let zero = [0u8; 32];
+    let sol_slot_asset = if *public_sol_amount == zero {
+        zero
+    } else {
+        SOL_ASSET_FIELD
+    };
     let chain = [
         create_hash_chain_from_slice(nullifiers).expect("nullifier chain"),
         create_hash_chain_from_slice(output_hashes).expect("output chain"),
@@ -74,9 +82,10 @@ pub fn public_input_hash(
         *private_tx,
         hash_field(&zero).expect("p256 message field"),
         *external_data_hash,
+        sol_slot_asset,
         *public_sol_amount,
-        zero, // public_spl_amount
-        zero, // public_spl_asset_pubkey
+        zero, // spl slot asset
+        zero, // spl slot amount
         zero, // zone_program_id
         *payer_pubkey_hash,
         create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
@@ -158,35 +167,6 @@ pub fn set_output_owner_tags(
     {
         output.owner_pk_hash = be(owner);
         output.nullifier_pk = be(nullifier_pk);
-    }
-}
-
-/// One circuit-dummy input carrying a chosen nullifier plus the real tree roots
-/// and signer owner hash.
-pub fn dummy_input(
-    nullifier: &[u8; 32],
-    roots: ([u8; 32], [u8; 32]),
-    owner_hash: &[u8; 32],
-) -> TransferInput {
-    let (utxo_root, nullifier_root) = roots;
-    let zero = [0u8; 32];
-    TransferInput {
-        // A circuit-dummy input carries a chosen `nullifier`; the circuit skips its
-        // ownership/inclusion/nullifier-derivation checks, so an all-zero utxo slot
-        // satisfies the padding constraints (amount, owner, data_hash zero).
-        utxo: ProofInputUtxo::default(),
-        is_dummy: be(&fe(1)),
-        state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
-        state_path_index: be(&zero),
-        nullifier_low_value: be(&zero),
-        nullifier_next_value: be(&zero),
-        nullifier_low_path_elements: vec![be(&zero); NULLIFIER_TREE_HEIGHT],
-        nullifier_low_path_index: be(&zero),
-        utxo_tree_root: be(&utxo_root),
-        nullifier_tree_root: be(&nullifier_root),
-        nullifier: be(nullifier),
-        owner_pk_hash: be(owner_hash),
-        nullifier_secret: be(&zero),
     }
 }
 
@@ -289,14 +269,18 @@ pub struct TransferProverInputsArgs {
 
 pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
     let zero = [0u8; 32];
+    let sol_slot_asset = if args.public_sol_amount == zero {
+        zero
+    } else {
+        SOL_ASSET_FIELD
+    };
     TransferInputs {
         inputs: args.inputs,
         outputs: args.outputs,
         external_data_hash: be(&args.external_data_hash),
         private_tx_hash: be(&args.private_tx_hash),
-        public_sol_amount: be(&args.public_sol_amount),
-        public_spl_amount: be(&zero),
-        public_spl_asset_pubkey: be(&zero),
+        public_assets: [be(&sol_slot_asset), be(&zero)],
+        public_amounts: [be(&args.public_sol_amount), be(&zero)],
         zone_program_id: be(&zero),
         payer_pubkey_hash: be(&args.payer_pubkey_hash),
         public_input_hash: be(&args.public_input_hash),

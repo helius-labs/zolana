@@ -14,19 +14,21 @@ const (
 	publicAmountUnshield = 2
 )
 
-type publicAmounts struct {
-	sol   *big.Int
-	spl   *big.Int
-	asset *big.Int
+type publicSlots struct {
+	assets  [protocol.NPublicSlots]*big.Int
+	amounts [protocol.NPublicSlots]*big.Int
 }
 
-// derivePublicAmounts computes the signed public amounts the balance circuit
-// consumes (`inSum + publicAmount == outSum` per asset). Each is the net
+// derivePublicSlots computes the uniform public (asset, amount) slots the
+// balance circuit consumes (`inSum + publicAmount == outSum` per asset). Host
+// convention: slot 0 is the SOL leg, slot 1 the SPL leg. Each amount is the net
 // external flow as a field element, Tornado-Nova style: deposit is positive,
 // withdrawal is negative and wrapped mod p by SignedToField (so `-x` becomes
 // `p - x`), and the relayer fee is folded into the withdrawal — but only on the
-// SOL leg, since fees are paid in SOL.
-func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
+// SOL leg, since fees are paid in SOL. A slot's asset id is set only while its
+// signed amount is nonzero (a fee-only unshield moves SOL without a request
+// amount); the circuit pins idle slots to (0, 0).
+func derivePublicSlots(tx ProofTransactionRequest) (publicSlots, error) {
 	sol := u64OrZero(tx.PublicSolAmount)
 	spl := u64OrZero(tx.PublicSplAmount)
 	// Validate the per-mode invariants with one switch on the mode (mirrors the
@@ -35,34 +37,40 @@ func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
 	switch tx.PublicAmountMode {
 	case publicAmountTransfer:
 		if sol != 0 || spl != 0 || tx.RelayerFee != 0 {
-			return publicAmounts{}, fmt.Errorf("spp: transfer mode carries public settlement")
+			return publicSlots{}, fmt.Errorf("spp: transfer mode carries public settlement")
 		}
 	case publicAmountShield:
 		if tx.RelayerFee != 0 {
-			return publicAmounts{}, fmt.Errorf("spp: shield mode carries relayer fee")
+			return publicSlots{}, fmt.Errorf("spp: shield mode carries relayer fee")
 		}
 	case publicAmountUnshield:
 		// Withdraws may carry a relayer fee and public settlement.
 	default:
-		return publicAmounts{}, fmt.Errorf("spp: invalid public_amount_mode %d", tx.PublicAmountMode)
+		return publicSlots{}, fmt.Errorf("spp: invalid public_amount_mode %d", tx.PublicAmountMode)
 	}
 
-	asset := big.NewInt(0)
-	if spl != 0 {
+	solAmount := signedSolAmount(tx.PublicAmountMode, sol, tx.RelayerFee)
+	solAsset := big.NewInt(0)
+	if solAmount.Sign() != 0 {
+		solAsset = protocol.SolAsset()
+	}
+
+	splAmount := signedSplAmount(tx.PublicAmountMode, spl)
+	splAsset := big.NewInt(0)
+	if splAmount.Sign() != 0 {
 		mint, err := parse.Hex32(tx.PublicSplAssetPubkey)
 		if err != nil {
-			return publicAmounts{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
+			return publicSlots{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
 		}
-		asset, err = protocol.SolanaPkField(mint)
+		splAsset, err = protocol.SolanaPkField(mint)
 		if err != nil {
-			return publicAmounts{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
+			return publicSlots{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
 		}
 	}
 
-	return publicAmounts{
-		sol:   signedSolAmount(tx.PublicAmountMode, sol, tx.RelayerFee),
-		spl:   signedSplAmount(tx.PublicAmountMode, spl),
-		asset: asset,
+	return publicSlots{
+		assets:  [protocol.NPublicSlots]*big.Int{solAsset, splAsset},
+		amounts: [protocol.NPublicSlots]*big.Int{solAmount, splAmount},
 	}, nil
 }
 

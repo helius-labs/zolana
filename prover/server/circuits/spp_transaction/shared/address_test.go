@@ -97,9 +97,6 @@ func buildZoneAddressAssignment(t testing.TB) (*Circuit, *big.Int, *big.Int) {
 		shape,
 		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(0))},
 		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(0))),
-		big.NewInt(0),
-		big.NewInt(0),
-		spptest.Fe(0),
 	)
 	ownerPkHash := addressOwnerPkHash(t)
 	seed := spptest.Fe(0xABCDEF)
@@ -127,9 +124,6 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 		shape,
 		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(0))},
 		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(0))),
-		big.NewInt(0),
-		big.NewInt(0),
-		spptest.Fe(0),
 	)
 	assignment.P256SigningPkField = spptest.Fe(0)
 	pkField, nullifierPk := defaultOutputOwnerTag(t)
@@ -210,9 +204,6 @@ func TestAddressSlotRejectsDuplicate(t *testing.T) {
 			sampleUtxoWithAssetAndAmount(20, solAsset, spptest.Fe(0)),
 		},
 		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(0))),
-		big.NewInt(0),
-		big.NewInt(0),
-		spptest.Fe(0),
 	)
 	ownerPkHash := addressOwnerPkHash(t)
 	seed := spptest.Fe(0xABCDEF)

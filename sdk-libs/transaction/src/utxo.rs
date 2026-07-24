@@ -1,7 +1,7 @@
 use ark_bn254::Fr;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use solana_address::Address;
-pub use zolana_interface::UTXO_DOMAIN;
+pub use zolana_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};
 use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, NullifierKey, PublicKey};
 
 use crate::{
@@ -109,6 +109,17 @@ impl ProofInputUtxo {
             zone_data_hash: [0u8; 32],
             zone_program_id: [0u8; 32],
         })
+    }
+
+    /// Padding (dummy) slot: the circuit requires every field except the domain
+    /// tag and blinding to be zero, so dummy hashes are indistinguishable from
+    /// real ones while the slot provably carries nothing.
+    pub fn new_dummy(blinding: &Blinding) -> Self {
+        Self {
+            domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
+            blinding: right_align(blinding),
+            ..Default::default()
+        }
     }
 
     pub fn with_data_hash(mut self, data_hash: [u8; 32]) -> Self {

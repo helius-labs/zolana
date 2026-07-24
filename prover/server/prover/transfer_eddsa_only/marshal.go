@@ -2,8 +2,10 @@ package transfereddsaonly
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/big"
 
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 )
 
@@ -43,19 +45,18 @@ type OutputParamsJSON struct {
 }
 
 type TransferParametersJSON struct {
-	CircuitType          common.CircuitType `json:"circuitType"`
-	NInputs              uint32             `json:"nInputs"`
-	NOutputs             uint32             `json:"nOutputs"`
-	Inputs               []InputParamsJSON  `json:"inputs"`
-	Outputs              []OutputParamsJSON `json:"outputs"`
-	ExternalDataHash     string             `json:"externalDataHash"`
-	PrivateTxHash        string             `json:"privateTxHash"`
-	PublicSolAmount      string             `json:"publicSolAmount"`
-	PublicSplAmount      string             `json:"publicSplAmount"`
-	PublicSplAssetPubkey string             `json:"publicSplAssetPubkey"`
-	ZoneProgramID        string             `json:"zoneProgramId"`
-	PayerPubkeyHash      string             `json:"payerPubkeyHash"`
-	PublicInputHash      string             `json:"publicInputHash"`
+	CircuitType      common.CircuitType `json:"circuitType"`
+	NInputs          uint32             `json:"nInputs"`
+	NOutputs         uint32             `json:"nOutputs"`
+	Inputs           []InputParamsJSON  `json:"inputs"`
+	Outputs          []OutputParamsJSON `json:"outputs"`
+	ExternalDataHash string             `json:"externalDataHash"`
+	PrivateTxHash    string             `json:"privateTxHash"`
+	PublicAssets     []string           `json:"publicAssets"`
+	PublicAmounts    []string           `json:"publicAmounts"`
+	ZoneProgramID    string             `json:"zoneProgramId"`
+	PayerPubkeyHash  string             `json:"payerPubkeyHash"`
+	PublicInputHash  string             `json:"publicInputHash"`
 }
 
 func (p *TransferParameters) MarshalJSON() ([]byte, error) {
@@ -73,17 +74,16 @@ func (p *TransferParameters) UnmarshalJSON(data []byte) error {
 func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
 	circuitType := p.Variant.CircuitType()
 	paramsJson := TransferParametersJSON{
-		CircuitType:          circuitType,
-		NInputs:              p.NInputs,
-		NOutputs:             p.NOutputs,
-		ExternalDataHash:     feHex(p.ExternalDataHash),
-		PrivateTxHash:        feHex(p.PrivateTxHash),
-		PublicSolAmount:      feHex(p.PublicSolAmount),
-		PublicSplAmount:      feHex(p.PublicSplAmount),
-		PublicSplAssetPubkey: feHex(p.PublicSplAssetPubkey),
-		ZoneProgramID:        feHex(p.ZoneProgramID),
-		PayerPubkeyHash:      feHex(p.PayerPubkeyHash),
-		PublicInputHash:      feHex(p.PublicInputHash),
+		CircuitType:      circuitType,
+		NInputs:          p.NInputs,
+		NOutputs:         p.NOutputs,
+		ExternalDataHash: feHex(p.ExternalDataHash),
+		PrivateTxHash:    feHex(p.PrivateTxHash),
+		PublicAssets:     feHexSlice(p.PublicAssets),
+		PublicAmounts:    feHexSlice(p.PublicAmounts),
+		ZoneProgramID:    feHex(p.ZoneProgramID),
+		PayerPubkeyHash:  feHex(p.PayerPubkeyHash),
+		PublicInputHash:  feHex(p.PublicInputHash),
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -131,13 +131,16 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.PrivateTxHash, err = feFromHex(params.PrivateTxHash); err != nil {
 		return err
 	}
-	if p.PublicSolAmount, err = feFromHex(params.PublicSolAmount); err != nil {
+	if len(params.PublicAssets) != txcircuit.NPublicSlots || len(params.PublicAmounts) != txcircuit.NPublicSlots {
+		return fmt.Errorf(
+			"spp: public slot count mismatch: got %d assets and %d amounts, want %d",
+			len(params.PublicAssets), len(params.PublicAmounts), txcircuit.NPublicSlots,
+		)
+	}
+	if p.PublicAssets, err = feFromHexSlice(params.PublicAssets); err != nil {
 		return err
 	}
-	if p.PublicSplAmount, err = feFromHex(params.PublicSplAmount); err != nil {
-		return err
-	}
-	if p.PublicSplAssetPubkey, err = feFromHex(params.PublicSplAssetPubkey); err != nil {
+	if p.PublicAmounts, err = feFromHexSlice(params.PublicAmounts); err != nil {
 		return err
 	}
 	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {

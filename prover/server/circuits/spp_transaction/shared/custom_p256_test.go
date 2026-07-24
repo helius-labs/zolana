@@ -62,7 +62,7 @@ func TestCustomZoneP256AcceptsDataHashOnOutput(t *testing.T) {
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
-	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 	refreshCustomZonePublicInputHash(t, assignment)
 
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
@@ -78,7 +78,7 @@ func TestCustomZoneP256RejectsDataHashOnUnsignedOwnerOutput(t *testing.T) {
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
 	outputs[0].Owner = testOwnerHashForNullifierSecret(spptest.Fe(123))
-	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 	refreshCustomZonePublicInputHash(t, assignment)
 
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
@@ -91,7 +91,7 @@ func TestCustomZoneP256RejectsZoneDataHashWithoutZoneProgramID(t *testing.T) {
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].ZoneDataHash = spptest.Fe(0x99)
-	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 	refreshCustomZonePublicInputHash(t, assignment)
 
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
@@ -110,7 +110,7 @@ func TestCustomZoneP256BindsMatchingZoneProgramID(t *testing.T) {
 	for i := range outputs {
 		outputs[i].ZoneProgramID = new(big.Int).Set(zoneProgramID)
 	}
-	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 	assignment.ZoneProgramID = zoneProgramID
 	refreshCustomZonePublicInputHash(t, assignment)
 
@@ -132,7 +132,7 @@ func TestCustomZoneP256RejectsMismatchedZoneProgramID(t *testing.T) {
 		outputs[i].ZoneProgramID = new(big.Int).Set(zoneProgramID)
 	}
 	outputs[0].ZoneProgramID = new(big.Int).Set(otherZone)
-	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 	assignment.ZoneProgramID = zoneProgramID
 	refreshCustomZonePublicInputHash(t, assignment)
 

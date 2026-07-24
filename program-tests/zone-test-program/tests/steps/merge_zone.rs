@@ -98,6 +98,7 @@ impl ZoneLifecycleWorld {
                     state,
                     nullifier: nf,
                 }),
+                nullifier_proof: None,
             });
         }
 
@@ -119,6 +120,7 @@ impl ZoneLifecycleWorld {
                 data_hash: None,
                 zone_data_hash: None,
                 proof: None,
+                nullifier_proof: None,
             });
         }
 
@@ -291,6 +293,7 @@ impl ZoneLifecycleWorld {
                     state,
                     nullifier: nf,
                 }),
+                nullifier_proof: None,
             });
         }
 
@@ -310,6 +313,7 @@ impl ZoneLifecycleWorld {
                 data_hash: None,
                 zone_data_hash: None,
                 proof: None,
+                nullifier_proof: None,
             });
         }
 

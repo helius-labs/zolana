@@ -73,14 +73,14 @@ impl SppProofInputUtxo {
 impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
     type Error = TransactionError;
 
-    // A dummy's zeroed owner is not a parseable key; it contributes a zero
-    // owner hash instead. The circuit skips ownership for dummies.
+    // A dummy carries only its domain tag and blinding: the circuit classifies
+    // slots by domain and requires every other dummy field to be zero.
     fn try_from(spend: &SppProofInputUtxo) -> Result<Self, Self::Error> {
-        let owner_hash = if spend.is_dummy() {
-            [0u8; 32]
-        } else {
-            zolana_keypair::hash::owner_hash(&spend.utxo.owner, &spend.nullifier_key.pubkey()?)?
-        };
+        if spend.is_dummy() {
+            return Ok(ProofInputUtxo::new_dummy(&spend.utxo.blinding));
+        }
+        let owner_hash =
+            zolana_keypair::hash::owner_hash(&spend.utxo.owner, &spend.nullifier_key.pubkey()?)?;
         ProofInputUtxo::new(
             owner_hash,
             &spend.utxo.asset,

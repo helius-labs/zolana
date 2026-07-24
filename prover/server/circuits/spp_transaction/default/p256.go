@@ -49,9 +49,8 @@ func (c *DefaultZoneP256Circuit) Define(api frontend.API) error {
 		api,
 		c.InputUtxos(),
 		c.OutputUtxos(),
-		c.PublicSolAmount,
-		c.PublicSplAmount,
-		c.PublicSplAssetPubkey,
+		c.PublicAssets[:],
+		c.PublicAmounts[:],
 	)
 
 	api.AssertIsEqual(c.ZoneProgramID, 0)

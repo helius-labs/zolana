@@ -13,6 +13,7 @@ use zolana_client::{
     CircuitType, ConfidentialTransfer, PublicAmounts, Rpc, SppProofInputUtxo, WithdrawalTarget,
 };
 use zolana_event::OutputDataEncoding;
+use zolana_interface::SOL_ASSET_FIELD;
 use zolana_keypair::{
     constants::BLINDING_LEN, shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey,
 };
@@ -146,7 +147,13 @@ impl TransferWorld {
         let input_merkle_proofs = indexer
             .get_input_merkle_proofs(&commitments, None)
             .expect("input merkle proofs");
-        match zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
+        let dummy_proofs: Vec<_> = proof_inputs
+            .dummy_nullifiers()
+            .expect("dummy nullifiers")
+            .into_iter()
+            .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
+            .collect();
+        match zolana_client::into_prover(proof_inputs, &input_merkle_proofs, &dummy_proofs)
             .expect("into prover")
             .circuit
         {
@@ -310,22 +317,26 @@ fn assert_outputs(
     let padding = outputs.get(expected.len()..).unwrap_or(&[]);
     assert!(padding.iter().all(|o| o.is_dummy() && o.amount == 0));
 
-    // Public amounts: signed net per asset, with the SPL asset pinned to 0 when
-    // there is no public SPL movement.
+    // Public amounts: signed net per slot (slot 0 = SOL, slot 1 = SPL), with each
+    // slot's asset id pinned to 0 while it has no movement.
+    let net_sol = i64::try_from(net_public(Asset::Sol)).expect("public amount fits i64");
+    let net_spl = i64::try_from(net_public(Asset::Spl)).expect("public amount fits i64");
     assert_eq!(
         public_amounts,
         &PublicAmounts {
-            sol: signed_to_field(
-                i64::try_from(net_public(Asset::Sol)).expect("public amount fits i64")
-            ),
-            spl: signed_to_field(
-                i64::try_from(net_public(Asset::Spl)).expect("public amount fits i64")
-            ),
-            asset: if net_public(Asset::Spl) != 0 {
-                asset_field(&spl_mint()).unwrap()
-            } else {
-                [0u8; 32]
-            },
+            assets: [
+                if net_sol != 0 {
+                    SOL_ASSET_FIELD
+                } else {
+                    [0u8; 32]
+                },
+                if net_spl != 0 {
+                    asset_field(&spl_mint()).unwrap()
+                } else {
+                    [0u8; 32]
+                },
+            ],
+            amounts: [signed_to_field(net_sol), signed_to_field(net_spl)],
         }
     );
 

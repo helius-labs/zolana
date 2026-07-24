@@ -439,7 +439,7 @@ impl TryFrom<MergeWitness> for MergeProver {
             tx_viewing_sk,
         } = prepared;
 
-        let mut spends = attach_input_proofs(inputs, &proofs)?;
+        let mut spends = attach_input_proofs(inputs, &proofs, &[])?;
         // Default-merge inputs are plain utxos; no data hashes ride along.
         for spend in &mut spends {
             spend.data_hash = None;
