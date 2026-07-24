@@ -16,13 +16,13 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `e035eb7127b36895e8c3d3423e1d8874bf55ced7`
+- Review HEAD: `9f00d180fa5cdea8128a9251aa2d91ec88781da1`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: none in the nine scoped source trees
 - Primary rows: `118`
-- Progress: `3 done / 118 total`; `2 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `I03 program-libs/interface/src/merge_utils.rs`
-- Active fixes: `I01 proposed`; `I02 proposed`
+- Progress: `3 done / 118 total`; `3 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `I04 program-libs/interface/src/pda.rs`
+- Active fixes: `I01 proposed`; `I02 proposed`; `I03 proposed`
 - Last session: `2026-07-24`
 
 Refresh the HEAD, fixture commit, drift result, progress, active fixes, and exact
@@ -134,7 +134,7 @@ Columns:
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | I01 | `program-libs/interface/src/error.rs` | `interface/src/errors.ts`, `interface/src/index.ts` | needs_fix | PARTIAL | proposed | `ShieldedPoolErrorCode` lists 7000 through 7025, but TypeScript has no named runtime map, structured program-error representation, strict decoder, or fixture/test for the 26-variant current-Rust set. The RPC boundary also discards custom program codes. Add the map and decoder under `@zolana/interface`, preserve unknown custom codes distinctly, translate Solana instruction errors at the client boundary, and pin each mapping without comparing display text. | 2026-07-24 review | - |
 | I02 | `program-libs/interface/src/shape.rs` | `interface/src/internal.ts` | needs_fix | DIVERGENT | proposed | `Shape` and `SPP_SUPPORTED_SHAPES` are public Rust interface API, but `@zolana/interface` exports neither and its mapped `internal.ts` has no shape code. `@zolana/transaction` duplicates the ten shapes in the correct order, but its shallow-frozen list exposes mutable entries and `canonicalShape` rejects zero real inputs or outputs even though Rust and Go select padded shapes for those counts. Export one deeply immutable shape authority from `@zolana/interface`, reuse it in transaction selection, accept safe non-negative real counts including zero, validate malformed declared counts, and add current-Rust tests for exports, ordering, immutability, empty and boundary selection, unsupported pairs, and structured errors. | 2026-07-24 review | - |
-| I03 | `program-libs/interface/src/merge_utils.rs` | `interface/src/internal.ts` | todo | - | none | - | - | - |
+| I03 | `program-libs/interface/src/merge_utils.rs` | `interface/src/internal.ts` | needs_fix | PARTIAL | proposed | `@zolana/interface` omits the public Rust module's `pk_field_compressed`, `owner_pk_field_compressed`, `pack33`, and `ciphertext_hash`. `@zolana/keypair` contains the valid-flow math, but under another package and with different raw-input behavior: its public `pack33` silently pads or truncates non-33-byte values, while its P256 object path rejects off-curve encodings that Rust accepts after fixed-length and prefix checks. Its frozen fixtures name keypair sources rather than `merge_utils` and do not cover parity pairs, ciphertext chunk boundaries, or Poseidon input limits. Add browser-safe interface exports with exact byte, prefix, parity, packing, chunking, and error behavior; make keypair reuse the canonical implementation; and add current-Rust success and rejection vectors for malformed lengths and prefixes, even and odd parity, empty input, chunk boundaries, and maximum cardinality. | 2026-07-24 review | - |
 | I04 | `program-libs/interface/src/pda.rs` | `interface/src/pda/index.ts` | todo | - | none | - | - | - |
 | I05 | `program-libs/interface/src/instruction/instruction_data/batch_update_nullifier_tree.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
 | I06 | `program-libs/interface/src/instruction/instruction_data/create_tree.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
@@ -472,3 +472,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `3/118`; package `0/37`
 - Exact next file: `I03 program-libs/interface/src/merge_utils.rs`
 - Full SDK parity claim: unsupported; I01 and I02 have adverse interface verdicts, eight package row sets remain incomplete, and cross-package gates have not passed
+
+### 2026-07-24 23:38 UTC | I03 | `program-libs/interface/src/merge_utils.rs`
+
+- Baseline: HEAD `9f00d180fa5cdea8128a9251aa2d91ec88781da1`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`; review began at `e035eb71`, then the signed checklist-only I02 checkpoint advanced HEAD without changing source evidence
+- Worker: GPT-5.6 Sol review subagent; implementation commit `none`
+- Explanation: This public, `no_std`-compatible interface module centralizes four merge proof field operations for the Solana program. It depends only on `zolana_hasher`'s Poseidon implementation and error type, and `program-libs/interface/src/lib.rs` exports it as `zolana_interface::merge_utils`. `pk_field_compressed` hashes the low and high 128-bit x-coordinate limbs and then includes the compressed key's y parity. `owner_pk_field_compressed` uses the same limb order but omits parity for the owner identity. Both accept a fixed 33-byte SEC1 encoding and reject prefixes other than `0x02` and `0x03`; they do not validate that x identifies a curve point. `pack33` splits a compressed key into a zero-prefixed 31-byte low limb and a two-byte high limb. `ciphertext_hash` right-aligns consecutive 16-byte big-endian chunks and hashes the resulting fields. The default and policy-zone merge verifier uses the packing and ciphertext hash; registry loading uses the parity-free owner field. The utility does not select input counts, assets, trees, or owner rails. Those checks belong to the merge instruction and circuit. The TypeScript keypair package consolidates the valid-flow field, packing, and ciphertext behavior, but the interface package exports none of these public Rust responsibilities.
+- Evidence: `docs/spec.md` does not name these helper APIs. The current Rust file, scoped Rust trees, and relevant source dependencies have no drift from the fixture commit. The Go `Pack33To2FECircuit`, `PackBytesBE`, `OwnerPkField`, and `P256PkField` implementations confirm the byte order and parity split. Rust tests pin one 71-byte circuit ciphertext hash, one 33-byte split, bad prefixes, and parity separation; the focused command passed 4 tests. TypeScript's `ShieldedPublicKey.hash`, `ownerPublicKeyField`, `pack33`, and `mergeCiphertextHash` reproduce the valid-flow math. Keypair unit tests passed 26 tests and vectors passed 12. The merge fixture pins the 71-byte hash, packed viewing key, and one tampered hash, while the hash fixture pins one P256 owner field and public hash. Both fixtures cite keypair Rust sources, not `program-libs/interface/src/merge_utils.rs`. Interface typecheck and API checks passed, but the API report cannot cover omitted exports. No interface fixture or test covers these symbols, fixed-length rejection, both valid prefixes on the same x-coordinate, chunk lengths around 16 bytes, or the Rust Poseidon cardinality boundary. The public TypeScript `pack33` accepts arbitrary lengths through `subarray`, and its P256 object path validates the curve point, so neither is an exact raw-input substitute.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: `sdk-libs/ts/interface/src/internal.ts`, `index.ts`, and `package.json` expose no counterparts for `program-libs/interface/src/merge_utils.rs::{pk_field_compressed, owner_pk_field_compressed, pack33, ciphertext_hash}`. Add a browser-safe interface merge-utility entry point with structured interface errors and current-Rust vectors for the named success and rejection boundaries, then reuse that implementation from `sdk-libs/ts/keypair/src/hash.ts` and `merge/core.ts` so the protocol math has one TypeScript authority.
+- Row transition: `todo -> in_progress -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I04 program-libs/interface/src/pda.rs`
+- Full SDK parity claim: unsupported; I01 through I03 have adverse interface verdicts, eight package row sets remain incomplete, and cross-package gates have not passed
