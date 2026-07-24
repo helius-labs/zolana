@@ -19,6 +19,7 @@
       "run package browser checks in isolation while retaining the aggregate root gate",
       "select the API schema-to-transport cross-contract suite explicitly",
       "select the client cross-package and prover suites explicitly through the shared package Vitest configuration",
+      "select the wallet action suite explicitly as its non-vacuous cross-package gate",
       "ignore only nested generated package artifacts and caches"
     ],
     "cargoXtaskBlocker": {
@@ -31,7 +32,8 @@
     },
     "transientConcurrentFailures": {
       "P05": "The first post-install workspace build stopped on in-progress transaction exports and branded-byte type errors. The unchanged P01 gate passed after P05 settled.",
-      "P06": "Two fixture checks raced a concurrent fixed-output Merkle oracle build and lost temporary object files. The unchanged canonical fixture gate passed after the concurrent build settled."
+      "P06": "Two fixture checks raced a concurrent fixed-output Merkle oracle build and lost temporary object files. The unchanged canonical fixture gate passed after the concurrent build settled.",
+      "P04": "An initial package lint and pack build observed in-progress keypair edits. Both unchanged root gates passed when rerun sequentially after the keypair build settled."
     }
   },
   "commands": [
@@ -199,6 +201,21 @@
       "command": "git check-ignore --no-index generated and protected sdk-libs/ts paths",
       "exitStatus": "0",
       "responsibility": "nested dependencies, builds, coverage, temporary packs, tarballs, and TypeScript metadata are ignored while source, tests, fixtures, manifests, and reports remain visible"
+    },
+    {
+      "command": "npm run test:cross --workspace=@zolana/wallet",
+      "exitStatus": "0",
+      "responsibility": "five wallet action tests exercise client, interface, keypair, transaction, and wallet APIs through the shared package Vitest configuration"
+    },
+    {
+      "command": "npm run build/typecheck/test:unit/test:vectors/test:browser/api:check --workspace=@zolana/wallet; wallet eslint/prettier checks; npm pack --dry-run --workspace=@zolana/wallet",
+      "exitStatus": "0",
+      "responsibility": "wallet build, strict types, six unit tests, frozen vector, browser bundle, API scaffold, lint, format, and 57-file package tarball"
+    },
+    {
+      "command": "npm run check/lint/lint:packages/format:check/test:browser/api:check/test:exports/test:dependencies/pack:check",
+      "exitStatus": "0",
+      "responsibility": "root build, typecheck, configuration and package lint, format, 263 unit tests, browser, API, export, dependency, inventory, and packed-consumer gates"
     }
   ],
   "dependencies": {
@@ -339,7 +356,8 @@
   "packet": "P01",
   "readiness": {
     "packetCheckpoint": "ready",
-    "reopenedBlocker": "P09 can invoke non-vacuous client cross-package and prover gates through the shared package Vitest configuration."
+    "reopenedBlocker": "P09 and P10 can invoke non-vacuous client, prover, and wallet cross-package gates through the shared package Vitest configuration.",
+    "resolvedBlocker": "The @zolana/wallet test:cross script explicitly runs test/wallet.test.ts and propagates Vitest failures."
   },
   "schema": "zolana-ts-packet-evidence-v1"
 }
