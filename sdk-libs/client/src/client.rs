@@ -1759,7 +1759,6 @@ mod tests {
             self.handle.join().expect("mock indexer thread");
             self.requests
                 .try_iter()
-                .into_iter()
                 .map(|request| request.path)
                 .collect()
         }
