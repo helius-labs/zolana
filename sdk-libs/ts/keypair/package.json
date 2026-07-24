@@ -22,6 +22,12 @@
       "browser": "./dist/merge/index.js",
       "import": "./dist/merge/index.js",
       "default": "./dist/merge/index.js"
+    },
+    "./hash": {
+      "types": "./dist/hash/index.d.ts",
+      "browser": "./dist/hash/index.js",
+      "import": "./dist/hash/index.js",
+      "default": "./dist/hash/index.js"
     }
   },
   "scripts": {

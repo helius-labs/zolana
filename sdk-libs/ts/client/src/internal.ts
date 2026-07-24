@@ -13,6 +13,7 @@ import type {
   RequestContext,
   Signature,
 } from "@zolana/interface";
+import { hashField as canonicalHashField } from "@zolana/keypair/hash";
 
 import { ClientError, hasherError } from "./error.js";
 
@@ -136,7 +137,7 @@ export function hashField(bytes: Uint8Array): bigint {
       details: { field: "hash field input", expected: 32, actual: bytes.length },
     });
   }
-  return poseidon([bytesToBigInt(bytes.subarray(16)), bytesToBigInt(bytes.subarray(0, 16))]);
+  return bytesToBigInt(canonicalHashField(bytes));
 }
 
 export function sha256Bytes(bytes: Uint8Array): Bytes32 {

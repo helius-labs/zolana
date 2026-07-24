@@ -1,6 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { bigIntToBytes, bytesToBigInt } from "./bytes.js";
+import { bigIntToBytes, bytesToBigInt, type Bytes32 } from "./bytes.js";
 import { poseidon } from "./poseidon.js";
 
 export function splitBigEndian128(value: Uint8Array): readonly [Uint8Array, Uint8Array] {
@@ -11,8 +11,8 @@ export function splitBigEndian128(value: Uint8Array): readonly [Uint8Array, Uint
   return [low, high];
 }
 
-export function hashField(value: Uint8Array): Uint8Array {
-  return poseidon(splitBigEndian128(value));
+export function hashField(value: Uint8Array): Bytes32 {
+  return poseidon(splitBigEndian128(value)) as Bytes32;
 }
 
 export function hashPublicKeyX(x: Uint8Array, yIsOdd: boolean): Uint8Array {
@@ -34,14 +34,14 @@ export function pack33(bytes: Uint8Array): readonly [Uint8Array, Uint8Array] {
   return [low, high];
 }
 
-export function sha256Bytes(bytes: Uint8Array): Uint8Array {
-  return sha256(bytes);
+export function sha256Bytes(bytes: Uint8Array): Bytes32 {
+  return sha256(bytes) as Bytes32;
 }
 
-export function sha256Be(bytes: Uint8Array): Uint8Array {
+export function sha256Be(bytes: Uint8Array): Bytes32 {
   const digest = sha256(bytes);
   digest[0] = 0;
-  return digest;
+  return digest as Bytes32;
 }
 
 export function fieldFromBytes(bytes: Uint8Array): Uint8Array {

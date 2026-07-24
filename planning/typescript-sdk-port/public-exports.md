@@ -511,6 +511,22 @@ separation behavior are pinned by
 view-tag and transaction-viewing-key derivation are pinned by
 [`tests/steps/viewing.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/tests/steps/viewing.rs).
 
+`@zolana/keypair/hash`:
+
+```ts
+export function splitBigEndian128(value: Uint8Array): readonly [Uint8Array, Uint8Array];
+export function hashField(value: Uint8Array): Bytes32;
+export function hashPublicKeyX(x: Uint8Array, yIsOdd: boolean): Uint8Array;
+export function ownerHash(ownerPublicKeyField: Uint8Array, nullifierPublicKey: Uint8Array): Uint8Array;
+export function pack33(bytes: Uint8Array): readonly [Uint8Array, Uint8Array];
+export function sha256Bytes(bytes: Uint8Array): Bytes32;
+export function sha256Be(bytes: Uint8Array): Bytes32;
+export function fieldFromBytes(bytes: Uint8Array): Uint8Array;
+```
+
+These pure helpers map Rust `zolana_keypair::hash`. Dependent packages import
+this subpath instead of maintaining independent implementations.
+
 `@zolana/keypair/merge`:
 
 ```ts

@@ -3,6 +3,7 @@ import { grainGenConstants, poseidon as createPoseidon } from "@noble/curves/abs
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "@zolana/interface";
+export { hashField, sha256Be } from "@zolana/keypair/hash";
 
 import { TransactionError } from "./error.js";
 
@@ -116,14 +117,6 @@ export function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
   return bigIntBytes(result) as Bytes32;
 }
 
-export function hashField(value: Uint8Array): Bytes32 {
-  const low = new Uint8Array(32);
-  const high = new Uint8Array(32);
-  high.set(value.subarray(0, 16), 16);
-  low.set(value.subarray(16, 32), 16);
-  return poseidon([low, high]);
-}
-
 export function hashChain(values: readonly Bytes32[]): Bytes32 {
   const [first, ...remaining] = values;
   if (!first) return copy(ZERO_32);
@@ -134,12 +127,6 @@ export function hashChain(values: readonly Bytes32[]): Bytes32 {
 
 export function sha256Bytes(bytes: Uint8Array): Bytes32 {
   return sha256(bytes) as Bytes32;
-}
-
-export function sha256Be(bytes: Uint8Array): Bytes32 {
-  const digest = copy(sha256Bytes(bytes));
-  digest[0] = 0;
-  return digest;
 }
 
 export function concat(...parts: readonly Uint8Array[]): Uint8Array {
