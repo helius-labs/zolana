@@ -44,7 +44,7 @@
     {
       "command": "npm run test:vectors --workspace @zolana/keypair",
       "exitStatus": "0",
-      "responsibility": "eight exact P256, Ed25519, Poseidon, nullifier, tag, slot, deterministic-seed, transaction-key, shielded, and merge vectors"
+      "responsibility": "11 tests load all 12 P00 production keypair fixtures and assert their logical inputs, exact bytes, mapped errors, and tamper outcomes"
     },
     {
       "command": "npm run test:property --workspace @zolana/keypair",
@@ -54,7 +54,12 @@
     {
       "command": "npm run test:unit --workspace @zolana/keypair",
       "exitStatus": "0",
-      "responsibility": "20 vector, property, validation, tamper, randomness, copy, and destruction tests"
+      "responsibility": "23 fixture-vector, property, validation, tamper, randomness, copy, and destruction tests"
+    },
+    {
+      "command": "npx vitest run --config ../config/vitest.package.config.js test/security.test.ts",
+      "exitStatus": "0",
+      "responsibility": "six dedicated malformed-input, tamper, wrong-key, secret-copy, destruction, randomness, and diagnostic-redaction security tests"
     },
     {
       "command": "npm run test:browser --workspace @zolana/keypair",
@@ -103,18 +108,8 @@
     },
     {
       "command": "npm run check",
-      "exitStatus": "1",
-      "responsibility": "aggregate gate reached 134 workspace tests; one unrelated @zolana/api matcher failure and one delayed timeout rejection stopped the run"
-    },
-    {
-      "command": "rustup run 1.97.0 cargo build -p zolana-keypair",
       "exitStatus": "0",
-      "responsibility": "compile frozen production Rust oracle used for missing P00 vectors"
-    },
-    {
-      "command": "rustc frozen zolana-keypair oracle for P256 signature and deterministic viewing derivations",
-      "exitStatus": "0",
-      "responsibility": "prove exact Rust and TypeScript agreement for P256 signatures, seed derivation, tag streams, and transaction viewing keys"
+      "responsibility": "aggregate build, typecheck, lint, format, 195 tests, inventory, exports, dependencies, and API checks"
     },
     {
       "command": "git diff --check -- sdk-libs/ts/keypair sdk-libs/ts/reports/packets/P04.json",
@@ -122,14 +117,89 @@
       "responsibility": "P04 whitespace validation"
     }
   ],
-  "dependencyGaps": [
-    {
-      "blockedAcceptance": "none for P04; frozen Rust production was used as the exact oracle",
-      "currentState": "sdk-libs/ts/fixtures/keypair contains only test-secret-blinding-v1.json, which belongs to transaction test blinding and does not contain any keypair production vector declared by inventory-keypair.md",
-      "requiredOwner": "P00",
-      "requirement": "Emit constants.json, encryption.json, error.json, hash.json, lib.json, merge.json, nullifier_key.json, pubkey.json, shielded.json, signing_key.json, viewing_key.json, and the mapped feature/step fixtures from frozen production Rust"
-    }
-  ],
+  "dependencyGaps": [],
+  "fixtureCoverage": {
+    "constants.json": [
+      "all public lengths",
+      "P_CONST_SEC1",
+      "view-root domain bytes",
+      "merge info bytes",
+      "recorded blinding and salt boundaries"
+    ],
+    "encryption.json": [
+      "exact slot ciphertext",
+      "recipient decryption",
+      "ephemeral decryption",
+      "wrong-slot separation"
+    ],
+    "error.json": [
+      "invalid P256 point",
+      "zero secret scalar",
+      "invalid rail prefix",
+      "invalid Ed25519 padding",
+      "wrong-rail access",
+      "P256 and Ed25519 signature tampering"
+    ],
+    "hash.json": [
+      "SHA-256",
+      "field-sized SHA-256",
+      "big-endian field split",
+      "P256 and Ed25519 public hashes",
+      "P256 and Ed25519 owner fields"
+    ],
+    "lib.json": [
+      "both signature aliases",
+      "both rail variants",
+      "deterministically injected random blinding",
+      "deterministically injected random salt"
+    ],
+    "merge.json": [
+      "ciphertext",
+      "recovery",
+      "transaction viewing public key",
+      "low and high public-key limbs",
+      "ciphertext hash",
+      "tampered ciphertext hash"
+    ],
+    "nullifier_key.json": [
+      "direct public key",
+      "signing-secret derivation",
+      "UTXO hash and blinding-bound nullifier"
+    ],
+    "pubkey.json": [
+      "P256 compressed point and tagged round trip",
+      "P256 x and parity",
+      "Ed25519 tagged round trip",
+      "both confidential tags"
+    ],
+    "shielded.json": [
+      "P256 and Ed25519 signing, nullifier, and viewing public keys",
+      "owner hashes",
+      "confidential tags",
+      "Solana address rail behavior",
+      "compressed fields and hashes"
+    ],
+    "signing_key.json": [
+      "exact P256 prehash signature and verification",
+      "exact RFC 8032 Ed25519 signature and verification",
+      "both tagged public keys"
+    ],
+    "tests.json": [
+      "both signature round trips",
+      "tag-direction agreement",
+      "slot round trip",
+      "merge round trip",
+      "fixed-randomness marking"
+    ],
+    "viewing_key.json": [
+      "public key",
+      "ECDH",
+      "all four purpose roots",
+      "sender, request, merge, bootstrap, send, and recipient tags",
+      "deterministic seed derivation",
+      "transaction viewing secret and public key"
+    ]
+  },
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
   "inventoryRows": [
     "sdk-libs/keypair/src/constants.rs",
@@ -171,7 +241,8 @@
     "shielded address and keypair facades for P256 and Ed25519 ownership rails",
     "browser CSPRNG injection point, owned secret copies, and best-effort destroy semantics",
     "merge Poseidon KDF, verifiable encryption, ciphertext hash, and three-field public contribution",
-    "Circom-compatible BN254 Poseidon constants generated by audited Noble code and pinned against frozen Rust/circuit vectors"
+    "Circom-compatible BN254 Poseidon constants generated by audited Noble code and pinned against frozen Rust/circuit vectors",
+    "fixture-backed field-sized SHA-256 and view-root domain constants that were absent from the first P04 checkpoint"
   ],
   "ownedChangedPaths": [
     "sdk-libs/ts/keypair/src/bytes.ts",
@@ -200,7 +271,9 @@
       "kept raw Poseidon, ECDH, HKDF, AES, hash, and merge scheduling helpers outside both package entry points",
       "centralized checked copying, big-endian encoding, domain constants, and typed error construction",
       "removed redundant branches and non-null assertions identified by strict lint",
-      "kept production source free of narration comments, Node globals, diagnostics, and secret interpolation"
+      "kept production source free of narration comments, Node globals, diagnostics, and secret interpolation",
+      "replaced every hardcoded Rust literal in the vector suite with one of the 12 P00 production fixtures",
+      "shared hex, mapped-error, compressed-address, and fixture-marking assertions without duplicating production cryptography"
     ],
     "skills": ["code-simplifier", "code-quality", "zolana-comments"]
   },

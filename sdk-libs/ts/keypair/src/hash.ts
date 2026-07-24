@@ -38,6 +38,12 @@ export function sha256Bytes(bytes: Uint8Array): Uint8Array {
   return sha256(bytes);
 }
 
+export function sha256Be(bytes: Uint8Array): Uint8Array {
+  const digest = sha256(bytes);
+  digest[0] = 0;
+  return digest;
+}
+
 export function fieldFromBytes(bytes: Uint8Array): Uint8Array {
   return bigIntToBytes(bytesToBigInt(bytes));
 }
