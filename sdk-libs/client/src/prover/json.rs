@@ -243,17 +243,58 @@ pub(crate) fn to_json_p256_zone(inputs: &TransferP256Inputs) -> String {
     transfer_p256_inputs_json(inputs, "transfer-p256-zone")
 }
 
+/// Merge input slot. Only the free per-slot leaf fields are sent; the merge
+/// circuit reconstructs the shared owner/asset and the constant data/zone-program
+/// fields itself, so they are not transmitted (unlike the transfer shape).
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct MergeInputParamsJson {
+    #[serde(rename = "domain")]
+    pub domain: String,
+    #[serde(rename = "amount")]
+    pub amount: String,
+    #[serde(rename = "blinding")]
+    pub blinding: String,
+    #[serde(rename = "zoneDataHash")]
+    pub zone_data_hash: String,
+    #[serde(rename = "statePathElements")]
+    pub state_path_elements: Vec<String>,
+    #[serde(rename = "statePathIndex")]
+    pub state_path_index: String,
+    #[serde(rename = "nullifierLowValue")]
+    pub nullifier_low_value: String,
+    #[serde(rename = "nullifierNextValue")]
+    pub nullifier_next_value: String,
+    #[serde(rename = "nullifierLowPathElements")]
+    pub nullifier_low_path_elements: Vec<String>,
+    #[serde(rename = "nullifierLowPathIndex")]
+    pub nullifier_low_path_index: String,
+    #[serde(rename = "utxoTreeRoot")]
+    pub utxo_tree_root: String,
+    #[serde(rename = "nullifierTreeRoot")]
+    pub nullifier_tree_root: String,
+}
+
+/// Merge output slot: the only free leaf fields. Amount is assembled from the
+/// input sum in-circuit; owner/asset/domain/data are shared/constant.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct MergeOutputParamsJson {
+    #[serde(rename = "blinding")]
+    pub blinding: String,
+    #[serde(rename = "zoneDataHash")]
+    pub zone_data_hash: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct MergeParametersJson {
     #[serde(rename = "circuitType")]
     pub circuit_type: String,
-    // Reuses the transfer input/output JSON. The merge circuit ignores the
-    // transfer-only per-input `ownerPkHash`/`nullifierSecret` and output
-    // `isDummy` (Go drops unknown keys), so no merge-specific shape is needed.
     #[serde(rename = "inputs")]
-    pub inputs: Vec<InputParamsJson>,
+    pub inputs: Vec<MergeInputParamsJson>,
     #[serde(rename = "output")]
-    pub output: OutputParamsJson,
+    pub output: MergeOutputParamsJson,
+    /// The single asset shared by every real input and the merged output.
+    #[serde(rename = "asset")]
+    pub asset: String,
     #[serde(rename = "p256PubX")]
     pub p256_pub_x: String,
     #[serde(rename = "p256PubY")]
@@ -283,11 +324,44 @@ pub(crate) struct MergeParametersJson {
 /// Serialize a merge witness under the given circuit type. The default merge and
 /// merge-zone share the witness shape and differ only by the circuit type and the
 /// `zoneProgramId` value (`0` for default merge).
+fn merge_input_to_json(input: &TransferInput) -> MergeInputParamsJson {
+    MergeInputParamsJson {
+        domain: fe_to_string(&input.utxo.domain),
+        amount: fe_to_string(&input.utxo.amount),
+        blinding: fe_to_string(&input.utxo.blinding),
+        zone_data_hash: fe_to_string(&input.utxo.zone_data_hash),
+        state_path_elements: input
+            .state_path_elements
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        state_path_index: big_uint_to_string(&input.state_path_index),
+        nullifier_low_value: big_uint_to_string(&input.nullifier_low_value),
+        nullifier_next_value: big_uint_to_string(&input.nullifier_next_value),
+        nullifier_low_path_elements: input
+            .nullifier_low_path_elements
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        nullifier_low_path_index: big_uint_to_string(&input.nullifier_low_path_index),
+        utxo_tree_root: big_uint_to_string(&input.utxo_tree_root),
+        nullifier_tree_root: big_uint_to_string(&input.nullifier_tree_root),
+    }
+}
+
+fn merge_output_to_json(output: &TransferOutput) -> MergeOutputParamsJson {
+    MergeOutputParamsJson {
+        blinding: fe_to_string(&output.utxo.blinding),
+        zone_data_hash: fe_to_string(&output.utxo.zone_data_hash),
+    }
+}
+
 fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
     let json = MergeParametersJson {
         circuit_type: circuit_type.to_string(),
-        inputs: inputs.inputs.iter().map(input_to_json).collect(),
-        output: output_to_json(&inputs.output),
+        inputs: inputs.inputs.iter().map(merge_input_to_json).collect(),
+        output: merge_output_to_json(&inputs.output),
+        asset: fe_to_string(&inputs.output.utxo.asset),
         p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
         p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),

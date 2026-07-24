@@ -27,31 +27,22 @@ func TestMergeParametersJSONRoundTrip(t *testing.T) {
 	if got.PublicInputHash.Cmp(p.PublicInputHash) != 0 {
 		t.Fatalf("public input hash mismatch: got %s want %s", got.PublicInputHash, p.PublicInputHash)
 	}
-	if got.Output.Hash.Cmp(p.Output.Hash) != 0 {
-		t.Fatalf("output hash mismatch")
-	}
 	if len(got.Inputs) != len(p.Inputs) {
 		t.Fatalf("input count mismatch: got %d want %d", len(got.Inputs), len(p.Inputs))
 	}
 	if len(got.UserViewingPubkey) != 65 {
 		t.Fatalf("user viewing pubkey length: got %d", len(got.UserViewingPubkey))
 	}
-	if got.Inputs[0].Nullifier.Cmp(p.Inputs[0].Nullifier) != 0 {
-		t.Fatalf("nullifier mismatch")
-	}
 }
 
 func sampleParams() *MergeParameters {
-	utxo := UtxoParams{
-		Domain: big.NewInt(1), Owner: big.NewInt(2), Asset: big.NewInt(1),
-		Amount: big.NewInt(5), Blinding: big.NewInt(7), DataHash: big.NewInt(0),
-		ZoneDataHash: big.NewInt(0), ZoneProgramID: big.NewInt(0),
-	}
 	inputs := make([]InputParams, MergeNInputs)
 	for i := range inputs {
 		inputs[i] = InputParams{
-			Utxo:                     utxo,
-			IsDummy:                  big.NewInt(int64(boolToInt(i != 0))),
+			Domain:                   big.NewInt(3),
+			Amount:                   big.NewInt(5),
+			Blinding:                 big.NewInt(7),
+			ZoneDataHash:             big.NewInt(0),
 			StatePathElements:        zeros(transaction.StateTreeHeight),
 			StatePathIndex:           big.NewInt(0),
 			NullifierLowValue:        big.NewInt(0),
@@ -60,7 +51,6 @@ func sampleParams() *MergeParameters {
 			NullifierLowPathIndex:    big.NewInt(0),
 			UtxoTreeRoot:             big.NewInt(11),
 			NullifierTreeRoot:        big.NewInt(13),
-			Nullifier:                big.NewInt(int64(100 + i)),
 		}
 	}
 	viewing := make([]*big.Int, 65)
@@ -69,7 +59,8 @@ func sampleParams() *MergeParameters {
 	}
 	return &MergeParameters{
 		Inputs:              inputs,
-		Output:              OutputParams{Utxo: utxo, Hash: big.NewInt(0xABC)},
+		Output:              OutputParams{Blinding: big.NewInt(0x3333), ZoneDataHash: big.NewInt(0)},
+		Asset:               big.NewInt(1),
 		P256PubX:            big.NewInt(0x1111),
 		P256PubY:            big.NewInt(0x2222),
 		UserNullifierPk:     big.NewInt(0x3333),
@@ -88,11 +79,4 @@ func zeros(n int) []*big.Int {
 		out[i] = big.NewInt(0)
 	}
 	return out
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

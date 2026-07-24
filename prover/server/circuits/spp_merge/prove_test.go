@@ -61,12 +61,13 @@ func TestMergeCircuitRejectsEddsaOwnerMismatch(t *testing.T) {
 	}
 }
 
-// TestMergeCircuitRejectsBadValueConservation breaks sum(inputs) == output by
-// inflating the output amount; the output_utxo_hash is recomputed so only the
-// conservation check fails.
+// TestMergeCircuitRejectsBadValueConservation tampers an input amount. The output
+// amount is assembled from the input sum, so a changed input both alters that
+// input's leaf hash (breaking state inclusion) and shifts the assembled output
+// hash out of the pinned private-transaction hash. The witness no longer solves.
 func TestMergeCircuitRejectsBadValueConservation(t *testing.T) {
 	a := buildValidWitness(t)
-	a.Output.Utxo.Amount = big.NewInt(999)
+	a.Inputs[0].Amount = big.NewInt(999)
 	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected value-conservation failure, got solved")
 	}
@@ -82,13 +83,35 @@ func TestMergeCircuitRejectsTamperedPublicInput(t *testing.T) {
 	}
 }
 
-// TestMergeCircuitRejectsWrongOwner breaks ownership uniformity: an input UTXO
-// owned by a different owner hash than user_owner_hash.
+// TestMergeCircuitRejectsWrongAsset breaks asset uniformity: the circuit builds
+// every input leaf from the shared Asset, so a mismatched Asset reconstructs
+// leaves that are absent from the state tree and inclusion fails.
+func TestMergeCircuitRejectsWrongAsset(t *testing.T) {
+	a := buildValidWitness(t)
+	a.Asset = big.NewInt(0xBADBAD)
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected asset-uniformity failure, got solved")
+	}
+}
+
+// TestMergeCircuitRejectsWrongOwner breaks ownership uniformity: a mismatched
+// owner pk_hash reconstructs input leaves that are absent from the state tree.
 func TestMergeCircuitRejectsWrongOwner(t *testing.T) {
 	a := buildValidWitness(t)
-	a.Inputs[0].Utxo.Owner = big.NewInt(0xBADBAD)
+	a.OwnerPkHash = big.NewInt(0xBADBAD)
 	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected ownership-uniformity failure, got solved")
+	}
+}
+
+// TestMergeCircuitRejectsInvalidDomain locks the domain-driven slot partition: a
+// slot whose domain is neither UtxoDomain nor DummyDomain fails the
+// isUtxo+isDummy==1 assert. Here a real input's domain is set to AddressDomain.
+func TestMergeCircuitRejectsInvalidDomain(t *testing.T) {
+	a := buildValidWitness(t)
+	a.Inputs[0].Domain = big.NewInt(protocol.AddressDomain)
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected domain-partition failure, got solved")
 	}
 }
 
@@ -244,6 +267,29 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	ctHash, txViewingPkComp := encryptMerge(t, curve, txViewingSk, viewX, viewY, outUtxo)
 	pkLo, pkHi := pack33(txViewingPkComp)
 
+	// Dummy slot: the DummyDomain sentinel with otherwise-empty content, matching
+	// the padding leaf the client builds (owner/asset/secret all zero). The circuit
+	// zeroes those fields for dummy slots and assembles the nullifier under a zero
+	// secret, so the test mirrors that leaf here for the dummy public-input columns.
+	dummyUtxo := protocol.Utxo{
+		Domain:        big.NewInt(protocol.DummyDomain),
+		Owner:         big.NewInt(0),
+		Asset:         big.NewInt(0),
+		Amount:        big.NewInt(0),
+		Blinding:      big.NewInt(0),
+		DataHash:      big.NewInt(0),
+		ZoneDataHash:  big.NewInt(0),
+		ZoneProgramID: big.NewInt(0),
+	}
+	dummyHash, err := protocol.UtxoHash(dummyUtxo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dummyNullifier, err := protocol.Nullifier(dummyHash, big.NewInt(0), big.NewInt(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Public columns (real + dummy), reused verbatim in the public input hash.
 	pubNullifiers := make([]*big.Int, merge.MergeInputs)
 	pubUtxoRoots := make([]*big.Int, merge.MergeInputs)
@@ -254,7 +300,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			pubUtxoRoots[i] = stateRoot
 			pubNfRoots[i] = nfRoot
 		} else {
-			pubNullifiers[i] = big.NewInt(int64(1000 + i)) // dummy nullifier, unpinned
+			pubNullifiers[i] = dummyNullifier
 			pubUtxoRoots[i] = stateRoot
 			pubNfRoots[i] = nfRoot
 		}
@@ -289,12 +335,15 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	assignment.ExternalDataHash = externalDataHash
 	assignment.PrivateTxHash = privateTxHash
 	assignment.PublicInputHash = publicInputHash
+	assignment.Asset = asset
 
 	for i := 0; i < merge.MergeInputs; i++ {
 		in := &assignment.Inputs[i]
 		if i < numReal {
-			in.IsDummy = 0
-			in.Utxo = utxoFields(inUtxos[i])
+			in.Domain = big.NewInt(protocol.UtxoDomain)
+			in.Amount = amounts[i]
+			in.Blinding = blindings[i]
+			in.ZoneDataHash = big.NewInt(0)
 			fillPath(in.StatePathElements, stateProofs[uint64(i)].PathElements)
 			in.StatePathIndex = big.NewInt(int64(stateProofs[uint64(i)].PathIndex))
 			in.NullifierLowValue = nfWitnesses[i].LowValue
@@ -303,19 +352,11 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			in.NullifierLowPathIndex = big.NewInt(int64(nfWitnesses[i].LowIndex))
 			in.UtxoTreeRoot = stateRoot
 			in.NullifierTreeRoot = nfRoot
-			in.Nullifier = nullifiers[i]
 		} else {
-			in.IsDummy = 1
-			in.Utxo = utxoFields(protocol.Utxo{
-				Domain:        big.NewInt(0),
-				Owner:         big.NewInt(0),
-				Asset:         big.NewInt(0),
-				Amount:        big.NewInt(0),
-				Blinding:      big.NewInt(0),
-				DataHash:      big.NewInt(0),
-				ZoneDataHash:  big.NewInt(0),
-				ZoneProgramID: big.NewInt(0),
-			})
+			in.Domain = big.NewInt(protocol.DummyDomain)
+			in.Amount = big.NewInt(0)
+			in.Blinding = big.NewInt(0)
+			in.ZoneDataHash = big.NewInt(0)
 			zeroPath(in.StatePathElements)
 			in.StatePathIndex = big.NewInt(0)
 			in.NullifierLowValue = big.NewInt(0)
@@ -324,10 +365,9 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			in.NullifierLowPathIndex = big.NewInt(0)
 			in.UtxoTreeRoot = pubUtxoRoots[i]
 			in.NullifierTreeRoot = pubNfRoots[i]
-			in.Nullifier = pubNullifiers[i]
 		}
 	}
-	assignment.Output = merge.Output{Utxo: utxoFields(outUtxo), Hash: outHash}
+	assignment.Output = merge.Output{Blinding: outBlinding, ZoneDataHash: big.NewInt(0)}
 
 	return assignment
 }
@@ -476,19 +516,6 @@ func hashChain(t *testing.T, in []*big.Int) *big.Int {
 		t.Fatal(err)
 	}
 	return h
-}
-
-func utxoFields(u protocol.Utxo) transaction.UtxoCircuitFields {
-	return transaction.UtxoCircuitFields{
-		Domain:        u.Domain,
-		Owner:         u.Owner,
-		Asset:         u.Asset,
-		Amount:        u.Amount,
-		Blinding:      u.Blinding,
-		DataHash:      u.DataHash,
-		ZoneDataHash:  u.ZoneDataHash,
-		ZoneProgramID: u.ZoneProgramID,
-	}
 }
 
 func fillPath(dst []frontend.Variable, src []*big.Int) {

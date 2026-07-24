@@ -9,19 +9,6 @@ import (
 	"github.com/consensys/gnark/std/math/emulated"
 )
 
-func utxoFields(u UtxoParams) transaction.UtxoCircuitFields {
-	return transaction.UtxoCircuitFields{
-		Domain:        u.Domain,
-		Owner:         u.Owner,
-		Asset:         u.Asset,
-		Amount:        u.Amount,
-		Blinding:      u.Blinding,
-		DataHash:      u.DataHash,
-		ZoneDataHash:  u.ZoneDataHash,
-		ZoneProgramID: u.ZoneProgramID,
-	}
-}
-
 // CreateWitness assigns the pre-computed parameters onto the merge circuit. It
 // performs no hashing — every signal is taken verbatim from the client params.
 // The merge-zone rail (CircuitType == MergeZoneCircuitType) is assigned onto the
@@ -44,6 +31,7 @@ func (p *MergeParameters) createDefaultWitness() *mergecircuit.Circuit {
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
 	circuit.UserNullifierSecret = p.UserNullifierSecret
+	circuit.Asset = p.Asset
 	circuit.TxViewingSk = p.TxViewingSk
 	for i := 0; i < len(circuit.UserViewingPubkey); i++ {
 		circuit.UserViewingPubkey[i] = p.UserViewingPubkey[i]
@@ -57,8 +45,8 @@ func (p *MergeParameters) createDefaultWitness() *mergecircuit.Circuit {
 	}
 
 	circuit.Output = mergecircuit.Output{
-		Utxo: utxoFields(p.Output.Utxo),
-		Hash: p.Output.Hash,
+		Blinding:     p.Output.Blinding,
+		ZoneDataHash: p.Output.ZoneDataHash,
 	}
 
 	return circuit
@@ -74,6 +62,7 @@ func (p *MergeParameters) createZoneWitness() *mergecircuit.ZoneCircuit {
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
 	circuit.UserNullifierSecret = p.UserNullifierSecret
+	circuit.Asset = p.Asset
 	circuit.TxViewingSk = p.TxViewingSk
 	for i := 0; i < len(circuit.UserViewingPubkey); i++ {
 		circuit.UserViewingPubkey[i] = p.UserViewingPubkey[i]
@@ -88,8 +77,8 @@ func (p *MergeParameters) createZoneWitness() *mergecircuit.ZoneCircuit {
 	}
 
 	circuit.Output = mergecircuit.Output{
-		Utxo: utxoFields(p.Output.Utxo),
-		Hash: p.Output.Hash,
+		Blinding:     p.Output.Blinding,
+		ZoneDataHash: p.Output.ZoneDataHash,
 	}
 
 	return circuit
@@ -106,8 +95,10 @@ func (p *MergeParameters) inputAt(i int) mergecircuit.Input {
 		nullifierPath[j] = in.NullifierLowPathElements[j]
 	}
 	return mergecircuit.Input{
-		Utxo:                     utxoFields(in.Utxo),
-		IsDummy:                  in.IsDummy,
+		Domain:                   in.Domain,
+		Amount:                   in.Amount,
+		Blinding:                 in.Blinding,
+		ZoneDataHash:             in.ZoneDataHash,
 		StatePathElements:        statePath,
 		StatePathIndex:           in.StatePathIndex,
 		NullifierLowValue:        in.NullifierLowValue,
@@ -116,6 +107,5 @@ func (p *MergeParameters) inputAt(i int) mergecircuit.Input {
 		NullifierLowPathIndex:    in.NullifierLowPathIndex,
 		UtxoTreeRoot:             in.UtxoTreeRoot,
 		NullifierTreeRoot:        in.NullifierTreeRoot,
-		Nullifier:                in.Nullifier,
 	}
 }

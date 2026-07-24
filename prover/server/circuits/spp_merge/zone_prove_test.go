@@ -21,12 +21,15 @@ func TestMergeZoneCircuitProves(t *testing.T) {
 	}
 }
 
-func TestMergeZoneCircuitRejectsDefaultZoneInput(t *testing.T) {
-	zoneProgramID := big.NewInt(0x5A0E)
-	a := buildZoneWitness(t, zoneProgramID)
-	a.Inputs[0].Utxo.ZoneProgramID = big.NewInt(0)
+// TestMergeZoneCircuitRejectsWrongZoneProgram breaks zone binding: the circuit
+// reconstructs every input and output leaf from the top-level ZoneProgramID, so
+// setting it to the default zone (0) rebuilds leaves absent from the state tree
+// and shifts the public-input hash. The witness no longer solves.
+func TestMergeZoneCircuitRejectsWrongZoneProgram(t *testing.T) {
+	a := buildZoneWitness(t, big.NewInt(0x5A0E))
+	a.ZoneProgramID = big.NewInt(0)
 	if err := test.IsSolved(merge.NewMergeZoneCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("expected zone-binding failure for default-zone input, got solved")
+		t.Fatal("expected zone-binding failure for wrong zone program, got solved")
 	}
 }
 
@@ -147,6 +150,28 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 	ctHash, txViewingPkComp := encryptMerge(t, curve, txViewingSk, viewX, viewY, outUtxo)
 	pkLo, pkHi := pack33(txViewingPkComp)
 
+	// Dummy slot: DummyDomain sentinel with otherwise-empty content, matching the
+	// padding leaf the client builds (owner/asset/zone-program/secret all zero).
+	// The circuit zeroes those fields for dummy slots even on the zone rail.
+	dummyUtxo := protocol.Utxo{
+		Domain:        big.NewInt(protocol.DummyDomain),
+		Owner:         big.NewInt(0),
+		Asset:         big.NewInt(0),
+		Amount:        big.NewInt(0),
+		Blinding:      big.NewInt(0),
+		DataHash:      big.NewInt(0),
+		ZoneDataHash:  big.NewInt(0),
+		ZoneProgramID: big.NewInt(0),
+	}
+	dummyHash, err := protocol.UtxoHash(dummyUtxo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dummyNullifier, err := protocol.Nullifier(dummyHash, big.NewInt(0), big.NewInt(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	pubNullifiers := make([]*big.Int, merge.MergeInputs)
 	pubUtxoRoots := make([]*big.Int, merge.MergeInputs)
 	pubNfRoots := make([]*big.Int, merge.MergeInputs)
@@ -154,7 +179,7 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 		if i < numReal {
 			pubNullifiers[i] = nullifiers[i]
 		} else {
-			pubNullifiers[i] = big.NewInt(int64(1000 + i))
+			pubNullifiers[i] = dummyNullifier
 		}
 		pubUtxoRoots[i] = stateRoot
 		pubNfRoots[i] = nfRoot
@@ -188,12 +213,15 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 	assignment.PrivateTxHash = privateTxHash
 	assignment.ZoneProgramID = zoneProgramID
 	assignment.PublicInputHash = publicInputHash
+	assignment.Asset = asset
 
 	for i := 0; i < merge.MergeInputs; i++ {
 		in := &assignment.Inputs[i]
 		if i < numReal {
-			in.IsDummy = 0
-			in.Utxo = utxoFields(inUtxos[i])
+			in.Domain = big.NewInt(protocol.UtxoDomain)
+			in.Amount = amounts[i]
+			in.Blinding = blindings[i]
+			in.ZoneDataHash = zoneData[i]
 			fillPath(in.StatePathElements, stateProofs[uint64(i)].PathElements)
 			in.StatePathIndex = big.NewInt(int64(stateProofs[uint64(i)].PathIndex))
 			in.NullifierLowValue = nfWitnesses[i].LowValue
@@ -202,19 +230,11 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 			in.NullifierLowPathIndex = big.NewInt(int64(nfWitnesses[i].LowIndex))
 			in.UtxoTreeRoot = stateRoot
 			in.NullifierTreeRoot = nfRoot
-			in.Nullifier = nullifiers[i]
 		} else {
-			in.IsDummy = 1
-			in.Utxo = utxoFields(protocol.Utxo{
-				Domain:        big.NewInt(0),
-				Owner:         big.NewInt(0),
-				Asset:         big.NewInt(0),
-				Amount:        big.NewInt(0),
-				Blinding:      big.NewInt(0),
-				DataHash:      big.NewInt(0),
-				ZoneDataHash:  big.NewInt(0),
-				ZoneProgramID: big.NewInt(0),
-			})
+			in.Domain = big.NewInt(protocol.DummyDomain)
+			in.Amount = big.NewInt(0)
+			in.Blinding = big.NewInt(0)
+			in.ZoneDataHash = big.NewInt(0)
 			zeroPath(in.StatePathElements)
 			in.StatePathIndex = big.NewInt(0)
 			in.NullifierLowValue = big.NewInt(0)
@@ -223,10 +243,9 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 			in.NullifierLowPathIndex = big.NewInt(0)
 			in.UtxoTreeRoot = pubUtxoRoots[i]
 			in.NullifierTreeRoot = pubNfRoots[i]
-			in.Nullifier = pubNullifiers[i]
 		}
 	}
-	assignment.Output = merge.Output{Utxo: utxoFields(outUtxo), Hash: outHash}
+	assignment.Output = merge.Output{Blinding: big.NewInt(0x3333), ZoneDataHash: big.NewInt(0xD2)}
 
 	return assignment
 }

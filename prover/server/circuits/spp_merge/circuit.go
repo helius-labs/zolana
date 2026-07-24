@@ -23,11 +23,21 @@ import (
 const (
 	MergeInputs = 8
 	UtxoDomain  = transaction.UtxoDomain
+	DummyDomain = transaction.DummyDomain
 )
 
 type Input struct {
-	Utxo    transaction.UtxoCircuitFields
-	IsDummy frontend.Variable
+	// Free per-slot UTXO fields. The remaining leaf fields are shared and fed in
+	// by the circuit, so they are not witnessed: Owner = user_owner_hash, Asset =
+	// the single merged asset, DataHash = 0, ZoneProgramID = the zone program (0 on
+	// the default rail). Domain is the slot-type control (UtxoDomain real /
+	// DummyDomain padding); ZoneDataHash is free on the zone rail and pinned to 0 on
+	// the default rail. A real input whose committed leaf disagrees with the shared
+	// values simply fails state inclusion, so uniformity needs no explicit assert.
+	Domain       frontend.Variable
+	Amount       frontend.Variable
+	Blinding     frontend.Variable
+	ZoneDataHash frontend.Variable
 
 	StatePathElements []frontend.Variable
 	StatePathIndex    frontend.Variable
@@ -39,12 +49,14 @@ type Input struct {
 
 	UtxoTreeRoot      frontend.Variable
 	NullifierTreeRoot frontend.Variable
-	Nullifier         frontend.Variable
 }
 
 type Output struct {
-	Utxo transaction.UtxoCircuitFields
-	Hash frontend.Variable
+	// The merged output's only free leaf fields. Amount is assembled from the input
+	// sum; Owner/Asset/Domain/DataHash/ZoneProgramID are shared/constant.
+	// ZoneDataHash is free on the zone rail and 0 on the default rail.
+	Blinding     frontend.Variable
+	ZoneDataHash frontend.Variable
 }
 
 type Circuit struct {
@@ -52,6 +64,9 @@ type Circuit struct {
 
 	Inputs []Input
 	Output Output
+
+	// Asset is the single asset shared by every real input and the merged output.
+	Asset frontend.Variable
 
 	// Shared owner identity, one of two rails. P256Pub is the owner's P256 signing
 	// pubkey witness (canonical x, y, parity); OwnerPkHash is the owner's pk_field.
@@ -94,6 +109,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	publicInputHash, err := defineMerge(api, mergeSignals{
 		inputs:              c.Inputs,
 		output:              c.Output,
+		asset:               c.Asset,
 		p256Pub:             c.P256Pub,
 		ownerPkHash:         c.OwnerPkHash,
 		userNullifierPk:     c.UserNullifierPk,
@@ -115,6 +131,7 @@ func (c *Circuit) Define(api frontend.API) error {
 type mergeSignals struct {
 	inputs              []Input
 	output              Output
+	asset               frontend.Variable
 	p256Pub             transaction.P256PublicKey
 	ownerPkHash         frontend.Variable
 	userNullifierPk     frontend.Variable
@@ -143,23 +160,23 @@ func defineMerge(api frontend.API, s mergeSignals) (frontend.Variable, error) {
 	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{s.userNullifierSecret})
 	api.AssertIsEqual(s.userNullifierPk, nullifierPk)
 
-	outputAsset := s.output.Utxo.Asset
-
 	inputHashes := make([]frontend.Variable, len(s.inputs))
+	nullifiers := make([]frontend.Variable, len(s.inputs))
 	for i := range s.inputs {
-		inputHashes[i] = constrainInput(api, s.inputs[i], userOwnerHash, s.userNullifierSecret, outputAsset, s.zone, s.zoneProgramID)
+		inputHashes[i], nullifiers[i] = constrainInput(api, s.inputs[i], userOwnerHash, s.userNullifierSecret, s.asset, s.zone, s.zoneProgramID)
 	}
-	assertDistinctNullifiers(api, s.inputs)
+	assertDistinctNullifiers(api, s.inputs, nullifiers)
 
 	// Value conservation (single asset): dummies contribute 0 (amount pinned to 0
-	// in constrainInput), so the sum over all slots equals the real total.
+	// in constrainInput), so the sum over all slots equals the real total. The
+	// merged output amount is assembled from this sum rather than witnessed, so
+	// conservation holds by construction.
 	sumInputs := frontend.Variable(0)
 	for i := range s.inputs {
-		sumInputs = api.Add(sumInputs, s.inputs[i].Utxo.Amount)
+		sumInputs = api.Add(sumInputs, s.inputs[i].Amount)
 	}
-	api.AssertIsEqual(sumInputs, s.output.Utxo.Amount)
 
-	outputHash := constrainOutput(api, s.output, userOwnerHash, s.zone, s.zoneProgramID)
+	outputHash := constrainOutput(api, s.output, userOwnerHash, s.asset, sumInputs, s.zone, s.zoneProgramID)
 
 	addressHashes := make([]frontend.Variable, len(inputHashes))
 	for i := range addressHashes {
@@ -176,7 +193,7 @@ func defineMerge(api frontend.API, s mergeSignals) (frontend.Variable, error) {
 
 	// Verifiable encryption of the merged output to the owner's viewing key.
 	g := aes.NewAESGadget(api)
-	ctHash, pkLo, pkHi := constrainEncryption(api, g, s.txViewingSk, s.userViewingPubkey, s.output)
+	ctHash, pkLo, pkHi := constrainEncryption(api, g, s.txViewingSk, s.userViewingPubkey, sumInputs, s.asset, s.output.Blinding)
 
 	// pk_field(user_viewing_pk) over the same viewing point as the encryption
 	// (constrainEncryption asserts it on-curve via p256.PointOnCurve). It is a
@@ -187,12 +204,12 @@ func defineMerge(api frontend.API, s mergeSignals) (frontend.Variable, error) {
 		return nil, err
 	}
 
-	return mergePublicInputHash(api, s, outputHash, pkField, viewingPkField, ctHash, pkLo, pkHi), nil
+	return mergePublicInputHash(api, s, nullifiers, outputHash, pkField, viewingPkField, ctHash, pkLo, pkHi), nil
 }
 
-func mergePublicInputHash(api frontend.API, s mergeSignals, outputHash, userSigningPkHash, userViewingPkHash, ctHash, txViewingPkLo, txViewingPkHi frontend.Variable) frontend.Variable {
+func mergePublicInputHash(api frontend.API, s mergeSignals, nullifiers []frontend.Variable, outputHash, userSigningPkHash, userViewingPkHash, ctHash, txViewingPkLo, txViewingPkHi frontend.Variable) frontend.Variable {
 	fields := []frontend.Variable{
-		gadget.HashChain(api, inputNullifiers(s.inputs)),
+		gadget.HashChain(api, nullifiers),
 		outputHash,
 		gadget.HashChain(api, inputUtxoRoots(s.inputs)),
 		gadget.HashChain(api, inputNullifierTreeRoots(s.inputs)),
@@ -209,22 +226,16 @@ func mergePublicInputHash(api frontend.API, s mergeSignals, outputHash, userSign
 	return gadget.HashChain(api, fields)
 }
 
-func assertDistinctNullifiers(api frontend.API, inputs []Input) {
+func assertDistinctNullifiers(api frontend.API, inputs []Input, nullifiers []frontend.Variable) {
 	for i := range inputs {
 		for j := i + 1; j < len(inputs); j++ {
-			bothReal := api.Mul(api.Sub(1, inputs[i].IsDummy), api.Sub(1, inputs[j].IsDummy))
-			sameNullifier := api.IsZero(api.Sub(inputs[i].Nullifier, inputs[j].Nullifier))
+			iReal := api.IsZero(api.Sub(inputs[i].Domain, UtxoDomain))
+			jReal := api.IsZero(api.Sub(inputs[j].Domain, UtxoDomain))
+			bothReal := api.Mul(iReal, jReal)
+			sameNullifier := api.IsZero(api.Sub(nullifiers[i], nullifiers[j]))
 			api.AssertIsEqual(api.Mul(bothReal, sameNullifier), 0)
 		}
 	}
-}
-
-func inputNullifiers(inputs []Input) []frontend.Variable {
-	out := make([]frontend.Variable, len(inputs))
-	for i := range inputs {
-		out[i] = inputs[i].Nullifier
-	}
-	return out
 }
 
 func inputUtxoRoots(inputs []Input) []frontend.Variable {

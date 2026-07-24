@@ -6,24 +6,15 @@ import (
 	"zolana/prover/prover/common"
 )
 
-// UtxoParams mirrors transaction.UtxoCircuitFields as already-computed field
-// elements supplied by the client.
-type UtxoParams struct {
-	Domain        *big.Int
-	Owner         *big.Int
-	Asset         *big.Int
-	Amount        *big.Int
-	Blinding      *big.Int
-	DataHash      *big.Int
-	ZoneDataHash  *big.Int
-	ZoneProgramID *big.Int
-}
-
-// InputParams mirrors merge.Input. Every value is pre-computed client-side; the
-// prover only assigns them onto circuit signals.
+// InputParams mirrors merge.Input. Only the free per-slot UTXO fields are
+// carried; the shared owner/asset and the constant data/zone-program fields are
+// reconstructed in-circuit. Every value is pre-computed client-side; the prover
+// only assigns them onto circuit signals.
 type InputParams struct {
-	Utxo    UtxoParams
-	IsDummy *big.Int
+	Domain       *big.Int
+	Amount       *big.Int
+	Blinding     *big.Int
+	ZoneDataHash *big.Int
 
 	StatePathElements []*big.Int // len StateTreeHeight
 	StatePathIndex    *big.Int
@@ -35,13 +26,12 @@ type InputParams struct {
 
 	UtxoTreeRoot      *big.Int
 	NullifierTreeRoot *big.Int
-	Nullifier         *big.Int
 }
 
-// OutputParams mirrors merge.Output.
+// OutputParams mirrors merge.Output: only the free leaf fields.
 type OutputParams struct {
-	Utxo UtxoParams
-	Hash *big.Int
+	Blinding     *big.Int
+	ZoneDataHash *big.Int
 }
 
 // MergeParameters is the flat, pre-computed witness for the 8-in/1-out merge
@@ -56,6 +46,9 @@ type MergeParameters struct {
 
 	Inputs []InputParams
 	Output OutputParams
+
+	// Asset is the single asset shared by every real input and the merged output.
+	Asset *big.Int
 
 	// ZoneProgramID is the policy-zone merge circuit's top-level public
 	// ZoneProgramID input (the zone program's pk_field). Every real input and the

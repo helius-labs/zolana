@@ -12,6 +12,9 @@ type ZoneCircuit struct {
 	Inputs []Input
 	Output Output
 
+	// Asset is the single asset shared by every real input and the merged output.
+	Asset frontend.Variable
+
 	P256Pub             transaction.P256PublicKey
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
@@ -46,6 +49,7 @@ func (c *ZoneCircuit) Define(api frontend.API) error {
 	publicInputHash, err := defineMerge(api, mergeSignals{
 		inputs:              c.Inputs,
 		output:              c.Output,
+		asset:               c.Asset,
 		p256Pub:             c.P256Pub,
 		ownerPkHash:         c.OwnerPkHash,
 		userNullifierPk:     c.UserNullifierPk,

@@ -25,7 +25,7 @@ const MergePlaintextLen = 8 + 32 + 31
 // field limbs of the compressed tx_viewing_pk, all folded into the public input
 // hash. tx_viewing_pk is derived (not witnessed) as tx_viewing_sk · G_P256, so
 // keypair consistency holds by construction.
-func constrainEncryption(api frontend.API, g *aes.AESGadget, txViewingSk frontend.Variable, userViewingPubkey [65]frontend.Variable, output Output) (ctHash, txViewingPkLo, txViewingPkHi frontend.Variable) {
+func constrainEncryption(api frontend.API, g *aes.AESGadget, txViewingSk frontend.Variable, userViewingPubkey [65]frontend.Variable, amount, asset, blinding frontend.Variable) (ctHash, txViewingPkLo, txViewingPkHi frontend.Variable) {
 	var skBytes [32]frontend.Variable
 	copy(skBytes[:], ve.FieldToBytesBE(api, txViewingSk, 32))
 
@@ -40,7 +40,7 @@ func constrainEncryption(api frontend.API, g *aes.AESGadget, txViewingSk fronten
 
 	key, nonce := ve.KeySchedule(api, sharedSecret, mergeInfoBytes(), len(mergeInfo))
 
-	plaintext := mergePlaintextBytes(api, output.Utxo.Amount, output.Utxo.Asset, output.Utxo.Blinding)
+	plaintext := mergePlaintextBytes(api, amount, asset, blinding)
 	ciphertext := aes.CTREncrypt(api, g, key, nonce, plaintext[:])
 	ctHash = gadget.PoseidonHash(api, ve.PackBytesBE(api, ciphertext, 16))
 

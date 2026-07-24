@@ -73,7 +73,7 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 var expectedFingerprints = map[string]fingerprint{
 	"transfer_p256_confidential_2_3": {constraints: 209577, public: 2},
 	"transfer_confidential_2_3":      {constraints: 53833, public: 2},
-	"merge_8_1":                      {constraints: 463362, public: 2},
+	"merge_8_1":                      {constraints: 463371, public: 2},
 	"batch_address-append_40_10":     {constraints: 423683, public: 2},
 }
 
