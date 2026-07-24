@@ -1,0 +1,32 @@
+{
+  "expected": {
+    "ed25519": {
+      "confidentialViewTagBytes": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "publicKeyBytes": "01d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00",
+      "signatureBytes": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+      "signatureType": "ed25519",
+      "verified": true
+    },
+    "p256": {
+      "publicKeyBytes": "00036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+      "signatureBytes": "713fa6868b5470a38fb53394ed4b655b71f953152b9d32d70a7df3966ddb1f4150681d3874925756b2cdd14759090ab2bd88334b1c497961f33cfc02ff9db6ba",
+      "signatureType": "p256",
+      "verified": true
+    }
+  },
+  "id": "fx-p00-keypair-signing-key-v1",
+  "inputs": {
+    "ed25519MessageBytes": "",
+    "ed25519SecretBytes": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    "p256MessageDigestBytes": "0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5",
+    "p256SecretBytes": "0000000000000000000000000000000000000000000000000000000000000001",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/keypair/src/signing_key.rs",
+  "owningPacket": "P00",
+  "responsibility": "fixed P256 and Ed25519 parse, public derivation, signature, and verification",
+  "rustPath": "sdk-libs/keypair/src/signing_key.rs",
+  "rustSymbol": "SigningKey::from_bytes; from_ed25519; pubkey; sign; verify",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

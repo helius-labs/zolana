@@ -1,0 +1,24 @@
+{
+  "expected": {
+    "ed25519OwnerFieldBytes": "137d1f7dbf641bac1c444d1c836cfdecef3c71f526d96eb5eb64903b29c803d6",
+    "ed25519PublicHashBytes": "137d1f7dbf641bac1c444d1c836cfdecef3c71f526d96eb5eb64903b29c803d6",
+    "p256OwnerFieldBytes": "244e6951f0ce553c384e777564c5c61443219805c607e0a9b02ed92e7bd2c8a2",
+    "p256PublicHashBytes": "044773b2681cec700fdb631cf2ca84410447986764b430e88ac2e83e81b4a665",
+    "sha256BeBytes": "0067115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5",
+    "sha256Bytes": "0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5",
+    "splitHighBytes": "000000000000000000000000000000000967115f2813a3541eaef77de9d9d577",
+    "splitLowBytes": "000000000000000000000000000000003f1c0c04314b0bbfe4ff3b3b1c55b5d5"
+  },
+  "id": "fx-p00-keypair-hash-v1",
+  "inputs": {
+    "preimageBytes": "73616d65",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/keypair/src/hash.rs",
+  "owningPacket": "P00",
+  "responsibility": "hash, field split, public hash, and owner field bytes",
+  "rustPath": "sdk-libs/keypair/src/hash.rs",
+  "rustSymbol": "sha256; sha256_be; split_be_128; PublicKey::hash; owner_pk_field",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

@@ -27,14 +27,15 @@ use zolana_transaction::{
 const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
-const EXPECTED_FIXTURE_COUNT: usize = 12;
-const FROZEN_SOURCE_PATHS: [&str; 12] = [
+const EXPECTED_FIXTURE_COUNT: usize = 24;
+const FROZEN_SOURCE_PATHS: [&str; 13] = [
     "program-libs/hasher/src",
     "program-libs/indexed-array/src",
     "program-libs/interface/src/instruction",
     "program-tests/test-utils/src/smart_account.rs",
     "sdk-libs/client/src/prover",
     "sdk-libs/client/src/rpc.rs",
+    "sdk-libs/keypair/src",
     "sdk-libs/merkle-tree/src",
     "sdk-libs/program-test/src/indexer.rs",
     "sdk-libs/transaction/src/data.rs",
@@ -438,8 +439,9 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     };
     let (prover_request, prover_result_error) = capture_prover_request(&transfer_inputs)?;
     let merkle_vectors = production_merkle_vectors(root)?;
+    let keypair_vectors = production_keypair_vectors(root)?;
 
-    Ok(vec![
+    let mut fixtures = vec![
         (
             "interface/deposit-instruction-v1.json",
             fixture_base!(
@@ -663,7 +665,9 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
                 }),
             ),
         ),
-    ])
+    ];
+    fixtures.extend(keypair_fixtures(&keypair_vectors)?);
+    Ok(fixtures)
 }
 
 fn instruction_json(instruction: &solana_instruction::Instruction) -> Value {
@@ -885,6 +889,335 @@ fn register_vector_id(vector: &Value, ids: &mut BTreeSet<String>) -> Result<()> 
     Ok(())
 }
 
+fn production_keypair_vectors(root: &Path) -> Result<Value> {
+    let artifacts = cargo_rlibs(root, &["build", "-p", "zolana-keypair", "-p", "zolana-api"])?;
+    let metadata: Value = serde_json::from_str(&command_text(
+        root,
+        "rustup",
+        &[
+            "run",
+            "1.97.0",
+            "cargo",
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+        ],
+    )?)?;
+    let target = PathBuf::from(
+        metadata["target_directory"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("cargo metadata lacks target_directory"))?,
+    );
+    let mut externs = [
+        ("aes", "aes@0.8.4"),
+        ("ctr", "ctr@0.9.2"),
+        ("ed25519_dalek", "ed25519-dalek@2.2.0"),
+        ("hkdf", "hkdf@0.12.4"),
+        ("p256", "p256@0.13.2"),
+        ("rand", "rand@0.8.7"),
+        ("sha2", "sha2@0.10.9"),
+        ("solana_address", "solana-address@2.6.1"),
+        ("solana_keypair", "solana-keypair@3.1.2"),
+        ("thiserror", "thiserror@2.0.18"),
+        ("zeroize", "zeroize@1.9.0"),
+        ("zolana_hasher", "zolana-hasher@5.0.0"),
+    ]
+    .into_iter()
+    .map(|(name, package)| Ok((name, rlib(&artifacts, name, package)?)))
+    .collect::<Result<Vec<_>>>()?;
+    externs.push((
+        "serde_json",
+        rlib(&artifacts, "serde_json", "serde_json@1.0.150")?,
+    ));
+
+    let binary = target.join("ts-fixtures-keypair");
+    let mut compile = Command::new("rustup");
+    compile
+        .current_dir(root)
+        .args([
+            "run",
+            "1.97.0",
+            "rustc",
+            "--edition=2021",
+            "xtask/src/ts_fixtures_keypair.rs",
+            "-L",
+        ])
+        .arg(format!(
+            "dependency={}",
+            target.join("debug/deps").display()
+        ));
+    for (name, path) in externs {
+        compile
+            .arg("--extern")
+            .arg(format!("{name}={}", path.display()));
+    }
+    let output = compile
+        .arg("-o")
+        .arg(&binary)
+        .output()
+        .context("compile production keypair fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "compile production keypair fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let output = Command::new(&binary)
+        .output()
+        .context("run production keypair fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "run production keypair fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let vectors: Value = serde_json::from_slice(&output.stdout)?;
+    verify_keypair_vectors(&vectors)?;
+    Ok(vectors)
+}
+
+fn cargo_rlibs(root: &Path, args: &[&str]) -> Result<Vec<(String, String, PathBuf)>> {
+    let output = Command::new("rustup")
+        .current_dir(root)
+        .args(["run", "1.97.0", "cargo"])
+        .args(args)
+        .arg("--message-format=json")
+        .output()
+        .with_context(|| format!("cargo {}", args.join(" ")))?;
+    if !output.status.success() {
+        bail!(
+            "cargo {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let mut artifacts = Vec::new();
+    for line in output.stdout.split(|byte| *byte == b'\n') {
+        let Ok(message) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        if message["reason"] != "compiler-artifact" {
+            continue;
+        }
+        let Some(name) = message["target"]["name"].as_str() else {
+            continue;
+        };
+        let Some(package) = message["package_id"].as_str() else {
+            continue;
+        };
+        let Some(files) = message["filenames"].as_array() else {
+            continue;
+        };
+        for file in files {
+            let Some(file) = file.as_str() else {
+                continue;
+            };
+            if file.ends_with(".rlib") {
+                artifacts.push((name.to_string(), package.to_string(), PathBuf::from(file)));
+            }
+        }
+    }
+    Ok(artifacts)
+}
+
+fn rlib(artifacts: &[(String, String, PathBuf)], name: &str, package: &str) -> Result<PathBuf> {
+    let mut matches = artifacts
+        .iter()
+        .filter(|(target, id, _)| target == name && id.contains(package))
+        .map(|(_, _, path)| path.clone())
+        .collect::<Vec<_>>();
+    matches.sort();
+    matches.dedup();
+    match matches.first() {
+        Some(path) => Ok(path.clone()),
+        None => bail!("no {name} artifact for {package}"),
+    }
+}
+
+fn verify_keypair_vectors(vectors: &Value) -> Result<()> {
+    let sections = [
+        "constants",
+        "encryption",
+        "error",
+        "hash",
+        "lib",
+        "merge",
+        "nullifier_key",
+        "pubkey",
+        "shielded",
+        "signing_key",
+        "tests",
+        "viewing_key",
+    ];
+    let object = vectors
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("keypair oracle is not an object"))?;
+    if object.len() != sections.len() {
+        bail!(
+            "keypair oracle emitted {} sections, expected {}",
+            object.len(),
+            sections.len()
+        );
+    }
+    for section in sections {
+        if vectors[section]["inputs"]["testOnlySecret"] != true {
+            bail!("{section} fixture does not mark test secrets");
+        }
+    }
+    let tests = &vectors["tests"]["expected"];
+    for check in [
+        "allTagDirectionsAgree",
+        "ed25519RoundTripVerified",
+        "mergeRoundTripVerified",
+        "p256RoundTripVerified",
+        "slotRoundTripVerified",
+    ] {
+        if tests[check] != true {
+            bail!("keypair oracle self-check failed: {check}");
+        }
+    }
+    Ok(())
+}
+
+fn keypair_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
+    let domains = [
+        (
+            "constants",
+            "keypair/constants.json",
+            "fx-p00-keypair-constants-v1",
+            "sdk-libs/keypair/src/constants.rs",
+            "PUBLIC_KEY_LEN; P256_PUBKEY_LEN; BLINDING_LEN; SALT_LEN; VIEW_TAG_LEN; P_CONST_SEC1",
+            "sdk-libs/keypair/src/constants.rs",
+            "public lengths, domain bytes, and recorded randomness boundaries",
+        ),
+        (
+            "encryption",
+            "keypair/encryption.json",
+            "fx-p00-keypair-encryption-v1",
+            "sdk-libs/keypair/src/encryption.rs",
+            "ViewingKey::encrypt_slot; decrypt_utxo; decrypt_slot_ephemeral",
+            "sdk-libs/keypair/src/encryption.rs",
+            "ECDH, HKDF, AES slot bytes, both decrypt paths, and slot separation",
+        ),
+        (
+            "error",
+            "keypair/error.json",
+            "fx-p00-keypair-error-v1",
+            "sdk-libs/keypair/src/error.rs",
+            "KeypairError",
+            "sdk-libs/keypair/src/error.rs",
+            "malformed key, rail, padding, and tampered-signature evidence",
+        ),
+        (
+            "hash",
+            "keypair/hash.json",
+            "fx-p00-keypair-hash-v1",
+            "sdk-libs/keypair/src/hash.rs",
+            "sha256; sha256_be; split_be_128; PublicKey::hash; owner_pk_field",
+            "sdk-libs/keypair/src/hash.rs",
+            "hash, field split, public hash, and owner field bytes",
+        ),
+        (
+            "lib",
+            "keypair/lib.json",
+            "fx-p00-keypair-lib-v1",
+            "sdk-libs/keypair/src/lib.rs",
+            "Signature; ECDSASignature; random_blinding; random_salt",
+            "sdk-libs/keypair/src/lib.rs",
+            "root aliases, rail variants, and explicit recorded randomness",
+        ),
+        (
+            "merge",
+            "keypair/merge.json",
+            "fx-p00-keypair-merge-v1",
+            "sdk-libs/keypair/src/merge.rs",
+            "encrypt_verifiable; decrypt_verifiable; merge_public_contribution; merge_ciphertext_hash",
+            "sdk-libs/keypair/src/merge.rs",
+            "merge ciphertext, ephemeral public key, public contribution, and hashes",
+        ),
+        (
+            "nullifier_key",
+            "keypair/nullifier_key.json",
+            "fx-p00-keypair-nullifier-key-v1",
+            "sdk-libs/keypair/src/nullifier_key.rs",
+            "NullifierKey::from_signing_key; pubkey; nullifier",
+            "sdk-libs/keypair/src/nullifier_key.rs",
+            "nullifier secret derivation, public key, and UTXO nullifier bytes",
+        ),
+        (
+            "pubkey",
+            "keypair/pubkey.json",
+            "fx-p00-keypair-pubkey-v1",
+            "sdk-libs/keypair/src/pubkey.rs",
+            "P256Pubkey; PublicKey",
+            "sdk-libs/keypair/src/pubkey.rs",
+            "P256 and Ed25519 tagged parsing, fields, and round trips",
+        ),
+        (
+            "shielded",
+            "keypair/shielded.json",
+            "fx-p00-keypair-shielded-v1",
+            "sdk-libs/keypair/src/shielded.rs",
+            "ShieldedKeypair; ShieldedAddress; CompressedShieldedAddress",
+            "sdk-libs/keypair/src/shielded.rs",
+            "both ownership rails, address fields, owner hashes, and compression",
+        ),
+        (
+            "signing_key",
+            "keypair/signing_key.json",
+            "fx-p00-keypair-signing-key-v1",
+            "sdk-libs/keypair/src/signing_key.rs",
+            "SigningKey::from_bytes; from_ed25519; pubkey; sign; verify",
+            "sdk-libs/keypair/src/signing_key.rs",
+            "fixed P256 and Ed25519 parse, public derivation, signature, and verification",
+        ),
+        (
+            "tests",
+            "keypair/tests.json",
+            "fx-p00-keypair-tests-v1",
+            "sdk-libs/keypair/tests",
+            "production keypair feature and step scenarios",
+            "sdk-libs/keypair/tests/bdd.rs",
+            "self-verified cross-domain production behavior",
+        ),
+        (
+            "viewing_key",
+            "keypair/viewing_key.json",
+            "fx-p00-keypair-viewing-key-v1",
+            "sdk-libs/keypair/src/viewing_key.rs",
+            "ViewingKey",
+            "sdk-libs/keypair/src/viewing_key.rs",
+            "public key, ECDH, purpose roots, all tag directions, seed, and transaction key",
+        ),
+    ];
+    domains
+        .into_iter()
+        .map(
+            |(section, path, id, rust_path, symbol, inventory_row, responsibility)| {
+                let value = &vectors[section];
+                if !value.is_object() {
+                    bail!("keypair oracle lacks {section}");
+                }
+                Ok((
+                    path,
+                    fixture_base!(
+                        id,
+                        rust_path,
+                        symbol,
+                        inventory_row,
+                        "P00",
+                        responsibility,
+                        value["inputs"].clone(),
+                        value["expected"].clone(),
+                    ),
+                ))
+            },
+        )
+        .collect()
+}
+
 fn error_json(error: &impl std::fmt::Debug) -> Value {
     let debug = format!("{error:?}");
     let code = debug
@@ -959,6 +1292,7 @@ fn write_manifest(root: &Path, fixtures: &Path) -> Result<()> {
                     {"features":["default","solana-rpc"],"name":"zolana-client"},
                     {"features":["poseidon","sha256","keccak"],"name":"zolana-hasher"},
                     {"features":["default","tree","verifying-keys"],"name":"zolana-interface"},
+                    {"features":["default"],"name":"zolana-keypair"},
                     {"features":["default"],"name":"zolana-merkle-tree"},
                     {"features":["default"],"name":"zolana-program-test"},
                     {"features":[],"name":"zolana-test-utils"},
@@ -989,6 +1323,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
         "sdk-libs/ts/reports/inventory.json".to_string(),
         "sdk-libs/ts/reports/packets/P00.json".to_string(),
         "xtask/src/bin/ts-fixtures.rs".to_string(),
+        "xtask/src/ts_fixtures_keypair.rs".to_string(),
         "xtask/src/ts_fixtures_merkle.rs".to_string(),
     ]);
     changed_paths.sort();
@@ -1003,6 +1338,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 {"command":"rustup run 1.97.0 cargo fmt --all -- --check","exitStatus":"0","responsibility":"Rust formatting"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures","exitStatus":"0","responsibility":"fixture generation"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check","exitStatus":"0","responsibility":"deterministic regeneration and Rust verification"},
+                {"command":"npm run test:vectors --workspace @zolana/keypair","exitStatus":"0","responsibility":"P04 vector baseline before fixture-loader follow-up"},
                 {"command":"cargo xtask ts-fixtures --check","exitStatus":"blocked","responsibility":"canonical command; existing xtask dispatch is outside P00 ownership"},
                 {"command":"npm run test:inventory","exitStatus":"blocked","responsibility":"root npm workspace is owned by P01"},
                 {"command":"git diff --exit-code -- sdk-libs/ts/fixtures","exitStatus":"1 (expected)","responsibility":"reopened P00 changes the tracked Merkle fixture and manifest"},
@@ -1014,6 +1350,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 "inventoryMissing":"0",
                 "inventoryRows":inventory.len().to_string(),
                 "inventoryUnknownPackets":"0",
+                "keypairFixtureFiles":"12",
                 "p00Rows":p00_rows.len().to_string()
             },
             "fixtureIds":fixture_ids(&out.join("fixtures"))?,
@@ -1027,6 +1364,15 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 "path":row.path,
                 "test":"test-inventory-exclusion-check"
             })).collect::<Vec<_>>(),
+            "p04FollowUp":{
+                "command":"npm run test:vectors --workspace @zolana/keypair",
+                "fixtureFiles":[
+                    "constants.json","encryption.json","error.json","hash.json","lib.json",
+                    "merge.json","nullifier_key.json","pubkey.json","shielded.json",
+                    "signing_key.json","tests.json","viewing_key.json"
+                ],
+                "testFile":"sdk-libs/ts/keypair/test/vectors/keypair-vectors.test.ts"
+            },
             "schema":"zolana-ts-packet-evidence-v1"
         }),
     )

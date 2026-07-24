@@ -36,6 +36,11 @@
       "responsibility": "deterministic regeneration and Rust verification"
     },
     {
+      "command": "npm run test:vectors --workspace @zolana/keypair",
+      "exitStatus": "0",
+      "responsibility": "P04 vector baseline before fixture-loader follow-up"
+    },
+    {
       "command": "cargo xtask ts-fixtures --check",
       "exitStatus": "blocked",
       "responsibility": "canonical command; existing xtask dispatch is outside P00 ownership"
@@ -57,11 +62,12 @@
     }
   ],
   "counts": {
-    "fixtureFiles": "12",
+    "fixtureFiles": "24",
     "inventoryDuplicate": "0",
     "inventoryMissing": "0",
     "inventoryRows": "182",
     "inventoryUnknownPackets": "0",
+    "keypairFixtureFiles": "12",
     "p00Rows": "7"
   },
   "fixtureIds": [
@@ -70,7 +76,19 @@
     "fx-p00-client-proof-input-v1",
     "fx-p00-indexer-schema-v1",
     "fx-p00-interface-deposit-v1",
+    "fx-p00-keypair-constants-v1",
+    "fx-p00-keypair-encryption-v1",
+    "fx-p00-keypair-error-v1",
+    "fx-p00-keypair-hash-v1",
+    "fx-p00-keypair-lib-v1",
+    "fx-p00-keypair-merge-v1",
+    "fx-p00-keypair-nullifier-key-v1",
+    "fx-p00-keypair-pubkey-v1",
+    "fx-p00-keypair-shielded-v1",
+    "fx-p00-keypair-signing-key-v1",
     "fx-p00-keypair-test-secret-v1",
+    "fx-p00-keypair-tests-v1",
+    "fx-p00-keypair-viewing-key-v1",
     "fx-p00-merkle-paths-v1",
     "fx-p00-smart-account-create-v1",
     "fx-p00-test-kit-standard-accounts-v1",
@@ -85,7 +103,19 @@
     "sdk-libs/ts/fixtures/client/proof-result-compression-v1.json",
     "sdk-libs/ts/fixtures/indexer-api/schema-v1.json",
     "sdk-libs/ts/fixtures/interface/deposit-instruction-v1.json",
+    "sdk-libs/ts/fixtures/keypair/constants.json",
+    "sdk-libs/ts/fixtures/keypair/encryption.json",
+    "sdk-libs/ts/fixtures/keypair/error.json",
+    "sdk-libs/ts/fixtures/keypair/hash.json",
+    "sdk-libs/ts/fixtures/keypair/lib.json",
+    "sdk-libs/ts/fixtures/keypair/merge.json",
+    "sdk-libs/ts/fixtures/keypair/nullifier_key.json",
+    "sdk-libs/ts/fixtures/keypair/pubkey.json",
+    "sdk-libs/ts/fixtures/keypair/shielded.json",
+    "sdk-libs/ts/fixtures/keypair/signing_key.json",
     "sdk-libs/ts/fixtures/keypair/test-secret-blinding-v1.json",
+    "sdk-libs/ts/fixtures/keypair/tests.json",
+    "sdk-libs/ts/fixtures/keypair/viewing_key.json",
     "sdk-libs/ts/fixtures/manifest.json",
     "sdk-libs/ts/fixtures/merkle-tree/paths-v1.json",
     "sdk-libs/ts/fixtures/smart-account-client/standard-create-v1.json",
@@ -96,6 +126,7 @@
     "sdk-libs/ts/reports/inventory.json",
     "sdk-libs/ts/reports/packets/P00.json",
     "xtask/src/bin/ts-fixtures.rs",
+    "xtask/src/ts_fixtures_keypair.rs",
     "xtask/src/ts_fixtures_merkle.rs"
   ],
   "p00InventoryRows": [
@@ -151,6 +182,24 @@
       "test": "test-inventory-exclusion-check"
     }
   ],
+  "p04FollowUp": {
+    "command": "npm run test:vectors --workspace @zolana/keypair",
+    "fixtureFiles": [
+      "constants.json",
+      "encryption.json",
+      "error.json",
+      "hash.json",
+      "lib.json",
+      "merge.json",
+      "nullifier_key.json",
+      "pubkey.json",
+      "shielded.json",
+      "signing_key.json",
+      "tests.json",
+      "viewing_key.json"
+    ],
+    "testFile": "sdk-libs/ts/keypair/test/vectors/keypair-vectors.test.ts"
+  },
   "packet": "P00",
   "schema": "zolana-ts-packet-evidence-v1"
 }
