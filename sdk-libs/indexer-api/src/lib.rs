@@ -15,6 +15,7 @@ pub const MIN_PAGE_LIMIT: u64 = 1;
 pub const PAGE_LIMIT: u64 = 1000;
 pub const GET_ENCRYPTED_UTXOS_BY_TAGS: &str = "get_encrypted_utxos_by_tags";
 pub const GET_SHIELDED_TRANSACTIONS_BY_TAGS: &str = "get_shielded_transactions_by_tags";
+pub const GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE: &str = "get_shielded_transactions_by_signature";
 pub const GET_MERKLE_PROOFS: &str = "get_merkle_proofs";
 pub const GET_NON_INCLUSION_PROOFS: &str = "get_non_inclusion_proofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "get_nullifier_queue_elements";
@@ -35,6 +36,7 @@ pub mod method {
 
     pub struct GetEncryptedUtxosByTags;
     pub struct GetShieldedTransactionsByTags;
+    pub struct GetShieldedTransactionsBySignature;
     pub struct GetMerkleProofs;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
@@ -49,6 +51,12 @@ pub mod method {
         const NAME: &'static str = GET_SHIELDED_TRANSACTIONS_BY_TAGS;
         type Request = GetRingsByTagsRequest;
         type Response = GetShieldedTransactionsByTagsResponse;
+    }
+
+    impl RpcMethod for GetShieldedTransactionsBySignature {
+        const NAME: &'static str = GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE;
+        type Request = GetShieldedTransactionsBySignatureRequest;
+        type Response = GetShieldedTransactionsBySignatureResponse;
     }
 
     impl RpcMethod for GetMerkleProofs {
@@ -568,6 +576,29 @@ pub struct GetShieldedTransactionsByTagsResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetShieldedTransactionsBySignatureRequest {
+    pub tx_signature: SerializableSignature,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct IndexedShieldedTransaction {
+    pub event_index: u16,
+    pub transaction: ShieldedTransaction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetShieldedTransactionsBySignatureResponse {
+    pub context: Context,
+    pub transactions: Vec<IndexedShieldedTransaction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetMerkleProofsRequest {
     pub tree_account: SerializablePubkey,
     pub leaves: Vec<Hash>,
@@ -678,6 +709,10 @@ mod tests {
             method::GetNullifierQueueElements::NAME,
             "get_nullifier_queue_elements"
         );
+        assert_eq!(
+            method::GetShieldedTransactionsBySignature::NAME,
+            "get_shielded_transactions_by_signature"
+        );
     }
 
     #[test]
@@ -706,6 +741,21 @@ mod tests {
         .unwrap();
         assert!(value.get("next_cursor").is_some());
         assert!(value.get("nextCursor").is_none());
+    }
+
+    #[test]
+    fn signature_lookup_contract_rejects_malformed_signatures() {
+        let invalid = serde_json::json!({ "tx_signature": "not-a-signature" });
+        assert!(
+            serde_json::from_value::<GetShieldedTransactionsBySignatureRequest>(invalid).is_err()
+        );
+
+        let signature = Signature::from([9u8; 64]);
+        let request = GetShieldedTransactionsBySignatureRequest {
+            tx_signature: SerializableSignature(signature),
+        };
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(value["tx_signature"], signature.to_string());
     }
 
     #[test]

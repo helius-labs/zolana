@@ -5,7 +5,7 @@ use photon_indexer::{
         error::PhotonApiError,
         method::rings::{
             get_encrypted_utxos_by_tags, get_merkle_proofs, get_non_inclusion_proofs,
-            get_shielded_transactions_by_tags,
+            get_shielded_transactions_by_signature, get_shielded_transactions_by_tags,
         },
     },
     common::rings_tree::RingsTreeKind,
@@ -50,8 +50,8 @@ use zolana_event::{
     EventKind, GeneralEvent, Input, OutputUtxo, ProoflessOutput,
 };
 use zolana_indexer_api::{
-    GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest, Hash,
-    SerializablePubkey,
+    GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest,
+    GetShieldedTransactionsBySignatureRequest, Hash, SerializablePubkey, SerializableSignature,
 };
 use zolana_interface::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
@@ -326,6 +326,57 @@ async fn persists_rings_events() {
         .first()
         .expect("persisted Rings outputs should not be empty");
     assert_rings_api_exposes_output_hashes(&db, output).await;
+}
+
+#[tokio::test]
+async fn signature_lookup_returns_multiple_events_in_event_order() {
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    RingsMigrator::up(&db, None).await.unwrap();
+    let slot = SHIELDED_TRANSFER_SLOT;
+    insert_test_blocks(&db, &[slot]).await;
+
+    let mut transaction = shielded_transfer_transaction_info();
+    transaction
+        .instruction_groups
+        .extend(proofless_shield_transaction_info().instruction_groups);
+    let state_update = parse_ingestion_update(transaction.clone(), slot);
+    insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
+    let txn = db.begin().await.unwrap();
+    persist_state_update(&txn, state_update).await.unwrap();
+    txn.commit().await.unwrap();
+
+    let response = get_shielded_transactions_by_signature(
+        &db,
+        GetShieldedTransactionsBySignatureRequest {
+            tx_signature: SerializableSignature(transaction.signature),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.transactions.len(), 2);
+    assert_eq!(
+        response
+            .transactions
+            .iter()
+            .map(|item| item.event_index)
+            .collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+    assert!(response
+        .transactions
+        .iter()
+        .all(|item| item.transaction.tx_signature.0 == transaction.signature));
+
+    let missing = get_shielded_transactions_by_signature(
+        &db,
+        GetShieldedTransactionsBySignatureRequest {
+            tx_signature: SerializableSignature(Signature::from([99u8; 64])),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(missing.transactions.is_empty());
 }
 
 #[tokio::test]
@@ -1210,6 +1261,29 @@ async fn assert_rings_api_exposes_output_hashes(
         output.leaf_index as u64
     );
     assert_eq!(output_slot.payload.0, payload.payload);
+
+    let rings_tx = rings_transactions::Entity::find_by_id(output.rings_tx_id)
+        .one(db)
+        .await
+        .unwrap()
+        .expect("rings transaction should exist");
+    let signature = Signature::from(
+        <[u8; 64]>::try_from(rings_tx.signature.as_slice()).expect("stored signature length"),
+    );
+    let direct = get_shielded_transactions_by_signature(
+        db,
+        GetShieldedTransactionsBySignatureRequest {
+            tx_signature: SerializableSignature(signature),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(direct.transactions.len(), 1);
+    assert_eq!(
+        direct.transactions[0].event_index,
+        rings_tx.event_index as u16
+    );
+    assert_eq!(direct.transactions[0].transaction.tx_signature.0, signature);
 
     let encrypted = get_encrypted_utxos_by_tags(db, request).await.unwrap();
     assert_eq!(encrypted.context.block_time, UNSHIELD_SLOT as i64);

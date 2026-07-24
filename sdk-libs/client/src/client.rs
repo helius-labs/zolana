@@ -34,8 +34,9 @@ use crate::{
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, ProveResult, Rpc,
-        ShieldedTransactionStream,
+        GetNonInclusionProofsResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, ProveResult, Rpc,
+        ShieldedTransaction, ShieldedTransactionStream,
     },
 };
 
@@ -481,6 +482,19 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
             .await
     }
 
+    async fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        self.async_indexer
+            .get_shielded_transactions_by_signature(
+                signature,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
+            .await
+    }
+
     async fn subscribe_to_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
@@ -689,6 +703,18 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
             limit,
             Some(config.unwrap_or(self.indexer_config)),
         )
+    }
+
+    fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        self.blocking_indexer()
+            .get_shielded_transactions_by_signature(
+                signature,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
     }
 
     fn subscribe_to_shielded_transactions_by_tags(
@@ -941,10 +967,56 @@ async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
     )))
 }
 
-/// Poll the indexer until the sent transaction is visible under any output
-/// `view_tag` from the confirmed `TRANSACT` instruction. The indexer lags the
-/// chain, so a plain on-chain confirmation is not enough for a caller that
-/// reads state back immediately.
+fn transaction_matches_tags(transaction: &ShieldedTransaction, tags: &[[u8; 32]]) -> bool {
+    transaction
+        .output_slots
+        .iter()
+        .any(|output| tags.contains(&output.view_tag))
+        || transaction
+            .messages
+            .iter()
+            .any(|message| tags.contains(&message.view_tag))
+}
+
+pub(crate) fn select_indexed_transaction(
+    mut events: Vec<IndexedShieldedTransaction>,
+    signature: Signature,
+    expected_tags: &[[u8; 32]],
+) -> Result<Option<ShieldedTransaction>, ClientError> {
+    if events.len() <= 1 {
+        return Ok(events.pop().map(|event| event.transaction));
+    }
+
+    let event_indices = events
+        .iter()
+        .map(|event| event.event_index)
+        .collect::<Vec<_>>();
+    let mut matching = events
+        .into_iter()
+        .filter(|event| {
+            event.transaction.tx_signature == signature
+                && transaction_matches_tags(&event.transaction, expected_tags)
+        })
+        .collect::<Vec<_>>();
+    if matching.len() == 1 {
+        return Ok(matching.pop().map(|event| event.transaction));
+    }
+
+    let matching_indices = matching
+        .iter()
+        .map(|event| event.event_index)
+        .collect::<Vec<_>>();
+    Err(ClientError::AmbiguousIndexedEvents {
+        signature: signature.to_string(),
+        event_indices: if matching_indices.is_empty() {
+            event_indices
+        } else {
+            matching_indices
+        },
+    })
+}
+
+/// Poll Photon by signature until the confirmed transaction is indexed.
 fn wait_for_indexed_transaction(
     indexer: &ZolanaIndexer,
     tags: &[[u8; 32]],
@@ -960,13 +1032,12 @@ fn wait_for_indexed_transaction(
         if !delay.is_zero() {
             sleep(delay);
         }
-        let response =
-            indexer.get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50), None)?;
-        if response
-            .transactions
-            .iter()
-            .any(|item| item.tx_signature == signature)
-        {
+        let matched = match indexer.get_shielded_transactions_by_signature(signature, None) {
+            Ok(response) => select_indexed_transaction(response.transactions, signature, tags)?,
+            Err(error) if indexer.should_retry(&error) => continue,
+            Err(error) => return Err(error),
+        };
+        if matched.is_some() {
             return Ok(());
         }
     }
@@ -988,15 +1059,19 @@ async fn wait_for_indexed_transaction_async(
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
         }
-        let response = indexer
-            .get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50), None)
-            .await?;
-        if response
-            .transactions
-            .iter()
-            .any(|item| item.tx_signature == signature)
+        match indexer
+            .get_shielded_transactions_by_signature(signature, None)
+            .await
         {
-            return Ok(());
+            Ok(response) => {
+                match select_indexed_transaction(response.transactions, signature, tags) {
+                    Ok(Some(_)) => return Ok(()),
+                    Ok(None) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            Err(error) if indexer.should_retry(&error) => continue,
+            Err(error) => return Err(error),
         }
     }
     Err(ClientError::IndexerTimeout)
@@ -1083,7 +1158,7 @@ mod tests {
         let server = MockIndexerServer::respond_with(vec![
             merkle_response(tree, commitment.utxo_hash),
             nullifier_response(tree, commitment.nullifier),
-            indexed_transaction_response(signature),
+            indexed_transaction_by_signature_response(signature),
         ]);
         let rpc = MockSubmitRpc::new(signature);
         let sent = rpc.sent.clone();
@@ -1129,7 +1204,7 @@ mod tests {
             [
                 "/get_merkle_proofs",
                 "/get_non_inclusion_proofs",
-                "/get_shielded_transactions_by_tags",
+                "/get_shielded_transactions_by_signature",
             ]
         );
     }
@@ -1228,7 +1303,6 @@ mod tests {
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
             "context": { "block_time": 12 },
             "transactions": [],
-            "next_cursor": null,
         }))]);
         let rpc = MockSubmitRpc::new(signature);
         let client = ZolanaClient::new(
@@ -1246,6 +1320,132 @@ mod tests {
         let _ = server.requests();
 
         assert!(matches!(error, ClientError::IndexerTimeout));
+    }
+
+    #[test]
+    fn confirm_private_transaction_async_waits_for_direct_lookup() {
+        let signature = Signature::from([10u8; 64]);
+        let server = MockIndexerServer::respond_with(vec![
+            rpc_result(json!({
+                "context": { "block_time": 12 },
+                "transactions": [],
+            })),
+            indexed_transaction_by_signature_response(signature),
+        ]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(signature),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime
+            .block_on(client.confirm_private_transaction(signature))
+            .expect("async direct lookup should retry pending results");
+
+        assert_eq!(
+            server.requests(),
+            [
+                "/get_shielded_transactions_by_signature",
+                "/get_shielded_transactions_by_signature",
+            ]
+        );
+    }
+
+    #[test]
+    fn confirm_private_transaction_sync_retries_direct_provider_error() {
+        let signature = Signature::from([15u8; 64]);
+        let server = MockIndexerServer::respond_with(vec![
+            rpc_error(-32603, "Internal error"),
+            indexed_transaction_by_signature_response(signature),
+        ]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(signature),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
+
+        client
+            .confirm_private_transaction_sync(signature)
+            .expect("retryable direct provider error should be retried");
+
+        assert_eq!(
+            server.requests(),
+            [
+                "/get_shielded_transactions_by_signature",
+                "/get_shielded_transactions_by_signature",
+            ]
+        );
+    }
+
+    #[test]
+    fn confirm_private_transaction_sync_selects_matching_event() {
+        let signature = Signature::from([16u8; 64]);
+        let mut other = indexed_transaction_json(signature);
+        other["output_slots"][0]["view_tag"] = json!(encode_hash([1u8; 32]));
+        let mut expected = indexed_transaction_json(signature);
+        expected["slot"] = json!(12);
+        let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
+            "context": { "block_time": 12 },
+            "transactions": [
+                { "event_index": 0, "transaction": other },
+                { "event_index": 1, "transaction": expected },
+            ],
+        }))]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(signature),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
+
+        client
+            .confirm_private_transaction_sync(signature)
+            .expect("the uniquely matching Rings event should be selected");
+    }
+
+    #[test]
+    fn confirm_private_transaction_sync_rejects_ambiguous_events() {
+        let signature = Signature::from([17u8; 64]);
+        let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
+            "context": { "block_time": 12 },
+            "transactions": [
+                { "event_index": 0, "transaction": indexed_transaction_json(signature) },
+                { "event_index": 1, "transaction": indexed_transaction_json(signature) },
+            ],
+        }))]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(signature),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
+
+        let error = client
+            .confirm_private_transaction_sync(signature)
+            .expect_err("multiple matching Rings events must not select event zero");
+
+        assert!(matches!(
+            error,
+            ClientError::AmbiguousIndexedEvents {
+                event_indices,
+                ..
+            } if event_indices == vec![0, 1]
+        ));
     }
 
     fn state_proof(tree: Address, leaf: [u8; 32]) -> MerkleProof {
@@ -1355,6 +1555,20 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl AsyncRpc for MockSubmitRpc {
+        async fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
+            Ok(true)
+        }
+
+        async fn transact_output_view_tags_from_signature(
+            &self,
+            _signature: Signature,
+        ) -> Result<Vec<[u8; 32]>, ClientError> {
+            Ok(self.view_tags.clone())
+        }
+    }
+
     fn merkle_response(tree: Address, leaf: [u8; 32]) -> Value {
         rpc_result(json!({
             "context": { "block_time": 10 },
@@ -1394,19 +1608,33 @@ mod tests {
         }))
     }
 
-    fn indexed_transaction_response(signature: Signature) -> Value {
+    fn indexed_transaction_json(signature: Signature) -> Value {
+        json!({
+            "slot": 11,
+            "tx_signature": signature.to_string(),
+            "tx_viewing_pk": null,
+            "output_slots": [{
+                "view_tag": encode_hash([0u8; 32]),
+                "output_context": {
+                    "hash": encode_hash([1u8; 32]),
+                    "tree": encode_address(Address::new_from_array([8u8; 32])),
+                    "leaf_index": 0,
+                },
+                "payload": "",
+            }],
+            "messages": [],
+            "nullifiers": [],
+            "proofless": false,
+        })
+    }
+
+    fn indexed_transaction_by_signature_response(signature: Signature) -> Value {
         rpc_result(json!({
             "context": { "block_time": 11 },
             "transactions": [{
-                "slot": 11,
-                "tx_signature": signature.to_string(),
-                "tx_viewing_pk": null,
-                "output_slots": [],
-                "messages": [],
-                "nullifiers": [],
-                "proofless": false,
+                "event_index": 0,
+                "transaction": indexed_transaction_json(signature),
             }],
-            "next_cursor": null,
         }))
     }
 
@@ -1415,6 +1643,17 @@ mod tests {
             "id": "test-account",
             "jsonrpc": "2.0",
             "result": result,
+        })
+    }
+
+    fn rpc_error(code: i64, message: &str) -> Value {
+        json!({
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "error": {
+                "code": code,
+                "message": message,
+            },
         })
     }
 
@@ -1428,8 +1667,12 @@ mod tests {
 
     struct MockIndexerServer {
         url: String,
-        requests: mpsc::Receiver<String>,
+        requests: mpsc::Receiver<MockRequest>,
         handle: thread::JoinHandle<()>,
+    }
+
+    struct MockRequest {
+        path: String,
     }
 
     impl MockIndexerServer {
@@ -1441,7 +1684,7 @@ mod tests {
                 for response in responses {
                     let (mut stream, _) = listener.accept().expect("accept request");
                     request_tx
-                        .send(read_request_path(&mut stream))
+                        .send(read_request(&mut stream))
                         .expect("record request");
                     write_json_response(&mut stream, &response);
                 }
@@ -1459,11 +1702,15 @@ mod tests {
 
         fn requests(self) -> Vec<String> {
             self.handle.join().expect("mock indexer thread");
-            self.requests.try_iter().collect()
+            self.requests
+                .try_iter()
+                .into_iter()
+                .map(|request| request.path)
+                .collect()
         }
     }
 
-    fn read_request_path(stream: &mut TcpStream) -> String {
+    fn read_request(stream: &mut TcpStream) -> MockRequest {
         let mut data = Vec::new();
         let mut buffer = [0u8; 1024];
         let mut body_start = None;
@@ -1492,13 +1739,15 @@ mod tests {
                 }
             }
         }
-        let headers = String::from_utf8_lossy(&data);
-        headers
+        let start = body_start.expect("request body");
+        let headers = String::from_utf8_lossy(&data[..start]);
+        let path = headers
             .lines()
             .next()
             .and_then(|line| line.split_whitespace().nth(1))
             .expect("request path")
-            .to_string()
+            .to_string();
+        MockRequest { path }
     }
 
     fn write_json_response(stream: &mut TcpStream, response: &Value) {

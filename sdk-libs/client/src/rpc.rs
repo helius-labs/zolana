@@ -66,6 +66,18 @@ pub struct GetShieldedTransactionsByTagsResponse {
     pub next_cursor: Option<Vec<u8>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexedShieldedTransaction {
+    pub event_index: u16,
+    pub transaction: ShieldedTransaction,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GetShieldedTransactionsBySignatureResponse {
+    pub context: Context,
+    pub transactions: Vec<IndexedShieldedTransaction>,
+}
+
 /// Stream of shielded transactions pushed as they land, one per matching transaction.
 pub type ShieldedTransactionStream =
     Pin<Box<dyn Stream<Item = Result<ShieldedTransaction, ClientError>> + Send>>;
@@ -281,6 +293,14 @@ pub trait Rpc {
         Err(unsupported("get_shielded_transactions_by_tags"))
     }
 
+    fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_signature"))
+    }
+
     fn subscribe_to_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
@@ -464,6 +484,14 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
+    }
+
+    async fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_signature"))
     }
 
     async fn subscribe_to_shielded_transactions_by_tags(
