@@ -5,7 +5,7 @@ export const packageConfigurations = {
     browser: true,
   },
   keypair: {
-    entryPoints: [".", "./merge"],
+    entryPoints: [".", "./merge", "./hash"],
     dependencies: ["@noble/ciphers", "@noble/curves", "@noble/ed25519", "@noble/hashes", "bs58"],
     browserDependencies: [
       "@noble/ciphers/webcrypto.js",
