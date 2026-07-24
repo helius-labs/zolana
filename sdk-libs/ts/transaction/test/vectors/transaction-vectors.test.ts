@@ -287,6 +287,18 @@ describe("manifest-verified Rust transaction vectors", () => {
       hexBytes(fixtureString(proofInputInputs, "dummyBlindingBytes")) as Bytes31,
     );
     expect(dummy.isDummy()).toBe(true);
+    expect(dummy.utxo.owner.isZero()).toBe(true);
+    const reconstructedDummy = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: dummy.utxo.owner,
+        asset: dummy.utxo.asset,
+        amount: dummy.utxo.amount,
+        blinding: dummy.utxo.blinding,
+      }),
+      nullifierKey: dummy.nullifierKey,
+    });
+    expect(reconstructedDummy.isDummy()).toBe(true);
+    expect(reconstructedDummy.hash()).toEqual(dummy.hash());
     expect(hex(dummy.nullifier())).toBe(fixtureString(proofInputExpected, "nullifierBytes"));
     expect(bytesToBigInt(new Uint8Array(32).fill(9))).toBe(
       BigInt(fixtureString(proofInputExpected, "utxoTreeRoot")),

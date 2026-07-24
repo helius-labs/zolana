@@ -373,10 +373,12 @@ export class P256PublicKey {
   yIsOdd(): boolean;
 }
 export class ShieldedPublicKey {
+  static zeroed(): ShieldedPublicKey;
   static fromP256(key: P256PublicKey): ShieldedPublicKey;
   static fromEd25519(bytes: Bytes32): ShieldedPublicKey;
   static fromBytes(bytes: Bytes33): ShieldedPublicKey;
   toBytes(): Bytes33;
+  isZero(): boolean;
   signatureType(): SignatureType;
   confidentialViewTag(): ViewTag;
   hash(): Bytes32;

@@ -178,9 +178,14 @@ describe("frozen Rust keypair fixtures", () => {
   });
 
   it("matches P256 and Ed25519 parsing, hashes, fields, and signatures", () => {
+    const zeroed = ShieldedPublicKey.zeroed();
+    expect(zeroed.toBytes()).toEqual(new Uint8Array(SHIELDED_PUBLIC_KEY_LENGTH));
+    expect(zeroed.isZero()).toBe(true);
+
     const parsedP256 = SigningKey.fromBytes(
       asBytes32(pubkeyFixture.inputs.p256SecretBytes),
     ).publicKey();
+    expect(parsedP256.isZero()).toBe(false);
     expectHex(parsedP256.toBytes(), pubkeyFixture.expected.p256Bytes);
     expectHex(
       parsedP256.confidentialViewTag(),

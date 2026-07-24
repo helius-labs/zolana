@@ -1,5 +1,5 @@
 import type { Address, Bytes31, Bytes32 } from "@zolana/interface";
-import { NullifierKey, ShieldedPublicKey, SigningKey, type ShieldedAddress } from "@zolana/keypair";
+import { NullifierKey, ShieldedPublicKey, type ShieldedAddress } from "@zolana/keypair";
 
 import { Data } from "./data.js";
 import { TransactionError } from "./error.js";
@@ -175,8 +175,6 @@ export class Utxo {
   }
 }
 
-const DUMMY_INPUTS = new WeakSet<ProofInputUtxo>();
-
 export class ProofInputUtxo {
   readonly utxo: Utxo;
   readonly nullifierKey: NullifierKey;
@@ -202,22 +200,19 @@ export class ProofInputUtxo {
   }
 
   static dummy(blinding = random31()): ProofInputUtxo {
-    const signing = SigningKey.generate();
-    const value = new ProofInputUtxo({
+    return new ProofInputUtxo({
       utxo: new Utxo({
-        owner: signing.publicKey(),
+        owner: ShieldedPublicKey.zeroed(),
         asset: "11111111111111111111111111111111" as Address,
         amount: 0n,
         blinding: checked<Bytes31>(blinding, 31, "dummy blinding"),
       }),
       nullifierKey: NullifierKey.fromSecret(new Uint8Array(31) as Bytes31),
     });
-    DUMMY_INPUTS.add(value);
-    return value;
   }
 
   isDummy(): boolean {
-    return DUMMY_INPUTS.has(this);
+    return this.utxo.owner.isZero();
   }
 
   hash(): Bytes32 {

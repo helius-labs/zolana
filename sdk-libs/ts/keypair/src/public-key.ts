@@ -49,6 +49,10 @@ export class ShieldedPublicKey {
     this.#bytes = bytes;
   }
 
+  static zeroed(): ShieldedPublicKey {
+    return new ShieldedPublicKey(new Uint8Array(SHIELDED_PUBLIC_KEY_LENGTH));
+  }
+
   static fromP256(key: P256PublicKey): ShieldedPublicKey {
     const bytes = new Uint8Array(SHIELDED_PUBLIC_KEY_LENGTH);
     bytes.set(key.toBytes(), 1);
@@ -82,6 +86,10 @@ export class ShieldedPublicKey {
 
   toBytes(): Bytes33 {
     return copyBytes(this.#bytes) as Bytes33;
+  }
+
+  isZero(): boolean {
+    return this.#bytes.every((byte) => byte === 0);
   }
 
   signatureType(): SignatureType {
