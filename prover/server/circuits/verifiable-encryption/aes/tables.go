@@ -3,10 +3,12 @@ package aes
 import "github.com/consensys/gnark/frontend"
 
 // T contains the four AES T-tables used for fused SubBytes+ShiftRows+MixColumns.
-// T[0][a] = pack32(S[a]*2, S[a], S[a], S[a]*3)  (big-endian)
-// T[1][a] = T[0][a] rotated right 8 bits
-// T[2][a] = T[0][a] rotated right 16 bits
-// T[3][a] = T[0][a] rotated right 24 bits
+// Entries are packed little-endian so that byte j (bits 8j..8j+7, matching the
+// LSB-first ToBinary/FromBinary slicing in XorSubWords) holds state row j:
+// T[0][a] = pack32le(S[a]*2, S[a], S[a], S[a]*3)
+// T[1][a] = T[0][a] rotated left 8 bits
+// T[2][a] = T[0][a] rotated left 16 bits
+// T[3][a] = T[0][a] rotated left 24 bits
 var T = [4][256]frontend.Variable{
 	{
 		0xa56363c6, 0x847c7cf8, 0x997777ee, 0x8d7b7bf6, 0x0df2f2ff, 0xbd6b6bd6, 0xb16f6fde, 0x54c5c591,
