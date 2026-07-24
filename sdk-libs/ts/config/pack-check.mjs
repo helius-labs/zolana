@@ -114,8 +114,11 @@ try {
   );
   if (forbiddenImport) throw new Error(`packed browser graph imports ${forbiddenImport}`);
   const browserBundle = await readFile(browserOutput, "utf8");
-  const forbiddenGlobal = /\b(Buffer|process|require)\b/u.exec(browserBundle);
-  if (forbiddenGlobal) throw new Error(`packed browser bundle contains ${forbiddenGlobal[1]}`);
+  const forbiddenGlobal =
+    /\bBuffer\b|\brequire\s*\(|\bprocess\s*(?:\.|\[)|typeof\s+process|\b(?:globalThis|window|self)\.process\b/u.exec(
+      browserBundle,
+    );
+  if (forbiddenGlobal) throw new Error(`packed browser bundle contains ${forbiddenGlobal[0]}`);
 
   const installedTestKit = path.join(directory, "node_modules/@zolana/test-kit/package.json");
   try {

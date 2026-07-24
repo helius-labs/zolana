@@ -12,7 +12,9 @@
       "typecheck packed declarations in a fresh ESM consumer and reject tarball build metadata",
       "invoke the installed TypeScript compiler directly instead of allowing npx resolution",
       "align Node declarations with the minimum supported Node 20 runtime",
-      "remove unused composite build configuration and keep build metadata out of package tarballs"
+      "remove unused composite build configuration and keep build metadata out of package tarballs",
+      "add non-vacuous vector and deterministic property test configurations",
+      "scan browser source and bundles for Node globals and built-in imports"
     ],
     "cargoXtaskBlocker": {
       "command": "rustup run 1.97.0 cargo xtask ts-fixtures --check",
@@ -42,7 +44,7 @@
     {
       "command": "npm run test:browser",
       "exitStatus": "0",
-      "responsibility": "all production roots and subpaths bundled for browsers and scanned for forbidden imports and globals"
+      "responsibility": "all production roots, subpaths, and admitted crypto entry points bundled for browsers; source and bundles contain no forbidden imports or globals"
     },
     {
       "command": "npm run fixtures:check",
@@ -83,6 +85,41 @@
       "command": "git diff --exit-code 07b5000e -- planning docs program-libs programs program-tests sdk-libs/ts/fixtures sdk-libs/ts/reports/inventory.json sdk-libs/ts/reports/packets/P00.json xtask",
       "exitStatus": "0",
       "responsibility": "planning, P00 artifacts, and Rust production or test code remain unchanged"
+    },
+    {
+      "command": "npm install --workspace @zolana/keypair @noble/ciphers @noble/curves @noble/ed25519 @noble/hashes poseidon-lite bs58",
+      "exitStatus": "0",
+      "responsibility": "resolve current PR #111 keypair dependency candidates through npm"
+    },
+    {
+      "command": "npm uninstall --workspace @zolana/keypair poseidon-lite",
+      "exitStatus": "0",
+      "responsibility": "reject the unaudited CommonJS Poseidon candidate after dependency review"
+    },
+    {
+      "command": "npm install --save-dev fast-check",
+      "exitStatus": "0",
+      "responsibility": "resolve deterministic property-test tooling through npm"
+    },
+    {
+      "command": "npm audit --omit=dev",
+      "exitStatus": "0",
+      "responsibility": "zero known production dependency vulnerabilities"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/keypair",
+      "exitStatus": "1",
+      "responsibility": "intentional readiness probe: an empty P04 vector suite fails instead of passing vacuously"
+    },
+    {
+      "command": "npm run test:property --workspace @zolana/keypair",
+      "exitStatus": "1",
+      "responsibility": "intentional readiness probe: an empty P04 property suite fails instead of passing vacuously"
+    },
+    {
+      "command": "npm run test:vectors/property for completed P02, P03, P06, and P07 suites",
+      "exitStatus": "0",
+      "responsibility": "shared vector selectors and deterministic fast-check setup exercised against existing package tests"
     }
   ],
   "dependencies": {
@@ -91,12 +128,73 @@
     "@types/node": "^20.19.43",
     "esbuild": "^0.28.1",
     "eslint": "^10.7.0",
+    "fast-check": "^4.9.0",
     "globals": "^17.7.0",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.65.0",
     "vite": "^8.1.5",
     "vitest": "^4.1.10"
+  },
+  "dependencyReview": {
+    "accepted": [
+      {
+        "license": "MIT",
+        "manifestRange": "^2.2.0",
+        "name": "@noble/ciphers",
+        "rationale": "Audited ESM cryptography; its Web Crypto adapter supplies browser-native AES-CTR.",
+        "resolvedVersion": "2.2.0",
+        "runtime": "Browser and Node >=20.19.0"
+      },
+      {
+        "license": "MIT",
+        "manifestRange": "^2.2.0",
+        "name": "@noble/curves",
+        "rationale": "Audited ESM P256 ECDSA/ECDH plus the generic Poseidon permutation and constant generator.",
+        "resolvedVersion": "2.2.0",
+        "runtime": "Browser and Node >=20.19.0"
+      },
+      {
+        "license": "MIT",
+        "manifestRange": "^3.1.0",
+        "name": "@noble/ed25519",
+        "rationale": "Small ESM RFC 8032 Ed25519 implementation selected by PR #111.",
+        "resolvedVersion": "3.1.0",
+        "runtime": "Browser and Node"
+      },
+      {
+        "license": "MIT",
+        "manifestRange": "^2.2.0",
+        "name": "@noble/hashes",
+        "rationale": "Audited ESM SHA-256, SHA-512, HMAC, and HKDF implementation.",
+        "resolvedVersion": "2.2.0",
+        "runtime": "Browser and Node >=20.19.0"
+      },
+      {
+        "license": "MIT",
+        "manifestRange": "^6.0.0",
+        "name": "bs58",
+        "rationale": "ESM Base58 encoding for Solana address derivation.",
+        "resolvedVersion": "6.0.0",
+        "runtime": "Browser and Node"
+      }
+    ],
+    "rejected": [
+      {
+        "name": "poseidon-lite",
+        "reason": "PR #111 used it, but version 0.3.0 is unaudited and CommonJS. The audited @noble/curves Poseidon primitive remains subject to frozen Rust vector parity in P04."
+      }
+    ],
+    "security": {
+      "audit": "npm audit --omit=dev: zero vulnerabilities",
+      "browser": "Crypto dependency entry points bundle for ES2022 without Buffer, node: imports, process globals, or require calls.",
+      "installScripts": "No accepted keypair runtime dependency requires an install script."
+    }
+  },
+  "deterministicPropertyTests": {
+    "numRuns": 100,
+    "seed": 1515146305,
+    "tool": "fast-check 4.9.0"
   },
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
   "inventoryRows": [
@@ -125,9 +223,12 @@
     "sdk-libs/ts/config/inventory-check.mjs",
     "sdk-libs/ts/config/pack-check.mjs",
     "sdk-libs/ts/config/packages.mjs",
+    "sdk-libs/ts/config/property.setup.mjs",
     "sdk-libs/ts/config/tsconfig.base.json",
     "sdk-libs/ts/config/typecheck.mjs",
     "sdk-libs/ts/config/vitest.package.config.js",
+    "sdk-libs/ts/config/vitest.property.config.js",
+    "sdk-libs/ts/config/vitest.vectors.config.js",
     "sdk-libs/ts/config/workspace-check.mjs",
     "sdk-libs/ts/indexer-api/package.json",
     "sdk-libs/ts/indexer-api/tsconfig.json",

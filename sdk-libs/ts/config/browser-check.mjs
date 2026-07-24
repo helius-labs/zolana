@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,9 +7,41 @@ import { fileURLToPath } from "node:url";
 import { browserEntryPoints } from "./packages.mjs";
 
 const packagesRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+async function checkBrowserSource(packageName) {
+  const sourceRoot = path.join(packagesRoot, packageName, "src");
+  let entries;
+  try {
+    entries = await readdir(sourceRoot, { recursive: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  for (const entry of entries.filter((name) => name.endsWith(".ts"))) {
+    const source = await readFile(path.join(sourceRoot, entry), "utf8");
+    const forbidden =
+      /\bBuffer\b|\brequire\s*\(|["']node:|\bprocess\s*(?:\.|\[)|typeof\s+process|\b(?:globalThis|window|self)\.process\b/u.exec(
+        source,
+      );
+    if (forbidden) throw new Error(`@zolana/${packageName} source contains ${forbidden[0]}`);
+  }
+}
+
+for (const packageName of Object.keys(browserEntryPoints)) {
+  await checkBrowserSource(packageName);
+}
+
 const directory = await mkdtemp(path.join(tmpdir(), "zolana-browser-"));
 try {
-  const imports = [];
+  const imports = [
+    "@noble/ciphers/webcrypto.js",
+    "@noble/curves/abstract/poseidon.js",
+    "@noble/curves/nist.js",
+    "@noble/ed25519",
+    "@noble/hashes/hkdf.js",
+    "@noble/hashes/sha2.js",
+    "bs58",
+  ].map((dependency) => `import(${JSON.stringify(dependency)})`);
   for (const [packageName, entryPoints] of Object.entries(browserEntryPoints)) {
     for (const entryPoint of entryPoints) {
       const suffix = entryPoint === "." ? "" : entryPoint.slice(1);
@@ -38,8 +70,11 @@ try {
   );
   if (forbiddenImport) throw new Error(`browser graph imports ${forbiddenImport}`);
   const bundle = await readFile(output, "utf8");
-  const forbiddenGlobal = /\b(Buffer|process|require)\b/u.exec(bundle);
-  if (forbiddenGlobal) throw new Error(`browser bundle contains ${forbiddenGlobal[1]}`);
+  const forbiddenGlobal =
+    /\bBuffer\b|\brequire\s*\(|\bprocess\s*(?:\.|\[)|typeof\s+process|\b(?:globalThis|window|self)\.process\b/u.exec(
+      bundle,
+    );
+  if (forbiddenGlobal) throw new Error(`browser bundle contains ${forbiddenGlobal[0]}`);
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

@@ -31,7 +31,10 @@ async function checkExports() {
     assert(value.name === `@zolana/${packageName}`, `${packageName} package name`);
     assert(value.type === "module", `${value.name} must be ESM`);
     assert(value.sideEffects === false, `${value.name} must declare sideEffects`);
-    assert(value.engines?.node === ">=20 <23", `${value.name} must support Node 20 and 22`);
+    assert(
+      value.engines?.node === ">=20.19.0 <23",
+      `${value.name} must support maintained Node 20 and 22 releases`,
+    );
     assert(
       value.files?.length === 1 && value.files[0] === "dist",
       `${value.name} files must be dist`,
@@ -80,8 +83,10 @@ async function checkDependencies() {
       JSON.stringify(dependencies) === JSON.stringify(expected),
       `${value.name} dependency graph`,
     );
-    for (const version of Object.values(value.dependencies ?? {})) {
-      assert(version === "0.1.0", `${value.name} internal versions must be coordinated`);
+    for (const [dependency, version] of Object.entries(value.dependencies ?? {})) {
+      if (dependency.startsWith("@zolana/")) {
+        assert(version === "0.1.0", `${value.name} internal versions must be coordinated`);
+      }
     }
   }
   for (const packageName of productionPackageNames) {
@@ -95,19 +100,50 @@ async function checkDependencies() {
   assert(testKit.private === true, "@zolana/test-kit must be private");
 }
 
-async function checkApiScaffold() {
+async function checkScaffold() {
+  const vectorPackages = [
+    "interface",
+    "keypair",
+    "transaction",
+    "indexer-api",
+    "client",
+    "wallet",
+    "merkle-tree",
+    "smart-account-client",
+  ];
+  const propertyPackages = [
+    "keypair",
+    "transaction",
+    "indexer-api",
+    "merkle-tree",
+    "smart-account-client",
+  ];
   for (const packageName of packageNames) {
     const value = await manifest(packageName);
     assert(value.scripts?.["api:check"], `${value.name} lacks api:check`);
+    if (vectorPackages.includes(packageName)) {
+      const script = value.scripts?.["test:vectors"];
+      assert(
+        script && !script.includes("passWithNoTests"),
+        `${value.name} must define non-vacuous vector tests`,
+      );
+    }
+    if (propertyPackages.includes(packageName)) {
+      const script = value.scripts?.["test:property"];
+      assert(
+        script && !script.includes("passWithNoTests"),
+        `${value.name} must define non-vacuous property tests`,
+      );
+    }
   }
 }
 
 const command = process.argv[2];
 if (command === "exports") await checkExports();
 else if (command === "dependencies") await checkDependencies();
-else if (command === "api") await checkApiScaffold();
+else if (command === "api") await checkScaffold();
 else {
   await checkExports();
   await checkDependencies();
-  await checkApiScaffold();
+  await checkScaffold();
 }

@@ -5,7 +5,7 @@
   "type": "module",
   "sideEffects": false,
   "engines": {
-    "node": ">=20 <23"
+    "node": ">=20.19.0 <23"
   },
   "files": [
     "dist"
@@ -28,7 +28,16 @@
     "build": "node ../config/build.mjs keypair",
     "typecheck": "node ../config/typecheck.mjs keypair",
     "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
+    "test:property": "vitest run --config ../config/vitest.property.config.js",
     "test:browser": "node ../config/browser-check.mjs",
     "api:check": "node ../config/workspace-check.mjs api"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.2.0",
+    "@noble/curves": "^2.2.0",
+    "@noble/ed25519": "^3.1.0",
+    "@noble/hashes": "^2.2.0",
+    "bs58": "^6.0.0"
   }
 }

@@ -6,7 +6,7 @@ export const packageConfigurations = {
   },
   keypair: {
     entryPoints: [".", "./merge"],
-    dependencies: [],
+    dependencies: ["@noble/ciphers", "@noble/curves", "@noble/ed25519", "@noble/hashes", "bs58"],
     browser: true,
   },
   transaction: {

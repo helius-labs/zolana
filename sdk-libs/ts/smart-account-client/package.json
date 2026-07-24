@@ -5,7 +5,7 @@
   "type": "module",
   "sideEffects": false,
   "engines": {
-    "node": ">=20 <23"
+    "node": ">=20.19.0 <23"
   },
   "files": [
     "dist"
@@ -25,6 +25,8 @@
     "build": "node ../config/build.mjs smart-account-client",
     "typecheck": "node ../config/typecheck.mjs smart-account-client",
     "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
+    "test:property": "vitest run --config ../config/vitest.property.config.js",
     "test:browser": "node ../config/browser-check.mjs",
     "api:check": "node ../config/workspace-check.mjs api"
   }
