@@ -9,12 +9,12 @@
       "size": 3559216911
     },
     "merge_8_1.key": {
-      "sha256": "cf3e07779cf2a2b85ed9d7854e56a18cbb8cc968c8c81a149b269de9aad853f0",
-      "size": 135347769
+      "sha256": "a789a14b0f09bb8e1e629489611c9b2888b5da8ddc992df9076d0ead2922c26f",
+      "size": 135347774
     },
     "merge_zone_8_1.key": {
-      "sha256": "1d28be3de09a0703cd7510442d39b812d503b806b77a9a762d052dbdd52a4a12",
-      "size": 135279942
+      "sha256": "a385a00055aeab5dc8642559a704edf4f9c2cda3b1db631612dccff4be137e8c",
+      "size": 135279947
     },
     "transfer_confidential_1_1.key": {
       "sha256": "3925ebeb7aeaa67e99a92cc3db942a50b1398f6bc72d78e0a861213e82a04f62",
@@ -193,5 +193,5 @@
       "size": 29830934
     }
   },
-  "prefix": "proving-keys/ad0df326f3abb4db"
+  "prefix": "proving-keys/e4f5532baa6ba4ef"
 }
