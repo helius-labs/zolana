@@ -111,6 +111,7 @@ async function checkScaffold() {
     "keypair",
     "transaction",
     "indexer-api",
+    "api",
     "client",
     "wallet",
     "merkle-tree",
@@ -120,12 +121,19 @@ async function checkScaffold() {
     "keypair",
     "transaction",
     "indexer-api",
+    "api",
     "merkle-tree",
     "smart-account-client",
   ];
   for (const packageName of packageNames) {
     const value = await manifest(packageName);
     assert(value.scripts?.["api:check"], `${value.name} lacks api:check`);
+    if (packageConfigurations[packageName].browser) {
+      assert(
+        value.scripts?.["test:browser"] === `node ../config/browser-check.mjs ${packageName}`,
+        `${value.name} must run its isolated browser check`,
+      );
+    }
     if (vectorPackages.includes(packageName)) {
       const script = value.scripts?.["test:vectors"];
       assert(
@@ -138,6 +146,13 @@ async function checkScaffold() {
       assert(
         script && !script.includes("passWithNoTests"),
         `${value.name} must define non-vacuous property tests`,
+      );
+    }
+    if (packageName === "api") {
+      const script = value.scripts?.["test:cross"];
+      assert(
+        script && !script.includes("passWithNoTests") && !script.includes("test:unit"),
+        `${value.name} must define non-vacuous cross-contract tests`,
       );
     }
   }

@@ -53,7 +53,7 @@
     "typecheck": "node ../config/typecheck.mjs wallet",
     "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
     "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
-    "test:browser": "node ../config/browser-check.mjs",
+    "test:browser": "node ../config/browser-check.mjs wallet",
     "api:check": "node ../config/workspace-check.mjs api"
   }
 }

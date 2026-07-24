@@ -4,9 +4,24 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { browserDependencyEntryPoints, browserEntryPoints } from "./packages.mjs";
+import {
+  browserDependencyEntryPoints,
+  browserEntryPoints,
+  packageConfigurations,
+} from "./packages.mjs";
 
 const packagesRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const packageName = process.argv[2];
+const selectedConfiguration = packageName ? packageConfigurations[packageName] : undefined;
+if (packageName && (!selectedConfiguration || !selectedConfiguration.browser)) {
+  throw new Error(`unknown browser package: ${packageName}`);
+}
+const selectedBrowserEntryPoints = packageName
+  ? { [packageName]: browserEntryPoints[packageName] }
+  : browserEntryPoints;
+const selectedDependencyEntryPoints = packageName
+  ? (selectedConfiguration.browserDependencies ?? [])
+  : browserDependencyEntryPoints;
 
 async function checkBrowserSource(packageName) {
   const sourceRoot = path.join(packagesRoot, packageName, "src");
@@ -27,19 +42,19 @@ async function checkBrowserSource(packageName) {
   }
 }
 
-for (const packageName of Object.keys(browserEntryPoints)) {
-  await checkBrowserSource(packageName);
+for (const selectedPackageName of Object.keys(selectedBrowserEntryPoints)) {
+  await checkBrowserSource(selectedPackageName);
 }
 
 const directory = await mkdtemp(path.join(tmpdir(), "zolana-browser-"));
 try {
-  const imports = browserDependencyEntryPoints.map(
+  const imports = selectedDependencyEntryPoints.map(
     (dependency) => `import(${JSON.stringify(dependency)})`,
   );
-  for (const [packageName, entryPoints] of Object.entries(browserEntryPoints)) {
-    for (const entryPoint of entryPoints) {
+  for (const [selectedPackageName, entryPoints] of Object.entries(selectedBrowserEntryPoints)) {
+    for (const entryPoint of entryPoints ?? []) {
       const suffix = entryPoint === "." ? "" : entryPoint.slice(1);
-      imports.push(`import(${JSON.stringify(`@zolana/${packageName}${suffix}`)})`);
+      imports.push(`import(${JSON.stringify(`@zolana/${selectedPackageName}${suffix}`)})`);
     }
   }
   const entry = path.join(directory, "consumer.mjs");

@@ -15,7 +15,10 @@
       "remove unused composite build configuration and keep build metadata out of package tarballs",
       "add non-vacuous vector and deterministic property test configurations",
       "scan browser source and bundles for Node globals and built-in imports",
-      "type-check package test files during strict aggregate lint without disabling rules"
+      "type-check package test files during strict aggregate lint without disabling rules",
+      "run package browser checks in isolation while retaining the aggregate root gate",
+      "select the API schema-to-transport cross-contract suite explicitly",
+      "ignore only nested generated package artifacts and caches"
     ],
     "cargoXtaskBlocker": {
       "command": "rustup run 1.97.0 cargo xtask ts-fixtures --check",
@@ -25,11 +28,9 @@
       "paths": [".cargo/config.toml", "xtask/src/main.rs"],
       "scope": "P14 must first receive explicit ownership of the Cargo alias and shared xtask dispatch paths; neither path is P01-owned."
     },
-    "packetOwnedBlockers": {
-      "P06": [
-        "strict test lint reports 26 deprecated matcher and non-null assertion errors in P06-owned tests",
-        "the non-vacuous vector command reports no P06-owned vector test file"
-      ]
+    "transientConcurrentFailures": {
+      "P05": "The first post-install workspace build stopped on in-progress transaction exports and branded-byte type errors. The unchanged P01 gate passed after P05 settled.",
+      "P06": "Two fixture checks raced a concurrent fixed-output Merkle oracle build and lost temporary object files. The unchanged canonical fixture gate passed after the concurrent build settled."
     }
   },
   "commands": [
@@ -152,6 +153,31 @@
       "command": "npm run test:vectors --workspace @zolana/merkle-tree",
       "exitStatus": "1",
       "responsibility": "non-vacuous vector gate correctly rejects the missing P06-owned vector test"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "six exact API request and response-codec vectors"
+    },
+    {
+      "command": "npm run test:property --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "two deterministic 100-run API transport properties"
+    },
+    {
+      "command": "npm run test:cross --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "29 API/indexer-schema cross-contract and malformed-response tests from the two explicit suite files"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "isolated API browser entry graph without dependency on another package's active build"
+    },
+    {
+      "command": "git check-ignore --no-index generated and protected sdk-libs/ts paths",
+      "exitStatus": "0",
+      "responsibility": "nested dependencies, builds, coverage, temporary packs, tarballs, and TypeScript metadata are ignored while source, tests, fixtures, manifests, and reports remain visible"
     }
   ],
   "dependencies": {
@@ -263,6 +289,7 @@
     "sdk-libs/ts/config/property.setup.mjs",
     "sdk-libs/ts/config/tsconfig.base.json",
     "sdk-libs/ts/config/typecheck.mjs",
+    "sdk-libs/ts/config/vitest.api-cross.config.js",
     "sdk-libs/ts/config/vitest.package.config.js",
     "sdk-libs/ts/config/vitest.property.config.js",
     "sdk-libs/ts/config/vitest.vectors.config.js",

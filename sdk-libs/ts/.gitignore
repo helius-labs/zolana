@@ -1,1 +1,14 @@
-*/dist/
+**/node_modules/
+**/dist/
+**/coverage/
+**/.tmp/
+**/.pack/
+**/*.tgz
+**/*.tsbuildinfo
+
+!fixtures/**
+!reports/**
+!*/package.json
+!*/tsconfig.json
+!*/src/**
+!*/test/**
