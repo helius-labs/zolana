@@ -4,6 +4,7 @@ export type TestKitErrorCode =
   | "TEST_KIT_INVALID_CONFIG"
   | "TEST_KIT_PROCESS"
   | "TEST_KIT_READINESS"
+  | "TEST_KIT_RPC"
   | "TEST_KIT_TIMEOUT";
 
 export class TestKitError extends Error {

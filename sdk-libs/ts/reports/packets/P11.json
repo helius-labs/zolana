@@ -2,7 +2,7 @@
   "apiDiff": {
     "added": [
       "@zolana/test-kit root: TestKitError, LocalStack, startLocalStack, fixtureBytes, createTestWallet",
-      "@zolana/test-kit/node private support: lifecycle, deterministic standard accounts, fake RPC/indexer/prover, admin/instruction/SPL/event/deposit/wallet-data/zone helpers, and E2E composition",
+      "@zolana/test-kit/node private support: lifecycle, deterministic standard accounts, fake RPC/indexer/prover, admin/instruction/SPL/event/deposit/wallet-data/zone helpers, user-registry merge opt-in, and E2E composition",
       "@zolana/test-kit/fixtures private support: hash-verified fixtureBytes and fixtureJson"
     ],
     "changed": [],
@@ -13,7 +13,12 @@
     {
       "command": "npm run test:unit --workspace @zolana/test-kit",
       "exitStatus": "0",
-      "result": "1 file, 19 behavioral tests"
+      "result": "2 files, 25 behavioral tests; the opt-in live lifecycle remains explicitly gated"
+    },
+    {
+      "command": "ZOLANA_TEST_LIVE=1 npx vitest run --config ../config/vitest.package.config.js test/user-registry.live.test.ts",
+      "exitStatus": "0",
+      "result": "Offset 500 local validator/Photon/prover lifecycle registered a real user record, rejected an unauthorized signer through the deployed program, enabled merging, verified idempotence, disabled merging, and released the stack"
     },
     {
       "command": "npm run build --workspace @zolana/test-kit",
@@ -38,7 +43,7 @@
     {
       "command": "npm pack --dry-run --workspace @zolana/test-kit",
       "exitStatus": "0",
-      "result": "69 files, 24.5 kB packed, 113.0 kB unpacked; package remains private"
+      "result": "73 files, 31.4 kB packed, 149.1 kB unpacked; package remains private"
     },
     {
       "command": "npm run test:exports && npm run test:dependencies && npm run test:inventory",
@@ -57,7 +62,7 @@
     {
       "command": "npm run check",
       "exitStatus": "0",
-      "result": "49 files, 304 tests; build, typecheck, lint, format, inventory, exports, dependencies, and API passed"
+      "result": "50 files, 310 tests; build, typecheck, lint, format, inventory, exports, dependencies, and API passed"
     },
     {
       "command": "just build-photon",
@@ -160,6 +165,7 @@
     "cleanup": "Only directly spawned child process groups are signaled. Preconfigured healthy services are reused and remain alive after LocalStack.stop(). Startup failure and abort run the same idempotent cleanup path.",
     "diagnostics": "Per-process output is bounded to 8192 characters and redacts credentials, authorization values, and long secret-shaped hex. Errors retain safe service, exit, deadline, and port metadata only.",
     "isolation": "One validated offset moves validator, Photon, prover, and prover metrics. Occupied ports fail before spawning; unique temporary ledger, account, and Photon database paths are removed on stop.",
+    "mergeOptIn": "The private node harness derives and validates the canonical user-record PDA and account body, submits optional registration or key rotation first, signs the frozen set_merging_enabled instruction with the record owner, polls confirmation with abort and timeout support, and skips only the already-enabled instruction.",
     "prover": "Readiness checks /health only. Startup does not request a circuit proof, preserving the server's lazy proving-key behavior.",
     "secrets": "Deterministic wallet seeds are copied into production key constructors and are never logged or attached to errors. Fixed fixture material remains private test input."
   },
@@ -167,6 +173,7 @@
     "edits": [
       "kept the root allowlist to five declarations and moved all Node/test mutation under private subpaths",
       "used production instruction, PDA, wallet, keypair, transaction, RPC, indexer, and prover APIs instead of duplicating protocol math",
+      "kept the reusable merge setup on the private node export and used the frozen Rust instruction tag, Borsh bool, account metas, PDA seed, and owner-only program acceptance behavior",
       "removed process-name and port-killing behavior in favor of direct child ownership",
       "applied simplification, code-quality, comment, TDD, testing, lint, type, format, fixture, and workspace reviews"
     ],
@@ -180,5 +187,11 @@
     "implementation": "complete",
     "packetCheckpoint": "ready"
   },
+  "resolvedBlockers": [
+    {
+      "id": "P12-BLOCKER-MERGE-OPT-IN",
+      "resolution": "P12 can pass buildRegistrationTransaction output to enableMerging before submitMergeTransaction. The P11 harness submits and confirms registration or rotation, validates the canonical owner record, and sends the real owner-signed opt-in instruction idempotently."
+    }
+  ],
   "schema": "zolana-ts-packet-evidence-v1"
 }

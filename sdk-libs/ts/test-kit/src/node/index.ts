@@ -26,6 +26,7 @@ export * from "../prover.js";
 export * from "../rpc.js";
 export * from "../spl.js";
 export * from "../standard-accounts.js";
+export * from "../user-registry.js";
 export * from "../wallet-data.js";
 export * from "../zone.js";
 
