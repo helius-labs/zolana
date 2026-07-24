@@ -1,0 +1,147 @@
+{
+  "apiDiff": {
+    "added": [
+      "@zolana/merkle-tree|root|interface|Hasher32",
+      "@zolana/merkle-tree|root|class|MerkleTreeError",
+      "@zolana/merkle-tree|root|class|IndexedMerkleTreeError",
+      "@zolana/merkle-tree|root|class|MerkleTree",
+      "@zolana/merkle-tree|root|interface|NonInclusionProof",
+      "@zolana/merkle-tree|root|class|IndexedMerkleTree"
+    ],
+    "changed": [],
+    "removed": []
+  },
+  "checkpointReady": true,
+  "commands": [
+    {
+      "command": "npm run build --workspace @zolana/merkle-tree",
+      "exitStatus": "0",
+      "responsibility": "ESM implementation and declarations"
+    },
+    {
+      "command": "npm run typecheck --workspace @zolana/merkle-tree",
+      "exitStatus": "0",
+      "responsibility": "strict production source typecheck"
+    },
+    {
+      "command": "npm run lint --workspace @zolana/merkle-tree",
+      "exitStatus": "0",
+      "responsibility": "strict typed source and test lint"
+    },
+    {
+      "command": "npm exec -- prettier --check \"sdk-libs/ts/merkle-tree/src/**/*.ts\" \"sdk-libs/ts/merkle-tree/test/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "P06 source and test formatting"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/merkle-tree",
+      "exitStatus": "0",
+      "responsibility": "25 unit, model, mutation, ownership, error, capacity, canopy, history, and atomicity tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/merkle-tree",
+      "exitStatus": "0",
+      "responsibility": "six frozen Poseidon, SHA-256, Keccak, Merkle, indexed ordering, and non-inclusion vector cases"
+    },
+    {
+      "command": "npm run test:property --workspace @zolana/merkle-tree",
+      "exitStatus": "0",
+      "responsibility": "two deterministic fast-check Merkle path and indexed-neighbor properties"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/merkle-tree",
+      "exitStatus": "0",
+      "responsibility": "browser graph bundling and forbidden-global scan"
+    },
+    {
+      "command": "npm run api:check --workspace @zolana/merkle-tree",
+      "exitStatus": "0",
+      "responsibility": "workspace API allowlist contract"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "responsibility": "fresh packed Node and browser consumers"
+    },
+    {
+      "command": "npm run test:inventory && npm run test:exports && npm run test:dependencies",
+      "exitStatus": "0",
+      "responsibility": "shared inventory, package export, and dependency gates"
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "0",
+      "responsibility": "12 frozen fixtures and 182 inventory rows regenerated cleanly"
+    }
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "frozenSources": [
+    "sdk-libs/merkle-tree/src/lib.rs",
+    "sdk-libs/merkle-tree/src/indexed.rs",
+    "sdk-libs/merkle-tree/tests/tests.rs",
+    "sdk-libs/merkle-tree/tests/indexed.rs"
+  ],
+  "inventoryRows": [
+    "sdk-libs/merkle-tree/src/indexed.rs",
+    "sdk-libs/merkle-tree/src/lib.rs",
+    "sdk-libs/merkle-tree/tests/indexed.rs",
+    "sdk-libs/merkle-tree/tests/tests.rs"
+  ],
+  "implemented": [
+    "exact six-declaration root allowlist with shared @zolana/interface Bytes32",
+    "internal synchronous Poseidon, SHA-256, and Keccak adapters using admitted audited dependencies",
+    "canonical BN254 Poseidon input rejection and exact Circom width-two and width-three parameters",
+    "checked and copied 32-byte inputs, hasher inputs, roots, paths, and proof values",
+    "append-only Merkle roots, full and canopy paths, capacity and index errors",
+    "internal canopy truncation and bounded root history behavior",
+    "ordered indexed insertion with Rust-compatible H(value,nextValue) leaves",
+    "low/high-neighbor non-inclusion proofs and sentinel upper range",
+    "atomic state on hasher, capacity, duplicate, range, length, and non-canonical-field failures"
+  ],
+  "ownedChangedPaths": [
+    "sdk-libs/ts/merkle-tree/src/bytes.ts",
+    "sdk-libs/ts/merkle-tree/src/errors.ts",
+    "sdk-libs/ts/merkle-tree/src/hashers.ts",
+    "sdk-libs/ts/merkle-tree/src/index.ts",
+    "sdk-libs/ts/merkle-tree/src/indexed.ts",
+    "sdk-libs/ts/merkle-tree/src/merkle-tree.ts",
+    "sdk-libs/ts/merkle-tree/test/hashers.test.ts",
+    "sdk-libs/ts/merkle-tree/test/helpers.ts",
+    "sdk-libs/ts/merkle-tree/test/indexed.test.ts",
+    "sdk-libs/ts/merkle-tree/test/merkle.property.test.ts",
+    "sdk-libs/ts/merkle-tree/test/tests.test.ts",
+    "sdk-libs/ts/merkle-tree/test/vectors.test.ts",
+    "sdk-libs/ts/reports/packets/P06.json"
+  ],
+  "packet": "P06",
+  "qualityPass": {
+    "commentCorrections": [],
+    "edits": [
+      "kept concrete hash adapters internal so the six-name package root remains exact",
+      "centralized checked byte copying and invariant lookups",
+      "made compound indexed updates transactional",
+      "replaced test non-null assertions with explicit invariant checks",
+      "removed deprecated assertions and narration comments"
+    ],
+    "skills": ["code-simplifier", "code-quality", "zolana-comments"]
+  },
+  "resolvedCheckpoints": [
+    {
+      "checkpoint": "c1963518",
+      "result": "consumed all frozen Merkle, indexed-tree, and hasher byte vectors from paths-v1.json"
+    },
+    {
+      "checkpoint": "f07f3c11",
+      "result": "used admitted Noble hash dependencies and passed typed test lint"
+    }
+  ],
+  "schema": "zolana-ts-packet-evidence-v1",
+  "transientUnrelatedFailures": [
+    {
+      "command": "npm run typecheck --workspace @zolana/merkle-tree",
+      "initialExitStatus": "1",
+      "reason": "@zolana/interface declarations were temporarily absent during a concurrent package build",
+      "retryExitStatus": "0"
+    }
+  ]
+}
