@@ -207,6 +207,18 @@
     {
       "path": "workflows/deposit-v1.json",
       "sha256": "ee83ce306250984eac86de07a902ce767de5fe65ce8aa6be85255c698de23582"
+    },
+    {
+      "path": "workflows/instruction-transfer-v1.json",
+      "sha256": "b18c0ba3ba859450e306b58c61c2096f319a2bbf34e010581737867930d2d3ba"
+    },
+    {
+      "path": "workflows/instruction-withdraw-sol-v1.json",
+      "sha256": "16878f1d511e9f6c9ea6a89790bada865f41e872d1b94b249075d219055d2556"
+    },
+    {
+      "path": "workflows/instruction-withdraw-spl-v1.json",
+      "sha256": "185a03e51e28732a35b5b5cdae2c317eb4e1d8cdc17c94468fe79c39b14f7599"
     }
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",

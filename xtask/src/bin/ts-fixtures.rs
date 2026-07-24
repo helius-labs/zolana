@@ -27,7 +27,7 @@ use zolana_transaction::{
 const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
-const EXPECTED_FIXTURE_COUNT: usize = 52;
+const EXPECTED_FIXTURE_COUNT: usize = 55;
 const FROZEN_SOURCE_PATHS: [&str; 13] = [
     "program-libs/hasher/src",
     "program-libs/indexed-array/src",
@@ -672,6 +672,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     fixtures.extend(keypair_fixtures(&keypair_vectors)?);
     fixtures.extend(transaction_fixtures(&transaction_vectors)?);
     fixtures.extend(client_fixtures(&client_vectors)?);
+    fixtures.extend(instruction_workflow_fixtures(&client_vectors)?);
     fixtures.extend(wallet_fixtures(&wallet_vectors)?);
     fixtures.extend(workflow_fixtures(&wallet_vectors)?);
     Ok(fixtures)
@@ -1622,7 +1623,14 @@ fn production_client_vectors(root: &Path) -> Result<Value> {
 }
 
 fn verify_client_vectors(vectors: &Value) -> Result<()> {
-    for section in ["prover", "proof", "rpc"] {
+    for section in [
+        "prover",
+        "proof",
+        "rpc",
+        "workflow_transfer",
+        "workflow_withdraw_sol",
+        "workflow_withdraw_spl",
+    ] {
         if !vectors[section].is_object() {
             bail!("client oracle lacks {section}");
         }
@@ -1684,6 +1692,57 @@ fn client_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
                     rust_path,
                     symbol,
                     "P09 fixture follow-up recorded in sdk-libs/ts/reports/packets/P09.json",
+                    "P00",
+                    responsibility,
+                    value["inputs"].clone(),
+                    value["expected"].clone(),
+                ),
+            ))
+        })
+        .collect()
+}
+
+fn instruction_workflow_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
+    let domains = [
+        (
+            "workflow_transfer",
+            "workflows/instruction-transfer-v1.json",
+            "fx-workflow-instruction-transfer-v1",
+            "sdk-libs/transaction/src/instructions/transact/transfer.rs; sdk-libs/client/src/prover/transact; program-libs/interface/src/instruction/builders/transact.rs; sdk-libs/client/src/solana_rpc.rs",
+            "ConfidentialTransfer::{prepare,send}; PreparedTransfer::finalize; assemble; ProverClient::{prove_transfer,prove_transfer_p256}; ProofCompressed::try_from; Transact::instruction; transact_output_view_tags_from_instruction_groups",
+            "raw registered transfer across EdDSA, P256, and mixed-input rails with exact proof, wire, message, confirmation, state, and rejection evidence",
+        ),
+        (
+            "workflow_withdraw_sol",
+            "workflows/instruction-withdraw-sol-v1.json",
+            "fx-workflow-instruction-withdraw-sol-v1",
+            "sdk-libs/transaction/src/instructions/transact/transfer.rs; sdk-libs/client/src/prover/transact; program-libs/interface/src/instruction/builders/transact.rs; sdk-libs/client/src/solana_rpc.rs",
+            "ConfidentialTransfer::{prepare,withdraw}; PreparedTransfer::finalize; assemble; ProverClient::prove_transfer; ProofCompressed::try_from; Transact::instruction; transact_output_view_tags_from_instruction_groups",
+            "raw SOL withdrawal with exact signed public amount, settlement suffix, proof, wire, message, confirmation, state, and rejection evidence",
+        ),
+        (
+            "workflow_withdraw_spl",
+            "workflows/instruction-withdraw-spl-v1.json",
+            "fx-workflow-instruction-withdraw-spl-v1",
+            "sdk-libs/transaction/src/instructions/transact/transfer.rs; sdk-libs/client/src/prover/transact; program-libs/interface/src/instruction/builders/transact.rs; sdk-libs/client/src/solana_rpc.rs",
+            "ConfidentialTransfer::{prepare,withdraw}; PreparedTransfer::finalize; assemble; ProverClient::prove_transfer_p256; ProofCompressed::try_from; Transact::instruction; transact_output_view_tags_from_instruction_groups",
+            "raw mixed-input SPL withdrawal with exact signed public amount, CPI suffix, proof, wire, message, confirmation, state, and rejection evidence",
+        ),
+    ];
+    domains
+        .into_iter()
+        .map(|(section, path, id, rust_path, symbol, responsibility)| {
+            let value = &vectors[section];
+            if !value.is_object() {
+                bail!("client oracle lacks {section}");
+            }
+            Ok((
+                path,
+                fixture_base!(
+                    id,
+                    rust_path,
+                    symbol,
+                    "P13 fixture blocker in sdk-libs/ts/reports/packets/P13.json",
                     "P00",
                     responsibility,
                     value["inputs"].clone(),
@@ -2124,6 +2183,8 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures && rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check","exitStatus":"0","responsibility":"deterministic double generation"},
                 {"command":"npm run test:vectors --workspace @zolana/keypair","exitStatus":"0","responsibility":"P04 vector baseline before fixture-loader follow-up"},
                 {"command":"npm run test:vectors --workspace @zolana/transaction","exitStatus":"0","responsibility":"P05 vector baseline before production fixture-loader follow-up"},
+                {"command":"npm run test:unit --workspace @zolana/interface && npm run test:vectors --workspace @zolana/interface","exitStatus":"0","responsibility":"current interface instruction and codec tests"},
+                {"command":"npm run test:unit --workspace @zolana/transaction && npm run test:vectors --workspace @zolana/transaction","exitStatus":"0","responsibility":"current transaction preparation, wire, and vector tests"},
                 {"command":"npm run test:unit --workspace @zolana/client","exitStatus":"0","responsibility":"current P09 RPC, indexer, proof, and polling tests"},
                 {"command":"npm run test:vectors --workspace @zolana/client","exitStatus":"0","responsibility":"current P09 fixture tests"},
                 {"command":"npm run test:unit --workspace @zolana/wallet","exitStatus":"0","responsibility":"current wallet unit and frozen deposit tests"},
@@ -2131,6 +2192,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 {"command":"npm run test:cross --workspace @zolana/wallet","exitStatus":"0","responsibility":"current wallet cross-surface tests"},
                 {"command":"npm run test:unit --workspace @zolana/test-kit","exitStatus":"0","responsibility":"current private test-kit tests"},
                 {"command":"npm run fixtures:check","exitStatus":"0","responsibility":"manifest hashes, secret marking, deterministic regeneration, and 182-row inventory validation"},
+                {"command":"npm run build && npm run typecheck && npm run lint && npm run test:inventory && npm run test:exports && npm run test:dependencies && npm run api:check","exitStatus":"0","responsibility":"current package build, type, lint, inventory, exports, dependency, and API tests"},
                 {"command":"cargo xtask ts-fixtures --check","exitStatus":"blocked","responsibility":"canonical command; existing xtask dispatch is outside P00 ownership"},
                 {"command":"npm run test:inventory","exitStatus":"0","responsibility":"frozen 182-row inventory completeness and packet ownership"},
                 {"command":"git diff --exit-code -- sdk-libs/ts/fixtures","exitStatus":"1 (expected)","responsibility":"reopened P00 adds wallet fixtures and updates the manifest"},
@@ -2138,7 +2200,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
             ],
             "counts":{
                 "fixtureFiles":entries.len().to_string(),
-                "clientFixtureFiles":"5",
+                "clientFixtureFiles":"8",
                 "inventoryDuplicate":"0",
                 "inventoryMissing":"0",
                 "inventoryRows":inventory.len().to_string(),
@@ -2148,7 +2210,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 "transactionOracleVectors":"13",
                 "walletFixtureFiles":"10",
                 "walletOracleVectors":"12",
-                "workflowFixtureFiles":"4",
+                "workflowFixtureFiles":"7",
                 "p00Rows":p00_rows.len().to_string()
             },
             "fixtureIds":fixture_ids(&out.join("fixtures"))?,
@@ -2286,6 +2348,45 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                             "typed RPC submission error propagation"
                         ],
                         "test":"e2e-action-ata-idempotent"
+                    }
+                ],
+                "sourceRevision":FROZEN_SHA
+            },
+            "p13FollowUp":{
+                "blocker":"P00-owned missing workflow fixtures in sdk-libs/ts/reports/packets/P13.json",
+                "fixtureMapping":[
+                    {
+                        "fixture":"sdk-libs/ts/fixtures/workflows/instruction-transfer-v1.json",
+                        "id":"fx-workflow-instruction-transfer-v1",
+                        "assertions":[
+                            "raw registered transfer across EdDSA, P256, and mixed-input P256 rails",
+                            "exact proof inputs, prover request/result/compression, transact accounts and bytes",
+                            "exact unsigned messages, direct and inner confirmation tags, nullifiers, outputs, and balances",
+                            "malformed and incomplete proof, wrong account order, wrong-signature timeout, owner-tag, and replay rejection evidence"
+                        ],
+                        "test":"e2e-instruction-transfer-wire"
+                    },
+                    {
+                        "fixture":"sdk-libs/ts/fixtures/workflows/instruction-withdraw-sol-v1.json",
+                        "id":"fx-workflow-instruction-withdraw-sol-v1",
+                        "assertions":[
+                            "negative public SOL amount and exact SOL-interface, recipient, and system-program suffix",
+                            "exact EdDSA proof inputs, prover exchange, compression, transact bytes, and unsigned message",
+                            "external SOL balance delta, input nullifiers, output commitments, and confirmation tags",
+                            "malformed and incomplete proof, wrong account order, wrong-signature timeout, owner-tag, and replay rejection evidence"
+                        ],
+                        "test":"e2e-instruction-withdraw-sol-wire"
+                    },
+                    {
+                        "fixture":"sdk-libs/ts/fixtures/workflows/instruction-withdraw-spl-v1.json",
+                        "id":"fx-workflow-instruction-withdraw-spl-v1",
+                        "assertions":[
+                            "one negative public SPL asset and exact CPI-authority, vault, recipient, ATA, and token-program suffix",
+                            "exact mixed-input P256 proof inputs, prover exchange, commitment compression, transact bytes, and unsigned message",
+                            "external SPL balance delta, input nullifiers, output commitments, and confirmation tags",
+                            "malformed and incomplete proof, wrong account order, wrong-signature timeout, and replay rejection evidence"
+                        ],
+                        "test":"e2e-instruction-withdraw-spl-wire"
                     }
                 ],
                 "sourceRevision":FROZEN_SHA

@@ -9,6 +9,7 @@ use ark_bn254::{G1Affine, G2Affine};
 use ark_ec::AffineRepr;
 use ark_ff::{BigInteger, PrimeField};
 use serde_json::{json, Value};
+use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_hash::Hash;
 use solana_message::Message;
@@ -20,18 +21,28 @@ use zolana_client::{
     SPP_SUPPORTED_SHAPES,
 };
 use zolana_event::{InstructionGroup, ParsedInstruction};
-use zolana_interface::instruction::{
-    builders::Transact,
-    instruction_data::transact::{OwnerTag, TransactOutput, TransactProof},
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::{
+        builders::Transact,
+        instruction_data::transact::{OwnerTag, TransactOutput, TransactProof},
+        TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal,
+    },
+    pda, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{NullifierKey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::{
+    NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait, SigningKey, ViewingKey,
+};
 use zolana_transaction::{
     derive_blinding,
     instructions::{
-        transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
+        transact::{
+            encode_confidential_slots, ConfidentialTransfer, ExternalData, Shape, SppProofInputs,
+            SppProofOutputUtxo, WithdrawalTarget,
+        },
         types::SppProofInputUtxo,
     },
-    Data, Utxo, SOL_MINT,
+    AssetRegistry, Data, Utxo, SOL_MINT,
 };
 
 const P256_SECRET: [u8; 32] = [
@@ -40,6 +51,7 @@ const P256_SECRET: [u8; 32] = [
 const ED25519_SECRET: [u8; 32] = [31; 32];
 const VIEWING_SEED: [u8; 32] = [32; 32];
 const BLINDING_SEED: [u8; 31] = [33; 31];
+const WORKFLOW_SPL_ASSET_ID: u64 = 2;
 
 fn main() {
     match vectors() {
@@ -58,7 +70,10 @@ fn vectors() -> Result<Value, Box<dyn std::error::Error>> {
     Ok(json!({
         "prover": prover_vectors()?,
         "proof": proof_vectors()?,
-        "rpc": rpc_vectors()?
+        "rpc": rpc_vectors()?,
+        "workflow_transfer": workflow_transfer_vectors()?,
+        "workflow_withdraw_sol": workflow_withdraw_sol_vectors()?,
+        "workflow_withdraw_spl": workflow_withdraw_spl_vectors()?
     }))
 }
 
@@ -614,6 +629,435 @@ fn rpc_vectors() -> Result<Value, Box<dyn std::error::Error>> {
             }]
         }
     }))
+}
+
+#[derive(Clone, Copy)]
+enum WorkflowKind {
+    Transfer,
+    WithdrawSol,
+    WithdrawSpl,
+}
+
+#[derive(Clone, Copy)]
+enum WorkflowRail {
+    Eddsa,
+    P256,
+    Mixed,
+}
+
+fn workflow_transfer_vectors() -> Result<Value, Box<dyn std::error::Error>> {
+    Ok(json!({
+        "inputs": {
+            "blindingSeedBytes": hex(&BLINDING_SEED),
+            "ed25519SecretBytes": hex(&ED25519_SECRET),
+            "p256SecretBytes": hex(&P256_SECRET),
+            "testOnlySecret": true,
+            "viewingSeedBytes": hex(&VIEWING_SEED)
+        },
+        "expected": {
+            "railCases": [
+                workflow_case(WorkflowKind::Transfer, WorkflowRail::Eddsa)?,
+                workflow_case(WorkflowKind::Transfer, WorkflowRail::P256)?,
+                workflow_case(WorkflowKind::Transfer, WorkflowRail::Mixed)?
+            ]
+        }
+    }))
+}
+
+fn workflow_withdraw_sol_vectors() -> Result<Value, Box<dyn std::error::Error>> {
+    Ok(json!({
+        "inputs": {
+            "blindingSeedBytes": hex(&BLINDING_SEED),
+            "ed25519SecretBytes": hex(&ED25519_SECRET),
+            "testOnlySecret": true,
+            "viewingSeedBytes": hex(&VIEWING_SEED),
+            "withdrawAmount": "30"
+        },
+        "expected": workflow_case(WorkflowKind::WithdrawSol, WorkflowRail::Eddsa)?
+    }))
+}
+
+fn workflow_withdraw_spl_vectors() -> Result<Value, Box<dyn std::error::Error>> {
+    Ok(json!({
+        "inputs": {
+            "blindingSeedBytes": hex(&BLINDING_SEED),
+            "p256SecretBytes": hex(&P256_SECRET),
+            "testOnlySecret": true,
+            "viewingSeedBytes": hex(&VIEWING_SEED),
+            "withdrawAmount": "30"
+        },
+        "expected": workflow_case(WorkflowKind::WithdrawSpl, WorkflowRail::Mixed)?
+    }))
+}
+
+fn workflow_case(
+    kind: WorkflowKind,
+    rail: WorkflowRail,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let p256 = !matches!(rail, WorkflowRail::Eddsa);
+    let sender = keypair(p256)?;
+    let payer = if p256 {
+        Address::new_from_array([44; 32])
+    } else {
+        Address::new_from_array(sender.signing_pubkey().confidential_view_tag()?)
+    };
+    let spl_mint = Address::new_from_array([74; 32]);
+    let assets = AssetRegistry::new([(WORKFLOW_SPL_ASSET_ID, spl_mint)])?;
+    let recipient = ShieldedKeypair::from_keys(
+        SigningKey::from_bytes(&[
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 9,
+        ])?,
+        ViewingKey::from_seed(&[75; 32], 9)?,
+    )?;
+    let inputs = workflow_inputs(&sender, rail, spl_mint);
+    let mut transfer = ConfidentialTransfer::new(sender.shielded_address()?, inputs, payer);
+    transfer.blinding_seed = BLINDING_SEED;
+    match kind {
+        WorkflowKind::Transfer => {
+            transfer = transfer.with_shape(Shape::IN2_OUT3);
+            transfer.send(&recipient.shielded_address()?, spl_mint, 60)?;
+        }
+        WorkflowKind::WithdrawSol => {
+            transfer = transfer.with_shape(Shape::IN2_OUT2);
+            transfer.withdraw(
+                SOL_MINT,
+                30,
+                WithdrawalTarget::Sol {
+                    user_sol_account: Address::new_from_array([80; 32]),
+                },
+            )?;
+        }
+        WorkflowKind::WithdrawSpl => {
+            transfer = transfer.with_shape(Shape::IN2_OUT2);
+            let spl_vault = pda::spl_asset_vault(&Pubkey::new_from_array(spl_mint.to_bytes()));
+            transfer.withdraw(
+                spl_mint,
+                30,
+                WithdrawalTarget::Spl {
+                    user_spl_token: Address::new_from_array([81; 32]),
+                    spl_token_interface: Address::new_from_array(spl_vault.to_bytes()),
+                },
+            )?;
+        }
+    }
+    let prepared = transfer.prepare()?;
+    let tx_viewing_key = ViewingKey::from_seed(&[78; 32], 10)?;
+    let salt = [79; 16];
+    let slots = encode_confidential_slots(&prepared.outputs, &assets, &tx_viewing_key, salt)?;
+    let mut signed = prepared.finalize(tx_viewing_key.pubkey(), salt, slots)?;
+    if p256 {
+        signed.sign_p256(&sender)?;
+    }
+    let input_contexts = signed.input_utxo_hashes()?;
+    let proofs = workflow_spend_proofs(&input_contexts);
+    let incomplete_proofs = &proofs[..proofs.len() - 1];
+    let incomplete_proof_error = match assemble(signed.clone(), incomplete_proofs) {
+        Ok(_) => panic!("incomplete proofs were accepted"),
+        Err(error) => error,
+    };
+    let assembled = assemble(signed.clone(), &proofs)?;
+    let (prover_request, prover_result, compressed) =
+        capture_prover_exchange(&assembled.prover_inputs)?;
+    let prover_inputs = prover_inputs_json(&assembled.prover_inputs);
+    let transact_data = assembled.with_proof(compressed.to_transact_proof());
+    let withdrawal = workflow_withdrawal(kind, spl_mint);
+    let tree = Pubkey::new_from_array([45; 32]);
+    let payer_pubkey = Pubkey::new_from_array(payer.to_bytes());
+    let instruction = Transact {
+        payer: payer_pubkey,
+        tree,
+        withdrawal,
+        data: transact_data.clone(),
+    }
+    .instruction();
+    let blockhash = Hash::new_from_array([83; 32]);
+    let instructions = [
+        ComputeBudgetInstruction::set_compute_unit_limit(1_400_000),
+        instruction.clone(),
+    ];
+    let mut message = Message::new(&instructions, Some(&payer_pubkey));
+    message.recent_blockhash = blockhash;
+    let confirmation = workflow_confirmation(&instruction, matches!(rail, WorkflowRail::Eddsa))?;
+    let malformed_proof = proof_response_error(json!({"proof":{"ar":["0x1"],"bs":[],"krs":[]}}))?;
+
+    Ok(json!({
+        "rail": match rail {
+            WorkflowRail::Eddsa => "eddsa",
+            WorkflowRail::P256 => "p256",
+            WorkflowRail::Mixed => "mixed-p256"
+        },
+        "logicalInputs": {
+            "assetRegistry": [{
+                "assetId": WORKFLOW_SPL_ASSET_ID.to_string(),
+                "mint": spl_mint.to_string()
+            }],
+            "payer": payer_pubkey.to_string(),
+            "recipient": {
+                "nullifierPublicKeyBytes": hex(&recipient.shielded_address()?.nullifier_pubkey),
+                "signingPublicKeyBytes": hex(recipient.signing_pubkey().as_bytes()),
+                "viewingPublicKeyBytes": hex(recipient.shielded_address()?.viewing_pubkey.as_bytes())
+            },
+            "splMint": spl_mint.to_string(),
+            "tree": tree.to_string(),
+            "publicSettlement": {
+                "publicSolAmount": signed.external_data.public_sol_amount.map(|amount| amount.to_string()),
+                "publicSplAmount": signed.external_data.public_spl_amount.map(|amount| amount.to_string()),
+                "splTokenInterface": signed.external_data.spl_token_interface.to_string(),
+                "userSolAccount": signed.external_data.user_sol_account.to_string(),
+                "userSplTokenAccount": signed.external_data.user_spl_token.to_string()
+            }
+        },
+        "proof": {
+            "compressed": compressed_json(&compressed),
+            "proverInputs": prover_inputs,
+            "proverRequest": prover_request,
+            "proverResult": proof_json(&prover_result),
+            "spendProofs": proofs.iter().map(spend_proof_json).collect::<Vec<_>>()
+        },
+        "wire": {
+            "instruction": instruction_json(&instruction),
+            "transactDataBytes": hex(&transact_data.serialize()?),
+            "unsignedMessageBytes": hex(&bincode::serialize(&message)?)
+        },
+        "stateTransition": {
+            "externalRecipientBalanceDeltas": {
+                "sol": signed.external_data.public_sol_amount.map(|amount| -amount).unwrap_or_default().to_string(),
+                "spl": signed.external_data.public_spl_amount.map(|amount| -amount).unwrap_or_default().to_string()
+            },
+            "inputNullifierBytes": input_contexts.iter().map(|input| hex(&input.nullifier)).collect::<Vec<_>>(),
+            "outputs": signed.output_utxos.iter().zip(&signed.external_data.resolved_owner_tags).map(|(output, owner_tag)| {
+                Ok(json!({
+                    "amount": output.amount.to_string(),
+                    "asset": output.asset.to_string(),
+                    "ownerTagBytes": hex(owner_tag),
+                    "utxoHashBytes": hex(&output.hash()?)
+                }))
+            }).collect::<Result<Vec<_>, zolana_transaction::TransactionError>>()?,
+            "replayError": shielded_pool_error_json(ShieldedPoolError::NullifierTreeUpdateFailed),
+            "spentInputHashesBytes": input_contexts.iter().map(|input| hex(&input.utxo_hash)).collect::<Vec<_>>()
+        },
+        "confirmation": confirmation,
+        "errors": {
+            "accountOrder": shielded_pool_error_json(ShieldedPoolError::InvalidSettlementAccounts),
+            "incompleteProofSet": error(&incomplete_proof_error),
+            "malformedProof": error(&malformed_proof),
+            "wrongSignatureConfirmation": error(&ClientError::IndexerTimeout)
+        }
+    }))
+}
+
+fn workflow_inputs(
+    sender: &ShieldedKeypair,
+    rail: WorkflowRail,
+    spl_mint: Address,
+) -> Vec<SppProofInputUtxo> {
+    let p256_input = |asset: Address, amount: u64, position: u8| {
+        SppProofInputUtxo::new(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset,
+                amount,
+                blinding: derive_blinding(&BLINDING_SEED, position),
+                zone_program_id: None,
+                data: Data::default(),
+            },
+            sender,
+        )
+    };
+    let eddsa_input = |asset: Address, amount: u64, position: u8| {
+        let (owner, nullifier_key) = if matches!(rail, WorkflowRail::Eddsa) {
+            (sender.signing_pubkey(), sender.nullifier_key())
+        } else {
+            (
+                PublicKey::from_ed25519(&[76; 32]),
+                NullifierKey::from_secret([77; 31]),
+            )
+        };
+        SppProofInputUtxo::new(
+            Utxo {
+                owner,
+                asset,
+                amount,
+                blinding: derive_blinding(&BLINDING_SEED, position),
+                zone_program_id: None,
+                data: Data::default(),
+            },
+            nullifier_key,
+        )
+    };
+    match rail {
+        WorkflowRail::Eddsa => vec![
+            eddsa_input(SOL_MINT, 100, 10),
+            eddsa_input(spl_mint, 100, 11),
+        ],
+        WorkflowRail::P256 => vec![p256_input(SOL_MINT, 100, 10), p256_input(spl_mint, 100, 11)],
+        WorkflowRail::Mixed => vec![
+            p256_input(SOL_MINT, 100, 10),
+            eddsa_input(spl_mint, 100, 11),
+        ],
+    }
+}
+
+fn workflow_spend_proofs(
+    contexts: &[zolana_transaction::instructions::types::InputUtxoContext],
+) -> Vec<SpendProof> {
+    let tree = Address::new_from_array([45; 32]);
+    contexts
+        .iter()
+        .enumerate()
+        .map(|(index, context)| SpendProof {
+            state: MerkleProof {
+                leaf: context.utxo_hash,
+                merkle_context: MerkleContext { tree_type: 1, tree },
+                path: vec![field_byte(84 + index as u8); 32],
+                leaf_index: index as u64,
+                root: field_byte(86),
+                root_seq: 87,
+                root_index: 88 + index as u16,
+            },
+            nullifier: NonInclusionProof {
+                leaf: context.nullifier,
+                merkle_context: MerkleContext { tree_type: 2, tree },
+                path: vec![field_byte(89 + index as u8); 40],
+                low_element: field_byte(91),
+                low_element_index: 0,
+                high_element: field_byte(92),
+                high_element_index: 1,
+                root: field_byte(93),
+                root_seq: 94,
+                root_index: 95 + index as u16,
+            },
+        })
+        .collect()
+}
+
+fn workflow_withdrawal(kind: WorkflowKind, spl_mint: Address) -> Option<TransactWithdrawal> {
+    match kind {
+        WorkflowKind::Transfer => None,
+        WorkflowKind::WithdrawSol => Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
+            recipient: Pubkey::new_from_array([80; 32]),
+        })),
+        WorkflowKind::WithdrawSpl => Some(TransactWithdrawal::Spl(TransactSplWithdrawal {
+            cpi_authority: Some(pda::shielded_pool_cpi_authority()),
+            spl_token_interface: pda::spl_asset_vault(&Pubkey::new_from_array(spl_mint.to_bytes())),
+            recipient: Pubkey::new_from_array([84; 32]),
+            user_token_account: Pubkey::new_from_array([81; 32]),
+            token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+        })),
+    }
+}
+
+fn capture_prover_exchange(
+    inputs: &ProverInputs,
+) -> Result<(Value, Proof, ProofCompressed), Box<dyn std::error::Error>> {
+    let response = serde_json::to_vec(&json!({
+        "proof": gnark_proof(matches!(inputs, ProverInputs::P256(_)))
+    }))?;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let address = listener.local_addr()?;
+    let server = thread::spawn(move || -> Result<Vec<u8>, String> {
+        let (mut stream, _) = listener.accept().map_err(|error| error.to_string())?;
+        let request = read_http_body(&mut stream).map_err(|error| error.to_string())?;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            response.len()
+        )
+        .map_err(|error| error.to_string())?;
+        stream
+            .write_all(&response)
+            .map_err(|error| error.to_string())?;
+        Ok(request)
+    });
+    let client = ProverClient::new(format!("http://{address}"));
+    let proof = match inputs {
+        ProverInputs::Eddsa(value) => client.prove_transfer(value)?,
+        ProverInputs::P256(value) => client.prove_transfer_p256(value)?,
+    };
+    let request = serde_json::from_slice(
+        &server
+            .join()
+            .map_err(|_| "prover fixture server panicked")??,
+    )?;
+    let compressed = ProofCompressed::try_from(proof)?;
+    Ok((request, proof, compressed))
+}
+
+fn workflow_confirmation(
+    instruction: &solana_instruction::Instruction,
+    account_tag: bool,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let parsed = ParsedInstruction {
+        program_id: instruction.program_id,
+        accounts: instruction
+            .accounts
+            .iter()
+            .map(|account| account.pubkey)
+            .collect(),
+        data: instruction.data.clone(),
+        stack_height: Some(1),
+    };
+    let direct = transact_output_view_tags_from_instruction_groups(&ConfirmedInstructionGroups {
+        groups: vec![InstructionGroup {
+            outer: parsed.clone(),
+            inner: vec![],
+        }],
+    })?;
+    let inner = transact_output_view_tags_from_instruction_groups(&ConfirmedInstructionGroups {
+        groups: vec![InstructionGroup {
+            outer: ParsedInstruction {
+                program_id: Pubkey::new_from_array([85; 32]),
+                accounts: vec![],
+                data: vec![0],
+                stack_height: Some(1),
+            },
+            inner: vec![parsed.clone()],
+        }],
+    })?;
+    let tag_error = account_tag.then(|| {
+        let mut invalid = parsed;
+        invalid.accounts.clear();
+        transact_output_view_tags_from_instruction_groups(&ConfirmedInstructionGroups {
+            groups: vec![InstructionGroup {
+                outer: invalid,
+                inner: vec![],
+            }],
+        })
+        .expect_err("missing owner-tag account")
+    });
+    Ok(json!({
+        "directOutputTagsBytes": direct.iter().map(|tag| hex(tag)).collect::<Vec<_>>(),
+        "innerOutputTagsBytes": inner.iter().map(|tag| hex(tag)).collect::<Vec<_>>(),
+        "ownerTagError": tag_error.as_ref().map(error)
+    }))
+}
+
+fn instruction_json(instruction: &solana_instruction::Instruction) -> Value {
+    json!({
+        "accounts": instruction.accounts.iter().map(|account| json!({
+            "address": account.pubkey.to_string(),
+            "signer": account.is_signer,
+            "writable": account.is_writable
+        })).collect::<Vec<_>>(),
+        "dataBytes": hex(&instruction.data),
+        "programId": instruction.program_id.to_string()
+    })
+}
+
+fn spend_proof_json(proof: &SpendProof) -> Value {
+    json!({
+        "state": merkle_json(&proof.state),
+        "nullifier": non_inclusion_json(&proof.nullifier)
+    })
+}
+
+fn shielded_pool_error_json(error: ShieldedPoolError) -> Value {
+    json!({
+        "code": format!("{error:?}"),
+        "customCode": (error as u32).to_string(),
+        "details": error.to_string()
+    })
 }
 
 fn merkle_json(proof: &MerkleProof) -> Value {
