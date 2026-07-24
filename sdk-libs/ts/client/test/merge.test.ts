@@ -208,8 +208,10 @@ describe("merge proving and unsigned submission", () => {
         "externalDataHash",
         "privateTxHash",
         "publicInputHash",
+        "zoneProgramId",
       ]);
       expect(body["circuitType"]).toBe("merge");
+      expect(body["zoneProgramId"]).toBe("0x0");
       expect(body["inputs"]).toHaveLength(8);
       expect(body["userViewingPubkey"]).toHaveLength(65);
       expect(body["txViewingSk"]).toBe("0xf");

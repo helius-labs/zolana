@@ -193,6 +193,7 @@ export function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string,
     externalDataHash: hex(inputs.externalDataHash),
     privateTxHash: hex(inputs.privateTxHash),
     publicInputHash: hex(inputs.publicInputHash),
+    zoneProgramId: hex(inputs.zoneProgramId),
   });
 }
 
