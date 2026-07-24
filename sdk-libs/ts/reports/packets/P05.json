@@ -48,7 +48,7 @@
     {
       "command": "npm run test:unit --workspace @zolana/transaction",
       "exitStatus": "0",
-      "responsibility": "26 core, manifest-backed codec, tamper, transfer, history, idempotence, and worker-equivalence tests"
+      "responsibility": "28 core, mixed-rail signature, manifest-backed codec, tamper, transfer, history, idempotence, and worker-equivalence tests"
     },
     {
       "command": "npm run test:vectors --workspace @zolana/transaction",
@@ -93,7 +93,7 @@
     {
       "command": "npm run check",
       "exitStatus": "0",
-      "responsibility": "aggregate build, typecheck, lint, format, 199 tests, inventory, exports, dependencies, and API checks"
+      "responsibility": "aggregate build, typecheck, lint, format, 215 tests, inventory, exports, dependencies, and API checks"
     },
     {
       "command": "npm run fixtures:check",
@@ -128,7 +128,8 @@
     "prepared confidential transfer, split, merge, and zone operations with conservation, ownership, asset, data, withdrawal, and padding checks",
     "asset registry plus wallet balances, UTXOs, private history, spend detection, idempotent sync, and worker-equivalent ordering",
     "Promise authority boundary with no HTTP, RPC, filesystem, Node built-in, or ambient network behavior",
-    "structurally compatible fixed-byte inputs from interface and keypair with direct transaction package consumption and runtime boundary validation"
+    "structurally compatible fixed-byte inputs from interface and keypair with direct transaction package consumption and runtime boundary validation",
+    "source-proven mixed EdDSA/P256 input signing that selects the P256 rail while retaining homogeneous rail, signer-owner, and fixed-byte validation"
   ],
   "ownedChangedPaths": [
     "sdk-libs/ts/transaction/src/data.ts",
@@ -166,9 +167,29 @@
       "removed proxy dummy state and replaced it with explicit module-private identity tracking",
       "deduplicated constant-time byte comparison and isolated fixture-only field lookup and codecs from package exports",
       "kept package entry points free of internal cryptographic helpers and network behavior",
-      "used immutable snapshots for retained wallet, output, history, and data values"
+      "used immutable snapshots for retained wallet, output, history, and data values",
+      "limited mixed-rail signing to filtering real P256 owners, preserving input order, owner tags, proof fields, and checked signature copies"
     ],
     "skills": ["code-simplifier", "code-quality", "zolana-comments"]
+  },
+  "reopenedBlocker": {
+    "kind": "P05-api",
+    "resolution": "SppProofInputs.applyP256Signature now accepts mixed real inputs when at least one P256 input exists and every P256 input matches the signing public key. EdDSA-only inputs still reject P256 signing, homogeneous P256 inputs retain owner matching, and malformed signature coordinates retain typed fixed-length errors.",
+    "sourceEvidence": [
+      "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f:sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs::inputs_require_p256",
+      "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f:sdk-libs/transaction/src/instructions/transact/transfer.rs::ConfidentialTransfer::sign",
+      "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f:sdk-libs/client/src/prover/transact/p256_and_eddsa.rs::OwnerMode::ConfidentialP256",
+      "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f:sdk-libs/client/tests/features/eddsa_p256_transaction.feature"
+    ],
+    "tests": [
+      "valid mixed input order with EdDSA first and P256 second",
+      "missing signature state before application",
+      "wrong P256 signing owner",
+      "EdDSA-only rail rejection",
+      "malformed r and s lengths",
+      "homogeneous P256 acceptance",
+      "owner-tag and signature-byte copy preservation"
+    ]
   },
   "schema": "zolana-ts-packet-evidence-v1"
 }

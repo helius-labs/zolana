@@ -293,11 +293,12 @@ export class SppProofInputs {
 
   applyP256Signature(signature: P256Signature): void {
     const real = this.inputUtxos.filter((input) => !input.isDummy());
-    if (real.length === 0 || real.some((input) => input.utxo.owner.signatureType() !== "p256")) {
+    const p256 = real.filter((input) => input.utxo.owner.signatureType() === "p256");
+    if (p256.length === 0) {
       throw new TransactionError("TRANSACTION_SIGNER_NOT_P256");
     }
     if (
-      real.some((input) => !equal(input.utxo.owner.confidentialViewTag(), signature.publicKey.x()))
+      p256.some((input) => !equal(input.utxo.owner.confidentialViewTag(), signature.publicKey.x()))
     ) {
       throw new TransactionError("TRANSACTION_SIGNATURE_OWNER_MISMATCH");
     }

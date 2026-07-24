@@ -7,6 +7,7 @@ import {
   ConfidentialTransfer,
   ProofInputUtxo,
   SOL_MINT,
+  SppProofInputs,
   Utxo,
   deriveBlinding,
 } from "../src/index.js";
@@ -16,6 +17,7 @@ import {
   PreparedMerge,
   validateMergeZoneInputs,
 } from "../src/instructions/builders.js";
+import { createExternalData } from "../src/instructions/transact.js";
 import { encodeAddress } from "../src/internal.js";
 import { createProofOutput } from "../src/utxo.js";
 import {
@@ -92,6 +94,54 @@ function fixedInput(
   });
 }
 
+function proofInputs(inputUtxos: readonly ProofInputUtxo[]): SppProofInputs {
+  const ownerTag = new Uint8Array(32).fill(21) as Bytes32;
+  const outputs = [0, 1].map((position) =>
+    createProofOutput({
+      asset: SOL_MINT,
+      amount: 0n,
+      blinding: new Uint8Array(31).fill(position) as Bytes31,
+      ownerTag,
+    }),
+  );
+  return new SppProofInputs({
+    payerPublicKeyHash: new Uint8Array(32) as Bytes32,
+    inputUtxos,
+    outputs,
+    externalData: createExternalData({
+      instructionDiscriminator: 0,
+      expiryUnixTs: 0n,
+      relayerFee: 0,
+      userSolAccount: SOL_MINT,
+      userSplToken: SOL_MINT,
+      splTokenInterface: SOL_MINT,
+      txViewingPublicKey: ViewingKey.fromSeed(
+        new Uint8Array(32).fill(22) as Bytes32,
+        0,
+      ).publicKey(),
+      salt: new Uint8Array(16) as Bytes16,
+      outputs: outputs.map((output) => ({
+        utxoHash: output.hash(),
+        ownerTag: { kind: "inline", value: ownerTag },
+      })),
+      resolvedOwnerTags: outputs.map(() => ownerTag),
+      messages: [],
+    }),
+  });
+}
+
+function inputFor(signing: SigningKey, position: number): ProofInputUtxo {
+  return new ProofInputUtxo({
+    utxo: new Utxo({
+      owner: signing.publicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: new Uint8Array(31).fill(position + 1) as Bytes31,
+    }),
+    nullifierKey: NullifierKey.fromSigningKey(signing),
+  });
+}
+
 function withRandom<T>(bytes: Bytes31, action: () => T): T {
   const mock = vi.spyOn(globalThis.crypto, "getRandomValues").mockImplementation((array) => {
     new Uint8Array(array.buffer, array.byteOffset, array.byteLength).set(bytes);
@@ -105,6 +155,86 @@ function withRandom<T>(bytes: Bytes31, action: () => T): T {
 }
 
 describe("manifest-verified transaction builders", () => {
+  it("accepts a P256 signature for mixed inputs without changing transaction fields", () => {
+    const p256 = SigningKey.fromBytes(new Uint8Array(32).fill(1) as Bytes32);
+    const ed25519 = SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32);
+    const p256Input = inputFor(p256, 0);
+    const ed25519Input = inputFor(ed25519, 1);
+    const inputs = proofInputs([ed25519Input, p256Input]);
+    const ownerTags = inputs.externalData.resolvedOwnerTags.map((tag) => new Uint8Array(tag));
+    const wireOwnerTags = inputs.externalData.outputs.map((output) => output.ownerTag);
+    const messageHash = inputs.messageHash();
+    const compact = p256.sign(messageHash);
+    const r = compact.slice(0, 32) as Bytes32;
+    const s = compact.slice(32) as Bytes32;
+
+    expect(inputs.p256Signature()).toBeUndefined();
+    inputs.applyP256Signature({ publicKey: p256.publicKey().p256(), r, s });
+
+    expect(inputs.inputUtxos).toEqual([ed25519Input, p256Input]);
+    expect(inputs.externalData.resolvedOwnerTags).toEqual(ownerTags);
+    expect(inputs.externalData.outputs.map((output) => output.ownerTag)).toEqual(wireOwnerTags);
+    expect(inputs.p256Signature()).toEqual({
+      publicKey: p256.publicKey().p256(),
+      r: compact.slice(0, 32),
+      s: compact.slice(32),
+    });
+    r.fill(0);
+    s.fill(0);
+    expect(inputs.p256Signature()?.r).toEqual(compact.slice(0, 32));
+    expect(inputs.p256Signature()?.s).toEqual(compact.slice(32));
+  });
+
+  it("retains P256 rail signature and owner validation for mixed and homogeneous inputs", () => {
+    const p256 = SigningKey.fromBytes(new Uint8Array(32).fill(3) as Bytes32);
+    const otherP256 = SigningKey.fromBytes(new Uint8Array(32).fill(4) as Bytes32);
+    const ed25519 = SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(5) as Bytes32);
+    const p256Input = inputFor(p256, 0);
+    const ed25519Input = inputFor(ed25519, 1);
+    const signature = p256.sign(proofInputs([p256Input, ed25519Input]).messageHash());
+    const valid = {
+      publicKey: p256.publicKey().p256(),
+      r: signature.slice(0, 32) as Bytes32,
+      s: signature.slice(32) as Bytes32,
+    };
+
+    expect(proofInputs([p256Input, ed25519Input]).p256Signature()).toBeUndefined();
+    expect(() => {
+      proofInputs([p256Input, ed25519Input]).applyP256Signature({
+        ...valid,
+        publicKey: otherP256.publicKey().p256(),
+      });
+    }).toThrow(expect.objectContaining({ code: "TRANSACTION_SIGNATURE_OWNER_MISMATCH" }));
+    expect(() => {
+      proofInputs([ed25519Input, ed25519Input]).applyP256Signature(valid);
+    }).toThrow(expect.objectContaining({ code: "TRANSACTION_SIGNER_NOT_P256" }));
+    expect(() => {
+      proofInputs([p256Input, p256Input]).applyP256Signature({
+        ...valid,
+        r: new Uint8Array(31) as Bytes32,
+      });
+    }).toThrow(expect.objectContaining({ code: "TRANSACTION_INVALID_LENGTH" }));
+    expect(() => {
+      proofInputs([p256Input, p256Input]).applyP256Signature({
+        ...valid,
+        s: new Uint8Array(33) as Bytes32,
+      });
+    }).toThrow(expect.objectContaining({ code: "TRANSACTION_INVALID_LENGTH" }));
+
+    const homogeneous = proofInputs([p256Input, p256Input]);
+    const homogeneousSignature = p256.sign(homogeneous.messageHash());
+    homogeneous.applyP256Signature({
+      publicKey: p256.publicKey().p256(),
+      r: homogeneousSignature.slice(0, 32) as Bytes32,
+      s: homogeneousSignature.slice(32) as Bytes32,
+    });
+    expect(homogeneous.p256Signature()).toEqual({
+      publicKey: p256.publicKey().p256(),
+      r: homogeneousSignature.slice(0, 32),
+      s: homogeneousSignature.slice(32),
+    });
+  });
+
   it("matches transfer outputs, wire payloads, hashes, conservation, and errors", () => {
     const fixture = load("transfer");
     const inputs = section(fixture, "inputs");
