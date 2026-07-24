@@ -16,13 +16,13 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `30367f31136d7e9cf6aa3e5553ad32fa2769e934`
+- Review HEAD: `e035eb7127b36895e8c3d3423e1d8874bf55ced7`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: none in the nine scoped source trees
 - Primary rows: `118`
-- Progress: `3 done / 118 total`; `1 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `I02 program-libs/interface/src/shape.rs`
-- Active fixes: `I01 proposed`
+- Progress: `3 done / 118 total`; `2 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `I03 program-libs/interface/src/merge_utils.rs`
+- Active fixes: `I01 proposed`; `I02 proposed`
 - Last session: `2026-07-24`
 
 Refresh the HEAD, fixture commit, drift result, progress, active fixes, and exact
@@ -133,7 +133,7 @@ Columns:
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | I01 | `program-libs/interface/src/error.rs` | `interface/src/errors.ts`, `interface/src/index.ts` | needs_fix | PARTIAL | proposed | `ShieldedPoolErrorCode` lists 7000 through 7025, but TypeScript has no named runtime map, structured program-error representation, strict decoder, or fixture/test for the 26-variant current-Rust set. The RPC boundary also discards custom program codes. Add the map and decoder under `@zolana/interface`, preserve unknown custom codes distinctly, translate Solana instruction errors at the client boundary, and pin each mapping without comparing display text. | 2026-07-24 review | - |
-| I02 | `program-libs/interface/src/shape.rs` | `interface/src/internal.ts` | todo | - | none | - | - | - |
+| I02 | `program-libs/interface/src/shape.rs` | `interface/src/internal.ts` | needs_fix | DIVERGENT | proposed | `Shape` and `SPP_SUPPORTED_SHAPES` are public Rust interface API, but `@zolana/interface` exports neither and its mapped `internal.ts` has no shape code. `@zolana/transaction` duplicates the ten shapes in the correct order, but its shallow-frozen list exposes mutable entries and `canonicalShape` rejects zero real inputs or outputs even though Rust and Go select padded shapes for those counts. Export one deeply immutable shape authority from `@zolana/interface`, reuse it in transaction selection, accept safe non-negative real counts including zero, validate malformed declared counts, and add current-Rust tests for exports, ordering, immutability, empty and boundary selection, unsupported pairs, and structured errors. | 2026-07-24 review | - |
 | I03 | `program-libs/interface/src/merge_utils.rs` | `interface/src/internal.ts` | todo | - | none | - | - | - |
 | I04 | `program-libs/interface/src/pda.rs` | `interface/src/pda/index.ts` | todo | - | none | - | - | - |
 | I05 | `program-libs/interface/src/instruction/instruction_data/batch_update_nullifier_tree.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
@@ -459,3 +459,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `3/118`; package `0/37`
 - Exact next file: `I02 program-libs/interface/src/shape.rs`
 - Full SDK parity claim: unsupported; the interface error gate, eight package row sets, 20 client rows, and the cross-package gates remain incomplete
+
+### 2026-07-24 17:21 UTC | I02 | `program-libs/interface/src/shape.rs`
+
+- Baseline: HEAD `e035eb7127b36895e8c3d3423e1d8874bf55ced7`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`; the worktree was clean before the checklist claim
+- Worker: GPT-5.6 Sol review subagent; implementation commit `none`
+- Explanation: This dependency-free public module defines the `Shape` value, ten named constants, count accessors, and the ordered `SPP_SUPPORTED_SHAPES` authority. `program-libs/interface/src/lib.rs` exposes it as `zolana_interface::shape`; the transaction crate re-exports it and searches the list for the first shape whose capacities hold the real counts. The set is `1x1, 1x2, 2x2, 2x3, 3x3, 4x3, 4x4, 5x3, 5x4, 1x8`, with five as the largest input capacity and eight as the largest output capacity. Both EdDSA and P256 use this set, while proof encoding keeps standard Groth16 and BSB22 commitment data separate. `@zolana/interface` exports no shape API. `@zolana/transaction` contains a duplicate table and exposes lookup functions through its instruction and transact subpaths; its package root exposes the functions but omits the shape type and table.
+- Evidence: `docs/spec.md` lists the same ten transaction shapes and both ownership rails. The Go `SupportedShapes` and prover `transferSupportedShapes` authorities match the Rust set and order; the verifier path named in contributor guidance does not exist, and the former `sdk-libs/client/src/shape.rs` authority now lives in interface and transaction. Go tests cover exact, empty, padded, boundary, unsupported, negative, and ordering cases. Rust `canonical_shape` selects `0x1 -> 1x1`, `0x2 -> 1x2`, `1x0 -> 1x1`, `0x8 -> 1x8`, and rejects pairs including `6x1`, `1x9`, `2x8`, and `5x5`; declared shapes return `UnsupportedShape`, `TooManyInputs`, or `TooManyOutputsForShape` with count details. TypeScript uses corresponding structured transaction codes for supported positive counts, but `checkedCount` rejects zero and the declared path does not validate negative or fractional real counts. The Rust-generated `client/prover-shapes-v1.json` fixture records the ten shapes in order for both rails, and its vector suite checks 20 complete proof-input and instruction-byte cases. Fixture regeneration is capable of detecting a stale table and passed against current Rust. The shape source has the same Git object as the frozen revision. Rust interface tests passed 25 tests, although none target `shape.rs`; the focused Rust transaction library command passed one matching test and exposed no selection test. Go protocol shape tests passed. Interface build, typecheck, 15 unit tests, one vector test, browser check, and API check passed. Transaction build, typecheck, 28 unit tests, five vector tests, browser check, and API check passed after dependencies were built. Client vectors passed 30 tests. Fixture verification passed 57 fixtures and 182 inventory rows. The checklist-only checkpoint failed because GPG signing required interactive pinentry; hooks and signing were not bypassed.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: `sdk-libs/ts/interface/src/index.ts` and `internal.ts` omit the public Rust `Shape` and `SPP_SUPPORTED_SHAPES` API. `sdk-libs/ts/transaction/src/instructions/transact.ts::SPP_SUPPORTED_SHAPES` duplicates that authority with mutable element objects, and `canonicalShape` conflicts with Rust on zero counts. Export one deeply immutable authority from interface, import it in transaction, accept safe non-negative counts including zero, validate declared-path counts, and pin exports, exact order, mutation resistance, empty and boundary lookup, unsupported pairs, and error details against a current-Rust fixture.
+- Row transition: `todo -> in_progress -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I03 program-libs/interface/src/merge_utils.rs`
+- Full SDK parity claim: unsupported; I01 and I02 have adverse interface verdicts, eight package row sets remain incomplete, and cross-package gates have not passed
