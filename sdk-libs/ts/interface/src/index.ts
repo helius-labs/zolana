@@ -9,14 +9,18 @@ import {
 export { InterfaceError } from "./errors.js";
 export type { InterfaceErrorCode } from "./errors.js";
 
+type FixedBytes<Length extends number> = Uint8Array & {
+  readonly __fixedBytesLength: Length;
+};
+
 export type Address = string & { readonly __address: unique symbol };
 export type Signature = string & { readonly __signature: unique symbol };
-export type Bytes16 = Uint8Array & { readonly __bytes16: unique symbol };
-export type Bytes31 = Uint8Array & { readonly __bytes31: unique symbol };
-export type Bytes32 = Uint8Array & { readonly __bytes32: unique symbol };
-export type Bytes33 = Uint8Array & { readonly __bytes33: unique symbol };
-export type Bytes64 = Uint8Array & { readonly __bytes64: unique symbol };
-export type Bytes128 = Uint8Array & { readonly __bytes128: unique symbol };
+export type Bytes16 = FixedBytes<16>;
+export type Bytes31 = FixedBytes<31>;
+export type Bytes32 = FixedBytes<32>;
+export type Bytes33 = FixedBytes<33>;
+export type Bytes64 = FixedBytes<64>;
+export type Bytes128 = FixedBytes<128>;
 
 export type Transaction = Readonly<{
   messageBytes: Uint8Array;

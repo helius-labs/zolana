@@ -1,53 +1,26 @@
-import { readFileSync } from "node:fs";
-
 import { expect, it } from "vitest";
 
 import { type Address, type Bytes31, type Bytes32 } from "../../src/index.js";
 import { depositInstruction } from "../../src/instructions/index.js";
-
-function bytes(hex: string): Uint8Array {
-  const pairs = hex.match(/../g);
-  if (pairs === null) throw new Error("fixture contains invalid hex");
-  return Uint8Array.from(pairs.map((value) => Number.parseInt(value, 16)));
-}
+import { fixtureAccount, hexBytes, readDepositFixture } from "../fixture.js";
 
 function toHex(value: Uint8Array): string {
   return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 it("matches the P00 deposit instruction vector", () => {
-  const fixture = JSON.parse(
-    readFileSync(
-      new URL("../../../fixtures/interface/deposit-instruction-v1.json", import.meta.url),
-      "utf8",
-    ),
-  ) as {
-    inputs: {
-      amount: string;
-      blindingBytes: string;
-      memoBytes: string;
-      ownerBytes: string;
-      viewTagBytes: string;
-    };
-    expected: {
-      accounts: readonly {
-        address: string;
-        signer: boolean;
-        writable: boolean;
-      }[];
-      dataBytes: string;
-      programId: string;
-    };
-  };
+  const fixture = readDepositFixture(
+    new URL("../../../fixtures/interface/deposit-instruction-v1.json", import.meta.url),
+  );
   const built = depositInstruction({
-    tree: fixture.expected.accounts[0]!.address as Address,
-    depositor: fixture.expected.accounts[1]!.address as Address,
+    tree: fixtureAccount(fixture, 0).address as Address,
+    depositor: fixtureAccount(fixture, 1).address as Address,
     data: {
       amount: BigInt(fixture.inputs.amount),
-      blinding: bytes(fixture.inputs.blindingBytes) as Bytes31,
-      memo: bytes(fixture.inputs.memoBytes),
-      owner: bytes(fixture.inputs.ownerBytes) as Bytes32,
-      viewTag: bytes(fixture.inputs.viewTagBytes) as Bytes32,
+      blinding: hexBytes(fixture.inputs.blindingBytes) as Bytes31,
+      memo: hexBytes(fixture.inputs.memoBytes),
+      owner: hexBytes(fixture.inputs.ownerBytes) as Bytes32,
+      viewTag: hexBytes(fixture.inputs.viewTagBytes) as Bytes32,
     },
   });
   expect(built.programAddress).toBe(fixture.expected.programId);

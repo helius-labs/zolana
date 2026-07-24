@@ -4,18 +4,8 @@
     "changed": [],
     "removed": []
   },
-  "blockers": [
-    {
-      "command": "npm run check --workspace @zolana/interface",
-      "reason": "The P01-owned interface package manifest has no check script. Its build, typecheck, lint, format, unit, vector, browser, pack, and API responsibilities were run directly.",
-      "status": "blocked"
-    },
-    {
-      "command": "npm run pack:check",
-      "reason": "The shared workspace build stopped in concurrently implemented @zolana/merkle-tree because its P01-owned manifest does not declare @zolana/interface. The interface package itself built and passed npm pack --dry-run.",
-      "status": "blocked"
-    }
-  ],
+  "blockers": [],
+  "checkpointReady": true,
   "commands": [
     {
       "command": "npm run build --workspace @zolana/interface",
@@ -28,9 +18,9 @@
       "responsibility": "strict TypeScript validation"
     },
     {
-      "command": "npx eslint \"sdk-libs/ts/interface/src/**/*.ts\"",
+      "command": "npx eslint \"sdk-libs/ts/interface/src/**/*.ts\" \"sdk-libs/ts/interface/test/**/*.ts\"",
       "exitStatus": "0",
-      "responsibility": "production source lint"
+      "responsibility": "zero-finding strict typed lint for all P02 source and tests"
     },
     {
       "command": "npx prettier --check \"sdk-libs/ts/interface/src/**/*.ts\" \"sdk-libs/ts/interface/test/**/*.ts\"",
@@ -63,6 +53,21 @@
       "responsibility": "interface tarball contents and four entry points"
     },
     {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "responsibility": "fresh packed Node and browser consumers, including cross-package fixed-byte declarations"
+    },
+    {
+      "command": "npm run lint",
+      "exitStatus": "0",
+      "responsibility": "aggregate workspace lint gate"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "responsibility": "aggregate build, typecheck, lint, format, 198 tests, inventory, exports, dependencies, and API checks"
+    },
+    {
       "command": "git diff --check -- sdk-libs/ts/interface/src sdk-libs/ts/interface/test sdk-libs/ts/reports/packets/P02.json",
       "exitStatus": "0",
       "responsibility": "owned-path whitespace validation"
@@ -87,6 +92,7 @@
     "sdk-libs/ts/interface/src/instructions/index.ts",
     "sdk-libs/ts/interface/src/internal.ts",
     "sdk-libs/ts/interface/src/pda/index.ts",
+    "sdk-libs/ts/interface/test/fixture.ts",
     "sdk-libs/ts/interface/test/interface.test.ts",
     "sdk-libs/ts/interface/test/vectors/interface-vector.test.ts",
     "sdk-libs/ts/reports/packets/P02.json"
@@ -97,6 +103,9 @@
     "dependencyDecision": "No dependency is required. Browser-safe base58, SHA-256, Ed25519 point checks, binary readers/writers, and PDA derivation use existing JavaScript primitives.",
     "simplifications": [
       "centralized integer, address, byte, reader, writer, and PDA validation",
+      "centralized typed fixture parsing, hex validation, and required-account access across unit and vector tests",
+      "replaced deprecated exception matchers and non-null assertions with strict equivalents and explicit invariants",
+      "replaced package-local fixed-byte symbols with one numeric structural length marker while retaining checked codec boundaries",
       "shared SOL/SPL settlement account construction across transact variants",
       "shared zone transact construction without exporting implementation helpers",
       "kept exact public entry-point allowlists while leaving generic machinery internal"
