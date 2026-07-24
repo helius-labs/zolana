@@ -19,11 +19,14 @@
     }
   },
   "dependencies": {
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
     "@zolana/interface": "0.1.0"
   },
   "scripts": {
     "build": "node ../config/build.mjs merkle-tree",
     "typecheck": "node ../config/typecheck.mjs merkle-tree",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
     "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
     "test:property": "vitest run --config ../config/vitest.property.config.js",

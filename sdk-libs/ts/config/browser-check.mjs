@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { browserEntryPoints } from "./packages.mjs";
+import { browserDependencyEntryPoints, browserEntryPoints } from "./packages.mjs";
 
 const packagesRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -33,15 +33,9 @@ for (const packageName of Object.keys(browserEntryPoints)) {
 
 const directory = await mkdtemp(path.join(tmpdir(), "zolana-browser-"));
 try {
-  const imports = [
-    "@noble/ciphers/webcrypto.js",
-    "@noble/curves/abstract/poseidon.js",
-    "@noble/curves/nist.js",
-    "@noble/ed25519",
-    "@noble/hashes/hkdf.js",
-    "@noble/hashes/sha2.js",
-    "bs58",
-  ].map((dependency) => `import(${JSON.stringify(dependency)})`);
+  const imports = browserDependencyEntryPoints.map(
+    (dependency) => `import(${JSON.stringify(dependency)})`,
+  );
   for (const [packageName, entryPoints] of Object.entries(browserEntryPoints)) {
     for (const entryPoint of entryPoints) {
       const suffix = entryPoint === "." ? "" : entryPoint.slice(1);

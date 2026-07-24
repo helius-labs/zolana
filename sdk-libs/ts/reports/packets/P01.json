@@ -14,7 +14,8 @@
       "align Node declarations with the minimum supported Node 20 runtime",
       "remove unused composite build configuration and keep build metadata out of package tarballs",
       "add non-vacuous vector and deterministic property test configurations",
-      "scan browser source and bundles for Node globals and built-in imports"
+      "scan browser source and bundles for Node globals and built-in imports",
+      "type-check package test files during strict aggregate lint without disabling rules"
     ],
     "cargoXtaskBlocker": {
       "command": "rustup run 1.97.0 cargo xtask ts-fixtures --check",
@@ -23,6 +24,12 @@
       "futureOwner": "P14",
       "paths": [".cargo/config.toml", "xtask/src/main.rs"],
       "scope": "P14 must first receive explicit ownership of the Cargo alias and shared xtask dispatch paths; neither path is P01-owned."
+    },
+    "packetOwnedBlockers": {
+      "P06": [
+        "strict test lint reports 26 deprecated matcher and non-null assertion errors in P06-owned tests",
+        "the non-vacuous vector command reports no P06-owned vector test file"
+      ]
     }
   },
   "commands": [
@@ -120,6 +127,31 @@
       "command": "npm run test:vectors/property for completed P02, P03, P06, and P07 suites",
       "exitStatus": "0",
       "responsibility": "shared vector selectors and deterministic fast-check setup exercised against existing package tests"
+    },
+    {
+      "command": "npm install --workspace @zolana/merkle-tree @noble/curves @noble/hashes",
+      "exitStatus": "0",
+      "responsibility": "add audited synchronous Poseidon, SHA-256, and Keccak primitives directly to the P06 package"
+    },
+    {
+      "command": "npm run build/typecheck/test:unit/test:property --workspace @zolana/merkle-tree",
+      "exitStatus": "0",
+      "responsibility": "P06 package build, strict production types, 17 unit tests, and two deterministic properties"
+    },
+    {
+      "command": "npm run lint --workspace @zolana/merkle-tree",
+      "exitStatus": "1",
+      "responsibility": "aggregate typed lint now loads P06 tests and reports 26 P06-owned rule violations instead of a parser-project error"
+    },
+    {
+      "command": "npm run lint:packages",
+      "exitStatus": "1",
+      "responsibility": "strict aggregate typed lint loads production and test files; its 50 findings remain owned by P02, P04, and P06"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/merkle-tree",
+      "exitStatus": "1",
+      "responsibility": "non-vacuous vector gate correctly rejects the missing P06-owned vector test"
     }
   ],
   "dependencies": {
@@ -139,6 +171,7 @@
   "dependencyReview": {
     "accepted": [
       {
+        "consumers": ["@zolana/keypair"],
         "license": "MIT",
         "manifestRange": "^2.2.0",
         "name": "@noble/ciphers",
@@ -147,14 +180,16 @@
         "runtime": "Browser and Node >=20.19.0"
       },
       {
+        "consumers": ["@zolana/keypair", "@zolana/merkle-tree"],
         "license": "MIT",
         "manifestRange": "^2.2.0",
         "name": "@noble/curves",
-        "rationale": "Audited ESM P256 ECDSA/ECDH plus the generic Poseidon permutation and constant generator.",
+        "rationale": "Audited ESM P256 ECDSA/ECDH plus the synchronous generic Poseidon permutation and constant generator.",
         "resolvedVersion": "2.2.0",
         "runtime": "Browser and Node >=20.19.0"
       },
       {
+        "consumers": ["@zolana/keypair"],
         "license": "MIT",
         "manifestRange": "^3.1.0",
         "name": "@noble/ed25519",
@@ -163,14 +198,16 @@
         "runtime": "Browser and Node"
       },
       {
+        "consumers": ["@zolana/keypair", "@zolana/merkle-tree"],
         "license": "MIT",
         "manifestRange": "^2.2.0",
         "name": "@noble/hashes",
-        "rationale": "Audited ESM SHA-256, SHA-512, HMAC, and HKDF implementation.",
+        "rationale": "Audited synchronous ESM SHA-256, SHA-512, Keccak, HMAC, and HKDF implementation.",
         "resolvedVersion": "2.2.0",
         "runtime": "Browser and Node >=20.19.0"
       },
       {
+        "consumers": ["@zolana/keypair"],
         "license": "MIT",
         "manifestRange": "^6.0.0",
         "name": "bs58",
@@ -187,8 +224,8 @@
     ],
     "security": {
       "audit": "npm audit --omit=dev: zero vulnerabilities",
-      "browser": "Crypto dependency entry points bundle for ES2022 without Buffer, node: imports, process globals, or require calls.",
-      "installScripts": "No accepted keypair runtime dependency requires an install script."
+      "browser": "The exact admitted Poseidon, SHA-2, SHA-3, P256, Ed25519, HKDF, AES-CTR, and Base58 entry points bundle for ES2022 without Buffer, node: imports, process globals, or require calls.",
+      "installScripts": "No accepted runtime dependency requires an install script."
     }
   },
   "deterministicPropertyTests": {
@@ -248,6 +285,7 @@
     "sdk-libs/ts/wallet/package.json",
     "sdk-libs/ts/wallet/tsconfig.json",
     "tsconfig.json",
+    "tsconfig.eslint.json",
     "vitest.config.js"
   ],
   "packet": "P01",

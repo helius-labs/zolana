@@ -7,6 +7,15 @@ export const packageConfigurations = {
   keypair: {
     entryPoints: [".", "./merge"],
     dependencies: ["@noble/ciphers", "@noble/curves", "@noble/ed25519", "@noble/hashes", "bs58"],
+    browserDependencies: [
+      "@noble/ciphers/webcrypto.js",
+      "@noble/curves/abstract/poseidon.js",
+      "@noble/curves/nist.js",
+      "@noble/ed25519",
+      "@noble/hashes/hkdf.js",
+      "@noble/hashes/sha2.js",
+      "bs58",
+    ],
     browser: true,
   },
   transaction: {
@@ -42,7 +51,12 @@ export const packageConfigurations = {
   },
   "merkle-tree": {
     entryPoints: ["."],
-    dependencies: ["@zolana/interface"],
+    dependencies: ["@noble/curves", "@noble/hashes", "@zolana/interface"],
+    browserDependencies: [
+      "@noble/curves/abstract/poseidon.js",
+      "@noble/hashes/sha2.js",
+      "@noble/hashes/sha3.js",
+    ],
     browser: true,
   },
   "smart-account-client": {
@@ -78,3 +92,11 @@ export const browserEntryPoints = Object.fromEntries(
     .filter(([, configuration]) => configuration.browser)
     .map(([packageName, configuration]) => [packageName, configuration.entryPoints]),
 );
+
+export const browserDependencyEntryPoints = [
+  ...new Set(
+    Object.values(packageConfigurations).flatMap(
+      (configuration) => configuration.browserDependencies ?? [],
+    ),
+  ),
+];

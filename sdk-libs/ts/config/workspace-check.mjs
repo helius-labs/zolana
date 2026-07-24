@@ -83,6 +83,11 @@ async function checkDependencies() {
       JSON.stringify(dependencies) === JSON.stringify(expected),
       `${value.name} dependency graph`,
     );
+    for (const entryPoint of packageConfigurations[packageName].browserDependencies ?? []) {
+      const segments = entryPoint.split("/");
+      const dependency = entryPoint.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
+      assert(dependencies.includes(dependency), `${value.name} browser dependency ${entryPoint}`);
+    }
     for (const [dependency, version] of Object.entries(value.dependencies ?? {})) {
       if (dependency.startsWith("@zolana/")) {
         assert(version === "0.1.0", `${value.name} internal versions must be coordinated`);
