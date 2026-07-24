@@ -1,4 +1,5 @@
-import type { Rpc, ZolanaClient, ZolanaIndexer } from "@zolana/client";
+import { type Rpc, ZolanaClient, ZolanaIndexer } from "@zolana/client";
+import { ProverClient, type SpendProof } from "@zolana/client/prover";
 import type { Address, Bytes31, Bytes32, Signature, Transaction } from "@zolana/interface";
 import { ShieldedKeypair, SigningKey, NullifierKey, ViewingKey } from "@zolana/keypair";
 import {
@@ -40,7 +41,7 @@ import {
   userRecordAddress,
   walletDepositData,
 } from "@zolana/test-kit/node";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const TREE = "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3" as Address;
 const REGISTRY_PROGRAM = "EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc" as Address;
@@ -222,6 +223,48 @@ function fixtureIndexer(indexer: TestIndexer): ZolanaIndexer {
       }),
     getEncryptedUtxosByTags: () => Promise.resolve({ context: { blockTime: 1n }, matches: [] }),
   } as unknown as ZolanaIndexer;
+}
+
+function spendProof(input: import("@zolana/transaction").ProofInputUtxo, index: number): SpendProof {
+  return {
+    state: {
+      leaf: input.hash(),
+      merkleContext: { treeType: 1, tree: TREE },
+      path: Array.from({ length: 32 }, () => new Uint8Array(32) as Bytes32),
+      leafIndex: BigInt(index),
+      root: new Uint8Array(32) as Bytes32,
+      rootSeq: 1n,
+      rootIndex: 40 + index,
+    },
+    nullifier: {
+      leaf: input.nullifier(),
+      merkleContext: { treeType: 1, tree: TREE },
+      path: Array.from({ length: 40 }, () => new Uint8Array(32) as Bytes32),
+      lowElement: new Uint8Array(32) as Bytes32,
+      lowElementIndex: BigInt(index),
+      highElement: new Uint8Array(32).fill(1) as Bytes32,
+      highElementIndex: BigInt(index + 1),
+      root: new Uint8Array(32) as Bytes32,
+      rootSeq: 1n,
+      rootIndex: 50 + index,
+    },
+  };
+}
+
+function proofResponse(fixture: Readonly<{ cBytes: string; bBytes: string }>): Response {
+  const g1 = [`0x${fixture.cBytes.slice(0, 64)}`, `0x${fixture.cBytes.slice(64)}`];
+  return Response.json({
+    proof: {
+      ar: g1,
+      bs: [
+        [`0x${fixture.bBytes.slice(0, 64)}`, `0x${fixture.bBytes.slice(64, 128)}`],
+        [`0x${fixture.bBytes.slice(128, 192)}`, `0x${fixture.bBytes.slice(192)}`],
+      ],
+      krs: g1,
+      proof_commitment: g1,
+      proof_commitment_pok: g1,
+    },
+  });
 }
 
 async function walletFromDeposits(
@@ -514,7 +557,12 @@ describe("P12 action workflows", () => {
   });
 
   it("creates and submits a merge through the production pipeline", async () => {
-    const fixture = await fixtureJson<MergeFixture>("workflows/action-merge-v1");
+    const [fixture, proofFixture] = await Promise.all([
+      fixtureJson<MergeFixture>("workflows/action-merge-v1"),
+      fixtureJson<{
+        expected: { bsb22: { uncompressed: { bBytes: string; cBytes: string } } };
+      }>("client/proof-validity-v1"),
+    ]);
     const keypair = seededKeypair(
       fixture.inputs.signingSecretBytes,
       fixture.inputs.viewingSeedBytes,
@@ -532,27 +580,26 @@ describe("P12 action workflows", () => {
       data: hexBytes(fixture.inputs.enabledRecord.accountDataBytes),
       lamports: 1n,
     });
-    const calls: string[] = [];
-    const mergeClient = Object.assign(rpc, {
+    const indexer = {
+      getInputMerkleProofs: () =>
+        Promise.resolve(
+          created.prepared.inputs
+            .filter((input) => !input.isDummy())
+            .map((input, index) => spendProof(input, index)),
+        ),
+    } as unknown as Rpc;
+    const proverFetch = vi.fn(() =>
+      Promise.resolve(proofResponse(proofFixture.expected.bsb22.uncompressed)),
+    );
+    const mergeClient = new ZolanaClient({
+      rpc,
+      indexer: Object.create(ZolanaIndexer.prototype) as ZolanaIndexer,
+      prover: new ProverClient({ url: "https://prover.example.test", fetch: proverFetch }),
       tree: TREE,
-      proveMerge: () => {
-        calls.push("prove");
-        return Promise.resolve({
-          data: {},
-          outputHash: hexBytes(fixture.expected.proof.outputHashBytes) as Bytes32,
-        });
-      },
-      finishMergeSubmissionUnsigned: () => {
-        calls.push("build");
-        return {
-          messageBytes: hexBytes("010203"),
-          signatures: [undefined],
-        } satisfies Transaction;
-      },
-    }) as unknown as Rpc;
+    });
     const submitted = await submitMergeTransaction({
       rpc: mergeClient,
-      indexer: mergeClient,
+      indexer,
       owner: fixture.inputs.enabledRecord.owner,
       payer: {
         address: fixture.inputs.enabledRecord.owner,
@@ -580,8 +627,8 @@ describe("P12 action workflows", () => {
       fixture.expected.material.nullifierPubkeyBytes,
     );
     expect(submitted.signature).toBe(fixture.expected.submission.submittedSignature);
-    expect(hex(submitted.outputHash)).toBe(fixture.expected.submission.submittedOutputHashBytes);
-    expect(calls).toEqual(["prove", "build"]);
+    expect(submitted.outputHash).toEqual(created.prepared.output.hash());
+    expect(proverFetch).toHaveBeenCalledOnce();
   });
 
   it("submits the exact idempotent ATA message twice and nests RPC errors", async () => {

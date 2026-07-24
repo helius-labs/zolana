@@ -1092,6 +1092,15 @@ export interface SignedPrivateTransaction {
   readonly withdrawal?: TransactWithdrawal;
   readonly tree: Address;
 }
+export interface MergeMaterialInput {
+  readonly signingPublicKey: ShieldedPublicKey;
+  readonly viewingPublicKey: P256PublicKey;
+  readonly nullifierKey: NullifierKey;
+}
+export interface ProvedMerge {
+  readonly data: MergeTransactInstructionData;
+  readonly outputHash: Bytes32;
+}
 export class ZolanaClient {
   constructor(input: Readonly<{
     rpc: Rpc; indexer: ZolanaIndexer; prover: ProverClient; tree: Address;
@@ -1111,6 +1120,14 @@ export class ZolanaClient {
   getNonInclusionProofs(treeAccount: Address, leaves: readonly Bytes32[], config?: IndexerRpcConfig, context?: RequestContext): Promise<GetNonInclusionProofsResponse>;
   getInputMerkleProofs(inputUtxoCommitments: readonly InputUtxoContext[], config?: IndexerRpcConfig, context?: RequestContext): Promise<readonly SpendProof[]>;
   proveTransact(proofInputs: SppProofInputs, context?: RequestContext): Promise<TransactInstructionData>;
+  proveMerge(input: Readonly<{
+    prepared: PreparedMerge; material: MergeMaterialInput;
+    indexer?: Pick<Rpc, "getInputMerkleProofs">;
+  }>, context?: RequestContext): Promise<ProvedMerge>;
+  finishMergeSubmissionUnsigned(input: Readonly<{
+    proved: ProvedMerge; feePayer: Address;
+    userRecord: Address; recentBlockhash: string;
+  }>): Transaction;
   finishSubmissionUnsigned(input: Readonly<{
     signed: SignedPrivateTransaction; feePayer: Address; recentBlockhash: string;
   }>, context?: RequestContext): Promise<Transaction>;
