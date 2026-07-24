@@ -91,6 +91,8 @@ describe("local wallet authority", () => {
     });
     const slot = encrypted.payload[0];
     if (slot === undefined) throw new Error("missing encrypted slot");
+    expect(slot.viewTag).toEqual(localKeypair.signingPublicKey().confidentialViewTag());
+    expect(slot.viewTag).not.toEqual(localKeypair.viewingPublicKey().x());
     const decoded = decodeOutputData(slot.data);
     expect(decoded.scheme).toBe(EncryptedScheme.confidential);
     const plaintext = decryptConfidential(
@@ -127,5 +129,35 @@ describe("local wallet authority", () => {
         ),
       ),
     ).toMatchObject({ numOutputs: 2, assetAmount: 4n });
+  });
+
+  it("publishes the Ed25519 signing key as the confidential view tag", async () => {
+    const localKeypair = ShieldedKeypair.fromEd25519(new Uint8Array(32).fill(7) as Bytes32, 0);
+    const authority = new LocalWalletAuthority({
+      solanaPublicKey: "11111111111111111111111111111111" as Address,
+      keypair: localKeypair,
+    });
+    const output = {
+      ownerAddress: localKeypair.shieldedAddress(),
+      asset: SOL_MINT,
+      amount: 9n,
+      blinding: new Uint8Array(31).fill(4) as import("@zolana/interface").Bytes31,
+      data: new Data(),
+      ownerHash: () => localKeypair.shieldedAddress().ownerHash(),
+      hash: () => new Uint8Array(32) as Bytes32,
+      isDummy: () => false,
+    };
+
+    const encrypted = await authority.encryptConfidentialTransfer({
+      firstNullifier: new Uint8Array(32).fill(7) as Bytes32,
+      outputs: [output],
+      assets: new AssetRegistry(),
+    });
+    const slot = encrypted.payload[0];
+    if (slot === undefined) throw new Error("missing encrypted slot");
+
+    expect(slot.viewTag).toEqual(localKeypair.signingPublicKey().ed25519());
+    expect(slot.viewTag).toEqual(localKeypair.signingPublicKey().confidentialViewTag());
+    expect(slot.viewTag).not.toEqual(localKeypair.viewingPublicKey().x());
   });
 });

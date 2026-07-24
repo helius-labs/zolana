@@ -112,7 +112,7 @@ export class LocalWalletAuthority implements WalletAuthority {
         slotIndex,
       );
       return {
-        viewTag: output.ownerAddress.viewingPublicKey.x(),
+        viewTag: output.ownerAddress.signingPublicKey.confidentialViewTag(),
         data: encodeOutputData(EncryptedScheme.confidential, body, "encrypted"),
       };
     });
