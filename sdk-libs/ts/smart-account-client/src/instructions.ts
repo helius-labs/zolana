@@ -1,0 +1,354 @@
+import type { Address, Instruction } from "@zolana/interface";
+
+import { decodeAddress } from "./base58.js";
+import { SmartAccountClientError } from "./error.js";
+import {
+  SMART_ACCOUNT_PROGRAM_ID_VALUE,
+  assertUnsignedInteger,
+  programConfigAddress,
+  settingsAddress,
+  smartAccountAddress,
+  unsignedLittleEndian,
+} from "./pda.js";
+
+export interface Permissions {
+  readonly mask: number;
+}
+
+export interface SmartAccountSigner {
+  readonly key: Address;
+  readonly permissions: Permissions;
+}
+
+type AccountMeta = Instruction["accounts"][number];
+
+const CREATE_DISCRIMINATOR = Uint8Array.of(197, 102, 253, 231, 77, 84, 50, 17);
+const EXECUTE_DISCRIMINATOR = Uint8Array.of(90, 81, 187, 81, 39, 70, 128, 78);
+const SYSTEM_PROGRAM = "11111111111111111111111111111111" as Address;
+const MAX_U8 = 0xff;
+const MAX_U16 = 0xffff;
+const MAX_U32 = 0xffff_ffff;
+const MAX_INSTRUCTION_DATA_SIZE = 1232;
+const U128_MAX = (1n << 128n) - 1n;
+
+export function allPermissions(): Permissions {
+  return { mask: 0b111 };
+}
+
+export function createSmartAccountInstruction(
+  input: Readonly<{
+    creator: Address;
+    treasury: Address;
+    settingsSeed: bigint;
+    settingsAuthority?: Address;
+    signers: readonly SmartAccountSigner[];
+    threshold: number;
+    timeLock: number;
+  }>,
+): Instruction {
+  decodeAddress(input.creator);
+  decodeAddress(input.treasury);
+  if (
+    typeof input.settingsSeed !== "bigint" ||
+    input.settingsSeed < 0n ||
+    input.settingsSeed > U128_MAX
+  ) {
+    throw invalidInteger("settingsSeed", input.settingsSeed);
+  }
+  assertUnsignedInteger("threshold", input.threshold, MAX_U16);
+  assertUnsignedInteger("timeLock", input.timeLock, MAX_U32);
+  validateCreateSigners(input.signers, input.threshold);
+
+  const authorityBytes =
+    input.settingsAuthority === undefined ? undefined : decodeAddress(input.settingsAuthority);
+  const writer = new ByteWriter();
+  writer.bytes(CREATE_DISCRIMINATOR);
+  writer.optionBytes(authorityBytes);
+  writer.u16(input.threshold);
+  writer.u32(input.signers.length);
+  for (const signer of input.signers) {
+    writer.bytes(decodeAddress(signer.key));
+    writer.u8(signer.permissions.mask);
+  }
+  writer.u32(input.timeLock);
+  writer.u8(0);
+  writer.u8(0);
+  const data = writer.finish();
+  assertInstructionSize(data.length);
+
+  const [programConfig] = programConfigAddress();
+  const [settings] = settingsAddress(input.settingsSeed);
+  return instruction(
+    [
+      account(programConfig, false, true),
+      account(input.treasury, false, true),
+      account(input.creator, true, true),
+      account(SYSTEM_PROGRAM, false, false),
+      account(SMART_ACCOUNT_PROGRAM_ID_VALUE, false, false),
+      account(settings, false, true),
+    ],
+    data,
+  );
+}
+
+export function executeSyncInstruction(
+  input: Readonly<{
+    settings: Address;
+    accountIndex: number;
+    signerKeys: readonly Address[];
+    innerInstructions: readonly Instruction[];
+  }>,
+): Instruction {
+  decodeAddress(input.settings);
+  assertUnsignedInteger("accountIndex", input.accountIndex, MAX_U8);
+  assertCount("signerKeys", input.signerKeys.length);
+  assertCount("innerInstructions", input.innerInstructions.length);
+  validateUniqueAddresses(input.signerKeys, "signerKeys");
+
+  const [vault] = smartAccountAddress(input.settings, input.accountIndex);
+  const { payload, accounts: compiledAccounts } = compilePayload(input.innerInstructions, vault);
+
+  const writer = new ByteWriter();
+  writer.bytes(EXECUTE_DISCRIMINATOR);
+  writer.u8(input.accountIndex);
+  writer.u8(input.signerKeys.length);
+  writer.u8(0);
+  writer.u32(payload.length);
+  writer.bytes(payload);
+  const data = writer.finish();
+  assertInstructionSize(data.length);
+
+  const accounts = [
+    account(input.settings, false, true),
+    account(SMART_ACCOUNT_PROGRAM_ID_VALUE, false, false),
+    ...input.signerKeys.map((key) => account(key, true, false)),
+    ...compiledAccounts,
+  ];
+  return instruction(accounts, data);
+}
+
+function compilePayload(
+  innerInstructions: readonly Instruction[],
+  vault: Address,
+): Readonly<{ payload: Uint8Array; accounts: readonly AccountMeta[] }> {
+  const accounts: MutableAccountMeta[] = [];
+  const indexes = new Map<Address, number>();
+
+  function ensureAccount(address: Address, isSigner: boolean, isWritable: boolean): number {
+    decodeAddress(address);
+    const existingIndex = indexes.get(address);
+    if (existingIndex !== undefined) {
+      const existing = mutableAccountAt(accounts, existingIndex);
+      existing.isSigner ||= isSigner;
+      existing.isWritable ||= isWritable;
+      return existingIndex;
+    }
+
+    if (accounts.length === MAX_U8) {
+      throw new SmartAccountClientError(
+        "SMART_ACCOUNT_TOO_MANY_ACCOUNTS",
+        "compiled account count exceeds u8",
+        { details: { maximum: MAX_U8 } },
+      );
+    }
+    const index = accounts.length;
+    indexes.set(address, index);
+    accounts.push({ address, isSigner, isWritable });
+    return index;
+  }
+
+  ensureAccount(vault, false, true);
+  for (const inner of innerInstructions) {
+    ensureAccount(inner.programAddress, false, false);
+    assertCount("innerInstruction.accounts", inner.accounts.length);
+    if (inner.data.length > MAX_U16) {
+      throw new SmartAccountClientError(
+        "SMART_ACCOUNT_DATA_TOO_LARGE",
+        "inner instruction data exceeds u16",
+        { details: { actualLength: inner.data.length, maximum: MAX_U16 } },
+      );
+    }
+    for (const meta of inner.accounts) {
+      ensureAccount(meta.address, meta.isSigner, meta.isWritable);
+    }
+  }
+
+  const writer = new ByteWriter();
+  writer.u8(innerInstructions.length);
+  for (const inner of innerInstructions) {
+    writer.u8(ensureAccount(inner.programAddress, false, false));
+    writer.u8(inner.accounts.length);
+    for (const meta of inner.accounts) {
+      writer.u8(ensureAccount(meta.address, meta.isSigner, meta.isWritable));
+    }
+    writer.u16(inner.data.length);
+    writer.bytes(inner.data);
+  }
+  const payload = writer.finish();
+  if (payload.length + 15 > MAX_INSTRUCTION_DATA_SIZE) {
+    throw new SmartAccountClientError(
+      "SMART_ACCOUNT_PAYLOAD_TOO_LARGE",
+      "compiled payload exceeds the Solana instruction limit",
+      {
+        details: {
+          actualLength: payload.length,
+          maximum: MAX_INSTRUCTION_DATA_SIZE - 15,
+        },
+      },
+    );
+  }
+
+  const vaultIndex = indexes.get(vault);
+  if (vaultIndex === undefined) {
+    throw new SmartAccountClientError("SMART_ACCOUNT_INVALID_INDEX", "vault index is missing");
+  }
+  const vaultMeta = mutableAccountAt(accounts, vaultIndex);
+  vaultMeta.isSigner = false;
+  return {
+    payload,
+    accounts: accounts.map((meta) => account(meta.address, meta.isSigner, meta.isWritable)),
+  };
+}
+
+function validateCreateSigners(signers: readonly SmartAccountSigner[], threshold: number): void {
+  if (signers.length === 0) {
+    throw new SmartAccountClientError(
+      "SMART_ACCOUNT_EMPTY_SIGNERS",
+      "at least one signer is required",
+    );
+  }
+  if (signers.length > MAX_U16) {
+    throw new SmartAccountClientError(
+      "SMART_ACCOUNT_TOO_MANY_SIGNERS",
+      "signer count exceeds u16",
+      { details: { actual: signers.length, maximum: MAX_U16 } },
+    );
+  }
+  if (threshold === 0 || threshold > signers.length) {
+    throw new SmartAccountClientError(
+      "SMART_ACCOUNT_INVALID_THRESHOLD",
+      "threshold must be between one and the signer count",
+      { details: { signerCount: signers.length, threshold } },
+    );
+  }
+
+  const keys = new Set<Address>();
+  for (const signer of signers) {
+    decodeAddress(signer.key);
+    assertUnsignedInteger("permissions.mask", signer.permissions.mask, MAX_U8);
+    if (keys.has(signer.key)) {
+      throw new SmartAccountClientError(
+        "SMART_ACCOUNT_DUPLICATE_SIGNER",
+        "signer keys must be unique",
+        { details: { key: signer.key } },
+      );
+    }
+    keys.add(signer.key);
+  }
+}
+
+function validateUniqueAddresses(addresses: readonly Address[], name: string): void {
+  const unique = new Set<Address>();
+  for (const address of addresses) {
+    decodeAddress(address);
+    if (unique.has(address)) {
+      throw new SmartAccountClientError(
+        "SMART_ACCOUNT_DUPLICATE_SIGNER",
+        "signer keys must be unique",
+        { details: { key: address, name } },
+      );
+    }
+    unique.add(address);
+  }
+}
+
+function assertCount(name: string, count: number): void {
+  if (count > MAX_U8) {
+    throw new SmartAccountClientError(countErrorCode(name), `${name} count exceeds u8`, {
+      details: { actual: count, maximum: MAX_U8 },
+    });
+  }
+}
+
+function countErrorCode(name: string): `SMART_ACCOUNT_${string}` {
+  if (name === "innerInstructions") return "SMART_ACCOUNT_TOO_MANY_INSTRUCTIONS";
+  if (name === "signerKeys") return "SMART_ACCOUNT_TOO_MANY_SIGNERS";
+  return "SMART_ACCOUNT_TOO_MANY_ACCOUNTS";
+}
+
+function assertInstructionSize(length: number): void {
+  if (length > MAX_INSTRUCTION_DATA_SIZE) {
+    throw new SmartAccountClientError(
+      "SMART_ACCOUNT_INSTRUCTION_TOO_LARGE",
+      "instruction data exceeds the Solana instruction limit",
+      { details: { actualLength: length, maximum: MAX_INSTRUCTION_DATA_SIZE } },
+    );
+  }
+}
+
+function invalidInteger(name: string, value: number | bigint): SmartAccountClientError {
+  return new SmartAccountClientError("SMART_ACCOUNT_INVALID_INTEGER", `${name} is out of range`, {
+    details: { name, value: value.toString() },
+  });
+}
+
+function account(
+  address: Address,
+  isSigner: boolean,
+  isWritable: boolean,
+): Readonly<{ address: Address; isSigner: boolean; isWritable: boolean }> {
+  return { address, isSigner, isWritable };
+}
+
+function instruction(accounts: readonly AccountMeta[], data: Uint8Array): Instruction {
+  return {
+    programAddress: SMART_ACCOUNT_PROGRAM_ID_VALUE,
+    accounts: accounts.map((meta) => ({ ...meta })),
+    data: new Uint8Array(data),
+  };
+}
+
+interface MutableAccountMeta {
+  address: Address;
+  isSigner: boolean;
+  isWritable: boolean;
+}
+
+function mutableAccountAt(accounts: MutableAccountMeta[], index: number): MutableAccountMeta {
+  const value = accounts[index];
+  if (value === undefined) {
+    throw new SmartAccountClientError("SMART_ACCOUNT_INVALID_INDEX", "account index is missing", {
+      details: { index },
+    });
+  }
+  return value;
+}
+
+class ByteWriter {
+  readonly #bytes: number[] = [];
+
+  u8(value: number): void {
+    this.#bytes.push(value);
+  }
+
+  u16(value: number): void {
+    this.bytes(unsignedLittleEndian(BigInt(value), 2));
+  }
+
+  u32(value: number): void {
+    this.bytes(unsignedLittleEndian(BigInt(value), 4));
+  }
+
+  optionBytes(value: Uint8Array | undefined): void {
+    this.u8(value === undefined ? 0 : 1);
+    if (value !== undefined) this.bytes(value);
+  }
+
+  bytes(value: Uint8Array): void {
+    for (const byte of value) this.#bytes.push(byte);
+  }
+
+  finish(): Uint8Array {
+    return Uint8Array.from(this.#bytes);
+  }
+}
