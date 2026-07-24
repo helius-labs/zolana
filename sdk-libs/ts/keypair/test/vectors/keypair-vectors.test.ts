@@ -32,6 +32,7 @@ import { hashField, pack33, sha256Be, sha256Bytes, splitBigEndian128 } from "../
 import {
   NullifierKey,
   P256PublicKey,
+  ShieldedAddress,
   ShieldedKeypair,
   ShieldedPublicKey,
   SigningKey,
@@ -363,11 +364,18 @@ describe("frozen Rust keypair fixtures", () => {
       [ed25519, shieldedFixture.expected.ed25519],
     ] as const) {
       const address = keypair.shieldedAddress();
+      const registeredAddress = ShieldedAddress.fromPublicKeys(
+        address.signingPublicKey,
+        address.nullifierPublicKey,
+        address.viewingPublicKey,
+      );
       expectHex(address.signingPublicKey.toBytes(), expected.signingPublicKeyBytes);
       expectHex(address.nullifierPublicKey, expected.nullifierPublicKeyBytes);
       expectHex(address.viewingPublicKey.toBytes(), expected.viewingPublicKeyBytes);
       expectHex(address.ownerHash(), expected.ownerHashBytes);
       expectHex(address.confidentialViewTag(), expected.confidentialViewTagBytes);
+      expectHex(registeredAddress.ownerHash(), expected.ownerHashBytes);
+      expectHex(registeredAddress.confidentialViewTag(), expected.confidentialViewTagBytes);
       const compressed = keypair.compressedAddress().bytes;
       expectHex(compressed.subarray(0, 32), expected.compressedOwnerHashBytes);
       expectHex(compressed.subarray(32), expected.compressedViewingPublicKeyBytes);
@@ -378,6 +386,24 @@ describe("frozen Rust keypair fixtures", () => {
         expect(address.solanaAddress()).toBe(expected.solanaAddress);
       }
     }
+  });
+
+  it("exposes copied key material and the exact P256 signature fields", () => {
+    const signing = SigningKey.fromBytes(asBytes32(signingFixture.inputs.p256SecretBytes));
+    const keypair = ShieldedKeypair.fromKeys(
+      signing,
+      NullifierKey.fromSigningKey(signing),
+      ViewingKey.fromBytes(asBytes32(shieldedFixture.inputs.p256ViewingSecretBytes)),
+    );
+    const viewing = keypair.viewingKey();
+    const nullifier = keypair.nullifierKey();
+    expectHex(viewing.publicKey().toBytes(), shieldedFixture.expected.p256.viewingPublicKeyBytes);
+    expect(nullifier.publicKey()).toEqual(keypair.shieldedAddress().nullifierPublicKey);
+
+    const signature = keypair.signP256(asBytes32(signingFixture.inputs.p256MessageDigestBytes));
+    expectHex(signature.publicKey.toBytes(), signingFixture.expected.p256.publicKeyBytes.slice(2));
+    expectHex(signature.r, signingFixture.expected.p256.signatureBytes.slice(0, 64));
+    expectHex(signature.s, signingFixture.expected.p256.signatureBytes.slice(64));
   });
 
   it("matches merge ciphertext, recovery, contribution, hash, and tamper evidence", () => {

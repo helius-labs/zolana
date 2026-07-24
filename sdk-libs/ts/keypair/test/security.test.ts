@@ -5,6 +5,7 @@ import {
   KeypairError,
   NullifierKey,
   P256PublicKey,
+  ShieldedAddress,
   ShieldedKeypair,
   ShieldedPublicKey,
   SigningKey,
@@ -83,6 +84,61 @@ describe("validation and secret lifecycle", () => {
     expectCode(() => nullifier.publicKey(), "KEYPAIR_INVALID_SECRET_KEY");
     expectCode(() => viewing.publicKey(), "KEYPAIR_INVALID_SECRET_KEY");
     expectCode(() => keypair.shieldedAddress(), "KEYPAIR_INVALID_SECRET_KEY");
+  });
+
+  it("returns independently owned key material from the keypair facade", () => {
+    const signing = SigningKey.fromBytes(scalar(3));
+    const keypair = ShieldedKeypair.fromKeys(
+      signing,
+      NullifierKey.fromSigningKey(signing),
+      ViewingKey.fromBytes(scalar(4)),
+    );
+    const viewing = keypair.viewingKey();
+    const nullifier = keypair.nullifierKey();
+    viewing.destroy();
+    nullifier.destroy();
+    expect(keypair.viewingPublicKey().toBytes()).toHaveLength(33);
+    expect(keypair.shieldedAddress().nullifierPublicKey).toHaveLength(32);
+
+    const preservedViewing = keypair.viewingKey();
+    const preservedNullifier = keypair.nullifierKey();
+    keypair.destroy();
+    expect(preservedViewing.publicKey().toBytes()).toHaveLength(33);
+    expect(preservedNullifier.publicKey()).toHaveLength(32);
+  });
+
+  it("validates structured P256 signing and registered address inputs", () => {
+    const signing = SigningKey.fromBytes(scalar(5));
+    const p256 = ShieldedKeypair.fromKeys(
+      signing,
+      NullifierKey.fromSigningKey(signing),
+      ViewingKey.fromBytes(scalar(6)),
+    );
+    expectCode(() => p256.signP256(new Uint8Array(31) as Bytes32), "KEYPAIR_INVALID_LENGTH");
+
+    const ed25519 = ShieldedKeypair.fromEd25519(scalar(7), 0);
+    expectCode(() => ed25519.signP256(scalar(8)), "KEYPAIR_INVALID_SIGNATURE_TYPE");
+
+    const address = p256.shieldedAddress();
+    expectCode(
+      () =>
+        ShieldedAddress.fromPublicKeys(
+          address.signingPublicKey,
+          new Uint8Array(31) as Bytes32,
+          address.viewingPublicKey,
+        ),
+      "KEYPAIR_INVALID_LENGTH",
+    );
+    const nullifier = address.nullifierPublicKey;
+    const registered = ShieldedAddress.fromPublicKeys(
+      address.signingPublicKey,
+      nullifier,
+      address.viewingPublicKey,
+    );
+    const expectedOwner = registered.ownerHash();
+    nullifier.fill(0);
+    registered.nullifierPublicKey.fill(0);
+    expect(registered.ownerHash()).toEqual(expectedOwner);
   });
 
   it("rejects signature tampering and malformed signatures", () => {

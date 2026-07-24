@@ -9,9 +9,10 @@ export { SigningKey } from "./signing-key.js";
 export { NullifierKey } from "./nullifier-key.js";
 export { ViewingKey } from "./viewing-key.js";
 export {
+  ShieldedAddress,
   ShieldedKeypair,
   type CompressedShieldedAddress,
-  type ShieldedAddress,
+  type P256Signature,
   type ShieldedKeypairLike,
   type ViewingKeyLike,
 } from "./shielded.js";

@@ -15,17 +15,63 @@ import { P256PublicKey, ShieldedPublicKey, type ViewTag } from "./public-key.js"
 import { SigningKey } from "./signing-key.js";
 import { ViewingKey } from "./viewing-key.js";
 
-export interface ShieldedAddress {
+export class ShieldedAddress {
   readonly signingPublicKey: ShieldedPublicKey;
-  readonly nullifierPublicKey: Bytes32;
   readonly viewingPublicKey: P256PublicKey;
-  ownerHash(): Bytes32;
-  solanaAddress(): Address;
-  confidentialViewTag(): ViewTag;
+
+  readonly #nullifierPublicKey: Bytes32;
+
+  private constructor(
+    signingPublicKey: ShieldedPublicKey,
+    nullifierPublicKey: Bytes32,
+    viewingPublicKey: P256PublicKey,
+  ) {
+    this.signingPublicKey = signingPublicKey;
+    this.#nullifierPublicKey = nullifierPublicKey;
+    this.viewingPublicKey = viewingPublicKey;
+    Object.freeze(this);
+  }
+
+  static fromPublicKeys(
+    signingPublicKey: ShieldedPublicKey,
+    nullifierPublicKey: Bytes32,
+    viewingPublicKey: P256PublicKey,
+  ): ShieldedAddress {
+    return new ShieldedAddress(
+      ShieldedPublicKey.fromBytes(signingPublicKey.toBytes()),
+      checkedBytes<Bytes32>(nullifierPublicKey, 32, "nullifier public key"),
+      P256PublicKey.fromBytes(viewingPublicKey.toBytes()),
+    );
+  }
+
+  get nullifierPublicKey(): Bytes32 {
+    return copyBytes(this.#nullifierPublicKey) as Bytes32;
+  }
+
+  ownerHash(): Bytes32 {
+    return ownerHash(
+      this.signingPublicKey.ownerPublicKeyField(),
+      this.#nullifierPublicKey,
+    ) as Bytes32;
+  }
+
+  solanaAddress(): Address {
+    return bs58.encode(this.signingPublicKey.ed25519()) as Address;
+  }
+
+  confidentialViewTag(): ViewTag {
+    return this.signingPublicKey.confidentialViewTag();
+  }
 }
 
 export interface CompressedShieldedAddress {
   readonly bytes: Uint8Array;
+}
+
+export interface P256Signature {
+  readonly publicKey: P256PublicKey;
+  readonly r: Bytes32;
+  readonly s: Bytes32;
 }
 
 export interface ShieldedKeypairLike {
@@ -37,28 +83,6 @@ export interface ShieldedKeypairLike {
 export interface ViewingKeyLike {
   publicKey(): P256PublicKey;
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey | Promise<ViewingKey>;
-}
-
-function createAddress(
-  signingPublicKey: ShieldedPublicKey,
-  nullifierPublicKey: Bytes32,
-  viewingPublicKey: P256PublicKey,
-): ShieldedAddress {
-  const nullifier = copyBytes(nullifierPublicKey) as Bytes32;
-  return Object.freeze({
-    signingPublicKey,
-    nullifierPublicKey: nullifier,
-    viewingPublicKey,
-    ownerHash(): Bytes32 {
-      return ownerHash(signingPublicKey.ownerPublicKeyField(), nullifier) as Bytes32;
-    },
-    solanaAddress(): Address {
-      return bs58.encode(signingPublicKey.ed25519()) as Address;
-    },
-    confidentialViewTag(): ViewTag {
-      return signingPublicKey.confidentialViewTag();
-    },
-  });
 }
 
 export class ShieldedKeypair implements ShieldedKeypairLike {
@@ -106,8 +130,26 @@ export class ShieldedKeypair implements ShieldedKeypairLike {
     return this.#viewing.publicKey();
   }
 
+  viewingKey(): ViewingKey {
+    const secret = this.#viewing.secretBytes();
+    try {
+      return ViewingKey.fromBytes(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  nullifierKey(): NullifierKey {
+    const secret = this.#nullifier.secretBytes();
+    try {
+      return NullifierKey.fromSecret(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
   shieldedAddress(): ShieldedAddress {
-    return createAddress(
+    return ShieldedAddress.fromPublicKeys(
       this.signingPublicKey(),
       this.#nullifier.publicKey(),
       this.viewingPublicKey(),
@@ -123,6 +165,18 @@ export class ShieldedKeypair implements ShieldedKeypairLike {
 
   sign(message: Uint8Array): Bytes64 {
     return this.#signing.sign(message);
+  }
+
+  signP256(messageHash: Bytes32): P256Signature {
+    const publicKey = this.#signing.publicKey().p256();
+    const signature = this.#signing.sign(
+      checkedBytes<Bytes32>(messageHash, 32, "P256 message hash"),
+    );
+    return Object.freeze({
+      publicKey,
+      r: signature.slice(0, 32) as Bytes32,
+      s: signature.slice(32) as Bytes32,
+    });
   }
 
   nullifier(utxoHash: Bytes32, blinding: Bytes31): Bytes32 {
