@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `d21f1c25607e5b194407f3e4adbe26947eeecc63`
+- Review HEAD: `c01d5c7c1d6169140025233a610c4423633ad3f9`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: none in the nine scoped source trees
 - Primary rows: `118`
-- Progress: `2 done / 118 total`; `1 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `C04 sdk-libs/client/src/indexer.rs`
+- Progress: `3 done / 118 total`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `I01 program-libs/interface/src/error.rs`
 - Active fixes: none
 - Last session: `2026-07-24`
 
@@ -257,7 +257,7 @@ Columns:
 | C01 | `sdk-libs/client/src/retry.rs` | `client/src/indexer.ts` | todo | - | none | - | - | - |
 | C02 | `sdk-libs/client/src/error.rs` | `client/src/error.ts` | done | PARITY | committed | The closed TypeScript contract covers the 58 Rust variants, typed details, wrapped categories, throw translation, immutable diagnostics, sanitized causes, and package exports. | 2026-07-24 re-review | `7cb3acda` |
 | C03 | `sdk-libs/client/src/rpc.rs` | `client/src/rpc.ts` | todo | - | none | - | - | - |
-| C04 | `sdk-libs/client/src/indexer.rs` | `client/src/indexer.ts` | needs_re_review | PARTIAL | committed | Commit `7cb3acda` adds indexer parity behavior and Rust-backed vectors. Re-review independently. | 2026-07-24 audit | `7cb3acda` |
+| C04 | `sdk-libs/client/src/indexer.rs` | `client/src/indexer.ts` | done | PARITY | committed | The asynchronous adapter preserves the four requests, owned conversions, block-time polling, bounded failures, browser operation, and Rust-only blocking disposition. | 2026-07-24 re-review | `7cb3acda` |
 | C05 | `sdk-libs/client/src/solana_rpc.rs` | `client/src/solana-rpc.ts` | todo | - | none | - | - | - |
 | C06 | `sdk-libs/client/src/prover/field.rs` | `client/src/internal.ts` | todo | - | none | - | - | - |
 | C07 | `sdk-libs/client/src/prover/inputs.rs` | `client/src/prover/types.ts` | todo | - | none | - | - | - |
@@ -433,3 +433,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `2/118`; package `1/22`
 - Exact next file: `C04 sdk-libs/client/src/indexer.rs`
 - Full SDK parity claim: unsupported; eight package row sets, 21 client rows, and the cross-package gates remain incomplete
+
+### 2026-07-24 16:56 UTC | C04 | `sdk-libs/client/src/indexer.rs`
+
+- Baseline: HEAD `c01d5c7c1d6169140025233a610c4423633ad3f9`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: GPT-5.6 Sol review subagent; implementation commit `7cb3acda`
+- Explanation: The feature-gated Rust module adapts `zolana-api` responses to the client RPC types and exports `ZolanaIndexer` plus `AsyncZolanaIndexer` through `sdk-libs/client/src/lib.rs`. It imports the API wire types, Solana addresses, transaction proof inputs, P256 public-key validation, client errors, retry configuration, RPC response types, and prover support. Its four RPC methods encode hashes, addresses, cursors, and limits; preserve response order; convert output slots, messages, nullifiers, Merkle proofs, and non-inclusion proofs; and optionally poll one captured Unix-second target against `context.block_time`. The TypeScript `ZolanaIndexer` is the JavaScript adaptation of `AsyncZolanaIndexer`: promises replace Rust's async trait, an injected `ZolanaApi` replaces `new` and `with_api`, and custom `fetch` supplies transport diagnostics in place of reqwest HTTP tracing. JavaScript has no useful blocking duplicate. The blocking Rust adapter's default 60-second Merkle-proof count loop is therefore outside the asynchronous disposition, while explicit block-time polling remains represented. The adapter accepts tags and public transaction-viewing keys but no signing, viewing, nullifier, or API-key material; `ZolanaApi` keeps its API key private, and translated errors retain safe codes and paths rather than response bodies or secrets. Rust unit tests govern the four request and conversion paths, malformed hashes, P256 decoding, JSON-RPC failures, and client confirmation. TypeScript parity, client integration, vector, browser, export, dependency, and package checks govern the adaptation.
+- Evidence: `docs/spec.md` does not define this transport adapter. The current Rust file and its API, retry, RPC, and indexer schema dependencies have no drift from fixture commit `43fde8e4`. Rust-generated fixture `client/rpc-indexer-v1.json`, produced by `xtask/src/ts_fixtures_client.rs`, records current conversion values, fixed 32-byte hashes, a valid compressed 33-byte P256 point, a 16-byte salt, cursor bytes, ordered proofs, retry delays, attempts, and source limitations; the manifest pins SHA-256 `998eeb1e4ff49dccabdb543a7983e57a2a1e7fdfae00c35abddea036fe9513ab`. Independent source review confirmed one-request defaults, exact four-method request fields, stable response ordering, defensive byte copies, P256 curve validation, fixed-width rejection, one captured polling target, bounded attempts, cancellation, timeout translation, closed `ClientError` paths, and browser-safe imports. `cargo test -p zolana-client --lib --features indexer-api` passed 30 tests. The client build, typecheck, 99 unit tests, 30 vector tests, browser check, and API check passed. Export, dependency, pack, and fixture checks passed; fixture verification covered 57 fixtures and 182 inventory rows.
+- Verdict: `PARITY`
+- Gap and smallest fix: none
+- Row transition: `needs_re_review -> in_progress -> done`
+- Progress: `3/118`; package `2/22`
+- Exact next file: `I01 program-libs/interface/src/error.rs`
+- Full SDK parity claim: unsupported; eight package row sets, 20 client rows, and the cross-package gates remain incomplete
