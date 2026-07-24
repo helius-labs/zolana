@@ -1189,7 +1189,7 @@ mod tests {
         transaction
             .try_sign(&[&payer], blockhash)
             .expect("sign native transaction");
-        let result = client.rpc().send_transaction(&transaction).expect("send");
+        let result = Rpc::send_transaction(client.rpc(), &transaction).expect("send");
         client
             .confirm_private_transaction_sync(result)
             .expect("indexed");
