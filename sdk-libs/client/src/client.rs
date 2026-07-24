@@ -256,7 +256,8 @@ impl<R: Rpc> ZolanaClient<R> {
         )
     }
 
-    /// Wait until the transaction is confirmed on-chain and Photon has indexed it.
+    /// Wait until Solana confirms the transaction and Photon has indexed the
+    /// Rings event that matches its `TRANSACT` output view tags.
     pub fn confirm_private_transaction_sync(
         &self,
         signature: Signature,
@@ -303,7 +304,8 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         )
     }
 
-    /// Wait until the transaction is confirmed on-chain and Photon has indexed it.
+    /// Wait until Solana confirms the transaction and Photon has indexed the
+    /// Rings event that matches its `TRANSACT` output view tags.
     pub async fn confirm_private_transaction(
         &self,
         signature: Signature,
@@ -979,18 +981,10 @@ fn transaction_matches_tags(transaction: &ShieldedTransaction, tags: &[[u8; 32]]
 }
 
 pub(crate) fn select_indexed_transaction(
-    mut events: Vec<IndexedShieldedTransaction>,
+    events: Vec<IndexedShieldedTransaction>,
     signature: Signature,
     expected_tags: &[[u8; 32]],
 ) -> Result<Option<ShieldedTransaction>, ClientError> {
-    if events.len() <= 1 {
-        return Ok(events.pop().map(|event| event.transaction));
-    }
-
-    let event_indices = events
-        .iter()
-        .map(|event| event.event_index)
-        .collect::<Vec<_>>();
     let mut matching = events
         .into_iter()
         .filter(|event| {
@@ -998,25 +992,25 @@ pub(crate) fn select_indexed_transaction(
                 && transaction_matches_tags(&event.transaction, expected_tags)
         })
         .collect::<Vec<_>>();
+    if matching.is_empty() {
+        return Ok(None);
+    }
     if matching.len() == 1 {
         return Ok(matching.pop().map(|event| event.transaction));
     }
 
-    let matching_indices = matching
-        .iter()
-        .map(|event| event.event_index)
-        .collect::<Vec<_>>();
     Err(ClientError::AmbiguousIndexedEvents {
         signature: signature.to_string(),
-        event_indices: if matching_indices.is_empty() {
-            event_indices
-        } else {
-            matching_indices
-        },
+        event_indices: matching
+            .into_iter()
+            .map(|event| event.event_index)
+            .collect(),
     })
 }
 
-/// Poll Photon by signature until the confirmed transaction is indexed.
+/// Poll Photon until the indexed Rings event matches the confirmed `TRANSACT`
+/// output view tags. Photon can lag behind Solana, so confirmation is not
+/// enough for immediate reads.
 fn wait_for_indexed_transaction(
     indexer: &ZolanaIndexer,
     tags: &[[u8; 32]],
@@ -1095,7 +1089,7 @@ mod tests {
     use super::*;
     use crate::{
         prover::CompressedCommitments,
-        rpc::{MerkleContext, MerkleProof, NonInclusionProof},
+        rpc::{MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot},
     };
     use zolana_interface::instruction::{TransactSolWithdrawal, TransactWithdrawal};
     use zolana_transaction::instructions::{
@@ -1325,10 +1319,15 @@ mod tests {
     #[test]
     fn confirm_private_transaction_async_waits_for_direct_lookup() {
         let signature = Signature::from([10u8; 64]);
+        let mut nonmatching = indexed_transaction_json(signature);
+        nonmatching["output_slots"][0]["view_tag"] = json!(encode_hash([1u8; 32]));
         let server = MockIndexerServer::respond_with(vec![
             rpc_result(json!({
                 "context": { "block_time": 12 },
-                "transactions": [],
+                "transactions": [{
+                    "event_index": 0,
+                    "transaction": nonmatching,
+                }],
             })),
             indexed_transaction_by_signature_response(signature),
         ]);
@@ -1387,8 +1386,33 @@ mod tests {
     }
 
     #[test]
-    fn confirm_private_transaction_sync_selects_matching_event() {
+    fn select_indexed_transaction_returns_none_for_one_nonmatching_event() {
         let signature = Signature::from([16u8; 64]);
+        let events = vec![indexed_event(0, signature, [1u8; 32])];
+
+        let selected =
+            select_indexed_transaction(events, signature, &[[0u8; 32]]).expect("selection");
+
+        assert!(selected.is_none());
+    }
+
+    #[test]
+    fn select_indexed_transaction_returns_none_when_no_events_match() {
+        let signature = Signature::from([17u8; 64]);
+        let events = vec![
+            indexed_event(0, signature, [1u8; 32]),
+            indexed_event(1, signature, [2u8; 32]),
+        ];
+
+        let selected =
+            select_indexed_transaction(events, signature, &[[0u8; 32]]).expect("selection");
+
+        assert!(selected.is_none());
+    }
+
+    #[test]
+    fn confirm_private_transaction_sync_selects_matching_event() {
+        let signature = Signature::from([18u8; 64]);
         let mut other = indexed_transaction_json(signature);
         other["output_slots"][0]["view_tag"] = json!(encode_hash([1u8; 32]));
         let mut expected = indexed_transaction_json(signature);
@@ -1417,12 +1441,15 @@ mod tests {
 
     #[test]
     fn confirm_private_transaction_sync_rejects_ambiguous_events() {
-        let signature = Signature::from([17u8; 64]);
+        let signature = Signature::from([19u8; 64]);
+        let mut other = indexed_transaction_json(signature);
+        other["output_slots"][0]["view_tag"] = json!(encode_hash([1u8; 32]));
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
             "context": { "block_time": 12 },
             "transactions": [
-                { "event_index": 0, "transaction": indexed_transaction_json(signature) },
+                { "event_index": 0, "transaction": other },
                 { "event_index": 1, "transaction": indexed_transaction_json(signature) },
+                { "event_index": 2, "transaction": indexed_transaction_json(signature) },
             ],
         }))]);
         let client = ZolanaClient::new(
@@ -1444,7 +1471,7 @@ mod tests {
             ClientError::AmbiguousIndexedEvents {
                 event_indices,
                 ..
-            } if event_indices == vec![0, 1]
+            } if event_indices == vec![1, 2]
         ));
     }
 
@@ -1626,6 +1653,34 @@ mod tests {
             "nullifiers": [],
             "proofless": false,
         })
+    }
+
+    fn indexed_event(
+        event_index: u16,
+        signature: Signature,
+        view_tag: [u8; 32],
+    ) -> IndexedShieldedTransaction {
+        IndexedShieldedTransaction {
+            event_index,
+            transaction: ShieldedTransaction {
+                slot: 11,
+                tx_signature: signature,
+                tx_viewing_pk: None,
+                salt: None,
+                output_slots: vec![OutputSlot {
+                    view_tag,
+                    output_context: OutputContext {
+                        hash: [1u8; 32],
+                        tree: Address::new_from_array([8u8; 32]),
+                        leaf_index: 0,
+                    },
+                    payload: Vec::new(),
+                }],
+                messages: Vec::new(),
+                nullifiers: Vec::new(),
+                proofless: false,
+            },
+        }
     }
 
     fn indexed_transaction_by_signature_response(signature: Signature) -> Value {

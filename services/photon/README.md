@@ -96,14 +96,15 @@ block batch until the underlying data or code is fixed. Alert on stale `getIndex
 
 ### Signature lookup rollout
 
-Signature lookup lets a client reconcile a submitted Solana transaction with its exact indexed
-Rings events. Results preserve `event_index` order because one signature can contain multiple
-Rings events. Existing deployments need no migration or reindex: the Rings schema already stores
-these rows under the `(signature, event_index)` index.
+`get_shielded_transactions_by_signature` returns the indexed Rings events for one Solana
+transaction signature. Results preserve `event_index` order because one signature can contain
+multiple Rings events. Existing deployments need no migration or reindex: the Rings schema
+already stores these rows under the `(signature, event_index)` index.
 
-Deploy Photon before clients that use the method. Publish the Photon image from the final Zolana
-commit, deploy `public.ecr.aws/f7o9l7p1/photon@sha256:<digest>`, and run both checks below against
-the deployed RPC. `KNOWN_SIGNATURE` must be a signature already indexed by that Photon instance.
+Deploy Photon before clients that call `get_shielded_transactions_by_signature`. Publish the
+Photon image from the Zolana commit that contains this method, deploy
+`public.ecr.aws/f7o9l7p1/photon@sha256:<digest>`, and run both checks below against the deployed
+RPC. `KNOWN_SIGNATURE` must be a signature already indexed by that Photon instance.
 
 ```bash
 PHOTON_URL=https://<photon-host>
@@ -125,9 +126,9 @@ unknown="$(lookup "$UNKNOWN_SIGNATURE")"
 jq -e '.result.transactions == []' <<<"$unknown"
 ```
 
-After the smoke passes, pin the matching full Zolana commit in consumers and deploy each consumer
-as an immutable image or platform revision. No immutable Zolana revision for this change exists
-yet; do not substitute a branch, working tree, or mutable image tag for that release pin.
+After the smoke passes, pin the matching Zolana commit in consumers and deploy each consumer as
+an immutable image or platform revision. Until that commit is published as an immutable release,
+do not substitute a branch, working tree, or mutable image tag for the pin.
 
 ### Container releases
 

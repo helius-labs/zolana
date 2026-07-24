@@ -508,9 +508,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
 fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
-        zolana_api::ApiError::Request(error)
-            if error.is_timeout() || error.is_connect() || error.is_request() =>
-        {
+        zolana_api::ApiError::Request(error) if error.is_timeout() || error.is_connect() => {
             ClientError::IndexerUnavailable(message)
         }
         zolana_api::ApiError::Response { status, .. }
@@ -1060,6 +1058,42 @@ mod tests {
 
         assert!(matches!(&err, ClientError::Indexer(_)));
         assert!(err.to_string().contains("bad tag"));
+    }
+
+    #[test]
+    fn classifies_transient_indexer_errors_for_retry() {
+        let rate_limit = indexer_error(zolana_api::ApiError::Response {
+            status: reqwest::StatusCode::TOO_MANY_REQUESTS,
+            body: "retry later".to_string(),
+        });
+        assert!(matches!(rate_limit, ClientError::IndexerUnavailable(_)));
+
+        let internal_error = indexer_error(zolana_api::ApiError::JsonRpc {
+            method: "get_shielded_transactions_by_signature",
+            code: Some(-32603),
+            message: Some("Internal error".to_string()),
+        });
+        assert!(matches!(internal_error, ClientError::IndexerUnavailable(_)));
+    }
+
+    #[test]
+    fn classifies_non_transient_indexer_errors_without_retry() {
+        let method_not_found = indexer_error(zolana_api::ApiError::JsonRpc {
+            method: "get_shielded_transactions_by_signature",
+            code: Some(-32601),
+            message: Some("Method not found".to_string()),
+        });
+        assert!(matches!(
+            method_not_found,
+            ClientError::UnsupportedRpcMethod("remote indexer method")
+        ));
+
+        let request_error = reqwest::blocking::Client::new()
+            .get("not a url")
+            .send()
+            .expect_err("relative URL should be rejected");
+        let malformed_request = indexer_error(zolana_api::ApiError::Request(request_error));
+        assert!(matches!(malformed_request, ClientError::Indexer(_)));
     }
 
     #[test]
