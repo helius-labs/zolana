@@ -1,0 +1,184 @@
+{
+  "apiDiff": {
+    "added": [
+      "@zolana/test-kit root: TestKitError, LocalStack, startLocalStack, fixtureBytes, createTestWallet",
+      "@zolana/test-kit/node private support: lifecycle, deterministic standard accounts, fake RPC/indexer/prover, admin/instruction/SPL/event/deposit/wallet-data/zone helpers, and E2E composition",
+      "@zolana/test-kit/fixtures private support: hash-verified fixtureBytes and fixtureJson"
+    ],
+    "changed": [],
+    "removed": []
+  },
+  "blockers": [],
+  "commands": [
+    {
+      "command": "npm run test:unit --workspace @zolana/test-kit",
+      "exitStatus": "0",
+      "result": "1 file, 19 behavioral tests"
+    },
+    {
+      "command": "npm run build --workspace @zolana/test-kit",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm run typecheck --workspace @zolana/test-kit",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/test-kit/src/**/*.ts\" \"sdk-libs/ts/test-kit/test/**/*.ts\" --max-warnings=0",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npx prettier --check \"sdk-libs/ts/test-kit/src/**/*.ts\" \"sdk-libs/ts/test-kit/test/**/*.ts\"",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm run api:check --workspace @zolana/test-kit",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm pack --dry-run --workspace @zolana/test-kit",
+      "exitStatus": "0",
+      "result": "69 files, 24.5 kB packed, 113.0 kB unpacked; package remains private"
+    },
+    {
+      "command": "npm run test:exports && npm run test:dependencies && npm run test:inventory",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "result": "production tarballs and dependency graphs contain no @zolana/test-kit"
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "0",
+      "result": "49 fixtures and 182 inventory rows verified"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "result": "49 files, 304 tests; build, typecheck, lint, format, inventory, exports, dependencies, and API passed"
+    },
+    {
+      "command": "just build-photon",
+      "exitStatus": "127",
+      "result": "just did not inherit cargo on PATH; no source or fixture changed"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo build --locked -p photon-indexer --bin photon",
+      "exitStatus": "0",
+      "result": "same-revision Photon binary built with the pinned toolchain"
+    },
+    {
+      "command": "node --input-type=module -e '<startLocalStack portOffset=700; stop>'",
+      "exitStatus": "0",
+      "result": "validator, Photon, and lazy prover became ready at offsets 9599/9484/3701 and stopped"
+    },
+    {
+      "command": "lsof readiness-port cleanup scan",
+      "exitStatus": "0",
+      "result": "validator, Photon, prover, and prover-metrics ports had no listeners after stop"
+    }
+  ],
+  "dependencies": {
+    "dependencyGaps": 0,
+    "privateOnly": true,
+    "status": "All production packages remain independent of @zolana/test-kit; Node process and filesystem imports are confined to the private package."
+  },
+  "fixtureCoverage": [
+    {
+      "assertions": "manifest SHA-256 verification plus behavioral equality for all five frozen standard smart-account vaults and generated setup instructions",
+      "id": "fx-p00-test-kit-standard-accounts-v1",
+      "sha256": "3d32fe32c4fe531b3f461aa7357168b1be0f863e76a189ad1db1774ef7544d76"
+    }
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "inventoryRowStatus": [
+    {
+      "row": "sdk-libs/program-test/src/admin.rs",
+      "status": "closed",
+      "test": "canonical protocol config, authority rotation, pause, and asset-counter builders"
+    },
+    {
+      "row": "sdk-libs/program-test/src/events.rs",
+      "status": "closed",
+      "test": "compiled instruction parsing/grouping, bounds failures, copied event output, and single-output validation"
+    },
+    {
+      "row": "sdk-libs/program-test/src/indexer.rs",
+      "status": "closed",
+      "test": "contiguous output replay, view-tag lookup, nullifier state, signature-bound transactions, and copied snapshots"
+    },
+    {
+      "row": "sdk-libs/program-test/src/instructions.rs",
+      "status": "closed",
+      "test": "exact system create-account bytes/metas and canonical create-tree composition"
+    },
+    {
+      "row": "sdk-libs/program-test/src/lib.rs",
+      "status": "closed",
+      "test": "isolated validator/Photon/prover startup, stable readiness, abort, external-service reuse, idempotent stop, and released ports"
+    },
+    {
+      "row": "sdk-libs/program-test/src/paths.rs",
+      "status": "closed",
+      "test": "environment override and workspace target/deploy resolution"
+    },
+    {
+      "row": "sdk-libs/program-test/src/proofless.rs",
+      "status": "closed",
+      "test": "canonical SOL/SPL deposit instruction construction and deposit tag"
+    },
+    {
+      "row": "sdk-libs/program-test/src/rpc.rs",
+      "status": "closed",
+      "test": "copied accounts, balances, transactions, confirmation, output tags, ordered proof fixtures, abort, and timeout"
+    },
+    {
+      "row": "sdk-libs/program-test/src/spl.rs",
+      "status": "closed",
+      "test": "canonical registry/vault addresses, interface setup, exact mint-to u64 encoding, and token amount decoding"
+    },
+    {
+      "row": "sdk-libs/program-test/src/wallet_data.rs",
+      "status": "closed",
+      "test": "deterministic owner, view tag, and position-derived blinding through production keypair/transaction APIs"
+    },
+    {
+      "row": "sdk-libs/program-test/src/zone.rs",
+      "status": "closed",
+      "test": "canonical zone config/update/deposit builders and exact zone-deposit tag"
+    },
+    {
+      "row": "sdk-libs/program-test/tests/indexer_events.rs",
+      "status": "closed",
+      "test": "multi-output replay, nullifier capture, signature lookup, instruction grouping, and non-contiguous rejection"
+    }
+  ],
+  "packet": "P11",
+  "processAndSecurity": {
+    "cleanup": "Only directly spawned child process groups are signaled. Preconfigured healthy services are reused and remain alive after LocalStack.stop(). Startup failure and abort run the same idempotent cleanup path.",
+    "diagnostics": "Per-process output is bounded to 8192 characters and redacts credentials, authorization values, and long secret-shaped hex. Errors retain safe service, exit, deadline, and port metadata only.",
+    "isolation": "One validated offset moves validator, Photon, prover, and prover metrics. Occupied ports fail before spawning; unique temporary ledger, account, and Photon database paths are removed on stop.",
+    "prover": "Readiness checks /health only. Startup does not request a circuit proof, preserving the server's lazy proving-key behavior.",
+    "secrets": "Deterministic wallet seeds are copied into production key constructors and are never logged or attached to errors. Fixed fixture material remains private test input."
+  },
+  "qualityPass": {
+    "edits": [
+      "kept the root allowlist to five declarations and moved all Node/test mutation under private subpaths",
+      "used production instruction, PDA, wallet, keypair, transaction, RPC, indexer, and prover APIs instead of duplicating protocol math",
+      "removed process-name and port-killing behavior in favor of direct child ownership",
+      "applied simplification, code-quality, comment, TDD, testing, lint, type, format, fixture, and workspace reviews"
+    ],
+    "remainingPlaceholders": 0
+  },
+  "readiness": {
+    "aggregateBlockers": [],
+    "dependencyGaps": 0,
+    "inventoryRowsClosed": 12,
+    "inventoryRowsPartial": 0,
+    "implementation": "complete",
+    "packetCheckpoint": "ready"
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}
