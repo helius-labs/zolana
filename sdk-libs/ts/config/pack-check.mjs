@@ -64,7 +64,13 @@ try {
   const nodeConsumer = path.join(directory, "node-consumer.mjs");
   await writeFile(
     nodeConsumer,
-    `${imports.map((specifier) => `await import(${JSON.stringify(specifier)});`).join("\n")}\n`,
+    `${imports.map((specifier) => `await import(${JSON.stringify(specifier)});`).join("\n")}
+const api = await import("@zolana/api");
+const apiExports = JSON.stringify(Object.keys(api).sort());
+if (apiExports !== '["ApiError","ZolanaApi"]') {
+  throw new Error(\`@zolana/api exports \${apiExports}\`);
+}
+`,
   );
   for (const major of ["20", "22"]) {
     execFileSync("npm", ["exec", "--yes", `--package=node@${major}`, "--", "node", nodeConsumer], {
@@ -76,7 +82,13 @@ try {
   const typeConsumer = path.join(directory, "type-consumer.mts");
   await writeFile(
     typeConsumer,
-    `${imports.map((specifier) => `import ${JSON.stringify(specifier)};`).join("\n")}\n`,
+    `${imports.map((specifier) => `import ${JSON.stringify(specifier)};`).join("\n")}
+import { ApiError, ZolanaApi, type ZolanaApiConfig } from "@zolana/api";
+const apiConfig: ZolanaApiConfig = { url: "https://rpc.example.test" };
+const apiClient: ZolanaApi = new ZolanaApi(apiConfig);
+const apiError: ApiError = new ApiError("API_TEST", "test");
+void [apiClient, apiError];
+`,
   );
   const typeScriptConfig = path.join(directory, "tsconfig.json");
   await writeFile(
