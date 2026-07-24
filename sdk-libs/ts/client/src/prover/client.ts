@@ -108,7 +108,11 @@ export class ProverClient {
         return parseProof(value, p256);
       }
       throw new ClientError("CLIENT_PROVER_HTTP", {
-        details: { method: "prove", status: lastStatus, attempts: MAX_ATTEMPTS },
+        details: {
+          method: "prove",
+          ...(lastStatus === undefined ? {} : { status: lastStatus }),
+          attempts: MAX_ATTEMPTS,
+        },
       });
     } finally {
       signal.cleanup();

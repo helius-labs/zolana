@@ -5,6 +5,10 @@
       "sha256": "ddd510dc0596f07e8a2548a33fabc0fdbe51e35c25022b723fa14c75f454c136"
     },
     {
+      "path": "api/transport-v1.json",
+      "sha256": "9f4057f423bf7d24170a8ff734b961a637953fd3888343e02490bfde655141dc"
+    },
+    {
       "path": "client/proof-input-v1.json",
       "sha256": "622d0cf1efabb5438ba9d328ff72142505cb7eaa9f139797448d31c45cff6b6e"
     },
@@ -247,6 +251,12 @@
       },
       {
         "features": [
+          "default"
+        ],
+        "name": "zolana-indexer-api"
+      },
+      {
+        "features": [
           "default",
           "tree",
           "verifying-keys"
@@ -286,6 +296,12 @@
           "default"
         ],
         "name": "zolana-wallet"
+      },
+      {
+        "features": [
+          "default"
+        ],
+        "name": "zolana-api"
       }
     ],
     "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07)"

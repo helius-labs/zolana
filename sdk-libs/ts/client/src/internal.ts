@@ -14,7 +14,7 @@ import type {
   Signature,
 } from "@zolana/interface";
 
-import { ClientError } from "./error.js";
+import { ClientError, hasherError } from "./error.js";
 
 export const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
@@ -97,7 +97,7 @@ function permutation(inputCount: number): ReturnType<typeof createPoseidon> {
   if (cached) return cached;
   const roundsPartial = PARTIAL_ROUNDS[inputCount - 1];
   if (roundsPartial === undefined) {
-    throw new ClientError("CLIENT_HASH", { details: { inputCount } });
+    throw hasherError("InvalidNumFields");
   }
   const options = {
     Fp: FIELD,
@@ -114,7 +114,7 @@ function permutation(inputCount: number): ReturnType<typeof createPoseidon> {
 export function poseidon(inputs: readonly bigint[]): bigint {
   inputs.forEach((value, index) => field(value, `poseidon[${String(index)}]`));
   const result = permutation(inputs.length)([0n, ...inputs])[0];
-  if (result === undefined) throw new ClientError("CLIENT_HASH");
+  if (result === undefined) throw hasherError("Poseidon");
   return result;
 }
 
@@ -124,7 +124,7 @@ export function hashChain(values: readonly bigint[]): bigint {
   let result = first;
   for (let index = 1; index < values.length; index++) {
     const value = values[index];
-    if (value === undefined) throw new ClientError("CLIENT_HASH");
+    if (value === undefined) throw hasherError("EmptyInput");
     result = poseidon([result, value]);
   }
   return result;

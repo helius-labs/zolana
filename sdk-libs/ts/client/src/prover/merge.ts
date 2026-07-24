@@ -5,7 +5,7 @@ import { encryptVerifiable, mergePublicContribution } from "@zolana/keypair/merg
 import { PreparedMerge } from "@zolana/transaction";
 import { EncryptedScheme, encodeMerge, encodeOutputData } from "@zolana/transaction/serialization";
 
-import { ClientError } from "../error.js";
+import { ClientError, fromClientCause } from "../error.js";
 import {
   addressBytes,
   bigintToBytes,
@@ -59,12 +59,33 @@ export async function assembleMerge(
   tree: Address,
   context?: RequestContext,
 ): Promise<MergeAssembly> {
-  validateMergeMaterial(prepared, material);
-  const proofs = await indexer.getInputMerkleProofs(prepared.inputUtxoHashes(), undefined, context);
-  return assembleMergeWithProofs(prepared, material, proofs, tree);
+  try {
+    validateMergeMaterial(prepared, material);
+    const proofs = await indexer.getInputMerkleProofs(
+      prepared.inputUtxoHashes(),
+      undefined,
+      context,
+    );
+    return assembleMergeWithProofs(prepared, material, proofs, tree);
+  } catch (cause) {
+    throw fromClientCause(cause);
+  }
 }
 
 export function assembleMergeWithProofs(
+  prepared: PreparedMerge,
+  material: MergeMaterialInput,
+  proofs: readonly SpendProof[],
+  tree: Address,
+): MergeAssembly {
+  try {
+    return assembleMergeWithProofsUnchecked(prepared, material, proofs, tree);
+  } catch (cause) {
+    throw fromClientCause(cause);
+  }
+}
+
+function assembleMergeWithProofsUnchecked(
   prepared: PreparedMerge,
   material: MergeMaterialInput,
   proofs: readonly SpendProof[],
@@ -112,12 +133,18 @@ export function assembleMergeWithProofs(
       });
     }
     validateSpendProof(input, proof, proofIndex);
-    if (proof.state.merkleContext.tree !== tree || proof.nullifier.merkleContext.tree !== tree) {
+    if (proof.state.merkleContext.tree !== tree) {
       throw new ClientError("CLIENT_MERGE_TREE_MISMATCH", {
         details: {
-          index: proofIndex,
-          stateTree: proof.state.merkleContext.tree,
-          nullifierTree: proof.nullifier.merkleContext.tree,
+          proofTree: proof.state.merkleContext.tree,
+          submitTree: tree,
+        },
+      });
+    }
+    if (proof.nullifier.merkleContext.tree !== tree) {
+      throw new ClientError("CLIENT_MERGE_TREE_MISMATCH", {
+        details: {
+          proofTree: proof.nullifier.merkleContext.tree,
           submitTree: tree,
         },
       });
@@ -269,9 +296,9 @@ function validateMergeMaterial(prepared: PreparedMerge, material: MergeMaterialI
     throw new ClientError("CLIENT_MERGE_VIEWING_KEY_MISMATCH");
   }
   const expectedNullifierPublicKey = material.nullifierKey.publicKey();
-  prepared.inputs.forEach((input, index) => {
+  prepared.inputs.forEach((input) => {
     if (!input.isDummy() && !equal(input.nullifierKey.publicKey(), expectedNullifierPublicKey)) {
-      throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH", { details: { index } });
+      throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
     }
   });
 }

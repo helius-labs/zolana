@@ -36,6 +36,11 @@
       "responsibility": "standalone client oracle formatting"
     },
     {
+      "command": "rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_api.rs",
+      "exitStatus": "0",
+      "responsibility": "standalone API transport oracle formatting"
+    },
+    {
       "command": "rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_wallet.rs",
       "exitStatus": "0",
       "responsibility": "standalone wallet oracle formatting"
@@ -137,8 +142,10 @@
     }
   ],
   "counts": {
+    "apiTransportErrorVectors": "5",
+    "apiTransportSuccessVectors": "6",
     "clientFixtureFiles": "8",
-    "fixtureFiles": "55",
+    "fixtureFiles": "56",
     "inventoryDuplicate": "0",
     "inventoryMissing": "0",
     "inventoryRows": "182",
@@ -153,6 +160,7 @@
   },
   "fixtureIds": [
     "fx-p00-api-prover-request-v1",
+    "fx-p00-api-transport-v1",
     "fx-p00-client-proof-compression-v1",
     "fx-p00-client-proof-input-v1",
     "fx-p00-client-proof-validity-v1",
@@ -211,6 +219,7 @@
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
   "ownedChangedPaths": [
     "sdk-libs/ts/fixtures/api/prover-request-v1.json",
+    "sdk-libs/ts/fixtures/api/transport-v1.json",
     "sdk-libs/ts/fixtures/client/proof-input-v1.json",
     "sdk-libs/ts/fixtures/client/proof-result-compression-v1.json",
     "sdk-libs/ts/fixtures/client/proof-validity-v1.json",
@@ -269,6 +278,7 @@
     "sdk-libs/ts/reports/inventory.json",
     "sdk-libs/ts/reports/packets/P00.json",
     "xtask/src/bin/ts-fixtures.rs",
+    "xtask/src/ts_fixtures_api.rs",
     "xtask/src/ts_fixtures_client.rs",
     "xtask/src/ts_fixtures_keypair.rs",
     "xtask/src/ts_fixtures_merkle.rs",
@@ -380,6 +390,13 @@
       "sdk-libs/ts/transaction/test/transfer.test.ts",
       "sdk-libs/ts/transaction/test/wallet-sync.test.ts"
     ]
+  },
+  "p08FollowUp": {
+    "errorCases": "5",
+    "fixture": "sdk-libs/ts/fixtures/api/transport-v1.json",
+    "rustMethods": "5",
+    "successCases": "6",
+    "testFile": "sdk-libs/ts/api/test/vectors.test.ts"
   },
   "p09FollowUp": {
     "blocker": "sdk-libs/ts/reports/packets/P09.json:10-59",

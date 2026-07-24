@@ -32,12 +32,12 @@
     {
       "command": "npm run test:unit --workspace @zolana/api",
       "exitStatus": "0",
-      "responsibility": "47 URL, API-key, transport, envelope, malformed response, redaction, abort, timeout, retry, export, vector, and property tests"
+      "responsibility": "52 URL, API-key, transport, envelope, malformed response, redaction, abort, timeout, retry, export, Rust-backed vector, and property tests"
     },
     {
       "command": "npm run test:vectors --workspace @zolana/api",
       "exitStatus": "0",
-      "responsibility": "six exact JSON-RPC envelope, method, URL, body, and response-codec vectors"
+      "responsibility": "11 Rust-backed request, non-empty response, default, explicit start-sequence, limit, HTTP, JSON-RPC, and missing-result vectors"
     },
     {
       "command": "npm run test:property --workspace @zolana/api",
@@ -47,7 +47,7 @@
     {
       "command": "npm run test:cross --workspace @zolana/api",
       "exitStatus": "0",
-      "responsibility": "29 schema-to-transport cross and malformed-response tests"
+      "responsibility": "34 schema-to-transport cross, Rust-backed vector, and malformed-response tests"
     },
     {
       "command": "npm run test:browser --workspace @zolana/api",
@@ -81,6 +81,7 @@
     }
   ],
   "checkpointPrerequisite": "63dc7755944f2f063fe03b3d5cc37645f6c27e15",
+  "currentCommit": "1614ceb2bd86b948f8e01f6f305e7d0e783961b0",
   "crossValidation": {
     "methods": [
       "get_encrypted_utxos_by_tags",
@@ -89,7 +90,7 @@
       "get_non_inclusion_proofs",
       "get_nullifier_queue_elements"
     ],
-    "result": "Every method uses the current @zolana/indexer-api MethodDescriptor encoder and decoder; all six vectors and 29 cross tests pass."
+    "result": "Every method uses the current @zolana/indexer-api MethodDescriptor encoder and decoder; six Rust-backed success cases and 34 cross tests pass."
   },
   "dependencies": {
     "gaps": [],
@@ -97,15 +98,38 @@
     "status": "P01 supplies the required vector, property, cross, and browser scripts; no P08 production dependency is missing."
   },
   "fixtureIds": [
+    "fx-p00-api-transport-v1",
     "fx-api-root-class-api-error-v1",
     "fx-api-root-interface-zolana-api-config-v1",
     "fx-api-root-class-zolana-api-v1"
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "fixtureCoverage": {
+    "errorCases": {
+      "http": "ApiError::Response",
+      "invalidOptionalLimit": "ApiError::InvalidRequest",
+      "invalidRequiredLimit": "ApiError::InvalidRequest",
+      "jsonRpc": "ApiError::JsonRpc",
+      "missingResult": "ApiError::MissingResult"
+    },
+    "methods": [
+      "get_encrypted_utxos_by_tags",
+      "get_shielded_transactions_by_tags",
+      "get_merkle_proofs",
+      "get_non_inclusion_proofs",
+      "get_nullifier_queue_elements"
+    ],
+    "oracle": "BlockingZolanaApi against an ephemeral local capture server",
+    "requestCases": "6",
+    "responseCases": "6",
+    "rustDriftFromFrozenCommit": "none in docs/spec.md, program-libs/interface, sdk-libs/indexer-api, or sdk-libs/zolana-api",
+    "startSequenceCases": ["omitted/default 0", "explicit 7"]
+  },
   "inventoryRows": ["sdk-libs/zolana-api/src/lib.rs"],
   "ownedChangedPaths": [
     "sdk-libs/ts/api/src/index.ts",
     "sdk-libs/ts/api/test/exports.test.ts",
+    "sdk-libs/ts/api/test/fixture.ts",
     "sdk-libs/ts/api/test/property.test.ts",
     "sdk-libs/ts/api/test/responses.test.ts",
     "sdk-libs/ts/api/test/transport.test.ts",

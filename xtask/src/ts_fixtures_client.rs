@@ -21,6 +21,7 @@ use zolana_client::{
     SPP_SUPPORTED_SHAPES,
 };
 use zolana_event::{InstructionGroup, ParsedInstruction};
+use zolana_hasher::HasherError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -31,7 +32,8 @@ use zolana_interface::{
     pda, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
-    NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait, SigningKey, ViewingKey,
+    KeypairError, NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait, SigningKey,
+    ViewingKey,
 };
 use zolana_transaction::{
     derive_blinding,
@@ -42,7 +44,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetRegistry, Data, Utxo, SOL_MINT,
+    AssetRegistry, Data, TransactionError, Utxo, SOL_MINT,
 };
 
 const P256_SECRET: [u8; 32] = [
@@ -68,6 +70,7 @@ fn main() {
 
 fn vectors() -> Result<Value, Box<dyn std::error::Error>> {
     Ok(json!({
+        "errors": error_vectors(),
         "prover": prover_vectors()?,
         "proof": proof_vectors()?,
         "rpc": rpc_vectors()?,
@@ -75,6 +78,312 @@ fn vectors() -> Result<Value, Box<dyn std::error::Error>> {
         "workflow_withdraw_sol": workflow_withdraw_sol_vectors()?,
         "workflow_withdraw_spl": workflow_withdraw_spl_vectors()?
     }))
+}
+
+fn error_vectors() -> Value {
+    let address = Address::new_from_array([7; 32]);
+    let pubkey = Pubkey::new_from_array([8; 32]);
+    let variants = vec![
+        ClientError::Keypair(KeypairError::InvalidSecretKey),
+        ClientError::Transaction(TransactionError::NoInputs),
+        ClientError::Hasher(HasherError::EmptyInput),
+        ClientError::UnsupportedShape { n_in: 2, n_out: 3 },
+        ClientError::TooManyInputs { got: 9, max: 8 },
+        ClientError::TooManyOutputs { got: 9, max: 8 },
+        ClientError::InsufficientBalance {
+            requested: 11,
+            available: 10,
+        },
+        ClientError::SelectedBalanceOverflow,
+        ClientError::UnsignedInputUnavailable { index: 1 },
+        ClientError::FeePayerMismatch,
+        ClientError::SolanaTransactionSigning("signing failed".into()),
+        ClientError::AmbiguousTree {
+            asset: address,
+            tree_count: 2,
+        },
+        ClientError::TreeMismatch {
+            transaction_tree: [1; 32],
+            client_tree: [2; 32],
+        },
+        ClientError::MissingSplTokenAccount { mint: pubkey },
+        ClientError::AddressResolution("record lookup failed".into()),
+        ClientError::UserRegistryRecordNotFound {
+            owner: pubkey,
+            record: Pubkey::new_from_array([9; 32]),
+        },
+        ClientError::MultiplePublicSplAssets,
+        ClientError::WithdrawalAlreadySet,
+        ClientError::NoInputs,
+        ClientError::EddsaInputNotSolanaOwned { index: 2 },
+        ClientError::MissingP256Signature,
+        ClientError::MergeInputRailMismatch { index: 3 },
+        ClientError::MergeInputAssetMismatch { index: 4 },
+        ClientError::MergeDisabled { owner: pubkey },
+        ClientError::NothingToMerge { asset: address },
+        ClientError::DuplicateInputUtxo { hash: [3; 32] },
+        ClientError::MergeSigningKeyMismatch,
+        ClientError::MergeNullifierKeyMismatch,
+        ClientError::MergeViewingKeyMismatch { owner: pubkey },
+        ClientError::MergeTreeMismatch {
+            proof_tree: [4; 32],
+            submit_tree: [5; 32],
+        },
+        ClientError::SplitNotDivisible {
+            amount: 10,
+            parts: 3,
+        },
+        ClientError::InputUtxoUnavailable { hash: [6; 32] },
+        ClientError::InputUtxoTreeMismatch {
+            hash: [7; 32],
+            utxo_tree: address,
+            spend_tree: Address::new_from_array([10; 32]),
+        },
+        ClientError::SplitInputHasData { hash: [8; 32] },
+        ClientError::SplitInputZoneMismatch { hash: [9; 32] },
+        ClientError::P256Signature("invalid signature".into()),
+        ClientError::FieldTooLong,
+        ClientError::ProverServer("server rejected request".into()),
+        ClientError::ProofParse("invalid proof".into()),
+        ClientError::Prover("process exited".into()),
+        ClientError::MissingInputMerkleProof { index: 5 },
+        ClientError::IncompleteInputProofs {
+            expected: 2,
+            state: 1,
+            nullifier: 0,
+        },
+        ClientError::StateProofLeafMismatch { index: 6 },
+        ClientError::StateProofTreeMismatch { index: 7 },
+        ClientError::NullifierProofLeafMismatch { index: 8 },
+        ClientError::NullifierProofTreeMismatch { index: 9 },
+        ClientError::InputTreeIndexCountMismatch {
+            expected: 2,
+            actual: 1,
+        },
+        ClientError::MissingOutput,
+        ClientError::Rpc("rpc failed".into()),
+        ClientError::Indexer("indexer failed".into()),
+        ClientError::UnsupportedRpcMethod("get_slot"),
+        ClientError::IndexerTimeout,
+        ClientError::IndexerNotCaughtUp {
+            target: 100,
+            latest: 99,
+            attempts: 5,
+        },
+        ClientError::PollTimedOut {
+            attempts: 3,
+            last_error: Some("transient".into()),
+        },
+        ClientError::ProofPathLength {
+            got: 31,
+            expected: 32,
+        },
+        ClientError::WitnessInputCountMismatch {
+            got: 1,
+            expected: 2,
+        },
+        ClientError::AccountNotFound { address: [10; 32] },
+        ClientError::DepositSenderNotSigner { sender: [11; 32] },
+    ];
+    json!({
+        "inputs": {
+            "construction": "Rust-owned variants use deterministic public placeholder values",
+            "wrappedExternalErrors": "Representative constructible variants cover each wrapped category"
+        },
+        "expected": {
+            "variants": variants.into_iter().map(client_error_json).collect::<Vec<_>>()
+        }
+    })
+}
+
+fn client_error_json(error: ClientError) -> Value {
+    let (code, details) = match error {
+        ClientError::Keypair(error) => ("CLIENT_KEYPAIR", json!({"code": format!("{error:?}")})),
+        ClientError::Transaction(error) => {
+            ("CLIENT_TRANSACTION", json!({"code": format!("{error:?}")}))
+        }
+        ClientError::Hasher(error) => ("CLIENT_HASHER", json!({"code": format!("{error:?}")})),
+        ClientError::UnsupportedShape { n_in, n_out } => {
+            ("CLIENT_UNSUPPORTED_SHAPE", json!({"nIn":n_in,"nOut":n_out}))
+        }
+        ClientError::TooManyInputs { got, max } => {
+            ("CLIENT_TOO_MANY_INPUTS", json!({"got":got,"max":max}))
+        }
+        ClientError::TooManyOutputs { got, max } => {
+            ("CLIENT_TOO_MANY_OUTPUTS", json!({"got":got,"max":max}))
+        }
+        ClientError::InsufficientBalance {
+            requested,
+            available,
+        } => (
+            "CLIENT_INSUFFICIENT_BALANCE",
+            json!({"requested":requested.to_string(),"available":available.to_string()}),
+        ),
+        ClientError::SelectedBalanceOverflow => ("CLIENT_SELECTED_BALANCE_OVERFLOW", Value::Null),
+        ClientError::UnsignedInputUnavailable { index } => {
+            ("CLIENT_UNSIGNED_INPUT_UNAVAILABLE", json!({"index":index}))
+        }
+        ClientError::FeePayerMismatch => ("CLIENT_FEE_PAYER_MISMATCH", Value::Null),
+        ClientError::SolanaTransactionSigning(reason) => (
+            "CLIENT_SOLANA_TRANSACTION_SIGNING",
+            json!({"reason":reason}),
+        ),
+        ClientError::AmbiguousTree { asset, tree_count } => (
+            "CLIENT_AMBIGUOUS_TREE",
+            json!({"asset":asset.to_string(),"treeCount":tree_count}),
+        ),
+        ClientError::TreeMismatch {
+            transaction_tree,
+            client_tree,
+        } => (
+            "CLIENT_TREE_MISMATCH",
+            json!({"transactionTree":hex(&transaction_tree),"clientTree":hex(&client_tree)}),
+        ),
+        ClientError::MissingSplTokenAccount { mint } => (
+            "CLIENT_MISSING_SPL_TOKEN_ACCOUNT",
+            json!({"mint":mint.to_string()}),
+        ),
+        ClientError::AddressResolution(reason) => {
+            ("CLIENT_ADDRESS_RESOLUTION", json!({"reason":reason}))
+        }
+        ClientError::UserRegistryRecordNotFound { owner, record } => (
+            "CLIENT_USER_REGISTRY_RECORD_NOT_FOUND",
+            json!({"owner":owner.to_string(),"record":record.to_string()}),
+        ),
+        ClientError::MultiplePublicSplAssets => ("CLIENT_MULTIPLE_PUBLIC_SPL_ASSETS", Value::Null),
+        ClientError::WithdrawalAlreadySet => ("CLIENT_WITHDRAWAL_ALREADY_SET", Value::Null),
+        ClientError::NoInputs => ("CLIENT_NO_INPUTS", Value::Null),
+        ClientError::EddsaInputNotSolanaOwned { index } => (
+            "CLIENT_EDDSA_INPUT_NOT_SOLANA_OWNED",
+            json!({"index":index}),
+        ),
+        ClientError::MissingP256Signature => ("CLIENT_MISSING_P256_SIGNATURE", Value::Null),
+        ClientError::MergeInputRailMismatch { index } => {
+            ("CLIENT_MERGE_INPUT_RAIL_MISMATCH", json!({"index":index}))
+        }
+        ClientError::MergeInputAssetMismatch { index } => {
+            ("CLIENT_MERGE_INPUT_ASSET_MISMATCH", json!({"index":index}))
+        }
+        ClientError::MergeDisabled { owner } => {
+            ("CLIENT_MERGE_DISABLED", json!({"owner":owner.to_string()}))
+        }
+        ClientError::NothingToMerge { asset } => (
+            "CLIENT_NOTHING_TO_MERGE",
+            json!({"asset":asset.to_string()}),
+        ),
+        ClientError::DuplicateInputUtxo { hash } => {
+            ("CLIENT_DUPLICATE_INPUT_UTXO", json!({"hash":hex(&hash)}))
+        }
+        ClientError::MergeSigningKeyMismatch => ("CLIENT_MERGE_SIGNING_KEY_MISMATCH", Value::Null),
+        ClientError::MergeNullifierKeyMismatch => {
+            ("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH", Value::Null)
+        }
+        ClientError::MergeViewingKeyMismatch { owner } => (
+            "CLIENT_MERGE_VIEWING_KEY_MISMATCH",
+            json!({"owner":owner.to_string()}),
+        ),
+        ClientError::MergeTreeMismatch {
+            proof_tree,
+            submit_tree,
+        } => (
+            "CLIENT_MERGE_TREE_MISMATCH",
+            json!({"proofTree":hex(&proof_tree),"submitTree":hex(&submit_tree)}),
+        ),
+        ClientError::SplitNotDivisible { amount, parts } => (
+            "CLIENT_SPLIT_NOT_DIVISIBLE",
+            json!({"amount":amount.to_string(),"parts":parts}),
+        ),
+        ClientError::InputUtxoUnavailable { hash } => {
+            ("CLIENT_INPUT_UTXO_UNAVAILABLE", json!({"hash":hex(&hash)}))
+        }
+        ClientError::InputUtxoTreeMismatch {
+            hash,
+            utxo_tree,
+            spend_tree,
+        } => (
+            "CLIENT_INPUT_UTXO_TREE_MISMATCH",
+            json!({"hash":hex(&hash),"utxoTree":utxo_tree.to_string(),"spendTree":spend_tree.to_string()}),
+        ),
+        ClientError::SplitInputHasData { hash } => {
+            ("CLIENT_SPLIT_INPUT_HAS_DATA", json!({"hash":hex(&hash)}))
+        }
+        ClientError::SplitInputZoneMismatch { hash } => (
+            "CLIENT_SPLIT_INPUT_ZONE_MISMATCH",
+            json!({"hash":hex(&hash)}),
+        ),
+        ClientError::P256Signature(reason) => ("CLIENT_P256_SIGNATURE", json!({"reason":reason})),
+        ClientError::FieldTooLong => ("CLIENT_FIELD_TOO_LONG", Value::Null),
+        ClientError::ProverServer(reason) => ("CLIENT_PROVER_SERVER", json!({"reason":reason})),
+        ClientError::ProofParse(reason) => ("CLIENT_PROOF_PARSE", json!({"reason":reason})),
+        ClientError::Prover(reason) => ("CLIENT_PROVER", json!({"reason":reason})),
+        ClientError::MissingInputMerkleProof { index } => {
+            ("CLIENT_MISSING_INPUT_MERKLE_PROOF", json!({"index":index}))
+        }
+        ClientError::IncompleteInputProofs {
+            expected,
+            state,
+            nullifier,
+        } => (
+            "CLIENT_INCOMPLETE_INPUT_PROOFS",
+            json!({"expected":expected,"state":state,"nullifier":nullifier}),
+        ),
+        ClientError::StateProofLeafMismatch { index } => {
+            ("CLIENT_STATE_PROOF_LEAF_MISMATCH", json!({"index":index}))
+        }
+        ClientError::StateProofTreeMismatch { index } => {
+            ("CLIENT_STATE_PROOF_TREE_MISMATCH", json!({"index":index}))
+        }
+        ClientError::NullifierProofLeafMismatch { index } => (
+            "CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH",
+            json!({"index":index}),
+        ),
+        ClientError::NullifierProofTreeMismatch { index } => (
+            "CLIENT_NULLIFIER_PROOF_TREE_MISMATCH",
+            json!({"index":index}),
+        ),
+        ClientError::InputTreeIndexCountMismatch { expected, actual } => (
+            "CLIENT_INPUT_TREE_INDEX_COUNT_MISMATCH",
+            json!({"expected":expected,"actual":actual}),
+        ),
+        ClientError::MissingOutput => ("CLIENT_MISSING_OUTPUT", Value::Null),
+        ClientError::Rpc(reason) => ("CLIENT_RPC", json!({"reason":reason})),
+        ClientError::Indexer(reason) => ("CLIENT_INDEXER", json!({"reason":reason})),
+        ClientError::UnsupportedRpcMethod(method) => {
+            ("CLIENT_UNSUPPORTED_RPC_METHOD", json!({"method":method}))
+        }
+        ClientError::IndexerTimeout => ("CLIENT_INDEXER_TIMEOUT", Value::Null),
+        ClientError::IndexerNotCaughtUp {
+            target,
+            latest,
+            attempts,
+        } => (
+            "CLIENT_INDEXER_NOT_CAUGHT_UP",
+            json!({"target":target.to_string(),"latest":latest.to_string(),"attempts":attempts}),
+        ),
+        ClientError::PollTimedOut {
+            attempts,
+            last_error,
+        } => (
+            "CLIENT_POLL_TIMED_OUT",
+            json!({"attempts":attempts,"lastError":last_error}),
+        ),
+        ClientError::ProofPathLength { got, expected } => (
+            "CLIENT_PROOF_PATH_LENGTH",
+            json!({"got":got,"expected":expected}),
+        ),
+        ClientError::WitnessInputCountMismatch { got, expected } => (
+            "CLIENT_WITNESS_INPUT_COUNT_MISMATCH",
+            json!({"got":got,"expected":expected}),
+        ),
+        ClientError::AccountNotFound { address } => {
+            ("CLIENT_ACCOUNT_NOT_FOUND", json!({"address":hex(&address)}))
+        }
+        ClientError::DepositSenderNotSigner { sender } => (
+            "CLIENT_DEPOSIT_SENDER_NOT_SIGNER",
+            json!({"sender":hex(&sender)}),
+        ),
+    };
+    json!({"code":code,"details":details})
 }
 
 fn keypair(p256: bool) -> Result<ShieldedKeypair, Box<dyn std::error::Error>> {

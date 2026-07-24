@@ -2,7 +2,7 @@ import type { Address, Bytes32, TransactInstructionData, TransactProof } from "@
 import { ShieldedPublicKey } from "@zolana/keypair";
 import { ProofInputUtxo, SppProofInputs, type ProofOutputUtxo } from "@zolana/transaction";
 
-import { ClientError } from "../error.js";
+import { ClientError, fromClientCause } from "../error.js";
 import {
   BN254_MODULUS,
   addressBytes,
@@ -66,6 +66,17 @@ export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
 ): AssembledTransfer {
+  try {
+    return assembleUnchecked(proofInputs, spendProofs);
+  } catch (cause) {
+    throw fromClientCause(cause);
+  }
+}
+
+function assembleUnchecked(
+  proofInputs: SppProofInputs,
+  spendProofs: readonly SpendProof[],
+): AssembledTransfer {
   if (!(proofInputs instanceof SppProofInputs)) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -108,7 +119,11 @@ export function assemble(
   let proofIndex = 0;
   for (let index = 0; index < proofInputs.inputUtxos.length; index++) {
     const input = proofInputs.inputUtxos[index];
-    if (!input) throw new ClientError("CLIENT_WITNESS_INPUT_COUNT_MISMATCH");
+    if (!input) {
+      throw new ClientError("CLIENT_WITNESS_INPUT_COUNT_MISMATCH", {
+        details: { got: index, expected: proofInputs.inputUtxos.length },
+      });
+    }
     if (input.isDummy()) {
       const first = transferInputs[0];
       const roots = rootIndexes[0];
@@ -232,7 +247,14 @@ export function assemble(
       proofInputs.inputUtxos.map((input, index) => {
         const roots = rootIndexes[index];
         const nullifier = nullifiers[index];
-        if (!roots || !nullifier) throw new ClientError("CLIENT_WITNESS_INPUT_COUNT_MISMATCH");
+        if (!roots || !nullifier) {
+          throw new ClientError("CLIENT_WITNESS_INPUT_COUNT_MISMATCH", {
+            details: {
+              got: Math.min(rootIndexes.length, nullifiers.length),
+              expected: proofInputs.inputUtxos.length,
+            },
+          });
+        }
         const signer = input.isDummy()
           ? firstSigner
           : realInputs[realSignerIndex++]?.utxo.owner.signatureType() === "p256"

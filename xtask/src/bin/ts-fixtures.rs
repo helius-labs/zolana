@@ -27,14 +27,15 @@ use zolana_transaction::{
 const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
-const EXPECTED_FIXTURE_COUNT: usize = 55;
-const FROZEN_SOURCE_PATHS: [&str; 13] = [
+const EXPECTED_FIXTURE_COUNT: usize = 56;
+const FROZEN_SOURCE_PATHS: [&str; 15] = [
     "program-libs/hasher/src",
     "program-libs/indexed-array/src",
     "program-libs/interface/src/instruction",
     "program-tests/test-utils/src/smart_account.rs",
     "sdk-libs/client/src/prover",
     "sdk-libs/client/src/rpc.rs",
+    "sdk-libs/indexer-api/src",
     "sdk-libs/keypair/src",
     "sdk-libs/merkle-tree/src",
     "sdk-libs/program-test/src/indexer.rs",
@@ -42,6 +43,7 @@ const FROZEN_SOURCE_PATHS: [&str; 13] = [
     "sdk-libs/transaction/tests",
     "sdk-libs/wallet/src",
     "sdk-libs/wallet/tests",
+    "sdk-libs/zolana-api/src",
 ];
 const INVENTORY_FILES: [&str; 6] = [
     "planning/typescript-sdk-port/inventory-client.md",
@@ -441,6 +443,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     let merkle_vectors = production_merkle_vectors(root)?;
     let keypair_vectors = production_keypair_vectors(root)?;
     let transaction_vectors = production_transaction_vectors(root)?;
+    let api_vectors = production_api_vectors(root)?;
     let client_vectors = production_client_vectors(root)?;
     let wallet_vectors = production_wallet_vectors(root)?;
 
@@ -671,6 +674,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     ];
     fixtures.extend(keypair_fixtures(&keypair_vectors)?);
     fixtures.extend(transaction_fixtures(&transaction_vectors)?);
+    fixtures.push(api_fixture(&api_vectors)?);
     fixtures.extend(client_fixtures(&client_vectors)?);
     fixtures.extend(instruction_workflow_fixtures(&client_vectors)?);
     fixtures.extend(wallet_fixtures(&wallet_vectors)?);
@@ -1519,6 +1523,129 @@ fn transaction_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
         .collect()
 }
 
+fn production_api_vectors(root: &Path) -> Result<Value> {
+    let artifacts = cargo_rlibs(root, &["build", "-p", "zolana-api"])?;
+    let metadata: Value = serde_json::from_str(&command_text(
+        root,
+        "rustup",
+        &[
+            "run",
+            "1.97.0",
+            "cargo",
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+        ],
+    )?)?;
+    let target = PathBuf::from(
+        metadata["target_directory"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("cargo metadata lacks target_directory"))?,
+    );
+    let externs = [
+        ("serde_json", "serde_json@1.0.150"),
+        ("zolana_api", "zolana-api#0.1.0"),
+    ]
+    .into_iter()
+    .map(|(name, package)| Ok((name, rlib(&artifacts, name, package)?)))
+    .collect::<Result<Vec<_>>>()?;
+
+    let binary = target.join("ts-fixtures-api");
+    let mut compile = Command::new("rustup");
+    compile
+        .current_dir(root)
+        .args([
+            "run",
+            "1.97.0",
+            "rustc",
+            "--edition=2021",
+            "xtask/src/ts_fixtures_api.rs",
+            "-L",
+        ])
+        .arg(format!(
+            "dependency={}",
+            target.join("debug/deps").display()
+        ));
+    for (name, path) in externs {
+        compile
+            .arg("--extern")
+            .arg(format!("{name}={}", path.display()));
+    }
+    let output = compile
+        .arg("-o")
+        .arg(&binary)
+        .output()
+        .context("compile production API fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "compile production API fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let output = Command::new(&binary)
+        .output()
+        .context("run production API fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "run production API fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let vectors: Value = serde_json::from_slice(&output.stdout)?;
+    verify_api_vectors(&vectors)?;
+    Ok(vectors)
+}
+
+fn verify_api_vectors(vectors: &Value) -> Result<()> {
+    let successes = vectors["expected"]["successes"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("API oracle successes is not an array"))?;
+    if successes.len() != 6 {
+        bail!(
+            "API oracle emitted {} success cases, expected 6",
+            successes.len()
+        );
+    }
+    let methods = successes
+        .iter()
+        .filter_map(|case| case["request"]["body"]["method"].as_str())
+        .collect::<BTreeSet<_>>();
+    if methods.len() != 5 {
+        bail!("API oracle must cover all five methods");
+    }
+    for name in [
+        "http",
+        "invalidOptionalLimit",
+        "invalidRequiredLimit",
+        "jsonRpc",
+        "missingResult",
+    ] {
+        if !vectors["expected"]["errors"][name].is_object() {
+            bail!("API oracle lacks {name} error");
+        }
+    }
+    Ok(())
+}
+
+fn api_fixture(vectors: &Value) -> Result<(&'static str, Value)> {
+    if !vectors["inputs"].is_object() || !vectors["expected"].is_object() {
+        bail!("API oracle lacks inputs or expected values");
+    }
+    let mut fixture = fixture_base!(
+        "fx-p00-api-transport-v1",
+        "sdk-libs/zolana-api/src/lib.rs; sdk-libs/indexer-api/src/lib.rs",
+        "BlockingZolanaApi::{get_encrypted_utxos_by_tags,get_shielded_transactions_by_tags,get_merkle_proofs,get_non_inclusion_proofs,get_nullifier_queue_elements}; ApiError",
+        "sdk-libs/zolana-api/src/lib.rs",
+        "P00",
+        "production HTTP requests, decoded responses, defaults, limits, and shared transport errors",
+        vectors["inputs"].clone(),
+        vectors["expected"].clone(),
+    );
+    fixture["sourceRevision"] = Value::String(FROZEN_SHA.to_string());
+    Ok(("api/transport-v1.json", fixture))
+}
+
 fn production_client_vectors(root: &Path) -> Result<Value> {
     let artifacts = cargo_rlibs(
         root,
@@ -1567,6 +1694,7 @@ fn production_client_vectors(root: &Path) -> Result<Value> {
         ("solana_pubkey", "solana-pubkey@4.2.0"),
         ("zolana_client", "zolana-client@0.1.0"),
         ("zolana_event", "zolana-event@0.1.0"),
+        ("zolana_hasher", "zolana-hasher@5.0.0"),
         ("zolana_interface", "zolana-interface@0.1.0"),
         ("zolana_keypair", "zolana-keypair@0.1.0"),
         ("zolana_program_test", "zolana-program-test@0.23.0"),
@@ -1624,6 +1752,7 @@ fn production_client_vectors(root: &Path) -> Result<Value> {
 
 fn verify_client_vectors(vectors: &Value) -> Result<()> {
     for section in [
+        "errors",
         "prover",
         "proof",
         "rpc",
@@ -1648,11 +1777,25 @@ fn verify_client_vectors(vectors: &Value) -> Result<()> {
     {
         bail!("client oracle must emit ten shapes for each rail");
     }
+    if vectors["errors"]["expected"]["variants"]
+        .as_array()
+        .is_none_or(|variants| variants.len() != 58)
+    {
+        bail!("client oracle must emit all 58 ClientError variants");
+    }
     Ok(())
 }
 
 fn client_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
     let domains = [
+        (
+            "errors",
+            "client/errors-v1.json",
+            "fx-p09-client-errors-v1",
+            "sdk-libs/client/src/error.rs; sdk-libs/keypair/src/error.rs; sdk-libs/transaction/src/error.rs; program-libs/hasher/src/errors.rs",
+            "ClientError; KeypairError; TransactionError; HasherError",
+            "exhaustive client variant codes, structured fields, and representative wrapped categories",
+        ),
         (
             "prover",
             "client/prover-shapes-v1.json",
@@ -2126,13 +2269,15 @@ fn write_manifest(root: &Path, fixtures: &Path) -> Result<()> {
                 "packages":[
                     {"features":["default","solana-rpc"],"name":"zolana-client"},
                     {"features":["poseidon","sha256","keccak"],"name":"zolana-hasher"},
+                    {"features":["default"],"name":"zolana-indexer-api"},
                     {"features":["default","tree","verifying-keys"],"name":"zolana-interface"},
                     {"features":["default"],"name":"zolana-keypair"},
                     {"features":["default"],"name":"zolana-merkle-tree"},
                     {"features":["default"],"name":"zolana-program-test"},
                     {"features":[],"name":"zolana-test-utils"},
                     {"features":["parallel"],"name":"zolana-transaction"},
-                    {"features":["default"],"name":"zolana-wallet"}
+                    {"features":["default"],"name":"zolana-wallet"},
+                    {"features":["default"],"name":"zolana-api"}
                 ],
                 "toolchain":rustc.trim()
             },
@@ -2159,6 +2304,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
         "sdk-libs/ts/reports/inventory.json".to_string(),
         "sdk-libs/ts/reports/packets/P00.json".to_string(),
         "xtask/src/bin/ts-fixtures.rs".to_string(),
+        "xtask/src/ts_fixtures_api.rs".to_string(),
         "xtask/src/ts_fixtures_keypair.rs".to_string(),
         "xtask/src/ts_fixtures_client.rs".to_string(),
         "xtask/src/ts_fixtures_merkle.rs".to_string(),
@@ -2177,6 +2323,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 {"command":"rustup run 1.97.0 cargo fmt --all -- --check","exitStatus":"0","responsibility":"Rust formatting"},
                 {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_transaction.rs","exitStatus":"0","responsibility":"standalone transaction oracle formatting"},
                 {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_client.rs","exitStatus":"0","responsibility":"standalone client oracle formatting"},
+                {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_api.rs","exitStatus":"0","responsibility":"standalone API transport oracle formatting"},
                 {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_wallet.rs","exitStatus":"0","responsibility":"standalone wallet oracle formatting"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures","exitStatus":"0","responsibility":"fixture generation"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check","exitStatus":"0","responsibility":"deterministic regeneration and Rust verification"},
@@ -2200,6 +2347,8 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
             ],
             "counts":{
                 "fixtureFiles":entries.len().to_string(),
+                "apiTransportErrorVectors":"5",
+                "apiTransportSuccessVectors":"6",
                 "clientFixtureFiles":"8",
                 "inventoryDuplicate":"0",
                 "inventoryMissing":"0",
@@ -2257,6 +2406,13 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                     "sdk-libs/ts/transaction/test/transfer.test.ts",
                     "sdk-libs/ts/transaction/test/wallet-sync.test.ts"
                 ]
+            },
+            "p08FollowUp":{
+                "fixture":"sdk-libs/ts/fixtures/api/transport-v1.json",
+                "rustMethods":"5",
+                "successCases":"6",
+                "errorCases":"5",
+                "testFile":"sdk-libs/ts/api/test/vectors.test.ts"
             },
             "p09FollowUp":{
                 "blocker":"sdk-libs/ts/reports/packets/P09.json:10-59",
