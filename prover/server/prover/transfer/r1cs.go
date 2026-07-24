@@ -1,7 +1,9 @@
 package transfer
 
 import (
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	defaultzone "zolana/prover/circuits/spp_transaction/default"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"
@@ -15,8 +17,7 @@ import (
 // on-chain Groth16Verifier expects); do not drop it.
 func R1CSTransfer(nInputs uint32, nOutputs uint32, confidential bool) (constraint.ConstraintSystem, error) {
 	shape := txcircuit.Shape{NInputs: int(nInputs), NOutputs: int(nOutputs)}
-	newCircuit := selectP256Constructor(confidential)
-	circuit, err := newCircuit(shape)
+	circuit, err := newP256Circuit(confidential, shape)
 	if err != nil {
 		return nil, err
 	}
@@ -28,11 +29,20 @@ func R1CSTransfer(nInputs uint32, nOutputs uint32, confidential bool) (constrain
 	)
 }
 
-// selectP256Constructor picks the P256-rail circuit constructor. The two forms
-// are confidential (non-zone) and zone (anonymous).
-func selectP256Constructor(confidential bool) func(txcircuit.Shape) (*txcircuit.Circuit, error) {
+// newP256Circuit builds the P256-rail circuit. The two forms are default zone
+// (confidential) and custom zone (anonymous).
+func newP256Circuit(confidential bool, shape txcircuit.Shape) (frontend.Circuit, error) {
 	if confidential {
-		return txcircuit.NewTransferP256ConfidentialCircuit
+		return defaultzone.NewDefaultZoneP256Circuit(shape)
 	}
-	return txcircuit.NewTransferP256ZoneCircuit
+	return customzone.NewCustomZoneP256Circuit(shape)
+}
+
+// wrapP256Assignment wraps a filled witness core in the variant circuit type so
+// gnark sees the same schema the constraint system was compiled with.
+func wrapP256Assignment(confidential bool, core txcircuit.Circuit) frontend.Circuit {
+	if confidential {
+		return &defaultzone.DefaultZoneP256Circuit{Circuit: core}
+	}
+	return &customzone.CustomZoneP256Circuit{Circuit: core}
 }

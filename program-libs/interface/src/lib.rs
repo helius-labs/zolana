@@ -17,7 +17,24 @@ macro_rules! pubkey_array {
     }};
 }
 
-pub const UTXO_DOMAIN: u16 = 1;
+/// UTXO domain tags: the circuit classifies input and output slots by the
+/// domain tag alone (mirrors Go `circuits/spp_transaction/shared`).
+pub const DUMMY_DOMAIN: u16 = 1;
+pub const ADDRESS_DOMAIN: u16 = 2;
+pub const UTXO_DOMAIN: u16 = 3;
+
+/// Number of public (asset, amount) movement slots in every SPP transaction
+/// circuit. Host convention: slot 0 is the SOL leg, slot 1 the SPL leg. The
+/// prover mirrors this as `NPublicSlots` (Go `circuits/spp_transaction/shared`).
+pub const N_PUBLIC_SLOTS: usize = 2;
+
+/// Native-SOL asset id in the SPP public transcript and UTXO commitments:
+/// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The
+/// prover mirrors this as `SolAsset()` (Go `circuits/spp_transaction/shared`).
+pub const SOL_ASSET_FIELD: [u8; 32] = [
+    0x20, 0x98, 0xf5, 0xfb, 0x9e, 0x23, 0x9e, 0xab, 0x3c, 0xea, 0xc3, 0xf2, 0x7b, 0x81, 0xe4, 0x81,
+    0xdc, 0x31, 0x24, 0xd5, 0x5f, 0xfe, 0xd5, 0x23, 0xa8, 0x39, 0xee, 0x84, 0x46, 0xb6, 0x48, 0x64,
+];
 
 /// Development program id for the shielded-pool program.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =

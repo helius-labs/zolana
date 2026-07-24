@@ -36,7 +36,7 @@ use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
+    external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_sol_field,
     real_output, set_output_owner_tags, spend_input, start_prover, transfer_output, SpendInputArgs,
     TransferProverInputsArgs,
@@ -138,7 +138,8 @@ fn shield_then_withdraw_sol() {
         .expect("non inclusion proof");
 
     let roots = (utxo_root, nullifier_root);
-    let dummy_nullifier = fe(2);
+    let (dummy_spend_input, dummy_nullifier) =
+        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
 
     // The real input spending the shielded UTXO (is_dummy = 0).
     let payer_spend_input = spend_input(SpendInputArgs {
@@ -225,10 +226,7 @@ fn shield_then_withdraw_sol() {
     );
 
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
-            payer_spend_input,
-            dummy_input(&dummy_nullifier, roots, &owner_pk_hash),
-        ],
+        inputs: vec![payer_spend_input, dummy_spend_input],
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
@@ -369,8 +367,10 @@ fn shield_transfer_then_withdraw_sol() {
     );
     let change_hash = change_output.hash().expect("change output hash");
     let recipient_hash = recipient_output.hash().expect("recipient output hash");
-    let transfer_dummy_nullifier = fe(20);
     let transfer_roots = (shield_utxo_root, nullifier_root);
+    let (transfer_dummy_input, transfer_dummy_nullifier) =
+        dummy_input(&[20u8; 31], &nf_tree, transfer_roots, &payer_owner_pk_hash)
+            .expect("transfer dummy input");
     // The transfer's third output is a dummy (`owner_hash = 0`): a real `utxo_hash`
     // the program appends and the proof commits, contributing `0` to private_tx_hash.
     let (transfer_dummy_output, transfer_dummy_hash) =
@@ -438,14 +438,7 @@ fn shield_transfer_then_withdraw_sol() {
         &zero,
     );
     let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
-            payer_spend_input,
-            dummy_input(
-                &transfer_dummy_nullifier,
-                transfer_roots,
-                &payer_owner_pk_hash,
-            ),
-        ],
+        inputs: vec![payer_spend_input, transfer_dummy_input],
         outputs: transfer_outputs,
         external_data_hash: transfer_external_hash,
         private_tx_hash: transfer_private_tx,
@@ -537,7 +530,13 @@ fn shield_transfer_then_withdraw_sol() {
         .expect("public recipient balance");
     let vault = pda::sol_interface();
     let vault_before = env.rpc.svm.get_balance(&vault).unwrap_or(0);
-    let withdraw_dummy_nullifier = fe(21);
+    let (withdraw_dummy_input, withdraw_dummy_nullifier) = dummy_input(
+        &[21u8; 31],
+        &nf_tree,
+        (transfer_utxo_root, transfer_nullifier_root),
+        &recipient_owner_pk_hash,
+    )
+    .expect("withdraw dummy input");
     // The withdrawal spends the full transferred amount; all three outputs are
     // dummies with real, distinct hashes.
     let withdraw_dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
@@ -596,14 +595,7 @@ fn shield_transfer_then_withdraw_sol() {
         &zero,
     );
     let withdraw_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
-            recipient_spend_input,
-            dummy_input(
-                &withdraw_dummy_nullifier,
-                (transfer_utxo_root, transfer_nullifier_root),
-                &recipient_owner_pk_hash,
-            ),
-        ],
+        inputs: vec![recipient_spend_input, withdraw_dummy_input],
         outputs: withdraw_outputs,
         external_data_hash: withdraw_external_hash,
         private_tx_hash: withdraw_private_tx,

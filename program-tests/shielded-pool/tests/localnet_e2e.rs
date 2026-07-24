@@ -209,8 +209,9 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     );
     let change_hash = change_output.hash()?;
     let recipient_hash = recipient_output.hash()?;
-    let transfer_dummy_nullifier = fe(20);
     let transfer_roots = (shield_utxo_root, nullifier_root);
+    let (transfer_dummy_input, transfer_dummy_nullifier) =
+        dummy_input(&[20u8; 31], &nf_tree, transfer_roots, &payer_owner_pk_hash)?;
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
@@ -266,14 +267,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         &zero,
     );
     let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
-            payer_spend_input,
-            dummy_input(
-                &transfer_dummy_nullifier,
-                transfer_roots,
-                &payer_owner_pk_hash,
-            ),
-        ],
+        inputs: vec![payer_spend_input, transfer_dummy_input],
         outputs: transfer_outputs,
         external_data_hash: transfer_external_hash,
         private_tx_hash: transfer_private_tx,
@@ -350,7 +344,12 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let public_recipient_before = account_lamports(&rpc, &public_recipient)?;
     let vault = pda::sol_interface();
     let vault_before = account_lamports(&rpc, &vault)?;
-    let withdraw_dummy_nullifier = fe(21);
+    let (withdraw_dummy_input, withdraw_dummy_nullifier) = dummy_input(
+        &[21u8; 31],
+        &nf_tree,
+        (transfer_utxo_root, transfer_nullifier_root),
+        &recipient_owner_pk_hash,
+    )?;
     let withdraw_dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
         .map(|blinding| {
@@ -407,14 +406,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         &zero,
     );
     let withdraw_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
-            recipient_spend_input,
-            dummy_input(
-                &withdraw_dummy_nullifier,
-                (transfer_utxo_root, transfer_nullifier_root),
-                &recipient_owner_pk_hash,
-            ),
-        ],
+        inputs: vec![recipient_spend_input, withdraw_dummy_input],
         outputs: withdraw_outputs,
         external_data_hash: withdraw_external_hash,
         private_tx_hash: withdraw_private_tx,

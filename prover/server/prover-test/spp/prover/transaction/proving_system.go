@@ -7,7 +7,8 @@ import (
 	"io"
 	"os"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -32,14 +33,14 @@ type ProofSystem struct {
 
 func Compile(shape protocol.Shape, requiresP256 bool) (constraint.ConstraintSystem, error) {
 	var (
-		circuit *txcircuit.Circuit
+		circuit frontend.Circuit
 		err     error
 	)
 	txShape := txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs}
 	if requiresP256 {
-		circuit, err = txcircuit.NewTransferP256ZoneCircuit(txShape)
+		circuit, err = customzone.NewCustomZoneP256Circuit(txShape)
 	} else {
-		circuit, err = txcircuit.NewTransferZoneCircuit(txShape)
+		circuit, err = customzone.NewCustomZoneEddsaOnlyCircuit(txShape)
 	}
 	if err != nil {
 		return nil, err
@@ -71,7 +72,7 @@ func Setup(shape protocol.Shape, requiresP256 bool) (*ProofSystem, error) {
 }
 
 func Prove(ps *ProofSystem, assignment *txcircuit.Circuit) (groth16.Proof, error) {
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
+	witness, err := frontend.NewWitness(ps.wrapAssignment(assignment), ecc.BN254.ScalarField())
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +81,7 @@ func Prove(ps *ProofSystem, assignment *txcircuit.Circuit) (groth16.Proof, error
 
 func Verify(ps *ProofSystem, assignment *txcircuit.Circuit, proof groth16.Proof) error {
 	witness, err := frontend.NewWitness(
-		assignment,
+		ps.wrapAssignment(assignment),
 		ecc.BN254.ScalarField(),
 		frontend.PublicOnly(),
 	)
@@ -88,6 +89,15 @@ func Verify(ps *ProofSystem, assignment *txcircuit.Circuit, proof groth16.Proof)
 		return err
 	}
 	return groth16.Verify(proof, ps.VerifyingKey, witness)
+}
+
+// wrapAssignment wraps a filled witness core in the circuit type the proof
+// system was compiled with, selected by the ownership rail.
+func (ps *ProofSystem) wrapAssignment(assignment *txcircuit.Circuit) frontend.Circuit {
+	if ps.RequiresP256 {
+		return &customzone.CustomZoneP256Circuit{Circuit: *assignment}
+	}
+	return &customzone.CustomZoneEddsaOnlyCircuit{Circuit: *assignment}
 }
 
 func WriteProofSystem(ps *ProofSystem, path string, vkeyPath string) error {

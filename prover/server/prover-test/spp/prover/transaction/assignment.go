@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"strings"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
 )
@@ -131,23 +131,23 @@ func buildProofAssignment(
 	}
 
 	assignment := &txcircuit.Circuit{
-		Shape:                txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs},
-		RequiresP256:         requiresP256,
-		Inputs:               inputs.inputs,
-		Outputs:              outputs.outputs,
-		P256SigningPkField:   big.NewInt(0),
-		ExternalDataHash:     external.hash,
-		P256Pub:              p256Pub,
-		P256Sig:              p256Sig,
-		PrivateTxHash:        privateTxHash,
-		P256MessageHashLow:   p256MessageLow,
-		P256MessageHashHigh:  p256MessageHigh,
-		PublicSolAmount:      publicInputs.PublicSolAmount,
-		PublicSplAmount:      publicInputs.PublicSplAmount,
-		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
-		ZoneProgramID:        publicInputs.ZoneProgramID,
-		PayerPubkeyHash:      publicInputs.PayerPubkeyHash,
-		PublicInputHash:      publicInputHash,
+		Shape:               txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs},
+		Inputs:              inputs.inputs,
+		Outputs:             outputs.outputs,
+		P256SigningPkField:  big.NewInt(0),
+		ExternalDataHash:    external.hash,
+		P256Pub:             p256Pub,
+		P256Sig:             p256Sig,
+		PrivateTxHash:       privateTxHash,
+		P256MessageHashLow:  p256MessageLow,
+		P256MessageHashHigh: p256MessageHigh,
+		ZoneProgramID:       publicInputs.ZoneProgramID,
+		PayerPubkeyHash:     publicInputs.PayerPubkeyHash,
+		PublicInputHash:     publicInputHash,
+	}
+	for i := 0; i < txcircuit.NPublicSlots; i++ {
+		assignment.PublicAssets[i] = publicInputs.PublicAssets[i]
+		assignment.PublicAmounts[i] = publicInputs.PublicAmounts[i]
 	}
 	transcript := assignmentTranscript{
 		inputHashes:              inputs.hashes,
@@ -240,18 +240,17 @@ func buildPublicInputs(
 	p256MessageHash *big.Int,
 ) protocol.PublicInputs {
 	return protocol.PublicInputs{
-		Nullifiers:           inputs.nullifiers,
-		OutputUtxoHashes:     outputs.hashes,
-		UtxoTreeRoots:        inputs.utxoRoots,
-		NullifierTreeRoots:   inputs.nullifierTreeRoots,
-		PrivateTxHash:        privateTxHash,
-		P256MessageHash:      p256MessageHash,
-		ExternalDataHash:     external.hash,
-		PublicSolAmount:      external.publicSolAmount,
-		PublicSplAmount:      external.publicSplAmount,
-		PublicSplAssetPubkey: external.publicSplAsset,
-		ZoneProgramID:        external.zoneProgramID,
-		PayerPubkeyHash:      new(big.Int).Set(payerHash),
-		InputOwnerPkHashes:   inputs.inputOwnerPkHashes,
+		Nullifiers:         inputs.nullifiers,
+		OutputUtxoHashes:   outputs.hashes,
+		UtxoTreeRoots:      inputs.utxoRoots,
+		NullifierTreeRoots: inputs.nullifierTreeRoots,
+		PrivateTxHash:      privateTxHash,
+		P256MessageHash:    p256MessageHash,
+		ExternalDataHash:   external.hash,
+		PublicAssets:       external.publicSlots.assets,
+		PublicAmounts:      external.publicSlots.amounts,
+		ZoneProgramID:      external.zoneProgramID,
+		PayerPubkeyHash:    new(big.Int).Set(payerHash),
+		InputOwnerPkHashes: inputs.inputOwnerPkHashes,
 	}
 }

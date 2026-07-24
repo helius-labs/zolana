@@ -27,25 +27,32 @@ pub struct SpendProof {
 }
 
 /// Attach the fetched Merkle proofs to the proof inputs positionally: each real
-/// input (non-zero owner) consumes the next proof, dummy slots stay proofless
-/// and mirror the first real input's roots during assembly. Shared by every
-/// witness builder (transact, merge, merge-zone, zone-authority).
+/// input (non-zero owner) consumes the next spend proof, each dummy slot consumes
+/// the next dummy non-inclusion proof (the transact circuit checks non-inclusion
+/// for every slot). Callers whose circuit skips dummy non-inclusion (merge,
+/// merge-zone) pass no dummy proofs; those dummies mirror the first real input's
+/// witness during assembly. Shared by every witness builder (transact, merge,
+/// merge-zone, zone-authority).
 pub(crate) fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,
     proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
 ) -> Result<Vec<TransferSpendInput>, ClientError> {
     let mut spends = Vec::with_capacity(inputs.len());
     let mut real_index = 0;
+    let mut dummy_index = 0;
     for spend in inputs {
-        let proof = if spend.utxo.owner.is_zero() {
-            None
+        let (proof, nullifier_proof) = if spend.utxo.owner.is_zero() {
+            let nullifier_proof = dummy_nullifier_proofs.get(dummy_index).cloned();
+            dummy_index += 1;
+            (None, nullifier_proof)
         } else {
             let proof = proofs
                 .get(real_index)
                 .ok_or(ClientError::MissingInputMerkleProof { index: real_index })?
                 .clone();
             real_index += 1;
-            Some(proof)
+            (Some(proof), None)
         };
         spends.push(TransferSpendInput {
             utxo: spend.utxo,
@@ -53,6 +60,7 @@ pub(crate) fn attach_input_proofs(
             data_hash: spend.data_hash,
             zone_data_hash: spend.zone_data_hash,
             proof,
+            nullifier_proof,
         });
     }
     Ok(spends)
@@ -109,8 +117,9 @@ impl ProverClient {
         &self,
         proof_inputs: SppProofInputs,
         input_proofs: &[SpendProof],
+        dummy_nullifier_proofs: &[NonInclusionProof],
     ) -> Result<TransactIxData, ClientError> {
-        let assembled = assemble(proof_inputs, input_proofs)?;
+        let assembled = assemble(proof_inputs, input_proofs, dummy_nullifier_proofs)?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => self.prove_transfer_p256(inputs)?,
             ProverInputs::Eddsa(inputs) => self.prove_transfer(inputs)?,
@@ -123,9 +132,8 @@ fn client_public_amounts(
     amounts: zolana_transaction::instructions::transact::PublicAmounts,
 ) -> PublicAmounts {
     PublicAmounts {
-        sol: amounts.sol,
-        spl: amounts.spl,
-        asset: amounts.asset,
+        assets: amounts.assets,
+        amounts: amounts.amounts,
     }
 }
 
@@ -158,6 +166,7 @@ fn p256_owner(proof_inputs: &SppProofInputs) -> Result<P256Owner, ClientError> {
 pub fn into_prover(
     proof_inputs: SppProofInputs,
     input_merkle_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
 ) -> Result<BuiltCircuit, ClientError> {
     let requires_p256 = inputs_require_p256(&proof_inputs.input_utxos)?;
     let p256_owner = if requires_p256 {
@@ -175,7 +184,7 @@ pub fn into_prover(
         ..
     } = proof_inputs;
 
-    let spends = attach_input_proofs(inputs, input_merkle_proofs)?;
+    let spends = attach_input_proofs(inputs, input_merkle_proofs, dummy_nullifier_proofs)?;
 
     let circuit = if requires_p256 {
         let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
@@ -211,6 +220,7 @@ pub fn into_prover(
 pub fn assemble(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
 
@@ -245,7 +255,7 @@ pub fn assemble(
         ..
     } = proof_inputs.external_data.clone();
 
-    let BuiltCircuit { circuit } = into_prover(proof_inputs, input_proofs)?;
+    let BuiltCircuit { circuit } = into_prover(proof_inputs, input_proofs, dummy_nullifier_proofs)?;
 
     let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices, p256_signing_pk_x) =
         match circuit {

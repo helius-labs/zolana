@@ -160,11 +160,7 @@ fn boundary_prover() -> ZoneAuthorityProver {
             SppProofInputUtxo::new_dummy(),
         ],
         outputs: vec![dummy_output(), dummy_output()],
-        public_amounts: TxPublicAmounts {
-            sol: [0u8; 32],
-            spl: [0u8; 32],
-            asset: [0u8; 32],
-        },
+        public_amounts: TxPublicAmounts::default(),
         external_data: zone_external_data(2),
         payer_pubkey_hash: [0u8; 32],
         zone_program_id: Some(zone),
@@ -209,11 +205,7 @@ fn assemble_prover(
         inputs,
         outputs,
         external_data: zone_external_data(n_out),
-        public_amounts: PublicAmounts {
-            sol: [0u8; 32],
-            spl: [0u8; 32],
-            asset: [0u8; 32],
-        },
+        public_amounts: PublicAmounts::transfer(),
         payer_pubkey_hash: [0u8; 32],
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
@@ -270,6 +262,7 @@ fn build_real_inputs(
             data_hash: None,
             zone_data_hash: None,
             proof: Some(proof),
+            nullifier_proof: None,
         })
         .collect()
 }
@@ -297,23 +290,31 @@ fn dummy_output() -> SppProofOutputUtxo {
     }
 }
 
-/// A padding input: zero owner, random blinding, no proof. The prover mirrors the
-/// first real input's roots onto it; the circuit skips its checks.
+/// A padding input: zero owner, random blinding, no state proof. The prover
+/// mirrors the first real input's state root onto it; the non-inclusion witness
+/// for its own nullifier comes from a fresh tree (the circuit checks
+/// non-inclusion per slot against the slot's own root).
 fn dummy_input() -> TransferSpendInput {
+    let blinding = random_blinding();
     let utxo = Utxo {
         owner: PublicKey::zeroed(),
         asset: SOL_MINT,
         amount: 0,
-        blinding: random_blinding(),
+        blinding,
         zone_program_id: None,
         data: Data::default(),
     };
+    let mut spend = SppProofInputUtxo::new_dummy();
+    spend.utxo.blinding = blinding;
+    let nullifier = spend.nullifier().expect("dummy nullifier");
+    let nullifier_proof = TestIndexer::new().dummy_nullifier_proof(nullifier);
     TransferSpendInput {
         utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         data_hash: None,
         zone_data_hash: None,
         proof: None,
+        nullifier_proof: Some(nullifier_proof),
     }
 }
 

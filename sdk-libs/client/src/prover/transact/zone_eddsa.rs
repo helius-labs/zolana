@@ -76,12 +76,13 @@ impl ZoneTransferProver {
         // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone eddsa-rail public-input layout: the 13-element base chain
-        // (Confidential=false, ZoneAuthority=false in public_inputs.go), i.e. the 12
+        // Zone eddsa-rail public-input layout: the 14-element base chain
+        // (Confidential=false, ZoneAuthority=false in public_inputs.go), i.e. the 13
         // base elements PLUS create_hash_chain_from_slice(input_owner_pk_hashes), with NO confidential
         // appendix (no output-owner chain, no p256_signing_pk_field). hash_field(&[0;32])
         // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element on
         // the eddsa rail.
+        let slots = self.public_amounts.interleaved();
         let public_input = create_hash_chain_from_slice(&[
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
@@ -90,9 +91,10 @@ impl ZoneTransferProver {
             private_tx,
             hash_field(&[0u8; 32])?,
             external_data_hash,
-            self.public_amounts.sol,
-            self.public_amounts.spl,
-            self.public_amounts.asset,
+            slots[0],
+            slots[1],
+            slots[2],
+            slots[3],
             zone_program_id,
             self.payer_pubkey_hash,
             create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
@@ -103,9 +105,8 @@ impl ZoneTransferProver {
             outputs: assembled_outputs.outputs,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
-            public_sol_amount: be(&self.public_amounts.sol),
-            public_spl_amount: be(&self.public_amounts.spl),
-            public_spl_asset_pubkey: be(&self.public_amounts.asset),
+            public_assets: self.public_amounts.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_amounts.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             public_input_hash: be(&public_input),

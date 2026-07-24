@@ -127,7 +127,7 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             zone_program_id,
         } = prepared;
 
-        let spends = attach_input_proofs(inputs, &proofs)?;
+        let spends = attach_input_proofs(inputs, &proofs, &[])?;
 
         Ok(MergeZoneProver {
             inputs: spends,

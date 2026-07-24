@@ -3,7 +3,7 @@ package transfer
 import (
 	"fmt"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark-crypto/ecc"

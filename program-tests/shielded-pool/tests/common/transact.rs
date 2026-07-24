@@ -9,14 +9,15 @@ use num_bigint::BigUint;
 use solana_address::Address;
 #[allow(unused_imports)]
 pub use transact_core::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
-    pack_proof, prove_and_verify_transfer, public_input_hash, resolve_outputs,
-    set_output_owner_tags, start_prover, TransferProverInputsArgs,
+    build_transfer_prover_inputs, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
+    inline_outputs, new_transact_ix_data, output_owner_pk_hashes, pack_proof,
+    prove_and_verify_transfer, public_input_hash, resolve_outputs, set_output_owner_tags,
+    start_prover, TransferProverInputsArgs,
 };
 use zolana_client::{
     prover::field::{be, right_align_slice},
     ProofInputUtxo, TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 use zolana_hasher::{hash_chain::create_hash_chain_from_slice, Poseidon};
 use zolana_interface::instruction::{
@@ -29,6 +30,7 @@ use zolana_keypair::{
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_transaction::{
     instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
+    instructions::types::SppProofInputUtxo,
     SppProofOutputUtxo, Utxo,
 };
 
@@ -67,9 +69,9 @@ pub fn real_output(
     }
 }
 
-/// Mirror of `public_input_hash` for the SPL rail: the `public_spl_amount`
-/// (chain index 8) and `public_spl_asset_pubkey` (`hash_field(mint)`, index 9)
-/// fields carry real values instead of zero.
+/// Mirror of `public_input_hash` for the SPL rail: the SPL slot (chain indices
+/// 9-10, as `hash_field(mint)` then the signed amount) carries real values while
+/// the SOL slot stays idle at (0, 0).
 #[allow(dead_code, clippy::too_many_arguments)]
 pub fn public_input_hash_spl(
     nullifiers: &[[u8; 32]],
@@ -94,9 +96,10 @@ pub fn public_input_hash_spl(
         *private_tx,
         hash_field(&zero).expect("p256 message field"),
         *external_data_hash,
-        zero, // public_sol_amount
-        *public_spl_amount,
+        zero, // sol slot asset
+        zero, // sol slot amount
         hash_field(mint).expect("public spl asset pubkey"),
+        *public_spl_amount,
         zero, // zone_program_id
         *payer_pubkey_hash,
         create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
@@ -120,9 +123,8 @@ pub fn build_transfer_prover_inputs_spl(
         outputs: args.outputs,
         external_data_hash: be(&args.external_data_hash),
         private_tx_hash: be(&args.private_tx_hash),
-        public_sol_amount: be(&zero),
-        public_spl_amount: be(&public_spl_amount),
-        public_spl_asset_pubkey: be(&hash_field(&mint).expect("spl asset field")),
+        public_assets: [be(&zero), be(&hash_field(&mint).expect("spl asset field"))],
+        public_amounts: [be(&zero), be(&public_spl_amount)],
         zone_program_id: be(&zero),
         payer_pubkey_hash: be(&args.payer_pubkey_hash),
         public_input_hash: be(&args.public_input_hash),
@@ -168,6 +170,7 @@ pub fn nullifier_tree() -> Result<IndexedMerkleTree<Poseidon, usize>> {
     )?)
 }
 
+#[allow(dead_code)]
 pub struct SpendInputArgs<'a> {
     pub utxo: &'a Utxo,
     pub owner_field: &'a [u8; 32],
@@ -180,6 +183,84 @@ pub struct SpendInputArgs<'a> {
     pub nullifier_key: &'a NullifierKey,
 }
 
+/// One circuit-dummy input over `blinding`: domain-tagged dummy utxo fields, the
+/// nullifier derived over the dummified utxo hash with secret 0, and a real
+/// non-inclusion witness for that nullifier from `nf_tree` (the circuit checks
+/// non-inclusion for every slot). Returns the input and its nullifier — SPP
+/// inserts dummy nullifiers exactly like real ones.
+#[allow(dead_code)]
+pub fn dummy_input(
+    blinding: &[u8; 31],
+    nf_tree: &IndexedMerkleTree<Poseidon, usize>,
+    roots: ([u8; 32], [u8; 32]),
+    owner_pk_hash: &[u8; 32],
+) -> Result<(TransferInput, [u8; 32])> {
+    let mut spend = SppProofInputUtxo::new_dummy();
+    spend.utxo.blinding = *blinding;
+    let nullifier = spend.nullifier()?;
+    let non_inclusion = nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))?;
+    let (utxo_root, nullifier_root) = roots;
+    let zero = [0u8; 32];
+    let input = TransferInput {
+        utxo: ProofInputUtxo::try_from(&spend)?,
+        is_dummy: be(&fe(1)),
+        state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
+        state_path_index: be(&zero),
+        nullifier_low_value: be(&non_inclusion.leaf_lower_range_value),
+        nullifier_next_value: be(&non_inclusion.leaf_higher_range_value),
+        nullifier_low_path_elements: non_inclusion.merkle_proof.iter().map(be).collect(),
+        nullifier_low_path_index: be(&fe(non_inclusion.leaf_index as u64)),
+        utxo_tree_root: be(&utxo_root),
+        nullifier_tree_root: be(&nullifier_root),
+        nullifier: be(&nullifier),
+        owner_pk_hash: be(owner_pk_hash),
+        nullifier_secret: be(&zero),
+    };
+    Ok((input, nullifier))
+}
+
+/// The nullifier a dummy input over `blinding` derives (over the dummified utxo
+/// hash with secret 0). Callers fetch this value's non-inclusion proof before
+/// building the input with [`dummy_input_with_proof`].
+#[allow(dead_code)]
+pub fn dummy_nullifier(blinding: &[u8; 31]) -> Result<[u8; 32]> {
+    let mut spend = SppProofInputUtxo::new_dummy();
+    spend.utxo.blinding = *blinding;
+    Ok(spend.nullifier()?)
+}
+
+/// [`dummy_input`] over an indexer-fetched non-inclusion proof for the dummy's
+/// own nullifier (see [`dummy_nullifier`]).
+#[allow(dead_code)]
+pub fn dummy_input_with_proof(
+    blinding: &[u8; 31],
+    non_inclusion: &zolana_client::NonInclusionProof,
+    roots: ([u8; 32], [u8; 32]),
+    owner_pk_hash: &[u8; 32],
+) -> Result<TransferInput> {
+    let mut spend = SppProofInputUtxo::new_dummy();
+    spend.utxo.blinding = *blinding;
+    let nullifier = spend.nullifier()?;
+    let (utxo_root, nullifier_root) = roots;
+    let zero = [0u8; 32];
+    Ok(TransferInput {
+        utxo: ProofInputUtxo::try_from(&spend)?,
+        is_dummy: be(&fe(1)),
+        state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
+        state_path_index: be(&zero),
+        nullifier_low_value: be(&non_inclusion.low_element),
+        nullifier_next_value: be(&non_inclusion.high_element),
+        nullifier_low_path_elements: non_inclusion.path.iter().map(be).collect(),
+        nullifier_low_path_index: be(&fe(non_inclusion.low_element_index)),
+        utxo_tree_root: be(&utxo_root),
+        nullifier_tree_root: be(&nullifier_root),
+        nullifier: be(&nullifier),
+        owner_pk_hash: be(owner_pk_hash),
+        nullifier_secret: be(&zero),
+    })
+}
+
+#[allow(dead_code)]
 pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
     let (utxo_root, nullifier_root) = args.roots;
     Ok(TransferInput {
@@ -221,6 +302,7 @@ pub fn transfer_output(output: &SppProofOutputUtxo) -> Result<TransferOutput> {
     })
 }
 
+#[allow(dead_code)]
 pub fn public_sol_field(amount: Option<i64>) -> [u8; 32] {
     amount.map(signed_to_field).unwrap_or_default()
 }

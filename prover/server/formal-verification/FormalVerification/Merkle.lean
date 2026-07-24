@@ -208,14 +208,14 @@ theorem NonInclusionStep_rw [Fact poseidon₂_no_zero_preimage] [Fact (Collision
     (ZolanaProver.Poseidon_2 vec![lo, hi] (0:F) fun r =>
       ∃lv, Gates.to_binary ind AD lv ∧
       AddressMerkleRootGadget r lv proof fun root =>
-      Gates.eq root ranges.root ∧ ZolanaProver.AssertStrictlyOrdered (0:F) lo v hi ∧ k root)
+      Gates.eq root ranges.root ∧ ZolanaProver.AssertStrictlyOrdered lo v hi ∧ k root)
     ↔ ∃(range : Range) (hind : ind.val < 2^AD),
         ranges.ranges ⟨ind.val, hind⟩ = some range ∧ lo = range.lo ∧ hi = range.hi ∧
         proof.reverse = (rangeTree ranges).proofAtFin ⟨ind.val, hind⟩ ∧
         v.val ∈ range ∧ k ranges.root := by
   simp only [Poseidon_2_iff_uniqueAssignment, RangeVector.root]
   rw [AddressMerkleRootGadget_eq_rw (tree := rangeTree ranges)]
-  simp only [rangeTree, MerkleTree.ofFn_itemAtFin, AssertStrictlyOrdered_zero_rw]
+  simp only [rangeTree, MerkleTree.ofFn_itemAtFin, AssertStrictlyOrdered_rw]
   apply Iff.intro
   · rintro ⟨⟨hind, hhash, hproof⟩, ⟨hlo, hhi⟩, hk⟩
     rw [eq_comm, Range.hashOpt_eq_poseidon_iff_is_some] at hhash
@@ -235,7 +235,7 @@ def NonInclusionProof_rec {n : Nat} (lo hi leaf inds roots : List.Vector F n) (p
     ∃lv, Gates.to_binary inds.head AD lv ∧
     AddressMerkleRootGadget r lv proofs.head fun root =>
     Gates.eq root roots.head ∧
-    ZolanaProver.AssertStrictlyOrdered (0:F) lo.head leaf.head hi.head ∧
+    ZolanaProver.AssertStrictlyOrdered lo.head leaf.head hi.head ∧
     NonInclusionProof_rec lo.tail hi.tail leaf.tail inds.tail roots.tail proofs.tail fun rs => k (root ::ᵥ rs)
 
 lemma NonInclusionProof_rec_equiv {lo hi leaf inds roots proofs k}:

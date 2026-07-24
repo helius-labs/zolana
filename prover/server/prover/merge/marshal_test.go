@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	transaction "zolana/prover/circuits/spp_transaction"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
 // TestMergeParametersJSONRoundTrip checks the wire format the Rust client

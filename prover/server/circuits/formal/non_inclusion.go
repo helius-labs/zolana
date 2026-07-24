@@ -5,15 +5,14 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"zolana/prover/circuits/gadget"
-	transaction "zolana/prover/circuits/spp_transaction"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
 // NonInclusionProof mirrors the live nullifier-tree non-inclusion block
 // (spp_transaction / spp_merge constrainInput): the low leaf
 // IndexedLeafHash(LeafLowerRangeValues[i], LeafHigherRangeValues[i]) is in the
 // tree at Roots[i], and the value is bracketed with the full-field strict
-// ordering gadget. IsDummy is pinned to 0 — the standalone circuit has no
-// dummy slots.
+// ordering gadget.
 type NonInclusionProof struct {
 	Roots  []frontend.Variable
 	Values []frontend.Variable
@@ -43,10 +42,9 @@ func (g NonInclusionProof) DefineGadget(api frontend.API) interface{} {
 		api.AssertIsEqual(root, g.Roots[i])
 
 		abstractor.CallVoid(api, transaction.AssertStrictlyOrdered{
-			IsDummy: frontend.Variable(0),
-			Lo:      g.LeafLowerRangeValues[i],
-			Mid:     g.Values[i],
-			Hi:      g.LeafHigherRangeValues[i],
+			Lo:  g.LeafLowerRangeValues[i],
+			Mid: g.Values[i],
+			Hi:  g.LeafHigherRangeValues[i],
 		})
 		currentHash[i] = root
 	}

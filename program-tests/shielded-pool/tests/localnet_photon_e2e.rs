@@ -62,10 +62,11 @@ use zolana_transaction::{
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
-    pack_proof, prove_and_verify_transfer, public_input_hash, public_sol_field, real_output,
-    set_output_owner_tags, start_prover, transfer_output, TransferProverInputsArgs,
+    build_transfer_prover_inputs, dummy_input_with_proof, dummy_nullifier, dummy_transfer_output,
+    eddsa_input_utxo, external_data_hash, fe, inline_outputs, new_transact_ix_data,
+    output_owner_pk_hashes, pack_proof, prove_and_verify_transfer, public_input_hash,
+    public_sol_field, real_output, set_output_owner_tags, start_prover, transfer_output,
+    TransferProverInputsArgs,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -287,7 +288,9 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     );
     let change_hash = change_output.hash()?;
     let recipient_hash = recipient_output.hash()?;
-    let transfer_dummy_nullifier = fe(20);
+    let transfer_dummy_nullifier = dummy_nullifier(&[20u8; 31])?;
+    let transfer_dummy_nf =
+        wait_for_non_inclusion_proof(&indexer, tree_address, transfer_dummy_nullifier)?;
     let transfer_roots = (payer_state_proof.root, payer_nullifier_proof.root);
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
@@ -346,11 +349,12 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
             payer_spend_input,
-            dummy_input(
-                &transfer_dummy_nullifier,
+            dummy_input_with_proof(
+                &[20u8; 31],
+                &transfer_dummy_nf,
                 transfer_roots,
                 &payer_owner_pk_hash,
-            ),
+            )?,
         ],
         outputs: transfer_outputs,
         external_data_hash: transfer_external_hash,
@@ -444,7 +448,9 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let public_recipient_before = account_lamports(&rpc, &public_recipient)?;
     let vault = pda::sol_interface();
     let vault_before = account_lamports(&rpc, &vault)?;
-    let withdraw_dummy_nullifier = fe(21);
+    let withdraw_dummy_nullifier = dummy_nullifier(&[21u8; 31])?;
+    let withdraw_dummy_nf =
+        wait_for_non_inclusion_proof(&indexer, tree_address, withdraw_dummy_nullifier)?;
     let withdraw_roots = (recipient_state_proof.root, recipient_nullifier_proof.root);
     let withdraw_dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
@@ -504,11 +510,12 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let withdraw_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
             recipient_spend_input,
-            dummy_input(
-                &withdraw_dummy_nullifier,
+            dummy_input_with_proof(
+                &[21u8; 31],
+                &withdraw_dummy_nf,
                 withdraw_roots,
                 &recipient_owner_pk_hash,
-            ),
+            )?,
         ],
         outputs: withdraw_outputs,
         external_data_hash: withdraw_external_hash,
@@ -949,6 +956,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
                     nullifier: second_nullifier_proof,
                 },
             ],
+            &[],
         )?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::Eddsa(inputs) => ProverClient::local().prove_transfer(inputs)?,
@@ -1335,7 +1343,6 @@ fn create_tree_instructions_with_nullifier_params(
         CreateTree {
             authority: *authority,
             tree: *tree,
-            owner: *authority,
         }
         .instruction_with_nullifier_params(nullifier_params),
     ])
@@ -1637,8 +1644,17 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         let nullifier = wait_for_non_inclusion_proof(&indexer, tree_address, commitment.nullifier)?;
         spend_proofs.push(SpendProof { state, nullifier });
     }
+    // Each padding dummy needs a real non-inclusion witness for its own nullifier.
+    let mut dummy_proofs = Vec::new();
+    for nullifier in proof_inputs.dummy_nullifiers()? {
+        dummy_proofs.push(wait_for_non_inclusion_proof(
+            &indexer,
+            tree_address,
+            nullifier,
+        )?);
+    }
 
-    let assembled = zolana_client::assemble(proof_inputs, &spend_proofs)?;
+    let assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
     let proof = match (&assembled.prover_inputs, expected_rail) {
         (ProverInputs::P256(inputs), SpendRail::P256) => {
             ProverClient::local().prove_transfer_p256(inputs)?

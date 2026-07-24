@@ -32,3 +32,4 @@ zolana-tree = { workspace = true, optional = true }
 [dev-dependencies]
 bytemuck = { workspace = true }
 solana-address = { workspace = true }
+zolana-hasher = { workspace = true, features = ["sha256", "poseidon"] }

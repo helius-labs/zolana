@@ -5,7 +5,7 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	spp "zolana/prover/circuits/spp_transaction"
+	spp "zolana/prover/circuits/spp_transaction/shared"
 )
 
 type Circuit struct {

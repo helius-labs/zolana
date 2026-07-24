@@ -81,10 +81,11 @@ impl ZoneAuthorityProver {
         // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone-authority public-input layout: the 12 base elements, with input owner
+        // Zone-authority public-input layout: the 13 base elements, with input owner
         // pk_fields kept private (no owner chain) and no confidential appendix.
-        // Mirrors NewTransferZoneAuthorityCircuit's publicInputHash. hash_field(&[0;32])
+        // Mirrors zoneAuthorityPublicInputHash. hash_field(&[0;32])
         // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element.
+        let slots = self.public_amounts.interleaved();
         let public_input = create_hash_chain_from_slice(&[
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
@@ -93,9 +94,10 @@ impl ZoneAuthorityProver {
             private_tx,
             hash_field(&[0u8; 32])?,
             external_data_hash,
-            self.public_amounts.sol,
-            self.public_amounts.spl,
-            self.public_amounts.asset,
+            slots[0],
+            slots[1],
+            slots[2],
+            slots[3],
             zone_program_id,
             self.payer_pubkey_hash,
         ])?;
@@ -105,9 +107,8 @@ impl ZoneAuthorityProver {
             outputs: assembled_outputs.outputs,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
-            public_sol_amount: be(&self.public_amounts.sol),
-            public_spl_amount: be(&self.public_amounts.spl),
-            public_spl_asset_pubkey: be(&self.public_amounts.asset),
+            public_assets: self.public_amounts.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_amounts.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             public_input_hash: be(&public_input),
@@ -147,16 +148,15 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
             shape,
         } = prepared;
 
-        let spends = attach_input_proofs(inputs, &proofs)?;
+        let spends = attach_input_proofs(inputs, &proofs, &[])?;
 
         Ok(ZoneAuthorityProver {
             inputs: spends,
             outputs,
             external_data,
             public_amounts: PublicAmounts {
-                sol: public_amounts.sol,
-                spl: public_amounts.spl,
-                asset: public_amounts.asset,
+                assets: public_amounts.assets,
+                amounts: public_amounts.amounts,
             },
             payer_pubkey_hash,
             zone_program_id,

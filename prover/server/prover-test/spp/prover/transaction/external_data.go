@@ -23,10 +23,8 @@ type externalDataPreimage struct {
 }
 
 type externalValues struct {
-	hash            *big.Int
-	publicSolAmount *big.Int
-	publicSplAmount *big.Int
-	publicSplAsset  *big.Int
+	hash        *big.Int
+	publicSlots publicSlots
 	// zoneProgramID is the single per-tx zone program identifier (public input).
 	// Zero on default transact. dataHash / zoneDataHash are the tx-level
 	// program/zone data hashes folded into external_data_hash.
@@ -70,7 +68,7 @@ func buildExternalData(tx ProofTransactionRequest) (externalValues, error) {
 
 	publicSolAmount := u64OrZero(tx.PublicSolAmount)
 	publicSplAmount := u64OrZero(tx.PublicSplAmount)
-	publicAmounts, err := derivePublicAmounts(tx)
+	slots, err := derivePublicSlots(tx)
 	if err != nil {
 		return externalValues{}, err
 	}
@@ -105,12 +103,10 @@ func buildExternalData(tx ProofTransactionRequest) (externalValues, error) {
 			SplTokenInterface:        splTokenInterface,
 			EncryptedUtxos:           encryptedUtxos,
 		}),
-		publicSolAmount: publicAmounts.sol,
-		publicSplAmount: publicAmounts.spl,
-		publicSplAsset:  publicAmounts.asset,
-		zoneProgramID:   big.NewInt(0),
-		dataHash:        dataHash,
-		zoneDataHash:    zoneDataHash,
+		publicSlots:   slots,
+		zoneProgramID: big.NewInt(0),
+		dataHash:      dataHash,
+		zoneDataHash:  zoneDataHash,
 	}, nil
 }
 

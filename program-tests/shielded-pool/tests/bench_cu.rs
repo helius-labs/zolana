@@ -43,7 +43,7 @@ mod transact_common;
 
 use transact_common::{
     build_transfer_prover_inputs, build_transfer_prover_inputs_spl, dummy_input,
-    dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe,
+    dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl,
     inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
     prove_and_verify_transfer, public_input_hash, public_input_hash_spl, public_sol_field,
     set_output_owner_tags, spend_input, start_prover, SpendInputArgs, TransferProverInputsArgs,
@@ -359,7 +359,13 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];
 
-    let nullifiers = [fe(1), fe(2)];
+    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let owner_hash = hash_field(&payer_bytes).expect("owner hash");
+    let (dummy_input_0, nullifier_0) =
+        dummy_input(&[31u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 0");
+    let (dummy_input_1, nullifier_1) =
+        dummy_input(&[32u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 1");
+    let nullifiers = [nullifier_0, nullifier_1];
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
@@ -385,7 +391,6 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let private_tx = PrivateTxHash::new(&[zero, zero], &[zero, zero, zero], &external_data_hash)
         .hash()
         .expect("private tx hash");
-    let owner_hash = hash_field(&payer_bytes).expect("owner hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
     let public_input_hash = public_input_hash(
@@ -402,10 +407,7 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
         &zero,
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
-            dummy_input(&nullifiers[0], roots, &owner_hash),
-            dummy_input(&nullifiers[1], roots, &owner_hash),
-        ],
+        inputs: vec![dummy_input_0, dummy_input_1],
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
@@ -485,7 +487,8 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         .expect("non inclusion proof");
 
     let roots = (utxo_root, nullifier_root);
-    let dummy_nullifier = fe(2);
+    let (dummy_spend_input, dummy_nullifier) =
+        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
     let payer_spend_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -546,10 +549,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         &zero,
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
-            payer_spend_input,
-            dummy_input(&dummy_nullifier, roots, &owner_pk_hash),
-        ],
+        inputs: vec![payer_spend_input, dummy_spend_input],
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
@@ -651,7 +651,8 @@ fn bench_withdrawal_spl(
         .expect("non inclusion proof");
 
     let roots = (utxo_root, nullifier_root);
-    let dummy_nullifier = fe(2);
+    let (dummy_spend_input, dummy_nullifier) =
+        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
     let payer_spend_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -716,10 +717,7 @@ fn bench_withdrawal_spl(
     );
     let prover_inputs = build_transfer_prover_inputs_spl(
         TransferProverInputsArgs {
-            inputs: vec![
-                payer_spend_input,
-                dummy_input(&dummy_nullifier, roots, &owner_pk_hash),
-            ],
+            inputs: vec![payer_spend_input, dummy_spend_input],
             outputs,
             external_data_hash,
             private_tx_hash: private_tx,

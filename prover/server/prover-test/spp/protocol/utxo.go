@@ -27,7 +27,13 @@ func SolAsset() *big.Int {
 	return new(big.Int).Set(solAssetValue)
 }
 
-const UtxoDomain = 1
+// UTXO domain tags: the circuit classifies input and output slots by the
+// domain tag alone (mirrors circuits/spp_transaction/shared).
+const (
+	DummyDomain   = 1
+	AddressDomain = 2
+	UtxoDomain    = 3
+)
 
 type Utxo struct {
 	Domain        *big.Int

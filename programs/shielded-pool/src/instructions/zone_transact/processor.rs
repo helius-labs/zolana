@@ -38,7 +38,6 @@ pub fn process_zone_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         &ix,
         &mut proof_inputs,
         transact_accounts,
-        clock.slot,
         ZONE_TRANSACT,
         &resolved_outputs,
     )

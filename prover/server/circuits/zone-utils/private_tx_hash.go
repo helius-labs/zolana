@@ -7,7 +7,7 @@ package zoneutils
 import (
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/spp_transaction"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
 // NumInputs and NumOutputs fix the circuit shape. The HashChain folds exactly

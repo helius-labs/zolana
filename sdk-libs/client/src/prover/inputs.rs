@@ -1,4 +1,5 @@
 use num_bigint::BigUint;
+use zolana_interface::N_PUBLIC_SLOTS;
 use zolana_transaction::{instructions::types::SppProofInputUtxo, ProofInputUtxo};
 
 use crate::{
@@ -88,9 +89,10 @@ pub struct TransferP256Inputs {
     /// both 0 on the Solana-only rail.
     pub p256_message_hash_low: BigUint,
     pub p256_message_hash_high: BigUint,
-    pub public_sol_amount: BigUint,
-    pub public_spl_amount: BigUint,
-    pub public_spl_asset_pubkey: BigUint,
+    /// Uniform public movement slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
+    /// slots are (0, 0).
+    pub public_assets: [BigUint; N_PUBLIC_SLOTS],
+    pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
     pub zone_program_id: BigUint,
     pub payer_pubkey_hash: BigUint,
     /// Confidential variant: the shared P256 signing key's pk_field, exposed so the
@@ -158,9 +160,10 @@ pub struct TransferInputs {
     pub outputs: Vec<TransferOutput>,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
-    pub public_sol_amount: BigUint,
-    pub public_spl_amount: BigUint,
-    pub public_spl_asset_pubkey: BigUint,
+    /// Uniform public movement slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
+    /// slots are (0, 0).
+    pub public_assets: [BigUint; N_PUBLIC_SLOTS],
+    pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
     pub zone_program_id: BigUint,
     pub payer_pubkey_hash: BigUint,
     pub public_input_hash: BigUint,

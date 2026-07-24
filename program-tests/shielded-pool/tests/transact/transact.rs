@@ -15,7 +15,7 @@
 
 #[path = "../common/setup.rs"]
 mod common;
-#[path = "../common/transact_core.rs"]
+#[path = "../common/transact.rs"]
 mod transact_common;
 
 use solana_keypair::Keypair;
@@ -34,9 +34,9 @@ use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
-    prove_and_verify_transfer, public_input_hash, set_output_owner_tags, start_prover,
-    TransferProverInputsArgs,
+    external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
+    output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, set_output_owner_tags,
+    start_prover, TransferProverInputsArgs,
 };
 
 /// The (utxo, nullifier) tree roots at history index 0, exactly as the program
@@ -82,9 +82,17 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
     let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];
 
-    // Two circuit-dummy inputs with distinct non-zero nullifiers (the program
-    // inserts both into the nullifier tree; zeros or duplicates are rejected).
-    let nullifiers = [fe(1), fe(2)];
+    // Two circuit-dummy inputs over distinct blindings. Each derives its
+    // nullifier over the dummified utxo hash and carries a real non-inclusion
+    // witness (the program inserts both nullifiers into the nullifier tree;
+    // zeros or duplicates are rejected).
+    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let owner_hash = hash_field(&payer_bytes).expect("owner hash");
+    let (dummy_input_0, nullifier_0) =
+        dummy_input(&[31u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 0");
+    let (dummy_input_1, nullifier_1) =
+        dummy_input(&[32u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 1");
+    let nullifiers = [nullifier_0, nullifier_1];
 
     // Three dummy outputs with distinct blindings. Each has a real `utxo_hash` that
     // the program appends to the tree and the proof commits via the public output
@@ -129,7 +137,6 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
         .expect("private tx hash");
 
     // Values the program reconstructs from accounts[0] (the payer).
-    let owner_hash = hash_field(&payer_bytes).expect("owner hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
     let public_input_hash = public_input_hash(
@@ -147,10 +154,7 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
     );
 
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
-            dummy_input(&nullifiers[0], roots, &owner_hash),
-            dummy_input(&nullifiers[1], roots, &owner_hash),
-        ],
+        inputs: vec![dummy_input_0, dummy_input_1],
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,

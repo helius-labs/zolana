@@ -220,6 +220,7 @@ impl ZoneLifecycleWorld {
                 state,
                 nullifier: non_inclusion,
             }),
+            nullifier_proof: None,
         };
 
         // Tracked recipient actor; the re-owned output is zone-owned (bound to the
@@ -302,11 +303,7 @@ impl ZoneLifecycleWorld {
             inputs: vec![spend_input],
             outputs: vec![output],
             external_data: external_data.clone(),
-            public_amounts: PublicAmounts {
-                sol: [0u8; 32],
-                spl: [0u8; 32],
-                asset: [0u8; 32],
-            },
+            public_amounts: PublicAmounts::transfer(),
             payer_pubkey_hash: sha256_be(&self.payer.pubkey().to_bytes()),
             zone_program_id: Some(zone),
             shape: Some(Shape::new(1, 1)),

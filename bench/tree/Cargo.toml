@@ -34,7 +34,6 @@ solana-instruction = "2.2"
 solana-pubkey = "2.2"
 zolana-client = { workspace = true }
 zolana-merkle-tree = { workspace = true }
-zolana-merkle-tree-metadata = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "keccak"] }
 solana-address = { workspace = true }
 wincode = { workspace = true }

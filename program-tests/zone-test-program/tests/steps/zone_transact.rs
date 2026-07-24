@@ -485,13 +485,17 @@ impl ZoneLifecycleWorld {
 
     /// Convert the builder's padded `SppProofInputUtxo` list into the prover's
     /// `TransferSpendInput` list, fetching a `SpendProof` for every real input
-    /// against its zone-bound UTXO hash (dummies carry no proof and mirror the first
-    /// real input's roots downstream).
+    /// against its zone-bound UTXO hash. A dummy carries no state proof (it mirrors
+    /// the first real input's state root downstream) but still needs a real
+    /// non-inclusion witness for its own nullifier: the circuit checks
+    /// non-inclusion for every slot.
     fn zone_spend_inputs(&self, spends: &[SppProofInputUtxo]) -> Result<Vec<TransferSpendInput>> {
         let mut out = Vec::with_capacity(spends.len());
         for spend in spends {
-            let proof = if spend.is_dummy() {
-                None
+            let (proof, nullifier_proof) = if spend.is_dummy() {
+                let nullifier = spend.nullifier()?;
+                let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
+                (None, Some(nf))
             } else {
                 let nullifier_pk = spend.nullifier_key.pubkey()?;
                 let utxo_hash = spend.utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
@@ -500,10 +504,13 @@ impl ZoneLifecycleWorld {
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;
                 let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
                 let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
-                Some(SpendProof {
-                    state,
-                    nullifier: nf,
-                })
+                (
+                    Some(SpendProof {
+                        state,
+                        nullifier: nf,
+                    }),
+                    None,
+                )
             };
             out.push(TransferSpendInput {
                 utxo: spend.utxo.clone(),
@@ -511,6 +518,7 @@ impl ZoneLifecycleWorld {
                 data_hash: None,
                 zone_data_hash: None,
                 proof,
+                nullifier_proof,
             });
         }
         Ok(out)
@@ -708,14 +716,13 @@ impl ZoneLifecycleWorld {
 }
 
 /// Convert the transaction crate's `PublicAmounts` into the prover client's
-/// identically-shaped type (both are `{ sol, spl, asset }: [u8; 32]`).
+/// identically-shaped type (both are `{ assets, amounts }` slot arrays).
 fn client_public_amounts(
     amounts: zolana_transaction::instructions::transact::PublicAmounts,
 ) -> PublicAmounts {
     PublicAmounts {
-        sol: amounts.sol,
-        spl: amounts.spl,
-        asset: amounts.asset,
+        assets: amounts.assets,
+        amounts: amounts.amounts,
     }
 }
 

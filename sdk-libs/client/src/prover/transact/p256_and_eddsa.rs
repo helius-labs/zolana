@@ -1,6 +1,7 @@
 use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_interface::N_PUBLIC_SLOTS;
 use zolana_keypair::{
     hash::{hash_field, sha256, split_be_128},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
@@ -17,7 +18,7 @@ use crate::{
         transact::witness::SpendProof,
         Shape, TransferInput, TransferOutput, TransferP256Inputs,
     },
-    rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
+    rpc::{NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
 
 #[derive(Clone)]
@@ -27,24 +28,39 @@ pub struct TransferSpendInput {
     pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy mirrors
-    /// the first real input's roots, so it has no proof of its own.
+    /// the first real input's state root, so it has no state proof of its own.
     pub proof: Option<SpendProof>,
+    /// Padding slots only: the fetched non-inclusion proof for the dummy's own
+    /// nullifier. The circuit checks non-inclusion for every slot, dummies
+    /// included, so a dummy needs a real low-element witness.
+    pub nullifier_proof: Option<NonInclusionProof>,
 }
 
+/// Uniform public movement slots (slot 0 = SOL leg, slot 1 = SPL leg): a signed
+/// net flow per asset id. Idle slots are (0, 0).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicAmounts {
-    pub sol: [u8; 32],
-    pub spl: [u8; 32],
-    pub asset: [u8; 32],
+    pub assets: [[u8; 32]; N_PUBLIC_SLOTS],
+    pub amounts: [[u8; 32]; N_PUBLIC_SLOTS],
 }
 
 impl PublicAmounts {
     pub fn transfer() -> Self {
         Self {
-            sol: [0u8; 32],
-            spl: [0u8; 32],
-            asset: [0u8; 32],
+            assets: [[0u8; 32]; N_PUBLIC_SLOTS],
+            amounts: [[0u8; 32]; N_PUBLIC_SLOTS],
         }
+    }
+
+    /// The public-input-hash preimage order: `asset_0, amount_0, asset_1,
+    /// amount_1`, shared by every host mirror and the circuit.
+    pub(crate) fn interleaved(&self) -> [[u8; 32]; 2 * N_PUBLIC_SLOTS] {
+        [
+            self.assets[0],
+            self.amounts[0],
+            self.assets[1],
+            self.amounts[1],
+        ]
     }
 }
 /// The P256 ownership signature, computed once over the finalized transaction in
@@ -139,9 +155,8 @@ impl TransferP256Prover {
             private_tx_hash: be(&private_tx),
             p256_message_hash_low: be(&p256_message_low),
             p256_message_hash_high: be(&p256_message_high),
-            public_sol_amount: be(&self.public_amounts.sol),
-            public_spl_amount: be(&self.public_amounts.spl),
-            public_spl_asset_pubkey: be(&self.public_amounts.asset),
+            public_assets: self.public_amounts.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_amounts.amounts.map(|amount| be(&amount)),
             zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             p256_signing_pk_field: be(&p256_signing_pk_field),
@@ -265,11 +280,24 @@ pub(crate) fn assemble_inputs(
     for (index, spend) in spends.iter().enumerate() {
         let Some(proof) = &spend.proof else {
             let utxo_root = *utxo_roots.first().ok_or(ClientError::NoInputs)?;
-            let nf_root = *nullifier_tree_roots.first().ok_or(ClientError::NoInputs)?;
             let owner = *input_owner_pk_hashes.first().ok_or(ClientError::NoInputs)?;
-            let &(ur_index, nr_index) = root_indices.first().ok_or(ClientError::NoInputs)?;
-            let (input, nullifier) =
+            let &(ur_index, first_nr_index) = root_indices.first().ok_or(ClientError::NoInputs)?;
+            let (nf_root, nr_index) = match &spend.nullifier_proof {
+                Some(nf) => (nf.root, nf.root_index),
+                None => (
+                    *nullifier_tree_roots.first().ok_or(ClientError::NoInputs)?,
+                    first_nr_index,
+                ),
+            };
+            let (mut input, nullifier) =
                 TransferInput::new_dummy(&spend.utxo.blinding, &utxo_root, &nf_root, &owner)?;
+            if let Some(nf) = &spend.nullifier_proof {
+                check_path_length(nf.path.len(), NULLIFIER_TREE_HEIGHT)?;
+                input.nullifier_low_value = be(&nf.low_element);
+                input.nullifier_next_value = be(&nf.high_element);
+                input.nullifier_low_path_elements = nf.path.iter().map(be).collect();
+                input.nullifier_low_path_index = BigUint::from(nf.low_element_index);
+            }
             inputs.push(input);
             input_hashes.push([0u8; 32]);
             nullifiers.push(nullifier);
@@ -425,6 +453,7 @@ pub(crate) struct PublicInputs<'a> {
 
 impl PublicInputs<'_> {
     pub(crate) fn hash(&self) -> Result<[u8; 32], ClientError> {
+        let slots = self.public_amounts.interleaved();
         let elements = [
             create_hash_chain_from_slice(self.nullifiers)?,
             create_hash_chain_from_slice(self.output_hashes)?,
@@ -433,9 +462,10 @@ impl PublicInputs<'_> {
             *self.private_tx,
             hash_field(self.p256_message_hash)?,
             *self.external_data_hash,
-            self.public_amounts.sol,
-            self.public_amounts.spl,
-            self.public_amounts.asset,
+            slots[0],
+            slots[1],
+            slots[2],
+            slots[3],
             *self.zone_program_id,
             *self.payer_pubkey_hash,
             create_hash_chain_from_slice(self.input_owner_pk_hashes)?,

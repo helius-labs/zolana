@@ -107,12 +107,10 @@ pub(crate) struct TransferP256InputsJson {
     pub p256_message_hash_low: String,
     #[serde(rename = "p256MessageHashHigh")]
     pub p256_message_hash_high: String,
-    #[serde(rename = "publicSolAmount")]
-    pub public_sol_amount: String,
-    #[serde(rename = "publicSplAmount")]
-    pub public_spl_amount: String,
-    #[serde(rename = "publicSplAssetPubkey")]
-    pub public_spl_asset_pubkey: String,
+    #[serde(rename = "publicAssets")]
+    pub public_assets: Vec<String>,
+    #[serde(rename = "publicAmounts")]
+    pub public_amounts: Vec<String>,
     #[serde(rename = "zoneProgramId")]
     pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
@@ -139,12 +137,10 @@ pub(crate) struct TransferInputsJson {
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
-    #[serde(rename = "publicSolAmount")]
-    pub public_sol_amount: String,
-    #[serde(rename = "publicSplAmount")]
-    pub public_spl_amount: String,
-    #[serde(rename = "publicSplAssetPubkey")]
-    pub public_spl_asset_pubkey: String,
+    #[serde(rename = "publicAssets")]
+    pub public_assets: Vec<String>,
+    #[serde(rename = "publicAmounts")]
+    pub public_amounts: Vec<String>,
     #[serde(rename = "zoneProgramId")]
     pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
@@ -219,9 +215,16 @@ fn transfer_p256_inputs_json(inputs: &TransferP256Inputs, circuit_type: &str) ->
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         p256_message_hash_low: big_uint_to_string(&inputs.p256_message_hash_low),
         p256_message_hash_high: big_uint_to_string(&inputs.p256_message_hash_high),
-        public_sol_amount: big_uint_to_string(&inputs.public_sol_amount),
-        public_spl_amount: big_uint_to_string(&inputs.public_spl_amount),
-        public_spl_asset_pubkey: big_uint_to_string(&inputs.public_spl_asset_pubkey),
+        public_assets: inputs
+            .public_assets
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        public_amounts: inputs
+            .public_amounts
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
         p256_signing_pk_field: big_uint_to_string(&inputs.p256_signing_pk_field),
@@ -391,9 +394,16 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
-        public_sol_amount: big_uint_to_string(&inputs.public_sol_amount),
-        public_spl_amount: big_uint_to_string(&inputs.public_spl_amount),
-        public_spl_asset_pubkey: big_uint_to_string(&inputs.public_spl_asset_pubkey),
+        public_assets: inputs
+            .public_assets
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        public_amounts: inputs
+            .public_amounts
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
@@ -553,9 +563,8 @@ mod merge_tests {
             }],
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
-            public_sol_amount: BigUint::ZERO,
-            public_spl_amount: BigUint::ZERO,
-            public_spl_asset_pubkey: BigUint::ZERO,
+            public_assets: [BigUint::ZERO, BigUint::ZERO],
+            public_amounts: [BigUint::ZERO, BigUint::ZERO],
             zone_program_id: BigUint::from(0x55u8),
             payer_pubkey_hash: BigUint::from(8u8),
             public_input_hash: BigUint::from(9u8),
@@ -571,15 +580,16 @@ mod merge_tests {
             "outputs",
             "externalDataHash",
             "privateTxHash",
-            "publicSolAmount",
-            "publicSplAmount",
-            "publicSplAssetPubkey",
+            "publicAssets",
+            "publicAmounts",
             "zoneProgramId",
             "payerPubkeyHash",
             "publicInputHash",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }
+        assert_eq!(value["publicAssets"].as_array().map(|a| a.len()), Some(2));
+        assert_eq!(value["publicAmounts"].as_array().map(|a| a.len()), Some(2));
         // Solana-only rail: no P256 fields on the request.
         assert!(value.get("p256PubX").is_none());
         assert_eq!(value["zoneProgramId"], "0x55");

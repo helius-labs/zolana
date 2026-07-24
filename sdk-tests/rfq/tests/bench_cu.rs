@@ -104,7 +104,6 @@ fn build_tree_fixture(
             &mut tree_account_bytes,
             TREE_ACCOUNT_DISCRIMINATOR,
             STATE_HEIGHT as u8,
-            [1u8; 32],
             tree.to_bytes(),
             address_tree_params(),
         )
@@ -236,11 +235,11 @@ fn prove_transact_timed(
     prover: &ProverClient,
 ) -> (TransactIxData, Duration) {
     prover
-        .prove_transact(proof_inputs.clone(), spend_proofs)
+        .prove_transact(proof_inputs.clone(), spend_proofs, &[])
         .expect("warm prove transact");
     let start = Instant::now();
     let transact = prover
-        .prove_transact(proof_inputs, spend_proofs)
+        .prove_transact(proof_inputs, spend_proofs, &[])
         .expect("prove transact");
     (transact, start.elapsed())
 }

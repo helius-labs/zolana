@@ -31,11 +31,6 @@ pub struct QueueBatches {
     /// Number of elements in a ZKP batch.
     /// A batch has one or more ZKP batches.
     pub zkp_batch_size: u64,
-    /// Bloom filter capacity in bits. Matches upstream's `bloom_filter_capacity`
-    /// at the same struct offset. Set at init from the `BLOOM` byte size so that
-    /// indexers parsing our account with the upstream crate size the bloom
-    /// region correctly (`bloom_filter_capacity / 8` bytes).
-    pub bloom_filter_capacity: u64,
     /// Batch elements are currently inserted in.
     pub currently_processing_batch_index: u64,
     /// Next batch to be inserted into the tree.
@@ -113,7 +108,6 @@ impl QueueBatches {
         Ok(QueueBatches {
             num_batches: NUM_BATCHES as u64,
             zkp_batch_size,
-            bloom_filter_capacity: 0,
             batch_size,
             currently_processing_batch_index: 0,
             pending_batch_index: 0,
