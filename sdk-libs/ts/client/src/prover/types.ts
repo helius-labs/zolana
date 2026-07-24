@@ -59,6 +59,22 @@ export interface TransferP256Inputs extends TransferInputs {
   readonly p256SigningPublicKeyField: Field;
 }
 
+export interface MergeInputs {
+  readonly inputs: readonly TransferInput[];
+  readonly output: TransferOutput;
+  readonly p256PublicKeyX: Field;
+  readonly p256PublicKeyY: Field;
+  readonly ownerPublicKeyHash: Field;
+  readonly userNullifierPublicKey: Field;
+  readonly userNullifierSecret: Field;
+  readonly txViewingSecret: Field;
+  readonly userViewingPublicKey: readonly Field[];
+  readonly externalDataHash: Field;
+  readonly privateTxHash: Field;
+  readonly publicInputHash: Field;
+  readonly zoneProgramId: Field;
+}
+
 export type ProverInputs =
   | Readonly<{ circuit: "transfer"; payload: TransferInputs }>
   | Readonly<{ circuit: "transferP256"; payload: TransferP256Inputs }>;

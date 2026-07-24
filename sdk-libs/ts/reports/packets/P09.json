@@ -4,7 +4,10 @@
       "@zolana/client root: ClientError, IndexerPollConfig, IndexerRpcConfig, RpcContext, MerkleContext, MerkleProof, NonInclusionProof, GetMerkleProofsResponse, GetNonInclusionProofsResponse, SpendProof, Rpc, SolanaRpc, ZolanaIndexer, SignedPrivateTransaction, ZolanaClient",
       "@zolana/client/prover: Shape, Field, SpendProof, TransferInput, TransferOutput, TransferInputs, TransferP256Inputs, ProverInputs, AssembledTransfer, Proof, CompressedProof, ProverClient, assemble, intoProver, compressProof, canonicalShape, resolveShape"
     ],
-    "changed": [],
+    "changed": [
+      "ZolanaClient: proveMerge({ prepared, material, indexer? }, context?) -> Promise<{ data, outputHash }>",
+      "ZolanaClient: finishMergeSubmissionUnsigned({ proved, feePayer, userRecord, recentBlockhash }) -> Transaction"
+    ],
     "removed": []
   },
   "blockers": [],
@@ -12,7 +15,7 @@
     {
       "command": "npm run test:unit --workspace @zolana/client",
       "exitStatus": "0",
-      "responsibility": "56 RPC, indexer, prover, assembly, mixed-rail, retry, malformed/tamper, abort/timeout, unsigned-message, and signature-bound confirmation tests"
+      "responsibility": "60 RPC, indexer, transfer/merge prover assembly, mixed-rail, retry, malformed/tamper, abort/timeout, unsigned-message, and signature-bound confirmation tests"
     },
     {
       "command": "npm run test:vectors --workspace @zolana/client",
@@ -27,7 +30,7 @@
     {
       "command": "npm run test:prover --workspace @zolana/client",
       "exitStatus": "0",
-      "responsibility": "9 non-vacuous EdDSA/P256 request, proof, mixed-rail, retry, abort, timeout, and malformed tests"
+      "responsibility": "9 non-vacuous EdDSA/P256 transfer request, proof, mixed-rail, retry, abort, timeout, and malformed tests"
     },
     {
       "command": "npm run test:browser --workspace @zolana/client",
@@ -67,22 +70,32 @@
     {
       "command": "npm run fixtures:check",
       "exitStatus": "0",
-      "responsibility": "40 manifest-pinned fixtures with SHA256 verification and 182 inventory rows"
+      "responsibility": "49 manifest-pinned fixtures with SHA256 verification and 182 inventory rows"
     },
     {
       "command": "npm pack --dry-run --workspace @zolana/client",
       "exitStatus": "0",
-      "responsibility": "49-file package containing manifest and dist output"
+      "responsibility": "53-file package containing manifest, merge internals, and dist output"
     },
     {
       "command": "npm run check",
       "exitStatus": "0",
-      "responsibility": "shared build, typecheck, lint, format, 257 tests, inventory, exports, dependencies, and API checks"
+      "responsibility": "shared build, typecheck, lint, format, 270 tests, inventory, exports, dependencies, and API checks"
+    },
+    {
+      "command": "npm run test:browser",
+      "exitStatus": "0",
+      "responsibility": "shared browser bundling for all production package entry points"
     },
     {
       "command": "npm run pack:check",
       "exitStatus": "0",
       "responsibility": "shared packed consumers installed all package entry points"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/client -- --run test/merge.test.ts",
+      "exitStatus": "0",
+      "responsibility": "4 focused valid merge, malformed material/proof, abort/timeout, and exact unsigned assembly tests"
     }
   ],
   "dependencies": {
@@ -93,7 +106,7 @@
       "@zolana/keypair",
       "@zolana/transaction"
     ],
-    "status": "All declared production dependencies resolve; dependency, export, mixed-rail, cross, prover, and fixture gates pass with zero gaps."
+    "status": "All declared production dependencies resolve; dependency, export, merge, mixed-rail, cross, prover, and fixture gates pass with zero gaps."
   },
   "fixtureCoverage": [
     {
@@ -111,7 +124,8 @@
       "tests": [
         "client/test/vectors/proof-compression.test.ts",
         "client/test/prover/eddsa.test.ts",
-        "client/test/prover/p256.test.ts"
+        "client/test/prover/p256.test.ts",
+        "client/test/merge.test.ts"
       ],
       "assertions": "exact valid vanilla and BSB22 uncompressed/compressed points plus malformed, off-curve, partial-commitment, and wrong-rail rejection"
     },
@@ -137,6 +151,11 @@
       "id": "fx-p00-api-prover-request-v1",
       "tests": ["client/test/vectors/prover-request.test.ts"],
       "assertions": "complete deterministic dummy witness request JSON"
+    },
+    {
+      "id": "fx-p00-transaction-merge-v1",
+      "tests": ["client/test/merge.test.ts"],
+      "assertions": "prepared 8-in/1-out material, deterministic output hash, merge proof request shape, instruction material, and unsigned native message"
     }
   ],
   "fixtureIds": [
@@ -145,7 +164,8 @@
     "fx-p00-client-proof-validity-v1",
     "fx-p00-client-prover-shapes-v1",
     "fx-p00-client-rpc-indexer-v1",
-    "fx-p00-api-prover-request-v1"
+    "fx-p00-api-prover-request-v1",
+    "fx-p00-transaction-merge-v1"
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
   "inventoryRows": [
@@ -204,12 +224,14 @@
     "sdk-libs/ts/client/src/prover/assembly.ts",
     "sdk-libs/ts/client/src/prover/client.ts",
     "sdk-libs/ts/client/src/prover/index.ts",
+    "sdk-libs/ts/client/src/prover/merge.ts",
     "sdk-libs/ts/client/src/prover/proof.ts",
     "sdk-libs/ts/client/src/prover/types.ts",
     "sdk-libs/ts/client/src/rpc.ts",
     "sdk-libs/ts/client/src/solana-rpc.ts",
     "sdk-libs/ts/client/test/helpers/prover-vectors.ts",
     "sdk-libs/ts/client/test/indexer-client.test.ts",
+    "sdk-libs/ts/client/test/merge.test.ts",
     "sdk-libs/ts/client/test/prover.test.ts",
     "sdk-libs/ts/client/test/prover/eddsa.test.ts",
     "sdk-libs/ts/client/test/prover/p256.test.ts",
@@ -230,11 +252,13 @@
       "matched frozen PrivateTxHash Poseidon inputs, full-width P256 witness integers, P256 coordinate recovery, and BN254 base-field proof negation",
       "validated both BN254 point rails and retained BSB22 commitments only on P256",
       "compiled unsigned legacy Solana messages with canonical account ordering and external signature slots",
+      "assembled the frozen merge witness, verifiable ciphertext, BSB22 request, instruction data, and 1.4M-CU unsigned message without wallet signing keys",
+      "validated merge material identity, proof trees, committed proof responses, caller blockhash, fee payer, and output binding before submission",
       "applied caller-provided proof polling backoff exactly",
       "bound Photon completion to both transaction signature and output tags",
       "removed all resolved P00, P01, and P05 blocker paths after their exact regression gates passed"
     ],
-    "finalReview": "All 45 rows are implemented and source-proven. The final simplification, code-quality, and comment pass found no narration comments, vague prose, compatibility shim, placeholder, wallet-key acceptance, raw wallet export, or Node-only production global."
+    "finalReview": "All 45 rows and the reopened P10 merge boundary are implemented and source-proven. The final simplification, code-quality, and comment pass found no narration comments, vague prose, compatibility shim, placeholder, wallet-key acceptance, raw wallet export, or Node-only production global."
   },
   "readiness": {
     "aggregateBlockers": [],

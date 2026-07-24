@@ -4,12 +4,20 @@ import { ClientError } from "../error.js";
 import { composeSignal, requestError, sleep, type ComposedSignal } from "../internal.js";
 import { circuitUtxo } from "./assembly.js";
 import { parseProof } from "./proof.js";
-import type { Field, Proof, ProverInputs, TransferInput, TransferOutput } from "./types.js";
+import type {
+  Field,
+  MergeInputs,
+  Proof,
+  ProverInputs,
+  TransferInput,
+  TransferOutput,
+} from "./types.js";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 2_000n;
 const MAX_POLL_MS = 1_200_000;
+const PROVE_MERGE = Symbol("proveMerge");
 
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
@@ -44,7 +52,18 @@ export class ProverClient {
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    const body = JSON.stringify(proverRequest(inputs));
+    return this.#send(
+      JSON.stringify(proverRequest(inputs)),
+      inputs.circuit === "transferP256",
+      context,
+    );
+  }
+
+  async [PROVE_MERGE](inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
+    return this.#send(JSON.stringify(mergeProverRequest(inputs)), true, context);
+  }
+
+  async #send(body: string, p256: boolean, context?: RequestContext): Promise<Proof> {
     const signal = composeSignal(context, "prove");
     try {
       let lastStatus: number | undefined;
@@ -84,9 +103,9 @@ export class ProverClient {
           typeof value["job_id"] === "string" &&
           value["proof"] === undefined
         ) {
-          return await this.#poll(value["job_id"], inputs.circuit === "transferP256", signal);
+          return await this.#poll(value["job_id"], p256, signal);
         }
-        return parseProof(value, inputs.circuit === "transferP256");
+        return parseProof(value, p256);
       }
       throw new ClientError("CLIENT_PROVER_HTTP", {
         details: { method: "prove", status: lastStatus, attempts: MAX_ATTEMPTS },
@@ -145,6 +164,32 @@ export class ProverClient {
       continue;
     }
   }
+}
+
+export function proveMerge(
+  client: ProverClient,
+  inputs: MergeInputs,
+  context?: RequestContext,
+): Promise<Proof> {
+  return client[PROVE_MERGE](inputs, context);
+}
+
+export function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    circuitType: "merge",
+    inputs: inputs.inputs.map(inputJson),
+    output: outputJson(inputs.output),
+    p256PubX: hex(inputs.p256PublicKeyX),
+    p256PubY: hex(inputs.p256PublicKeyY),
+    ownerPkHash: hex(inputs.ownerPublicKeyHash),
+    userNullifierPk: hex(inputs.userNullifierPublicKey),
+    userNullifierSecret: hex(inputs.userNullifierSecret),
+    txViewingSk: hex(inputs.txViewingSecret),
+    userViewingPubkey: inputs.userViewingPublicKey.map(hex),
+    externalDataHash: hex(inputs.externalDataHash),
+    privateTxHash: hex(inputs.privateTxHash),
+    publicInputHash: hex(inputs.publicInputHash),
+  });
 }
 
 export function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {

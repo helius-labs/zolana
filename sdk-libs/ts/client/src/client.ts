@@ -1,5 +1,9 @@
 import { hash, hashBytes } from "@zolana/indexer-api";
 import { transactInstructionDataCodec } from "@zolana/interface/codecs";
+import {
+  mergeTransactInstruction,
+  type MergeTransactInstructionData,
+} from "@zolana/interface/instructions";
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE } from "@zolana/interface";
 import type {
   Address,
@@ -11,13 +15,15 @@ import type {
   TransactInstructionData,
   TransactWithdrawal,
 } from "@zolana/interface";
-import { SppProofInputs, type InputUtxoContext } from "@zolana/transaction";
+import type { NullifierKey, P256PublicKey, ShieldedPublicKey } from "@zolana/keypair";
+import { PreparedMerge, SppProofInputs, type InputUtxoContext } from "@zolana/transaction";
 
 import { ClientError } from "./error.js";
 import { addressBytes, decodeBase58, sha256Bytes, signatureBytes, sleep } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import { assemble } from "./prover/assembly.js";
-import { ProverClient } from "./prover/client.js";
+import { ProverClient, proveMerge } from "./prover/client.js";
+import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
 import {
   DEFAULT_INDEXER_POLL,
@@ -37,6 +43,17 @@ export interface SignedPrivateTransaction {
   readonly transaction: SppProofInputs;
   readonly withdrawal?: TransactWithdrawal;
   readonly tree: Address;
+}
+
+export interface MergeMaterialInput {
+  readonly signingPublicKey: ShieldedPublicKey;
+  readonly viewingPublicKey: P256PublicKey;
+  readonly nullifierKey: NullifierKey;
+}
+
+export interface ProvedMerge {
+  readonly data: MergeTransactInstructionData;
+  readonly outputHash: Bytes32;
 }
 
 export class ZolanaClient implements Rpc {
@@ -258,6 +275,73 @@ export class ZolanaClient implements Rpc {
     return assembled.withProof(compressProof(proof).toTransactProof());
   }
 
+  async proveMerge(
+    input: Readonly<{
+      prepared: PreparedMerge;
+      material: MergeMaterialInput;
+      indexer?: Pick<Rpc, "getInputMerkleProofs">;
+    }>,
+    context?: RequestContext,
+  ): Promise<ProvedMerge> {
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null) {
+      throw new ClientError("CLIENT_INVALID_MERGE");
+    }
+    const assembled = await assembleMerge(
+      input.prepared,
+      input.material,
+      input.indexer ?? this,
+      this.tree,
+      context,
+    );
+    const compressed = compressProof(
+      await proveMerge(this.#prover, assembled.proverInputs, context),
+    );
+    const commitment = compressed.commitment;
+    if (!commitment) throw new ClientError("CLIENT_MERGE_PROOF_COMMITMENT");
+    return Object.freeze({
+      data: assembled.instructionData({
+        a: compressed.a,
+        b: compressed.b,
+        c: compressed.c,
+        commitment: commitment.commitment,
+        commitmentPok: commitment.commitmentPok,
+      }),
+      outputHash: new Uint8Array(assembled.outputHash) as Bytes32,
+    });
+  }
+
+  finishMergeSubmissionUnsigned(
+    input: Readonly<{
+      proved: ProvedMerge;
+      feePayer: Address;
+      userRecord: Address;
+      recentBlockhash: string;
+    }>,
+  ): Transaction {
+    const candidate: unknown = input;
+    const proved =
+      typeof candidate === "object" && candidate !== null
+        ? (candidate as Record<string, unknown>)["proved"]
+        : undefined;
+    if (!isProvedMerge(proved)) {
+      throw new ClientError("CLIENT_INVALID_MERGE");
+    }
+    if (!equal(proved.outputHash, proved.data.outputUtxoHash)) {
+      throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
+    }
+    addressBytes(input.feePayer);
+    addressBytes(input.userRecord);
+    decodeBase58(input.recentBlockhash, 32, "recentBlockhash");
+    return buildUnsignedMergeTransaction({
+      tree: this.tree,
+      feePayer: input.feePayer,
+      userRecord: input.userRecord,
+      recentBlockhash: input.recentBlockhash,
+      data: proved.data,
+    });
+  }
+
   async finishSubmissionUnsigned(
     input: Readonly<{
       signed: SignedPrivateTransaction;
@@ -372,6 +456,26 @@ export function buildUnsignedTransaction(
     transactInstruction(input),
   ];
   return compileLegacyTransaction(input.feePayer, input.recentBlockhash, instructions);
+}
+
+export function buildUnsignedMergeTransaction(
+  input: Readonly<{
+    tree: Address;
+    feePayer: Address;
+    userRecord: Address;
+    recentBlockhash: string;
+    data: MergeTransactInstructionData;
+  }>,
+): Transaction {
+  return compileLegacyTransaction(input.feePayer, input.recentBlockhash, [
+    computeUnitLimitInstruction(1_400_000),
+    mergeTransactInstruction({
+      tree: input.tree,
+      payer: input.feePayer,
+      userRecord: input.userRecord,
+      data: input.data,
+    }),
+  ]);
 }
 
 function transactInstruction(
@@ -569,4 +673,21 @@ function equal(left: Uint8Array, right: Uint8Array): boolean {
     difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
   }
   return difference === 0;
+}
+
+function isProvedMerge(value: unknown): value is ProvedMerge {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  const data = candidate["data"];
+  const outputHash = candidate["outputHash"];
+  const dataOutputHash =
+    typeof data === "object" && data !== null
+      ? (data as Record<string, unknown>)["outputUtxoHash"]
+      : undefined;
+  return (
+    outputHash instanceof Uint8Array &&
+    outputHash.length === 32 &&
+    dataOutputHash instanceof Uint8Array &&
+    dataOutputHash.length === 32
+  );
 }

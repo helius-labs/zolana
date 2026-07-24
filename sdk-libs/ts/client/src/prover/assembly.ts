@@ -286,7 +286,7 @@ export function assemble(
   });
 }
 
-function createRealInput(
+export function createRealInput(
   input: ProofInputUtxo,
   proof: SpendProof,
   ownerPublicKeyHash: bigint,
@@ -341,7 +341,7 @@ export function createDummyTransferInput(
   return value;
 }
 
-function createOutput(output: ProofOutputUtxo): TransferOutput {
+export function createOutput(output: ProofOutputUtxo): TransferOutput {
   const ownerPublicKeyHash = output.ownerAddress
     ? bytesField(
         output.ownerAddress.signingPublicKey.ownerPublicKeyField(),
@@ -403,7 +403,7 @@ function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
   });
 }
 
-function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, index: number): void {
+export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, index: number): void {
   if (!equal(input.hash(), proof.state.leaf)) {
     throw new ClientError("CLIENT_STATE_PROOF_LEAF_MISMATCH", { details: { index } });
   }
