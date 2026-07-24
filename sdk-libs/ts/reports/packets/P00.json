@@ -51,6 +51,11 @@
       "responsibility": "deterministic regeneration and Rust verification"
     },
     {
+      "command": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures && rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check",
+      "exitStatus": "0",
+      "responsibility": "deterministic double generation"
+    },
+    {
       "command": "npm run test:vectors --workspace @zolana/keypair",
       "exitStatus": "0",
       "responsibility": "P04 vector baseline before fixture-loader follow-up"
@@ -86,6 +91,11 @@
       "responsibility": "current wallet cross-surface tests"
     },
     {
+      "command": "npm run test:unit --workspace @zolana/test-kit",
+      "exitStatus": "0",
+      "responsibility": "current private test-kit tests"
+    },
+    {
       "command": "npm run fixtures:check",
       "exitStatus": "0",
       "responsibility": "manifest hashes, secret marking, deterministic regeneration, and 182-row inventory validation"
@@ -113,7 +123,7 @@
   ],
   "counts": {
     "clientFixtureFiles": "5",
-    "fixtureFiles": "49",
+    "fixtureFiles": "52",
     "inventoryDuplicate": "0",
     "inventoryMissing": "0",
     "inventoryRows": "182",
@@ -123,7 +133,8 @@
     "transactionFixtureFiles": "14",
     "transactionOracleVectors": "13",
     "walletFixtureFiles": "10",
-    "walletOracleVectors": "9"
+    "walletOracleVectors": "12",
+    "workflowFixtureFiles": "4"
   },
   "fixtureIds": [
     "fx-p00-api-prover-request-v1",
@@ -174,6 +185,9 @@
     "fx-p00-wallet-sync-v1",
     "fx-p00-wallet-transaction-v1",
     "fx-p00-wallet-user-registry-v1",
+    "fx-workflow-action-ata-idempotent-v1",
+    "fx-workflow-action-merge-v1",
+    "fx-workflow-action-split-v1",
     "fx-workflow-instruction-deposit-v1"
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
@@ -227,6 +241,9 @@
     "sdk-libs/ts/fixtures/wallet/user_registry.json",
     "sdk-libs/ts/fixtures/wallet/wallet_authority.json",
     "sdk-libs/ts/fixtures/wallet/wallet_sync.json",
+    "sdk-libs/ts/fixtures/workflows/action-ata-idempotent-v1.json",
+    "sdk-libs/ts/fixtures/workflows/action-merge-v1.json",
+    "sdk-libs/ts/fixtures/workflows/action-split-v1.json",
     "sdk-libs/ts/fixtures/workflows/deposit-v1.json",
     "sdk-libs/ts/reports/inventory.json",
     "sdk-libs/ts/reports/packets/P00.json",
@@ -468,6 +485,45 @@
       "sdk-libs/ts/wallet/test/vectors/wallet-vectors.test.ts",
       "sdk-libs/ts/wallet/test/vectors/deposit-vector.test.ts"
     ]
+  },
+  "p12FollowUp": {
+    "blocker": "P12-BLOCKER-FIXTURES",
+    "fixtureMapping": [
+      {
+        "assertions": [
+          "auto-selected divisible input and exact conservation",
+          "encrypted split bundle and signed proof-input bytes",
+          "spent input plus resulting real and padding outputs",
+          "repeated sync no-op and spent-input tamper rejection"
+        ],
+        "fixture": "sdk-libs/ts/fixtures/workflows/action-split-v1.json",
+        "id": "fx-workflow-action-split-v1",
+        "test": "e2e-action-split"
+      },
+      {
+        "assertions": [
+          "smallest-first preparation and enabled user-record context",
+          "minimal merge material and deterministic proof inputs",
+          "exact merge instruction, account metas, message, signature, and output hash",
+          "spent inputs, one merged output, repeated sync no-op, and typed rejection paths"
+        ],
+        "fixture": "sdk-libs/ts/fixtures/workflows/action-merge-v1.json",
+        "id": "fx-workflow-action-merge-v1",
+        "test": "e2e-action-merge-submit"
+      },
+      {
+        "assertions": [
+          "canonical ATA and exact idempotent instruction",
+          "first and repeated submitted messages",
+          "single account creation and zero repeated balance delta",
+          "typed RPC submission error propagation"
+        ],
+        "fixture": "sdk-libs/ts/fixtures/workflows/action-ata-idempotent-v1.json",
+        "id": "fx-workflow-action-ata-idempotent-v1",
+        "test": "e2e-action-ata-idempotent"
+      }
+    ],
+    "sourceRevision": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f"
   },
   "packet": "P00",
   "schema": "zolana-ts-packet-evidence-v1"

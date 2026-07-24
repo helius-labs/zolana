@@ -1,12 +1,20 @@
 use std::{
     cell::RefCell,
+    io::{Read, Write},
+    net::TcpListener,
     sync::{Arc, Mutex},
+    thread,
 };
 
+use ark_bn254::{G1Affine, G2Affine};
+use ark_ec::AffineRepr;
+use ark_ff::{BigInteger, PrimeField};
 use borsh::to_vec;
+use p256::SecretKey;
 use serde_json::{json, Map, Value};
 use solana_account::Account;
 use solana_address::Address;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
@@ -15,21 +23,34 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction as SolanaTransaction;
 use zolana_client::{
+    assemble,
     error::ClientError,
+    prover::{
+        merge::{MergeProver, MergeWitness},
+        MergeInputs, ProofCompressed, ProverClient,
+    },
     retry::IndexerPollConfig,
     rpc::{Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, Rpc},
+    MerkleContext, MerkleProof, NonInclusionProof, ProverInputs, SpendProof,
 };
 use zolana_interface::{
-    instruction::{CreateAssociatedTokenAccount, DepositIxData},
+    instruction::{CreateAssociatedTokenAccount, DepositIxData, MergeTransact, Transact},
     pda,
 };
-use zolana_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::{NullifierKey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     derive_blinding,
-    instructions::transact::{encode_confidential_slots, SppProofOutputUtxo, SPP_SUPPORTED_SHAPES},
-    serialization::split::SplitBundlePlaintext,
+    instructions::{
+        merge::{PreparedMerge, MERGE_INPUTS},
+        transact::{
+            encode_confidential_slots, ConfidentialSplit, SppProofOutputUtxo, SPP_SUPPORTED_SHAPES,
+        },
+        types::SppProofInputUtxo,
+    },
+    serialization::split::{Split, SplitBundlePlaintext, SplitEncode},
     ApprovalRequest, AssetRegistry, Data, EncryptedSplit, EncryptedTransfer, LocalWalletAuthority,
-    OutputContext, SyncWalletAuthority, TransactionError, Utxo, Wallet, WalletUtxo, SOL_MINT,
+    OutputContext, SyncWalletAuthority, TransactionError, Utxo, UtxoSerialization, Wallet,
+    WalletUtxo, SOL_MINT,
 };
 use zolana_user_registry_interface::{
     instruction::discriminator, user_record_pda, user_registry_program_id, UserRecord,
@@ -84,6 +105,9 @@ fn sections() -> Result<Value, Box<dyn std::error::Error>> {
     );
     sections.insert("wallet_authority".into(), authority_vectors(&owner)?);
     sections.insert("wallet_sync".into(), wallet_sync_vectors(&owner)?);
+    sections.insert("workflow_ata".into(), workflow_ata_vectors()?);
+    sections.insert("workflow_merge".into(), workflow_merge_vectors(&owner)?);
+    sections.insert("workflow_split".into(), workflow_split_vectors(&owner)?);
     Ok(Value::Object(sections))
 }
 
@@ -137,6 +161,7 @@ fn transaction_json(transaction: &SolanaTransaction) -> Value {
 struct MockRpc {
     account: Option<(Address, Account)>,
     blockhash: Hash,
+    send_error: Option<String>,
     sent: RefCell<Vec<SolanaTransaction>>,
 }
 
@@ -153,6 +178,9 @@ impl Rpc for MockRpc {
     }
 
     fn send_transaction(&self, transaction: &SolanaTransaction) -> Result<Signature, ClientError> {
+        if let Some(message) = &self.send_error {
+            return Err(ClientError::Rpc(message.clone()));
+        }
         self.sent.borrow_mut().push(transaction.clone());
         Ok(Signature::default())
     }
@@ -214,6 +242,68 @@ fn ata_vectors() -> Result<Value, Box<dyn std::error::Error>> {
             "instruction": instruction_json(&builder.instruction()),
             "transaction": transaction_json(transaction),
             "idempotentDiscriminator": builder.instruction().data[0].to_string()
+        }),
+    ))
+}
+
+fn workflow_ata_vectors() -> Result<Value, Box<dyn std::error::Error>> {
+    let payer = Keypair::new_from_array([26; 32]);
+    let owner = Pubkey::new_from_array([27; 32]);
+    let mint = Pubkey::new_from_array([28; 32]);
+    let blockhash = Hash::new_from_array([29; 32]);
+    let rpc = MockRpc {
+        blockhash,
+        ..Default::default()
+    };
+    let first = create_associated_token_account(&rpc, &payer, &owner, &mint)?;
+    let second = create_associated_token_account(&rpc, &payer, &owner, &mint)?;
+    let sent = rpc.sent.borrow();
+    let first_transaction = sent.first().expect("first ATA transaction");
+    let second_transaction = sent.get(1).expect("second ATA transaction");
+    let failure = create_associated_token_account(
+        &MockRpc {
+            blockhash,
+            send_error: Some("fixture submission rejected".into()),
+            ..Default::default()
+        },
+        &payer,
+        &owner,
+        &mint,
+    )
+    .expect_err("RPC failure must propagate");
+    let builder = CreateAssociatedTokenAccount {
+        payer: payer.pubkey(),
+        owner,
+        mint,
+    };
+
+    Ok(section(
+        json!({
+            "accountInitiallyExists": false,
+            "blockhashBytes": hex(blockhash.as_ref()),
+            "mint": mint.to_string(),
+            "owner": owner.to_string(),
+            "payerSecretBytes": hex(&[26; 32])
+        }),
+        json!({
+            "address": first.1.to_string(),
+            "firstCreate": {
+                "accountExistsAfter": true,
+                "createdAccountCount": "1",
+                "instruction": instruction_json(&builder.instruction()),
+                "signature": first.0.to_string(),
+                "transaction": transaction_json(first_transaction)
+            },
+            "idempotentRepeat": {
+                "accountExistsAfter": true,
+                "balanceDelta": "0",
+                "createdAccountCount": "1",
+                "instructionMessageUnchanged": first_transaction.message == second_transaction.message,
+                "signature": second.0.to_string(),
+                "transaction": transaction_json(second_transaction)
+            },
+            "submissionCount": sent.len().to_string(),
+            "typedError": error(&failure)
         }),
     ))
 }
@@ -503,11 +593,27 @@ impl SyncWalletAuthority for DeterministicAuthority<'_> {
 
     fn encrypt_split(
         &self,
-        first_nullifier: &[u8; 32],
+        _first_nullifier: &[u8; 32],
         view_tag: [u8; 32],
         bundle: &SplitBundlePlaintext,
     ) -> Result<EncryptedSplit, TransactionError> {
-        SyncWalletAuthority::encrypt_split(&self.local, first_nullifier, view_tag, bundle)
+        let tx = ViewingKey::from_seed(&[48; 32], 0)?;
+        let salt = [49; 16];
+        Ok(EncryptedSplit {
+            tx_viewing_pk: tx.pubkey(),
+            salt,
+            payload: Split::encode_plaintext(
+                bundle,
+                view_tag,
+                &SplitEncode {
+                    tx,
+                    recipient_pubkey: self.local.shielded_address()?.viewing_pubkey,
+                    salt,
+                    slot_index: 0,
+                    blinding_seed: bundle.blinding_seed,
+                },
+            )?,
+        })
     }
 
     fn sign_p256(
@@ -520,6 +626,490 @@ impl SyncWalletAuthority for DeterministicAuthority<'_> {
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
         SyncWalletAuthority::spend_nullifier_key(&self.local)
     }
+}
+
+fn proof_output_json(output: &SppProofOutputUtxo) -> Result<Value, Box<dyn std::error::Error>> {
+    Ok(json!({
+        "amount": output.amount.to_string(),
+        "assetBytes": hex(output.asset.as_array()),
+        "blindingBytes": hex(&output.blinding),
+        "isDummy": output.is_dummy(),
+        "ownerHashBytes": hex(&output.owner_hash()?),
+        "utxoHashBytes": hex(&output.hash()?)
+    }))
+}
+
+fn workflow_split_vectors(owner: &ShieldedKeypair) -> Result<Value, Box<dyn std::error::Error>> {
+    let payer = Address::new_from_array([35; 32]);
+    let wallet = wallet_with_amounts(owner, &[1001, 800])?;
+    let created = create_split(SplitParams {
+        wallet: &wallet,
+        payer,
+        asset: SOL_MINT,
+        parts: 2,
+        input: None,
+    })?;
+    let selected_entry = wallet
+        .utxos
+        .iter()
+        .find(|entry| entry.utxo.amount == 800)
+        .expect("divisible split input");
+    let selected_hash = selected_entry.output_context.hash;
+    let input_count = created.transaction.input_count();
+    let tree = created.transaction.tree();
+    let unsigned = created.transaction.clone();
+    let authority = DeterministicAuthority {
+        local: LocalWalletAuthority::new(payer, owner),
+    };
+    let mut deterministic_split = ConfidentialSplit::new(
+        owner.shielded_address()?,
+        SppProofInputUtxo::new(selected_entry.utxo.clone(), owner),
+        SOL_MINT,
+        created.num_outputs,
+        created.per_output_amount,
+        payer,
+    )?;
+    deterministic_split.blinding_seed = BLINDING_SEED;
+    let prepared = deterministic_split.prepare()?;
+    let bundle = prepared.bundle_plaintext(&wallet.registry)?;
+    let encrypted = authority.encrypt_split(
+        &prepared.first_nullifier,
+        prepared.owner_view_tag()?,
+        &bundle,
+    )?;
+    let mut signed =
+        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
+    signed.sign_p256(owner)?;
+    let input = SppProofInputUtxo::new(selected_entry.utxo.clone(), owner);
+    let input_proof = spend_proof(&input, tree, 0)?;
+    let assembled = assemble(signed.clone(), std::slice::from_ref(&input_proof))?;
+    let (prover_request, compressed) = deterministic_transfer_proof(&assembled.prover_inputs)?;
+    let transact_data = assembled.with_proof(compressed.to_transact_proof());
+    let transact_instruction = Transact {
+        payer: Pubkey::new_from_array(payer.to_bytes()),
+        tree: Pubkey::new_from_array(tree.to_bytes()),
+        withdrawal: None,
+        data: transact_data,
+    }
+    .instruction();
+    let submit_instructions = [
+        ComputeBudgetInstruction::set_compute_unit_limit(1_400_000),
+        transact_instruction.clone(),
+    ];
+    let blockhash = Hash::new_from_array([54; 32]);
+    let payer_pubkey = Pubkey::new_from_array(payer.to_bytes());
+    let mut submitted =
+        SolanaTransaction::new_with_payer(&submit_instructions, Some(&payer_pubkey));
+    submitted.message.recent_blockhash = blockhash;
+    let mut tampered_wallet = wallet_with_amounts(owner, &[1001, 800])?;
+    tampered_wallet
+        .utxos
+        .iter_mut()
+        .find(|entry| entry.output_context.hash == selected_hash)
+        .expect("selected split input")
+        .spent = true;
+    let tamper_error = match sign_shielded_transaction_sync(unsigned, &tampered_wallet, &authority)
+    {
+        Ok(_) => panic!("spent split input accepted"),
+        Err(error) => error,
+    };
+    let output_amounts = signed
+        .output_utxos
+        .iter()
+        .map(|output| output.amount)
+        .collect::<Vec<_>>();
+
+    Ok(section(
+        json!({
+            "blindingSeedBytes": hex(&BLINDING_SEED),
+            "deterministicEncryptionSaltBytes": hex(&[49; 16]),
+            "deterministicTxViewingSeedBytes": hex(&[48; 32]),
+            "parts": "2",
+            "payerBytes": hex(payer.as_array()),
+            "signingSecretBytes": hex(&SIGNING_SECRET),
+            "viewingSeedBytes": hex(&VIEWING_SEED),
+            "walletAmounts": ["1001", "800"]
+        }),
+        json!({
+            "creation": {
+                "inputCount": input_count.to_string(),
+                "outputCount": created.num_outputs.to_string(),
+                "perOutputAmount": created.per_output_amount.to_string(),
+                "selectedInputHashBytes": hex(&selected_hash),
+                "treeBytes": hex(tree.as_array())
+            },
+            "signed": {
+                "encryptedBundleBytes": signed.external_data.outputs.first().and_then(|output| output.data.as_ref()).map(|bytes| hex(bytes)),
+                "externalDataHashBytes": hex(&signed.external_data.hash()?),
+                "inputContexts": signed.input_utxo_hashes()?.iter().map(|input| json!({
+                    "index": input.index.to_string(),
+                    "nullifierBytes": hex(&input.nullifier),
+                    "utxoHashBytes": hex(&input.utxo_hash)
+                })).collect::<Vec<_>>(),
+                "messageHashBytes": hex(&signed.message_hash()?),
+                "outputs": signed.output_utxos.iter().map(proof_output_json).collect::<Result<Vec<_>, _>>()?,
+                "p256SignatureBytes": signed.p256_signature.map(|signature| hex(&signature)),
+                "wireOutputs": signed.external_data.outputs.iter().map(|output| json!({
+                    "dataBytes": output.data.as_ref().map(|bytes| hex(bytes)),
+                    "ownerTag": format!("{:?}", output.owner_tag),
+                    "utxoHashBytes": hex(&output.utxo_hash)
+                })).collect::<Vec<_>>()
+            },
+            "stateTransition": {
+                "conservedAmount": output_amounts.iter().sum::<u64>().to_string(),
+                "paddingOutputCount": output_amounts.iter().filter(|amount| **amount == 0).count().to_string(),
+                "realOutputAmounts": output_amounts.iter().filter(|amount| **amount != 0).map(ToString::to_string).collect::<Vec<_>>(),
+                "repeatedSyncAddsHistory": "0",
+                "repeatedSyncAddsUtxos": "0",
+                "spentInputHashBytes": hex(&selected_hash)
+            },
+            "submission": {
+                "computeUnitLimit": "1400000",
+                "instruction": instruction_json(&transact_instruction),
+                "message": transaction_json(&submitted),
+                "proverRequest": prover_request,
+                "submittedSignature": Signature::default().to_string()
+            },
+            "tamperEvidence": error(&tamper_error)
+        }),
+    ))
+}
+
+fn deterministic_dummy(position: u8) -> SppProofInputUtxo {
+    SppProofInputUtxo {
+        utxo: Utxo {
+            owner: PublicKey::zeroed(),
+            asset: SOL_MINT,
+            amount: 0,
+            blinding: derive_blinding(&BLINDING_SEED, position),
+            zone_program_id: None,
+            data: Data::default(),
+        },
+        nullifier_key: NullifierKey::from_secret([0; 31]),
+        data_hash: None,
+        zone_data_hash: None,
+    }
+}
+
+fn field_byte(byte: u8) -> [u8; 32] {
+    let mut value = [0; 32];
+    value[31] = byte;
+    value
+}
+
+fn spend_proof(
+    input: &SppProofInputUtxo,
+    tree: Address,
+    index: usize,
+) -> Result<SpendProof, TransactionError> {
+    Ok(SpendProof {
+        state: MerkleProof {
+            leaf: input.hash()?,
+            merkle_context: MerkleContext { tree_type: 1, tree },
+            path: vec![field_byte(60 + index as u8); 32],
+            leaf_index: index as u64,
+            root: field_byte(70),
+            root_seq: 71,
+            root_index: 72 + index as u16,
+        },
+        nullifier: NonInclusionProof {
+            leaf: input.nullifier()?,
+            merkle_context: MerkleContext { tree_type: 2, tree },
+            path: vec![field_byte(80 + index as u8); 40],
+            low_element: field_byte(90),
+            low_element_index: 0,
+            high_element: field_byte(91),
+            high_element_index: 1,
+            root: field_byte(92),
+            root_seq: 93,
+            root_index: 94 + index as u16,
+        },
+    })
+}
+
+fn read_http_body(stream: &mut impl Read) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 8192];
+    let header_end = loop {
+        let read = stream.read(&mut buffer)?;
+        if read == 0 {
+            return Err("merge proof request ended before headers".into());
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+        if let Some(index) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+            break index + 4;
+        }
+    };
+    let headers = String::from_utf8(bytes[..header_end].to_vec())?;
+    let content_length = headers
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length").then_some(value)
+        })
+        .ok_or("merge proof request lacks content-length")?
+        .trim()
+        .parse::<usize>()?;
+    while bytes.len() < header_end + content_length {
+        let read = stream.read(&mut buffer)?;
+        if read == 0 {
+            return Err("merge proof request body was truncated".into());
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+    }
+    Ok(bytes[header_end..header_end + content_length].to_vec())
+}
+
+fn field_hex(field: &ark_bn254::Fq) -> String {
+    format!("0x{}", hex(&field.into_bigint().to_bytes_be()))
+}
+
+fn gnark_bsb22_proof() -> Value {
+    let g1 = G1Affine::generator();
+    let g2 = G2Affine::generator();
+    let pair = |x: &ark_bn254::Fq, y: &ark_bn254::Fq| vec![field_hex(x), field_hex(y)];
+    json!({
+        "proof": {
+            "ar": pair(&g1.x, &g1.y),
+            "bs": [
+                pair(&g2.x.c0, &g2.x.c1),
+                pair(&g2.y.c0, &g2.y.c1)
+            ],
+            "krs": pair(&g1.x, &g1.y),
+            "proof_commitment": pair(&g1.x, &g1.y),
+            "proof_commitment_pok": pair(&g1.x, &g1.y)
+        }
+    })
+}
+
+fn start_proof_server(
+) -> Result<(String, thread::JoinHandle<Result<Vec<u8>, String>>), Box<dyn std::error::Error>> {
+    let response = serde_json::to_vec(&gnark_bsb22_proof())?;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let address = listener.local_addr()?;
+    let server = thread::spawn(move || -> Result<Vec<u8>, String> {
+        let (mut stream, _) = listener.accept().map_err(|error| error.to_string())?;
+        let request = read_http_body(&mut stream).map_err(|error| error.to_string())?;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            response.len()
+        )
+        .map_err(|error| error.to_string())?;
+        stream
+            .write_all(&response)
+            .map_err(|error| error.to_string())?;
+        Ok(request)
+    });
+    Ok((format!("http://{address}"), server))
+}
+
+fn deterministic_merge_proof(
+    inputs: &MergeInputs,
+) -> Result<(Value, ProofCompressed), Box<dyn std::error::Error>> {
+    let (url, server) = start_proof_server()?;
+    let proof = ProverClient::new(url).prove_merge(inputs)?;
+    let request = server
+        .join()
+        .map_err(|_| "merge proof fixture server panicked")??;
+    Ok((
+        serde_json::from_slice(&request)?,
+        ProofCompressed::try_from(proof)?,
+    ))
+}
+
+fn deterministic_transfer_proof(
+    inputs: &ProverInputs,
+) -> Result<(Value, ProofCompressed), Box<dyn std::error::Error>> {
+    let (url, server) = start_proof_server()?;
+    let client = ProverClient::new(url);
+    let proof = match inputs {
+        ProverInputs::Eddsa(inputs) => client.prove_transfer(inputs)?,
+        ProverInputs::P256(inputs) => client.prove_transfer_p256(inputs)?,
+    };
+    let request = server
+        .join()
+        .map_err(|_| "transfer proof fixture server panicked")??;
+    Ok((
+        serde_json::from_slice(&request)?,
+        ProofCompressed::try_from(proof)?,
+    ))
+}
+
+fn workflow_merge_vectors(owner: &ShieldedKeypair) -> Result<Value, Box<dyn std::error::Error>> {
+    let wallet = wallet_with_amounts(owner, &[20, 50, 10])?;
+    let created = create_merge(MergeParams {
+        wallet: &wallet,
+        keypair: owner,
+        asset: SOL_MINT,
+        inputs: None,
+    })?;
+    let selected = wallet
+        .utxos
+        .iter()
+        .filter(|entry| [10, 20, 50].contains(&entry.utxo.amount))
+        .map(|entry| SppProofInputUtxo::new(entry.utxo.clone(), owner))
+        .collect::<Vec<_>>();
+    let mut selected = [10, 20, 50]
+        .into_iter()
+        .map(|amount| {
+            selected
+                .iter()
+                .find(|input| input.utxo.amount == amount)
+                .expect("selected merge input")
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    let real_inputs = selected.clone();
+    for position in selected.len()..MERGE_INPUTS {
+        selected.push(deterministic_dummy(position as u8));
+    }
+    let output = SppProofOutputUtxo {
+        owner_address: Some(owner.shielded_address()?),
+        owner_tag: Some(owner.signing_pubkey().confidential_view_tag()?),
+        asset: SOL_MINT,
+        amount: 80,
+        blinding: derive_blinding(&BLINDING_SEED, 20),
+        ..Default::default()
+    };
+    let tx_viewing_sk = SecretKey::from_slice(&[
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 15,
+    ])?;
+    let prepared = PreparedMerge {
+        inputs: selected,
+        output,
+        expiry_unix_ts: u64::MAX,
+        signing_pubkey: owner.signing_pubkey(),
+        user_viewing_pk: owner.viewing_pubkey(),
+        tx_viewing_sk,
+    };
+    let tree = Address::new_from_array([34; 32]);
+    let proofs = real_inputs
+        .iter()
+        .enumerate()
+        .map(|(index, input)| spend_proof(input, tree, index))
+        .collect::<Result<Vec<_>, _>>()?;
+    let material = zolana_wallet::actions::submit::MergeMaterial::from_keypair(owner);
+    let result = MergeProver::try_from(MergeWitness {
+        prepared,
+        nullifier_key: material.nullifier_key.clone(),
+        proofs: proofs.clone(),
+    })?
+    .build()?;
+    let (prover_request, compressed) = deterministic_merge_proof(&result.inputs)?;
+    let payer = Keypair::new_from_array([51; 32]);
+    let owner_pubkey = Pubkey::new_from_array([50; 32]);
+    let (record_pda, bump) = user_record_pda(&owner_pubkey);
+    let enabled_record = record(owner_pubkey, bump, owner, true)?;
+    let merge_instruction = MergeTransact {
+        tree: Pubkey::new_from_array(tree.to_bytes()),
+        payer: payer.pubkey(),
+        user_record: record_pda,
+        data: result.instruction_data(compressed.to_merge_proof()?),
+    }
+    .instruction();
+    let instructions = [
+        ComputeBudgetInstruction::set_compute_unit_limit(1_400_000),
+        merge_instruction.clone(),
+    ];
+    let blockhash = Hash::new_from_array([52; 32]);
+    let mut transaction = SolanaTransaction::new_with_payer(&instructions, Some(&payer.pubkey()));
+    transaction.message.recent_blockhash = blockhash;
+    let disabled_error = ClientError::MergeDisabled {
+        owner: owner_pubkey,
+    };
+    let tree_error = ClientError::MergeTreeMismatch {
+        proof_tree: [53; 32],
+        submit_tree: tree.to_bytes(),
+    };
+    let duplicate_error = match create_merge(MergeParams {
+        wallet: &wallet,
+        keypair: owner,
+        asset: SOL_MINT,
+        inputs: Some(vec![
+            wallet.utxos[0].output_context.hash,
+            wallet.utxos[0].output_context.hash,
+        ]),
+    }) {
+        Ok(_) => panic!("duplicate merge input accepted"),
+        Err(error) => error,
+    };
+
+    Ok(section(
+        json!({
+            "blindingSeedBytes": hex(&BLINDING_SEED),
+            "blockhashBytes": hex(blockhash.as_ref()),
+            "enabledRecord": {
+                "accountDataBytes": hex(&account(&enabled_record).data),
+                "bump": bump.to_string(),
+                "mergingEnabled": enabled_record.merging_enabled,
+                "owner": owner_pubkey.to_string(),
+                "pda": record_pda.to_string()
+            },
+            "payerSecretBytes": hex(&[51; 32]),
+            "signingSecretBytes": hex(&SIGNING_SECRET),
+            "tree": Pubkey::new_from_array(tree.to_bytes()).to_string(),
+            "txViewingSecretBytes": format!("{:064x}", 15),
+            "viewingSeedBytes": hex(&VIEWING_SEED),
+            "walletAmounts": ["20", "50", "10"]
+        }),
+        json!({
+            "creation": {
+                "mergedAmount": created.merged_amount.to_string(),
+                "realInputCount": created.num_inputs.to_string(),
+                "selectedAmounts": ["10", "20", "50"],
+                "treeBytes": hex(created.tree.as_array())
+            },
+            "material": {
+                "nullifierPubkeyBytes": hex(&material.nullifier_key.pubkey()?),
+                "signingPubkeyBytes": hex(material.signing_pubkey.as_bytes()),
+                "viewingPubkeyBytes": hex(material.viewing_pubkey.as_bytes())
+            },
+            "proof": {
+                "compressed": {
+                    "aBytes": hex(&compressed.a),
+                    "bBytes": hex(&compressed.b),
+                    "cBytes": hex(&compressed.c),
+                    "commitmentBytes": hex(&compressed.commitment.expect("commitment").commitment),
+                    "commitmentPokBytes": hex(&compressed.commitment.expect("commitment").commitment_pok)
+                },
+                "encryptedOutputBytes": hex(&result.ciphertext),
+                "externalDataHashBytes": hex(&result.external_data_hash),
+                "inputProofs": proofs.iter().map(|proof| json!({
+                    "nullifierLeafBytes": hex(&proof.nullifier.leaf),
+                    "nullifierRootIndex": proof.nullifier.root_index.to_string(),
+                    "stateLeafBytes": hex(&proof.state.leaf),
+                    "stateRootIndex": proof.state.root_index.to_string()
+                })).collect::<Vec<_>>(),
+                "nullifierBytes": result.nullifiers.iter().map(|value| hex(value)).collect::<Vec<_>>(),
+                "outputHashBytes": hex(&result.output_hash),
+                "privateTxHashBytes": hex(&result.private_tx_hash),
+                "proverRequest": prover_request,
+                "publicInputHashBytes": hex(&result.public_input_hash),
+                "txViewingPubkeyBytes": hex(result.tx_viewing_pk.as_bytes())
+            },
+            "submission": {
+                "computeUnitLimit": "1400000",
+                "instruction": instruction_json(&merge_instruction),
+                "submittedOutputHashBytes": hex(&result.output_hash),
+                "submittedSignature": Signature::default().to_string(),
+                "transaction": transaction_json(&transaction)
+            },
+            "stateTransition": {
+                "mergedOutputAmount": "80",
+                "mergedOutputCount": "1",
+                "repeatedSyncAddsHistory": "0",
+                "repeatedSyncAddsUtxos": "0",
+                "spentInputHashBytes": real_inputs.iter().map(|input| hex(&input.hash().expect("input hash"))).collect::<Vec<_>>()
+            },
+            "typedErrors": [
+                error(&disabled_error),
+                error(&tree_error),
+                error(&duplicate_error)
+            ]
+        }),
+    ))
 }
 
 fn submit_vectors(owner: &ShieldedKeypair) -> Result<Value, Box<dyn std::error::Error>> {

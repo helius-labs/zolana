@@ -1,0 +1,451 @@
+{
+  "expected": {
+    "creation": {
+      "inputCount": "1",
+      "outputCount": "2",
+      "perOutputAmount": "400",
+      "selectedInputHashBytes": "26201972705d23853f58ccb134d69fb51798d00a50b6abf5dfc8144cee3e6365",
+      "treeBytes": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "signed": {
+      "encryptedBundleBytes": "015400000005d2225000da9408503b37dc5dd5e86cdc2a90863a6dbedaf8d43f83ba79c3a04fda00b5f6e69013549d21eba5b769b8242ffc5cdf1f9d6226320ea6bf8e0785e676851f7c3e953553698941257db53488aca74e",
+      "externalDataHashBytes": "0022b4aa9689660b9db9347e64846d778f6af8de71c3d1a088367ce80c477382",
+      "inputContexts": [
+        {
+          "index": "0",
+          "nullifierBytes": "07932db529568da8d0295c1514ae1a2865aee18187a90c7c52a8415bd34fd9c0",
+          "utxoHashBytes": "26201972705d23853f58ccb134d69fb51798d00a50b6abf5dfc8144cee3e6365"
+        }
+      ],
+      "messageHashBytes": "1dafc31aef7915ba330971e31c93b032f2ffe9a9092dc7daa2ac2cc277a0835a",
+      "outputs": [
+        {
+          "amount": "400",
+          "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+          "blindingBytes": "8094c910c637be3bdb34a7250d60ece82952743b6b13f74a81e8ac93e8c6f3",
+          "isDummy": false,
+          "ownerHashBytes": "0546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+          "utxoHashBytes": "065f571bd2f8f6b712dbafc60a2d6a5afe3b748d899042113d7acbeefc10d6c3"
+        },
+        {
+          "amount": "400",
+          "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+          "blindingBytes": "0d15cc389a783c48ba4c0becd05199530750d1e312a0e212dcfb3ae7c22c51",
+          "isDummy": false,
+          "ownerHashBytes": "0546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+          "utxoHashBytes": "143de17f443554d4aaff24495250f8ef712d7984ef247b5a8441171db3393595"
+        },
+        {
+          "amount": "0",
+          "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+          "blindingBytes": "0352a86d1052e07f3ab40648e5b53ad1a528669632a75843b8e34e7fd67869",
+          "isDummy": false,
+          "ownerHashBytes": "0546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+          "utxoHashBytes": "1b05daa52d2f3992596b3dc3499ccbad7d5049e8276744a054a857c8d0d952c7"
+        },
+        {
+          "amount": "0",
+          "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+          "blindingBytes": "bcfd148f76560165b6da7850669f65b120b0cfe32e515382a94ad7a0a553f7",
+          "isDummy": false,
+          "ownerHashBytes": "0546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+          "utxoHashBytes": "03dcdca5262166e1b54d6c32bdb3639496e6c23f608b1a96eb044b5b0498e440"
+        },
+        {
+          "amount": "0",
+          "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+          "blindingBytes": "e5bf38108dda65c48335c0df8f46a71019f0a36a9990e85fcb3c0b26a8d62b",
+          "isDummy": false,
+          "ownerHashBytes": "0546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+          "utxoHashBytes": "24a447a1e08eca77615b1919ee98f63d66f94a222364dc5109fc30ece1eab25b"
+        },
+        {
+          "amount": "0",
+          "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+          "blindingBytes": "f531050315b55004c9a6a351b4240199d5a25658feb422a55fca6620f6c0db",
+          "isDummy": false,
+          "ownerHashBytes": "0546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+          "utxoHashBytes": "07213e31163c8521d20fd621a021ba4bd46aa183eca27c7a6db363f02e192b86"
+        },
+        {
+          "amount": "0",
+          "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+          "blindingBytes": "b320140ed9c03a37f8fdc21a3d900144535d561fcec34416eb1c80936ad78d",
+          "isDummy": false,
+          "ownerHashBytes": "0546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+          "utxoHashBytes": "1f6f68f2941912225396e8113be37d9c45e455ebbba3a1c53385580e4e9a1639"
+        },
+        {
+          "amount": "0",
+          "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+          "blindingBytes": "8ef7bc0387db07c3d206b3a4346941ff3be4a37d03781eb034098884b6ee54",
+          "isDummy": false,
+          "ownerHashBytes": "0546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+          "utxoHashBytes": "1639abc2e4d3430b82ae59f3764506072bb839449b7fc56b038ff17b235cd0bb"
+        }
+      ],
+      "p256SignatureBytes": "302b3bc09607714e4ce8bee6a85a04d90956177233c4e38b7f184f38d0f8f55d56996345189d80cec2163c5c4cc2a7dbd45a085e306f2b9a769c0b474eb13011",
+      "wireOutputs": [
+        {
+          "dataBytes": "015400000005d2225000da9408503b37dc5dd5e86cdc2a90863a6dbedaf8d43f83ba79c3a04fda00b5f6e69013549d21eba5b769b8242ffc5cdf1f9d6226320ea6bf8e0785e676851f7c3e953553698941257db53488aca74e",
+          "ownerTag": "Inline([50, 80, 252, 246, 134, 99, 124, 123, 46, 74, 200, 110, 180, 115, 188, 165, 58, 88, 33, 57, 244, 43, 21, 35, 253, 118, 54, 78, 103, 57, 158, 131])",
+          "utxoHashBytes": "065f571bd2f8f6b712dbafc60a2d6a5afe3b748d899042113d7acbeefc10d6c3"
+        },
+        {
+          "dataBytes": null,
+          "ownerTag": "Inline([50, 80, 252, 246, 134, 99, 124, 123, 46, 74, 200, 110, 180, 115, 188, 165, 58, 88, 33, 57, 244, 43, 21, 35, 253, 118, 54, 78, 103, 57, 158, 131])",
+          "utxoHashBytes": "143de17f443554d4aaff24495250f8ef712d7984ef247b5a8441171db3393595"
+        },
+        {
+          "dataBytes": null,
+          "ownerTag": "Inline([50, 80, 252, 246, 134, 99, 124, 123, 46, 74, 200, 110, 180, 115, 188, 165, 58, 88, 33, 57, 244, 43, 21, 35, 253, 118, 54, 78, 103, 57, 158, 131])",
+          "utxoHashBytes": "1b05daa52d2f3992596b3dc3499ccbad7d5049e8276744a054a857c8d0d952c7"
+        },
+        {
+          "dataBytes": null,
+          "ownerTag": "Inline([50, 80, 252, 246, 134, 99, 124, 123, 46, 74, 200, 110, 180, 115, 188, 165, 58, 88, 33, 57, 244, 43, 21, 35, 253, 118, 54, 78, 103, 57, 158, 131])",
+          "utxoHashBytes": "03dcdca5262166e1b54d6c32bdb3639496e6c23f608b1a96eb044b5b0498e440"
+        },
+        {
+          "dataBytes": null,
+          "ownerTag": "Inline([50, 80, 252, 246, 134, 99, 124, 123, 46, 74, 200, 110, 180, 115, 188, 165, 58, 88, 33, 57, 244, 43, 21, 35, 253, 118, 54, 78, 103, 57, 158, 131])",
+          "utxoHashBytes": "24a447a1e08eca77615b1919ee98f63d66f94a222364dc5109fc30ece1eab25b"
+        },
+        {
+          "dataBytes": null,
+          "ownerTag": "Inline([50, 80, 252, 246, 134, 99, 124, 123, 46, 74, 200, 110, 180, 115, 188, 165, 58, 88, 33, 57, 244, 43, 21, 35, 253, 118, 54, 78, 103, 57, 158, 131])",
+          "utxoHashBytes": "07213e31163c8521d20fd621a021ba4bd46aa183eca27c7a6db363f02e192b86"
+        },
+        {
+          "dataBytes": null,
+          "ownerTag": "Inline([50, 80, 252, 246, 134, 99, 124, 123, 46, 74, 200, 110, 180, 115, 188, 165, 58, 88, 33, 57, 244, 43, 21, 35, 253, 118, 54, 78, 103, 57, 158, 131])",
+          "utxoHashBytes": "1f6f68f2941912225396e8113be37d9c45e455ebbba3a1c53385580e4e9a1639"
+        },
+        {
+          "dataBytes": null,
+          "ownerTag": "Inline([50, 80, 252, 246, 134, 99, 124, 123, 46, 74, 200, 110, 180, 115, 188, 165, 58, 88, 33, 57, 244, 43, 21, 35, 253, 118, 54, 78, 103, 57, 158, 131])",
+          "utxoHashBytes": "1639abc2e4d3430b82ae59f3764506072bb839449b7fc56b038ff17b235cd0bb"
+        }
+      ]
+    },
+    "stateTransition": {
+      "conservedAmount": "800",
+      "paddingOutputCount": "6",
+      "realOutputAmounts": [
+        "400",
+        "400"
+      ],
+      "repeatedSyncAddsHistory": "0",
+      "repeatedSyncAddsUtxos": "0",
+      "spentInputHashBytes": "26201972705d23853f58ccb134d69fb51798d00a50b6abf5dfc8144cee3e6365"
+    },
+    "submission": {
+      "computeUnitLimit": "1400000",
+      "instruction": {
+        "accounts": [
+          {
+            "address": "3NAM1YJMhSPvtAkmGTRABe1hYZN3aE2hZHKy3JZy9fHk",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "dataBytes": "00ffffffffffffffff00002ba846dd3daa5bee40d90a5c5aefd2e56e8db345127f00251408401502e0f3e5013250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e8302ebbd980849ec4619f6283ec0460ece877b241d47e1de24b067077b5f7c417b5b313131313131313131313131313131310180000000000000000000000000000000000000000000000000000000000000011800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c20000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000010107932db529568da8d0295c1514ae1a2865aee18187a90c7c52a8415bd34fd9c05e00480000ff0000000008065f571bd2f8f6b712dbafc60a2d6a5afe3b748d899042113d7acbeefc10d6c3003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83015900015400000005d2225000da9408503b37dc5dd5e86cdc2a90863a6dbedaf8d43f83ba79c3a04fda00b5f6e69013549d21eba5b769b8242ffc5cdf1f9d6226320ea6bf8e0785e676851f7c3e953553698941257db53488aca74e143de17f443554d4aaff24495250f8ef712d7984ef247b5a8441171db3393595003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83001b05daa52d2f3992596b3dc3499ccbad7d5049e8276744a054a857c8d0d952c7003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e830003dcdca5262166e1b54d6c32bdb3639496e6c23f608b1a96eb044b5b0498e440003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e830024a447a1e08eca77615b1919ee98f63d66f94a222364dc5109fc30ece1eab25b003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e830007213e31163c8521d20fd621a021ba4bd46aa183eca27c7a6db363f02e192b86003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83001f6f68f2941912225396e8113be37d9c45e455ebbba3a1c53385580e4e9a1639003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83001639abc2e4d3430b82ae59f3764506072bb839449b7fc56b038ff17b235cd0bb003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e830000",
+        "programId": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+      },
+      "message": {
+        "messageBytes": "01000204232323232323232323232323232323232323232323232323232323232323232322222222222222222222222222222222222222222222222222222222222222220306466fe5211732ffecadba72c39be7bc8ce5bbc5f7126b2c439b3a400000000d051e81de5328be3254e424b31a8cea659f448f057d1f2273306184fcc04fb936363636363636363636363636363636363636363636363636363636363636360202000502c05c15000303000103d60700ffffffffffffffff00002ba846dd3daa5bee40d90a5c5aefd2e56e8db345127f00251408401502e0f3e5013250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e8302ebbd980849ec4619f6283ec0460ece877b241d47e1de24b067077b5f7c417b5b313131313131313131313131313131310180000000000000000000000000000000000000000000000000000000000000011800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c20000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000010107932db529568da8d0295c1514ae1a2865aee18187a90c7c52a8415bd34fd9c05e00480000ff0000000008065f571bd2f8f6b712dbafc60a2d6a5afe3b748d899042113d7acbeefc10d6c3003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83015900015400000005d2225000da9408503b37dc5dd5e86cdc2a90863a6dbedaf8d43f83ba79c3a04fda00b5f6e69013549d21eba5b769b8242ffc5cdf1f9d6226320ea6bf8e0785e676851f7c3e953553698941257db53488aca74e143de17f443554d4aaff24495250f8ef712d7984ef247b5a8441171db3393595003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83001b05daa52d2f3992596b3dc3499ccbad7d5049e8276744a054a857c8d0d952c7003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e830003dcdca5262166e1b54d6c32bdb3639496e6c23f608b1a96eb044b5b0498e440003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e830024a447a1e08eca77615b1919ee98f63d66f94a222364dc5109fc30ece1eab25b003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e830007213e31163c8521d20fd621a021ba4bd46aa183eca27c7a6db363f02e192b86003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83001f6f68f2941912225396e8113be37d9c45e455ebbba3a1c53385580e4e9a1639003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83001639abc2e4d3430b82ae59f3764506072bb839449b7fc56b038ff17b235cd0bb003250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e830000",
+        "requiredSignatures": "1",
+        "signatures": [
+          "1111111111111111111111111111111111111111111111111111111111111111"
+        ]
+      },
+      "proverRequest": {
+        "circuitType": "transfer-p256-confidential",
+        "externalDataHash": "0x22b4aa9689660b9db9347e64846d778f6af8de71c3d1a088367ce80c477382",
+        "inputs": [
+          {
+            "isDummy": "0x0",
+            "nullifier": "0x7932db529568da8d0295c1514ae1a2865aee18187a90c7c52a8415bd34fd9c0",
+            "nullifierLowPathElements": [
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50",
+              "0x50"
+            ],
+            "nullifierLowPathIndex": "0x0",
+            "nullifierLowValue": "0x5a",
+            "nullifierNextValue": "0x5b",
+            "nullifierSecret": "0x574d1a173518911995bd4e57b204dcd676873ae55008be8dadb03d4bb1a294",
+            "nullifierTreeRoot": "0x5c",
+            "ownerPkHash": "0x243bc414ccb41b97db846a6bd4a36673cd6bbf14814799060ae78b12793c6229",
+            "statePathElements": [
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c",
+              "0x3c"
+            ],
+            "statePathIndex": "0x0",
+            "utxo": {
+              "amount": "0x320",
+              "asset": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+              "blinding": "0xd15cc389a783c48ba4c0becd05199530750d1e312a0e212dcfb3ae7c22c51",
+              "dataHash": "0x0",
+              "domain": "0x1",
+              "owner": "0x546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+              "zoneDataHash": "0x0",
+              "zoneProgramId": "0x0"
+            },
+            "utxoTreeRoot": "0x46"
+          }
+        ],
+        "nInputs": 1,
+        "nOutputs": 8,
+        "outputs": [
+          {
+            "hash": "0x65f571bd2f8f6b712dbafc60a2d6a5afe3b748d899042113d7acbeefc10d6c3",
+            "isDummy": "0x0",
+            "nullifierPk": "0x4d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+            "ownerPkHash": "0x243bc414ccb41b97db846a6bd4a36673cd6bbf14814799060ae78b12793c6229",
+            "utxo": {
+              "amount": "0x190",
+              "asset": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+              "blinding": "0x8094c910c637be3bdb34a7250d60ece82952743b6b13f74a81e8ac93e8c6f3",
+              "dataHash": "0x0",
+              "domain": "0x1",
+              "owner": "0x546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+              "zoneDataHash": "0x0",
+              "zoneProgramId": "0x0"
+            }
+          },
+          {
+            "hash": "0x143de17f443554d4aaff24495250f8ef712d7984ef247b5a8441171db3393595",
+            "isDummy": "0x0",
+            "nullifierPk": "0x4d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+            "ownerPkHash": "0x243bc414ccb41b97db846a6bd4a36673cd6bbf14814799060ae78b12793c6229",
+            "utxo": {
+              "amount": "0x190",
+              "asset": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+              "blinding": "0xd15cc389a783c48ba4c0becd05199530750d1e312a0e212dcfb3ae7c22c51",
+              "dataHash": "0x0",
+              "domain": "0x1",
+              "owner": "0x546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+              "zoneDataHash": "0x0",
+              "zoneProgramId": "0x0"
+            }
+          },
+          {
+            "hash": "0x1b05daa52d2f3992596b3dc3499ccbad7d5049e8276744a054a857c8d0d952c7",
+            "isDummy": "0x0",
+            "nullifierPk": "0x4d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+            "ownerPkHash": "0x243bc414ccb41b97db846a6bd4a36673cd6bbf14814799060ae78b12793c6229",
+            "utxo": {
+              "amount": "0x0",
+              "asset": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+              "blinding": "0x352a86d1052e07f3ab40648e5b53ad1a528669632a75843b8e34e7fd67869",
+              "dataHash": "0x0",
+              "domain": "0x1",
+              "owner": "0x546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+              "zoneDataHash": "0x0",
+              "zoneProgramId": "0x0"
+            }
+          },
+          {
+            "hash": "0x3dcdca5262166e1b54d6c32bdb3639496e6c23f608b1a96eb044b5b0498e440",
+            "isDummy": "0x0",
+            "nullifierPk": "0x4d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+            "ownerPkHash": "0x243bc414ccb41b97db846a6bd4a36673cd6bbf14814799060ae78b12793c6229",
+            "utxo": {
+              "amount": "0x0",
+              "asset": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+              "blinding": "0xbcfd148f76560165b6da7850669f65b120b0cfe32e515382a94ad7a0a553f7",
+              "dataHash": "0x0",
+              "domain": "0x1",
+              "owner": "0x546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+              "zoneDataHash": "0x0",
+              "zoneProgramId": "0x0"
+            }
+          },
+          {
+            "hash": "0x24a447a1e08eca77615b1919ee98f63d66f94a222364dc5109fc30ece1eab25b",
+            "isDummy": "0x0",
+            "nullifierPk": "0x4d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+            "ownerPkHash": "0x243bc414ccb41b97db846a6bd4a36673cd6bbf14814799060ae78b12793c6229",
+            "utxo": {
+              "amount": "0x0",
+              "asset": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+              "blinding": "0xe5bf38108dda65c48335c0df8f46a71019f0a36a9990e85fcb3c0b26a8d62b",
+              "dataHash": "0x0",
+              "domain": "0x1",
+              "owner": "0x546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+              "zoneDataHash": "0x0",
+              "zoneProgramId": "0x0"
+            }
+          },
+          {
+            "hash": "0x7213e31163c8521d20fd621a021ba4bd46aa183eca27c7a6db363f02e192b86",
+            "isDummy": "0x0",
+            "nullifierPk": "0x4d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+            "ownerPkHash": "0x243bc414ccb41b97db846a6bd4a36673cd6bbf14814799060ae78b12793c6229",
+            "utxo": {
+              "amount": "0x0",
+              "asset": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+              "blinding": "0xf531050315b55004c9a6a351b4240199d5a25658feb422a55fca6620f6c0db",
+              "dataHash": "0x0",
+              "domain": "0x1",
+              "owner": "0x546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+              "zoneDataHash": "0x0",
+              "zoneProgramId": "0x0"
+            }
+          },
+          {
+            "hash": "0x1f6f68f2941912225396e8113be37d9c45e455ebbba3a1c53385580e4e9a1639",
+            "isDummy": "0x0",
+            "nullifierPk": "0x4d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+            "ownerPkHash": "0x243bc414ccb41b97db846a6bd4a36673cd6bbf14814799060ae78b12793c6229",
+            "utxo": {
+              "amount": "0x0",
+              "asset": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+              "blinding": "0xb320140ed9c03a37f8fdc21a3d900144535d561fcec34416eb1c80936ad78d",
+              "dataHash": "0x0",
+              "domain": "0x1",
+              "owner": "0x546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+              "zoneDataHash": "0x0",
+              "zoneProgramId": "0x0"
+            }
+          },
+          {
+            "hash": "0x1639abc2e4d3430b82ae59f3764506072bb839449b7fc56b038ff17b235cd0bb",
+            "isDummy": "0x0",
+            "nullifierPk": "0x4d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+            "ownerPkHash": "0x243bc414ccb41b97db846a6bd4a36673cd6bbf14814799060ae78b12793c6229",
+            "utxo": {
+              "amount": "0x0",
+              "asset": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+              "blinding": "0x8ef7bc0387db07c3d206b3a4346941ff3be4a37d03781eb034098884b6ee54",
+              "dataHash": "0x0",
+              "domain": "0x1",
+              "owner": "0x546b9383c644ea434a049915868031b9d61417bae7312c110793e723caa7aea",
+              "zoneDataHash": "0x0",
+              "zoneProgramId": "0x0"
+            }
+          }
+        ],
+        "p256MessageHashHigh": "0x1dafc31aef7915ba330971e31c93b032",
+        "p256MessageHashLow": "0xf2ffe9a9092dc7daa2ac2cc277a0835a",
+        "p256PubX": "0x3250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83",
+        "p256PubY": "0x42e7c342667d359397b3090d1d7eb88c897cd3c33b566a8215de24a071d48c09",
+        "p256SigR": "0x302b3bc09607714e4ce8bee6a85a04d90956177233c4e38b7f184f38d0f8f55d",
+        "p256SigS": "0x56996345189d80cec2163c5c4cc2a7dbd45a085e306f2b9a769c0b474eb13011",
+        "p256SigningPkField": "0x243bc414ccb41b97db846a6bd4a36673cd6bbf14814799060ae78b12793c6229",
+        "payerPubkeyHash": "0x19d45be03b87bdee0a7323ec312e8a11c89e91210d0cbe041e183ec111840f",
+        "privateTxHash": "0x2ba846dd3daa5bee40d90a5c5aefd2e56e8db345127f00251408401502e0f3e5",
+        "publicInputHash": "0x27db146ecdcec44bfafdb8464be1aff0ebdfb096069700208fd716cc679c1489",
+        "publicSolAmount": "0x0",
+        "publicSplAmount": "0x0",
+        "publicSplAssetPubkey": "0x0",
+        "zoneProgramId": "0x0"
+      },
+      "submittedSignature": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "tamperEvidence": {
+      "code": "UnsignedInputUnavailable",
+      "details": "UnsignedInputUnavailable { index: 0 }"
+    }
+  },
+  "id": "fx-workflow-action-split-v1",
+  "inputs": {
+    "blindingSeedBytes": "18181818181818181818181818181818181818181818181818181818181818",
+    "deterministicEncryptionSaltBytes": "31313131313131313131313131313131",
+    "deterministicTxViewingSeedBytes": "3030303030303030303030303030303030303030303030303030303030303030",
+    "parts": "2",
+    "payerBytes": "2323232323232323232323232323232323232323232323232323232323232323",
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000015",
+    "testOnlySecret": true,
+    "viewingSeedBytes": "1616161616161616161616161616161616161616161616161616161616161616",
+    "walletAmounts": [
+      "1001",
+      "800"
+    ]
+  },
+  "inventoryRow": "P12-BLOCKER-FIXTURES in sdk-libs/ts/reports/packets/P12.json",
+  "owningPacket": "P00",
+  "responsibility": "split creation, encrypted bundle, proof inputs, submission transition, conservation, and tamper rejection",
+  "rustPath": "sdk-libs/wallet/src/actions/transaction.rs; sdk-libs/transaction/src/instructions/transact/split.rs",
+  "rustSymbol": "create_split; sign_shielded_transaction_sync; ConfidentialSplit; PreparedSplit",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

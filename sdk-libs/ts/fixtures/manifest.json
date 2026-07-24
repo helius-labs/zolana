@@ -193,6 +193,18 @@
       "sha256": "fec1a3df3d6188e0a1a95a5c66a52045546c80136ac81a2eaa0cc9a4215dc4ea"
     },
     {
+      "path": "workflows/action-ata-idempotent-v1.json",
+      "sha256": "3c79ab05d39982a5e6fbebcaac105b47116664949f1d93f9aaf3293e51076d3b"
+    },
+    {
+      "path": "workflows/action-merge-v1.json",
+      "sha256": "8cce17bbe70d76816612dac88640ebcf621067ce9d56c3b172d2037aeeb668d3"
+    },
+    {
+      "path": "workflows/action-split-v1.json",
+      "sha256": "3eddee0880cf899ab6e9e704d480b73e36bc786aa3b3fa2621a3278858497184"
+    },
+    {
       "path": "workflows/deposit-v1.json",
       "sha256": "ee83ce306250984eac86de07a902ce767de5fe65ce8aa6be85255c698de23582"
     }

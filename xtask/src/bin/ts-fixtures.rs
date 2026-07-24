@@ -27,7 +27,7 @@ use zolana_transaction::{
 const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
-const EXPECTED_FIXTURE_COUNT: usize = 49;
+const EXPECTED_FIXTURE_COUNT: usize = 52;
 const FROZEN_SOURCE_PATHS: [&str; 13] = [
     "program-libs/hasher/src",
     "program-libs/indexed-array/src",
@@ -673,6 +673,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     fixtures.extend(transaction_fixtures(&transaction_vectors)?);
     fixtures.extend(client_fixtures(&client_vectors)?);
     fixtures.extend(wallet_fixtures(&wallet_vectors)?);
+    fixtures.extend(workflow_fixtures(&wallet_vectors)?);
     Ok(fixtures)
 }
 
@@ -1714,11 +1715,19 @@ fn production_wallet_vectors(root: &Path) -> Result<Value> {
             .ok_or_else(|| anyhow::anyhow!("cargo metadata lacks target_directory"))?,
     );
     let externs = [
+        ("ark_bn254", "ark-bn254@0.5.0"),
+        ("ark_ec", "ark-ec@0.5.0"),
+        ("ark_ff", "ark-ff@0.5.0"),
         ("bincode", "bincode@1.3.3"),
         ("borsh", "borsh@1.7.0"),
+        ("p256", "p256@0.13.2"),
         ("serde_json", "serde_json@1.0.150"),
         ("solana_account", "solana-account@3.4.0"),
         ("solana_address", "solana-address@2.6.1"),
+        (
+            "solana_compute_budget_interface",
+            "solana-compute-budget-interface@3.0.0",
+        ),
         ("solana_hash", "solana-hash@4.5.0"),
         ("solana_instruction", "solana-instruction@3.4.0"),
         ("solana_keypair", "solana-keypair@3.1.2"),
@@ -1797,6 +1806,9 @@ fn verify_wallet_vectors(vectors: &Value) -> Result<()> {
         "user_registry",
         "wallet_authority",
         "wallet_sync",
+        "workflow_ata",
+        "workflow_merge",
+        "workflow_split",
     ];
     let object = vectors
         .as_object()
@@ -1931,6 +1943,57 @@ fn wallet_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
         .collect()
 }
 
+fn workflow_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
+    let domains = [
+        (
+            "workflow_split",
+            "workflows/action-split-v1.json",
+            "fx-workflow-action-split-v1",
+            "sdk-libs/wallet/src/actions/transaction.rs; sdk-libs/transaction/src/instructions/transact/split.rs",
+            "create_split; sign_shielded_transaction_sync; ConfidentialSplit; PreparedSplit",
+            "split creation, encrypted bundle, proof inputs, submission transition, conservation, and tamper rejection",
+        ),
+        (
+            "workflow_merge",
+            "workflows/action-merge-v1.json",
+            "fx-workflow-action-merge-v1",
+            "sdk-libs/wallet/src/actions/transaction.rs; sdk-libs/wallet/src/actions/submit.rs; sdk-libs/client/src/prover/merge.rs; program-libs/interface/src/instruction/builders/merge_transact.rs",
+            "create_merge; MergeMaterial; MergeProver::build; MergeProofResult::instruction_data; MergeTransact::instruction",
+            "merge preparation, enabled record, owner material, proof request material, exact submission, and state transition",
+        ),
+        (
+            "workflow_ata",
+            "workflows/action-ata-idempotent-v1.json",
+            "fx-workflow-action-ata-idempotent-v1",
+            "sdk-libs/wallet/src/actions/create_associated_token_account.rs; program-libs/interface/src/instruction/builders/create_associated_token_account.rs",
+            "create_associated_token_account; CreateAssociatedTokenAccount::instruction",
+            "first ATA creation, idempotent repeat, exact transactions, unchanged balance, and RPC error propagation",
+        ),
+    ];
+    domains
+        .into_iter()
+        .map(|(section, path, id, rust_path, symbol, responsibility)| {
+            let value = &vectors[section];
+            if !value.is_object() {
+                bail!("wallet oracle lacks {section}");
+            }
+            Ok((
+                path,
+                fixture_base!(
+                    id,
+                    rust_path,
+                    symbol,
+                    "P12-BLOCKER-FIXTURES in sdk-libs/ts/reports/packets/P12.json",
+                    "P00",
+                    responsibility,
+                    value["inputs"].clone(),
+                    value["expected"].clone(),
+                ),
+            ))
+        })
+        .collect()
+}
+
 fn error_json(error: &impl std::fmt::Debug) -> Value {
     let debug = format!("{error:?}");
     let code = debug
@@ -2058,6 +2121,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_wallet.rs","exitStatus":"0","responsibility":"standalone wallet oracle formatting"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures","exitStatus":"0","responsibility":"fixture generation"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check","exitStatus":"0","responsibility":"deterministic regeneration and Rust verification"},
+                {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures && rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check","exitStatus":"0","responsibility":"deterministic double generation"},
                 {"command":"npm run test:vectors --workspace @zolana/keypair","exitStatus":"0","responsibility":"P04 vector baseline before fixture-loader follow-up"},
                 {"command":"npm run test:vectors --workspace @zolana/transaction","exitStatus":"0","responsibility":"P05 vector baseline before production fixture-loader follow-up"},
                 {"command":"npm run test:unit --workspace @zolana/client","exitStatus":"0","responsibility":"current P09 RPC, indexer, proof, and polling tests"},
@@ -2065,6 +2129,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 {"command":"npm run test:unit --workspace @zolana/wallet","exitStatus":"0","responsibility":"current wallet unit and frozen deposit tests"},
                 {"command":"npm run test:vectors --workspace @zolana/wallet","exitStatus":"0","responsibility":"manifest-backed wallet vector tests"},
                 {"command":"npm run test:cross --workspace @zolana/wallet","exitStatus":"0","responsibility":"current wallet cross-surface tests"},
+                {"command":"npm run test:unit --workspace @zolana/test-kit","exitStatus":"0","responsibility":"current private test-kit tests"},
                 {"command":"npm run fixtures:check","exitStatus":"0","responsibility":"manifest hashes, secret marking, deterministic regeneration, and 182-row inventory validation"},
                 {"command":"cargo xtask ts-fixtures --check","exitStatus":"blocked","responsibility":"canonical command; existing xtask dispatch is outside P00 ownership"},
                 {"command":"npm run test:inventory","exitStatus":"0","responsibility":"frozen 182-row inventory completeness and packet ownership"},
@@ -2082,7 +2147,8 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 "transactionFixtureFiles":"14",
                 "transactionOracleVectors":"13",
                 "walletFixtureFiles":"10",
-                "walletOracleVectors":"9",
+                "walletOracleVectors":"12",
+                "workflowFixtureFiles":"4",
                 "p00Rows":p00_rows.len().to_string()
             },
             "fixtureIds":fixture_ids(&out.join("fixtures"))?,
@@ -2184,6 +2250,45 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                     "sdk-libs/ts/wallet/test/vectors/wallet-vectors.test.ts",
                     "sdk-libs/ts/wallet/test/vectors/deposit-vector.test.ts"
                 ]
+            },
+            "p12FollowUp":{
+                "blocker":"P12-BLOCKER-FIXTURES",
+                "fixtureMapping":[
+                    {
+                        "fixture":"sdk-libs/ts/fixtures/workflows/action-split-v1.json",
+                        "id":"fx-workflow-action-split-v1",
+                        "assertions":[
+                            "auto-selected divisible input and exact conservation",
+                            "encrypted split bundle and signed proof-input bytes",
+                            "spent input plus resulting real and padding outputs",
+                            "repeated sync no-op and spent-input tamper rejection"
+                        ],
+                        "test":"e2e-action-split"
+                    },
+                    {
+                        "fixture":"sdk-libs/ts/fixtures/workflows/action-merge-v1.json",
+                        "id":"fx-workflow-action-merge-v1",
+                        "assertions":[
+                            "smallest-first preparation and enabled user-record context",
+                            "minimal merge material and deterministic proof inputs",
+                            "exact merge instruction, account metas, message, signature, and output hash",
+                            "spent inputs, one merged output, repeated sync no-op, and typed rejection paths"
+                        ],
+                        "test":"e2e-action-merge-submit"
+                    },
+                    {
+                        "fixture":"sdk-libs/ts/fixtures/workflows/action-ata-idempotent-v1.json",
+                        "id":"fx-workflow-action-ata-idempotent-v1",
+                        "assertions":[
+                            "canonical ATA and exact idempotent instruction",
+                            "first and repeated submitted messages",
+                            "single account creation and zero repeated balance delta",
+                            "typed RPC submission error propagation"
+                        ],
+                        "test":"e2e-action-ata-idempotent"
+                    }
+                ],
+                "sourceRevision":FROZEN_SHA
             },
             "schema":"zolana-ts-packet-evidence-v1"
         }),
