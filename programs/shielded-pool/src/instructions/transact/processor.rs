@@ -242,16 +242,9 @@ fn tree_error(e: TreeError) -> ProgramError {
     }
 }
 
-// Record each input owner's `pk_field` (`Poseidon(low, high)`) in `proof_inputs`.
-// Ed25519 inputs must have their owner account as a signer and use its
-// `solana_pk_hash` (every variant). P256-owned inputs differ by variant: the
-// confidential rail folds the shared P256 signing key's `pk_field`
-// (`proof_inputs.p256_signing_pk_field`, hashed once in `prepare_proof_inputs`)
-// so the circuit routes ownership by equality,
-// while the anonymous policy-zone rail (`IS_ZONE`) keeps P256 owners private and
-// folds the `0` sentinel -- the circuit proves P256 ownership internally from the
-// signature, so the public input carries no owner identity (matching
-// `OwnerMode::Zone` in the prover).
+// Assign input owner public inputs.
+// Either assign p256 pubkey or check signer and assign eddsa pubkey.
+// The circuit checks the p256 signature.
 #[profile]
 fn check_input_signers<const IS_ZONE: bool>(
     accounts: &[AccountView],
@@ -261,12 +254,17 @@ fn check_input_signers<const IS_ZONE: bool>(
     let p256_signing_pk_field = proof_inputs.p256_signing_pk_field;
     for (i, input) in ix.inputs.iter().enumerate() {
         let pk_hash = if input.eddsa_signer_index == P256_OWNED_SIGNER {
+            // TODO: can we simplify if we say for p256 this value is always 0
+            // 1, p256.to_bytes()
+            // 2, eddsa.to_bytes()
+            // p256 signer check is in circuit.
             if IS_ZONE {
-                [0u8; 32]
+                [0u8; 32] // Zones are anonymous
             } else {
                 p256_signing_pk_field
             }
         } else {
+            // Eddsa signer check. The circuit relies on the program to check the signer.
             let account = accounts
                 .get(usize::from(input.eddsa_signer_index))
                 .ok_or(ProgramError::NotEnoughAccountKeys)?;

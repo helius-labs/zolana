@@ -34,7 +34,7 @@ func (c *DefaultZoneP256Circuit) Define(api frontend.API) error {
 	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
 		in := c.Inputs[i]
-		shared.AssertWhen(api, in.IsReal(api), in.Utxo.CheckNotInZone(api))
+		in.Utxo.AssertInDefaultZone(api)
 		inputHashes[i], addressHashes[i] = shared.ConstrainP256Input(api, in, env)
 	}
 	c.AssertDistinctNullifiers(api)

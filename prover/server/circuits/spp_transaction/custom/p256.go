@@ -33,7 +33,7 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
 		in := c.Inputs[i]
-		shared.AssertWhen(api, in.IsReal(api), c.CheckZoneMemberOrFree(api, in.Utxo))
+		shared.AssertWhen(api, in.IsUtxo(api), c.CheckZoneMemberOrFree(api, in.Utxo))
 		inputHashes[i], addressHashes[i] = shared.ConstrainP256Input(api, in, env)
 	}
 	c.AssertDistinctNullifiers(api)
@@ -42,7 +42,7 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := 0; i < c.Shape.NOutputs; i++ {
 		out := c.Outputs[i]
-		shared.AssertWhen(api, out.IsReal(api), c.CheckZoneMemberOrFree(api, out.Utxo))
+		shared.AssertWhen(api, out.IsUtxo(api), c.CheckZoneMemberOrFree(api, out.Utxo))
 		outputHashes[i] = shared.ConstrainOutputShared(api, out, signers)
 	}
 

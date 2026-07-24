@@ -31,9 +31,11 @@ func (c *Circuit) P256SpendEnv(api frontend.API) (SpendEnv, error) {
 // EddsaOnlySpendEnv builds the spend env for the Solana-only rail: the P256
 // message and signing key must be zero, and no P256-owned entry can validate.
 func (c *Circuit) EddsaOnlySpendEnv(api frontend.API) SpendEnv {
+	api.AssertIsEqual(c.P256Pub, 0)
+	api.AssertIsEqual(c.P256Sig, 0)
+	api.AssertIsEqual(c.P256SigningPkField, 0)
 	api.AssertIsEqual(c.P256MessageHashLow, 0)
 	api.AssertIsEqual(c.P256MessageHashHigh, 0)
-	api.AssertIsEqual(c.P256SigningPkField, 0)
 	return SpendEnv{
 		P256PkField:  frontend.Variable(0),
 		P256SigValid: frontend.Variable(1),

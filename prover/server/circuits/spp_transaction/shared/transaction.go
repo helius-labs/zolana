@@ -2,7 +2,6 @@ package shared
 
 import (
 	"fmt"
-	"math/big"
 
 	"zolana/prover/circuits/gadget"
 
@@ -147,23 +146,6 @@ const (
 	// NullifierTreeHeight is the SPP nullifier tree height.
 	NullifierTreeHeight = 40
 )
-
-// solAssetValue is the UTXO asset field for native SOL: Poseidon(0, 0), the
-// all-zero address encoded as a SolanaPkField. Precomputed so the circuits
-// package needs no host Poseidon; protocol.SolAsset() is the source of truth.
-var solAssetValue, _ = new(big.Int).SetString(
-	"14744269619966411208579211824598458697587494354926760081771325075741142829156", 10)
-
-// SolAsset returns the native-SOL asset field used in UTXO commitments.
-func SolAsset() *big.Int {
-	return new(big.Int).Set(solAssetValue)
-}
-
-// assertEqualWhen constrains a == b only when cond == 1 (see
-// gadget.AssertEqualWhen). For cond == 0 the check is vacuously satisfied.
-func assertEqualWhen(api frontend.API, cond, a, b frontend.Variable) {
-	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: cond, A: a, B: b})
-}
 
 // assertZeroWhen constrains v == 0 only when cond == 1 (see gadget.AssertZeroWhen).
 func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {

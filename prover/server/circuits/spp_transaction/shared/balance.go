@@ -2,6 +2,7 @@ package shared
 
 import (
 	"math/big"
+	"zolana/prover/circuits/gadget"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
@@ -30,7 +31,7 @@ func AssertBalanceConservation(
 		// An asset id is public only while it moves; pin idle slots to 0 so a
 		// pure-private transfer reveals no asset id in the public transcript
 		// (the asset is otherwise a private per-UTXO field).
-		assertZeroWhen(api, amountIsZero[i], publicAssets[i])
+		abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: amountIsZero[i], V: publicAssets[i]})
 	}
 
 	// Active slots must name distinct assets so each public movement maps to
@@ -44,34 +45,34 @@ func AssertBalanceConservation(
 	}
 
 	// Check every private asset plus every public slot asset.
-	keys := make([]frontend.Variable, 0, len(inputs)+len(outputs)+len(publicAssets))
+	assets := make([]frontend.Variable, 0, len(inputs)+len(outputs)+len(publicAssets))
 	for _, input := range inputs {
 		rangeCheck64(api, input.Amount)
-		keys = append(keys, input.Asset)
+		assets = append(assets, input.Asset)
 	}
 	for _, output := range outputs {
 		rangeCheck64(api, output.Amount)
-		keys = append(keys, output.Asset)
+		assets = append(assets, output.Asset)
 	}
-	// Asset IDs are witness values; Go cannot dedup them safely.
-	keys = append(keys, publicAssets...)
+	// Combine private with public assets.
+	assets = append(assets, publicAssets...)
 
-	for _, key := range keys {
+	for _, asset := range assets {
 		inSum := frontend.Variable(0)
 		for _, input := range inputs {
-			match := api.IsZero(api.Sub(key, input.Asset))
+			match := api.IsZero(api.Sub(asset, input.Asset))
 			inSum = api.Add(inSum, api.Mul(match, input.Amount))
 		}
 
 		outSum := frontend.Variable(0)
 		for _, output := range outputs {
-			match := api.IsZero(api.Sub(key, output.Asset))
+			match := api.IsZero(api.Sub(asset, output.Asset))
 			outSum = api.Add(outSum, api.Mul(match, output.Amount))
 		}
 
 		adjustedIn := inSum
-		for i, asset := range publicAssets {
-			match := api.IsZero(api.Sub(key, asset))
+		for i, publicAsset := range publicAssets {
+			match := api.IsZero(api.Sub(asset, publicAsset))
 			adjustedIn = api.Add(adjustedIn, api.Mul(match, publicAmounts[i]))
 		}
 		api.AssertIsEqual(adjustedIn, outSum)

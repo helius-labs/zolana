@@ -41,13 +41,13 @@ type SpendEnv struct {
 // ConstrainP256Input — P256 rail: a P256-owned entry needs the valid shared
 // signature.
 func ConstrainP256Input(api frontend.API, in Input, env SpendEnv) (frontend.Variable, frontend.Variable) {
-	AssertWhen(api, in.isRealOrAddress(api), in.checkOwnershipP256(api, env))
+	AssertWhen(api, in.isUtxoOrAddress(api), in.checkOwnershipP256(api, env))
 	return constrainInputShared(api, in)
 }
 
 // ConstrainEddsaOnlyInput — Solana-only rail: P256-owned entries are rejected.
 func ConstrainEddsaOnlyInput(api frontend.API, in Input, env SpendEnv) (frontend.Variable, frontend.Variable) {
-	AssertWhen(api, in.isRealOrAddress(api), in.checkOwnershipEddsaOnly(api, env))
+	AssertWhen(api, in.isUtxoOrAddress(api), in.checkOwnershipEddsaOnly(api, env))
 	return constrainInputShared(api, in)
 }
 
@@ -56,35 +56,37 @@ func (c *Circuit) CheckZoneMember(api frontend.API, u UtxoCircuitFields) fronten
 	return api.IsZero(api.Sub(u.ZoneProgramID, c.ZoneProgramID))
 }
 
-// CheckZoneMemberOrFree returns 1 iff the utxo is owned by the public zone or
+// CheckZoneMemberOrFree returns 1 iff the utxo is owned by the signing zone or
 // is not a member of any zone; zone data always needs a zone program.
 func (c *Circuit) CheckZoneMemberOrFree(api frontend.API, u UtxoCircuitFields) frontend.Variable {
-	inZone := api.Sub(1, api.IsZero(u.ZoneProgramID))
-	member := api.IsZero(api.Sub(u.ZoneProgramID, c.ZoneProgramID))
+	inCustomZone := api.Sub(1, api.IsZero(u.ZoneProgramID))
+	isMemberOfSigningZone := api.IsZero(api.Sub(u.ZoneProgramID, c.ZoneProgramID))
 	dataSet := api.Sub(1, api.IsZero(u.ZoneDataHash))
-	ok := api.Select(inZone, member, frontend.Variable(1))
-	return api.Mul(ok, api.Select(dataSet, inZone, frontend.Variable(1)))
+	// If it is in custom zone it must be member of signing zone.
+	ok := api.Select(inCustomZone, isMemberOfSigningZone, frontend.Variable(1))
+	// Data must only be set if it is in custom zone.
+	return api.Mul(ok, api.Select(dataSet, inCustomZone, frontend.Variable(1)))
 }
 
 func constrainInputShared(api frontend.API, in Input) (frontend.Variable, frontend.Variable) {
-	isReal := in.IsReal(api)
+	isUtxo := in.IsUtxo(api)
 	isAddress := in.isAddress(api)
-	api.AssertIsEqual(api.Add(isReal, isAddress, in.isDummy(api)), 1)
+	api.AssertIsEqual(api.Add(isUtxo, isAddress, in.isDummy(api)), 1)
 
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 	in.checkNonInclusion(api, utxoHash)
 
-	AssertWhen(api, isReal, in.checkSpendable(api, utxoHash))
+	AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash))
 	AssertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
 	AssertWhen(api, isAddress, in.checkAddress(api))
 
-	inputHash := api.Select(isReal, utxoHash, frontend.Variable(0))
+	inputHash := api.Select(isUtxo, utxoHash, frontend.Variable(0))
 	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
 	return inputHash, addressHash
 }
 
-// IsReal: the slot spends an existing utxo.
-func (in Input) IsReal(api frontend.API) frontend.Variable {
+// IsUtxo: the slot spends an existing utxo.
+func (in Input) IsUtxo(api frontend.API) frontend.Variable {
 	return api.IsZero(api.Sub(in.Utxo.Domain, UtxoDomain))
 }
 
@@ -98,16 +100,16 @@ func (in Input) isDummy(api frontend.API) frontend.Variable {
 	return api.IsZero(api.Sub(in.Utxo.Domain, DummyDomain))
 }
 
-// isRealOrAddress: the slot carries content — a spendable or an address utxo.
-func (in Input) isRealOrAddress(api frontend.API) frontend.Variable {
+// isUtxoOrAddress: the slot carries content — a spendable or an address utxo.
+func (in Input) isUtxoOrAddress(api frontend.API) frontend.Variable {
 	return api.Sub(1, in.isDummy(api))
 }
 
-// checkSpendable — spendable utxo: returns 1 iff the utxo is a leaf of the
+// checkInclusion — spendable utxo: returns 1 iff the utxo is a leaf of the
 // state tree at UtxoTreeRoot. Ownership is checked via checkOwnership and the
 // zone fields via the zone wrappers; asset and amount are constrained by
 // balance conservation; blinding and data hash carry no additional checks.
-func (in Input) checkSpendable(api frontend.API, utxoHash frontend.Variable) frontend.Variable {
+func (in Input) checkInclusion(api frontend.API, utxoHash frontend.Variable) frontend.Variable {
 	statePathIndices := api.ToBinary(in.StatePathIndex, StateTreeHeight)
 	stateRoot := abstractor.Call(api, gadgetlib.MerkleRootGadget{
 		Hash:   utxoHash,
@@ -142,6 +144,7 @@ func allZero(api frontend.API, values ...frontend.Variable) frontend.Variable {
 	return zero
 }
 
+// TODO: remove isP256 bool and refactor in eddsa and p256 and
 // checkOwnership returns 1 iff the owner binds to the witnessed keys, plus the
 // isP256 bit for the caller's rail rule: an OwnerPkHash equal to the P256
 // sentinel routes to the shared P256 key (substituted via Select), any other
@@ -164,6 +167,7 @@ func (in Input) checkOwnership(api frontend.API, env SpendEnv) (frontend.Variabl
 // valid shared signature.
 func (in Input) checkOwnershipP256(api frontend.API, env SpendEnv) frontend.Variable {
 	ok, isP256 := in.checkOwnership(api, env)
+	// TODO: check whether we shouldnt always abort if p256 sig is invalid.
 	return api.Mul(ok, api.Select(isP256, env.P256SigValid, frontend.Variable(1)))
 }
 
@@ -173,17 +177,20 @@ func (in Input) checkOwnershipEddsaOnly(api frontend.API, env SpendEnv) frontend
 	return api.Mul(ok, api.Sub(1, isP256))
 }
 
-// checkNonInclusion: the nullifier is bound to the utxo and absent from the
-// nullifier tree — the low leaf is in the tree and brackets the nullifier
-// (NullifierLowValue < Nullifier < NullifierNextValue).
+// 1. derived nullifier equals public nullifier.
+// 2. indexed leaf  H(in.NullifierLowValue, in.NullifierNextValue) exists in nullifier tree.
+// 3. nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
+// -> nullifier does not exist yet in indexed Merkle tree.
 func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable) {
 	nullifier := abstractor.Call(api, NullifierGadget{
 		UtxoHash:        utxoHash,
 		Blinding:        in.Utxo.Blinding,
 		NullifierSecret: in.NullifierSecret,
 	})
+	// 1. Derived nullifier equals public nullifier.
 	api.AssertIsEqual(nullifier, in.Nullifier)
 
+	// 2. indexed leaf  H(in.NullifierLowValue, in.NullifierNextValue) exists in nullifier tree.
 	lowLeafHash := gadgetlib.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
 	nfPathIndices := api.ToBinary(in.NullifierLowPathIndex, NullifierTreeHeight)
 	nfRoot := abstractor.Call(api, gadgetlib.MerkleRootGadget{
@@ -193,6 +200,7 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable) 
 		Height: NullifierTreeHeight,
 	})
 	api.AssertIsEqual(nfRoot, in.NullifierTreeRoot)
+	// 3.  nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
 	assertStrictlyOrdered(api, in.NullifierLowValue, in.Nullifier, in.NullifierNextValue)
 }
 

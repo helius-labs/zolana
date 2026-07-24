@@ -31,9 +31,10 @@ func (u UtxoCircuitFields) DefineGadget(api frontend.API) interface{} {
 	})
 }
 
-// CheckNotInZone returns 1 iff the utxo is not a member of a zone.
-func (u UtxoCircuitFields) CheckNotInZone(api frontend.API) frontend.Variable {
-	return allZero(api, u.ZoneDataHash, u.ZoneProgramID)
+// AssertInDefaultZone returns 1 iff the utxo is not a member of a zone.
+func (u UtxoCircuitFields) AssertInDefaultZone(api frontend.API) {
+	api.AssertIsEqual(u.ZoneDataHash, u.ZoneProgramID)
+	api.AssertIsEqual(u.ZoneDataHash, 0)
 }
 
 // checkDummy returns 1 iff every field except the domain and blinding is zero,

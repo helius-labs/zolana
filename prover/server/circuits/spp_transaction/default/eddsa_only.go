@@ -30,7 +30,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
 		in := c.Inputs[i]
-		shared.AssertWhen(api, in.IsReal(api), in.Utxo.CheckNotInZone(api))
+		in.Utxo.AssertInDefaultZone(api)
 		inputHashes[i], addressHashes[i] = shared.ConstrainEddsaOnlyInput(api, in, env)
 	}
 	c.AssertDistinctNullifiers(api)
