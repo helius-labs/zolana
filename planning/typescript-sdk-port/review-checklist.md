@@ -16,13 +16,13 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `d420822d0b1581d1295a84ded78e3c3d9b9c0145`
+- Review HEAD: `e39561f675f30aff5f7f958b16fac18045dc6d4f`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: none in the nine scoped source trees
 - Primary rows: `118`
-- Progress: `3 done / 118 total`; `4 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `I05 program-libs/interface/src/instruction/instruction_data/batch_update_nullifier_tree.rs`
-- Active fixes: `I01 proposed`; `I02 proposed`; `I03 proposed`; `I04 proposed`
+- Progress: `3 done / 118 total`; `5 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `I06 program-libs/interface/src/instruction/instruction_data/create_tree.rs`
+- Active fixes: `I01 proposed`; `I02 proposed`; `I03 proposed`; `I04 proposed`; `I05 proposed`
 - Last session: `2026-07-25`
 
 Refresh the HEAD, fixture commit, drift result, progress, active fixes, and exact
@@ -136,7 +136,7 @@ Columns:
 | I02 | `program-libs/interface/src/shape.rs` | `interface/src/internal.ts` | needs_fix | DIVERGENT | proposed | `Shape` and `SPP_SUPPORTED_SHAPES` are public Rust interface API, but `@zolana/interface` exports neither and its mapped `internal.ts` has no shape code. `@zolana/transaction` duplicates the ten shapes in the correct order, but its shallow-frozen list exposes mutable entries and `canonicalShape` rejects zero real inputs or outputs even though Rust and Go select padded shapes for those counts. Export one deeply immutable shape authority from `@zolana/interface`, reuse it in transaction selection, accept safe non-negative real counts including zero, validate malformed declared counts, and add current-Rust tests for exports, ordering, immutability, empty and boundary selection, unsupported pairs, and structured errors. | 2026-07-24 review | - |
 | I03 | `program-libs/interface/src/merge_utils.rs` | `interface/src/internal.ts` | needs_fix | PARTIAL | proposed | `@zolana/interface` omits the public Rust module's `pk_field_compressed`, `owner_pk_field_compressed`, `pack33`, and `ciphertext_hash`. `@zolana/keypair` contains the valid-flow math, but under another package and with different raw-input behavior: its public `pack33` silently pads or truncates non-33-byte values, while its P256 object path rejects off-curve encodings that Rust accepts after fixed-length and prefix checks. Its frozen fixtures name keypair sources rather than `merge_utils` and do not cover parity pairs, ciphertext chunk boundaries, or Poseidon input limits. Add browser-safe interface exports with exact byte, prefix, parity, packing, chunking, and error behavior; make keypair reuse the canonical implementation; and add current-Rust success and rejection vectors for malformed lengths and prefixes, even and odd parity, empty input, chunk boundaries, and maximum cardinality. | 2026-07-24 review | - |
 | I04 | `program-libs/interface/src/pda.rs` | `interface/src/pda/index.ts` | needs_fix | PARTIAL | proposed | `@zolana/interface/pda` covers the protocol config, SOL interface, CPI authority, asset counter, mint-keyed registry and vault, SPP zone-config, and associated-token derivations, but omits public Rust `zone_auth`; instruction builders duplicate it as private `zoneAuthorityAddress`. Existing tests use one zero address per parameterized flow and hard-coded TypeScript outputs, with no current-Rust PDA fixture, nonzero mint/owner/zone vectors, bump boundaries, or malformed checks for each address position. Export one canonical `zoneAuthAddress(zoneProgram)` that returns the canonical address and bump, reuse it in builders, keep user-supplied bump reconstruction out of creation APIs, and add current-Rust vectors for the nine address flows, exact bytes, canonical bumps, nonzero inputs, and rejection paths. | 2026-07-25 review | - |
-| I05 | `program-libs/interface/src/instruction/instruction_data/batch_update_nullifier_tree.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
+| I05 | `program-libs/interface/src/instruction/instruction_data/batch_update_nullifier_tree.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | proposed | The mapped codec file is absent. `batchUpdateNullifierTreeInstruction` encodes the fields, proof order, and little-endian `u16` correctly and checks lengths and range, but the package exports no named data or proof types and no decoder. Tests assert only tag 51, so plausible offset, endianness, proof-order, length, boundary, and malformed-decoding errors would pass. Add public data and proof representations, an exact 194-byte encode/decode codec reused by the builder, a current-Rust fixture with exact and rejection tests, and an ergonomic disposition for the zero proof default and `to_array` order. | 2026-07-25 review | - |
 | I06 | `program-libs/interface/src/instruction/instruction_data/create_tree.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
 | I07 | `program-libs/interface/src/instruction/instruction_data/deposit.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
 | I08 | `program-libs/interface/src/instruction/instruction_data/merge_transact.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
@@ -498,3 +498,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `3/118`; package `0/37`
 - Exact next file: `I05 program-libs/interface/src/instruction/instruction_data/batch_update_nullifier_tree.rs`
 - Full SDK parity claim: unsupported; I01 through I04 have adverse interface verdicts, eight package row sets remain incomplete, and cross-package gates have not passed
+
+### 2026-07-25 00:45 UTC | I05 | `program-libs/interface/src/instruction/instruction_data/batch_update_nullifier_tree.rs`
+
+- Baseline: HEAD `e39561f675f30aff5f7f958b16fac18045dc6d4f`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`; the worktree was clean, and I04's checklist checkpoint was commit `e39561f6`
+- Worker: GPT-5.6 Sol review subagent; implementation commit `none`
+- Explanation: This public instruction-data module defines `BatchUpdateNullifierTreeData` and `CompressedProof`. It uses Borsh to encode an exact 194-byte payload in this order: 32-byte new root, 32-byte old root, little-endian `u16` batch index, and proof arrays `a[32]`, `b[64]`, and `c[32]`. The Rust builder prepends tag 51 for a 195-byte instruction. Exact decoding rejects shorter or longer payloads. `CompressedProof::default()` returns a zero-filled proof, and `to_array()` preserves `a`, `b`, `c` order. The inline TypeScript builder has the valid encoding flow and input checks, but the mapped codec module and public data and proof representations are absent.
+- Evidence: `docs/spec.md` SHA-256 `d962f3e871cf8edee67cfbfd2f59f88320e1615f175e99c53f8275268162550c` is current. The canonical Rust source SHA-256 is `682914730c69ffb749e56e9d566c0e0b4e53f06a66e06aac750d105f901fa736`, with no relevant Rust or spec drift from the fixture freeze. Rust functional and Photon evidence exercise the payload, and the TypeScript package remains browser-safe. TypeScript tests assert only tag 51. No current-Rust fixture or provenance covers offsets, endianness, proof order, exact lengths, boundaries, or malformed decoding. No live tests ran for this completed review.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: `sdk-libs/ts/interface/src/codecs/index.ts` is absent, while `sdk-libs/ts/interface/src/instructions/index.ts::batchUpdateNullifierTreeInstruction` contains only inline encoding. Add public data and proof types, an exact 194-byte encoder and strict decoder reused by the builder, a current-Rust fixture with exact and rejection tests, and a documented JavaScript equivalent for the zero default and `to_array` order.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I06 program-libs/interface/src/instruction/instruction_data/create_tree.rs`
+- Full SDK parity claim: unsupported; I01 through I05 have adverse interface verdicts, eight package row sets remain incomplete, and the cross-package gates have not passed
