@@ -58,6 +58,7 @@ pub fn validate_spl_settlement(
     }
 
     let (expected_vault, _) = Address::derive_program_address(
+        // TODO: pass bump and use optimized function that just takes 100 CU from pinocchio accounts crate.
         &[SPL_ASSET_VAULT_PDA_SEED, vault_state.mint.as_slice()],
         program_id,
     )
@@ -79,6 +80,7 @@ pub(crate) fn read_token_account(
     token_program: &Address,
 ) -> Result<TokenAccountState, ProgramError> {
     if !account.owned_by(token_program) || account.data_len() != SPL_TOKEN_ACCOUNT_LEN {
+        // TODO: adapt this check to work for t22, need to check discriminator at index 165
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
