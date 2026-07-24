@@ -16,13 +16,13 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `c01d5c7c1d6169140025233a610c4423633ad3f9`
+- Review HEAD: `30367f31136d7e9cf6aa3e5553ad32fa2769e934`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: none in the nine scoped source trees
 - Primary rows: `118`
-- Progress: `3 done / 118 total`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `I01 program-libs/interface/src/error.rs`
-- Active fixes: none
+- Progress: `3 done / 118 total`; `1 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `I02 program-libs/interface/src/shape.rs`
+- Active fixes: `I01 proposed`
 - Last session: `2026-07-24`
 
 Refresh the HEAD, fixture commit, drift result, progress, active fixes, and exact
@@ -132,7 +132,7 @@ Columns:
 
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| I01 | `program-libs/interface/src/error.rs` | `interface/src/errors.ts` | todo | - | none | - | - | - |
+| I01 | `program-libs/interface/src/error.rs` | `interface/src/errors.ts`, `interface/src/index.ts` | needs_fix | PARTIAL | proposed | `ShieldedPoolErrorCode` lists 7000 through 7025, but TypeScript has no named runtime map, structured program-error representation, strict decoder, or fixture/test for the 26-variant current-Rust set. The RPC boundary also discards custom program codes. Add the map and decoder under `@zolana/interface`, preserve unknown custom codes distinctly, translate Solana instruction errors at the client boundary, and pin each mapping without comparing display text. | 2026-07-24 review | - |
 | I02 | `program-libs/interface/src/shape.rs` | `interface/src/internal.ts` | todo | - | none | - | - | - |
 | I03 | `program-libs/interface/src/merge_utils.rs` | `interface/src/internal.ts` | todo | - | none | - | - | - |
 | I04 | `program-libs/interface/src/pda.rs` | `interface/src/pda/index.ts` | todo | - | none | - | - | - |
@@ -446,3 +446,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `3/118`; package `2/22`
 - Exact next file: `I01 program-libs/interface/src/error.rs`
 - Full SDK parity claim: unsupported; eight package row sets, 20 client rows, and the cross-package gates remain incomplete
+
+### 2026-07-24 17:00 UTC | I01 | `program-libs/interface/src/error.rs`
+
+- Baseline: HEAD `30367f31136d7e9cf6aa3e5553ad32fa2769e934`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: GPT-5.6 Sol review subagent; implementation commit `none`
+- Explanation: This public interface module defines caller-side `InterfaceError` values and the 26 `ShieldedPoolError` variants that the Solana program returns as `ProgramError::Custom(u32)`. It imports `solana_program_error`, `thiserror`, and feature-gated `zolana_tree`; `program-libs/interface/src/lib.rs` exposes the module as `zolana_interface::error`. The direct conversion preserves each numeric discriminant, while the `InterfaceError` and `TreeError` conversions select program categories used by account and tree flows. The TypeScript root exports its separate caller-side `InterfaceError` and a type-only `ShieldedPoolErrorCode`, but no runtime program-error value or decoder. The package grants no signing, viewing, or nullifier capability.
+- Evidence: `docs/spec.md` does not define an error taxonomy, so `program-libs/interface/src/error.rs` is the canonical authority. The frozen and current Rust files have the same SHA-256, and no scoped Rust source changed after the fixture freeze. The Rust stability table pins each variant from `InvalidInstructionData = 7000` through `OwnerTagAccountMissing = 7025`; the TypeScript union contains exactly the same numeric range. `From<ShieldedPoolError> for ProgramError` casts the selected variant to `ProgramError::Custom`. Current workflow fixtures cover only `NullifierTreeUpdateFailed = 7002` and `InvalidSettlementAccounts = 7009`, and their TypeScript acceptance assertions also compare Rust display strings. No interface fixture or test pins the 26 named mappings, malformed input, or unknown custom codes. `SolanaRpc.#call` classifies JSON-RPC error envelopes as `CLIENT_RPC_ENVELOPE`, and `confirmTransaction` reduces status errors to `false`, so neither boundary exposes a shielded-pool code. The public TypeScript-only `InterfaceError` uses string codes and is not presented as a Solana program error. `rustup run 1.97.0 cargo test -p zolana-interface error_codes_are_stable` passed 1 test. Interface typecheck, API check, 15 unit tests, 1 vector test, and browser check passed.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: `sdk-libs/ts/interface/src/index.ts::ShieldedPoolErrorCode` is type-only, and `sdk-libs/ts/interface/src/errors.ts` has no named map, structured program-error type, guard, or strict decoder. Add those exports, generate a current-Rust fixture for the 26 name/code pairs, test malformed and unknown-code behavior, and update `sdk-libs/ts/client/src/solana-rpc.ts::SolanaRpc.#call` and confirmation handling to preserve recognized and raw unknown custom instruction codes without treating `InterfaceError` as a program error.
+- Row transition: `todo -> in_progress -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I02 program-libs/interface/src/shape.rs`
+- Full SDK parity claim: unsupported; the interface error gate, eight package row sets, 20 client rows, and the cross-package gates remain incomplete
