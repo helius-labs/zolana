@@ -66,7 +66,13 @@ path. Root and subpath exports are explicit; wildcard re-exports are forbidden.
   SHA-256, Poseidon, randomness, zeroization, and Solana key primitives. It has
   no dependency on another Zolana SDK package.
 - **Root:** signing, nullifier, viewing, public-key, shielded-address, keypair,
-  view-tag, salt, and random-blinding operations.
+  view-tag, transaction-viewing-key, context-bound slot encryption/decryption,
+  merge encryption/decryption, salt, and random-blinding operations. Slot
+  cryptography retains the recipient or transaction viewing public key, salt,
+  and `u32` slot index required by
+  [`viewing_key.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/viewing_key.rs)
+  and
+  [`encryption.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/encryption.rs).
 - **Subpath:** `./merge` contains verifiable merge encryption and its public
   contribution/hash functions from
   [`merge.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/merge.rs).
@@ -130,7 +136,9 @@ path. Root and subpath exports are explicit; wildcard re-exports are forbidden.
   unknown-field, and page-limit validation failures.
 - **Boundary rationale:** both indexer implementations and transports must use
   one JSON contract. `@zolana/api` consumes these types; it does not regenerate
-  or redefine them.
+  or redefine them. Its `MerkleProof` and `NonInclusionProof` are wire-schema
+  types with branded base58 `Hash` fields. `NonInclusionProof` is a standalone
+  ten-field type and has no inclusion-proof `leafIndex`.
 
 ### `@zolana/api`
 
@@ -182,7 +190,10 @@ path. Root and subpath exports are explicit; wildcard re-exports are forbidden.
 - **Boundary rationale:** the client composes RPC, Photon, and the prover. It
   does not own wallet state, registry, authorities, action creation, signing
   orchestration, balances, history, or sync; those moved to `@zolana/wallet` in
-  frozen Rust.
+  frozen Rust. Client proof types use `Bytes32`, not indexer `Hash`; the Photon
+  adapter performs the explicit conversion. The client owns these semantic
+  types rather than aliasing the schema package, so dependency flow remains
+  client to API/indexer schema.
 
 ### `@zolana/wallet`
 
@@ -231,7 +242,11 @@ path. Root and subpath exports are explicit; wildcard re-exports are forbidden.
   implementations not backed by frozen vectors.
 - **Errors:** `MerkleTreeError` and `IndexedMerkleTreeError`.
 - **Boundary rationale:** it is a reference/test utility and must not replace
-  an authoritative indexer proof in production proving.
+  an authoritative indexer proof in production proving. Its package-local
+  `NonInclusionProof` records `value`, lower/higher range values, `leafIndex`,
+  `nextIndex`, `merkleProof`, and `root`. It is not structurally interchangeable
+  with either Photon or client non-inclusion proofs and introduces no dependency
+  on those packages.
 
 ### `@zolana/smart-account-client`
 
@@ -308,6 +323,17 @@ input index, path length, method, HTTP status, tree, or signature.
 
 - `P256Pubkey` becomes `P256PublicKey`; the scheme-tagged Rust `PublicKey`
   becomes `ShieldedPublicKey` to avoid collision with Solana terminology.
+- Keypair methods camel-case and shorten Rust `get_*` names without removing
+  counters, counterparties, public keys, salts, or slot indexes.
+  `transactionViewingKey` returns a `ViewingKey`, matching
+  [`ViewingKeyTrait`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/traits/view_key.rs).
+  `ViewingKeyLike` deliberately narrows that trait to the optionally async
+  authority methods currently consumed by higher packages.
+- Verifiable merge encryption replaces Rust's tuple result with
+  `{ ciphertext, txViewingPublicKey }`. The public-contribution object
+  camel-cases, but retains, the transaction viewing public key's low/high
+  limbs and the ciphertext hash from
+  [`merge.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/merge.rs).
 - Rust blocking variants and `_sync` functions are not exported. This removes
   stale `signTransaction`, `signTransactionSync`, and `_sync` aliases; neither
   frozen crate roots nor the selected current ownership require them in

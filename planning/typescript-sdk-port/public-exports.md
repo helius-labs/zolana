@@ -409,12 +409,41 @@ export class ViewingKey {
   secretBytes(): Bytes32;
   ecdh(counterparty: P256PublicKey): Bytes32;
   senderViewTag(txCount: bigint): ViewTag;
-  recipientRequestViewTag(sender: P256PublicKey, txCount: bigint): ViewTag;
+  recipientRequestViewTag(requestCount: bigint): ViewTag;
   mergeViewTag(mergeCount: bigint): ViewTag;
+  sendSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag;
+  recipientSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag;
   recipientBootstrapViewTag(): ViewTag;
-  transactionViewingKey(firstNullifier: Bytes32, salt: Salt): Bytes32;
-  encryptSlot(key: Bytes32, plaintext: Uint8Array): Uint8Array;
-  decryptSlotEphemeral(key: Bytes32, ciphertext: Uint8Array): Uint8Array;
+  transactionViewingKey(firstNullifier: Bytes32): ViewingKey;
+  encryptSlot(
+    recipientPublicKey: P256PublicKey,
+    plaintext: Uint8Array,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array;
+  decryptUtxo(
+    ciphertext: Uint8Array,
+    txViewingPublicKey: P256PublicKey,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array;
+  decryptSlotEphemeral(
+    recipientPublicKey: P256PublicKey,
+    ciphertext: Uint8Array,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array;
+  encryptVerifiable(
+    userViewingPublicKey: P256PublicKey,
+    plaintext: Uint8Array,
+  ): Readonly<{
+    ciphertext: Uint8Array;
+    txViewingPublicKey: P256PublicKey;
+  }>;
+  decryptVerifiable(
+    txViewingPublicKey: P256PublicKey,
+    ciphertext: Uint8Array,
+  ): Uint8Array;
   destroy(): void;
 }
 export interface ShieldedAddress {
@@ -445,7 +474,7 @@ export interface ShieldedKeypairLike {
 }
 export interface ViewingKeyLike {
   publicKey(): P256PublicKey;
-  transactionViewingKey(firstNullifier: Bytes32, salt: Salt): Bytes32 | Promise<Bytes32>;
+  transactionViewingKey(firstNullifier: Bytes32): ViewingKey | Promise<ViewingKey>;
 }
 export function randomBlinding(): Bytes31;
 export function randomSalt(): Salt;
@@ -460,24 +489,63 @@ Factories and pure methods are synchronous and map
 curve points, counters, and signatures; return owned copies; and throw
 `KeypairError`. `destroy()` is a TypeScript-only best-effort zeroization method.
 `P256Pubkey` and scheme-tagged `PublicKey` are deliberately renamed.
+`senderViewTag`, `recipientRequestViewTag`, `mergeViewTag`,
+`sendSharedViewTag`, and `recipientSharedViewTag` only camel-case and shorten
+the corresponding Rust `get_*` names. Their required counters and
+counterparties are unchanged.
+
+The slot methods preserve the recipient or transaction viewing public key,
+transaction salt, and `u32` slot index from
+[`encryption.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/encryption.rs)
+and
+[`ViewingKeyTrait`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/traits/view_key.rs).
+`transactionViewingKey` takes only the first nullifier and returns the derived
+`ViewingKey`; the transaction salt belongs to slot encryption, not key
+derivation. `ViewingKeyLike` is the deliberately minimal, optionally async
+TypeScript authority boundary rather than a rename of the complete Rust trait,
+but its retained method has the same input and result. The slot signatures and
+separation behavior are pinned by
+[`tests/steps/transaction.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/tests/steps/transaction.rs);
+view-tag and transaction-viewing-key derivation are pinned by
+[`tests/steps/viewing.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/tests/steps/viewing.rs).
 
 `@zolana/keypair/merge`:
 
 ```ts
 export const MERGE_INFO: Uint8Array;
 export interface MergeCiphertextPublicInputs {
+  readonly txViewingPublicKeyLow: Bytes32;
+  readonly txViewingPublicKeyHigh: Bytes32;
   readonly ciphertextHash: Bytes32;
-  readonly publicContribution: Bytes32;
 }
-export function encryptVerifiable(key: Bytes32, plaintext: Uint8Array): Uint8Array;
-export function decryptVerifiable(key: Bytes32, ciphertext: Uint8Array): Uint8Array;
-export function mergePublicContribution(ciphertext: Uint8Array): Bytes32;
+export function encryptVerifiable(
+  txViewingSecret: Bytes32,
+  userViewingPublicKey: P256PublicKey,
+  plaintext: Uint8Array,
+): Readonly<{
+  ciphertext: Uint8Array;
+  txViewingPublicKey: P256PublicKey;
+}>;
+export function decryptVerifiable(
+  userViewingSecret: Bytes32,
+  txViewingPublicKey: P256PublicKey,
+  ciphertext: Uint8Array,
+): Uint8Array;
+export function mergePublicContribution(
+  txViewingPublicKey: P256PublicKey,
+  ciphertext: Uint8Array,
+): MergeCiphertextPublicInputs;
 export function mergeCiphertextHash(ciphertext: Uint8Array): Bytes32;
 ```
 
 These synchronous functions map [`merge.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/merge.rs),
-copy outputs, validate key/ciphertext lengths, and throw `KeypairError`.
-`symmetric_apply` remains internal.
+copy outputs, validate secret-key lengths and public keys, and throw
+`KeypairError`. TypeScript replaces Rust's
+`(Vec<u8>, P256Pubkey)` encryption tuple with the named readonly
+`{ ciphertext, txViewingPublicKey }` object. `MergeCiphertextPublicInputs`
+renames Rust's `tx_viewing_pk_lo` and `tx_viewing_pk_hi` fields but preserves
+both limbs and `ciphertext_hash`; it does not collapse them into a synthetic
+contribution. `symmetric_apply` remains internal.
 
 ## `@zolana/transaction`
 
@@ -812,9 +880,13 @@ export interface GetMerkleProofsResponse {
 export interface GetNonInclusionProofsRequest {
   readonly treeAccount: Address; readonly leaves: readonly Hash[];
 }
-export interface NonInclusionProof extends MerkleProof {
+export interface NonInclusionProof {
+  readonly leaf: Hash;
+  readonly merkleContext: Readonly<{ treeType: number; tree: Address }>;
+  readonly path: readonly Hash[];
   readonly lowElement: Hash; readonly lowElementIndex: bigint;
   readonly highElement: Hash; readonly highElementIndex: bigint;
+  readonly root: Hash; readonly rootSeq: bigint; readonly rootIndex: number;
 }
 export interface GetNonInclusionProofsResponse {
   readonly context: IndexerContext; readonly proofs: readonly NonInclusionProof[];
@@ -843,6 +915,19 @@ and throw `IndexerSchemaError`. JSON names are camelCase in TypeScript and
 converted to frozen snake_case wire keys internally. Unknown fields, malformed
 base58/base64, and limits outside 1–1000 are rejected. Rust `RpcMethod` marker
 types become the five constants rather than constructible classes.
+
+`@zolana/indexer-api` owns the JSON schema form of both proof types. Each
+`NonInclusionProof` wire object has exactly `leaf`, `merkle_context`, `path`,
+`low_element`, `low_element_index`, `high_element`, `high_element_index`,
+`root`, `root_seq`, and `root_index`; it has no `leaf_index`. Hash fields and
+every path item are canonical base58 strings decoding to 32 bytes,
+`merkle_context.tree` is a canonical Solana address, `tree_type` and
+`root_index` are unsigned 16-bit integers, and the remaining indexes and
+sequence are unsigned 64-bit integers represented as `bigint` after decoding.
+The strict decoder rejects missing or unknown fields, non-canonical encodings,
+unsafe JSON integers, out-of-range integers, and malformed nested objects.
+These fields and encodings are pinned by frozen
+[`indexer-api/src/lib.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/indexer-api/src/lib.rs).
 
 ## `@zolana/api`
 
@@ -914,11 +999,17 @@ export interface MerkleProof {
   readonly rootSeq: bigint;
   readonly rootIndex: number;
 }
-export interface NonInclusionProof extends MerkleProof {
+export interface NonInclusionProof {
+  readonly leaf: Bytes32;
+  readonly merkleContext: MerkleContext;
+  readonly path: readonly Bytes32[];
   readonly lowElement: Bytes32;
   readonly lowElementIndex: bigint;
   readonly highElement: Bytes32;
   readonly highElementIndex: bigint;
+  readonly root: Bytes32;
+  readonly rootSeq: bigint;
+  readonly rootIndex: number;
 }
 export interface GetMerkleProofsResponse {
   readonly context: RpcContext;
@@ -1024,6 +1115,23 @@ while `ZolanaClient` delegates them to its indexer. This keeps
 dependency on the concrete indexer adapter.
 No wallet action, authority, registry, balance, history, or sync export is
 permitted here.
+
+The client proof interfaces are semantic byte-valued types owned by
+`@zolana/client`; they are not aliases or re-exports of
+`@zolana/indexer-api` wire types. `ZolanaIndexer` explicitly converts every
+wire hash and path item to a copied `Bytes32`, converts the wire tree to
+`Address`, and preserves every integer and response context. The client
+`NonInclusionProof` has the same ten fields as the wire proof and likewise has
+no `leafIndex`. `SpendProof.state.leafIndex` supplies the state path index;
+`SpendProof.nullifier.lowElementIndex` supplies the nullifier low-leaf path
+index. Assembly writes the state and nullifier `rootIndex` values to the
+separate `utxoTreeRootIndex` and `nullifierTreeRootIndex` instruction fields;
+`@zolana/interface` does not own or share either proof object. Frozen
+[`indexer.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/client/src/indexer.rs)
+defines this conversion, and
+[`p256_and_eddsa.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/client/src/prover/transact/p256_and_eddsa.rs)
+defines the distinct path-index consumers. The instruction fields are pinned by
+[`transact.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/program-libs/interface/src/instruction/instruction_data/transact.rs).
 
 `@zolana/client/prover`:
 
@@ -1379,9 +1487,13 @@ export class MerkleTree {
   proof(index: bigint): readonly Bytes32[];
 }
 export interface NonInclusionProof {
-  readonly lowElement: Bytes32; readonly lowElementIndex: bigint;
-  readonly highElement: Bytes32; readonly highElementIndex: bigint;
-  readonly path: readonly Bytes32[]; readonly root: Bytes32;
+  readonly root: Bytes32;
+  readonly value: Bytes32;
+  readonly leafLowerRangeValue: Bytes32;
+  readonly leafHigherRangeValue: Bytes32;
+  readonly leafIndex: bigint;
+  readonly nextIndex: bigint;
+  readonly merkleProof: readonly Bytes32[];
 }
 export class IndexedMerkleTree {
   constructor(height: number, hasher: Hasher32);
@@ -1395,6 +1507,14 @@ All operations are synchronous, validate heights, capacity, indexes, ordering,
 and byte lengths, return owned bytes, and throw the corresponding package
 error. Concrete hashers are constructor dependencies until frozen vectors
 justify named exports.
+
+This `NonInclusionProof` is the reference indexed-tree result from frozen
+[`indexed.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/merkle-tree/src/indexed.rs).
+It reconstructs the indexed leaf from `leafLowerRangeValue`, `nextIndex`, and
+`leafHigherRangeValue`; it is not the Photon wire proof or the client
+`SpendProof.nullifier` type. `@zolana/merkle-tree` has no client or indexer
+dependency, and no implicit conversion between these package-local proof types
+is public.
 
 ## `@zolana/smart-account-client`
 

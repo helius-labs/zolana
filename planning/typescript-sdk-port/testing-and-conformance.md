@@ -349,6 +349,66 @@ The package counts are interface 74, keypair 24, transaction 36, indexer-api
 33, API transport 3, client 32, wallet 39, Merkle tree 6, smart-account client
 11, and private test-kit 5.
 
+The corrected proof shapes change no declaration identity, fixture ID, test ID,
+package count, or total. Existing IDs cover distinct package-local contracts:
+
+- `fx-indexer-api-root-interface-non-inclusion-proof-v1` /
+  `test-indexer-api-root-interface-non-inclusion-proof` records the exact
+  ten-field snake_case JSON object from frozen `zolana-indexer-api`, including
+  canonical base58 hashes/address, `u16` tree/root indexes, and `u64` neighbor
+  indexes/root sequence. It asserts that `leaf_index` is unknown and that its
+  absence is valid.
+- `fx-client-root-interface-non-inclusion-proof-v1` /
+  `test-client-root-interface-non-inclusion-proof` records the corresponding
+  byte-valued client object and asserts no `leafIndex` declaration.
+  `fx-client-root-interface-spend-proof-v1` /
+  `test-client-root-interface-spend-proof` separately asserts
+  `state.leafIndex` and `nullifier.lowElementIndex`.
+- `fx-merkle-tree-root-interface-non-inclusion-proof-v1` /
+  `test-merkle-tree-root-interface-non-inclusion-proof` records `root`, `value`,
+  `leafLowerRangeValue`, `leafHigherRangeValue`, `leafIndex`, `nextIndex`, and
+  `merkleProof`; it must not substitute Photon neighbor fields.
+
+The indexer vector is pinned to frozen
+[`indexer-api/src/lib.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/indexer-api/src/lib.rs);
+the client vector and conversion are pinned to frozen
+[`rpc.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/client/src/rpc.rs)
+and
+[`indexer.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/client/src/indexer.rs);
+the reference-tree vector is pinned to frozen
+[`indexed.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/merkle-tree/src/indexed.rs).
+
+The corrected keypair signatures do not add or remove top-level declarations,
+so the declaration identities, IDs, and totals remain unchanged. Their existing
+fixtures and tests must cover the complete corrected declaration:
+
+- `fx-keypair-root-class-viewing-key-v1` /
+  `test-keypair-root-class-viewing-key` records recipient/request/shared tag
+  arguments, first-nullifier-only transaction viewing-key derivation, every
+  recipient or transaction viewing public key, salt, `u32` slot index,
+  ciphertext, and the named merge encryption result.
+- `fx-keypair-root-interface-viewing-key-like-v1` /
+  `test-keypair-root-interface-viewing-key-like` asserts that
+  `transactionViewingKey(firstNullifier)` returns `ViewingKey |
+  Promise<ViewingKey>` without a salt argument.
+- `fx-keypair-merge-interface-merge-ciphertext-public-inputs-v1` /
+  `test-keypair-merge-interface-merge-ciphertext-public-inputs` records the
+  transaction viewing public key's low/high limbs and ciphertext hash.
+- `fx-keypair-merge-function-encrypt-verifiable-v1`,
+  `fx-keypair-merge-function-decrypt-verifiable-v1`, and
+  `fx-keypair-merge-function-merge-public-contribution-v1`, with their existing
+  test IDs, record every secret/public key argument, ciphertext, and the named
+  `{ ciphertext, txViewingPublicKey }` encryption result.
+
+These vectors call frozen production functions in
+[`viewing_key.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/viewing_key.rs)
+and
+[`merge.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/merge.rs).
+Slot-index separation and sender/recipient decryption must reproduce
+[`tests/steps/transaction.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/tests/steps/transaction.rs);
+view-tag counters and transaction viewing-key derivation must reproduce
+[`tests/steps/viewing.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/tests/steps/viewing.rs).
+
 ## Lifecycle conformance
 
 The canonical spend fixture records every stage separately:
@@ -412,7 +472,10 @@ Required cross-tests:
   values for all five methods. Mutation tests reject unknown fields, malformed
   base58/base64, invalid limits, and mismatched JSON-RPC envelopes.
 - `ZolanaIndexer` conversion preserves addresses, signatures, bytes, paths,
-  root indexes, pagination, and nullifier neighbors.
+  root indexes, pagination, and nullifier neighbors. Its non-inclusion
+  conversion accepts the exact ten-field wire proof, copies every hash/path
+  item to `Bytes32`, emits no `leafIndex`, and leaves the schema-owned input
+  unaliased.
 - smart-account PDA and create/execute vectors compare exact bytes and metas;
   duplicate inner accounts union writable/signer privileges, inner indexes
   remain stable, the vault outer signer bit is cleared, and count/data/payload

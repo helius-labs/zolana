@@ -27,11 +27,14 @@ create action
 ```
 
 `@zolana/wallet` owns intent, input selection, authority calls, action
-construction, and sync. `@zolana/transaction` owns deterministic transfer,
-encryption-slot, and proof-input math. `@zolana/client` owns Photon/RPC/prover
-composition and native transaction assembly. `@zolana/interface` alone owns
-instruction accounts and bytes. A native wallet adapter owns the final Solana
-signature.
+construction, and sync. `@zolana/transaction` owns deterministic transfer, slot
+layout, and proof-input math. `@zolana/keypair` owns the context-bound slot
+cryptography: recipient or transaction viewing public key, salt, and slot index,
+as pinned by
+[`viewing_key.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/viewing_key.rs).
+`@zolana/client` owns Photon/RPC/prover composition and native transaction
+assembly. `@zolana/interface` alone owns instruction accounts and bytes. A
+native wallet adapter owns the final Solana signature.
 
 The convenience path `buildPrivateTransaction` collapses authority encryption,
 approval, P256 signing when required, Photon proof fetch, witness assembly,
@@ -56,6 +59,8 @@ does not repeat or specialize them. In particular, use:
 - [`@zolana/interface`](public-exports.md#zolanainterface) for shared types,
   numeric `InstructionTag`, corrected transact wire types, codecs, and raw
   builders;
+- [`@zolana/keypair`](public-exports.md#zolanakeypair) for viewing-key
+  derivation and context-bound slot/merge cryptography;
 - [`@zolana/transaction`](public-exports.md#zolanatransaction) for wallet state,
   spend inputs, transfer preparation, split/merge values, and decryption;
 - [`@zolana/client`](public-exports.md#zolanaclient) and
@@ -532,9 +537,7 @@ interface package.
 import type {
   Address, Instruction, Signature, Transaction,
 } from "@zolana/interface";
-import type {
-  MerkleProof, NonInclusionProof, ZolanaClient, ZolanaIndexer,
-} from "@zolana/client";
+import type { ZolanaClient, ZolanaIndexer } from "@zolana/client";
 import type { ProverClient, SpendProof } from "@zolana/client/prover";
 import type { TransactionSigner, WalletAuthority } from "@zolana/wallet";
 import type { AssetRegistry, PreparedTransfer, SppProofInputs } from "@zolana/transaction";
@@ -583,35 +586,6 @@ export async function authorizePrepared(
   return proofInputs;
 }
 
-function inclusion(value: MerkleProof): SpendProof["state"] {
-  return {
-    leaf: value.leaf,
-    merkleContext: value.merkleContext,
-    root: value.root,
-    rootSeq: value.rootSeq,
-    rootIndex: value.rootIndex,
-    path: value.path,
-    leafIndex: value.leafIndex,
-  };
-}
-function nonInclusion(
-  value: NonInclusionProof,
-): SpendProof["nullifier"] {
-  return {
-    leaf: value.leaf,
-    merkleContext: value.merkleContext,
-    root: value.root,
-    rootSeq: value.rootSeq,
-    rootIndex: value.rootIndex,
-    path: value.path,
-    leafIndex: value.leafIndex,
-    lowElement: value.lowElement,
-    lowElementIndex: value.lowElementIndex,
-    highElement: value.highElement,
-    highElementIndex: value.highElementIndex,
-  };
-}
-
 export async function fetchSpendProofs(
   proofInputs: SppProofInputs,
   tree: Address,
@@ -625,8 +599,8 @@ export async function fetchSpendProofs(
     throw new Error("Photon returned an incomplete spend-proof set");
   }
   return state.proofs.map((proof, index) => ({
-    state: inclusion(proof),
-    nullifier: nonInclusion(absent.proofs[index]!),
+    state: proof,
+    nullifier: absent.proofs[index]!,
   }));
 }
 
@@ -648,7 +622,12 @@ export async function signSendConfirm(
 ```
 
 The `@zolana/client` proof RPC uses `Bytes32` leaves and returns byte-valued
-proofs directly; this raw workflow performs no base58 conversion.
+proofs directly; this raw workflow performs no base58 conversion or proof-shape
+copy. `ZolanaIndexer` is the conversion boundary from
+`@zolana/indexer-api` wire proofs. A non-inclusion proof has no `leafIndex`;
+the prover uses its `lowElementIndex` as the nullifier low-leaf path index, as
+pinned by frozen
+[`p256_and_eddsa.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/client/src/prover/transact/p256_and_eddsa.rs).
 
 ## Instruction wire and tag contract
 
