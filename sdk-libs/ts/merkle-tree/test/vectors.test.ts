@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import fixture from "../../fixtures/merkle-tree/paths-v1.json" with { type: "json" };
 
 import { keccakHasher, poseidonHasher, sha256Hasher } from "../src/hashers.js";
+import { verifyNonInclusionProof } from "../src/indexed.js";
 import { IndexedMerkleTree } from "../src/index.js";
 import { CoreMerkleTree, type Hasher32 } from "../src/merkle-tree.js";
 import { required } from "./helpers.js";
@@ -123,22 +124,33 @@ describe("frozen indexed Merkle vectors", () => {
 
       for (const expectedProof of vector.nonInclusionProofs) {
         const proof = tree.nonInclusionProof(hexBytes(expectedProof.valueBytes));
-        expect(proof).toMatchObject({
-          lowElement: hexBytes(expectedProof.lowerValueBytes),
-          lowElementIndex: BigInt(expectedProof.leafIndex),
-          highElement: hexBytes(expectedProof.higherValueBytes),
-          highElementIndex: BigInt(expectedProof.nextIndex),
-          path: expectedProof.proofBytes.map(hexBytes),
+        expect(proof).toEqual({
           root: hexBytes(expectedProof.rootBytes),
+          value: hexBytes(expectedProof.valueBytes),
+          leafLowerRangeValue: hexBytes(expectedProof.lowerValueBytes),
+          leafHigherRangeValue: hexBytes(expectedProof.higherValueBytes),
+          leafIndex: BigInt(expectedProof.leafIndex),
+          nextIndex: BigInt(expectedProof.nextIndex),
+          merkleProof: expectedProof.proofBytes.map(hexBytes),
         });
+        expect(Object.keys(proof)).toEqual([
+          "root",
+          "value",
+          "leafLowerRangeValue",
+          "leafHigherRangeValue",
+          "leafIndex",
+          "nextIndex",
+          "merkleProof",
+        ]);
         expect(
           verifyPath(
             hasher,
-            hasher.hash(proof.lowElement, proof.highElement),
-            proof.lowElementIndex,
-            proof.path,
+            hasher.hash(proof.leafLowerRangeValue, proof.leafHigherRangeValue),
+            proof.leafIndex,
+            proof.merkleProof,
           ),
         ).toEqual(proof.root);
+        expect(verifyNonInclusionProof(hasher, proof)).toBe(true);
       }
 
       expect(vector.orderedValues.map(decimalBytes)).toEqual([

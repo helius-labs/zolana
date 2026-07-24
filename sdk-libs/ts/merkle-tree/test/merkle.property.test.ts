@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { expect, it } from "vitest";
 
+import { verifyNonInclusionProof } from "../src/indexed.js";
 import { IndexedMerkleTree, MerkleTree } from "../src/index.js";
 import { leaf, modelHasher, modelRoot, verifyPath } from "./helpers.js";
 
@@ -43,17 +44,19 @@ it("returns generated indexed neighbors in sorted order", () => {
         const sorted = [...values].sort((left, right) => left - right);
         const low = sorted.filter((value) => value < query).at(-1) ?? 0;
         const high = sorted.find((value) => value > query);
-        expect(proof.lowElement).toEqual(leaf(low));
+        expect(proof.value).toEqual(leaf(query));
+        expect(proof.leafLowerRangeValue).toEqual(leaf(low));
         if (high !== undefined) {
-          expect(proof.highElement).toEqual(leaf(high));
+          expect(proof.leafHigherRangeValue).toEqual(leaf(high));
         }
         expect(
           verifyPath(
-            modelHasher.hash(proof.lowElement, proof.highElement),
-            proof.lowElementIndex,
-            proof.path,
+            modelHasher.hash(proof.leafLowerRangeValue, proof.leafHigherRangeValue),
+            proof.leafIndex,
+            proof.merkleProof,
           ),
         ).toEqual(tree.root());
+        expect(verifyNonInclusionProof(modelHasher, proof)).toBe(true);
       },
     ),
   );

@@ -13,12 +13,13 @@ interface IndexedElement {
 }
 
 export interface NonInclusionProof {
-  readonly lowElement: Bytes32;
-  readonly lowElementIndex: bigint;
-  readonly highElement: Bytes32;
-  readonly highElementIndex: bigint;
-  readonly path: readonly Bytes32[];
   readonly root: Bytes32;
+  readonly value: Bytes32;
+  readonly leafLowerRangeValue: Bytes32;
+  readonly leafHigherRangeValue: Bytes32;
+  readonly leafIndex: bigint;
+  readonly nextIndex: bigint;
+  readonly merkleProof: readonly Bytes32[];
 }
 
 function indexedHash(hasher: Hasher32, left: Bytes32, right: Bytes32): Bytes32 {
@@ -39,6 +40,66 @@ function indexedBytes(value: Uint8Array): Bytes32 {
       { cause },
     );
   }
+}
+
+function proofBytes(value: Uint8Array, field: string): Bytes32 {
+  try {
+    return bytes32(value, field);
+  } catch (cause) {
+    throw new IndexedMerkleTreeError(
+      "INDEXED_MERKLE_TREE_INVALID_PROOF",
+      `${field} must contain 32 bytes`,
+      { details: { field }, cause },
+    );
+  }
+}
+
+function proofIndex(value: bigint, field: string): bigint {
+  if (typeof value !== "bigint" || value < 0n) {
+    throw new IndexedMerkleTreeError(
+      "INDEXED_MERKLE_TREE_INVALID_PROOF",
+      `${field} must be a non-negative bigint`,
+      { details: { field } },
+    );
+  }
+  return value;
+}
+
+export function verifyNonInclusionProof(hasher: Hasher32, proof: NonInclusionProof): boolean {
+  const root = proofBytes(proof.root, "root");
+  const value = proofBytes(proof.value, "value");
+  const lower = proofBytes(proof.leafLowerRangeValue, "leafLowerRangeValue");
+  const higher = proofBytes(proof.leafHigherRangeValue, "leafHigherRangeValue");
+  let index = proofIndex(proof.leafIndex, "leafIndex");
+  proofIndex(proof.nextIndex, "nextIndex");
+
+  if (compareBytes(lower, value) >= 0) {
+    throw new IndexedMerkleTreeError(
+      "INDEXED_MERKLE_TREE_LOWER_BOUND",
+      "Proof value must exceed its lower range",
+    );
+  }
+  if (compareBytes(higher, value) <= 0) {
+    throw new IndexedMerkleTreeError(
+      "INDEXED_MERKLE_TREE_HIGHER_BOUND",
+      "Proof value must be below its higher range",
+    );
+  }
+
+  let hash = indexedHash(hasher, lower, higher);
+  for (const siblingValue of proof.merkleProof) {
+    const sibling = proofBytes(siblingValue, "merkleProof");
+    hash =
+      (index & 1n) === 0n ? indexedHash(hasher, hash, sibling) : indexedHash(hasher, sibling, hash);
+    index >>= 1n;
+  }
+  if (compareBytes(hash, root) !== 0) {
+    throw new IndexedMerkleTreeError(
+      "INDEXED_MERKLE_TREE_INVALID_PROOF",
+      "Merkle proof does not match its root",
+    );
+  }
+  return true;
 }
 
 function mapTreeError(cause: unknown): never {
@@ -124,12 +185,13 @@ export class IndexedMerkleTree {
     const low = this.findLowElement(ownedValue);
     const high = this.highElement(low);
     return {
-      lowElement: copyBytes(low.value),
-      lowElementIndex: low.index,
-      highElement: copyBytes(high.value),
-      highElementIndex: high.index,
-      path: this.tree.proof(low.index),
       root: this.tree.root(),
+      value: copyBytes(ownedValue),
+      leafLowerRangeValue: copyBytes(low.value),
+      leafHigherRangeValue: copyBytes(high.value),
+      leafIndex: low.index,
+      nextIndex: low.nextIndex,
+      merkleProof: this.tree.proof(low.index),
     };
   }
 

@@ -36,7 +36,7 @@
     {
       "command": "npm run test:unit --workspace @zolana/merkle-tree",
       "exitStatus": "0",
-      "responsibility": "25 unit, model, mutation, ownership, error, capacity, canopy, history, and atomicity tests"
+      "responsibility": "26 unit, model, proof mutation, ownership, error, capacity, canopy, history, and atomicity tests"
     },
     {
       "command": "npm run test:vectors --workspace @zolana/merkle-tree",
@@ -46,7 +46,7 @@
     {
       "command": "npm run test:property --workspace @zolana/merkle-tree",
       "exitStatus": "0",
-      "responsibility": "two deterministic fast-check Merkle path and indexed-neighbor properties"
+      "responsibility": "two deterministic fast-check Merkle path and indexed range-proof properties"
     },
     {
       "command": "npm run test:browser --workspace @zolana/merkle-tree",
@@ -71,7 +71,7 @@
     {
       "command": "npm run fixtures:check",
       "exitStatus": "0",
-      "responsibility": "12 frozen fixtures and 182 inventory rows regenerated cleanly"
+      "responsibility": "24 frozen fixtures and 182 inventory rows regenerated cleanly"
     }
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
@@ -95,9 +95,14 @@
     "append-only Merkle roots, full and canopy paths, capacity and index errors",
     "internal canopy truncation and bounded root history behavior",
     "ordered indexed insertion with Rust-compatible H(value,nextValue) leaves",
-    "low/high-neighbor non-inclusion proofs and sentinel upper range",
+    "exact seven-field reference-tree non-inclusion proofs with root, query value, range values, indexes, and Merkle proof",
+    "bound and Merkle-path verification with precise proof errors",
     "atomic state on hasher, capacity, duplicate, range, length, and non-canonical-field failures"
   ],
+  "fixtureAssessment": {
+    "correctionRequired": false,
+    "result": "paths-v1.json already carries valueBytes, lowerValueBytes, higherValueBytes, leafIndex, nextIndex, proofBytes, and rootBytes; P06 maps those source fields to the corrected public proof without changing P00"
+  },
   "ownedChangedPaths": [
     "sdk-libs/ts/merkle-tree/src/bytes.ts",
     "sdk-libs/ts/merkle-tree/src/errors.ts",
@@ -120,6 +125,8 @@
       "kept concrete hash adapters internal so the six-name package root remains exact",
       "centralized checked byte copying and invariant lookups",
       "made compound indexed updates transactional",
+      "replaced the Photon-style neighbor object with the frozen reference-tree proof",
+      "kept proof verification internal so the six-name package root remains exact",
       "replaced test non-null assertions with explicit invariant checks",
       "removed deprecated assertions and narration comments"
     ],
@@ -133,6 +140,10 @@
     {
       "checkpoint": "f07f3c11",
       "result": "used admitted Noble hash dependencies and passed typed test lint"
+    },
+    {
+      "checkpoint": "f3a1759f",
+      "result": "implemented the corrected seven-field reference-tree NonInclusionProof without Photon or client neighbor fields"
     }
   ],
   "schema": "zolana-ts-packet-evidence-v1",

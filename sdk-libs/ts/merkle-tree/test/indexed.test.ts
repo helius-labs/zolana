@@ -1,5 +1,7 @@
+import type { Bytes32 } from "@zolana/interface";
 import { describe, expect, it } from "vitest";
 
+import { verifyNonInclusionProof } from "../src/indexed.js";
 import { IndexedMerkleTree, IndexedMerkleTreeError } from "../src/index.js";
 import { leaf, modelHasher, required, verifyPath } from "./helpers.js";
 
@@ -14,13 +16,15 @@ describe("IndexedMerkleTree", () => {
 
     const proof = tree.nonInclusionProof(leaf(25));
     expect(proof).toMatchObject({
-      lowElement: leaf(20),
-      lowElementIndex: 3n,
-      highElement: leaf(30),
-      highElementIndex: 1n,
+      value: leaf(25),
+      leafLowerRangeValue: leaf(20),
+      leafHigherRangeValue: leaf(30),
+      leafIndex: 3n,
+      nextIndex: 1n,
     });
-    const lowLeaf = modelHasher.hash(proof.lowElement, proof.highElement);
-    expect(verifyPath(lowLeaf, proof.lowElementIndex, proof.path)).toEqual(proof.root);
+    const lowLeaf = modelHasher.hash(proof.leafLowerRangeValue, proof.leafHigherRangeValue);
+    expect(verifyPath(lowLeaf, proof.leafIndex, proof.merkleProof)).toEqual(proof.root);
+    expect(verifyNonInclusionProof(modelHasher, proof)).toBe(true);
     expect(proof.root).toEqual(tree.root());
   });
 
@@ -29,10 +33,10 @@ describe("IndexedMerkleTree", () => {
     tree.insert(leaf(10));
 
     const proof = tree.nonInclusionProof(leaf(11));
-    expect(proof.lowElement).toEqual(leaf(10));
-    expect(proof.lowElementIndex).toBe(1n);
-    expect(proof.highElementIndex).toBe(0n);
-    expect(proof.highElement).not.toEqual(new Uint8Array(32));
+    expect(proof.leafLowerRangeValue).toEqual(leaf(10));
+    expect(proof.leafIndex).toBe(1n);
+    expect(proof.nextIndex).toBe(0n);
+    expect(proof.leafHigherRangeValue).not.toEqual(new Uint8Array(32));
   });
 
   it("returns owned roots and non-inclusion proof bytes", () => {
@@ -41,14 +45,20 @@ describe("IndexedMerkleTree", () => {
     const root = tree.root();
     const proof = tree.nonInclusionProof(leaf(10));
 
-    proof.lowElement.fill(255);
-    proof.highElement.fill(255);
-    required(proof.path[0]).fill(255);
+    proof.value.fill(255);
+    proof.leafLowerRangeValue.fill(255);
+    proof.leafHigherRangeValue.fill(255);
+    required(proof.merkleProof[0]).fill(255);
     proof.root.fill(255);
     tree.root().fill(255);
 
     expect(tree.root()).toEqual(root);
-    expect(tree.nonInclusionProof(leaf(10)).root).toEqual(root);
+    expect(tree.nonInclusionProof(leaf(10))).toMatchObject({
+      root,
+      value: leaf(10),
+      leafLowerRangeValue: leaf(0),
+      leafHigherRangeValue: leaf(20),
+    });
   });
 
   it("rejects duplicate, boundary, length, and capacity violations", () => {
@@ -97,8 +107,8 @@ describe("IndexedMerkleTree", () => {
     expect(tree.root()).toEqual(root);
     fail = false;
     const proof = tree.nonInclusionProof(leaf(10));
-    expect(proof.lowElementIndex).toBe(0n);
-    expect(proof.highElementIndex).toBe(1n);
+    expect(proof.leafIndex).toBe(0n);
+    expect(proof.nextIndex).toBe(1n);
   });
 
   it("matches a sorted-neighbor model for generated insertion orders", () => {
@@ -123,17 +133,59 @@ describe("IndexedMerkleTree", () => {
         const low = required(sorted.filter((candidate) => candidate < value).at(-1));
         const high = required(sorted.find((candidate) => candidate > value));
         const proof = tree.nonInclusionProof(leaf(value));
-        expect(proof.lowElement).toEqual(leaf(low));
-        expect(proof.highElement).toEqual(leaf(high));
+        expect(proof.value).toEqual(leaf(value));
+        expect(proof.leafLowerRangeValue).toEqual(leaf(low));
+        expect(proof.leafHigherRangeValue).toEqual(leaf(high));
         expect(
           verifyPath(
-            modelHasher.hash(proof.lowElement, proof.highElement),
-            proof.lowElementIndex,
-            proof.path,
+            modelHasher.hash(proof.leafLowerRangeValue, proof.leafHigherRangeValue),
+            proof.leafIndex,
+            proof.merkleProof,
           ),
         ).toEqual(tree.root());
+        expect(verifyNonInclusionProof(modelHasher, proof)).toBe(true);
       }
     }
+  });
+
+  it("rejects bound and Merkle proof mutations", () => {
+    const tree = new IndexedMerkleTree(3, modelHasher);
+    tree.insert(leaf(20));
+    const proof = tree.nonInclusionProof(leaf(10));
+
+    expect(() =>
+      verifyNonInclusionProof(modelHasher, {
+        ...proof,
+        leafLowerRangeValue: leaf(10),
+      }),
+    ).toThrow(expect.objectContaining({ code: "INDEXED_MERKLE_TREE_LOWER_BOUND" }));
+    expect(() =>
+      verifyNonInclusionProof(modelHasher, {
+        ...proof,
+        leafHigherRangeValue: leaf(10),
+      }),
+    ).toThrow(expect.objectContaining({ code: "INDEXED_MERKLE_TREE_HIGHER_BOUND" }));
+
+    const merkleProof = proof.merkleProof.map((node) => node.slice());
+    required(merkleProof[0]).fill(255);
+    expect(() =>
+      verifyNonInclusionProof(modelHasher, {
+        ...proof,
+        merkleProof,
+      }),
+    ).toThrow(expect.objectContaining({ code: "INDEXED_MERKLE_TREE_INVALID_PROOF" }));
+    expect(() =>
+      verifyNonInclusionProof(modelHasher, {
+        ...proof,
+        root: new Uint8Array(31) as Bytes32,
+      }),
+    ).toThrow(expect.objectContaining({ code: "INDEXED_MERKLE_TREE_INVALID_PROOF" }));
+    expect(() =>
+      verifyNonInclusionProof(modelHasher, {
+        ...proof,
+        leafIndex: -1n,
+      }),
+    ).toThrow(expect.objectContaining({ code: "INDEXED_MERKLE_TREE_INVALID_PROOF" }));
   });
 
   it("exposes stable indexed error metadata", () => {
