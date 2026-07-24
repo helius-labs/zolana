@@ -26,7 +26,6 @@ fn sol_accounts(
         AccountMeta::new(*depositor, true),
         AccountMeta::new_readonly(Pubkey::default(), false),
         AccountMeta::new(pda::sol_interface(), false),
-        AccountMeta::new(*depositor, false),
         AccountMeta::new_readonly(program_test.program_id, false),
     ]
 }
@@ -171,16 +170,16 @@ fn shape_extra_account(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let dep = world.depositor().pubkey();
     let mut accounts = sol_accounts(world.rpc(), &tree, &dep);
-    accounts.insert(5, AccountMeta::new_readonly(Pubkey::new_unique(), false));
+    accounts.insert(4, AccountMeta::new_readonly(Pubkey::new_unique(), false));
     send_raw(world, accounts);
 }
 
-#[when(expr = "the depositor shields with a foreign source account")]
-fn shape_foreign_source(world: &mut ShieldedPoolWorld) {
+#[when(expr = "the depositor shields with a read-only depositor")]
+fn shape_readonly_depositor(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let dep = world.depositor().pubkey();
     let mut accounts = sol_accounts(world.rpc(), &tree, &dep);
-    accounts[4] = AccountMeta::new(Pubkey::new_unique(), false);
+    accounts[1] = AccountMeta::new_readonly(dep, true);
     send_raw(world, accounts);
 }
 
@@ -334,6 +333,6 @@ fn too_few_accounts(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let dep = world.depositor().pubkey();
     let mut accounts = sol_accounts(world.rpc(), &tree, &dep);
-    accounts.drain(2..5);
+    accounts.drain(2..4);
     send_raw(world, accounts);
 }

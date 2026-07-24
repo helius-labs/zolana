@@ -61,7 +61,6 @@ impl Deposit {
             None => accounts.extend([
                 AccountMeta::new_readonly(Pubkey::default(), false),
                 AccountMeta::new(pda::sol_interface(), false),
-                AccountMeta::new(self.depositor, false),
             ]),
         }
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));

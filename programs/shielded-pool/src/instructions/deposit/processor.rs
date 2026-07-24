@@ -37,13 +37,6 @@ pub(crate) struct DepositParams {
 pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data =
         DepositIxData::deserialize(data).map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-    if accounts.len() < 3 {
-        return Err(ProgramError::NotEnoughAccountKeys);
-    }
-    let depositor = accounts.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if !depositor.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
     process_deposit_internal::<false>(
         accounts,
         DepositParams {
@@ -61,13 +54,6 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
 pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = ZoneDepositIxData::deserialize(data)
         .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-    if accounts.len() < 4 {
-        return Err(ProgramError::NotEnoughAccountKeys);
-    }
-    let depositor = accounts.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if !depositor.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
     process_deposit_internal::<true>(
         accounts,
         DepositParams {
@@ -89,42 +75,38 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
     accounts: &mut [AccountView],
     d: DepositParams,
 ) -> ProgramResult {
-    if d.amount == 0 {
-        return Err(ShieldedPoolError::InvalidTransactShape.into());
-    }
     let amount = d.amount;
 
     let (parsed, zone_program_id) =
         DepositAccounts::validate_and_parse::<HAS_ZONE>(&crate::ID, accounts)?;
-    let needs_spl = matches!(parsed.settlement, Settlement::Spl(_));
 
-    let asset = parsed.asset;
-    let asset_field = solana_pk_hash(&asset)?;
+    let utxo_hash = {
+        let asset_field = solana_pk_hash(&parsed.asset)?;
 
-    let zero = [0u8; 32];
-    let data_hash = match &d.utxo_data {
-        Some(utxo_data) => utxo_data.data_hash,
-        None => zero,
+        let zero = [0u8; 32];
+        let data_hash = match &d.utxo_data {
+            Some(utxo_data) => utxo_data.data_hash,
+            None => zero,
+        };
+        let (zone_data_hash, zone_id_field) = match (&d.zone, &zone_program_id) {
+            (Some(zone), Some(program_id)) => (zone.data_hash, solana_pk_hash(program_id)?),
+            _ => (zero, zero),
+        };
+        let zone_hash = hash_with_program_id(&zone_data_hash, &zone_id_field)?;
+        let mut blinding = [0u8; 32];
+        blinding[1..].copy_from_slice(&d.blinding);
+        let owner_utxo_hash = Poseidon::hashv(&[d.owner.as_slice(), blinding.as_slice()])
+            .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+        Poseidon::hashv(&[
+            field_from_u64(u64::from(UTXO_DOMAIN)).as_slice(),
+            asset_field.as_slice(),
+            field_from_u64(amount).as_slice(),
+            data_hash.as_slice(),
+            zone_hash.as_slice(),
+            owner_utxo_hash.as_slice(),
+        ])
+        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?
     };
-    let (zone_data_hash, zone_id_field) = match (&d.zone, &zone_program_id) {
-        (Some(zone), Some(program_id)) => (zone.data_hash, solana_pk_hash(program_id)?),
-        _ => (zero, zero),
-    };
-    let zone_hash = hash_with_program_id(&zone_data_hash, &zone_id_field)?;
-    let mut blinding = [0u8; 32];
-    blinding[1..].copy_from_slice(&d.blinding);
-    let owner_utxo_hash = Poseidon::hashv(&[d.owner.as_slice(), blinding.as_slice()])
-        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
-    let utxo_hash = Poseidon::hashv(&[
-        field_from_u64(u64::from(UTXO_DOMAIN)).as_slice(),
-        asset_field.as_slice(),
-        field_from_u64(amount).as_slice(),
-        data_hash.as_slice(),
-        zone_hash.as_slice(),
-        owner_utxo_hash.as_slice(),
-    ])
-    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
-
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
     let first_output_leaf_index = {
@@ -141,11 +123,12 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
         Settlement::Spl(spl) => settle_spl(spl, amount)?,
     }
 
+    let needs_spl = matches!(parsed.settlement, Settlement::Spl(_));
     emit_proofless_event(
         d,
         ProoflessOutputCtx {
             utxo_hash,
-            asset,
+            asset: parsed.asset,
             needs_spl,
             amount,
             first_output_leaf_index,

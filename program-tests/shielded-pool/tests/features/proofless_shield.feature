@@ -24,7 +24,7 @@ Feature: Proofless SOL shield
     Then the operation is rejected as invalid settlement accounts
     When the depositor shields with an extra account
     Then the operation is rejected as invalid settlement accounts
-    When the depositor shields with a foreign source account
+    When the depositor shields with a read-only depositor
     Then the operation is rejected as invalid settlement accounts
     When the depositor shields with a foreign tree account
     Then the operation is rejected as invalid tree accounts

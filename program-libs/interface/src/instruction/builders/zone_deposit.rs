@@ -74,7 +74,6 @@ impl ZoneDeposit {
             None => account_metas.extend([
                 AccountMeta::new_readonly(Pubkey::default(), false),
                 AccountMeta::new(pda::sol_interface(), false),
-                AccountMeta::new(self.depositor, false),
             ]),
         }
         account_metas.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));

@@ -39,7 +39,8 @@ impl<'a> DepositAccounts<'a> {
         let mut iter = AccountIterator::new(accounts);
 
         let tree = iter.next_mut("tree")?;
-        let depositor = iter.next_account("depositor")?;
+        // Either spl token account authority, or source for deposited SOL.
+        let depositor = iter.next_signer("depositor")?;
 
         // `zone_deposit` passes the `ZoneConfig` account (the zone's `zone_auth`
         // PDA) first. It must sign and is validated by owner/discriminator -- the
@@ -54,8 +55,8 @@ impl<'a> DepositAccounts<'a> {
             None
         };
 
-        // SOL settlement is 3 accounts, SPL is 4; with the trailing program
-        // account that is 4 (SOL) or 5 (SPL) remaining. Pick the branch by
+        // SOL settlement uses 2 accounts, SPL uses 4; with the trailing program
+        // account that is 3 (SOL) or 5 (SPL) remaining. Pick the branch by
         // count and let each validator pin its own accounts. Malformed counts
         // fall out of the reads below: too few hits NotEnoughAccountKeys, too
         // many leaves the iterator non-empty (InvalidSettlementAccounts).
@@ -78,7 +79,7 @@ impl<'a> DepositAccounts<'a> {
                 Settlement::Spl(SettlementAccountsSpl {
                     cpi_authority: None,
                     vault,
-                    recipient: depositor,
+                    recipient: depositor, // What does recipient do, we want to transfer from user token account to vault or vault to user token account.
                     user_token_account: user_token,
                     token_program,
                 }),
@@ -87,19 +88,12 @@ impl<'a> DepositAccounts<'a> {
         } else {
             let system_program = iter.next_account("system_program")?;
             let sol_interface = iter.next_account("sol_interface")?;
-            let user_sol = iter.next_account("user_sol")?;
-            let bump = validate_sol(
-                program_id,
-                depositor,
-                system_program,
-                sol_interface,
-                user_sol,
-            )?;
+            let bump = validate_sol(program_id, depositor, system_program, sol_interface)?;
             (
                 Settlement::Sol(SettlementAccountsSol {
                     sol_interface,
                     sol_interface_bump: bump,
-                    recipient: user_sol,
+                    recipient: depositor,
                 }),
                 [0u8; 32],
             )
@@ -125,22 +119,18 @@ impl<'a> DepositAccounts<'a> {
 }
 
 /// Validate the native-SOL deposit accounts and return the interface PDA bump.
+/// Deposit lamports leave the depositor signer, so it must be writable.
 fn validate_sol(
     program_id: &Address,
     depositor: &AccountView,
     system_program: &AccountView,
     sol_interface: &AccountView,
-    user_sol: &AccountView,
 ) -> Result<u8, ProgramError> {
     if !address_eq(system_program.address(), &SYSTEM_PROGRAM_ID)
         || !sol_interface.is_writable()
-        || !user_sol.is_writable()
+        || !depositor.is_writable()
         || !sol_interface.owned_by(&SYSTEM_PROGRAM_ID)
     {
-        return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
-    }
-    // Deposit lamports leave the depositor; pin the funder to the signer.
-    if !address_eq(user_sol.address(), depositor.address()) {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
@@ -158,7 +148,7 @@ fn validate_spl(
     registry: &AccountView,
     token_program: &AccountView,
 ) -> Result<[u8; 32], ProgramError> {
-    let spl_token_program_id = Address::from(SPL_TOKEN_PROGRAM_ID);
+    let spl_token_program_id = Address::from(SPL_TOKEN_PROGRAM_ID); // TODO: support t22
     if !address_eq(token_program.address(), &spl_token_program_id)
         || !user_token.is_writable()
         || !vault.is_writable()
