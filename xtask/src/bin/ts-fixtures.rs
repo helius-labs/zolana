@@ -27,7 +27,7 @@ use zolana_transaction::{
 const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
-const EXPECTED_FIXTURE_COUNT: usize = 37;
+const EXPECTED_FIXTURE_COUNT: usize = 40;
 const FROZEN_SOURCE_PATHS: [&str; 11] = [
     "program-libs/hasher/src",
     "program-libs/indexed-array/src",
@@ -439,6 +439,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     let merkle_vectors = production_merkle_vectors(root)?;
     let keypair_vectors = production_keypair_vectors(root)?;
     let transaction_vectors = production_transaction_vectors(root)?;
+    let client_vectors = production_client_vectors(root)?;
 
     let mut fixtures = vec![
         (
@@ -667,6 +668,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     ];
     fixtures.extend(keypair_fixtures(&keypair_vectors)?);
     fixtures.extend(transaction_fixtures(&transaction_vectors)?);
+    fixtures.extend(client_fixtures(&client_vectors)?);
     Ok(fixtures)
 }
 
@@ -1511,6 +1513,182 @@ fn transaction_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
         .collect()
 }
 
+fn production_client_vectors(root: &Path) -> Result<Value> {
+    let artifacts = cargo_rlibs(
+        root,
+        &[
+            "build",
+            "-p",
+            "zolana-client",
+            "-p",
+            "zolana-program-test",
+            "--features",
+            "zolana-client/solana-rpc",
+        ],
+    )?;
+    let metadata: Value = serde_json::from_str(&command_text(
+        root,
+        "rustup",
+        &[
+            "run",
+            "1.97.0",
+            "cargo",
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+        ],
+    )?)?;
+    let target = PathBuf::from(
+        metadata["target_directory"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("cargo metadata lacks target_directory"))?,
+    );
+    let externs = [
+        ("ark_bn254", "ark-bn254@0.5.0"),
+        ("ark_ec", "ark-ec@0.5.0"),
+        ("ark_ff", "ark-ff@0.5.0"),
+        ("bincode", "bincode@1.3.3"),
+        ("serde_json", "serde_json@1.0.150"),
+        (
+            "solana_compute_budget_interface",
+            "solana-compute-budget-interface@3.0.0",
+        ),
+        ("solana_address", "solana-address@2.6.1"),
+        ("solana_hash", "solana-hash@4.5.0"),
+        ("solana_instruction", "solana-instruction@3.4.0"),
+        ("solana_message", "solana-message@3.1.0"),
+        ("solana_pubkey", "solana-pubkey@4.2.0"),
+        ("zolana_client", "zolana-client@0.1.0"),
+        ("zolana_event", "zolana-event@0.1.0"),
+        ("zolana_interface", "zolana-interface@0.1.0"),
+        ("zolana_keypair", "zolana-keypair@0.1.0"),
+        ("zolana_program_test", "zolana-program-test@0.23.0"),
+        ("zolana_transaction", "zolana-transaction@0.1.0"),
+    ]
+    .into_iter()
+    .map(|(name, package)| Ok((name, rlib(&artifacts, name, package)?)))
+    .collect::<Result<Vec<_>>>()?;
+
+    let binary = target.join("ts-fixtures-client");
+    let mut compile = Command::new("rustup");
+    compile
+        .current_dir(root)
+        .args([
+            "run",
+            "1.97.0",
+            "rustc",
+            "--edition=2021",
+            "xtask/src/ts_fixtures_client.rs",
+            "-L",
+        ])
+        .arg(format!(
+            "dependency={}",
+            target.join("debug/deps").display()
+        ));
+    for (name, path) in externs {
+        compile
+            .arg("--extern")
+            .arg(format!("{name}={}", path.display()));
+    }
+    let output = compile
+        .arg("-o")
+        .arg(&binary)
+        .output()
+        .context("compile production client fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "compile production client fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let output = Command::new(&binary)
+        .output()
+        .context("run production client fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "run production client fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let vectors: Value = serde_json::from_slice(&output.stdout)?;
+    verify_client_vectors(&vectors)?;
+    Ok(vectors)
+}
+
+fn verify_client_vectors(vectors: &Value) -> Result<()> {
+    for section in ["prover", "proof", "rpc"] {
+        if !vectors[section].is_object() {
+            bail!("client oracle lacks {section}");
+        }
+    }
+    if vectors["prover"]["expected"]["rails"]
+        .as_array()
+        .is_none_or(|rails| {
+            rails.len() != 2
+                || rails.iter().any(|rail| {
+                    rail["shapes"]
+                        .as_array()
+                        .is_none_or(|shapes| shapes.len() != 10)
+                })
+        })
+    {
+        bail!("client oracle must emit ten shapes for each rail");
+    }
+    Ok(())
+}
+
+fn client_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
+    let domains = [
+        (
+            "prover",
+            "client/prover-shapes-v1.json",
+            "fx-p00-client-prover-shapes-v1",
+            "sdk-libs/client/src/prover/transact/witness.rs; sdk-libs/client/src/prover/transact/eddsa.rs; sdk-libs/client/src/prover/transact/p256_and_eddsa.rs; sdk-libs/client/src/prover/json.rs",
+            "assemble; TransferProver::build; TransferP256Prover::build; ProverClient::{prove_transfer,prove_transfer_p256}",
+            "complete EdDSA and P256 shape witnesses, prover JSON, and transact instruction bytes",
+        ),
+        (
+            "proof",
+            "client/proof-validity-v1.json",
+            "fx-p00-client-proof-validity-v1",
+            "sdk-libs/client/src/prover/proof.rs",
+            "proof_from_gnark_json; ProofCompressed::try_from; ProofCompressed::to_transact_proof",
+            "valid vanilla and BSB22 points, exact negation and compression, and rail errors",
+        ),
+        (
+            "rpc",
+            "client/rpc-indexer-v1.json",
+            "fx-p00-client-rpc-indexer-v1",
+            "sdk-libs/client/src/client.rs; sdk-libs/client/src/solana_rpc.rs; sdk-libs/client/src/indexer.rs",
+            "build_unsigned_solana_transaction; transact_output_view_tags_from_instruction_groups; IndexerPollConfig::backoff",
+            "legacy unsigned messages, proof response values, confirmation tags, retries, and errors",
+        ),
+    ];
+    domains
+        .into_iter()
+        .map(|(section, path, id, rust_path, symbol, responsibility)| {
+            let value = &vectors[section];
+            if !value.is_object() {
+                bail!("client oracle lacks {section}");
+            }
+            Ok((
+                path,
+                fixture_base!(
+                    id,
+                    rust_path,
+                    symbol,
+                    "P09 fixture follow-up recorded in sdk-libs/ts/reports/packets/P09.json",
+                    "P00",
+                    responsibility,
+                    value["inputs"].clone(),
+                    value["expected"].clone(),
+                ),
+            ))
+        })
+        .collect()
+}
+
 fn error_json(error: &impl std::fmt::Debug) -> Value {
     let debug = format!("{error:?}");
     let code = debug
@@ -1617,6 +1795,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
         "sdk-libs/ts/reports/packets/P00.json".to_string(),
         "xtask/src/bin/ts-fixtures.rs".to_string(),
         "xtask/src/ts_fixtures_keypair.rs".to_string(),
+        "xtask/src/ts_fixtures_client.rs".to_string(),
         "xtask/src/ts_fixtures_merkle.rs".to_string(),
         "xtask/src/ts_fixtures_transaction.rs".to_string(),
     ]);
@@ -1631,10 +1810,13 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 {"command":"rustup run 1.97.0 cargo clippy -p xtask --bin ts-fixtures -- -D warnings","exitStatus":"0","responsibility":"fixture generator lint"},
                 {"command":"rustup run 1.97.0 cargo fmt --all -- --check","exitStatus":"0","responsibility":"Rust formatting"},
                 {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_transaction.rs","exitStatus":"0","responsibility":"standalone transaction oracle formatting"},
+                {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_client.rs","exitStatus":"0","responsibility":"standalone client oracle formatting"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures","exitStatus":"0","responsibility":"fixture generation"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check","exitStatus":"0","responsibility":"deterministic regeneration and Rust verification"},
                 {"command":"npm run test:vectors --workspace @zolana/keypair","exitStatus":"0","responsibility":"P04 vector baseline before fixture-loader follow-up"},
                 {"command":"npm run test:vectors --workspace @zolana/transaction","exitStatus":"0","responsibility":"P05 vector baseline before production fixture-loader follow-up"},
+                {"command":"npm run test:unit --workspace @zolana/client","exitStatus":"0","responsibility":"current P09 RPC, indexer, proof, and polling tests"},
+                {"command":"npm run test:vectors --workspace @zolana/client","exitStatus":"0","responsibility":"current P09 fixture tests"},
                 {"command":"cargo xtask ts-fixtures --check","exitStatus":"blocked","responsibility":"canonical command; existing xtask dispatch is outside P00 ownership"},
                 {"command":"npm run test:inventory","exitStatus":"blocked","responsibility":"root npm workspace is owned by P01"},
                 {"command":"git diff --exit-code -- sdk-libs/ts/fixtures","exitStatus":"1 (expected)","responsibility":"reopened P00 adds transaction fixtures and updates the manifest"},
@@ -1642,6 +1824,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
             ],
             "counts":{
                 "fixtureFiles":entries.len().to_string(),
+                "clientFixtureFiles":"5",
                 "inventoryDuplicate":"0",
                 "inventoryMissing":"0",
                 "inventoryRows":inventory.len().to_string(),
@@ -1695,6 +1878,32 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                     "sdk-libs/ts/transaction/test/transfer.test.ts",
                     "sdk-libs/ts/transaction/test/wallet-sync.test.ts"
                 ]
+            },
+            "p09FollowUp":{
+                "blocker":"sdk-libs/ts/reports/packets/P09.json:10-59",
+                "fixtureFiles":[
+                    "sdk-libs/ts/fixtures/client/prover-shapes-v1.json",
+                    "sdk-libs/ts/fixtures/client/proof-validity-v1.json",
+                    "sdk-libs/ts/fixtures/client/rpc-indexer-v1.json"
+                ],
+                "groups":[
+                    {
+                        "fixture":"client/prover-shapes-v1.json",
+                        "symbols":["prover::transact::witness::assemble","TransferProver::build","TransferP256Prover::build","ProverClient::{prove_transfer,prove_transfer_p256}"],
+                        "tests":["client/test/vectors/prover-inputs.test.ts","client/test/prover/eddsa.test.ts","client/test/prover/p256.test.ts"]
+                    },
+                    {
+                        "fixture":"client/proof-validity-v1.json",
+                        "symbols":["proof_from_gnark_json","ProofCompressed::try_from","ProofCompressed::to_transact_proof"],
+                        "tests":["client/test/vectors/proof-compression.test.ts","client/test/prover.test.ts"]
+                    },
+                    {
+                        "fixture":"client/rpc-indexer-v1.json",
+                        "symbols":["SolanaRpc RPC methods","indexer proof converters","build_unsigned_solana_transaction","wait_for_indexed_transaction_async"],
+                        "tests":["client/test/solana-rpc.test.ts","client/test/indexer-client.test.ts","client/test/vectors/unsigned-message.test.ts"]
+                    }
+                ],
+                "supportedShapesPerRail":"10"
             },
             "schema":"zolana-ts-packet-evidence-v1"
         }),

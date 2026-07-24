@@ -13,6 +13,18 @@
       "sha256": "bd915d22d99421564567a87dc09c62ce176749ef4edcb12cf2969b0e0f68ec6d"
     },
     {
+      "path": "client/proof-validity-v1.json",
+      "sha256": "f02f21eabe246ab6db9d4b9123835abb3fc939d4b731efa46983a4bf316f273b"
+    },
+    {
+      "path": "client/prover-shapes-v1.json",
+      "sha256": "8324d749694b00c3eaaf7b1a9b0ec61b05df8ec9665d67a7b8d8ca67cb82c0c2"
+    },
+    {
+      "path": "client/rpc-indexer-v1.json",
+      "sha256": "7039237c6ced30894445891f5374561e2cce49ffb6cca4b5789f1736ae5e9def"
+    },
+    {
       "path": "indexer-api/schema-v1.json",
       "sha256": "4265b3eabaad498871186fe43163b5e30983f5e8f715c509249d69e121b53fdc"
     },

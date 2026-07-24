@@ -31,6 +31,11 @@
       "responsibility": "standalone transaction oracle formatting"
     },
     {
+      "command": "rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_client.rs",
+      "exitStatus": "0",
+      "responsibility": "standalone client oracle formatting"
+    },
+    {
       "command": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures",
       "exitStatus": "0",
       "responsibility": "fixture generation"
@@ -49,6 +54,16 @@
       "command": "npm run test:vectors --workspace @zolana/transaction",
       "exitStatus": "0",
       "responsibility": "P05 vector baseline before production fixture-loader follow-up"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "current P09 RPC, indexer, proof, and polling tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "current P09 fixture tests"
     },
     {
       "command": "cargo xtask ts-fixtures --check",
@@ -72,7 +87,8 @@
     }
   ],
   "counts": {
-    "fixtureFiles": "37",
+    "clientFixtureFiles": "5",
+    "fixtureFiles": "40",
     "inventoryDuplicate": "0",
     "inventoryMissing": "0",
     "inventoryRows": "182",
@@ -86,6 +102,9 @@
     "fx-p00-api-prover-request-v1",
     "fx-p00-client-proof-compression-v1",
     "fx-p00-client-proof-input-v1",
+    "fx-p00-client-proof-validity-v1",
+    "fx-p00-client-prover-shapes-v1",
+    "fx-p00-client-rpc-indexer-v1",
     "fx-p00-indexer-schema-v1",
     "fx-p00-interface-deposit-v1",
     "fx-p00-keypair-constants-v1",
@@ -126,6 +145,9 @@
     "sdk-libs/ts/fixtures/api/prover-request-v1.json",
     "sdk-libs/ts/fixtures/client/proof-input-v1.json",
     "sdk-libs/ts/fixtures/client/proof-result-compression-v1.json",
+    "sdk-libs/ts/fixtures/client/proof-validity-v1.json",
+    "sdk-libs/ts/fixtures/client/prover-shapes-v1.json",
+    "sdk-libs/ts/fixtures/client/rpc-indexer-v1.json",
     "sdk-libs/ts/fixtures/indexer-api/schema-v1.json",
     "sdk-libs/ts/fixtures/interface/deposit-instruction-v1.json",
     "sdk-libs/ts/fixtures/keypair/constants.json",
@@ -164,6 +186,7 @@
     "sdk-libs/ts/reports/inventory.json",
     "sdk-libs/ts/reports/packets/P00.json",
     "xtask/src/bin/ts-fixtures.rs",
+    "xtask/src/ts_fixtures_client.rs",
     "xtask/src/ts_fixtures_keypair.rs",
     "xtask/src/ts_fixtures_merkle.rs",
     "xtask/src/ts_fixtures_transaction.rs"
@@ -273,6 +296,57 @@
       "sdk-libs/ts/transaction/test/transfer.test.ts",
       "sdk-libs/ts/transaction/test/wallet-sync.test.ts"
     ]
+  },
+  "p09FollowUp": {
+    "blocker": "sdk-libs/ts/reports/packets/P09.json:10-59",
+    "fixtureFiles": [
+      "sdk-libs/ts/fixtures/client/prover-shapes-v1.json",
+      "sdk-libs/ts/fixtures/client/proof-validity-v1.json",
+      "sdk-libs/ts/fixtures/client/rpc-indexer-v1.json"
+    ],
+    "groups": [
+      {
+        "fixture": "client/prover-shapes-v1.json",
+        "symbols": [
+          "prover::transact::witness::assemble",
+          "TransferProver::build",
+          "TransferP256Prover::build",
+          "ProverClient::{prove_transfer,prove_transfer_p256}"
+        ],
+        "tests": [
+          "client/test/vectors/prover-inputs.test.ts",
+          "client/test/prover/eddsa.test.ts",
+          "client/test/prover/p256.test.ts"
+        ]
+      },
+      {
+        "fixture": "client/proof-validity-v1.json",
+        "symbols": [
+          "proof_from_gnark_json",
+          "ProofCompressed::try_from",
+          "ProofCompressed::to_transact_proof"
+        ],
+        "tests": [
+          "client/test/vectors/proof-compression.test.ts",
+          "client/test/prover.test.ts"
+        ]
+      },
+      {
+        "fixture": "client/rpc-indexer-v1.json",
+        "symbols": [
+          "SolanaRpc RPC methods",
+          "indexer proof converters",
+          "build_unsigned_solana_transaction",
+          "wait_for_indexed_transaction_async"
+        ],
+        "tests": [
+          "client/test/solana-rpc.test.ts",
+          "client/test/indexer-client.test.ts",
+          "client/test/vectors/unsigned-message.test.ts"
+        ]
+      }
+    ],
+    "supportedShapesPerRail": "10"
   },
   "packet": "P00",
   "schema": "zolana-ts-packet-evidence-v1"
