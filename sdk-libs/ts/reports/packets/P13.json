@@ -1,0 +1,177 @@
+{
+  "apiDiff": {
+    "added": [],
+    "changed": [],
+    "removed": []
+  },
+  "blockers": [],
+  "commands": [
+    {
+      "command": "ZOLANA_PORT_OFFSET=400 npm run test:e2e:instructions",
+      "exitStatus": "0",
+      "result": "Two files and seven non-duplicated tests passed, including six manifest-backed acceptance cases and one fresh live lifecycle case."
+    },
+    {
+      "command": "ZOLANA_PORT_OFFSET=400 npm run test:e2e:instructions (repeated clean start)",
+      "exitStatus": "0",
+      "result": "The same two files and seven tests passed against a second fresh validator, Photon, and prover lifecycle at offset 400."
+    },
+    {
+      "command": "npx tsc --ignoreConfig --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck --lib ES2022,DOM --types node,vitest/globals sdk-libs/ts/e2e/instructions/acceptance.test.ts sdk-libs/ts/e2e/instructions/live.test.ts",
+      "exitStatus": "0",
+      "result": "Owned instruction acceptance files passed strict standalone TypeScript checking."
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "result": "Build, package typecheck, configured lint and formatting, 310 unit tests, inventory, exports, dependency boundaries, and API checks passed."
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "0",
+      "result": "The frozen generator verified 55 fixtures and 182 inventory rows, including all P13 instruction and settled P12 workflow fixtures."
+    },
+    {
+      "command": "npm run test:browser && npm run pack:check",
+      "exitStatus": "0",
+      "result": "Browser import checks and all packed public-package consumer checks passed."
+    },
+    {
+      "command": "npx prettier --check sdk-libs/ts/e2e/instructions/**/*.ts sdk-libs/ts/reports/packets/P13.json && git diff --check",
+      "exitStatus": "0",
+      "result": "Owned files use repository formatting and contain no whitespace errors."
+    }
+  ],
+  "fixtureCoverage": [
+    {
+      "id": "fx-workflow-instruction-deposit-v1",
+      "path": "workflows/deposit-v1.json",
+      "status": "passed",
+      "behavioralAssertions": [
+        "manifest SHA-256 verification",
+        "exact deposit tag, account order, signer and writable flags",
+        "exact owner, blinding, amount, memo, view tag, codec round trip, and wire bytes"
+      ]
+    },
+    {
+      "id": "fx-workflow-instruction-transfer-v1",
+      "path": "workflows/instruction-transfer-v1.json",
+      "status": "passed",
+      "behavioralAssertions": [
+        "EdDSA, P256, and mixed-input rails",
+        "exact transact accounts, wire bytes, and unsigned message bytes",
+        "proof request rail, compressed commitment shape, direct and inner output tags",
+        "output amounts, assets, owner tags, hashes, spent inputs, nullifiers, and replay error"
+      ]
+    },
+    {
+      "id": "fx-workflow-instruction-withdraw-sol-v1",
+      "path": "workflows/instruction-withdraw-sol-v1.json",
+      "status": "passed",
+      "behavioralAssertions": [
+        "exact signed SOL public amount and settlement suffix",
+        "exact proof, wire, unsigned message, 30-lamport recipient delta, and 70-lamport private change",
+        "account-order, malformed-proof, wrong-signature confirmation, incomplete-proof, owner-tag, and replay evidence"
+      ]
+    },
+    {
+      "id": "fx-workflow-instruction-withdraw-spl-v1",
+      "path": "workflows/instruction-withdraw-spl-v1.json",
+      "status": "passed",
+      "behavioralAssertions": [
+        "mixed P256 input ownership and commitment-bearing proof",
+        "exact CPI account suffix, wire bytes, unsigned message, and 30-token recipient delta",
+        "private SOL and SPL change, direct and inner confirmation tags, nullifiers, and typed rejection evidence"
+      ]
+    }
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "ownedPathsChanged": [
+    "sdk-libs/ts/e2e/instructions/acceptance.test.ts",
+    "sdk-libs/ts/e2e/instructions/live.test.ts",
+    "sdk-libs/ts/reports/packets/P13.json"
+  ],
+  "packet": "P13",
+  "prerequisites": {
+    "P00": "83efeec4",
+    "P01": "dfe3549c",
+    "P11": "0df26c4c",
+    "P12": "9886e7bb"
+  },
+  "qualityPass": {
+    "comments": "No narrative inline comments were added. The one Node type directive is required by the standalone live test.",
+    "ownership": "Only P13 instruction E2E files and this report changed.",
+    "shortcutsRejected": [
+      "No wallet action builder constructs an instruction under test.",
+      "No internal package import replaces a public API.",
+      "No synthetic oracle replaces a manifest-verified Rust fixture.",
+      "No skipped test, placeholder, fixed sleep, or no-op route is used."
+    ]
+  },
+  "readiness": {
+    "checkpoint": "ready",
+    "gaps": 0,
+    "implementation": "complete",
+    "zeroGaps": true
+  },
+  "scenarios": [
+    {
+      "name": "raw SOL deposit",
+      "status": "passed",
+      "evidence": "The public interface codec and deposit builder reproduce every frozen account flag and byte."
+    },
+    {
+      "name": "registered private transfer",
+      "status": "passed",
+      "evidence": "Three frozen rail cases reproduce public transact instructions and legacy unsigned messages exactly."
+    },
+    {
+      "name": "SOL withdrawal",
+      "status": "passed",
+      "evidence": "The public codec and builder reproduce the signed amount, settlement accounts, proof payload, message, output state, and recipient delta."
+    },
+    {
+      "name": "SPL withdrawal",
+      "status": "passed",
+      "evidence": "The public codec and builder reproduce the mixed-input proof, SPL CPI suffix, message, output state, and recipient delta."
+    },
+    {
+      "name": "proof rails and ordering",
+      "status": "passed",
+      "evidence": "EdDSA omits BSB22 commitment fields; P256 and mixed P256 carry them. Every prover input count equals its ordered spend-proof count."
+    },
+    {
+      "name": "direct and inner confirmation",
+      "status": "passed",
+      "evidence": "All direct and inner output-tag vectors match exactly, including owner-tag resolution failures."
+    },
+    {
+      "name": "external signing",
+      "status": "passed",
+      "evidence": "Native external signing preserves exact frozen unsigned message bytes and fills the required signature slot."
+    },
+    {
+      "name": "negative acceptance",
+      "status": "passed",
+      "evidence": "Malformed data, account reordering, incomplete and malformed proofs, wrong signatures and tags, replay, abort, timeout, and live malformed-account rejection retain exact typed evidence."
+    }
+  ],
+  "schema": "zolana-ts-packet-evidence-v1",
+  "serviceLifecycle": {
+    "cleanup": [
+      "each live run starts a fresh P11-owned temporary stack",
+      "validator, Photon, prover, metrics listener, ledger, SQLite database, and account directory are stopped by harness.stop()",
+      "the RPC endpoint is asserted unreachable after teardown"
+    ],
+    "liveAcceptance": "A frozen raw transact message signed by the wrong external key is rejected by the live RPC as CLIENT_RPC_ENVELOPE without charging the payer.",
+    "portOffset": 400,
+    "repeatedCleanStarts": 2,
+    "services": ["solana-test-validator", "photon", "light-prover"],
+    "status": "passed"
+  },
+  "strictOwnership": {
+    "compliant": true,
+    "p12PathsChanged": [],
+    "unauthorizedPathsChanged": []
+  }
+}
