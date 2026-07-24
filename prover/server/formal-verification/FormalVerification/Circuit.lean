@@ -320,45 +320,42 @@ def MerkleRootGadget_40_40_40 (Hash: F) (Index: List.Vector F 40) (Path: List.Ve
     ProveParentHash Index[39] gate_38 Path[39] fun gate_39 =>
     k gate_39
 
-def AssertStrictlyOrdered (IsDummy: F) (Lo: F) (Mid: F) (Hi: F) : Prop :=
-    ∃gate_0, Gates.select IsDummy (0:F) Lo gate_0 ∧
-    ∃gate_1, Gates.select IsDummy (1:F) Mid gate_1 ∧
-    ∃gate_2, Gates.select IsDummy (2:F) Hi gate_2 ∧
-    ∃gate_3, Gates.to_binary gate_0 254 gate_3 ∧
+def AssertStrictlyOrdered (Lo: F) (Mid: F) (Hi: F) : Prop :=
+    ∃gate_0, Gates.to_binary Lo 254 gate_0 ∧
+    ∃gate_1, Gates.from_binary vec![gate_0[0], gate_0[1], gate_0[2], gate_0[3], gate_0[4], gate_0[5], gate_0[6], gate_0[7], gate_0[8], gate_0[9], gate_0[10], gate_0[11], gate_0[12], gate_0[13], gate_0[14], gate_0[15], gate_0[16], gate_0[17], gate_0[18], gate_0[19], gate_0[20], gate_0[21], gate_0[22], gate_0[23], gate_0[24], gate_0[25], gate_0[26], gate_0[27], gate_0[28], gate_0[29], gate_0[30], gate_0[31], gate_0[32], gate_0[33], gate_0[34], gate_0[35], gate_0[36], gate_0[37], gate_0[38], gate_0[39], gate_0[40], gate_0[41], gate_0[42], gate_0[43], gate_0[44], gate_0[45], gate_0[46], gate_0[47], gate_0[48], gate_0[49], gate_0[50], gate_0[51], gate_0[52], gate_0[53], gate_0[54], gate_0[55], gate_0[56], gate_0[57], gate_0[58], gate_0[59], gate_0[60], gate_0[61], gate_0[62], gate_0[63], gate_0[64], gate_0[65], gate_0[66], gate_0[67], gate_0[68], gate_0[69], gate_0[70], gate_0[71], gate_0[72], gate_0[73], gate_0[74], gate_0[75], gate_0[76], gate_0[77], gate_0[78], gate_0[79], gate_0[80], gate_0[81], gate_0[82], gate_0[83], gate_0[84], gate_0[85], gate_0[86], gate_0[87], gate_0[88], gate_0[89], gate_0[90], gate_0[91], gate_0[92], gate_0[93], gate_0[94], gate_0[95], gate_0[96], gate_0[97], gate_0[98], gate_0[99], gate_0[100], gate_0[101], gate_0[102], gate_0[103], gate_0[104], gate_0[105], gate_0[106], gate_0[107], gate_0[108], gate_0[109], gate_0[110], gate_0[111], gate_0[112], gate_0[113], gate_0[114], gate_0[115], gate_0[116], gate_0[117], gate_0[118], gate_0[119], gate_0[120], gate_0[121], gate_0[122], gate_0[123], gate_0[124], gate_0[125], gate_0[126]] gate_1 ∧
+    ∃gate_2, Gates.from_binary vec![gate_0[127], gate_0[128], gate_0[129], gate_0[130], gate_0[131], gate_0[132], gate_0[133], gate_0[134], gate_0[135], gate_0[136], gate_0[137], gate_0[138], gate_0[139], gate_0[140], gate_0[141], gate_0[142], gate_0[143], gate_0[144], gate_0[145], gate_0[146], gate_0[147], gate_0[148], gate_0[149], gate_0[150], gate_0[151], gate_0[152], gate_0[153], gate_0[154], gate_0[155], gate_0[156], gate_0[157], gate_0[158], gate_0[159], gate_0[160], gate_0[161], gate_0[162], gate_0[163], gate_0[164], gate_0[165], gate_0[166], gate_0[167], gate_0[168], gate_0[169], gate_0[170], gate_0[171], gate_0[172], gate_0[173], gate_0[174], gate_0[175], gate_0[176], gate_0[177], gate_0[178], gate_0[179], gate_0[180], gate_0[181], gate_0[182], gate_0[183], gate_0[184], gate_0[185], gate_0[186], gate_0[187], gate_0[188], gate_0[189], gate_0[190], gate_0[191], gate_0[192], gate_0[193], gate_0[194], gate_0[195], gate_0[196], gate_0[197], gate_0[198], gate_0[199], gate_0[200], gate_0[201], gate_0[202], gate_0[203], gate_0[204], gate_0[205], gate_0[206], gate_0[207], gate_0[208], gate_0[209], gate_0[210], gate_0[211], gate_0[212], gate_0[213], gate_0[214], gate_0[215], gate_0[216], gate_0[217], gate_0[218], gate_0[219], gate_0[220], gate_0[221], gate_0[222], gate_0[223], gate_0[224], gate_0[225], gate_0[226], gate_0[227], gate_0[228], gate_0[229], gate_0[230], gate_0[231], gate_0[232], gate_0[233], gate_0[234], gate_0[235], gate_0[236], gate_0[237], gate_0[238], gate_0[239], gate_0[240], gate_0[241], gate_0[242], gate_0[243], gate_0[244], gate_0[245], gate_0[246], gate_0[247], gate_0[248], gate_0[249], gate_0[250], gate_0[251], gate_0[252], gate_0[253]] gate_2 ∧
+    ∃gate_3, Gates.to_binary Mid 254 gate_3 ∧
     ∃gate_4, Gates.from_binary vec![gate_3[0], gate_3[1], gate_3[2], gate_3[3], gate_3[4], gate_3[5], gate_3[6], gate_3[7], gate_3[8], gate_3[9], gate_3[10], gate_3[11], gate_3[12], gate_3[13], gate_3[14], gate_3[15], gate_3[16], gate_3[17], gate_3[18], gate_3[19], gate_3[20], gate_3[21], gate_3[22], gate_3[23], gate_3[24], gate_3[25], gate_3[26], gate_3[27], gate_3[28], gate_3[29], gate_3[30], gate_3[31], gate_3[32], gate_3[33], gate_3[34], gate_3[35], gate_3[36], gate_3[37], gate_3[38], gate_3[39], gate_3[40], gate_3[41], gate_3[42], gate_3[43], gate_3[44], gate_3[45], gate_3[46], gate_3[47], gate_3[48], gate_3[49], gate_3[50], gate_3[51], gate_3[52], gate_3[53], gate_3[54], gate_3[55], gate_3[56], gate_3[57], gate_3[58], gate_3[59], gate_3[60], gate_3[61], gate_3[62], gate_3[63], gate_3[64], gate_3[65], gate_3[66], gate_3[67], gate_3[68], gate_3[69], gate_3[70], gate_3[71], gate_3[72], gate_3[73], gate_3[74], gate_3[75], gate_3[76], gate_3[77], gate_3[78], gate_3[79], gate_3[80], gate_3[81], gate_3[82], gate_3[83], gate_3[84], gate_3[85], gate_3[86], gate_3[87], gate_3[88], gate_3[89], gate_3[90], gate_3[91], gate_3[92], gate_3[93], gate_3[94], gate_3[95], gate_3[96], gate_3[97], gate_3[98], gate_3[99], gate_3[100], gate_3[101], gate_3[102], gate_3[103], gate_3[104], gate_3[105], gate_3[106], gate_3[107], gate_3[108], gate_3[109], gate_3[110], gate_3[111], gate_3[112], gate_3[113], gate_3[114], gate_3[115], gate_3[116], gate_3[117], gate_3[118], gate_3[119], gate_3[120], gate_3[121], gate_3[122], gate_3[123], gate_3[124], gate_3[125], gate_3[126]] gate_4 ∧
     ∃gate_5, Gates.from_binary vec![gate_3[127], gate_3[128], gate_3[129], gate_3[130], gate_3[131], gate_3[132], gate_3[133], gate_3[134], gate_3[135], gate_3[136], gate_3[137], gate_3[138], gate_3[139], gate_3[140], gate_3[141], gate_3[142], gate_3[143], gate_3[144], gate_3[145], gate_3[146], gate_3[147], gate_3[148], gate_3[149], gate_3[150], gate_3[151], gate_3[152], gate_3[153], gate_3[154], gate_3[155], gate_3[156], gate_3[157], gate_3[158], gate_3[159], gate_3[160], gate_3[161], gate_3[162], gate_3[163], gate_3[164], gate_3[165], gate_3[166], gate_3[167], gate_3[168], gate_3[169], gate_3[170], gate_3[171], gate_3[172], gate_3[173], gate_3[174], gate_3[175], gate_3[176], gate_3[177], gate_3[178], gate_3[179], gate_3[180], gate_3[181], gate_3[182], gate_3[183], gate_3[184], gate_3[185], gate_3[186], gate_3[187], gate_3[188], gate_3[189], gate_3[190], gate_3[191], gate_3[192], gate_3[193], gate_3[194], gate_3[195], gate_3[196], gate_3[197], gate_3[198], gate_3[199], gate_3[200], gate_3[201], gate_3[202], gate_3[203], gate_3[204], gate_3[205], gate_3[206], gate_3[207], gate_3[208], gate_3[209], gate_3[210], gate_3[211], gate_3[212], gate_3[213], gate_3[214], gate_3[215], gate_3[216], gate_3[217], gate_3[218], gate_3[219], gate_3[220], gate_3[221], gate_3[222], gate_3[223], gate_3[224], gate_3[225], gate_3[226], gate_3[227], gate_3[228], gate_3[229], gate_3[230], gate_3[231], gate_3[232], gate_3[233], gate_3[234], gate_3[235], gate_3[236], gate_3[237], gate_3[238], gate_3[239], gate_3[240], gate_3[241], gate_3[242], gate_3[243], gate_3[244], gate_3[245], gate_3[246], gate_3[247], gate_3[248], gate_3[249], gate_3[250], gate_3[251], gate_3[252], gate_3[253]] gate_5 ∧
-    ∃gate_6, Gates.to_binary gate_1 254 gate_6 ∧
+    ∃gate_6, Gates.to_binary Hi 254 gate_6 ∧
     ∃gate_7, Gates.from_binary vec![gate_6[0], gate_6[1], gate_6[2], gate_6[3], gate_6[4], gate_6[5], gate_6[6], gate_6[7], gate_6[8], gate_6[9], gate_6[10], gate_6[11], gate_6[12], gate_6[13], gate_6[14], gate_6[15], gate_6[16], gate_6[17], gate_6[18], gate_6[19], gate_6[20], gate_6[21], gate_6[22], gate_6[23], gate_6[24], gate_6[25], gate_6[26], gate_6[27], gate_6[28], gate_6[29], gate_6[30], gate_6[31], gate_6[32], gate_6[33], gate_6[34], gate_6[35], gate_6[36], gate_6[37], gate_6[38], gate_6[39], gate_6[40], gate_6[41], gate_6[42], gate_6[43], gate_6[44], gate_6[45], gate_6[46], gate_6[47], gate_6[48], gate_6[49], gate_6[50], gate_6[51], gate_6[52], gate_6[53], gate_6[54], gate_6[55], gate_6[56], gate_6[57], gate_6[58], gate_6[59], gate_6[60], gate_6[61], gate_6[62], gate_6[63], gate_6[64], gate_6[65], gate_6[66], gate_6[67], gate_6[68], gate_6[69], gate_6[70], gate_6[71], gate_6[72], gate_6[73], gate_6[74], gate_6[75], gate_6[76], gate_6[77], gate_6[78], gate_6[79], gate_6[80], gate_6[81], gate_6[82], gate_6[83], gate_6[84], gate_6[85], gate_6[86], gate_6[87], gate_6[88], gate_6[89], gate_6[90], gate_6[91], gate_6[92], gate_6[93], gate_6[94], gate_6[95], gate_6[96], gate_6[97], gate_6[98], gate_6[99], gate_6[100], gate_6[101], gate_6[102], gate_6[103], gate_6[104], gate_6[105], gate_6[106], gate_6[107], gate_6[108], gate_6[109], gate_6[110], gate_6[111], gate_6[112], gate_6[113], gate_6[114], gate_6[115], gate_6[116], gate_6[117], gate_6[118], gate_6[119], gate_6[120], gate_6[121], gate_6[122], gate_6[123], gate_6[124], gate_6[125], gate_6[126]] gate_7 ∧
     ∃gate_8, Gates.from_binary vec![gate_6[127], gate_6[128], gate_6[129], gate_6[130], gate_6[131], gate_6[132], gate_6[133], gate_6[134], gate_6[135], gate_6[136], gate_6[137], gate_6[138], gate_6[139], gate_6[140], gate_6[141], gate_6[142], gate_6[143], gate_6[144], gate_6[145], gate_6[146], gate_6[147], gate_6[148], gate_6[149], gate_6[150], gate_6[151], gate_6[152], gate_6[153], gate_6[154], gate_6[155], gate_6[156], gate_6[157], gate_6[158], gate_6[159], gate_6[160], gate_6[161], gate_6[162], gate_6[163], gate_6[164], gate_6[165], gate_6[166], gate_6[167], gate_6[168], gate_6[169], gate_6[170], gate_6[171], gate_6[172], gate_6[173], gate_6[174], gate_6[175], gate_6[176], gate_6[177], gate_6[178], gate_6[179], gate_6[180], gate_6[181], gate_6[182], gate_6[183], gate_6[184], gate_6[185], gate_6[186], gate_6[187], gate_6[188], gate_6[189], gate_6[190], gate_6[191], gate_6[192], gate_6[193], gate_6[194], gate_6[195], gate_6[196], gate_6[197], gate_6[198], gate_6[199], gate_6[200], gate_6[201], gate_6[202], gate_6[203], gate_6[204], gate_6[205], gate_6[206], gate_6[207], gate_6[208], gate_6[209], gate_6[210], gate_6[211], gate_6[212], gate_6[213], gate_6[214], gate_6[215], gate_6[216], gate_6[217], gate_6[218], gate_6[219], gate_6[220], gate_6[221], gate_6[222], gate_6[223], gate_6[224], gate_6[225], gate_6[226], gate_6[227], gate_6[228], gate_6[229], gate_6[230], gate_6[231], gate_6[232], gate_6[233], gate_6[234], gate_6[235], gate_6[236], gate_6[237], gate_6[238], gate_6[239], gate_6[240], gate_6[241], gate_6[242], gate_6[243], gate_6[244], gate_6[245], gate_6[246], gate_6[247], gate_6[248], gate_6[249], gate_6[250], gate_6[251], gate_6[252], gate_6[253]] gate_8 ∧
-    ∃gate_9, Gates.to_binary gate_2 254 gate_9 ∧
-    ∃gate_10, Gates.from_binary vec![gate_9[0], gate_9[1], gate_9[2], gate_9[3], gate_9[4], gate_9[5], gate_9[6], gate_9[7], gate_9[8], gate_9[9], gate_9[10], gate_9[11], gate_9[12], gate_9[13], gate_9[14], gate_9[15], gate_9[16], gate_9[17], gate_9[18], gate_9[19], gate_9[20], gate_9[21], gate_9[22], gate_9[23], gate_9[24], gate_9[25], gate_9[26], gate_9[27], gate_9[28], gate_9[29], gate_9[30], gate_9[31], gate_9[32], gate_9[33], gate_9[34], gate_9[35], gate_9[36], gate_9[37], gate_9[38], gate_9[39], gate_9[40], gate_9[41], gate_9[42], gate_9[43], gate_9[44], gate_9[45], gate_9[46], gate_9[47], gate_9[48], gate_9[49], gate_9[50], gate_9[51], gate_9[52], gate_9[53], gate_9[54], gate_9[55], gate_9[56], gate_9[57], gate_9[58], gate_9[59], gate_9[60], gate_9[61], gate_9[62], gate_9[63], gate_9[64], gate_9[65], gate_9[66], gate_9[67], gate_9[68], gate_9[69], gate_9[70], gate_9[71], gate_9[72], gate_9[73], gate_9[74], gate_9[75], gate_9[76], gate_9[77], gate_9[78], gate_9[79], gate_9[80], gate_9[81], gate_9[82], gate_9[83], gate_9[84], gate_9[85], gate_9[86], gate_9[87], gate_9[88], gate_9[89], gate_9[90], gate_9[91], gate_9[92], gate_9[93], gate_9[94], gate_9[95], gate_9[96], gate_9[97], gate_9[98], gate_9[99], gate_9[100], gate_9[101], gate_9[102], gate_9[103], gate_9[104], gate_9[105], gate_9[106], gate_9[107], gate_9[108], gate_9[109], gate_9[110], gate_9[111], gate_9[112], gate_9[113], gate_9[114], gate_9[115], gate_9[116], gate_9[117], gate_9[118], gate_9[119], gate_9[120], gate_9[121], gate_9[122], gate_9[123], gate_9[124], gate_9[125], gate_9[126]] gate_10 ∧
-    ∃gate_11, Gates.from_binary vec![gate_9[127], gate_9[128], gate_9[129], gate_9[130], gate_9[131], gate_9[132], gate_9[133], gate_9[134], gate_9[135], gate_9[136], gate_9[137], gate_9[138], gate_9[139], gate_9[140], gate_9[141], gate_9[142], gate_9[143], gate_9[144], gate_9[145], gate_9[146], gate_9[147], gate_9[148], gate_9[149], gate_9[150], gate_9[151], gate_9[152], gate_9[153], gate_9[154], gate_9[155], gate_9[156], gate_9[157], gate_9[158], gate_9[159], gate_9[160], gate_9[161], gate_9[162], gate_9[163], gate_9[164], gate_9[165], gate_9[166], gate_9[167], gate_9[168], gate_9[169], gate_9[170], gate_9[171], gate_9[172], gate_9[173], gate_9[174], gate_9[175], gate_9[176], gate_9[177], gate_9[178], gate_9[179], gate_9[180], gate_9[181], gate_9[182], gate_9[183], gate_9[184], gate_9[185], gate_9[186], gate_9[187], gate_9[188], gate_9[189], gate_9[190], gate_9[191], gate_9[192], gate_9[193], gate_9[194], gate_9[195], gate_9[196], gate_9[197], gate_9[198], gate_9[199], gate_9[200], gate_9[201], gate_9[202], gate_9[203], gate_9[204], gate_9[205], gate_9[206], gate_9[207], gate_9[208], gate_9[209], gate_9[210], gate_9[211], gate_9[212], gate_9[213], gate_9[214], gate_9[215], gate_9[216], gate_9[217], gate_9[218], gate_9[219], gate_9[220], gate_9[221], gate_9[222], gate_9[223], gate_9[224], gate_9[225], gate_9[226], gate_9[227], gate_9[228], gate_9[229], gate_9[230], gate_9[231], gate_9[232], gate_9[233], gate_9[234], gate_9[235], gate_9[236], gate_9[237], gate_9[238], gate_9[239], gate_9[240], gate_9[241], gate_9[242], gate_9[243], gate_9[244], gate_9[245], gate_9[246], gate_9[247], gate_9[248], gate_9[249], gate_9[250], gate_9[251], gate_9[252], gate_9[253]] gate_11 ∧
-    ∃gate_12, gate_12 = Gates.sub gate_5 gate_8 ∧
-    ∃gate_13, gate_13 = Gates.add gate_12 (170141183460469231731687303715884105728:F) ∧
-    ∃gate_14, Gates.to_binary gate_13 128 gate_14 ∧
-    ∃gate_15, gate_15 = Gates.sub (1:F) gate_14[127] ∧
-    ∃gate_16, gate_16 = Gates.sub gate_5 gate_8 ∧
-    ∃gate_17, Gates.is_zero gate_16 gate_17 ∧
-    ∃gate_18, gate_18 = Gates.sub gate_4 gate_7 ∧
-    ∃gate_19, gate_19 = Gates.add gate_18 (170141183460469231731687303715884105728:F) ∧
-    ∃gate_20, Gates.to_binary gate_19 128 gate_20 ∧
-    ∃gate_21, gate_21 = Gates.sub (1:F) gate_20[127] ∧
-    ∃gate_22, gate_22 = Gates.mul gate_17 gate_21 ∧
-    ∃gate_23, gate_23 = Gates.add gate_15 gate_22 ∧
-    Gates.eq gate_23 (1:F) ∧
-    ∃gate_25, gate_25 = Gates.sub gate_8 gate_11 ∧
-    ∃gate_26, gate_26 = Gates.add gate_25 (170141183460469231731687303715884105728:F) ∧
-    ∃gate_27, Gates.to_binary gate_26 128 gate_27 ∧
-    ∃gate_28, gate_28 = Gates.sub (1:F) gate_27[127] ∧
-    ∃gate_29, gate_29 = Gates.sub gate_8 gate_11 ∧
-    ∃gate_30, Gates.is_zero gate_29 gate_30 ∧
-    ∃gate_31, gate_31 = Gates.sub gate_7 gate_10 ∧
-    ∃gate_32, gate_32 = Gates.add gate_31 (170141183460469231731687303715884105728:F) ∧
-    ∃gate_33, Gates.to_binary gate_32 128 gate_33 ∧
-    ∃gate_34, gate_34 = Gates.sub (1:F) gate_33[127] ∧
-    ∃gate_35, gate_35 = Gates.mul gate_30 gate_34 ∧
-    ∃gate_36, gate_36 = Gates.add gate_28 gate_35 ∧
-    Gates.eq gate_36 (1:F) ∧
+    ∃gate_9, gate_9 = Gates.sub gate_2 gate_5 ∧
+    ∃gate_10, gate_10 = Gates.add gate_9 (170141183460469231731687303715884105728:F) ∧
+    ∃gate_11, Gates.to_binary gate_10 128 gate_11 ∧
+    ∃gate_12, gate_12 = Gates.sub (1:F) gate_11[127] ∧
+    ∃gate_13, gate_13 = Gates.sub gate_2 gate_5 ∧
+    ∃gate_14, Gates.is_zero gate_13 gate_14 ∧
+    ∃gate_15, gate_15 = Gates.sub gate_1 gate_4 ∧
+    ∃gate_16, gate_16 = Gates.add gate_15 (170141183460469231731687303715884105728:F) ∧
+    ∃gate_17, Gates.to_binary gate_16 128 gate_17 ∧
+    ∃gate_18, gate_18 = Gates.sub (1:F) gate_17[127] ∧
+    ∃gate_19, gate_19 = Gates.mul gate_14 gate_18 ∧
+    ∃gate_20, gate_20 = Gates.add gate_12 gate_19 ∧
+    Gates.eq gate_20 (1:F) ∧
+    ∃gate_22, gate_22 = Gates.sub gate_5 gate_8 ∧
+    ∃gate_23, gate_23 = Gates.add gate_22 (170141183460469231731687303715884105728:F) ∧
+    ∃gate_24, Gates.to_binary gate_23 128 gate_24 ∧
+    ∃gate_25, gate_25 = Gates.sub (1:F) gate_24[127] ∧
+    ∃gate_26, gate_26 = Gates.sub gate_5 gate_8 ∧
+    ∃gate_27, Gates.is_zero gate_26 gate_27 ∧
+    ∃gate_28, gate_28 = Gates.sub gate_4 gate_7 ∧
+    ∃gate_29, gate_29 = Gates.add gate_28 (170141183460469231731687303715884105728:F) ∧
+    ∃gate_30, Gates.to_binary gate_29 128 gate_30 ∧
+    ∃gate_31, gate_31 = Gates.sub (1:F) gate_30[127] ∧
+    ∃gate_32, gate_32 = Gates.mul gate_27 gate_31 ∧
+    ∃gate_33, gate_33 = Gates.add gate_25 gate_32 ∧
+    Gates.eq gate_33 (1:F) ∧
     True
 
 def NonInclusionProof_8_8_8_8_8_40_8_8_40 (Roots: List.Vector F 8) (Values: List.Vector F 8) (LeafLowerRangeValues: List.Vector F 8) (LeafHigherRangeValues: List.Vector F 8) (InPathIndices: List.Vector F 8) (InPathElements: List.Vector (List.Vector F 40) 8) (k: List.Vector F 8 -> Prop): Prop :=
@@ -366,42 +363,42 @@ def NonInclusionProof_8_8_8_8_8_40_8_8_40 (Roots: List.Vector F 8) (Values: List
     ∃gate_1, Gates.to_binary InPathIndices[0] 40 gate_1 ∧
     MerkleRootGadget_40_40_40 gate_0 gate_1 InPathElements[0] fun gate_2 =>
     Gates.eq gate_2 Roots[0] ∧
-    AssertStrictlyOrdered (0:F) LeafLowerRangeValues[0] Values[0] LeafHigherRangeValues[0] ∧
+    AssertStrictlyOrdered LeafLowerRangeValues[0] Values[0] LeafHigherRangeValues[0] ∧
     Poseidon_2 vec![LeafLowerRangeValues[1], LeafHigherRangeValues[1]] (0:F) fun gate_5 =>
     ∃gate_6, Gates.to_binary InPathIndices[1] 40 gate_6 ∧
     MerkleRootGadget_40_40_40 gate_5 gate_6 InPathElements[1] fun gate_7 =>
     Gates.eq gate_7 Roots[1] ∧
-    AssertStrictlyOrdered (0:F) LeafLowerRangeValues[1] Values[1] LeafHigherRangeValues[1] ∧
+    AssertStrictlyOrdered LeafLowerRangeValues[1] Values[1] LeafHigherRangeValues[1] ∧
     Poseidon_2 vec![LeafLowerRangeValues[2], LeafHigherRangeValues[2]] (0:F) fun gate_10 =>
     ∃gate_11, Gates.to_binary InPathIndices[2] 40 gate_11 ∧
     MerkleRootGadget_40_40_40 gate_10 gate_11 InPathElements[2] fun gate_12 =>
     Gates.eq gate_12 Roots[2] ∧
-    AssertStrictlyOrdered (0:F) LeafLowerRangeValues[2] Values[2] LeafHigherRangeValues[2] ∧
+    AssertStrictlyOrdered LeafLowerRangeValues[2] Values[2] LeafHigherRangeValues[2] ∧
     Poseidon_2 vec![LeafLowerRangeValues[3], LeafHigherRangeValues[3]] (0:F) fun gate_15 =>
     ∃gate_16, Gates.to_binary InPathIndices[3] 40 gate_16 ∧
     MerkleRootGadget_40_40_40 gate_15 gate_16 InPathElements[3] fun gate_17 =>
     Gates.eq gate_17 Roots[3] ∧
-    AssertStrictlyOrdered (0:F) LeafLowerRangeValues[3] Values[3] LeafHigherRangeValues[3] ∧
+    AssertStrictlyOrdered LeafLowerRangeValues[3] Values[3] LeafHigherRangeValues[3] ∧
     Poseidon_2 vec![LeafLowerRangeValues[4], LeafHigherRangeValues[4]] (0:F) fun gate_20 =>
     ∃gate_21, Gates.to_binary InPathIndices[4] 40 gate_21 ∧
     MerkleRootGadget_40_40_40 gate_20 gate_21 InPathElements[4] fun gate_22 =>
     Gates.eq gate_22 Roots[4] ∧
-    AssertStrictlyOrdered (0:F) LeafLowerRangeValues[4] Values[4] LeafHigherRangeValues[4] ∧
+    AssertStrictlyOrdered LeafLowerRangeValues[4] Values[4] LeafHigherRangeValues[4] ∧
     Poseidon_2 vec![LeafLowerRangeValues[5], LeafHigherRangeValues[5]] (0:F) fun gate_25 =>
     ∃gate_26, Gates.to_binary InPathIndices[5] 40 gate_26 ∧
     MerkleRootGadget_40_40_40 gate_25 gate_26 InPathElements[5] fun gate_27 =>
     Gates.eq gate_27 Roots[5] ∧
-    AssertStrictlyOrdered (0:F) LeafLowerRangeValues[5] Values[5] LeafHigherRangeValues[5] ∧
+    AssertStrictlyOrdered LeafLowerRangeValues[5] Values[5] LeafHigherRangeValues[5] ∧
     Poseidon_2 vec![LeafLowerRangeValues[6], LeafHigherRangeValues[6]] (0:F) fun gate_30 =>
     ∃gate_31, Gates.to_binary InPathIndices[6] 40 gate_31 ∧
     MerkleRootGadget_40_40_40 gate_30 gate_31 InPathElements[6] fun gate_32 =>
     Gates.eq gate_32 Roots[6] ∧
-    AssertStrictlyOrdered (0:F) LeafLowerRangeValues[6] Values[6] LeafHigherRangeValues[6] ∧
+    AssertStrictlyOrdered LeafLowerRangeValues[6] Values[6] LeafHigherRangeValues[6] ∧
     Poseidon_2 vec![LeafLowerRangeValues[7], LeafHigherRangeValues[7]] (0:F) fun gate_35 =>
     ∃gate_36, Gates.to_binary InPathIndices[7] 40 gate_36 ∧
     MerkleRootGadget_40_40_40 gate_35 gate_36 InPathElements[7] fun gate_37 =>
     Gates.eq gate_37 Roots[7] ∧
-    AssertStrictlyOrdered (0:F) LeafLowerRangeValues[7] Values[7] LeafHigherRangeValues[7] ∧
+    AssertStrictlyOrdered LeafLowerRangeValues[7] Values[7] LeafHigherRangeValues[7] ∧
     k vec![gate_2, gate_7, gate_12, gate_17, gate_22, gate_27, gate_32, gate_37]
 
 def InclusionCircuit_8_8_8_32_8_8_32 (PublicInputHash: F) (Roots: List.Vector F 8) (Leaves: List.Vector F 8) (InPathIndices: List.Vector F 8) (InPathElements: List.Vector (List.Vector F 32) 8): Prop :=
