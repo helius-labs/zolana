@@ -2,7 +2,9 @@ export { Data } from "./data.js";
 export type { DataRecord } from "./data.js";
 export { TransactionError, type TransactionErrorCode } from "./error.js";
 export {
+  MergeZone,
   PreparedMerge,
+  PreparedMergeZone,
   SppProofInputs,
   ConfidentialTransfer,
   canonicalShape,

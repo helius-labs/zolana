@@ -1,7 +1,9 @@
 export {
   ConfidentialSplit,
   Merge,
+  MergeZone,
   PreparedMerge,
+  PreparedMergeZone,
   PreparedSplit,
   prepareZoneAuthority,
 } from "./builders.js";

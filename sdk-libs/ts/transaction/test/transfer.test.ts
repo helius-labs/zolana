@@ -14,6 +14,7 @@ import {
 import {
   ConfidentialSplit,
   Merge,
+  MergeZone,
   PreparedMerge,
   validateMergeZoneInputs,
 } from "../src/instructions/builders.js";
@@ -524,8 +525,36 @@ describe("manifest-verified transaction builders", () => {
       fixtureString(fixtureObject(zoneExpected.inputContext), "nullifierBytes"),
     );
     expect(hex(zoneOutput.hash())).toBe(fixtureString(zoneExpected, "outputHashBytes"));
+    const preparedZone = new MergeZone(
+      zoneSender.keypair,
+      [zoneSpend],
+      zone,
+      hexBytes(fixtureString(zoneInputs, "outputZoneDataHashBytes")) as Bytes32,
+    ).prepare();
+    expect(preparedZone.inputs).toHaveLength(8);
+    expect(preparedZone.inputs.filter((input) => input.isDummy())).toHaveLength(7);
+    expect(preparedZone.output.amount).toBe(50n);
+    expect(preparedZone.output.zoneProgramId).toBe(zone);
+    expect(preparedZone.output.zoneDataHash).toEqual(
+      hexBytes(fixtureString(zoneInputs, "outputZoneDataHashBytes")),
+    );
+    expect(preparedZone.inputUtxoHashes()).toEqual([
+      {
+        index: 0,
+        utxoHash: zoneSpend.hash(),
+        nullifier: zoneSpend.nullifier(),
+      },
+    ]);
     expect(() => {
       validateMergeZoneInputs([fixedInput(zoneSender, 50n, SOL_MINT, seed, 0)], zone);
     }).toThrow(expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH" }));
+    expect(
+      () =>
+        new MergeZone(
+          zoneSender.keypair,
+          [fixedInput(zoneSender, 50n, SOL_MINT, seed, 0)],
+          zone,
+        ),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH" }));
   });
 });
