@@ -2,8 +2,6 @@ package merge
 
 import (
 	"github.com/consensys/gnark/frontend"
-
-	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
 type ZoneCircuit struct {
@@ -15,7 +13,6 @@ type ZoneCircuit struct {
 	// Asset is the single asset shared by every real input and the merged output.
 	Asset frontend.Variable
 
-	P256Pub             transaction.P256PublicKey
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
@@ -23,9 +20,15 @@ type ZoneCircuit struct {
 	TxViewingSk       frontend.Variable
 	UserViewingPubkey [65]frontend.Variable
 
-	ExternalDataHash frontend.Variable
-	PrivateTxHash    frontend.Variable
-	ZoneProgramID    frontend.Variable
+	// publicInputHashInputs carries the prover-supplied inputs to the public-input
+	// hash (see the Circuit struct). Its ZoneProgramID is rail config (gnark:"-");
+	// the zone rail's top-level ZoneProgramID below is the actual signal, routed
+	// into it in Define.
+	publicInputHashInputs
+
+	// ZoneProgramID is the zone rail's top-level signal: the zone program's
+	// pk_field bound into every UTXO leaf and appended to the public-input hash.
+	ZoneProgramID frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -33,12 +36,10 @@ type ZoneCircuit struct {
 func NewMergeZoneCircuit() *ZoneCircuit {
 	c := &ZoneCircuit{
 		NumInputs: MergeInputs,
-		Inputs:    make([]Input, MergeInputs),
+		Inputs:    newInputs(),
 	}
-	for i := range c.Inputs {
-		c.Inputs[i].StatePathElements = make([]frontend.Variable, transaction.StateTreeHeight)
-		c.Inputs[i].NullifierLowPathElements = make([]frontend.Variable, transaction.NullifierTreeHeight)
-	}
+	c.allocInputSignals()
+	c.Zone = true
 	return c
 }
 
@@ -46,21 +47,19 @@ func (c *ZoneCircuit) Define(api frontend.API) error {
 	if err := validateLayout(c.NumInputs, c.Inputs); err != nil {
 		return err
 	}
-	publicInputHash, err := defineMerge(api, mergeSignals{
+	// Route the top-level ZoneProgramID signal into the hash config the embedded
+	// struct carries.
+	c.publicInputHashInputs.ZoneProgramID = c.ZoneProgramID
+	publicInputHash, err := defineMerge(api, mergeWitness{
 		inputs:              c.Inputs,
 		output:              c.Output,
 		asset:               c.Asset,
-		p256Pub:             c.P256Pub,
 		ownerPkHash:         c.OwnerPkHash,
 		userNullifierPk:     c.UserNullifierPk,
 		userNullifierSecret: c.UserNullifierSecret,
 		txViewingSk:         c.TxViewingSk,
 		userViewingPubkey:   c.UserViewingPubkey,
-		externalDataHash:    c.ExternalDataHash,
-		privateTxHash:       c.PrivateTxHash,
-		zone:                true,
-		zoneProgramID:       c.ZoneProgramID,
-	})
+	}, c.publicInputHashInputs)
 	if err != nil {
 		return err
 	}

@@ -15,7 +15,7 @@ import (
 // input whose committed leaf disagrees fails inclusion. Every check is gated on
 // the slot being real; a dummy slot skips them. Returns the input's UTXO hash (0
 // for a dummy) for the private-transaction-hash chain and its nullifier.
-func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecret, asset frontend.Variable, zone bool, zoneProgramID frontend.Variable) (frontend.Variable, frontend.Variable) {
+func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecret, asset, utxoTreeRoot, nullifierTreeRoot frontend.Variable, zone bool, zoneProgramID frontend.Variable) (frontend.Variable, frontend.Variable) {
 	// Slot type is decoded from the domain, matching spp_transaction: a real
 	// input carries UtxoDomain, a padding slot carries DummyDomain. The partition
 	// assert both pins the domain to one of the two values and defines notDummy.
@@ -70,7 +70,7 @@ func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecr
 		Path:   in.StatePathElements,
 		Height: transaction.StateTreeHeight,
 	})
-	assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
+	assertEqualWhen(api, notDummy, stateRoot, utxoTreeRoot)
 
 	// Nullifier: Poseidon over the UTXO hash, blinding, and the shared nullifier
 	// secret. Together with the owner-hash binding this pins nullifier_secret. It
@@ -93,7 +93,7 @@ func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecr
 		Path:   in.NullifierLowPathElements,
 		Height: transaction.NullifierTreeHeight,
 	})
-	assertEqualWhen(api, notDummy, nfRoot, in.NullifierTreeRoot)
+	assertEqualWhen(api, notDummy, nfRoot, nullifierTreeRoot)
 	// Dummy entries are remapped to the trivially ordered 0 < 1 < 2.
 	abstractor.CallVoid(api, transaction.AssertStrictlyOrdered{
 		Lo:  api.Select(isDummy, frontend.Variable(0), in.NullifierLowValue),

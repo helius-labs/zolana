@@ -2,11 +2,9 @@ package merge
 
 import (
 	mergecircuit "zolana/prover/circuits/spp_merge"
-	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/math/emulated"
 )
 
 // CreateWitness assigns the pre-computed parameters onto the merge circuit. It
@@ -24,10 +22,6 @@ func (p *MergeParameters) CreateWitness() (frontend.Circuit, error) {
 func (p *MergeParameters) createDefaultWitness() *mergecircuit.Circuit {
 	circuit := mergecircuit.NewMergeCircuit()
 
-	circuit.P256Pub = transaction.P256PublicKey{
-		X: emulated.ValueOf[emulated.P256Fp](p.P256PubX),
-		Y: emulated.ValueOf[emulated.P256Fp](p.P256PubY),
-	}
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
 	circuit.UserNullifierSecret = p.UserNullifierSecret
@@ -55,10 +49,6 @@ func (p *MergeParameters) createDefaultWitness() *mergecircuit.Circuit {
 func (p *MergeParameters) createZoneWitness() *mergecircuit.ZoneCircuit {
 	circuit := mergecircuit.NewMergeZoneCircuit()
 
-	circuit.P256Pub = transaction.P256PublicKey{
-		X: emulated.ValueOf[emulated.P256Fp](p.P256PubX),
-		Y: emulated.ValueOf[emulated.P256Fp](p.P256PubY),
-	}
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
 	circuit.UserNullifierSecret = p.UserNullifierSecret
@@ -105,7 +95,5 @@ func (p *MergeParameters) inputAt(i int) mergecircuit.Input {
 		NullifierNextValue:       in.NullifierNextValue,
 		NullifierLowPathElements: nullifierPath,
 		NullifierLowPathIndex:    in.NullifierLowPathIndex,
-		UtxoTreeRoot:             in.UtxoTreeRoot,
-		NullifierTreeRoot:        in.NullifierTreeRoot,
 	}
 }

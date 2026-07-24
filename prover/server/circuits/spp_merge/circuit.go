@@ -2,9 +2,10 @@
 // Proof). It consolidates up to 8 input UTXOs of a single owner and single asset
 // into one output UTXO of the same owner, asset, and total amount, and
 // verifiably encrypts the merged output to the owner's viewing key. The proof
-// takes no wallet secret beyond the values a sync delegate holds; ownership is
-// proven by recomputing the owner hash from the witnessed P256 signing point and
-// pinning the shared nullifier secret.
+// takes no wallet secret beyond the values a sync delegate holds; it checks no
+// owner signature, so ownership binds only through the shared nullifier secret
+// and state inclusion of the owner hash (the owner pk_field is supplied
+// directly, with a unified P256/Ed25519 encoding).
 package merge
 
 import (
@@ -46,9 +47,6 @@ type Input struct {
 	NullifierNextValue       frontend.Variable
 	NullifierLowPathElements []frontend.Variable
 	NullifierLowPathIndex    frontend.Variable
-
-	UtxoTreeRoot      frontend.Variable
-	NullifierTreeRoot frontend.Variable
 }
 
 type Output struct {
@@ -68,12 +66,10 @@ type Circuit struct {
 	// Asset is the single asset shared by every real input and the merged output.
 	Asset frontend.Variable
 
-	// Shared owner identity, one of two rails. P256Pub is the owner's P256 signing
-	// pubkey witness (canonical x, y, parity); OwnerPkHash is the owner's pk_field.
-	// OwnerPkHash == 0 selects the P256 path (P256-owned) and recomputes pk_field
-	// from P256Pub; a non-zero value is the Ed25519 owner's pk_field and is used
-	// directly (the P256 witness is then a dummy point).
-	P256Pub             transaction.P256PublicKey
+	// Shared owner identity. OwnerPkHash is the owner's pk_field, supplied directly
+	// for both P256 and Ed25519 owners (unified encoding) and bound to the
+	// committed leaf by state inclusion. Merge recomputes no owner point, so it
+	// witnesses no P256 signing key.
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
@@ -84,21 +80,30 @@ type Circuit struct {
 	TxViewingSk       frontend.Variable
 	UserViewingPubkey [65]frontend.Variable
 
-	ExternalDataHash frontend.Variable
-	PrivateTxHash    frontend.Variable
+	publicInputHashInputs
 
 	PublicInputHash frontend.Variable `gnark:",public"`
+}
+
+// newInputs builds the MergeInputs input slots with their Merkle-path slices
+// sized so gnark allocates the right number of path signals per slot.
+func newInputs() []Input {
+	inputs := make([]Input, MergeInputs)
+	for i := range inputs {
+		inputs[i].StatePathElements = make([]frontend.Variable, transaction.StateTreeHeight)
+		inputs[i].NullifierLowPathElements = make([]frontend.Variable, transaction.NullifierTreeHeight)
+	}
+	return inputs
 }
 
 func NewMergeCircuit() *Circuit {
 	c := &Circuit{
 		NumInputs: MergeInputs,
-		Inputs:    make([]Input, MergeInputs),
+		Inputs:    newInputs(),
 	}
-	for i := range c.Inputs {
-		c.Inputs[i].StatePathElements = make([]frontend.Variable, transaction.StateTreeHeight)
-		c.Inputs[i].NullifierLowPathElements = make([]frontend.Variable, transaction.NullifierTreeHeight)
-	}
+	c.allocInputSignals()
+	c.Zone = false
+	c.ZoneProgramID = frontend.Variable(0)
 	return c
 }
 
@@ -106,21 +111,16 @@ func (c *Circuit) Define(api frontend.API) error {
 	if err := validateLayout(c.NumInputs, c.Inputs); err != nil {
 		return err
 	}
-	publicInputHash, err := defineMerge(api, mergeSignals{
+	publicInputHash, err := defineMerge(api, mergeWitness{
 		inputs:              c.Inputs,
 		output:              c.Output,
 		asset:               c.Asset,
-		p256Pub:             c.P256Pub,
 		ownerPkHash:         c.OwnerPkHash,
 		userNullifierPk:     c.UserNullifierPk,
 		userNullifierSecret: c.UserNullifierSecret,
 		txViewingSk:         c.TxViewingSk,
 		userViewingPubkey:   c.UserViewingPubkey,
-		externalDataHash:    c.ExternalDataHash,
-		privateTxHash:       c.PrivateTxHash,
-		zone:                false,
-		zoneProgramID:       frontend.Variable(0),
-	})
+	}, c.publicInputHashInputs)
 	if err != nil {
 		return err
 	}
@@ -128,55 +128,57 @@ func (c *Circuit) Define(api frontend.API) error {
 	return nil
 }
 
-type mergeSignals struct {
+// mergeWitness carries the private witness defineMerge derives the public-input
+// hash from. The prover-supplied inputs to that hash live on the
+// publicInputHashInputs the caller passes in, so no signal is declared twice.
+type mergeWitness struct {
 	inputs              []Input
 	output              Output
 	asset               frontend.Variable
-	p256Pub             transaction.P256PublicKey
 	ownerPkHash         frontend.Variable
 	userNullifierPk     frontend.Variable
 	userNullifierSecret frontend.Variable
 	txViewingSk         frontend.Variable
 	userViewingPubkey   [65]frontend.Variable
-	externalDataHash    frontend.Variable
-	privateTxHash       frontend.Variable
-	zone                bool
-	zoneProgramID       frontend.Variable
 }
 
-func defineMerge(api frontend.API, s mergeSignals) (frontend.Variable, error) {
-	// Owner hash binding: user_owner_hash = OwnerHash(pk_field(signing_pk),
-	// user_nullifier_pk). The pk_field is recomputed from the witnessed P256
-	// point so the proof references no opaque owner.
-	p256PkField, err := transaction.OwnerPkFieldFromPubkeyCircuit(api, s.p256Pub)
-	if err != nil {
-		return nil, err
-	}
-	isP256 := api.IsZero(s.ownerPkHash)
-	pkField := api.Select(isP256, p256PkField, s.ownerPkHash)
-	userOwnerHash := gadget.PoseidonHash(api, []frontend.Variable{pkField, s.userNullifierPk})
+// defineMerge recomputes every derived input to the public-input hash from the
+// witness, asserts each equals the prover-supplied signal on publicHashInputs, fills
+// the non-signal fields (per-input tree roots) publicHashInputs still needs, and
+// returns publicHashInputs.Hash(api). ExternalDataHash/PrivateTxHash/Zone/ZoneProgramID
+// are supplied by the caller (PrivateTxHash is asserted against the recomputed
+// value); the remaining signals are bound to their derivations below.
+func defineMerge(api frontend.API, witness mergeWitness, publicHashInputs publicInputHashInputs) (frontend.Variable, error) {
+	// Owner hash: user_owner_hash = OwnerHash(pk_field(signing_pk),
+	// user_nullifier_pk). pk_field has a unified P256/Ed25519 encoding (Poseidon
+	// over the key's two 128-bit halves), so the prover supplies it directly and
+	// state inclusion pins it to the committed leaf. Merge authorizes via the
+	// nullifier secret, not a signature, so it recomputes no owner point (spec:
+	// Zone-authority / merge instantiation).
+	pkField := witness.ownerPkHash
+	userOwnerHash := gadget.PoseidonHash(api, []frontend.Variable{pkField, witness.userNullifierPk})
 
 	// Nullifier secret binding: nullifier_pk = Poseidon(nullifier_secret).
-	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{s.userNullifierSecret})
-	api.AssertIsEqual(s.userNullifierPk, nullifierPk)
+	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{witness.userNullifierSecret})
+	api.AssertIsEqual(witness.userNullifierPk, nullifierPk)
 
-	inputHashes := make([]frontend.Variable, len(s.inputs))
-	nullifiers := make([]frontend.Variable, len(s.inputs))
-	for i := range s.inputs {
-		inputHashes[i], nullifiers[i] = constrainInput(api, s.inputs[i], userOwnerHash, s.userNullifierSecret, s.asset, s.zone, s.zoneProgramID)
+	inputHashes := make([]frontend.Variable, len(witness.inputs))
+	nullifiers := make([]frontend.Variable, len(witness.inputs))
+	for i := range witness.inputs {
+		inputHashes[i], nullifiers[i] = constrainInput(api, witness.inputs[i], userOwnerHash, witness.userNullifierSecret, witness.asset, publicHashInputs.UtxoTreeRoots[i], publicHashInputs.NullifierTreeRoots[i], publicHashInputs.Zone, publicHashInputs.ZoneProgramID)
 	}
-	assertDistinctNullifiers(api, s.inputs, nullifiers)
+	assertDistinctNullifiers(api, witness.inputs, nullifiers)
 
 	// Value conservation (single asset): dummies contribute 0 (amount pinned to 0
 	// in constrainInput), so the sum over all slots equals the real total. The
 	// merged output amount is assembled from this sum rather than witnessed, so
 	// conservation holds by construction.
 	sumInputs := frontend.Variable(0)
-	for i := range s.inputs {
-		sumInputs = api.Add(sumInputs, s.inputs[i].Amount)
+	for i := range witness.inputs {
+		sumInputs = api.Add(sumInputs, witness.inputs[i].Amount)
 	}
 
-	outputHash := constrainOutput(api, s.output, userOwnerHash, s.asset, sumInputs, s.zone, s.zoneProgramID)
+	outputHash := constrainOutput(api, witness.output, userOwnerHash, witness.asset, sumInputs, publicHashInputs.Zone, publicHashInputs.ZoneProgramID)
 
 	addressHashes := make([]frontend.Variable, len(inputHashes))
 	for i := range addressHashes {
@@ -187,41 +189,100 @@ func defineMerge(api frontend.API, s mergeSignals) (frontend.Variable, error) {
 		inputHashes,
 		[]frontend.Variable{outputHash},
 		addressHashes,
-		s.externalDataHash,
+		publicHashInputs.ExternalDataHash,
 	)
-	api.AssertIsEqual(privateTxHash, s.privateTxHash)
+	api.AssertIsEqual(privateTxHash, publicHashInputs.PrivateTxHash)
 
 	// Verifiable encryption of the merged output to the owner's viewing key.
 	g := aes.NewAESGadget(api)
-	ctHash, pkLo, pkHi := constrainEncryption(api, g, s.txViewingSk, s.userViewingPubkey, sumInputs, s.asset, s.output.Blinding)
+	ctHash, pkLo, pkHi := constrainEncryption(api, g, witness.txViewingSk, witness.userViewingPubkey, sumInputs, witness.asset, witness.output.Blinding)
 
 	// pk_field(user_viewing_pk) over the same viewing point as the encryption
 	// (constrainEncryption asserts it on-curve via p256.PointOnCurve). It is a
 	// public input so SPP can check the encryption used the owner's registered
 	// viewing key (spec Merge Proof public inputs).
-	viewingPkField, err := transaction.P256PkFieldFromPointCircuit(api, *p256.ParsePublicKey(api, s.userViewingPubkey))
+	viewingPkField, err := transaction.P256PkFieldFromPointCircuit(api, *p256.ParsePublicKey(api, witness.userViewingPubkey))
 	if err != nil {
 		return nil, err
 	}
 
-	return mergePublicInputHash(api, s, nullifiers, outputHash, pkField, viewingPkField, ctHash, pkLo, pkHi), nil
+	// Bind each prover-supplied hash input to its in-circuit derivation, so the
+	// hash cannot be formed over forged values.
+	for i := range nullifiers {
+		api.AssertIsEqual(publicHashInputs.Nullifiers[i], nullifiers[i])
+	}
+	api.AssertIsEqual(publicHashInputs.OutputHash, outputHash)
+	api.AssertIsEqual(publicHashInputs.UserSigningPkHash, pkField)
+	api.AssertIsEqual(publicHashInputs.UserViewingPkHash, viewingPkField)
+	api.AssertIsEqual(publicHashInputs.TxViewingPkLo, pkLo)
+	api.AssertIsEqual(publicHashInputs.TxViewingPkHi, pkHi)
+	api.AssertIsEqual(publicHashInputs.CtHash, ctHash)
+	// The per-input tree roots are bound to the state-inclusion proofs inside
+	// constrainInput above, so they need no assertion here.
+	return publicHashInputs.Hash(api), nil
 }
 
-func mergePublicInputHash(api frontend.API, s mergeSignals, nullifiers []frontend.Variable, outputHash, userSigningPkHash, userViewingPkHash, ctHash, txViewingPkLo, txViewingPkHi frontend.Variable) frontend.Variable {
+// publicInputHashInputs holds every value that feeds the merge PublicInputHash.
+// It is embedded in the Circuit struct: the tagged signal fields are supplied by
+// the prover and bound to their in-circuit derivations in defineMerge, while the
+// gnark:"-" fields are not signals -- the tree roots are read from the Input
+// witnesses and Zone/ZoneProgramID are the rail config. It is not the circuit's
+// public input; that is the single PublicInputHash on the Circuit struct,
+// asserted against Hash's output.
+type publicInputHashInputs struct {
+	// Nullifiers of all input slots (dummies included); folded into one field
+	// via HashChain.
+	Nullifiers []frontend.Variable
+	// OutputHash is the merged output UTXO's leaf hash.
+	OutputHash frontend.Variable
+
+	PrivateTxHash    frontend.Variable
+	ExternalDataHash frontend.Variable
+
+	// Owner identity hashes, emitted only on the default rail (Zone == false).
+	// UserSigningPkHash is pk_field(signing_pk); UserViewingPkHash is
+	// pk_field(user_viewing_pk).
+	UserSigningPkHash frontend.Variable
+	UserViewingPkHash frontend.Variable
+
+	// Ephemeral viewing pubkey limbs (lo, hi) and the ciphertext hash of the
+	// verifiable encryption of the merged output.
+	TxViewingPkLo frontend.Variable
+	TxViewingPkHi frontend.Variable
+	CtHash        frontend.Variable
+
+	// UtxoTreeRoots / NullifierTreeRoots are the per-input roots, one entry per
+	// slot, each folded via HashChain. constrainInput binds each real input's
+	// state and nullifier inclusion proof to these supplied roots.
+	UtxoTreeRoots      []frontend.Variable
+	NullifierTreeRoots []frontend.Variable
+
+	// Zone selects the zone rail: it swaps the owner-hash pair out of the hash
+	// and appends ZoneProgramID at the end. Both are rail config, not signals:
+	// the default rail pins ZoneProgramID to 0, the zone rail routes its
+	// top-level ZoneProgramID signal in.
+	Zone          bool              `gnark:"-"`
+	ZoneProgramID frontend.Variable `gnark:"-"`
+}
+
+// Hash folds every input into the single PublicInputHash signal. The ordering
+// matches spec Merge Proof public inputs and must stay in sync with the
+// on-chain verifier.
+func (publicHashInputs publicInputHashInputs) Hash(api frontend.API) frontend.Variable {
 	fields := []frontend.Variable{
-		gadget.HashChain(api, nullifiers),
-		outputHash,
-		gadget.HashChain(api, inputUtxoRoots(s.inputs)),
-		gadget.HashChain(api, inputNullifierTreeRoots(s.inputs)),
-		s.privateTxHash,
-		s.externalDataHash,
+		gadget.HashChain(api, publicHashInputs.Nullifiers),
+		publicHashInputs.OutputHash,
+		gadget.HashChain(api, publicHashInputs.UtxoTreeRoots),
+		gadget.HashChain(api, publicHashInputs.NullifierTreeRoots),
+		publicHashInputs.PrivateTxHash,
+		publicHashInputs.ExternalDataHash,
 	}
-	if !s.zone {
-		fields = append(fields, userSigningPkHash, userViewingPkHash)
+	if !publicHashInputs.Zone {
+		fields = append(fields, publicHashInputs.UserSigningPkHash, publicHashInputs.UserViewingPkHash)
 	}
-	fields = append(fields, txViewingPkLo, txViewingPkHi, ctHash)
-	if s.zone {
-		fields = append(fields, s.zoneProgramID)
+	fields = append(fields, publicHashInputs.TxViewingPkLo, publicHashInputs.TxViewingPkHi, publicHashInputs.CtHash)
+	if publicHashInputs.Zone {
+		fields = append(fields, publicHashInputs.ZoneProgramID)
 	}
 	return gadget.HashChain(api, fields)
 }
@@ -238,20 +299,12 @@ func assertDistinctNullifiers(api frontend.API, inputs []Input, nullifiers []fro
 	}
 }
 
-func inputUtxoRoots(inputs []Input) []frontend.Variable {
-	out := make([]frontend.Variable, len(inputs))
-	for i := range inputs {
-		out[i] = inputs[i].UtxoTreeRoot
-	}
-	return out
-}
-
-func inputNullifierTreeRoots(inputs []Input) []frontend.Variable {
-	out := make([]frontend.Variable, len(inputs))
-	for i := range inputs {
-		out[i] = inputs[i].NullifierTreeRoot
-	}
-	return out
+// allocInputSignals sizes the per-input signal slices so gnark allocates one
+// signal per input slot.
+func (p *publicInputHashInputs) allocInputSignals() {
+	p.Nullifiers = make([]frontend.Variable, MergeInputs)
+	p.UtxoTreeRoots = make([]frontend.Variable, MergeInputs)
+	p.NullifierTreeRoots = make([]frontend.Variable, MergeInputs)
 }
 
 func validateLayout(numInputs int, inputs []Input) error {
