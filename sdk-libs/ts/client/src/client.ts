@@ -1,4 +1,3 @@
-import { hash, hashBytes } from "@zolana/indexer-api";
 import { transactInstructionDataCodec } from "@zolana/interface/codecs";
 import {
   mergeTransactInstruction,
@@ -18,7 +17,7 @@ import type {
 import type { NullifierKey, P256PublicKey, ShieldedPublicKey } from "@zolana/keypair";
 import { PreparedMerge, SppProofInputs, type InputUtxoContext } from "@zolana/transaction";
 
-import { ClientError } from "./error.js";
+import { ClientError, fromClientCause } from "./error.js";
 import { addressBytes, decodeBase58, sha256Bytes, signatureBytes, sleep } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import { assemble } from "./prover/assembly.js";
@@ -269,10 +268,18 @@ export class ZolanaClient implements Rpc {
     if (!(proofInputs instanceof SppProofInputs)) {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
-    const proofs = await this.getInputMerkleProofs(proofInputs.inputContexts(), undefined, context);
-    const assembled = assemble(proofInputs, proofs);
-    const proof = await this.#prover.prove(assembled.proverInputs, context);
-    return assembled.withProof(compressProof(proof).toTransactProof());
+    try {
+      const proofs = await this.getInputMerkleProofs(
+        proofInputs.inputContexts(),
+        undefined,
+        context,
+      );
+      const assembled = assemble(proofInputs, proofs);
+      const proof = await this.#prover.prove(assembled.proverInputs, context);
+      return assembled.withProof(compressProof(proof).toTransactProof());
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
   }
 
   async proveMerge(
@@ -414,7 +421,8 @@ export class ZolanaClient implements Rpc {
       }
       try {
         const response = await this.indexer.getShieldedTransactionsByTags(
-          { tags: tags.map((tag) => hash(tag)) },
+          { tags },
+          undefined,
           context,
         );
         const matched = response.transactions.find(
@@ -422,8 +430,8 @@ export class ZolanaClient implements Rpc {
         );
         if (matched) {
           const indexed = [
-            ...matched.outputSlots.map((slot) => hashBytes(slot.viewTag)),
-            ...matched.messages.map((message) => hashBytes(message.viewTag)),
+            ...matched.outputSlots.map((slot) => slot.viewTag),
+            ...matched.messages.map((message) => message.viewTag),
           ];
           if (tags.every((tag) => indexed.some((item) => equal(item, tag)))) return;
         }

@@ -1,6 +1,11 @@
 import type { Address, Bytes32, TransactInstructionData, TransactProof } from "@zolana/interface";
 import { ShieldedPublicKey } from "@zolana/keypair";
-import { ProofInputUtxo, SppProofInputs, type ProofOutputUtxo } from "@zolana/transaction";
+import {
+  ProofInputUtxo,
+  SppProofInputs,
+  TransactionError,
+  type ProofOutputUtxo,
+} from "@zolana/transaction";
 
 import { ClientError, fromClientCause } from "../error.js";
 import {
@@ -461,7 +466,7 @@ function findPublicSplAsset(proofInputs: SppProofInputs): Address {
   for (const output of proofInputs.outputs) {
     if (!output.isDummy() && output.asset !== SYSTEM_ADDRESS) return output.asset;
   }
-  throw new ClientError("CLIENT_PUBLIC_SPL_ASSET");
+  throw fromClientCause(new TransactionError("TRANSACTION_MISSING_PUBLIC_SPL_ASSET"));
 }
 
 function signedField(value: bigint, name: string): bigint {

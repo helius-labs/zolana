@@ -1,0 +1,363 @@
+{
+  "expected": {
+    "variants": [
+      {
+        "code": "CLIENT_KEYPAIR",
+        "details": {
+          "code": "InvalidSecretKey"
+        }
+      },
+      {
+        "code": "CLIENT_TRANSACTION",
+        "details": {
+          "code": "NoInputs"
+        }
+      },
+      {
+        "code": "CLIENT_HASHER",
+        "details": {
+          "code": "EmptyInput"
+        }
+      },
+      {
+        "code": "CLIENT_UNSUPPORTED_SHAPE",
+        "details": {
+          "nIn": 2,
+          "nOut": 3
+        }
+      },
+      {
+        "code": "CLIENT_TOO_MANY_INPUTS",
+        "details": {
+          "got": 9,
+          "max": 8
+        }
+      },
+      {
+        "code": "CLIENT_TOO_MANY_OUTPUTS",
+        "details": {
+          "got": 9,
+          "max": 8
+        }
+      },
+      {
+        "code": "CLIENT_INSUFFICIENT_BALANCE",
+        "details": {
+          "available": "10",
+          "requested": "11"
+        }
+      },
+      {
+        "code": "CLIENT_SELECTED_BALANCE_OVERFLOW",
+        "details": null
+      },
+      {
+        "code": "CLIENT_UNSIGNED_INPUT_UNAVAILABLE",
+        "details": {
+          "index": 1
+        }
+      },
+      {
+        "code": "CLIENT_FEE_PAYER_MISMATCH",
+        "details": null
+      },
+      {
+        "code": "CLIENT_SOLANA_TRANSACTION_SIGNING",
+        "details": {
+          "reason": "signing failed"
+        }
+      },
+      {
+        "code": "CLIENT_AMBIGUOUS_TREE",
+        "details": {
+          "asset": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+          "treeCount": 2
+        }
+      },
+      {
+        "code": "CLIENT_TREE_MISMATCH",
+        "details": {
+          "clientTree": "0202020202020202020202020202020202020202020202020202020202020202",
+          "transactionTree": "0101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      {
+        "code": "CLIENT_MISSING_SPL_TOKEN_ACCOUNT",
+        "details": {
+          "mint": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf"
+        }
+      },
+      {
+        "code": "CLIENT_ADDRESS_RESOLUTION",
+        "details": {
+          "reason": "record lookup failed"
+        }
+      },
+      {
+        "code": "CLIENT_USER_REGISTRY_RECORD_NOT_FOUND",
+        "details": {
+          "owner": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+          "record": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
+        }
+      },
+      {
+        "code": "CLIENT_MULTIPLE_PUBLIC_SPL_ASSETS",
+        "details": null
+      },
+      {
+        "code": "CLIENT_WITHDRAWAL_ALREADY_SET",
+        "details": null
+      },
+      {
+        "code": "CLIENT_NO_INPUTS",
+        "details": null
+      },
+      {
+        "code": "CLIENT_EDDSA_INPUT_NOT_SOLANA_OWNED",
+        "details": {
+          "index": 2
+        }
+      },
+      {
+        "code": "CLIENT_MISSING_P256_SIGNATURE",
+        "details": null
+      },
+      {
+        "code": "CLIENT_MERGE_INPUT_RAIL_MISMATCH",
+        "details": {
+          "index": 3
+        }
+      },
+      {
+        "code": "CLIENT_MERGE_INPUT_ASSET_MISMATCH",
+        "details": {
+          "index": 4
+        }
+      },
+      {
+        "code": "CLIENT_MERGE_DISABLED",
+        "details": {
+          "owner": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf"
+        }
+      },
+      {
+        "code": "CLIENT_NOTHING_TO_MERGE",
+        "details": {
+          "asset": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+        }
+      },
+      {
+        "code": "CLIENT_DUPLICATE_INPUT_UTXO",
+        "details": {
+          "hash": "0303030303030303030303030303030303030303030303030303030303030303"
+        }
+      },
+      {
+        "code": "CLIENT_MERGE_SIGNING_KEY_MISMATCH",
+        "details": null
+      },
+      {
+        "code": "CLIENT_MERGE_NULLIFIER_KEY_MISMATCH",
+        "details": null
+      },
+      {
+        "code": "CLIENT_MERGE_VIEWING_KEY_MISMATCH",
+        "details": {
+          "owner": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf"
+        }
+      },
+      {
+        "code": "CLIENT_MERGE_TREE_MISMATCH",
+        "details": {
+          "proofTree": "0404040404040404040404040404040404040404040404040404040404040404",
+          "submitTree": "0505050505050505050505050505050505050505050505050505050505050505"
+        }
+      },
+      {
+        "code": "CLIENT_SPLIT_NOT_DIVISIBLE",
+        "details": {
+          "amount": "10",
+          "parts": 3
+        }
+      },
+      {
+        "code": "CLIENT_INPUT_UTXO_UNAVAILABLE",
+        "details": {
+          "hash": "0606060606060606060606060606060606060606060606060606060606060606"
+        }
+      },
+      {
+        "code": "CLIENT_INPUT_UTXO_TREE_MISMATCH",
+        "details": {
+          "hash": "0707070707070707070707070707070707070707070707070707070707070707",
+          "spendTree": "gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5",
+          "utxoTree": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+        }
+      },
+      {
+        "code": "CLIENT_SPLIT_INPUT_HAS_DATA",
+        "details": {
+          "hash": "0808080808080808080808080808080808080808080808080808080808080808"
+        }
+      },
+      {
+        "code": "CLIENT_SPLIT_INPUT_ZONE_MISMATCH",
+        "details": {
+          "hash": "0909090909090909090909090909090909090909090909090909090909090909"
+        }
+      },
+      {
+        "code": "CLIENT_P256_SIGNATURE",
+        "details": {
+          "reason": "invalid signature"
+        }
+      },
+      {
+        "code": "CLIENT_FIELD_TOO_LONG",
+        "details": null
+      },
+      {
+        "code": "CLIENT_PROVER_SERVER",
+        "details": {
+          "reason": "server rejected request"
+        }
+      },
+      {
+        "code": "CLIENT_PROOF_PARSE",
+        "details": {
+          "reason": "invalid proof"
+        }
+      },
+      {
+        "code": "CLIENT_PROVER",
+        "details": {
+          "reason": "process exited"
+        }
+      },
+      {
+        "code": "CLIENT_MISSING_INPUT_MERKLE_PROOF",
+        "details": {
+          "index": 5
+        }
+      },
+      {
+        "code": "CLIENT_INCOMPLETE_INPUT_PROOFS",
+        "details": {
+          "expected": 2,
+          "nullifier": 0,
+          "state": 1
+        }
+      },
+      {
+        "code": "CLIENT_STATE_PROOF_LEAF_MISMATCH",
+        "details": {
+          "index": 6
+        }
+      },
+      {
+        "code": "CLIENT_STATE_PROOF_TREE_MISMATCH",
+        "details": {
+          "index": 7
+        }
+      },
+      {
+        "code": "CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH",
+        "details": {
+          "index": 8
+        }
+      },
+      {
+        "code": "CLIENT_NULLIFIER_PROOF_TREE_MISMATCH",
+        "details": {
+          "index": 9
+        }
+      },
+      {
+        "code": "CLIENT_INPUT_TREE_INDEX_COUNT_MISMATCH",
+        "details": {
+          "actual": 1,
+          "expected": 2
+        }
+      },
+      {
+        "code": "CLIENT_MISSING_OUTPUT",
+        "details": null
+      },
+      {
+        "code": "CLIENT_RPC",
+        "details": {
+          "reason": "rpc failed"
+        }
+      },
+      {
+        "code": "CLIENT_INDEXER",
+        "details": {
+          "reason": "indexer failed"
+        }
+      },
+      {
+        "code": "CLIENT_UNSUPPORTED_RPC_METHOD",
+        "details": {
+          "method": "get_slot"
+        }
+      },
+      {
+        "code": "CLIENT_INDEXER_TIMEOUT",
+        "details": null
+      },
+      {
+        "code": "CLIENT_INDEXER_NOT_CAUGHT_UP",
+        "details": {
+          "attempts": 5,
+          "latest": "99",
+          "target": "100"
+        }
+      },
+      {
+        "code": "CLIENT_POLL_TIMED_OUT",
+        "details": {
+          "attempts": 3,
+          "lastError": "transient"
+        }
+      },
+      {
+        "code": "CLIENT_PROOF_PATH_LENGTH",
+        "details": {
+          "expected": 32,
+          "got": 31
+        }
+      },
+      {
+        "code": "CLIENT_WITNESS_INPUT_COUNT_MISMATCH",
+        "details": {
+          "expected": 2,
+          "got": 1
+        }
+      },
+      {
+        "code": "CLIENT_ACCOUNT_NOT_FOUND",
+        "details": {
+          "address": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
+        }
+      },
+      {
+        "code": "CLIENT_DEPOSIT_SENDER_NOT_SIGNER",
+        "details": {
+          "sender": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+        }
+      }
+    ]
+  },
+  "id": "fx-p09-client-errors-v1",
+  "inputs": {
+    "construction": "Rust-owned variants use deterministic public placeholder values",
+    "wrappedExternalErrors": "Representative constructible variants cover each wrapped category"
+  },
+  "inventoryRow": "P09 fixture follow-up recorded in sdk-libs/ts/reports/packets/P09.json",
+  "owningPacket": "P00",
+  "responsibility": "exhaustive client variant codes, structured fields, and representative wrapped categories",
+  "rustPath": "sdk-libs/client/src/error.rs; sdk-libs/keypair/src/error.rs; sdk-libs/transaction/src/error.rs; program-libs/hasher/src/errors.rs",
+  "rustSymbol": "ClientError; KeypairError; TransactionError; HasherError",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

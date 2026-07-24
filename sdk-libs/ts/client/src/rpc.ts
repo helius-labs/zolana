@@ -1,5 +1,14 @@
-import type { Address, Bytes32, RequestContext, Signature, Transaction } from "@zolana/interface";
+import type {
+  Address,
+  Bytes16,
+  Bytes32,
+  RequestContext,
+  Signature,
+  Transaction,
+} from "@zolana/interface";
+import type { P256PublicKey } from "@zolana/keypair";
 import type { InputUtxoContext } from "@zolana/transaction";
+import type { IndexedShieldedTransaction } from "@zolana/transaction/instructions";
 
 import { ClientError } from "./error.js";
 
@@ -16,6 +25,32 @@ export interface IndexerRpcConfig {
 
 export interface RpcContext {
   readonly blockTime: bigint;
+}
+
+export interface GetByTagsRequest {
+  readonly tags: readonly Bytes32[];
+  readonly cursor?: Uint8Array;
+  readonly limit?: number;
+}
+
+export interface EncryptedUtxoMatch {
+  readonly slot: bigint;
+  readonly txSignature: Signature;
+  readonly outputSlot: IndexedShieldedTransaction["outputSlots"][number];
+  readonly txViewingPk?: P256PublicKey;
+  readonly salt?: Bytes16;
+}
+
+export interface GetEncryptedUtxosByTagsResponse {
+  readonly context: RpcContext;
+  readonly matches: readonly EncryptedUtxoMatch[];
+  readonly nextCursor?: Uint8Array;
+}
+
+export interface GetShieldedTransactionsByTagsResponse {
+  readonly context: RpcContext;
+  readonly transactions: readonly IndexedShieldedTransaction[];
+  readonly nextCursor?: Uint8Array;
 }
 
 export interface MerkleContext {

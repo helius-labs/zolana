@@ -1,6 +1,5 @@
 import type { ZolanaIndexer } from "@zolana/client";
-import type { Bytes16, Bytes32, RequestContext } from "@zolana/interface";
-import { P256PublicKey } from "@zolana/keypair";
+import type { Bytes32, RequestContext } from "@zolana/interface";
 import {
   decryptTransactions,
   type AssetBalance,
@@ -11,7 +10,7 @@ import {
 import type { IndexedShieldedTransaction } from "@zolana/transaction/instructions";
 
 import { WalletError, wrapWalletError } from "./error.js";
-import { base64Bytes, bytesKey, decodeBase58, encodeBase58 } from "./internal.js";
+import { bytesKey } from "./internal.js";
 import type { WalletAuthority } from "./wallet-authority.js";
 
 export interface SyncWalletConfig {
@@ -29,56 +28,6 @@ function positiveInteger(value: number, field: string, maximum: number): number 
     });
   }
   return value;
-}
-
-function hashBytes(value: string): Bytes32 {
-  return decodeBase58(value, 32, "hash") as Bytes32;
-}
-
-function convertTransaction(
-  transaction: Awaited<
-    ReturnType<ZolanaIndexer["getShieldedTransactionsByTags"]>
-  >["transactions"][number],
-): IndexedShieldedTransaction {
-  const txViewingBytes =
-    transaction.txViewingPk === undefined ? undefined : base64Bytes(transaction.txViewingPk);
-  const salt =
-    transaction.salt === undefined ? undefined : (base64Bytes(transaction.salt) as Bytes16);
-  return Object.freeze({
-    slot: transaction.slot,
-    txSignature: transaction.txSignature,
-    ...(txViewingBytes === undefined
-      ? {}
-      : {
-          txViewingPublicKey: P256PublicKey.fromBytes(
-            txViewingBytes as import("@zolana/interface").Bytes33,
-          ),
-        }),
-    ...(salt === undefined ? {} : { salt }),
-    outputSlots: Object.freeze(
-      transaction.outputSlots.map((slot) =>
-        Object.freeze({
-          viewTag: hashBytes(slot.viewTag),
-          outputContext: Object.freeze({
-            hash: hashBytes(slot.outputContext.hash),
-            tree: slot.outputContext.tree,
-            leafIndex: slot.outputContext.leafIndex,
-          }),
-          payload: base64Bytes(slot.payload),
-        }),
-      ),
-    ),
-    messages: Object.freeze(
-      transaction.messages.map((message) =>
-        Object.freeze({
-          viewTag: hashBytes(message.viewTag),
-          data: base64Bytes(message.payload),
-        }),
-      ),
-    ),
-    nullifiers: Object.freeze(transaction.nullifiers.map(hashBytes)),
-    proofless: transaction.proofless,
-  });
 }
 
 export async function syncWallet(
@@ -118,21 +67,24 @@ export async function syncWallet(
     for (let round = 0; round < rounds; round++) {
       const before = collected.size;
       for (let offset = 0; offset < allTags.length; offset += chunkSize) {
-        const chunk = allTags.slice(offset, offset + chunkSize).map((tag) => encodeBase58(tag));
-        let cursor: string | undefined;
+        const chunk = allTags.slice(offset, offset + chunkSize);
+        let cursor: Uint8Array | undefined;
         do {
           const request = {
             tags: chunk,
-            limit: BigInt(pageLimit),
+            limit: pageLimit,
             ...(cursor === undefined ? {} : { cursor }),
-          } as never;
-          const response = await input.indexer.getShieldedTransactionsByTags(request, context);
+          };
+          const response = await input.indexer.getShieldedTransactionsByTags(
+            request,
+            undefined,
+            context,
+          );
           for (const transaction of response.transactions) {
-            const converted = convertTransaction(transaction);
-            const key = `${converted.txSignature}:${converted.outputSlots
+            const key = `${transaction.txSignature}:${transaction.outputSlots
               .map((slot) => bytesKey(slot.outputContext.hash))
               .join(",")}`;
-            collected.set(key, converted);
+            collected.set(key, transaction);
           }
           cursor = response.nextCursor;
         } while (cursor !== undefined);
@@ -141,19 +93,19 @@ export async function syncWallet(
         do {
           const request = {
             tags: chunk,
-            limit: BigInt(pageLimit),
+            limit: pageLimit,
             ...(cursor === undefined ? {} : { cursor }),
-          } as never;
-          const response = await input.indexer.getEncryptedUtxosByTags(request, context);
+          };
+          const response = await input.indexer.getEncryptedUtxosByTags(request, undefined, context);
           for (const match of response.matches) {
-            const synthetic = convertTransaction({
+            const synthetic: IndexedShieldedTransaction = Object.freeze({
               slot: match.slot,
               txSignature: match.txSignature,
-              ...(match.txViewingPk === undefined ? {} : { txViewingPk: match.txViewingPk }),
+              ...(match.txViewingPk === undefined ? {} : { txViewingPublicKey: match.txViewingPk }),
               ...(match.salt === undefined ? {} : { salt: match.salt }),
-              outputSlots: [match.outputSlot],
-              messages: [],
-              nullifiers: [],
+              outputSlots: Object.freeze([match.outputSlot]),
+              messages: Object.freeze([]),
+              nullifiers: Object.freeze([]),
               proofless: true,
             });
             const output = synthetic.outputSlots[0];

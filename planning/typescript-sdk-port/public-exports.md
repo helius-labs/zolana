@@ -1037,6 +1037,28 @@ export interface GetNonInclusionProofsResponse {
   readonly context: RpcContext;
   readonly proofs: readonly NonInclusionProof[];
 }
+export interface GetByTagsRequest {
+  readonly tags: readonly Bytes32[];
+  readonly cursor?: Uint8Array;
+  readonly limit?: number;
+}
+export interface EncryptedUtxoMatch {
+  readonly slot: bigint;
+  readonly txSignature: Signature;
+  readonly outputSlot: IndexedShieldedTransaction["outputSlots"][number];
+  readonly txViewingPk?: P256PublicKey;
+  readonly salt?: Bytes16;
+}
+export interface GetEncryptedUtxosByTagsResponse {
+  readonly context: RpcContext;
+  readonly matches: readonly EncryptedUtxoMatch[];
+  readonly nextCursor?: Uint8Array;
+}
+export interface GetShieldedTransactionsByTagsResponse {
+  readonly context: RpcContext;
+  readonly transactions: readonly IndexedShieldedTransaction[];
+  readonly nextCursor?: Uint8Array;
+}
 export interface SpendProof {
   readonly state: MerkleProof;
   readonly nullifier: NonInclusionProof;
@@ -1082,8 +1104,8 @@ export class SolanaRpc implements Rpc {
 }
 export class ZolanaIndexer {
   constructor(api: ZolanaApi);
-  getEncryptedUtxosByTags(request: GetRingsByTagsRequest, context?: RequestContext): Promise<GetEncryptedUtxosByTagsResponse>;
-  getShieldedTransactionsByTags(request: GetRingsByTagsRequest, context?: RequestContext): Promise<GetShieldedTransactionsByTagsResponse>;
+  getEncryptedUtxosByTags(request: GetByTagsRequest, config?: IndexerRpcConfig, context?: RequestContext): Promise<GetEncryptedUtxosByTagsResponse>;
+  getShieldedTransactionsByTags(request: GetByTagsRequest, config?: IndexerRpcConfig, context?: RequestContext): Promise<GetShieldedTransactionsByTagsResponse>;
   getMerkleProofs(treeAccount: Address, leaves: readonly Bytes32[], config?: IndexerRpcConfig, context?: RequestContext): Promise<GetMerkleProofsResponse>;
   getNonInclusionProofs(treeAccount: Address, leaves: readonly Bytes32[], config?: IndexerRpcConfig, context?: RequestContext): Promise<GetNonInclusionProofsResponse>;
 }

@@ -902,6 +902,7 @@ fn rpc_vectors() -> Result<Value, Box<dyn std::error::Error>> {
         .collect::<Vec<_>>();
     let merkle = &proofs[0].state;
     let nullifier = &proofs[0].nullifier;
+    let tx_viewing_pk = ViewingKey::from_bytes(&[1; 32])?.pubkey();
     Ok(json!({
         "inputs": {
             "blockhashBytes": hex(blockhash.as_ref()),
@@ -925,7 +926,14 @@ fn rpc_vectors() -> Result<Value, Box<dyn std::error::Error>> {
                 "merkle": merkle_json(merkle),
                 "nonInclusion": non_inclusion_json(nullifier),
                 "orderedLeaves": [hex(&merkle.leaf), hex(&nullifier.leaf)],
-                "reorderedLeaves": [hex(&nullifier.leaf), hex(&merkle.leaf)]
+                "reorderedLeaves": [hex(&nullifier.leaf), hex(&merkle.leaf)],
+                "tagQueries": {
+                    "txViewingPkBytes": hex(tx_viewing_pk.as_bytes()),
+                    "saltBytes": hex(&[9; 16]),
+                    "outputPayloadBytes": hex(&[4, 5]),
+                    "messagePayloadBytes": hex(&[8]),
+                    "nextCursorBytes": hex(&[6, 7])
+                }
             },
             "retry": {
                 "delaysMs": delays,
@@ -933,8 +941,8 @@ fn rpc_vectors() -> Result<Value, Box<dyn std::error::Error>> {
                 "lagError": error(&lag)
             },
             "sourceLimitations": [{
-                "symbol":"indexer::{convert_merkle_proof,convert_non_inclusion_proof}; wait_for_indexed_transaction_async; build_unsigned_solana_transaction",
-                "reason":"These functions are private. The oracle invokes the same frozen public response types, Transact builder, Solana Message serializer, tag resolver, error variants, and retry schedule. Wall-clock and HTTP transport timing are represented as deterministic envelopes and outcomes."
+                "symbol":"indexer::{convert_encrypted_utxo_match,convert_shielded_transaction,convert_merkle_proof,convert_non_inclusion_proof}; wait_for_indexed_transaction_async; build_unsigned_solana_transaction",
+                "reason":"These functions are private. The oracle invokes the same current Rust key and response value types, Transact builder, Solana Message serializer, tag resolver, error variants, and retry schedule. Wall-clock and HTTP transport timing are represented as deterministic envelopes and outcomes."
             }]
         }
     }))

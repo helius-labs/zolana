@@ -9,6 +9,10 @@
       "sha256": "9f4057f423bf7d24170a8ff734b961a637953fd3888343e02490bfde655141dc"
     },
     {
+      "path": "client/errors-v1.json",
+      "sha256": "49acb09fb6205e33efa8209263e6f83698a48ec72ca59bf5d5ef784156874d1d"
+    },
+    {
       "path": "client/proof-input-v1.json",
       "sha256": "622d0cf1efabb5438ba9d328ff72142505cb7eaa9f139797448d31c45cff6b6e"
     },
@@ -26,7 +30,7 @@
     },
     {
       "path": "client/rpc-indexer-v1.json",
-      "sha256": "7039237c6ced30894445891f5374561e2cce49ffb6cca4b5789f1736ae5e9def"
+      "sha256": "998eeb1e4ff49dccabdb543a7983e57a2a1e7fdfae00c35abddea036fe9513ab"
     },
     {
       "path": "indexer-api/schema-v1.json",

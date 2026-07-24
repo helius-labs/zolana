@@ -1,32 +1,33 @@
 import { ZolanaApi } from "@zolana/api";
-import { hash, hashBytes } from "@zolana/indexer-api";
+import { base64String, hash, hashBytes, limit } from "@zolana/indexer-api";
 import type {
-  GetEncryptedUtxosByTagsResponse,
-  GetRingsByTagsRequest,
-  GetShieldedTransactionsByTagsResponse,
+  EncryptedUtxoMatch as WireEncryptedUtxoMatch,
+  GetEncryptedUtxosByTagsResponse as WireGetEncryptedUtxosByTagsResponse,
+  GetShieldedTransactionsByTagsResponse as WireGetShieldedTransactionsByTagsResponse,
+  IndexedShieldedTransaction as WireShieldedTransaction,
   MerkleProof as WireMerkleProof,
   NonInclusionProof as WireNonInclusionProof,
+  RingsOutputSlot as WireOutputSlot,
 } from "@zolana/indexer-api";
-import type { Address, Bytes32, RequestContext } from "@zolana/interface";
+import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "@zolana/interface";
+import { P256PublicKey } from "@zolana/keypair";
+import type { IndexedShieldedTransaction } from "@zolana/transaction/instructions";
 
-import { ClientError } from "./error.js";
-import { sleep } from "./internal.js";
+import { ClientError, isClientError } from "./error.js";
+import { decodeBase64, sleep } from "./internal.js";
 import {
   DEFAULT_INDEXER_POLL,
+  type EncryptedUtxoMatch,
+  type GetByTagsRequest,
+  type GetEncryptedUtxosByTagsResponse,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
-  type IndexerPollConfig,
+  type GetShieldedTransactionsByTagsResponse,
   type IndexerRpcConfig,
   type MerkleProof,
   type NonInclusionProof,
   validatePollConfig,
 } from "./rpc.js";
-
-const DEFAULT_PROOF_POLL = Object.freeze({
-  numRetries: 120,
-  delayMs: 500n,
-  maxDelayMs: 500n,
-});
 
 export class ZolanaIndexer {
   readonly #api: ZolanaApi;
@@ -41,17 +42,51 @@ export class ZolanaIndexer {
   }
 
   getEncryptedUtxosByTags(
-    request: GetRingsByTagsRequest,
+    request: GetByTagsRequest,
+    config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<GetEncryptedUtxosByTagsResponse> {
-    return this.#api.getEncryptedUtxosByTags(request, context);
+    const owned = copyTagRequest(request);
+    return pollIndexer(config, context, async () => {
+      const method = "getEncryptedUtxosByTags";
+      try {
+        const response = await this.#api.getEncryptedUtxosByTags(
+          {
+            tags: owned.tags.map((tag) => hash(tag)),
+            ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
+            ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+          },
+          context,
+        );
+        return convertEncryptedUtxosResponse(response, method);
+      } catch (cause) {
+        throw wrapIndexer(cause, method);
+      }
+    });
   }
 
   getShieldedTransactionsByTags(
-    request: GetRingsByTagsRequest,
+    request: GetByTagsRequest,
+    config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByTagsResponse> {
-    return this.#api.getShieldedTransactionsByTags(request, context);
+    const owned = copyTagRequest(request);
+    return pollIndexer(config, context, async () => {
+      const method = "getShieldedTransactionsByTags";
+      try {
+        const response = await this.#api.getShieldedTransactionsByTags(
+          {
+            tags: owned.tags.map((tag) => hash(tag)),
+            ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
+            ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+          },
+          context,
+        );
+        return convertShieldedTransactionsResponse(response, method);
+      } catch (cause) {
+        throw wrapIndexer(cause, method);
+      }
+    });
   }
 
   getMerkleProofs(
@@ -61,26 +96,21 @@ export class ZolanaIndexer {
     context?: RequestContext,
   ): Promise<GetMerkleProofsResponse> {
     const requested = copyLeaves(leaves);
-    return pollIndexer(
-      config,
-      context,
-      async () => {
-        try {
-          const response = await this.#api.getMerkleProofs(
-            { treeAccount, leaves: requested.map((leaf) => hash(leaf)) },
-            context,
-          );
-          return Object.freeze({
-            context: Object.freeze({ blockTime: response.context.blockTime }),
-            proofs: Object.freeze(response.proofs.map(convertMerkleProof)),
-          });
-        } catch (cause) {
-          throw wrapIndexer(cause, "getMerkleProofs");
-        }
-      },
-      (response) => response.proofs.length >= requested.length,
-      DEFAULT_PROOF_POLL,
-    );
+    return pollIndexer(config, context, async () => {
+      const method = "getMerkleProofs";
+      try {
+        const response = await this.#api.getMerkleProofs(
+          { treeAccount, leaves: requested.map((leaf) => hash(leaf)) },
+          context,
+        );
+        return Object.freeze({
+          context: Object.freeze({ blockTime: response.context.blockTime }),
+          proofs: Object.freeze(response.proofs.map(convertMerkleProof)),
+        });
+      } catch (cause) {
+        throw wrapIndexer(cause, method);
+      }
+    });
   }
 
   getNonInclusionProofs(
@@ -90,42 +120,65 @@ export class ZolanaIndexer {
     context?: RequestContext,
   ): Promise<GetNonInclusionProofsResponse> {
     const requested = copyLeaves(leaves);
-    return pollIndexer(
-      config,
-      context,
-      async () => {
-        try {
-          const response = await this.#api.getNonInclusionProofs(
-            { treeAccount, leaves: requested.map((leaf) => hash(leaf)) },
-            context,
-          );
-          return Object.freeze({
-            context: Object.freeze({ blockTime: response.context.blockTime }),
-            proofs: Object.freeze(response.proofs.map(convertNonInclusionProof)),
-          });
-        } catch (cause) {
-          throw wrapIndexer(cause, "getNonInclusionProofs");
-        }
-      },
-      (response) => response.proofs.length >= requested.length,
-      DEFAULT_PROOF_POLL,
-    );
+    return pollIndexer(config, context, async () => {
+      const method = "getNonInclusionProofs";
+      try {
+        const response = await this.#api.getNonInclusionProofs(
+          { treeAccount, leaves: requested.map((leaf) => hash(leaf)) },
+          context,
+        );
+        return Object.freeze({
+          context: Object.freeze({ blockTime: response.context.blockTime }),
+          proofs: Object.freeze(response.proofs.map(convertNonInclusionProof)),
+        });
+      } catch (cause) {
+        throw wrapIndexer(cause, method);
+      }
+    });
   }
 }
 
+function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {
+  if (request.cursor !== undefined && !(request.cursor instanceof Uint8Array)) {
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "cursor" } });
+  }
+  return Object.freeze({
+    tags: copyFixedBytes(request.tags, 32, "tags") as readonly Bytes32[],
+    ...(request.cursor === undefined ? {} : { cursor: new Uint8Array(request.cursor) }),
+    ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
+  });
+}
+
+function checkedPageLimit(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 1000) {
+    throw new ClientError("CLIENT_INVALID_INTEGER", {
+      details: { field: "limit", value: String(value) },
+    });
+  }
+  return value;
+}
+
 function copyLeaves(leaves: readonly Bytes32[]): readonly Bytes32[] {
+  return copyFixedBytes(leaves, 32, "leaves") as readonly Bytes32[];
+}
+
+function copyFixedBytes(
+  values: readonly Uint8Array[],
+  expected: number,
+  field: string,
+): readonly Uint8Array[] {
   return Object.freeze(
-    leaves.map((leaf, index) => {
-      if (!(leaf instanceof Uint8Array) || leaf.length !== 32) {
+    values.map((value, index) => {
+      if (!(value instanceof Uint8Array) || value.length !== expected) {
         throw new ClientError("CLIENT_INVALID_LENGTH", {
           details: {
-            field: `leaves[${String(index)}]`,
-            expected: 32,
-            actual: leaf instanceof Uint8Array ? leaf.length : -1,
+            field: `${field}[${String(index)}]`,
+            expected,
+            actual: value instanceof Uint8Array ? value.length : -1,
           },
         });
       }
-      return new Uint8Array(leaf) as Bytes32;
+      return new Uint8Array(value);
     }),
   );
 }
@@ -161,12 +214,118 @@ function copyHash(value: Parameters<typeof hashBytes>[0]): Bytes32 {
   return new Uint8Array(hashBytes(value)) as Bytes32;
 }
 
+function convertEncryptedUtxosResponse(
+  response: WireGetEncryptedUtxosByTagsResponse,
+  method: string,
+): GetEncryptedUtxosByTagsResponse {
+  return Object.freeze({
+    context: Object.freeze({ blockTime: response.context.blockTime }),
+    matches: Object.freeze(
+      response.matches.map((item, index) =>
+        convertEncryptedUtxoMatch(item, method, `$.matches[${String(index)}]`),
+      ),
+    ),
+    ...(response.nextCursor === undefined
+      ? {}
+      : { nextCursor: decodeBase64(response.nextCursor, "next_cursor") }),
+  });
+}
+
+function convertEncryptedUtxoMatch(
+  item: WireEncryptedUtxoMatch,
+  method: string,
+  path: string,
+): EncryptedUtxoMatch {
+  return Object.freeze({
+    slot: item.slot,
+    txSignature: item.txSignature,
+    outputSlot: convertOutputSlot(item.outputSlot),
+    ...(item.txViewingPk === undefined
+      ? {}
+      : { txViewingPk: decodeP256(item.txViewingPk, method, `${path}.tx_viewing_pk`) }),
+    ...(item.salt === undefined ? {} : { salt: decodeSalt(item.salt, method, `${path}.salt`) }),
+  });
+}
+
+function convertShieldedTransactionsResponse(
+  response: WireGetShieldedTransactionsByTagsResponse,
+  method: string,
+): GetShieldedTransactionsByTagsResponse {
+  return Object.freeze({
+    context: Object.freeze({ blockTime: response.context.blockTime }),
+    transactions: Object.freeze(
+      response.transactions.map((item, index) =>
+        convertShieldedTransaction(item, method, `$.transactions[${String(index)}]`),
+      ),
+    ),
+    ...(response.nextCursor === undefined
+      ? {}
+      : { nextCursor: decodeBase64(response.nextCursor, "next_cursor") }),
+  });
+}
+
+function convertShieldedTransaction(
+  item: WireShieldedTransaction,
+  method: string,
+  path: string,
+): IndexedShieldedTransaction {
+  return Object.freeze({
+    slot: item.slot,
+    txSignature: item.txSignature,
+    ...(item.txViewingPk === undefined
+      ? {}
+      : {
+          txViewingPublicKey: decodeP256(item.txViewingPk, method, `${path}.tx_viewing_pk`),
+        }),
+    ...(item.salt === undefined ? {} : { salt: decodeSalt(item.salt, method, `${path}.salt`) }),
+    outputSlots: Object.freeze(item.outputSlots.map(convertOutputSlot)),
+    messages: Object.freeze(
+      item.messages.map((message) =>
+        Object.freeze({
+          viewTag: copyHash(message.viewTag),
+          data: decodeBase64(message.payload, "message.payload"),
+        }),
+      ),
+    ),
+    nullifiers: Object.freeze(item.nullifiers.map(copyHash)),
+    proofless: item.proofless,
+  });
+}
+
+function convertOutputSlot(
+  slot: WireOutputSlot,
+): IndexedShieldedTransaction["outputSlots"][number] {
+  return Object.freeze({
+    viewTag: copyHash(slot.viewTag),
+    outputContext: Object.freeze({
+      hash: copyHash(slot.outputContext.hash),
+      tree: slot.outputContext.tree,
+      leafIndex: slot.outputContext.leafIndex,
+    }),
+    payload: decodeBase64(slot.payload, "output_slot.payload"),
+  });
+}
+
+function decodeP256(value: string, method: string, path: string): P256PublicKey {
+  const bytes = decodeBase64(value, path);
+  if (bytes.length !== 33) throw invalidResponse(method, path, 33, bytes.length);
+  try {
+    return P256PublicKey.fromBytes(bytes as Bytes33);
+  } catch {
+    throw invalidResponse(method, path);
+  }
+}
+
+function decodeSalt(value: string, method: string, path: string): Bytes16 {
+  const bytes = decodeBase64(value, path);
+  if (bytes.length !== 16) throw invalidResponse(method, path, 16, bytes.length);
+  return bytes as Bytes16;
+}
+
 async function pollIndexer<T extends Readonly<{ context: Readonly<{ blockTime: bigint }> }>>(
   config: IndexerRpcConfig | undefined,
   context: RequestContext | undefined,
   request: () => Promise<T>,
-  complete: (response: T) => boolean,
-  defaultPoll: IndexerPollConfig = DEFAULT_INDEXER_POLL,
 ): Promise<T> {
   const rawConfig: unknown = config;
   if (
@@ -180,57 +339,88 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ blockTime: b
     });
   }
   const waitForIndexer = config?.waitForIndexer ?? false;
-  const poll = validatePollConfig(config?.poll ?? defaultPoll);
+  if (!waitForIndexer) return request();
+  const poll = validatePollConfig(config?.poll ?? DEFAULT_INDEXER_POLL);
   const target = BigInt(Math.floor(Date.now() / 1000));
   let latest = -(1n << 63n);
-  let lastError: unknown;
   let delay = poll.delayMs;
   for (let attempt = 0; attempt <= poll.numRetries; attempt++) {
     if (attempt > 0) {
       await sleep(delay, context);
       delay = delay * 2n < poll.maxDelayMs ? delay * 2n : poll.maxDelayMs;
     }
-    try {
-      const response = await request();
-      latest = response.context.blockTime;
-      if (waitForIndexer ? latest >= target : complete(response)) return response;
-    } catch (error) {
-      if (waitForIndexer) throw error;
-      lastError = error;
-    }
+    const response = await request();
+    latest = response.context.blockTime;
+    if (latest >= target) return response;
   }
-  if (waitForIndexer) {
-    throw new ClientError("CLIENT_INDEXER_NOT_CAUGHT_UP", {
-      details: {
-        target: target.toString(),
-        latest: latest.toString(),
-        attempts: poll.numRetries + 1,
-      },
-      cause: safeCause(lastError),
-    });
-  }
-  throw new ClientError("CLIENT_INDEXER_TIMEOUT", {
-    details: { attempts: poll.numRetries + 1 },
-    cause: safeCause(lastError),
+  throw new ClientError("CLIENT_INDEXER_NOT_CAUGHT_UP", {
+    details: {
+      target: target.toString(),
+      latest: latest.toString(),
+      attempts: poll.numRetries + 1,
+    },
   });
 }
 
 function wrapIndexer(cause: unknown, method: string): ClientError {
-  if (cause instanceof ClientError) return cause;
+  if (isClientError(cause)) return cause;
+  const code = externalCode(cause);
+  if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });
+  if (code === "API_TIMEOUT") {
+    return new ClientError("CLIENT_TIMEOUT", {
+      details: { method, retryable: true },
+      cause,
+    });
+  }
+  if (code === "API_REQUEST") {
+    return new ClientError("CLIENT_REQUEST", {
+      details: { method, retryable: true },
+      cause,
+    });
+  }
+  if (code === "API_INVALID_RESULT") {
+    return new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+      details: { method, ...safePath(cause) },
+      cause,
+    });
+  }
   return new ClientError("CLIENT_INDEXER", {
     details: { method },
-    cause: safeCause(cause),
+    cause,
   });
 }
 
-function safeCause(cause: unknown): unknown {
+function externalCode(cause: unknown): string | undefined {
   if (
     typeof cause === "object" &&
     cause !== null &&
     "code" in cause &&
     typeof cause.code === "string"
   ) {
-    return Object.freeze({ code: cause.code });
+    return cause.code;
   }
   return undefined;
+}
+
+function safePath(cause: unknown): Readonly<{ path?: string }> {
+  if (typeof cause !== "object" || cause === null || !("details" in cause)) return {};
+  const details = cause.details;
+  if (typeof details !== "object" || details === null || !("path" in details)) return {};
+  return typeof details.path === "string" ? { path: details.path } : {};
+}
+
+function invalidResponse(
+  method: string,
+  path: string,
+  expected?: number,
+  actual?: number,
+): ClientError {
+  return new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+    details: {
+      method,
+      path,
+      ...(expected === undefined ? {} : { expected }),
+      ...(actual === undefined ? {} : { actual }),
+    },
+  });
 }

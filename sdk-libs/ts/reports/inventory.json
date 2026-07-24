@@ -49,13 +49,13 @@
     },
     {
       "disposition": "port",
-      "fixtureResponsibility": "Rust-generated `fixtures/client/error.json` with logical input, exact bytes/value, and error mutations.",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/errors-v1.json` exhaustively maps all 58 current variants and structured fields; representative constructible wrapped errors cover each external category.",
       "marker": "active",
       "packet": "P09",
       "path": "sdk-libs/client/src/error.rs",
       "responsibility": "Implements ClientError; public only where `public-exports.md` declares it.",
       "target": "`@zolana/client` · `src/error.ts`",
-      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+      "testResponsibility": "Unit: exact fixture taxonomy/details, conversion boundaries, malformed causes, immutability, and secret exclusion. Integration: exhaustive Rust match fails to compile when the source enum drifts."
     },
     {
       "disposition": "port",

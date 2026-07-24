@@ -293,7 +293,7 @@ function validateMergeMaterial(prepared: PreparedMerge, material: MergeMaterialI
     throw new ClientError("CLIENT_MERGE_SIGNING_KEY_MISMATCH");
   }
   if (!equal(prepared.userViewingPublicKey.toBytes(), material.viewingPublicKey.toBytes())) {
-    throw new ClientError("CLIENT_MERGE_VIEWING_KEY_MISMATCH");
+    throw new ClientError("CLIENT_MERGE_MATERIAL_VIEWING_KEY_MISMATCH");
   }
   const expectedNullifierPublicKey = material.nullifierKey.publicKey();
   prepared.inputs.forEach((input) => {

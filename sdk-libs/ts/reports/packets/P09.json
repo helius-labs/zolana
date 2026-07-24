@@ -1,10 +1,11 @@
 {
   "apiDiff": {
     "added": [
-      "@zolana/client root: ClientError, IndexerPollConfig, IndexerRpcConfig, RpcContext, MerkleContext, MerkleProof, NonInclusionProof, GetMerkleProofsResponse, GetNonInclusionProofsResponse, SpendProof, Rpc, SolanaRpc, ZolanaIndexer, SignedPrivateTransaction, ZolanaClient",
+      "@zolana/client root: ClientError, ClientErrorCode, CanonicalClientErrorCode, ClientErrorDetails, ClientErrorDetailsMap, ClientErrorCause, HasherErrorCode, CANONICAL_CLIENT_ERROR_CODES, IndexerPollConfig, IndexerRpcConfig, RpcContext, MerkleContext, MerkleProof, NonInclusionProof, GetMerkleProofsResponse, GetNonInclusionProofsResponse, SpendProof, Rpc, SolanaRpc, ZolanaIndexer, SignedPrivateTransaction, ZolanaClient",
       "@zolana/client/prover: Shape, Field, SpendProof, TransferInput, TransferOutput, TransferInputs, TransferP256Inputs, ProverInputs, AssembledTransfer, Proof, CompressedProof, ProverClient, assemble, intoProver, compressProof, canonicalShape, resolveShape"
     ],
     "changed": [
+      "ClientError: closed code union with code-specific immutable details and sanitized structured causes",
       "ZolanaClient: proveMerge({ prepared, material, indexer? }, context?) -> Promise<{ data, outputHash }>",
       "ZolanaClient: finishMergeSubmissionUnsigned({ proved, feePayer, userRecord, recentBlockhash }) -> Transaction"
     ],
@@ -110,6 +111,11 @@
   },
   "fixtureCoverage": [
     {
+      "id": "fx-p09-client-errors-v1",
+      "tests": ["client/test/error.test.ts"],
+      "assertions": "all 58 current Rust ClientError variants, exact structured fields, wrapped keypair/transaction/hasher categories, immutable details and causes, malformed-cause sanitization, and secret exclusion"
+    },
+    {
       "id": "fx-p00-client-proof-input-v1",
       "tests": ["client/test/vectors/client-vectors.test.ts"],
       "assertions": "dummy nullifier and dummy marker"
@@ -145,7 +151,7 @@
         "client/test/solana-rpc.test.ts",
         "client/test/vectors/unsigned-message.test.ts"
       ],
-      "assertions": "exact Merkle/non-inclusion fields, ordered/reordered leaves, capped delays, lag error, direct/inner tags, missing transact, both unsigned legacy messages, and wrong-signature timeout"
+      "assertions": "exact owned tag-query keys, salts, payloads, cursors, Merkle/non-inclusion fields, ordered/reordered leaves, capped delays, lag error, direct/inner tags, missing transact, both unsigned legacy messages, and wrong-signature timeout"
     },
     {
       "id": "fx-p00-api-prover-request-v1",
@@ -159,6 +165,7 @@
     }
   ],
   "fixtureIds": [
+    "fx-p09-client-errors-v1",
     "fx-p00-client-proof-input-v1",
     "fx-p00-client-proof-compression-v1",
     "fx-p00-client-proof-validity-v1",
@@ -216,6 +223,11 @@
     "sdk-libs/client/tests/zone_transfer/world.rs"
   ],
   "ownedChangedPaths": [
+    "planning/typescript-sdk-port/inventory-client.md",
+    "sdk-libs/ts/client/test/error.test.ts",
+    "sdk-libs/ts/fixtures/client/errors-v1.json",
+    "sdk-libs/ts/fixtures/manifest.json",
+    "sdk-libs/ts/reports/inventory.json",
     "sdk-libs/ts/client/src/client.ts",
     "sdk-libs/ts/client/src/error.ts",
     "sdk-libs/ts/client/src/index.ts",
@@ -241,11 +253,26 @@
     "sdk-libs/ts/client/test/vectors/prover-inputs.test.ts",
     "sdk-libs/ts/client/test/vectors/prover-request.test.ts",
     "sdk-libs/ts/client/test/vectors/unsigned-message.test.ts",
-    "sdk-libs/ts/reports/packets/P09.json"
+    "sdk-libs/ts/reports/packets/P09.json",
+    "xtask/src/bin/ts-fixtures.rs",
+    "xtask/src/ts_fixtures_client.rs"
   ],
   "packet": "P09",
+  "parityDispositions": [
+    {
+      "rustSymbol": "ZolanaIndexer::get_merkle_proofs default proof-count polling",
+      "status": "NOT_APPLICABLE",
+      "reason": "JavaScript mirrors AsyncZolanaIndexer. The default proof-count loop exists only on BlockingZolanaIndexer; all asynchronous methods make one request unless waitForIndexer is true.",
+      "evidence": [
+        "sdk-libs/client/src/indexer.rs",
+        "sdk-libs/ts/client/test/indexer-client.test.ts",
+        "sdk-libs/ts/client/test/indexer-parity.test.ts"
+      ]
+    }
+  ],
   "qualityPass": {
     "edits": [
+      "closed the ClientError code/details contract over all 58 Rust variants and every client-owned adaptation, preserving wrapped error categories without retaining secret-bearing causes",
       "centralized checked fixed-byte, field, base58/base64, Poseidon, timeout, abort, and retry helpers",
       "kept wire indexer objects separate and copied every semantic proof byte",
       "used a single witness assembly pass for prover public inputs and instruction fields",

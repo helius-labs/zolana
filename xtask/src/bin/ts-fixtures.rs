@@ -27,7 +27,7 @@ use zolana_transaction::{
 const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
-const EXPECTED_FIXTURE_COUNT: usize = 56;
+const EXPECTED_FIXTURE_COUNT: usize = 57;
 const FROZEN_SOURCE_PATHS: [&str; 15] = [
     "program-libs/hasher/src",
     "program-libs/indexed-array/src",
@@ -1817,8 +1817,8 @@ fn client_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
             "client/rpc-indexer-v1.json",
             "fx-p00-client-rpc-indexer-v1",
             "sdk-libs/client/src/client.rs; sdk-libs/client/src/solana_rpc.rs; sdk-libs/client/src/indexer.rs",
-            "build_unsigned_solana_transaction; transact_output_view_tags_from_instruction_groups; IndexerPollConfig::backoff",
-            "legacy unsigned messages, proof response values, confirmation tags, retries, and errors",
+            "build_unsigned_solana_transaction; transact_output_view_tags_from_instruction_groups; indexer::{convert_encrypted_utxo_match,convert_shielded_transaction,convert_merkle_proof,convert_non_inclusion_proof}; IndexerPollConfig::backoff",
+            "legacy unsigned messages, owned indexer response values, confirmation tags, retries, and errors",
         ),
     ];
     domains

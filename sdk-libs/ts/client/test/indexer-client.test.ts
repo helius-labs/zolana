@@ -181,8 +181,7 @@ describe("ZolanaIndexer and ZolanaClient", () => {
     expect(calls).toHaveLength(Number(rpcFixture.expected.retry.attempts));
   });
 
-  it("strictly converts Merkle proof bytes and polls until every proof is available", async () => {
-    vi.useFakeTimers();
+  it("makes one default proof request without blocking-only count polling", async () => {
     let calls = 0;
     const api = new ZolanaApi({
       url: "https://indexer.example.test",
@@ -191,26 +190,16 @@ describe("ZolanaIndexer and ZolanaClient", () => {
         return Promise.resolve(
           envelope({
             context: { block_time: 123 },
-            proofs: calls === 1 ? [] : [merkle(HASH, [HASH])],
+            proofs: [],
           }),
         );
       }),
     });
-    const pending = new ZolanaIndexer(api).getMerkleProofs(TREE, [ZERO]);
-    await vi.advanceTimersByTimeAsync(500);
-    const response = await pending;
+    const response = await new ZolanaIndexer(api).getMerkleProofs(TREE, [ZERO]);
 
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
     expect(response.context.blockTime).toBe(123n);
-    expect(response.proofs[0]).toEqual({
-      leaf: ZERO,
-      merkleContext: { treeType: 1, tree: TREE },
-      path: [ZERO],
-      leafIndex: 7n,
-      root: ZERO,
-      rootSeq: 8n,
-      rootIndex: 9,
-    });
+    expect(response.proofs).toEqual([]);
   });
 
   it("pairs state and nullifier proofs in input order and rejects reordered leaves", async () => {

@@ -21,6 +21,69 @@ export type HasherErrorCode =
   | "Sha256FeatureNotEnabled"
   | "KeccakFeatureNotEnabled";
 
+export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
+  "CLIENT_KEYPAIR",
+  "CLIENT_TRANSACTION",
+  "CLIENT_HASHER",
+  "CLIENT_UNSUPPORTED_SHAPE",
+  "CLIENT_TOO_MANY_INPUTS",
+  "CLIENT_TOO_MANY_OUTPUTS",
+  "CLIENT_INSUFFICIENT_BALANCE",
+  "CLIENT_SELECTED_BALANCE_OVERFLOW",
+  "CLIENT_UNSIGNED_INPUT_UNAVAILABLE",
+  "CLIENT_FEE_PAYER_MISMATCH",
+  "CLIENT_SOLANA_TRANSACTION_SIGNING",
+  "CLIENT_AMBIGUOUS_TREE",
+  "CLIENT_TREE_MISMATCH",
+  "CLIENT_MISSING_SPL_TOKEN_ACCOUNT",
+  "CLIENT_ADDRESS_RESOLUTION",
+  "CLIENT_USER_REGISTRY_RECORD_NOT_FOUND",
+  "CLIENT_MULTIPLE_PUBLIC_SPL_ASSETS",
+  "CLIENT_WITHDRAWAL_ALREADY_SET",
+  "CLIENT_NO_INPUTS",
+  "CLIENT_EDDSA_INPUT_NOT_SOLANA_OWNED",
+  "CLIENT_MISSING_P256_SIGNATURE",
+  "CLIENT_MERGE_INPUT_RAIL_MISMATCH",
+  "CLIENT_MERGE_INPUT_ASSET_MISMATCH",
+  "CLIENT_MERGE_DISABLED",
+  "CLIENT_NOTHING_TO_MERGE",
+  "CLIENT_DUPLICATE_INPUT_UTXO",
+  "CLIENT_MERGE_SIGNING_KEY_MISMATCH",
+  "CLIENT_MERGE_NULLIFIER_KEY_MISMATCH",
+  "CLIENT_MERGE_VIEWING_KEY_MISMATCH",
+  "CLIENT_MERGE_TREE_MISMATCH",
+  "CLIENT_SPLIT_NOT_DIVISIBLE",
+  "CLIENT_INPUT_UTXO_UNAVAILABLE",
+  "CLIENT_INPUT_UTXO_TREE_MISMATCH",
+  "CLIENT_SPLIT_INPUT_HAS_DATA",
+  "CLIENT_SPLIT_INPUT_ZONE_MISMATCH",
+  "CLIENT_P256_SIGNATURE",
+  "CLIENT_FIELD_TOO_LONG",
+  "CLIENT_PROVER_SERVER",
+  "CLIENT_PROOF_PARSE",
+  "CLIENT_PROVER",
+  "CLIENT_MISSING_INPUT_MERKLE_PROOF",
+  "CLIENT_INCOMPLETE_INPUT_PROOFS",
+  "CLIENT_STATE_PROOF_LEAF_MISMATCH",
+  "CLIENT_STATE_PROOF_TREE_MISMATCH",
+  "CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH",
+  "CLIENT_NULLIFIER_PROOF_TREE_MISMATCH",
+  "CLIENT_INPUT_TREE_INDEX_COUNT_MISMATCH",
+  "CLIENT_MISSING_OUTPUT",
+  "CLIENT_RPC",
+  "CLIENT_INDEXER",
+  "CLIENT_UNSUPPORTED_RPC_METHOD",
+  "CLIENT_INDEXER_TIMEOUT",
+  "CLIENT_INDEXER_NOT_CAUGHT_UP",
+  "CLIENT_POLL_TIMED_OUT",
+  "CLIENT_PROOF_PATH_LENGTH",
+  "CLIENT_WITNESS_INPUT_COUNT_MISMATCH",
+  "CLIENT_ACCOUNT_NOT_FOUND",
+  "CLIENT_DEPOSIT_SENDER_NOT_SIGNER",
+] as const);
+
+export type CanonicalClientErrorCode = (typeof CANONICAL_CLIENT_ERROR_CODES)[number];
+
 export interface ClientErrorDetailsMap {
   readonly CLIENT_KEYPAIR: Readonly<{ code: KeypairErrorCode }>;
   readonly CLIENT_TRANSACTION: Readonly<{ code: TransactionErrorCode }>;
@@ -62,11 +125,13 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_SPLIT_INPUT_HAS_DATA: HashDetails;
   readonly CLIENT_SPLIT_INPUT_ZONE_MISMATCH: HashDetails;
   readonly CLIENT_P256_SIGNATURE: Readonly<{ reason: string }>;
-  readonly CLIENT_FIELD_TOO_LONG: Readonly<{
-    field?: string;
-    actual?: number;
-    maximum?: number;
-  }>;
+  readonly CLIENT_FIELD_TOO_LONG:
+    | Readonly<{
+        field?: string;
+        actual?: number;
+        maximum?: number;
+      }>
+    | undefined;
   readonly CLIENT_PROVER_SERVER: Readonly<{
     method?: string;
     status?: number | "failed";
@@ -90,13 +155,15 @@ export interface ClientErrorDetailsMap {
   }>;
   readonly CLIENT_MISSING_OUTPUT: NoDetails;
   readonly CLIENT_RPC: Readonly<{ method?: string; reason?: string }>;
-  readonly CLIENT_INDEXER: MethodDetails;
+  readonly CLIENT_INDEXER: MethodDetails | Readonly<{ reason: string }>;
   readonly CLIENT_UNSUPPORTED_RPC_METHOD: MethodDetails;
-  readonly CLIENT_INDEXER_TIMEOUT: Readonly<{
-    signature?: string;
-    expectedTags?: number;
-    attempts?: number;
-  }>;
+  readonly CLIENT_INDEXER_TIMEOUT:
+    | Readonly<{
+        signature?: string;
+        expectedTags?: number;
+        attempts?: number;
+      }>
+    | undefined;
   readonly CLIENT_INDEXER_NOT_CAUGHT_UP: Readonly<{
     target: string;
     latest: string;
@@ -118,12 +185,14 @@ export interface ClientErrorDetailsMap {
 
   readonly CLIENT_INVALID_CONFIG: Readonly<{ field?: string }> | undefined;
   readonly CLIENT_UNEXPECTED: NoDetails;
-  readonly CLIENT_INVALID_INTEGER: Readonly<{
-    field?: string;
-    value?: string;
-    length?: number;
-  }>;
-  readonly CLIENT_INVALID_INPUT_CONTEXT: Readonly<{ index?: number }>;
+  readonly CLIENT_INVALID_INTEGER:
+    | Readonly<{
+        field?: string;
+        value?: string;
+        length?: number;
+      }>
+    | undefined;
+  readonly CLIENT_INVALID_INPUT_CONTEXT: Readonly<{ index?: number }> | undefined;
   readonly CLIENT_INVALID_PROOF_INPUTS: NoDetails;
   readonly CLIENT_INVALID_MERGE: NoDetails;
   readonly CLIENT_MERGE_PROOF_COMMITMENT: NoDetails;
@@ -141,11 +210,13 @@ export interface ClientErrorDetailsMap {
     actual: number;
   }>;
   readonly CLIENT_INVALID_FIELD: Readonly<{ field: string; value: string }>;
-  readonly CLIENT_INVALID_BASE58: Readonly<{
-    field?: string;
-    expectedLength?: number;
-    actualLength?: number;
-  }>;
+  readonly CLIENT_INVALID_BASE58:
+    | Readonly<{
+        field?: string;
+        expectedLength?: number;
+        actualLength?: number;
+      }>
+    | undefined;
   readonly CLIENT_INVALID_BASE64: Readonly<{ field: string }>;
   readonly CLIENT_INVALID_P256_KEY: NoDetails;
   readonly CLIENT_INVALID_CONTEXT: Readonly<{ field: string; method: string }>;
@@ -154,13 +225,13 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_REQUEST: Readonly<{ method: string; retryable: boolean }>;
   readonly CLIENT_INVALID_POLL_CONFIG: Readonly<{ field: string; value?: string }>;
   readonly CLIENT_INVALID_INDEXER: Readonly<{ field: string }>;
-  readonly CLIENT_PROOF_RAIL_MISMATCH: Readonly<{ expected?: "p256" | "eddsa" }>;
+  readonly CLIENT_PROOF_RAIL_MISMATCH: Readonly<{ expected?: "p256" | "eddsa" }> | undefined;
   readonly CLIENT_PROOF_POINT: Readonly<{ field: string }>;
   readonly CLIENT_PROOF_TREE_MISMATCH: IndexDetails;
-  readonly CLIENT_PUBLIC_SPL_ASSET: NoDetails;
   readonly CLIENT_INVALID_MERGE_OUTPUT: NoDetails;
   readonly CLIENT_INVALID_MERGE_CIPHERTEXT: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_INVALID_MERGE_MATERIAL: NoDetails;
+  readonly CLIENT_MERGE_MATERIAL_VIEWING_KEY_MISMATCH: NoDetails;
   readonly CLIENT_INVALID_MERGE_SHAPE: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_PROVER_INPUT: NoDetails;
   readonly CLIENT_PROVER_REQUEST: Readonly<{ method: string; attempts: number }>;
@@ -216,12 +287,22 @@ type ClientErrorOptions<Code extends ClientErrorCode> = Readonly<{
   cause?: unknown;
 }>;
 
+type ClientErrorArguments<Code extends ClientErrorCode> =
+  undefined extends ClientErrorDetails<Code>
+    ? readonly [options?: ClientErrorOptions<Code>]
+    : readonly [
+        options: Readonly<{
+          details: ClientErrorDetails<Code>;
+          cause?: unknown;
+        }>,
+      ];
+
 export class ClientError<Code extends ClientErrorCode = ClientErrorCode> extends Error {
   readonly code: Code;
   readonly details: ClientErrorDetails<Code> | undefined;
   override readonly cause: ClientErrorCause | undefined;
 
-  constructor(code: Code, options: ClientErrorOptions<Code> = {}) {
+  constructor(code: Code, ...[options = {}]: ClientErrorArguments<Code>) {
     const cause = safeCause(options.cause);
     super(code, cause === undefined ? undefined : { cause });
     this.name = "ClientError";
@@ -235,7 +316,7 @@ export class ClientError<Code extends ClientErrorCode = ClientErrorCode> extends
 }
 
 export function fromClientCause(cause: unknown): ClientError {
-  if (cause instanceof ClientError) return cause;
+  if (isClientError(cause)) return cause;
   if (cause instanceof KeypairError) {
     return new ClientError("CLIENT_KEYPAIR", {
       details: { code: cause.code },
@@ -256,7 +337,7 @@ export function hasherError(code: HasherErrorCode, cause?: unknown): ClientError
 }
 
 function safeCause(cause: unknown): ClientErrorCause | undefined {
-  if (cause instanceof ClientError) {
+  if (isClientError(cause)) {
     return Object.freeze({ category: "client", code: cause.code });
   }
   if (cause instanceof KeypairError) {
@@ -282,6 +363,10 @@ function safeCause(cause: unknown): ClientErrorCause | undefined {
     return Object.freeze({ category: "external", code: cause.code });
   }
   return cause === undefined ? undefined : Object.freeze({ category: "external" });
+}
+
+export function isClientError(value: unknown): value is ClientError {
+  return value instanceof ClientError;
 }
 
 function safeDetails(
