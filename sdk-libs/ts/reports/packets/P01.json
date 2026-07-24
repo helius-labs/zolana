@@ -18,6 +18,7 @@
       "type-check package test files during strict aggregate lint without disabling rules",
       "run package browser checks in isolation while retaining the aggregate root gate",
       "select the API schema-to-transport cross-contract suite explicitly",
+      "select the client cross-package and prover suites explicitly through the shared package Vitest configuration",
       "ignore only nested generated package artifacts and caches"
     ],
     "cargoXtaskBlocker": {
@@ -170,6 +171,26 @@
       "responsibility": "29 API/indexer-schema cross-contract and malformed-response tests from the two explicit suite files"
     },
     {
+      "command": "npm run test:cross --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "eight indexer/client and Solana RPC cross-package tests from the two explicit P09 suite files"
+    },
+    {
+      "command": "npm run test:prover --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "four prover proof conversion tests from the explicit P09 prover suite"
+    },
+    {
+      "command": "npm run build/typecheck/test:unit/test:vectors/test:browser/api:check and npm pack --dry-run for @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "client package build, declarations, 14 unit tests, two vectors, browser bundle, API allowlist, and 49-file tarball"
+    },
+    {
+      "command": "npm run check/lint/lint:packages/format:check/pack:check/api:check/test:exports/test:dependencies/test:browser",
+      "exitStatus": "0",
+      "responsibility": "requested root build, typecheck, lint, format, 213 tests, inventory, package, API, export, dependency, and browser gates"
+    },
+    {
       "command": "npm run test:browser --workspace @zolana/api",
       "exitStatus": "0",
       "responsibility": "isolated API browser entry graph without dependency on another package's active build"
@@ -316,5 +337,9 @@
     "vitest.config.js"
   ],
   "packet": "P01",
+  "readiness": {
+    "packetCheckpoint": "ready",
+    "reopenedBlocker": "P09 can invoke non-vacuous client cross-package and prover gates through the shared package Vitest configuration."
+  },
   "schema": "zolana-ts-packet-evidence-v1"
 }

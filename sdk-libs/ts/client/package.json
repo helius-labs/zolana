@@ -36,6 +36,8 @@
     "typecheck": "node ../config/typecheck.mjs client",
     "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
     "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
+    "test:cross": "vitest run --config ../config/vitest.package.config.js test/indexer-client.test.ts test/solana-rpc.test.ts",
+    "test:prover": "vitest run --config ../config/vitest.package.config.js test/prover.test.ts",
     "test:browser": "node ../config/browser-check.mjs client",
     "api:check": "node ../config/workspace-check.mjs api"
   }
