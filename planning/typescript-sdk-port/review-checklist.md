@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `7cb3acda65026c2dd1e0717d703e9880c28a8a12`
+- Review HEAD: `d21f1c25607e5b194407f3e4adbe26947eeecc63`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: none in the nine scoped source trees
 - Primary rows: `118`
-- Progress: `1 done / 118 total`; `2 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `C02 sdk-libs/client/src/error.rs`
+- Progress: `2 done / 118 total`; `1 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `C04 sdk-libs/client/src/indexer.rs`
 - Active fixes: none
 - Last session: `2026-07-24`
 
@@ -255,7 +255,7 @@ Columns:
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | C01 | `sdk-libs/client/src/retry.rs` | `client/src/indexer.ts` | todo | - | none | - | - | - |
-| C02 | `sdk-libs/client/src/error.rs` | `client/src/error.ts` | needs_re_review | PARTIAL | committed | Commit `7cb3acda` adds the error-taxonomy implementation and Rust-backed vectors. Re-review independently. | 2026-07-24 audit | `7cb3acda` |
+| C02 | `sdk-libs/client/src/error.rs` | `client/src/error.ts` | done | PARITY | committed | The closed TypeScript contract covers the 58 Rust variants, typed details, wrapped categories, throw translation, immutable diagnostics, sanitized causes, and package exports. | 2026-07-24 re-review | `7cb3acda` |
 | C03 | `sdk-libs/client/src/rpc.rs` | `client/src/rpc.ts` | todo | - | none | - | - | - |
 | C04 | `sdk-libs/client/src/indexer.rs` | `client/src/indexer.ts` | needs_re_review | PARTIAL | committed | Commit `7cb3acda` adds indexer parity behavior and Rust-backed vectors. Re-review independently. | 2026-07-24 audit | `7cb3acda` |
 | C05 | `sdk-libs/client/src/solana_rpc.rs` | `client/src/solana-rpc.ts` | todo | - | none | - | - | - |
@@ -420,3 +420,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `1/118`; package `1/1`
 - Exact next file: `C02 sdk-libs/client/src/error.rs`
 - Full SDK parity claim: unsupported; eight package row sets and the cross-package gates remain incomplete
+
+### 2026-07-24 16:52 UTC | C02 | `sdk-libs/client/src/error.rs`
+
+- Baseline: HEAD `d21f1c25607e5b194407f3e4adbe26947eeecc63`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: GPT-5.6 Sol review subagent; implementation commit `7cb3acda`
+- Explanation: The public `ClientError` enum is the client crate's error boundary. It depends on `thiserror`, Solana address types, and the keypair, transaction, and hasher error enums; `sdk-libs/client/src/lib.rs` re-exports it from the crate root. Its 58 variants separate wrapped dependency failures, input and shape checks, transaction assembly, tree and proof validation, prover and RPC failures, indexer polling, merge and split checks, and deposit account checks. The TypeScript root exports `ClientError`, its closed code/details types, and the canonical Rust-code list. Client operations translate keypair and transaction failures at assembly boundaries and produce the hasher category at hashing boundaries. Causes retain category and public codes while filtering secret-named fields. This file accepts no keys and grants no signing, viewing, or nullifier capability.
+- Evidence: `docs/spec.md` does not define the SDK error taxonomy. Current Rust `error.rs`, its wrapped error enums, and the nine scoped Rust source trees have no drift from fixture commit `43fde8e4`. Rust-generated fixture `client/errors-v1.json` is produced by the exhaustive `client_error_json` match in `xtask/src/ts_fixtures_client.rs`; its manifest SHA-256 is `49acb09fb6205e33efa8209263e6f83698a48ec72ca59bf5d5ef784156874d1d`. The fixture and `CANONICAL_CLIENT_ERROR_CODES` contain the same 58 variants in order. TypeScript tests cover the 58 codes, structured representative fields, keypair, transaction, and hasher translation, immutable details and causes, secret filtering, malformed external causes, and the closed compile-time union. Rust client library tests with crate features enabled passed 30 tests. Client build, typecheck, 99 unit tests, 30 vector tests, browser check, API scaffold check, export check, dependency check, pack check, and the 57-fixture and 182-inventory-row regeneration check passed.
+- Verdict: `PARITY`
+- Gap and smallest fix: none
+- Row transition: `needs_re_review -> done`
+- Progress: `2/118`; package `1/22`
+- Exact next file: `C04 sdk-libs/client/src/indexer.rs`
+- Full SDK parity claim: unsupported; eight package row sets, 21 client rows, and the cross-package gates remain incomplete
