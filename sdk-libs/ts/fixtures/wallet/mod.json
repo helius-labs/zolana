@@ -1,0 +1,30 @@
+{
+  "expected": {
+    "exports": [
+      "create_associated_token_account",
+      "create_deposit",
+      "create_merge",
+      "create_split",
+      "create_transfer",
+      "create_withdrawal",
+      "build_private_transaction",
+      "sign_private_transaction",
+      "submit_merge_transaction"
+    ],
+    "routing": {
+      "solAssetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+      "splRequiresSettlementAccounts": true
+    }
+  },
+  "id": "fx-p00-wallet-actions-mod-v1",
+  "inputs": {
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/wallet/src/actions/mod.rs",
+  "owningPacket": "P00",
+  "responsibility": "action export inventory and SOL/SPL routing boundary",
+  "rustPath": "sdk-libs/wallet/src/actions/mod.rs",
+  "rustSymbol": "wallet action re-exports",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

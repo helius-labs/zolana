@@ -1,0 +1,40 @@
+{
+  "expected": {
+    "computeUnitLimit": "1400000",
+    "errors": [
+      {
+        "code": "MergeDisabled",
+        "details": "MergeDisabled { owner: 3VzwJ9ENt2zPAMFn944zmPZE2snSvMQLg6fHA4fAeKwA }"
+      },
+      {
+        "code": "MergeTreeMismatch",
+        "details": "MergeTreeMismatch { proof_tree: [38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38], submit_tree: [39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39] }"
+      }
+    ],
+    "material": {
+      "nullifierPubkeyBytes": "004d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+      "signingPubkeyBytes": "00033250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83",
+      "viewingPubkeyBytes": "03ae140a144f8ed7344d97b2e6ce70d541eb9b9e9f2bc5b204e708b4883b664264"
+    },
+    "pipeline": [
+      "validateRegistry",
+      "fetchSpendProofs",
+      "proveMerge",
+      "buildMergeTransact",
+      "submit"
+    ]
+  },
+  "id": "fx-p00-wallet-submit-v1",
+  "inputs": {
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000015",
+    "testOnlySecret": true,
+    "viewingSeedBytes": "1616161616161616161616161616161616161616161616161616161616161616"
+  },
+  "inventoryRow": "sdk-libs/wallet/src/actions/submit.rs",
+  "owningPacket": "P00",
+  "responsibility": "merge material, proof and submission sequence, compute budget, and validation errors",
+  "rustPath": "sdk-libs/wallet/src/actions/submit.rs",
+  "rustSymbol": "MergeMaterial; submit_merge_transaction",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

@@ -36,6 +36,11 @@
       "responsibility": "standalone client oracle formatting"
     },
     {
+      "command": "rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_wallet.rs",
+      "exitStatus": "0",
+      "responsibility": "standalone wallet oracle formatting"
+    },
+    {
       "command": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures",
       "exitStatus": "0",
       "responsibility": "fixture generation"
@@ -66,19 +71,39 @@
       "responsibility": "current P09 fixture tests"
     },
     {
+      "command": "npm run test:unit --workspace @zolana/wallet",
+      "exitStatus": "0",
+      "responsibility": "current wallet unit and frozen deposit tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/wallet",
+      "exitStatus": "0",
+      "responsibility": "manifest-backed wallet vector tests"
+    },
+    {
+      "command": "npm run test:cross --workspace @zolana/wallet",
+      "exitStatus": "0",
+      "responsibility": "current wallet cross-surface tests"
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "0",
+      "responsibility": "manifest hashes, secret marking, deterministic regeneration, and 182-row inventory validation"
+    },
+    {
       "command": "cargo xtask ts-fixtures --check",
       "exitStatus": "blocked",
       "responsibility": "canonical command; existing xtask dispatch is outside P00 ownership"
     },
     {
       "command": "npm run test:inventory",
-      "exitStatus": "blocked",
-      "responsibility": "root npm workspace is owned by P01"
+      "exitStatus": "0",
+      "responsibility": "frozen 182-row inventory completeness and packet ownership"
     },
     {
       "command": "git diff --exit-code -- sdk-libs/ts/fixtures",
       "exitStatus": "1 (expected)",
-      "responsibility": "reopened P00 adds transaction fixtures and updates the manifest"
+      "responsibility": "reopened P00 adds wallet fixtures and updates the manifest"
     },
     {
       "command": "git diff --check",
@@ -88,7 +113,7 @@
   ],
   "counts": {
     "clientFixtureFiles": "5",
-    "fixtureFiles": "40",
+    "fixtureFiles": "49",
     "inventoryDuplicate": "0",
     "inventoryMissing": "0",
     "inventoryRows": "182",
@@ -96,7 +121,9 @@
     "keypairFixtureFiles": "12",
     "p00Rows": "7",
     "transactionFixtureFiles": "14",
-    "transactionOracleVectors": "13"
+    "transactionOracleVectors": "13",
+    "walletFixtureFiles": "10",
+    "walletOracleVectors": "9"
   },
   "fixtureIds": [
     "fx-p00-api-prover-request-v1",
@@ -137,7 +164,16 @@
     "fx-p00-transaction-wallet-state-v1",
     "fx-p00-transaction-wallet-sync-v1",
     "fx-p00-transaction-zone-v1",
+    "fx-p00-wallet-actions-mod-v1",
+    "fx-p00-wallet-authority-v1",
+    "fx-p00-wallet-create-associated-token-account-v1",
+    "fx-p00-wallet-deposit-v1",
+    "fx-p00-wallet-lib-v1",
     "fx-p00-wallet-sequence-v1",
+    "fx-p00-wallet-submit-v1",
+    "fx-p00-wallet-sync-v1",
+    "fx-p00-wallet-transaction-v1",
+    "fx-p00-wallet-user-registry-v1",
     "fx-workflow-instruction-deposit-v1"
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
@@ -182,6 +218,15 @@
     "sdk-libs/ts/fixtures/transaction/wallet-sync-v1.json",
     "sdk-libs/ts/fixtures/transaction/zone-v1.json",
     "sdk-libs/ts/fixtures/wallet/asset-sequence-v1.json",
+    "sdk-libs/ts/fixtures/wallet/create_associated_token_account.json",
+    "sdk-libs/ts/fixtures/wallet/deposit.json",
+    "sdk-libs/ts/fixtures/wallet/lib.json",
+    "sdk-libs/ts/fixtures/wallet/mod.json",
+    "sdk-libs/ts/fixtures/wallet/submit.json",
+    "sdk-libs/ts/fixtures/wallet/transaction.json",
+    "sdk-libs/ts/fixtures/wallet/user_registry.json",
+    "sdk-libs/ts/fixtures/wallet/wallet_authority.json",
+    "sdk-libs/ts/fixtures/wallet/wallet_sync.json",
     "sdk-libs/ts/fixtures/workflows/deposit-v1.json",
     "sdk-libs/ts/reports/inventory.json",
     "sdk-libs/ts/reports/packets/P00.json",
@@ -189,7 +234,8 @@
     "xtask/src/ts_fixtures_client.rs",
     "xtask/src/ts_fixtures_keypair.rs",
     "xtask/src/ts_fixtures_merkle.rs",
-    "xtask/src/ts_fixtures_transaction.rs"
+    "xtask/src/ts_fixtures_transaction.rs",
+    "xtask/src/ts_fixtures_wallet.rs"
   ],
   "p00InventoryRows": [
     "sdk-libs/client/tests/merge/main.rs",
@@ -347,6 +393,81 @@
       }
     ],
     "supportedShapesPerRail": "10"
+  },
+  "p10FollowUp": {
+    "blocker": "sdk-libs/ts/reports/packets/P10.json fixture-generator blocker (labelled P01; owned by P00)",
+    "fixtureFiles": [
+      "sdk-libs/ts/fixtures/wallet/create_associated_token_account.json",
+      "sdk-libs/ts/fixtures/wallet/deposit.json",
+      "sdk-libs/ts/fixtures/wallet/mod.json",
+      "sdk-libs/ts/fixtures/wallet/submit.json",
+      "sdk-libs/ts/fixtures/wallet/transaction.json",
+      "sdk-libs/ts/fixtures/wallet/lib.json",
+      "sdk-libs/ts/fixtures/wallet/user_registry.json",
+      "sdk-libs/ts/fixtures/wallet/wallet_authority.json",
+      "sdk-libs/ts/fixtures/wallet/wallet_sync.json"
+    ],
+    "inventoryMapping": [
+      {
+        "fixture": "wallet/create_associated_token_account.json",
+        "rows": [
+          "sdk-libs/wallet/src/actions/create_associated_token_account.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/deposit.json",
+        "rows": [
+          "sdk-libs/wallet/src/actions/deposit.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/mod.json",
+        "rows": [
+          "sdk-libs/wallet/src/actions/mod.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/submit.json",
+        "rows": [
+          "sdk-libs/wallet/src/actions/submit.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/transaction.json",
+        "rows": [
+          "sdk-libs/wallet/src/actions/transaction.rs",
+          "sdk-libs/wallet/tests/transaction.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/lib.json",
+        "rows": [
+          "sdk-libs/wallet/src/lib.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/user_registry.json",
+        "rows": [
+          "sdk-libs/wallet/src/user_registry.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/wallet_authority.json",
+        "rows": [
+          "sdk-libs/wallet/src/wallet_authority.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/wallet_sync.json",
+        "rows": [
+          "sdk-libs/wallet/src/wallet_sync.rs"
+        ]
+      }
+    ],
+    "targetTests": [
+      "sdk-libs/ts/wallet/test/vectors/wallet-vectors.test.ts",
+      "sdk-libs/ts/wallet/test/vectors/deposit-vector.test.ts"
+    ]
   },
   "packet": "P00",
   "schema": "zolana-ts-packet-evidence-v1"

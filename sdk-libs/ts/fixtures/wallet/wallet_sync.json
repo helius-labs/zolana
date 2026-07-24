@@ -1,0 +1,58 @@
+{
+  "expected": {
+    "atomicFailure": {
+      "error": {
+        "code": "IndexerTimeout",
+        "details": "IndexerTimeout"
+      },
+      "walletUnchanged": true
+    },
+    "balances": [
+      {
+        "amount": "40",
+        "assetId": "1",
+        "mintBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "utxoCount": "0"
+      }
+    ],
+    "idempotentEmptySync": {
+      "durableUtxoCount": "2",
+      "historyCount": "0"
+    },
+    "indexerOutcomes": {
+      "abort": {
+        "code": "IndexerTimeout",
+        "details": "IndexerTimeout"
+      },
+      "lag": {
+        "code": "IndexerNotCaughtUp",
+        "details": "IndexerNotCaughtUp { target: 100, latest: 99, attempts: 3 }"
+      },
+      "timeout": {
+        "code": "PollTimedOut",
+        "details": "PollTimedOut { attempts: 3, last_error: Some(\"IndexerTimeout\") }"
+      }
+    },
+    "supportedShapeCount": "10"
+  },
+  "id": "fx-p00-wallet-sync-v1",
+  "inputs": {
+    "config": {
+      "pageLimit": "5",
+      "rounds": "2",
+      "tagQueryChunk": "2",
+      "tagWindow": "3",
+      "waitForIndexer": true
+    },
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000015",
+    "testOnlySecret": true,
+    "viewingSeedBytes": "1616161616161616161616161616161616161616161616161616161616161616"
+  },
+  "inventoryRow": "sdk-libs/wallet/src/wallet_sync.rs",
+  "owningPacket": "P00",
+  "responsibility": "sync config, atomic failure, idempotent state, balances, history, and indexer lag/abort/timeout errors",
+  "rustPath": "sdk-libs/wallet/src/wallet_sync.rs",
+  "rustSymbol": "SyncWalletConfig; sync_wallet_with_config; balances; history",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

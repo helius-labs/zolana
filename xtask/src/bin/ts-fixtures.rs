@@ -27,8 +27,8 @@ use zolana_transaction::{
 const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
-const EXPECTED_FIXTURE_COUNT: usize = 40;
-const FROZEN_SOURCE_PATHS: [&str; 11] = [
+const EXPECTED_FIXTURE_COUNT: usize = 49;
+const FROZEN_SOURCE_PATHS: [&str; 13] = [
     "program-libs/hasher/src",
     "program-libs/indexed-array/src",
     "program-libs/interface/src/instruction",
@@ -40,6 +40,8 @@ const FROZEN_SOURCE_PATHS: [&str; 11] = [
     "sdk-libs/program-test/src/indexer.rs",
     "sdk-libs/transaction/src",
     "sdk-libs/transaction/tests",
+    "sdk-libs/wallet/src",
+    "sdk-libs/wallet/tests",
 ];
 const INVENTORY_FILES: [&str; 6] = [
     "planning/typescript-sdk-port/inventory-client.md",
@@ -440,6 +442,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     let keypair_vectors = production_keypair_vectors(root)?;
     let transaction_vectors = production_transaction_vectors(root)?;
     let client_vectors = production_client_vectors(root)?;
+    let wallet_vectors = production_wallet_vectors(root)?;
 
     let mut fixtures = vec![
         (
@@ -669,6 +672,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     fixtures.extend(keypair_fixtures(&keypair_vectors)?);
     fixtures.extend(transaction_fixtures(&transaction_vectors)?);
     fixtures.extend(client_fixtures(&client_vectors)?);
+    fixtures.extend(wallet_fixtures(&wallet_vectors)?);
     Ok(fixtures)
 }
 
@@ -1689,6 +1693,244 @@ fn client_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
         .collect()
 }
 
+fn production_wallet_vectors(root: &Path) -> Result<Value> {
+    let artifacts = cargo_rlibs(root, &["build", "-p", "zolana-wallet"])?;
+    let metadata: Value = serde_json::from_str(&command_text(
+        root,
+        "rustup",
+        &[
+            "run",
+            "1.97.0",
+            "cargo",
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+        ],
+    )?)?;
+    let target = PathBuf::from(
+        metadata["target_directory"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("cargo metadata lacks target_directory"))?,
+    );
+    let externs = [
+        ("bincode", "bincode@1.3.3"),
+        ("borsh", "borsh@1.7.0"),
+        ("serde_json", "serde_json@1.0.150"),
+        ("solana_account", "solana-account@3.4.0"),
+        ("solana_address", "solana-address@2.6.1"),
+        ("solana_hash", "solana-hash@4.5.0"),
+        ("solana_instruction", "solana-instruction@3.4.0"),
+        ("solana_keypair", "solana-keypair@3.1.2"),
+        ("solana_pubkey", "solana-pubkey@4.2.0"),
+        ("solana_signature", "solana-signature@3.4.1"),
+        ("solana_signer", "solana-signer@3.0.1"),
+        ("solana_transaction", "solana-transaction@3.1.0"),
+        ("zolana_client", "zolana-client@0.1.0"),
+        ("zolana_interface", "zolana-interface@0.1.0"),
+        ("zolana_keypair", "zolana-keypair@0.1.0"),
+        ("zolana_transaction", "zolana-transaction@0.1.0"),
+        (
+            "zolana_user_registry_interface",
+            "zolana-user-registry-interface@0.1.0",
+        ),
+        ("zolana_wallet", "zolana-wallet@0.1.0"),
+    ]
+    .into_iter()
+    .map(|(name, package)| Ok((name, rlib(&artifacts, name, package)?)))
+    .collect::<Result<Vec<_>>>()?;
+
+    let binary = target.join("ts-fixtures-wallet");
+    let mut compile = Command::new("rustup");
+    compile
+        .current_dir(root)
+        .args([
+            "run",
+            "1.97.0",
+            "rustc",
+            "--edition=2021",
+            "xtask/src/ts_fixtures_wallet.rs",
+            "-L",
+        ])
+        .arg(format!(
+            "dependency={}",
+            target.join("debug/deps").display()
+        ));
+    for (name, path) in externs {
+        compile
+            .arg("--extern")
+            .arg(format!("{name}={}", path.display()));
+    }
+    let output = compile
+        .arg("-o")
+        .arg(&binary)
+        .output()
+        .context("compile production wallet fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "compile production wallet fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let output = Command::new(&binary)
+        .output()
+        .context("run production wallet fixture oracle")?;
+    if !output.status.success() {
+        bail!(
+            "run production wallet fixture oracle: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let vectors: Value = serde_json::from_slice(&output.stdout)?;
+    verify_wallet_vectors(&vectors)?;
+    Ok(vectors)
+}
+
+fn verify_wallet_vectors(vectors: &Value) -> Result<()> {
+    let sections = [
+        "create_associated_token_account",
+        "deposit",
+        "mod",
+        "submit",
+        "transaction",
+        "lib",
+        "user_registry",
+        "wallet_authority",
+        "wallet_sync",
+    ];
+    let object = vectors
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("wallet oracle is not an object"))?;
+    if object.len() != sections.len() {
+        bail!(
+            "wallet oracle emitted {} sections, expected {}",
+            object.len(),
+            sections.len()
+        );
+    }
+    for section in sections {
+        if vectors[section]["inputs"]["testOnlySecret"] != true {
+            bail!("{section} wallet fixture does not mark test secrets");
+        }
+    }
+    if vectors["wallet_authority"]["expected"]["approvalRejection"]["p256SignSkipped"] != true
+        || vectors["wallet_sync"]["expected"]["atomicFailure"]["walletUnchanged"] != true
+    {
+        bail!("wallet oracle self-check failed");
+    }
+    Ok(())
+}
+
+fn wallet_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
+    let domains = [
+        (
+            "create_associated_token_account",
+            "wallet/create_associated_token_account.json",
+            "fx-p00-wallet-create-associated-token-account-v1",
+            "sdk-libs/wallet/src/actions/create_associated_token_account.rs",
+            "create_associated_token_account; CreateAssociatedTokenAccount",
+            "sdk-libs/wallet/src/actions/create_associated_token_account.rs",
+            "canonical ATA address, idempotent instruction, account flags, and submitted transaction",
+        ),
+        (
+            "deposit",
+            "wallet/deposit.json",
+            "fx-p00-wallet-deposit-v1",
+            "sdk-libs/wallet/src/actions/deposit.rs",
+            "Deposit; create_deposit; build_deposit_transaction_sync",
+            "sdk-libs/wallet/src/actions/deposit.rs",
+            "SOL and SPL routing, deterministic deposit material, instruction bytes, unsigned transaction, and errors",
+        ),
+        (
+            "mod",
+            "wallet/mod.json",
+            "fx-p00-wallet-actions-mod-v1",
+            "sdk-libs/wallet/src/actions/mod.rs",
+            "wallet action re-exports",
+            "sdk-libs/wallet/src/actions/mod.rs",
+            "action export inventory and SOL/SPL routing boundary",
+        ),
+        (
+            "submit",
+            "wallet/submit.json",
+            "fx-p00-wallet-submit-v1",
+            "sdk-libs/wallet/src/actions/submit.rs",
+            "MergeMaterial; submit_merge_transaction",
+            "sdk-libs/wallet/src/actions/submit.rs",
+            "merge material, proof and submission sequence, compute budget, and validation errors",
+        ),
+        (
+            "transaction",
+            "wallet/transaction.json",
+            "fx-p00-wallet-transaction-v1",
+            "sdk-libs/wallet/src/actions/transaction.rs; sdk-libs/wallet/tests/transaction.rs",
+            "create_transfer_sync; create_withdrawal; create_split; create_merge; sign_shielded_transaction_sync",
+            "sdk-libs/wallet/src/actions/transaction.rs; sdk-libs/wallet/tests/transaction.rs",
+            "registered and public routing, input selection, split, merge, authority ordering, proof inputs, custody boundary, and frozen test expectations",
+        ),
+        (
+            "lib",
+            "wallet/lib.json",
+            "fx-p00-wallet-lib-v1",
+            "sdk-libs/wallet/src/lib.rs",
+            "wallet root modules and re-exports",
+            "sdk-libs/wallet/src/lib.rs",
+            "root module surface, documented flow, and nested client/transaction errors",
+        ),
+        (
+            "user_registry",
+            "wallet/user_registry.json",
+            "fx-p00-wallet-user-registry-v1",
+            "sdk-libs/wallet/src/user_registry.rs",
+            "build_registration_transaction_sync; resolved_address_from_record; recipient_confidential_view_tag_sync",
+            "sdk-libs/wallet/src/user_registry.rs",
+            "registration, current-record no-op, key rotation, record resolution, and public fallback",
+        ),
+        (
+            "wallet_authority",
+            "wallet/wallet_authority.json",
+            "fx-p00-wallet-authority-v1",
+            "sdk-libs/wallet/src/wallet_authority.rs; sdk-libs/transaction/src/wallet/authority.rs",
+            "LocalWalletAuthority; WalletAuthority; SyncWalletAuthority",
+            "sdk-libs/wallet/src/wallet_authority.rs",
+            "sync material, deterministic P256 signature, encryption-before-approval, and rejection short circuit",
+        ),
+        (
+            "wallet_sync",
+            "wallet/wallet_sync.json",
+            "fx-p00-wallet-sync-v1",
+            "sdk-libs/wallet/src/wallet_sync.rs",
+            "SyncWalletConfig; sync_wallet_with_config; balances; history",
+            "sdk-libs/wallet/src/wallet_sync.rs",
+            "sync config, atomic failure, idempotent state, balances, history, and indexer lag/abort/timeout errors",
+        ),
+    ];
+    domains
+        .into_iter()
+        .map(
+            |(section, path, id, rust_path, symbol, inventory_row, responsibility)| {
+                let value = &vectors[section];
+                if !value.is_object() {
+                    bail!("wallet oracle lacks {section}");
+                }
+                Ok((
+                    path,
+                    fixture_base!(
+                        id,
+                        rust_path,
+                        symbol,
+                        inventory_row,
+                        "P00",
+                        responsibility,
+                        value["inputs"].clone(),
+                        value["expected"].clone(),
+                    ),
+                ))
+            },
+        )
+        .collect()
+}
+
 fn error_json(error: &impl std::fmt::Debug) -> Value {
     let debug = format!("{error:?}");
     let code = debug
@@ -1767,7 +2009,8 @@ fn write_manifest(root: &Path, fixtures: &Path) -> Result<()> {
                     {"features":["default"],"name":"zolana-merkle-tree"},
                     {"features":["default"],"name":"zolana-program-test"},
                     {"features":[],"name":"zolana-test-utils"},
-                    {"features":["parallel"],"name":"zolana-transaction"}
+                    {"features":["parallel"],"name":"zolana-transaction"},
+                    {"features":["default"],"name":"zolana-wallet"}
                 ],
                 "toolchain":rustc.trim()
             },
@@ -1798,6 +2041,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
         "xtask/src/ts_fixtures_client.rs".to_string(),
         "xtask/src/ts_fixtures_merkle.rs".to_string(),
         "xtask/src/ts_fixtures_transaction.rs".to_string(),
+        "xtask/src/ts_fixtures_wallet.rs".to_string(),
     ]);
     changed_paths.sort();
     write_json(
@@ -1811,15 +2055,20 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 {"command":"rustup run 1.97.0 cargo fmt --all -- --check","exitStatus":"0","responsibility":"Rust formatting"},
                 {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_transaction.rs","exitStatus":"0","responsibility":"standalone transaction oracle formatting"},
                 {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_client.rs","exitStatus":"0","responsibility":"standalone client oracle formatting"},
+                {"command":"rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_wallet.rs","exitStatus":"0","responsibility":"standalone wallet oracle formatting"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures","exitStatus":"0","responsibility":"fixture generation"},
                 {"command":"rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check","exitStatus":"0","responsibility":"deterministic regeneration and Rust verification"},
                 {"command":"npm run test:vectors --workspace @zolana/keypair","exitStatus":"0","responsibility":"P04 vector baseline before fixture-loader follow-up"},
                 {"command":"npm run test:vectors --workspace @zolana/transaction","exitStatus":"0","responsibility":"P05 vector baseline before production fixture-loader follow-up"},
                 {"command":"npm run test:unit --workspace @zolana/client","exitStatus":"0","responsibility":"current P09 RPC, indexer, proof, and polling tests"},
                 {"command":"npm run test:vectors --workspace @zolana/client","exitStatus":"0","responsibility":"current P09 fixture tests"},
+                {"command":"npm run test:unit --workspace @zolana/wallet","exitStatus":"0","responsibility":"current wallet unit and frozen deposit tests"},
+                {"command":"npm run test:vectors --workspace @zolana/wallet","exitStatus":"0","responsibility":"manifest-backed wallet vector tests"},
+                {"command":"npm run test:cross --workspace @zolana/wallet","exitStatus":"0","responsibility":"current wallet cross-surface tests"},
+                {"command":"npm run fixtures:check","exitStatus":"0","responsibility":"manifest hashes, secret marking, deterministic regeneration, and 182-row inventory validation"},
                 {"command":"cargo xtask ts-fixtures --check","exitStatus":"blocked","responsibility":"canonical command; existing xtask dispatch is outside P00 ownership"},
-                {"command":"npm run test:inventory","exitStatus":"blocked","responsibility":"root npm workspace is owned by P01"},
-                {"command":"git diff --exit-code -- sdk-libs/ts/fixtures","exitStatus":"1 (expected)","responsibility":"reopened P00 adds transaction fixtures and updates the manifest"},
+                {"command":"npm run test:inventory","exitStatus":"0","responsibility":"frozen 182-row inventory completeness and packet ownership"},
+                {"command":"git diff --exit-code -- sdk-libs/ts/fixtures","exitStatus":"1 (expected)","responsibility":"reopened P00 adds wallet fixtures and updates the manifest"},
                 {"command":"git diff --check","exitStatus":"0","responsibility":"whitespace validation"}
             ],
             "counts":{
@@ -1832,6 +2081,8 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 "keypairFixtureFiles":"12",
                 "transactionFixtureFiles":"14",
                 "transactionOracleVectors":"13",
+                "walletFixtureFiles":"10",
+                "walletOracleVectors":"9",
                 "p00Rows":p00_rows.len().to_string()
             },
             "fixtureIds":fixture_ids(&out.join("fixtures"))?,
@@ -1904,6 +2155,35 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                     }
                 ],
                 "supportedShapesPerRail":"10"
+            },
+            "p10FollowUp":{
+                "blocker":"sdk-libs/ts/reports/packets/P10.json fixture-generator blocker (labelled P01; owned by P00)",
+                "fixtureFiles":[
+                    "sdk-libs/ts/fixtures/wallet/create_associated_token_account.json",
+                    "sdk-libs/ts/fixtures/wallet/deposit.json",
+                    "sdk-libs/ts/fixtures/wallet/mod.json",
+                    "sdk-libs/ts/fixtures/wallet/submit.json",
+                    "sdk-libs/ts/fixtures/wallet/transaction.json",
+                    "sdk-libs/ts/fixtures/wallet/lib.json",
+                    "sdk-libs/ts/fixtures/wallet/user_registry.json",
+                    "sdk-libs/ts/fixtures/wallet/wallet_authority.json",
+                    "sdk-libs/ts/fixtures/wallet/wallet_sync.json"
+                ],
+                "inventoryMapping":[
+                    {"fixture":"wallet/create_associated_token_account.json","rows":["sdk-libs/wallet/src/actions/create_associated_token_account.rs"]},
+                    {"fixture":"wallet/deposit.json","rows":["sdk-libs/wallet/src/actions/deposit.rs"]},
+                    {"fixture":"wallet/mod.json","rows":["sdk-libs/wallet/src/actions/mod.rs"]},
+                    {"fixture":"wallet/submit.json","rows":["sdk-libs/wallet/src/actions/submit.rs"]},
+                    {"fixture":"wallet/transaction.json","rows":["sdk-libs/wallet/src/actions/transaction.rs","sdk-libs/wallet/tests/transaction.rs"]},
+                    {"fixture":"wallet/lib.json","rows":["sdk-libs/wallet/src/lib.rs"]},
+                    {"fixture":"wallet/user_registry.json","rows":["sdk-libs/wallet/src/user_registry.rs"]},
+                    {"fixture":"wallet/wallet_authority.json","rows":["sdk-libs/wallet/src/wallet_authority.rs"]},
+                    {"fixture":"wallet/wallet_sync.json","rows":["sdk-libs/wallet/src/wallet_sync.rs"]}
+                ],
+                "targetTests":[
+                    "sdk-libs/ts/wallet/test/vectors/wallet-vectors.test.ts",
+                    "sdk-libs/ts/wallet/test/vectors/deposit-vector.test.ts"
+                ]
             },
             "schema":"zolana-ts-packet-evidence-v1"
         }),

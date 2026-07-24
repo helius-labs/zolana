@@ -157,6 +157,42 @@
       "sha256": "6ce2d6e7d9587215c555151aa3fc58106ea63fcb80a13e2e89515204472ac6bf"
     },
     {
+      "path": "wallet/create_associated_token_account.json",
+      "sha256": "51aac93339fa4aac5db7a33bd1d70954fbbad69fbd3e0187665c98fd52810d00"
+    },
+    {
+      "path": "wallet/deposit.json",
+      "sha256": "7ad57eeb0b1a801b2b253f9cc7aac94a04f36ab26836e8c4443a46ae1432c6f2"
+    },
+    {
+      "path": "wallet/lib.json",
+      "sha256": "c9df7b29fb9f00a92e2a649760ccabc295a314d3144d48e8257a18d5ce2af2e7"
+    },
+    {
+      "path": "wallet/mod.json",
+      "sha256": "9a46531824fb9c5718fc2076fd935a31fd0551103a742dbe69dc5078e5a12056"
+    },
+    {
+      "path": "wallet/submit.json",
+      "sha256": "f5ea889d78bf106c8b47f6038590328d81a20b705982c137c01565b81226f725"
+    },
+    {
+      "path": "wallet/transaction.json",
+      "sha256": "5c4cc4e0f62b5e125d5e67fc59bf32611e514c3eb7bf4ea0a2bc36c3c7665605"
+    },
+    {
+      "path": "wallet/user_registry.json",
+      "sha256": "868399178ba1b5daddfe8b2e955f11a69077d8f9e883a87aac0a66a89b93a6aa"
+    },
+    {
+      "path": "wallet/wallet_authority.json",
+      "sha256": "8133e06fc28a3e8e75cb112fe3792332f2b3003cc2bf132f726a8be166a5e818"
+    },
+    {
+      "path": "wallet/wallet_sync.json",
+      "sha256": "fec1a3df3d6188e0a1a95a5c66a52045546c80136ac81a2eaa0cc9a4215dc4ea"
+    },
+    {
       "path": "workflows/deposit-v1.json",
       "sha256": "ee83ce306250984eac86de07a902ce767de5fe65ce8aa6be85255c698de23582"
     }
@@ -220,6 +256,12 @@
           "parallel"
         ],
         "name": "zolana-transaction"
+      },
+      {
+        "features": [
+          "default"
+        ],
+        "name": "zolana-wallet"
       }
     ],
     "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07)"
