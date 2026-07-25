@@ -53,6 +53,7 @@ export type {
   P256Signature,
   PrivateTransaction,
   SplitBundlePlaintext,
+  SyncWalletAuthority,
   SyncReport,
   WalletAuthority,
   WalletSyncConfig,

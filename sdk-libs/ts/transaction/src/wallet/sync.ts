@@ -21,7 +21,7 @@ import {
   splitBundleUtxos,
 } from "../serialization/codecs.js";
 import { Utxo, deriveBlinding } from "../utxo.js";
-import type { WalletAuthority, WalletSyncMaterial } from "./authority.js";
+import type { SyncWalletAuthority, WalletSyncMaterial } from "./authority.js";
 import { SOL_MINT } from "./asset.js";
 import { type PrivateTransaction, type SyncReport, Wallet, hex } from "./state.js";
 
@@ -335,7 +335,7 @@ function decodeCandidate(
 export async function decryptTransactions(
   input: Readonly<{
     wallet: Wallet;
-    authority: WalletAuthority;
+    authority: SyncWalletAuthority;
     transactions: readonly IndexedShieldedTransaction[];
     config?: WalletSyncConfig;
   }>,

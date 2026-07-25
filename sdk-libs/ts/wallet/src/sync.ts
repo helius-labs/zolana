@@ -42,7 +42,7 @@ export async function backfillAssetRegistry(
     if (account.owner !== SHIELDED_POOL_PROGRAM_ID) continue;
     try {
       const registry = decodeSplAssetRegistry(account.data);
-      wallet.registry.insert(registry.assetId, registry.mint);
+      wallet.registerAsset(registry.assetId, registry.mint);
       inserted++;
     } catch {
       continue;

@@ -4,6 +4,7 @@ export {
   type EncryptedTransfer,
   type P256Signature,
   type SplitBundlePlaintext,
+  type SyncWalletAuthority,
   type WalletAuthority,
   type WalletSyncMaterial,
 } from "./authority.js";

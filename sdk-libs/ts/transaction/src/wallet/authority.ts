@@ -53,6 +53,10 @@ export interface WalletSyncMaterial {
   readonly nullifierKey: NullifierKey;
 }
 
+export interface SyncWalletAuthority {
+  syncMaterial(): Promise<WalletSyncMaterial>;
+}
+
 export interface WalletAuthority {
   solanaPublicKey(): Address;
   shieldedAddress(): Promise<ShieldedAddress>;

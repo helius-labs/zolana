@@ -79,6 +79,10 @@ export class Wallet {
     return this.#registry.clone();
   }
 
+  registerAsset(assetId: bigint, mint: Address): void {
+    this.#registry.insert(assetId, mint);
+  }
+
   utxos(): readonly WalletUtxo[] {
     return this.#utxos.map(snapshotUtxo);
   }
