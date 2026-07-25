@@ -1207,12 +1207,27 @@ Exit:
 
 ### PKP-05: Complete proof assembly
 
+The zone and zone-authority prover paths are no longer deferred to this packet. The owner ruled on
+2026-07-25 that they are built during the parity phase, because a TypeScript caller can already
+assemble a zone transaction through the transaction and interface packages and then cannot prove it,
+and shipping a pipeline that stops one step short of working is worse than shipping it late. This
+packet therefore certifies those paths rather than introducing them, and it is expected to receive
+them already implemented and already covered by oracle tests.
+
+That the paths arrive tested does not reduce the work here. Parity-phase evidence establishes that
+TypeScript builds the same request bytes as Rust; it does not establish that the resulting proof
+verifies against the intended statement and nothing else. The zone rails are the place that
+distinction matters most, because their public-input chain is shorter than the confidential one and
+their zone program field is the only thing binding a proof to its zone.
+
 Deliver:
 
 - confidential, zone, zone-authority, merge, and merge-zone TypeScript inputs;
 - the required rail/shape public-input vectors;
 - exact prover request vectors;
-- exact merge and merge-zone hash assertions.
+- exact merge and merge-zone hash assertions;
+- for the zone rails specifically, evidence that a proof built for one zone does not verify for
+  another, and that the anonymous chain cannot be satisfied by a confidential-chain assembly.
 
 Exit:
 

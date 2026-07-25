@@ -894,3 +894,30 @@ The finding stands as independent confirmation of work already underway rather t
 Same disposition as the padding nullifier, for a different reason. That one already had a fix in flight and needed only to be left alone; this one had none anywhere, so leaving it alone would have dropped it. A separate pull request keeps the port free of protocol work without losing the finding.
 
 The fix must reckon with the two rails separately. Re-deriving the record's address may close the eddsa rail, because the circuit computes the input and output owner hashes from `signing_pk_field`, so a substituted key produces hashes that fail the inclusion check. The P256 rail probably does not close without a registry change: `owner_p256` is copied from instruction data at registration with no signature showing the registrant holds the matching private key, so establishing that the record is the canonical one for `record.owner` still leaves `owner_p256` an unverified claim. Requiring the record to sign is unavailable, because the spec makes merges callable by anyone (`docs/spec.md:1667`).
+
+### Whether the zone prover paths are built now or deferred
+
+| Field | Value |
+| --- | --- |
+| Conflict | `inventory-client.md:61` dispositions the zone-authority prover as `port` and names the file it would live in; the checklist defers rows C13, C14, and C18 to PKP-05. Both cannot hold. |
+| Ruling | Build them now, in the parity phase, and check them again in the cryptographic phase. The inventory is correct and the deferral is withdrawn. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `row-updates/zone-prover-ruling.md`, `proof-and-key-parity.md` PKP-05 |
+
+The deciding fact is that the gap is not at the edge of the pipeline but one step from its end. The
+transaction and interface packages already build zone instruction data and the prepared
+zone-authority object, so a TypeScript caller assembles a complete zone transaction and then finds
+no way to prove it. A missing capability at the boundary of an SDK reads as scope; a missing
+capability in the middle of a working path reads as a defect, and callers discover it late.
+
+The three zone shapes are in scope: zone transfer on the Ed25519 rail, zone transfer on the P256
+rail, and the zone-authority transition. The forester's `address-append` shape is not, and its
+`NOT_APPLICABLE` disposition on row C07 stands. That is a separate judgement resting on a separate
+fact: TypeScript ships no forester, so an address-append builder would have neither a producer nor a
+consumer in that language. Light Protocol reached the same conclusion for the same reason and ports
+only the decode half of tree maintenance.
+
+Deferral would not have saved work, only moved it. PKP-05 already listed the zone inputs as
+deliverables, so the same code was always going to be written; the only question was whether it
+would be written while the parity harness was warm or months later against a colder tree.
