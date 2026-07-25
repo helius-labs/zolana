@@ -23,7 +23,11 @@ const P256_MODULUS =
   0xffff_ffff_0000_0001_0000_0000_0000_0000_0000_0000_ffff_ffff_ffff_ffff_ffff_ffffn;
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-const PARTIAL_ROUNDS = [56, 57, 56, 60, 60, 63, 64, 63, 60, 66, 60, 65, 70, 60, 64, 68] as const;
+// Circom x5 partial-round counts for widths 2 through 13. The table stops at
+// twelve inputs because that is where the Rust hasher stops: `light_poseidon`
+// caps the width at 13, and the `sol_poseidon` syscall takes at most twelve
+// inputs. A wider input set would produce a digest no on-chain verifier accepts.
+const PARTIAL_ROUNDS = [56, 57, 56, 60, 60, 63, 64, 63, 60, 66, 60, 65] as const;
 const FIELD = Field(BN254_MODULUS);
 const permutations = new Map<number, ReturnType<typeof createPoseidon>>();
 

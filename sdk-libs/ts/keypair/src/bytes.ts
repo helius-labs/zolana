@@ -1,4 +1,4 @@
-import { invalidLength } from "./error.js";
+import { KeypairError, invalidLength } from "./error.js";
 
 type FixedBytes<Length extends number> = Uint8Array & {
   readonly __fixedBytesLength: Length;
@@ -34,6 +34,25 @@ export function bytesToBigInt(bytes: Uint8Array): bigint {
 }
 
 export function bigIntToBytes(value: bigint, length = 32): Uint8Array {
+  // `bigint_to_be_bytes_array` takes a `BigUint` and returns
+  // `InvalidInputLength` when the value needs more bytes than the array holds,
+  // so neither a negative nor an oversized value has a big-endian form. Writing
+  // the low bytes anyway would hand the caller a different value than it asked
+  // to encode, and for a negative it would be an all-ones prefix.
+  if (value < 0n) {
+    throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
+      name: "bigIntToBytes",
+      reason: "negative",
+    });
+  }
+  const width = byteWidth(value);
+  if (width > length) {
+    throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
+      name: "bigIntToBytes",
+      expected: length,
+      actual: width,
+    });
+  }
   const bytes = new Uint8Array(length);
   let remaining = value;
   for (let index = length - 1; index >= 0; index--) {
@@ -41,6 +60,13 @@ export function bigIntToBytes(value: bigint, length = 32): Uint8Array {
     remaining >>= 8n;
   }
   return bytes;
+}
+
+/** Significant bytes in the big-endian form; zero needs none. */
+function byteWidth(value: bigint): number {
+  let width = 0;
+  for (let remaining = value; remaining > 0n; remaining >>= 8n) width++;
+  return width;
 }
 
 export function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
