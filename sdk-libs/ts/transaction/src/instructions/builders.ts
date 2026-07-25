@@ -1,6 +1,7 @@
 import type { Address, Bytes31, Bytes32 } from "@zolana/interface";
 import {
   ShieldedKeypair,
+  randomSalt,
   type P256PublicKey,
   type ShieldedAddress,
   type ShieldedPublicKey,
@@ -9,6 +10,7 @@ import {
 import { Data } from "../data.js";
 import { TransactionError } from "../error.js";
 import { checked, decodeAddress, equal, random31, sha256Be } from "../internal.js";
+import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
   createProofOutput,
@@ -398,6 +400,36 @@ export class ConfidentialSplit {
       payerPublicKeyHash: this.#payerHash,
     });
   }
+
+  /**
+   * Keypair rail: assemble with the owner's own viewing key, seal the bundle at
+   * slot 0, and sign in place. The authority rail is `prepare` plus
+   * `PreparedSplit.finalize`, with encryption and signing delegated to a
+   * `WalletAuthority`.
+   */
+  sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
+    const prepared = this.prepare();
+    const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
+    const salt = randomSalt();
+    const signed = prepared.finalize({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: {
+        viewTag: prepared.ownerViewTag(),
+        data: encryptSplit(
+          tx,
+          prepared.owner.viewingPublicKey,
+          encodeSplitBundle(prepared.bundlePlaintext(assets)),
+          salt,
+          0,
+        ),
+      },
+    });
+    if (keypair.signingPublicKey().signatureType() === "p256") {
+      signed.applyP256Signature(keypair.signP256(signed.messageHash()));
+    }
+    return signed;
+  }
 }
 
 export class PreparedSplit {
@@ -478,6 +510,15 @@ export class PreparedSplit {
     };
   }
 
+  /**
+   * The owner's confidential view tag. It tags the bundle at slot 0 and every
+   * covered real output, and equals the bundle view tag because the split is
+   * self-owned.
+   */
+  ownerViewTag(): Bytes32 {
+    return this.owner.confidentialViewTag();
+  }
+
   finalize(
     input: Readonly<{
       txViewingPublicKey: P256PublicKey;
@@ -485,7 +526,7 @@ export class PreparedSplit {
       payload: Readonly<{ viewTag: Bytes32; data: Uint8Array }>;
     }>,
   ): SppProofInputs {
-    const tag = this.owner.confidentialViewTag();
+    const tag = this.ownerViewTag();
     const outputs = this.outputs.map((output, index) => ({
       utxoHash: output.hash(),
       ownerTag: { kind: "inline" as const, value: tag },

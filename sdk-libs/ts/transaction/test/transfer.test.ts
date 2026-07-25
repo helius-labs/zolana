@@ -472,6 +472,29 @@ describe("manifest-verified transaction builders", () => {
           payer: SOL_MINT,
         }),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_SPLIT_INVALID_PART_COUNT" }));
+
+    // The keypair rail reaches the same assembly the authority rail does above,
+    // with the salt, the blinding seed, and the transaction viewing key derived
+    // rather than supplied.
+    const signed = new ConfidentialSplit({
+      owner: sender.keypair.shieldedAddress(),
+      input: spend,
+      asset: SOL_MINT,
+      numOutputs: Number(fixtureString(inputs, "partCount")),
+      perOutputAmount: BigInt(fixtureString(inputs, "partAmount")),
+      payer: encodeAddress(new Uint8Array(32).fill(27)),
+    }).sign(sender.keypair, new AssetRegistry());
+    expect(signed.checkShape()).toEqual({ inputs: 1, outputs: 8 });
+    expect(hex(signed.inputUtxos[0]?.nullifier() ?? new Uint8Array())).toBe(
+      hex(prepared.firstNullifier),
+    );
+    const ownerTag = sender.keypair.shieldedAddress().confidentialViewTag();
+    expect(signed.externalData.resolvedOwnerTags.map(hex)).toEqual(
+      Array.from({ length: 8 }, () => hex(ownerTag)),
+    );
+    expect(signed.externalData.outputs.filter((output) => output.data !== undefined)).toHaveLength(
+      1,
+    );
     expect(
       () =>
         new ConfidentialSplit({

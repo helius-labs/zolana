@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   AssetRegistry,
   BN254_MODULUS_DEC,
+  ConfidentialSplit,
   ConfidentialTransfer,
   Data,
   EncryptedScheme,
@@ -13,6 +14,7 @@ import {
   MergeZone,
   PreparedMerge,
   PreparedMergeZone,
+  PreparedSplit,
   ProofInputUtxo,
   SENDER_SLOT_COUNT,
   SOL_ASSET_ID,
@@ -780,52 +782,53 @@ interface PreparedContextCase {
   readonly inputContexts: readonly ContextJson[] | null;
 }
 
+/** The blinding seed every builder section's inputs derive from, `[11u8; 31]` in Rust. */
+const BUILDER_BLINDING_SEED = new Uint8Array(31).fill(11) as Bytes31;
+
+const BUILDER_RECORD_BYTES: Readonly<Record<DataRecord["kind"], number[]>> = {
+  zoneData: [1, 2, 3],
+  utxoData: [4, 5],
+  memo: [6],
+};
+
+function shieldedKeypair(secretByte: number, viewingSeed: string): ShieldedKeypair {
+  const secret = new Uint8Array(32);
+  secret[31] = secretByte;
+  const signing = SigningKey.fromBytes(secret as Bytes32);
+  return ShieldedKeypair.fromKeys(
+    signing,
+    NullifierKey.fromSigningKey(signing),
+    ViewingKey.fromBytes(bytes(viewingSeed) as Bytes32),
+  );
+}
+
+function mergeInput(spec: MergeInputSpec): ProofInputUtxo {
+  const owner = shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex);
+  const other = shieldedKeypair(12, oracle.transfer.recipientViewingSeedHex);
+  return new ProofInputUtxo({
+    utxo: new Utxo({
+      owner: (spec.owner === "owner" ? owner : other).signingPublicKey(),
+      asset: spec.asset as Address,
+      amount: BigInt(spec.amount),
+      blinding: deriveBlinding(BUILDER_BLINDING_SEED, spec.position),
+      data: new Data(
+        spec.records.map((kind) => ({ kind, bytes: Uint8Array.from(BUILDER_RECORD_BYTES[kind]) })),
+      ),
+      ...(spec.zone === null ? {} : { zoneProgramId: spec.zone as Address }),
+    }),
+    nullifierKey: (spec.nullifier === "owner" ? owner : other).nullifierKey(),
+    ...(spec.dataHash ? { dataHash: bytes(oracle.merge.dataHashHex) as Bytes32 } : {}),
+    ...(spec.zoneDataHash ? { zoneDataHash: bytes(oracle.merge.zoneDataHashHex) as Bytes32 } : {}),
+  });
+}
+
 describe("the Rust oracle and TypeScript agree on the merge builders", () => {
   const merge = oracle.merge;
   const zone = merge.zone as Address;
   const dataHash = bytes(merge.dataHashHex) as Bytes32;
   const zoneDataHash = bytes(merge.zoneDataHashHex) as Bytes32;
-  const blindingSeed = new Uint8Array(31).fill(11) as Bytes31;
-
-  function keypair(secretByte: number, viewingSeed: string): ShieldedKeypair {
-    const secret = new Uint8Array(32);
-    secret[31] = secretByte;
-    const signing = SigningKey.fromBytes(secret as Bytes32);
-    return ShieldedKeypair.fromKeys(
-      signing,
-      NullifierKey.fromSigningKey(signing),
-      ViewingKey.fromBytes(bytes(viewingSeed) as Bytes32),
-    );
-  }
-
-  const sender = keypair(7, oracle.transfer.ownerViewingSeedHex);
-  const other = keypair(12, oracle.transfer.recipientViewingSeedHex);
-
-  const recordBytes: Readonly<Record<DataRecord["kind"], number[]>> = {
-    zoneData: [1, 2, 3],
-    utxoData: [4, 5],
-    memo: [6],
-  };
-
-  function buildInput(spec: MergeInputSpec): ProofInputUtxo {
-    const source = spec.owner === "owner" ? sender : other;
-    const nullifierSource = spec.nullifier === "owner" ? sender : other;
-    return new ProofInputUtxo({
-      utxo: new Utxo({
-        owner: source.signingPublicKey(),
-        asset: spec.asset as Address,
-        amount: BigInt(spec.amount),
-        blinding: deriveBlinding(blindingSeed, spec.position),
-        data: new Data(
-          spec.records.map((kind) => ({ kind, bytes: Uint8Array.from(recordBytes[kind]) })),
-        ),
-        ...(spec.zone === null ? {} : { zoneProgramId: spec.zone as Address }),
-      }),
-      nullifierKey: nullifierSource.nullifierKey(),
-      ...(spec.dataHash ? { dataHash } : {}),
-      ...(spec.zoneDataHash ? { zoneDataHash } : {}),
-    });
-  }
+  const sender = shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex);
+  const buildInput = mergeInput;
 
   function prepare(rail: "plain" | "zone", inputs: readonly ProofInputUtxo[]): PreparedMerge {
     return rail === "zone"
@@ -931,6 +934,50 @@ describe("the Rust oracle and TypeScript agree on the merge builders", () => {
         return;
       }
       expect(contexts(prepared)).toEqual(testCase.inputContexts);
+    });
+  }
+});
+
+interface SplitCase {
+  readonly name: string;
+  readonly input: MergeInputSpec;
+  readonly asset: string;
+  readonly numOutputs: number;
+  readonly perOutputAmount: string;
+  readonly dummyInput: boolean;
+  readonly error: string | null;
+  readonly outputAmounts: readonly string[] | null;
+  readonly firstNullifierHex: string | null;
+  readonly ownerViewTagHex: string | null;
+  readonly payerPublicKeyHashHex: string | null;
+}
+
+describe("the Rust oracle and TypeScript agree on the split builder", () => {
+  const split = oracle.split;
+  const owner = shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex);
+
+  for (const testCase of split.cases as readonly SplitCase[]) {
+    it(`decides ${testCase.name} the same way`, () => {
+      const build = (): PreparedSplit =>
+        new ConfidentialSplit({
+          owner: owner.shieldedAddress(),
+          input: testCase.dummyInput ? ProofInputUtxo.dummy() : mergeInput(testCase.input),
+          asset: testCase.asset as Address,
+          numOutputs: testCase.numOutputs,
+          perOutputAmount: BigInt(testCase.perOutputAmount),
+          payer: split.payer as Address,
+        }).prepare();
+      if (testCase.error !== null) {
+        expect(codeOf(build)).toBe(testCase.error);
+        return;
+      }
+      const prepared = build();
+      expect(prepared.outputs.map((output) => output.amount.toString())).toEqual(
+        testCase.outputAmounts,
+      );
+      expect(hex(prepared.firstNullifier)).toBe(testCase.firstNullifierHex);
+      expect(hex(prepared.ownerViewTag())).toBe(testCase.ownerViewTagHex);
+      expect(hex(prepared.payerPublicKeyHash)).toBe(testCase.payerPublicKeyHashHex);
     });
   }
 });

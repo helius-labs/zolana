@@ -35,7 +35,7 @@ use zolana_transaction::{
             shape::resolve_shape,
             slot_ordinal,
             spp_proof_inputs::{asset_field, signed_to_field, BN254_MODULUS_DEC},
-            ConfidentialTransfer, Shape, WithdrawalTarget, SENDER_SLOT_COUNT,
+            ConfidentialSplit, ConfidentialTransfer, Shape, WithdrawalTarget, SENDER_SLOT_COUNT,
         },
         types::SppProofInputUtxo,
     },
@@ -2198,6 +2198,146 @@ fn prepared_context_cases() -> Value {
     )
 }
 
+struct SplitCase {
+    name: &'static str,
+    input: MergeInputSpec,
+    asset: Address,
+    num_outputs: u8,
+    per_output_amount: u64,
+    dummy_input: bool,
+}
+
+impl SplitCase {
+    fn plain(name: &'static str, amount: u64, num_outputs: u8, per_output_amount: u64) -> Self {
+        Self {
+            name,
+            input: MergeInputSpec::new(amount, 0),
+            asset: SOL_MINT,
+            num_outputs,
+            per_output_amount,
+            dummy_input: false,
+        }
+    }
+}
+
+/// The split builder's accept and reject set. The blinding seed is random, so
+/// this pins the decision plus the deterministic products: the per-slot amounts,
+/// the first nullifier, the owner view tag, and the payer hash.
+fn split_section() -> Value {
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let other = shielded_keypair(&OTHER_SECRET, &RECIPIENT_VIEWING_SEED);
+    let payer = address(PAYER_BYTE);
+    let spl_mint = address(SPL_MINT_BYTE);
+    let perturbed = |mut case: SplitCase, apply: &dyn Fn(&mut SplitCase)| {
+        apply(&mut case);
+        case
+    };
+
+    let cases = [
+        SplitCase::plain("twoEqualParts", 100, 2, 50),
+        SplitCase::plain("eightEqualParts", 80, 8, 10),
+        SplitCase::plain("zeroValueSplit", 0, 2, 0),
+        SplitCase::plain("maxPerOutput", u64::MAX, 1, u64::MAX),
+        SplitCase::plain("onePart", 100, 1, 100),
+        SplitCase::plain("ninePartsRequested", 90, 9, 10),
+        SplitCase::plain("zeroParts", 100, 0, 0),
+        SplitCase::plain("amountMismatch", 100, 3, 30),
+        SplitCase::plain("productOverflows", 8, 8, u64::MAX),
+        perturbed(SplitCase::plain("dummyInput", 100, 2, 50), &|case| {
+            case.dummy_input = true;
+        }),
+        perturbed(SplitCase::plain("foreignOwner", 100, 2, 50), &|case| {
+            case.input.owner = "other";
+        }),
+        perturbed(SplitCase::plain("foreignNullifierKey", 100, 2, 50), &|case| {
+            case.input.nullifier = "other";
+        }),
+        perturbed(SplitCase::plain("assetMismatch", 100, 2, 50), &|case| {
+            case.asset = spl_mint;
+        }),
+        perturbed(SplitCase::plain("zoneBoundInput", 100, 2, 50), &|case| {
+            case.input.zone = Some(address(MERGE_ZONE_BYTE));
+        }),
+        perturbed(SplitCase::plain("inputWithData", 100, 2, 50), &|case| {
+            case.input.records = vec!["utxoData"];
+        }),
+        perturbed(SplitCase::plain("inputWithDataHash", 100, 2, 50), &|case| {
+            case.input.data_hash = true;
+        }),
+    ];
+
+    let cases = cases
+        .iter()
+        .map(|case| {
+            let input = if case.dummy_input {
+                SppProofInputUtxo::new_dummy()
+            } else {
+                merge_input(&case.input, &owner, &other)
+            };
+            let prepared = ConfidentialSplit::new(
+                owner.shielded_address().expect("shielded address"),
+                input,
+                case.asset,
+                case.num_outputs,
+                case.per_output_amount,
+                payer,
+            )
+            .and_then(ConfidentialSplit::prepare);
+            let mut json_case = Map::new();
+            json_case.insert("name".into(), json!(case.name));
+            json_case.insert("asset".into(), json!(case.asset.to_string()));
+            json_case.insert("numOutputs".into(), json!(case.num_outputs));
+            json_case.insert(
+                "perOutputAmount".into(),
+                json!(case.per_output_amount.to_string()),
+            );
+            json_case.insert("dummyInput".into(), json!(case.dummy_input));
+            json_case.insert("input".into(), case.input.json());
+            match prepared {
+                Ok(prepared) => {
+                    json_case.insert("error".into(), Value::Null);
+                    json_case.insert(
+                        "outputAmounts".into(),
+                        Value::Array(
+                            prepared
+                                .outputs
+                                .iter()
+                                .map(|output| json!(output.amount.to_string()))
+                                .collect(),
+                        ),
+                    );
+                    json_case.insert(
+                        "firstNullifierHex".into(),
+                        json!(hex(&prepared.first_nullifier)),
+                    );
+                    json_case.insert(
+                        "ownerViewTagHex".into(),
+                        json!(hex(&prepared.owner_view_tag().expect("owner view tag"))),
+                    );
+                    json_case.insert(
+                        "payerPublicKeyHashHex".into(),
+                        json!(hex(&prepared.payer_pubkey_hash)),
+                    );
+                }
+                Err(error) => {
+                    json_case.insert("error".into(), json!(ts_code(&error)));
+                    for field in [
+                        "outputAmounts",
+                        "firstNullifierHex",
+                        "ownerViewTagHex",
+                        "payerPublicKeyHashHex",
+                    ] {
+                        json_case.insert(field.into(), Value::Null);
+                    }
+                }
+            }
+            Value::Object(json_case)
+        })
+        .collect::<Vec<_>>();
+
+    json!({ "payer": payer.to_string(), "cases": cases })
+}
+
 /// The field encodings a proof's public inputs carry. `signed_to_field` wraps a
 /// negative amount around the BN254 modulus, which is the only place the SDK
 /// depends on the modulus value itself.
@@ -2281,6 +2421,7 @@ fn oracle() -> Value {
         "slots": slots_section(),
         "transfer": transfer_section(),
         "merge": merge_section(),
+        "split": split_section(),
         "serialization": serialization_section(),
         "fromUtxos": from_utxos_section(),
     })
