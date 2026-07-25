@@ -92,6 +92,9 @@ Read the package in this order:
 8. After the SDK parity gates pass, [proof and key-handling parity
    certification](proof-and-key-parity.md) defines the PKP-00 through PKP-08
    evidence phase.
+9. [Production-readiness issues](production-readiness-issues.md) holds the 26
+   cross-cutting findings that no single checklist row owns, each scheduled into
+   one delivery phase with an owning document or packet and a closing gate.
 
 ## Planning documents
 
@@ -130,6 +133,9 @@ Read the package in this order:
 - [Proof and key-handling parity certification](proof-and-key-parity.md):
   certifies cryptographic behavior after the 118-row review and SDK gates
   pass. It supplements the checklist instead of duplicating its inventory.
+- [Production-readiness issues](production-readiness-issues.md): records the
+  cross-cutting findings in nine groups, with the evidence behind each one, and
+  schedules them into the delivery phases below.
 
 ## Inventory rules
 
@@ -183,6 +189,15 @@ Use these phases in order:
 
 The final phase is a cryptographic certification overlay. The checklist remains
 the authority for row status and verdicts.
+
+The 26 findings in
+[production-readiness-issues.md](production-readiness-issues.md#scheduling) are
+sequenced into these phases. Fifteen land in remediation, four are authority
+rulings, and seven map onto PKP packets that already own the work. The two
+findings about continuous integration, G9-1 and G9-2, come first in remediation:
+until a workflow runs the TypeScript scripts and the aggregate `check` script
+covers the cross-language and prover suites, the later phases report gate
+results that a reviewer cannot reproduce.
 
 ## Definition of complete
 

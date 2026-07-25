@@ -53,6 +53,50 @@ overwrites owned mutable arrays and marks the object unusable; documentation
 must state that JavaScript cannot guarantee erasure of engine or crypto-library
 copies. Fixed fixture secrets are test-only and are excluded from examples.
 
+### Redacting a wrapped dependency error
+
+`wrapKeypairError` attaches the original `@noble/curves` or `@noble/hashes`
+error as `cause`. Those libraries put operand material in some messages, and the
+keypair package operates on secret scalars, so a thrown keypair error can reach
+a log aggregator with dependency-supplied detail about a secret-derived value.
+The redaction rule the SDK states is not applied at the one place that would
+apply it
+([G5-1](production-readiness-issues.md#g5-1-raw-dependency-errors-are-retained-as-cause-high)).
+
+The release records one of three dispositions for `cause` on a keypair error and
+enforces it at the wrap site: dropped, replaced by a stable dependency-category
+marker, or retained behind an opt-in the caller sets. A test asserts that no
+serialized keypair error contains input-derived bytes.
+
+### Secret lifetime in JavaScript
+
+Rust secret types clear their memory on drop. A TypeScript `Uint8Array` persists
+until the collector runs, and engine-internal copies are unreachable, so the
+port cannot offer the Rust guarantee. Not stating that leaves a consumer unable
+to reason about residual exposure
+([G6-1](production-readiness-issues.md#g6-1-no-zeroization-of-secret-material-medium)).
+
+The threat statement names both sides: which buffers the SDK owns and clears
+after use, and which copies (engine-internal, crypto-library-internal, and any
+string conversion) it cannot reach. Best-effort clearing applies where a secret
+buffer's lifetime is under SDK control.
+[PKP-04](proof-and-key-parity.md#pkp-04-enforce-capability-and-secret-boundaries)
+K8 tests the stated limits.
+
+### Custody seam width
+
+`ShieldedKeypairLike` requires `nullifier`, and `ViewingKeyLike` requires
+`transactionViewingKey`. Both need the implementer to hold key material, so a
+custodian that exposes a signing operation alone cannot satisfy either
+interface. No non-software implementation has been built against them
+([G6-3](production-readiness-issues.md#g6-3-the-custody-abstraction-may-be-too-narrow-for-a-hardware-signer-medium)).
+
+The release records whether a signing-only custodian is a supported
+configuration. When it is,
+[PKP-04](proof-and-key-parity.md#pkp-04-enforce-capability-and-secret-boundaries)
+K9 builds the second implementation that proves the seam holds. When it is not,
+the interfaces document the key material an external custodian must hold.
+
 Circuit private inputs sent to a configured remote prover are an explicit trust
 boundary. The threat model states exactly which witness values the prover sees.
 

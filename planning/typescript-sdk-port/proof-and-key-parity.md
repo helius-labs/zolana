@@ -1009,6 +1009,15 @@ Fixture generation requirements:
 - generate into a temporary directory for `--check`;
 - keep fixture writes out of ordinary tests.
 
+The verifying-key module and its SHA-256 are a gate, not bookkeeping.
+`provingKeyRelease` in the shared manifest pins a lock file path and hash, which
+records the proving keys; the proof fixtures record no verifying key, so
+rotating one would leave them passing against a key that no longer verifies
+their proofs
+([G8-2](production-readiness-issues.md#g8-2-verifying-key-provenance-is-not-tied-to-the-fixtures-high)).
+The fixture gate compares the recorded identity against the key the verifier
+loads and fails on a mismatch instead of reporting drift.
+
 Fixture consumption requirements:
 
 - TypeScript validates shape before use;
@@ -1102,6 +1111,28 @@ a checklist row; record row changes in
 [`review-checklist.md`](review-checklist.md) through its fix and independent
 re-review workflow.
 
+### Findings these packets already own
+
+Seven of the 26 findings in
+[`production-readiness-issues.md`](production-readiness-issues.md#scheduling)
+describe work these packets carry. They are listed here so a reader can see that
+the register schedules them onto the PKP set rather than opening a second track
+beside it. Two more findings are resolved by PKP-00 as authority rulings.
+
+| Packet | Findings it closes |
+| --- | --- |
+| PKP-00 | G7-1 owner-hash encoding conflict; G7-2 the two authority orders and the missing per-conflict ledger |
+| PKP-01 | G8-2 verifying-key identity per proof fixture; extends the G8-1 revision-compatibility rule to proof and key fixtures |
+| PKP-02 | G2-1 P256 high-S policy through K2; G2-2 Ed25519 acceptance policy through K3; certifies the G1-3 34-byte type through K1 |
+| PKP-04 | G6-3 custody seam through K9; certifies the G6-1 secret-lifetime limits through K8 |
+| PKP-05 | G3-1 zone and zone-authority prover inputs; G3-2 the prepared zone-authority type |
+| PKP-06 | G4-1 native verification of TypeScript-produced artifacts; G4-3 the tamper matrix |
+| PKP-07 | G4-2 real prove-to-chain evidence |
+
+The remaining 15 findings land in the remediation and gate phases of
+[`review-checklist.md`](review-checklist.md#deterministic-selection) and are
+listed there.
+
 ### PKP-00: Resolve authorities and freeze scope
 
 Deliver:
@@ -1120,8 +1151,12 @@ Exit:
 Deliver:
 
 - proof/key fixture schema metadata;
-- verifying-key identities and hashes;
-- program/prover/source revision linkage;
+- verifying-key identities and hashes, with the gate failing on a mismatch
+  against the key the verifier loads;
+- program/prover/source revision linkage, under the compatibility rule per
+  revision key that
+  [`testing-and-conformance.md`](testing-and-conformance.md#revision-compatibility)
+  defines for the shared manifest;
 - deterministic two-run generator check;
 - CI fixture gate.
 

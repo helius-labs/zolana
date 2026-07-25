@@ -65,6 +65,25 @@ The Rust generator calls production functions. It must not duplicate protocol
 math. Two runs must produce a clean diff, Rust must verify each generated
 fixture, and CI must regenerate at the manifest commit.
 
+### Revision compatibility
+
+`manifest.json` carries nine identity keys: four entries under
+`canonicalSourceRevisions` (`baseline`, `client`, `interface`, `merkleTree`),
+plus `frozenCommit`, `historicalBaselineCommit`, `photonSchemaRevision`,
+`specSha256`, and the `provingKeyRelease` lock hash. A parity claim assembled
+from fixtures generated at different revisions is a claim about no single
+protocol version, so each key states two things
+([G8-1](production-readiness-issues.md#g8-1-the-manifest-pins-multiple-source-revisions-high)):
+
+1. which other keys it must agree with, and what a legal divergence looks like;
+2. what invalidates a fixture generated under it, which is its regeneration
+   trigger.
+
+The fixture gate reads those rules and fails when a fixture is consumed against
+an incompatible pin. Drift recorded against the freeze, currently
+`sdk-libs/merkle-tree/src/indexed.rs`, is reviewed under the rule for its key
+rather than carried as a note.
+
 ## Public declaration coverage ledger
 
 This ledger normalizes one declaration as
@@ -480,6 +499,14 @@ Required cross-tests:
   duplicate inner accounts union writable/signer privileges, inner indexes
   remain stable, the vault outer signer bit is cleared, and count/data/payload
   overflow is rejected before truncation.
+- the fixture generator records an `(input, rust_error_variant)` pair for each
+  malformed input in the keypair, transaction, and client rejection corpora, and
+  a TypeScript test asserts the mapped code for each pair. Without it the
+  mapping between a Rust variant and its TypeScript code exists only in prose
+  ([G5-3](production-readiness-issues.md#g5-3-no-cross-language-error-mapping-fixture-medium)).
+  The pairs consume the code-per-variant table that
+  [G5-2](production-readiness-issues.md#g5-2-the-keypair-error-taxonomy-is-collapsed-relative-to-rust-high)
+  produces, so a collapsed code cannot satisfy the assertion.
 
 ## Independent E2E suites
 
@@ -570,6 +597,16 @@ authority/sync, interface, Merkle tree, and smart-account builders run without
 `Buffer`, `process`, `require`, `node:*`, filesystem, or injected polyfills.
 Node 20 and 22 run the package tests. Private `@zolana/test-kit` is Node-only.
 
+The implementation and this requirement disagree, and the script is what
+changes. `sdk-libs/ts/config/browser-check.mjs` greps sources for Node globals
+and bundles the entry points with esbuild, so a runtime dependency on
+`crypto.subtle`, a `SharedArrayBuffer` assumption, or a `BigInt64Array` gap
+passes it. Executing the keypair and transaction vector suites in headless
+Chromium is the gate; the static scan stays as a cheap pre-filter beside it. The
+Web Crypto surfaces the packages require are named in a list a consumer can read
+before choosing a browser target
+([G9-4](production-readiness-issues.md#g9-4-browser-support-is-checked-statically-not-in-a-browser-medium)).
+
 ## Property and mutation gates
 
 Mandatory properties include codec round trips; sign/verify; encrypt/decrypt;
@@ -584,6 +621,23 @@ Mutation tests must kill changes to lengths, endianness, tags, option/vector
 prefixes, proof point signs, BSB22 presence, account order/flags, smart-account
 indexes/counts, indexer field names, signature/tag confirmation matching, and
 SOL/SPL settlement variants.
+
+Aliasing is a separate obligation from the mutation set. For each public
+accessor that receives or returns secret-adjacent bytes, one test mutates the
+buffer the caller holds and asserts the object's internal state is unchanged.
+`copyBytes` on a return path is the implementation, not the evidence: the audit
+is the set of accessors, not the set of `copyBytes` call sites
+([G6-2](production-readiness-issues.md#g6-2-defensive-copy-discipline-is-not-uniformly-verified-medium)).
+[PKP-04](proof-and-key-parity.md#pkp-04-enforce-capability-and-secret-boundaries)
+K8 extends the same test shape to the secret-bearing constructors.
+
+Proof tamper coverage is owned by
+[PKP-06](proof-and-key-parity.md#pkp-06-add-native-verification-certification).
+Its matrix holds one negative case per public input and per proof component,
+and each case asserts a named typed rejection rather than any failure
+([G4-3](production-readiness-issues.md#g4-3-adversarial-and-tamper-coverage-is-thin-medium)).
+That assertion needs the G5-2 code split first, since a matrix cannot name a
+rejection while several causes share one code.
 
 ## Commands and release evidence
 
@@ -604,6 +658,45 @@ npm run test:inventory
 npm run api:check
 npm run pack:check
 ```
+
+## Continuous integration tiers
+
+No workflow under `.github/workflows/` runs these commands, and the aggregate
+`check` script runs nine of them. The suites `check` skips are `test:vectors`,
+`test:property`, `test:cross`, `test:prover`, `test:browser`,
+`test:e2e:actions`, `test:e2e:instructions`, `fixtures:check`, `pack:check`, and
+`lint:packages`, which are the ones that carry the parity argument. So "check
+passes" reads as "the port agrees with Rust" and means something narrower
+([G9-2](production-readiness-issues.md#g9-2-the-aggregate-check-script-omits-most-certification-gates-blocker)).
+
+Three tiers replace that split. Each command belongs to exactly one tier, and
+the tier a command sits in is the promise made when it passes.
+
+| Tier | Runs on | Contains |
+| --- | --- | --- |
+| Commit | a local pre-commit hook and the pull-request job | `build`, `typecheck`, `lint`, `lint:packages`, `format:check`, `test:unit`, `test:inventory`, `test:exports`, `test:dependencies`, `api:check` |
+| Merge | the pull-request workflow, blocking merge | the commit tier plus `test:vectors`, `test:property`, `test:cross`, `test:prover`, `test:browser`, `fixtures:check`, `pack:check` |
+| Release | the release workflow and the phase-4 gate evaluation | the merge tier plus `test:e2e:actions` and `test:e2e:instructions` |
+
+The aggregate script named `check` runs the commit tier. Either it is renamed to
+match that scope or it grows to the merge tier; a script whose name outruns its
+contents is the defect
+([G9-2](production-readiness-issues.md#g9-2-the-aggregate-check-script-omits-most-certification-gates-blocker)).
+
+A pull-request workflow runs the merge tier. Until one exists, nothing stops a
+merge that breaks the build, the types, the lint, the tests, or fixture
+agreement, and each gate in the planning documents is a manual step whose result
+a reviewer cannot reproduce
+([G9-1](production-readiness-issues.md#g9-1-no-workflow-runs-the-typescript-suite-blocker)).
+The prover tier needs the pinned local prover and the proving-key cache keyed on
+the lockfile hash, which `rust.yml` already sets up and the TypeScript job
+reuses.
+
+`format:check` selects files by glob with explicit ignores rather than the
+hand-maintained path list it uses now, and the globs cover `planning/`. A list
+that enumerates packages and single report files leaves a new package or
+document unformatted until someone remembers to extend it
+([G9-3](production-readiness-issues.md#g9-3-formatcheck-covers-a-hand-maintained-file-list-medium)).
 
 ## Post-parity cryptographic certification
 
