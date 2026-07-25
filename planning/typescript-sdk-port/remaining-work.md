@@ -93,26 +93,31 @@ figures are right; 96 rows are closed and 90 is the number the gate reports.
 **The 45 is behind the code, and knowing by how much saves you rework.** Batches
 write their row transitions into `row-updates/<batch>.md` and a reconciler moves
 them into the table, so a row can carry a committed fix with oracle evidence and
-still read adverse. Six of the 45 are in that state today: `C07`, `C08`, `C15`,
-`C19`, `C20`, and the `T23` residual landed with client batch B at `d3514b24`,
-`410f6757`, `1da410f3`, `d867fccc`, and `2e981b7f`, and are recorded in
-[`row-updates/client-b.md`](row-updates/client-b.md) rather than in the table.
-Read the batch file for a package before you start on one of its rows. Criterion
-2 does not move until the reconciler folds those in, which makes the fold-in
-part of the remaining work rather than bookkeeping after it.
+still read adverse. At least twelve of the 45 are in that state today:
+
+- `C07`, `C08`, `C15`, `C19`, `C20`, and the `T23` residual landed with client
+  batch B and are merged, recorded in
+  [`row-updates/client-b.md`](row-updates/client-b.md);
+- `I08`, `I09`, `I20`, and `I21` are fixed on `port/merge-prefix`, unmerged;
+- `K12` and `M02` are answered on `port/interface-b`, unmerged.
+
+Read the batch file for a package, and check whether a branch already holds its
+fix, before you start on one of its rows. Criterion 2 does not move until the
+reconciler folds these in, which makes the fold-in part of the remaining work
+rather than bookkeeping after it.
 
 ## The sequence
 
 | Step | Closes | Start after |
 | --- | --- | --- |
-| A | Whether the SDK needs versioned transactions | runs alongside, blocks nothing |
+| A | Whether the SDK needs versioned transactions, and the size check it turned up | runs alongside, blocks nothing |
 | 1 | Criterion 4, the red pull request | now |
-| 2 | `I08` `I09` `I20` `I21`, on one sentence from the owner | now |
+| 2 | `I08` `I09` `I20` `I21`, decided and fixed, waiting to merge | now |
 | 3 | Wallet, `W02` and `W04` | now |
 | 4 | Interface, `I07` `I19` `I26` `I37` | steps 1 and 3 |
 | 5 | Transaction, 15 rows, one of them already fixed | now |
 | 6 | Client, 13 rows, five of them already fixed | now |
-| 7 | Keypair and merkle-tree, `K11` to `K14` and `M02` | now |
+| 7 | Keypair and merkle-tree, `K11` to `K14` and `M02`, two answered on a branch | now |
 | 8 | Indexer API and smart-account client, `X01` and `S01` | now |
 | 9 | The package and full SDK gate sets | steps 1 to 8 |
 | 10 | The cryptographic phase | step 9 |
@@ -128,40 +133,51 @@ holds, and three collisions have come from trusting the name.
 
 ## Step A. Decide about address lookup tables and versioned transactions
 
-**Now.** The SDK depends on no Solana package and compiles transactions by hand,
-so `compileLegacyTransaction` (`sdk-libs/ts/client/src/client.ts:615-698`)
-produces a legacy message. There is no `VersionedTransaction` and no way to pass
-an address lookup table. Light Protocol moved to v0 messages because a
-transaction touching several state trees and queues runs out of account slots,
-and it creates lookup tables holding those addresses
-(`js/stateless.js/src/utils/state-tree-lookup-table.ts:1-40`). A Zolana private
-transfer touches a pool tree, a nullifier queue, a registry, an optional
-withdrawal, and SPL accounts, which is the same growth pattern.
+**Now.** The study is written and it answers the question differently from the
+way this step framed it. `versioned-transactions.md` landed on branch
+`port/versioned-tx` at `93db8cd1`, measured rather than estimated, using an
+`xtask tx-size` command that compiles real instruction data into both message
+versions and reports the signed length.
 
-**Done when** the owner has an answer to one question: is there a wall, how far
-away is it, and does this port do anything about it now. The answer may be that
-there is years of headroom and nothing to do, which closes the step as
-legitimately as a decision to build a v0 compiler would.
+The premise this step was built on turns out to be wrong, so read the correction
+before acting on the step. Light Protocol moved to v0 messages because its
+compressed transaction names a state tree and a queue per input account, so its
+account list grows with the input count. Zolana's `transact` takes one `tree`
+account whatever the shape
+(`programs/shielded-pool/src/instructions/transact/account.rs:24-27`), and the
+nullifier tree lives inside that account rather than beside it. The widest
+account layout in the program is nine, the runtime caps a transaction at 128
+account locks, and widening the shape consumes none of that headroom. Zolana
+does not have Light's problem, and the claim that it shows the same growth
+pattern does not survive measurement.
 
-**Check.** `planning/typescript-sdk-port/versioned-transactions.md` exists,
-leads with whether the wall is real and how far away, and carries a
-recommendation the owner has accepted or rejected.
+The wall is real, it arrived before the study started, and it is the 1232-byte
+transaction size rather than the account count. The widest shape, 1 input and 8
+outputs, compiles to a 2108-byte transfer today, and an address lookup table
+takes it to 2113. Three of the ten supported shapes cannot be sent right now in
+either message version. What brings nine of the ten under the limit is the
+ciphertext format, which is already specified. Versioned transactions and lookup
+tables cost 5 bytes on a pure transfer and save 57 on an SPL withdrawal, so they
+are not the remedy for the size problem.
 
-An agent on branch `port/versioned-tx`, in the `zolana-ts-interface-a` tree, is
-writing that document now. If it has not appeared in your tree, it is in flight
-rather than missing; do not answer the question yourself and do not wait for it
-before starting a numbered step.
+**Done when** the owner has accepted or rejected two recommendations: that v0 is
+not scheduled for the size problem, and that the transaction compiler gets a
+size check. The second one is the urgent half. The SDK builds transactions that
+cannot be sent and reports the result as a confirmation timeout, so a caller
+hitting one of the three unsendable shapes today sees the wrong diagnosis.
+
+**Check.** [`versioned-transactions.md`](versioned-transactions.md) carries a
+recommendation the owner has answered, and the size check exists in
+`compileLegacyTransaction` or has been declined on the record.
 
 This is out of scope for the parity work and it is not part of the cryptographic
-phase, which is why it carries a letter rather than a number. It is here because
-it is the largest architectural question outstanding and it gets more expensive
-the longer it waits, so it competes for the same attention as the numbered
-steps.
+phase, which is why it carries a letter rather than a number.
 
-**Read.**
-[`light-protocol-comparison.md`](light-protocol-comparison.md), finding F1, which
-records the same finding with the paths behind each claim, and
-[`versioned-transactions.md`](versioned-transactions.md) once it lands.
+**Read.** [`versioned-transactions.md`](versioned-transactions.md) first. The
+link resolves once `port/versioned-tx` merges; until then read it from that
+branch. It also corrects two claims in finding F1 of
+[`light-protocol-comparison.md`](light-protocol-comparison.md), so read F1
+second and treat the study as the later word where they disagree.
 
 ## Step 1. Get the pull request's checks green
 
@@ -199,39 +215,40 @@ has already explained this failure twice.
 and G9-1 through G9-4, and
 [`testing-and-conformance.md`](testing-and-conformance.md#continuous-integration-tiers).
 
-## Step 2. Close the four pinned rows with one sentence
+## Step 2. Record the merge-prefix decision, which has been taken
 
 **Now.** `I08`, `I09`, `I20`, and `I21` are the same finding on four surfaces.
 TypeScript refuses a merge payload whose `encrypted_utxo` first byte is not `2`,
 which the Rust decoder reads, because the prefix is not among the bytes
 `MergeTransactIxData::deserialize` parses and the shielded-pool program is what
-rejects the payload, with
-`InvalidMergeOutputScheme` (7014). Byte-level parity holds for canonical
-payloads and a committed test fails if either side moves, so these four are
-`pinned_divergence` rather than `needs_fix`: the difference is understood,
-reproduced, and left in place because choosing between two defensible behaviours
-belongs to the owner.
+rejects the payload, with `InvalidMergeOutputScheme` (7020). Byte-level parity
+holds for canonical payloads and a committed test fails if either side moves,
+which is why the four sat at `pinned_divergence` rather than `needs_fix`.
 
-No valid transaction is lost either way. What TypeScript cannot do is decode
+No valid transaction is lost either way. What TypeScript could not do is decode
 such an instruction while indexing or debugging a failed transaction.
 
-An agent on `port/merge-prefix`, in the `zolana-ts-programlibs` tree, holds the
-strictness question. Coordinate with it rather than editing the codec.
+**This step no longer waits on a sentence from the owner.** The standing rule
+about resolving an open question decided it: the worker on `port/merge-prefix`,
+in the `zolana-ts-programlibs` tree, checked the problem was real, read how
+Light Protocol handles a byte the program rather than the layout enforces, and
+relaxed both ends of the codec to match. That overrides the earlier
+recommendation to relax decode and keep encode, under the rule that where a row
+recommends one thing and Light does another, Light wins and the row changes. The
+fix is `78039fe9` and the evidence is
+[`row-updates/merge-prefix.md`](row-updates/merge-prefix.md) at `b681b8ed`.
+Nothing outside `sdk-libs/ts/` moved, and the program's rejection stands.
 
-**Done when** the owner names a side. Both fixes are in scope: drop the guard
-from `sdk-libs/ts/interface`, or add the matching guard to
-`program-libs/interface`, which this branch would not do. The standing
-instruction, that a port stricter than its original silently breaks callers,
-points at dropping the guard, and Light Protocol's rule points the same way:
-decode any instruction that can appear in a transaction, build only those whose
-inputs the SDK can itself produce.
+**Done when** `port/merge-prefix` merges into `ts-sdk-port` and the reconciler
+moves the four rows to `done`.
 
-**Check.** The four rows leave `pinned_divergence` and take the ordinary route
-through `needs_fix` and then `done`.
+**Check.** The four rows leave `pinned_divergence` and reach `done`.
 
-**Read.**
-[`scope-and-denominator.md`](scope-and-denominator.md#the-four-pinned-rows-since-one-sentence-clears-them)
-and [`authority-rulings.md`](authority-rulings.md).
+**Read.** [`row-updates/merge-prefix.md`](row-updates/merge-prefix.md) for what
+was decided and why. Note it corrects a number this document carried: the error
+is 7020, not 7014. Then
+[`scope-and-denominator.md`](scope-and-denominator.md#the-four-pinned-rows-since-one-sentence-clears-them),
+whose framing of these four as awaiting a ruling is now behind the code.
 
 ## Step 3. Wallet, two rows
 
@@ -432,24 +449,27 @@ answer corrects the row itself: `historyRootIndex` counts root updates modulo
 the history length and wraps, in both languages, so the row's premise that it
 holds zero describes neither.
 
-Two things hold these rows open and one of them has gone stale.
+Two things held these rows open and both have since moved.
 
-`K12` has a real open question for the owner. Rust's `nullifier_key()` clones
-out the nullifier key while TypeScript's interface offers `nullifierPublicKey()`
-alone. TypeScript is the safer surface and the difference is deliberate, but a
-trait whose Rust form hands out secret material and whose TypeScript form does
-not is not parity, and which side moves is the owner's call.
+`K12` asked a real question of the owner. Rust's `nullifier_key()` cloned out
+the nullifier key while TypeScript's interface offered `nullifierPublicKey()`
+alone, and a trait whose Rust form hands out secret material and whose
+TypeScript form does not is not parity. It is answered in the direction of the
+safer surface: `9123db9d` on `port/interface-b` narrows the Rust trait to the
+nullifier public key. The row waits on that branch merging rather than on a
+decision.
 
 `K13`, `K14`, and `M02` each record that the packed-package gate fails with
 `packed browser bundle contains globalThis.process`. **That no longer
 reproduces.** `node sdk-libs/ts/config/pack-check.mjs keypair` and the same
 command for `merkle-tree` both exit 0 on this tree, and `typescript / packaging`
 passes on the pull request. Re-run the gate, record the result against a commit,
-and drop the residue from the three rows.
+and drop the residue from the three rows. `M02`'s export surface is pinned by
+`c96ff2e4` on the same branch.
 
-**Done when** the owner answers the `nullifier_key()` question, the surface
-gates for `M02` are rerun against a named commit, and the stale pack-check
-residue is removed with evidence.
+**Done when** `port/interface-b` merges, the surface gates for `M02` are rerun
+against a named commit, and the stale pack-check residue is removed with
+evidence.
 
 **Check.** The keypair and merkle-tree package gate blocks have no adverse row.
 
@@ -458,10 +478,12 @@ residue is removed with evidence.
 
 ## Step 8. Indexer API and smart-account client, two rows
 
-**Now.** `X01` and `S01` are one row each, they are the only rows in their
-packages, and no batch owns either. Both are `DIVERGENT` and both have been
-adverse since the first review, so neither has the layers of amendment the other
-packages carry.
+**Now.** `X01` and `S01` are one row each and they are the only rows in their
+packages. Both are `DIVERGENT` and both have been adverse since the first
+review, so neither has the layers of amendment the other packages carry. The
+sentence this step used to carry, that no batch owns either, is out of date:
+`port/interface-b` in the `zolana-ts-interface-b` tree has taken both and has
+committed against each.
 
 `X01`: TypeScript follows current Rust and Photon accurately, while `docs/spec.md`
 defines different indexer context, UTXO, transaction, and output schemas. The
@@ -469,16 +491,17 @@ base64-to-bytes and hash error distinctions are incomplete, the promised Rust
 fixture is absent, and there is no exhaustive rejection or live-Photon evidence.
 The specification is the side that lags here, so this needs an amendment rather
 than a code change, then the schema, conversions, errors, and fixtures aligned
-behind it.
+behind it. `ee650188` restores the byte view and splits the hash errors.
 
 `S01`: Rust casts compiled account positions to `u8` while TypeScript refuses an
 index above 255, so the overflow policy conflicts. TypeScript also has no
 equivalent enforcement or evidence for the 1232-byte transaction limit, no exact
-execute fixture, and no pinned export surface. Choose one index policy at the
-canonical boundary, add the size limit, and pin the execute bytes and exports
-with current-Rust fixtures.
+execute fixture, and no pinned export surface. `1d84539b` settles the index
+boundary at `u8` in both languages and `09012b2f` pins the export surface. What
+remains is the size limit and the execute bytes.
 
-**Done when** both rows reach `done`.
+**Done when** both rows reach `done`, which needs `port/interface-b` merged and
+the residue above closed.
 
 **Check.** The `indexer-api` and `smart-account-client` package gate blocks have
 no adverse row.
