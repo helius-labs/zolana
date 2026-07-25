@@ -1,18 +1,25 @@
-// Gate on planning/typescript-sdk-port/review-checklist.md, which records a
-// verdict per row twice: once in the queue tables and once in the session log.
-// The two desynchronize structurally, because table edits sit in the file from
-// the moment they are made and get carried by whoever commits next, while a log
-// entry is written at the end of a session and is lost when another agent
-// commits first. The rules that forbid that already exist and did not hold, so
-// this reads the file back and refuses the states they were meant to prevent.
+// Gate on the review checklist, which records a verdict per row twice: once in
+// the queue tables and once in the session log. The two desynchronize, because a
+// table edit sits in the tree from the moment it is made and gets carried by
+// whoever commits next, while a log entry is written at the end of a session and
+// is lost when another agent commits first. The rules that forbid that already
+// exist and did not hold, so this reads the record back and refuses the states
+// they were meant to prevent.
+//
+// The log lives in planning/typescript-sdk-port/log/, one file per entry, so an
+// entry can no longer be carried off by a commit that meant to take only the
+// table. Entries are ordered by the timestamp in their filename.
 
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const checklistPath = path.join(repoRoot, "planning/typescript-sdk-port/review-checklist.md");
+const planningDir = path.join(repoRoot, "planning/typescript-sdk-port");
+const checklistPath = path.join(planningDir, "review-checklist.md");
+const logDir = path.join(planningDir, "log");
 const displayPath = path.relative(repoRoot, checklistPath);
+const displayLogDir = path.relative(repoRoot, logDir);
 
 const DONE_STATUS = "done";
 const PARITY_VERDICT = "PARITY";
@@ -97,25 +104,47 @@ if (!claimed) {
 }
 
 /**
- * Split the append-only session log into entries, skipping fenced blocks so the
- * copy-me template does not parse as a real entry.
+ * One entry per file, ordered by the timestamp its name starts with. Document
+ * order used to carry that meaning and carried it badly, because workers wrote
+ * per-row entries in row order rather than in time order.
  */
-function readLogEntries() {
-  const logStart = lines.findIndex((line) => line.startsWith("## Append-only session log"));
-  if (logStart === -1) throw new Error(`${displayPath} has no session log`);
+async function readLogEntries() {
+  const names = (await readdir(logDir)).filter(
+    (name) => name.endsWith(".md") && name !== "README.md",
+  );
+  if (names.length === 0) throw new Error(`${displayLogDir} holds no entries`);
 
   const entries = [];
-  let fenced = false;
-  for (const [index, line] of lines.slice(logStart).entries()) {
-    if (line.startsWith("```")) fenced = !fenced;
-    if (fenced) continue;
-    if (line.startsWith("### ")) {
-      entries.push({ heading: line.slice(4).trim(), line: logStart + index + 1, body: [] });
-    } else if (entries.length > 0) {
-      entries.at(-1).body.push(line);
+  for (const name of names) {
+    const stamp = /^(\d{4}-\d{2}-\d{2})T(\d{4})-/.exec(name);
+    if (!stamp) {
+      fail(
+        `${displayLogDir}/${name} is not named \`<YYYY-MM-DD>T<HHMM>-<row>.md\`, so it has no place in the order`,
+      );
+      continue;
     }
+    const [heading, ...body] = (await readFile(path.join(logDir, name), "utf8")).split("\n");
+    entries.push({
+      heading: heading.replace(/^#+\s*/, "").trim(),
+      body,
+      file: `${displayLogDir}/${name}`,
+      // Same-minute entries keep a stable relative order by filename.
+      sort: `${stamp[1]}T${stamp[2]}|${name}`,
+    });
   }
-  return entries;
+  return entries.sort((a, b) => a.sort.localeCompare(b.sort));
+}
+
+// The old section must stay empty. Left parseable, the habit resumes and entries
+// drift back into the file they were split out of, invisible to everything below.
+const logSection = lines.findIndex((line) => line.startsWith("## Append-only session log"));
+if (logSection !== -1) {
+  const stray = lines.findIndex((line, index) => index > logSection && line.startsWith("### "));
+  if (stray !== -1) {
+    fail(
+      `${displayPath}:${stray + 1} holds a session-log entry. Entries live in ${displayLogDir}, one file per entry, and this one is read by nothing.`,
+    );
+  }
 }
 
 function rowIdsIn(text) {
@@ -156,25 +185,25 @@ function verdictsIn(entry) {
   return assigned;
 }
 
-// Later entries supersede earlier ones. The log is append-only, so its own
-// order is the record of what was concluded last.
+// Later entries supersede earlier ones.
 const latest = new Map();
-for (const entry of readLogEntries()) {
+for (const entry of await readLogEntries()) {
   for (const [id, verdict] of verdictsIn(entry)) {
-    latest.set(id, { verdict, heading: entry.heading, line: entry.line });
+    latest.set(id, { verdict, heading: entry.heading, file: entry.file });
   }
 }
 
 // The property worth enforcing is not that an entry exists. 31 of the 36 rows
-// this check was written for had one, so presence passes the rows that matter.
-// A row claimed complete must not be contradicted by the last verdict recorded
-// against it.
+// this check was written for had one, so presence passes the rows that matter,
+// and splitting the log into one file per row makes presence easier still to
+// satisfy without saying anything. A row claimed complete must not be
+// contradicted by the last verdict recorded against it.
 for (const row of doneRows) {
   const record = latest.get(row.id);
   if (!record || !verdicts.has(record.verdict) || NON_ADVERSE_VERDICTS.has(record.verdict))
     continue;
   fail(
-    `${displayPath}:${row.line} ${row.id} is \`${DONE_STATUS}\` / \`${PARITY_VERDICT}\`, but the last session-log entry that assigns it a verdict records \`${record.verdict}\`: line ${record.line}, "${record.heading}". Record the review that upgraded it, or re-open the row.`,
+    `${displayPath}:${row.line} ${row.id} is \`${DONE_STATUS}\` / \`${PARITY_VERDICT}\`, but the last log entry that assigns it a verdict records \`${record.verdict}\`: ${record.file}, "${record.heading}". Record the review that upgraded it, or re-open the row.`,
   );
 }
 
@@ -184,7 +213,7 @@ if (process.argv.includes("--explain")) {
   for (const id of [...rows.keys()].sort()) {
     const record = latest.get(id);
     console.log(
-      `${id}\t${rows.get(id).status}/${rows.get(id).verdict}\t${record ? `${record.verdict} from line ${record.line}, ${record.heading}` : "no attributable verdict"}`,
+      `${id}\t${rows.get(id).status}/${rows.get(id).verdict}\t${record ? `${record.verdict} from ${record.file}` : "no attributable verdict"}`,
     );
   }
 }
@@ -196,5 +225,5 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `${displayPath}: ${rows.size} rows, ${doneRows.length} done/${PARITY_VERDICT}, ${latest.size} rows carry an attributable session-log verdict.`,
+  `${displayPath}: ${rows.size} rows, ${doneRows.length} done/${PARITY_VERDICT}, ${latest.size} rows carry an attributable verdict from ${displayLogDir}.`,
 );
