@@ -40,7 +40,7 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
  * key, a plaintext, a scalar -- must never reach an error object, because
  * errors get logged and serialized.
  */
-export interface KeypairErrorDetails {
+export type KeypairErrorDetails = {
   readonly name?: string;
   readonly expected?: number | string;
   readonly actual?: number | string;
@@ -50,7 +50,7 @@ export interface KeypairErrorDetails {
   readonly prefix?: number;
   readonly reason?: string;
   readonly type?: string;
-}
+};
 
 const DETAIL_KEYS: readonly (keyof KeypairErrorDetails)[] = [
   "name",
