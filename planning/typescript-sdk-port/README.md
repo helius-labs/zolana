@@ -21,14 +21,14 @@ for the disposition of each hunk before adding to them.
 
 ## Status
 
-Refreshed as each worker returns. Last update: 2026-07-25 19:47.
+Refreshed as each worker returns. Last update: 2026-07-25 19:52.
 
 | | |
 | --- | --- |
 | Rows supported by evidence | 1 of 145 |
 | Rows with an adverse verdict | 107 (55 partial, 39 divergent, 13 blocked) |
 | Rows with no verdict recorded | 27, in the `event`, `hasher`, `indexed-array`, and `user-registry-interface` crates |
-| Branch | 233 commits over two days |
+| Branch | 241 commits over two days |
 | Phase | 2 of 4: remediation. Phase 1 reopened, phases 3 and 4 not started |
 
 In flight:
@@ -38,7 +38,6 @@ In flight:
 | Client package, rows C01 to C22 | Running |
 | Poseidon parity across four TypeScript implementations | Running |
 | Checklist reconciliation, log split, 27 new rows | Running |
-| Registry deposit-tag leak in `ResolvedAddress` | Running |
 | `program-libs` scope audit and reverts | Running |
 | `user_record` binding fix, own branch off `main` | Running |
 
@@ -48,7 +47,14 @@ instructions that consume UTXOs, `Transact`, `ZoneTransact`,
 `ZoneAuthorityTransact`, `MergeTransact`, and `ZoneMergeTransact`; the
 zone-authority public leg permitted in both languages; the
 end-to-end harness given a real indexer; the wallet viewing-key history made
-live; five over-strict guards relaxed to match what the program accepts.
+live; five over-strict guards relaxed to match what the program accepts; and
+registry resolution corrected to return the owner tag, which had survived the
+deposit-tag fix and would have handed the old value to any sender who looked a
+recipient up rather than being told their shielded address.
+
+That last one also stopped the resolved tag moving when a sync delegate rotates
+a viewing key, so a scanning wallet's tag now survives delegation and
+revocation. The test asserting the opposite was inverted rather than deleted.
 
 Queued, not dispatched: the 27 uncovered `program-libs` rows, the five rows
 pointing at the wrong file, the residual Rust prerequisites, the Merkle
