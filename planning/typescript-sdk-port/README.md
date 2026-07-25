@@ -59,7 +59,7 @@ In flight:
 | Quality and no-shortcuts audit of `sdk-libs/ts` | Running |
 | Fold three merged batches into the table | Running |
 | Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc`, 5 commits ahead and merging clean. Landed the indexed-range sentinel bound, the faucet-port offset, and the keypair bigint bound |
-| Keypair error redaction, is the guarantee real | Test strengthened in `3e2360b2`, worker still reporting |
+| Keypair error redaction, is the guarantee real | Done. No secret reaches an error surface, but the sanitizer is not what prevents it |
 | Client package, rows C01 to C22 | RPC half closed, prover half outstanding |
 | Transaction, 31 rows | 5 commits ahead, second pass queued behind the capacity limit |
 | `user_record` binding fix, own branch off `main` | Done, PR #160, 23 checks green |
@@ -82,9 +82,17 @@ enough state to checkpoint. Hold concurrency at three.
 
 A test can fail for a reason that is not in the code. Immediately after the
 keypair merge the client error suite failed, which read exactly like a
-cross-batch regression in secret redaction; it was vitest serving a cached
-transform of the pre-merge module. Clear `node_modules/.vite` before believing
-a failure that appears in the first run after a merge.
+cross-batch regression in secret redaction. Two stale layers caused it, and
+clearing one is not enough. Vitest was serving a cached transform, and on disk
+`keypair/dist/error.js` still held the pre-merge class, because packages
+resolve each other through their `exports` map and so a cross-package test
+imports `dist` rather than `src`. After a merge, run `npm run build` and
+`rm -rf node_modules/.vite` before believing a failure.
+
+Verify a merge with `npm run lint:packages`, not `npm run lint`. The root
+script reads the config files; the package script reads package source. Two
+lint errors rode into the branch with the interface batch because the merge was
+checked with the wrong one.
 
 A passing test is not evidence until you have seen it fail. That same redaction
 test passed for an incidental reason: its fixture placed each secret it carried
@@ -97,10 +105,29 @@ Two assertions also moved off `toMatchObject`, whose subset matching let extra
 fields through unnoticed. Prefer an exact `toEqual` when the property under test
 is that something is absent.
 
-One residual has no runtime guard: the sanitizer bounds which detail keys
-survive, not what those keys hold. A call site that passes computed data under
-an allowed key carries it intact to `ClientError.cause.details`. That property
-is held by the call sites, so review them when adding one.
+One residual has no runtime guard, and it is worth understanding before
+trusting the layer. `sanitizeDetails` bounds which detail keys survive and
+does not inspect what they hold, so a 32-byte secret rendered as hex and passed
+as `{ name: material }` crosses the keypair allowlist, crosses the client
+denylist, and lands in `ClientError.cause.details` and in `JSON.stringify`.
+That was confirmed by running it, not by reading.
+
+What actually keeps secrets out is call-site discipline: each of the 39 detail
+values across the 24 `KeypairError` constructions is a label, bound, constant,
+length, index, or public tag byte, and the 23 `checkedBytes` labels are string
+literals. The riskiest path is closed properly, since `encryption.ts`,
+`poseidon.ts`, and `signing-key.ts` hand a `@noble` rejection that may quote
+the bytes it refused to a cause that `KeypairError` keeps non-enumerable and
+the client's `safeCause` does not read. A test now scans the sources to hold the
+discipline, with a floor on what it matches so a rename cannot satisfy it
+vacuously. Review the call sites when adding one.
+
+Rust is the weaker side here, which is worth knowing before importing its
+behaviour wholesale. `KeypairError` derives `Copy`, so its payload cannot hold
+a `String` or `Vec<u8>`, but `ClientError::Keypair` retains the whole
+error through `source()` and prints the inner payload verbatim. Rust has no
+counterpart to `sanitizeDetails` or `safeCause`; the TypeScript redaction layer
+is hardening with nothing to mirror.
 
 A fix applied to one copy of shared arithmetic does not reach its siblings.
 Two copies were left behind when theirs were corrected, and neither had a
