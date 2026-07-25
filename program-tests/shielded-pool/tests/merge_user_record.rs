@@ -33,9 +33,11 @@ use zolana_interface::instruction::{
     },
     MergeTransact,
 };
+use zolana_interface::merge_utils::owner_pk_field_compressed;
+use zolana_keypair::hash::hash_field;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_user_registry_interface::{
-    instruction::{register, set_merging_enabled, RegisterData},
+    instruction::{self as registry, set_merging_enabled, RegisterData},
     user_record_pda, user_registry_program_id,
 };
 
@@ -45,6 +47,8 @@ const INVALID_USER_RECORD: u32 = 7018;
 const INVALID_PROOF_ENCODING: u32 = 7007;
 /// `ShieldedPoolError::TransactProofVerificationFailed`.
 const PROOF_VERIFICATION_FAILED: u32 = 7008;
+/// `ShieldedPoolError::MergeDisabled`.
+const MERGE_DISABLED: u32 = 7017;
 
 /// The owner whose UTXOs the merge consolidates. `owner_p256` is public key
 /// material: the compressed prefix is the only thing SPP validates about it.
@@ -108,33 +112,46 @@ fn send(
         .map_err(|e| format!("{e:?}"))
 }
 
-/// Register `owner` with the given keys and opt the record into merging. Returns
-/// the record address, or the registry's rejection.
+/// Register `owner` with the given keys, opting the record into merging when
+/// `enable_merging`. Returns the record address, or the registry's rejection.
+fn register(
+    rpc: &mut ZolanaProgramTest,
+    owner: &Keypair,
+    owner_p256: Option<[u8; 33]>,
+    viewing_pubkey: [u8; 33],
+    enable_merging: bool,
+) -> Result<Pubkey, String> {
+    rpc.airdrop(&owner.pubkey(), 1_000_000_000)
+        .expect("airdrop owner");
+    let record = user_record_pda(&owner.pubkey()).0;
+    let data = RegisterData {
+        owner_p256,
+        nullifier_pubkey: fe(1),
+        viewing_pubkey,
+    };
+    send(
+        rpc,
+        &[registry::register(record, owner.pubkey(), data)],
+        &[&owner.insecure_clone()],
+    )?;
+    if enable_merging {
+        send(
+            rpc,
+            &[set_merging_enabled(record, owner.pubkey(), true)],
+            &[&owner.insecure_clone()],
+        )?;
+    }
+    Ok(record)
+}
+
+/// Register `owner` with the given keys and opt the record into merging.
 fn register_opted_in(
     rpc: &mut ZolanaProgramTest,
     owner: &Keypair,
     owner_p256: [u8; 33],
     viewing_pubkey: [u8; 33],
 ) -> Result<Pubkey, String> {
-    rpc.airdrop(&owner.pubkey(), 1_000_000_000)
-        .expect("airdrop owner");
-    let record = user_record_pda(&owner.pubkey()).0;
-    let data = RegisterData {
-        owner_p256: Some(owner_p256),
-        nullifier_pubkey: fe(1),
-        viewing_pubkey,
-    };
-    send(
-        rpc,
-        &[register(record, owner.pubkey(), data)],
-        &[&owner.insecure_clone()],
-    )?;
-    send(
-        rpc,
-        &[set_merging_enabled(record, owner.pubkey(), true)],
-        &[&owner.insecure_clone()],
-    )?;
-    Ok(record)
+    register(rpc, owner, Some(owner_p256), viewing_pubkey, true)
 }
 
 /// A field element holding `value` in its low 8 bytes (big-endian).
@@ -144,8 +161,9 @@ fn fe(value: u64) -> [u8; 32] {
     out
 }
 
-/// A well-formed `merge_transact` body on the P256 owner rail with a zeroed proof.
-fn merge_data() -> MergeTransactIxData {
+/// A well-formed `merge_transact` body with a zeroed proof. `eddsa_owner` picks
+/// the rail SPP derives the owner identity on.
+fn merge_data(eddsa_owner: bool) -> MergeTransactIxData {
     let mut encrypted_utxo = vec![0u8; MERGE_ENCRYPTED_UTXO_LEN];
     encrypted_utxo[0] = MERGE_ENCRYPTED_UTXO_TYPE_PREFIX;
     MergeTransactIxData {
@@ -163,8 +181,27 @@ fn merge_data() -> MergeTransactIxData {
         nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
         private_tx_hash: fe(901),
         encrypted_utxo,
-        eddsa_owner: false,
+        eddsa_owner,
     }
+}
+
+fn send_merge_on_rail(
+    rpc: &mut ZolanaProgramTest,
+    tree: Pubkey,
+    user_record: Pubkey,
+    eddsa_owner: bool,
+) -> Result<(), String> {
+    let payer = rpc.payer.pubkey();
+    let ix = MergeTransact {
+        tree,
+        payer,
+        user_record,
+        data: merge_data(eddsa_owner),
+    }
+    .instruction();
+    // The tree writes and the proof decoding run past the 200k default.
+    let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    send(rpc, &[compute_budget, ix], &[])
 }
 
 fn send_merge(
@@ -172,17 +209,7 @@ fn send_merge(
     tree: Pubkey,
     user_record: Pubkey,
 ) -> Result<(), String> {
-    let payer = rpc.payer.pubkey();
-    let ix = MergeTransact {
-        tree,
-        payer,
-        user_record,
-        data: merge_data(),
-    }
-    .instruction();
-    // The tree writes and the proof decoding run past the 200k default.
-    let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-    send(rpc, &[compute_budget, ix], &[])
+    send_merge_on_rail(rpc, tree, user_record, false)
 }
 
 #[track_caller]
@@ -288,5 +315,54 @@ fn merge_transact_rejects_a_non_canonical_record_address() {
         &err,
         INVALID_USER_RECORD,
         "a registry-owned record copy at a non-canonical address",
+    );
+}
+
+/// A Solana owner is reachable through the P256 branch, because the owner
+/// encoding drops the parity bit: `owner_pk_field_compressed(0x02 || address)` is
+/// the same field element as the Solana owner's `hash_field(address)`. An
+/// impostor record carrying those 33 bytes therefore speaks for a Solana owner
+/// who never enabled merging.
+#[test]
+fn merge_transact_rejects_an_opt_in_borrowed_from_another_record() {
+    let Some((mut rpc, tree)) = setup() else {
+        return;
+    };
+
+    let owner = Keypair::new();
+    let address = owner.pubkey().to_bytes();
+    let mut claimed_p256 = [0u8; 33];
+    claimed_p256[0] = 0x02;
+    claimed_p256[1..].copy_from_slice(&address);
+    assert_eq!(
+        owner_pk_field_compressed(&claimed_p256).expect("owner pk_field of the claimed key"),
+        hash_field(&address).expect("owner pk_field of the Solana address"),
+        "the two rails must agree for this substitution to be possible"
+    );
+
+    // A Solana owner: no `owner_p256`, and merging left off.
+    let owner_record =
+        register(&mut rpc, &owner, None, OWNER_VIEWING, false).expect("register the merged owner");
+    let err = send_merge_on_rail(&mut rpc, tree, owner_record, true)
+        .expect_err("the owner never enabled merging");
+    assert_custom(
+        &err,
+        MERGE_DISABLED,
+        "the merged owner's own record, merging not enabled",
+    );
+
+    let impostor = Keypair::new();
+    let Ok(impostor_record) =
+        register_opted_in(&mut rpc, &impostor, claimed_p256, IMPOSTOR_VIEWING)
+    else {
+        return;
+    };
+
+    let err = send_merge(&mut rpc, tree, impostor_record)
+        .expect_err("merge_transact must not take the opt-in from someone else's record");
+    assert_custom(
+        &err,
+        INVALID_USER_RECORD,
+        "an impostor record claiming the merged owner's Solana address as a P256 key",
     );
 }
