@@ -58,6 +58,33 @@ pub enum TransactionError {
     #[error("transaction has no output slots")]
     MissingOutput,
 
+    #[error("invalid output count: expected {expected}, got {actual}")]
+    InvalidOutputCount { expected: usize, actual: usize },
+
+    #[error("output {index} has a different owner")]
+    OutputOwnerMismatch { index: usize },
+
+    #[error("output {index} has a different asset")]
+    OutputAssetMismatch { index: usize },
+
+    #[error("output {index} has a different amount")]
+    OutputAmountMismatch { index: usize },
+
+    #[error("output {index} has a different blinding")]
+    OutputBlindingMismatch { index: usize },
+
+    #[error("output {index} has different data")]
+    OutputDataMismatch { index: usize },
+
+    #[error("output {index} has a different zone program id")]
+    OutputZoneMismatch { index: usize },
+
+    #[error("output position {position} is duplicated or noncanonical")]
+    InvalidOutputPosition { position: u8 },
+
+    #[error("merge asset field has no matching asset: {0:?}")]
+    UnknownAssetField([u8; 32]),
+
     #[error("missing encryption context for scheme")]
     MissingEncryptionContext,
 

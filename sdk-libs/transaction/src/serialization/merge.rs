@@ -3,7 +3,7 @@ use zolana_keypair::{
     P256Pubkey, ViewingKey,
 };
 
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use super::{single_utxo, validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{data::Data, error::TransactionError, utxo::Utxo, EncryptedScheme};
 
 const MERGE_PLAINTEXT_LEN: usize = 8 + 32 + BLINDING_LEN;
@@ -80,25 +80,28 @@ impl UtxoSerialization for Merge {
         let asset = cx
             .assets
             .address_for_field(&plaintext.asset_field)?
-            .ok_or_else(|| {
-                TransactionError::Deserialize("merge asset field has no matching asset".to_string())
-            })?;
+            .ok_or(TransactionError::UnknownAssetField(plaintext.asset_field))?;
         Ok(vec![Utxo {
             owner: cx.owner,
             asset,
             amount: plaintext.amount,
             blinding: plaintext.blinding,
-            zone_program_id: None,
+            zone_program_id: cx.zone_program_id,
             data: Data::default(),
         }])
     }
 
     fn from_utxos(
         utxos: &[Utxo],
-        _owner: &OwnerCx,
+        owner: &OwnerCx,
         _cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
-        let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
+        let first = single_utxo(utxos)?;
+        validate_owner(first, owner.owner, 0)?;
+        validate_zone(first, owner.zone_program_id, 0)?;
+        if !first.data.is_empty() {
+            return Err(TransactionError::OutputDataMismatch { index: 0 });
+        }
         Ok(MergePlaintext {
             amount: first.amount,
             asset_field: zolana_keypair::hash::hash_field(first.asset.as_array())?,
