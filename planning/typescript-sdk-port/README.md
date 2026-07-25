@@ -58,7 +58,7 @@ In flight:
 | --- | --- |
 | Quality and no-shortcuts audit of `sdk-libs/ts` | Running |
 | Fold three merged batches into the table | Running |
-| Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc`, 3 commits ahead |
+| Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc`, 5 commits ahead and merging clean. Landed the indexed-range sentinel bound, the faucet-port offset, and the keypair bigint bound |
 | Keypair error redaction, is the guarantee real | Running |
 | Client package, rows C01 to C22 | RPC half closed, prover half outstanding |
 | Transaction, 31 rows | 5 commits ahead, second pass queued behind the capacity limit |
