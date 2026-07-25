@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `00addfc50b3a6a405c53491b7e251e41578143b2`
+- Review HEAD: `f2f1a0e8a9b893b080fabcc2bd5f3ea58995c225`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `18 done / 118 total`; `47 needs_fix`; `0 needs_re_review`; `1 in_progress`
-- Exact next eligible row: `T08 sdk-libs/transaction/src/serialization/split.rs`
+- Progress: `18 done / 118 total`; `48 needs_fix`; `0 needs_re_review`; `1 in_progress`
+- Exact next eligible row: `T09 sdk-libs/transaction/src/serialization/merge.rs`
 - Active reviews: `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -226,7 +226,7 @@ Columns:
 | T05 | `sdk-libs/transaction/src/serialization/confidential.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Exact plaintext and ciphertext bytes match, but recipient decryption accepts malformed embedded P256 keys. Sender decryption, embedded-key, and scheme-locked encode capabilities are not packed; crypto error boundaries and malformed and browser evidence are incomplete. Correct Rust's `from_utxos` cardinality defect first, then align validation, capabilities, errors, and evidence. | 2026-07-25 review | - |
 | T06 | `sdk-libs/transaction/src/serialization/anonymous.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Exact frozen bytes match current Rust, but TypeScript diverges on zone-context resolution, omits scheme-locked UTXO-to-plaintext and authority flows, has no shared-tag state progression, and lacks adversarial, export, and browser evidence. Rust conflicts with `docs/spec.md` on anonymous recipient program and zone data and has lossy `from_utxos` defects; fix those prerequisites before copying behavior, then align the TypeScript flows and evidence. | 2026-07-25 review | - |
 | T07 | `sdk-libs/transaction/src/serialization/proofless.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Valid simple bytes match, but public conversion and scheme-lock capabilities are absent, owner-hash tampering is ignored in wallet sync, TypeScript follows Rust's spec-conflicting memo field, and optional, boundary, export, browser, and tamper evidence is incomplete. First remove memo per spec and fix Rust's exact-one UTXO, owner, context, integrity, and `Serialize`-category prerequisites; then align TypeScript capabilities and evidence. | 2026-07-25 review | - |
-| T08 | `sdk-libs/transaction/src/serialization/split.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
+| T08 | `sdk-libs/transaction/src/serialization/split.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Exact frozen bytes match current Rust, but TypeScript lacks zone-context parity and the public `SplitEncryptedUtxos` and scheme-locked conversion surface, accepts wrong split discriminators and cross-scheme envelopes, has runtime count and error-boundary gaps, and lacks adversarial, browser, and export evidence. Rust's lossy `Split::from_utxos` must first validate the UTXO set, owner, and context; then align the TypeScript surface, validation, and evidence. | 2026-07-25 review | - |
 | T09 | `sdk-libs/transaction/src/serialization/merge.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
 | T10 | `sdk-libs/transaction/src/serialization/mod.rs` | `transaction/src/serialization/index.ts` | todo | - | none | - | - | - |
 | T11 | `sdk-libs/transaction/src/utxo.rs` | `transaction/src/utxo.ts` | todo | - | none | - | - | - |
@@ -1266,3 +1266,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `18/118`; package `0/31`
 - Exact next file: `T08 sdk-libs/transaction/src/serialization/split.rs`
 - Full SDK parity claim: unsupported; proofless integrity and protocol behavior diverge
+
+### 2026-07-25 11:43 UTC | T08 | `sdk-libs/transaction/src/serialization/split.rs`
+
+- Baseline: HEAD `f2f1a0e8a9b893b080fabcc2bd5f3ea58995c225`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module defines split serialization, encrypted UTXO grouping, and scheme-locked conversion.
+- Evidence: Exact frozen bytes match current Rust, but TypeScript lacks zone-context parity and the public `SplitEncryptedUtxos` and scheme-locked conversion surface, accepts wrong split discriminators and cross-scheme envelopes, has runtime count and error-boundary gaps, and lacks adversarial, browser, and export evidence. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Make Rust `Split::from_utxos` validate the UTXO set, owner, and context before porting it; then align TypeScript capabilities, discriminator and scheme validation, count and error boundaries, and evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `18/118`; package `0/31`
+- Exact next file: `T09 sdk-libs/transaction/src/serialization/merge.rs`
+- Full SDK parity claim: unsupported; split context, validation, and public capabilities diverge
