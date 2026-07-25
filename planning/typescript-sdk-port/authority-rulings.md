@@ -977,3 +977,35 @@ WebAssembly hasher sits in test helpers apart from one hash chain in `rpc.ts`. O
 five packages. Some of that difference is genuine, since we carry a P256 rail and zone transactions
 Light has no counterpart for. Some may be work sitting on the wrong side of a boundary. Worth
 measuring before assuming each current call site needs to be there.
+
+### Whether the WebAssembly Poseidon may use a module-scope await
+
+| Field | Value |
+| --- | --- |
+| Conflict | Keeping `poseidon()` synchronous forces an `await` at module scope, which a consumer bundling to a CommonJS target cannot represent. |
+| Ruling | Keep the compiled artifact, replace the module-scope await with an explicit one-time async initializer, and add a CommonJS build beside the ESM one. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `poseidon-wasm-and-packaging.md` |
+
+This supersedes the shape of the earlier Poseidon ruling without reversing its substance. The
+compiled Rust hasher stays; how it loads changes.
+
+The coordinator argued twice and was wrong once. It first treated the CommonJS constraint as
+decisive, then reversed on the ground that the ten TypeScript packages are already `"type":
+"module"` with no `require` condition, so no CommonJS consumer was being served in the first place.
+Reading Light Protocol's packaging settled it the other way: `js/stateless.js` builds
+`dist/cjs/node`, `dist/cjs/browser`, and `dist/es/browser`, with `main` pointing at
+`dist/cjs/node/index.cjs`. A shipped SDK with users in this ecosystem maintains four targets rather
+than drop CommonJS, so our ESM-only packaging reflects a decision nobody made rather than a settled
+direction.
+
+Light also shows that a compiled hasher and a CommonJS build can coexist, by keeping the hasher out
+of module scope and passing it as an argument (`js/stateless.js/src/rpc.ts:495`). We take the
+property and not the technique: Light's production code hashes in one place, ours hashes across five
+packages, so a module-level singleton with an explicit initializer buys the same freedom from
+module-scope await without changing many public signatures.
+
+The cost accepted is 585 KB gzipped once per application, and a named error when `poseidon()` runs
+before initialization. A clear failure is the price of the design; a silent wrong digest would not
+have been.
