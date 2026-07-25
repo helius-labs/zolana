@@ -757,6 +757,9 @@ fn input_commitments_include_data_and_zone_hashes() {
     let recipient = ShieldedKeypair::new().unwrap();
     let mut spend = p256_input(&sender, 100, &mut rng);
     spend.data_hash = Some([11u8; 32]);
+    // A nonzero zone hash only commits to an enforceable policy when the UTXO
+    // names the zone program, so the input has to carry one.
+    spend.utxo.zone_program_id = Some(Address::new_from_array([9u8; 32]));
     spend.zone_data_hash = Some([12u8; 32]);
     let nullifier_pubkey = spend.nullifier_key.pubkey().unwrap();
     let expected_hash = spend
