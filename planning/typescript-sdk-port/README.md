@@ -21,7 +21,7 @@ for the disposition of each hunk before adding to them.
 
 ## Status
 
-Refreshed as each worker returns. Last update: 2026-07-25 19:56.
+Refreshed as each worker returns. Last update: 2026-07-25 20:05.
 
 | | |
 | --- | --- |
@@ -35,7 +35,12 @@ In flight:
 
 | Work | State |
 | --- | --- |
-| Client package, rows C01 to C22 | Running |
+| Client package, rows C01 to C22 | Running, integration tree |
+| Interface, 36 rows | Running, `port/interface-a` |
+| Transaction, 31 rows | Running, `port/transaction` |
+| Keypair, 14 rows | Running, `port/keypair` |
+| Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc` |
+| The 27 uncovered rows | Running, `port/program-libs` |
 | Checklist reconciliation, log split, 27 new rows | Running |
 | `program-libs` scope audit and reverts | Running |
 | `user_record` binding fix, own branch off `main` | Running |
@@ -75,6 +80,34 @@ into one; the 27 uncovered `program-libs` rows; the five rows pointing at the
 wrong file; the residual Rust prerequisites; the Merkle semantics questions; the
 PR #158 rebase; the WebAssembly differential oracle; and then PKP-00 through
 PKP-08.
+
+## Worktree topology
+
+Batches run in isolated worktrees so a drop or a bad commit cannot destroy
+another batch's work, and so agents stop contending for one index. The six
+branches below converge into `ts-sdk-port`, which is the single pull request.
+Nothing is published from a batch branch.
+
+| Worktree | Branch | Batch | Rows |
+| --- | --- | --- | ---: |
+| `zolana-ts-sdk-port` | `ts-sdk-port` | Integration, plan, client package, reconciliation, scope audit | 22 |
+| `zolana-ts-interface-a` | `port/interface-a` | `@zolana/interface` | 36 |
+| `zolana-ts-transaction` | `port/transaction` | `@zolana/transaction` | 31 |
+| `zolana-ts-keypair` | `port/keypair` | `@zolana/keypair` | 14 |
+| `zolana-ts-wallet-misc` | `port/wallet-misc` | wallet, merkle-tree, stragglers | 10 |
+| `zolana-ts-programlibs` | `port/program-libs` | the 27 rows the queue omitted | 27 |
+| `zolana-merge-record` | `fix/merge-user-record-binding` | program defect, **separate** pull request off `main` | 0 |
+
+Each batch tree carries a copy-on-write clone of the root `node_modules`, which
+works because the npm workspace symlinks are relative and therefore resolve
+inside whichever tree holds them. The batch trees share
+`CARGO_TARGET_DIR=/Users/tilohelius/Workspace/zolana-ts-sdk-port/target`, so a
+concurrent cargo run blocks rather than triggering a cold rebuild per tree.
+
+Batches keep to their own package to make the merge trivial. Where a batch finds
+a defect in another batch's package it records the required change instead of
+making it: the fifth Poseidon copy in `client/src/internal.ts` and the
+`PreparedZoneAuthority` branding are both being handled that way.
 
 ## Current baseline
 
