@@ -5,7 +5,13 @@ import type { InputUtxoContext } from "@zolana/transaction";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import rpcFixture from "../../fixtures/client/rpc-indexer-v1.json" with { type: "json" };
-import { type Rpc, type SpendProof, ZolanaClient, ZolanaIndexer } from "../src/index.js";
+import {
+  ClientError,
+  type Rpc,
+  type SpendProof,
+  ZolanaClient,
+  ZolanaIndexer,
+} from "../src/index.js";
 import { encodeBase58 } from "../src/internal.js";
 import { ProverClient } from "../src/prover/index.js";
 import { bytes, hex } from "./helpers/prover-vectors.js";
@@ -316,6 +322,75 @@ describe("ZolanaIndexer and ZolanaClient", () => {
     );
     await vi.runAllTimersAsync();
     await rejection;
+  });
+
+  /// Rust finishes one proof before starting the other: state leaf, state tree,
+  /// nullifier leaf, nullifier tree (`validate_spend_proofs`,
+  /// `sdk-libs/client/src/client.rs`). TypeScript checked both leaves first, so a
+  /// pair wrong in both ways named a different field than Rust names. Same
+  /// accept/reject set either way; the divergence is only which error a caller
+  /// sees, which is what a caller branches on.
+  it("reports the field Rust reports when a pair is wrong in two ways", async () => {
+    vi.useFakeTimers();
+    const api = new ZolanaApi({
+      url: "https://indexer.example.test",
+      fetch: vi.fn((request) => {
+        const url = request instanceof Request ? request.url : String(request);
+        // Nullifier leaf is wrong: the input's nullifier is ZERO, not ONE.
+        if (url.includes("get_non_inclusion_proofs")) {
+          return Promise.resolve(
+            envelope({
+              context: { block_time: 1 },
+              proofs: [nonInclusion(encodeBase58(ONE))],
+            }),
+          );
+        }
+        // State leaf is right, but it sits in a tree this client does not hold.
+        return Promise.resolve(
+          envelope({
+            context: { block_time: 1 },
+            proofs: [
+              {
+                ...merkle(HASH),
+                merkle_context: { tree_type: 1, tree: encodeBase58(ONE) },
+              },
+            ],
+          }),
+        );
+      }),
+    });
+    const value = client(new ZolanaIndexer(api), fakeRpc());
+    const pending = value
+      .getInputMerkleProofs([{ index: 0, utxoHash: ZERO, nullifier: ZERO }])
+      .then(() => undefined)
+      .catch((error: unknown) => error);
+    await vi.runAllTimersAsync();
+    const rejection = await pending;
+    expect(rejection).toBeInstanceOf(ClientError);
+    expect((rejection as ClientError).code).toBe("CLIENT_STATE_PROOF_TREE_MISMATCH");
+  });
+
+  /// `finish_submission_unsigned` validates the fee payer before the tree
+  /// (`sdk-libs/client/src/client.rs`). TypeScript had them the other way round,
+  /// so a caller wrong in both ways was told to fix the tree while the fee payer
+  /// they control was also wrong. Both orders reject; only one names the same
+  /// field Rust names.
+  it("names the fee payer before the tree, as Rust does", async () => {
+    const value = client(new ZolanaIndexer(new ZolanaApi({ url: "https://x.test" })), fakeRpc());
+    const rejection = await value
+      .finishSubmissionUnsigned({
+        // Neither the tree nor the payer hash matches, so the order decides.
+        signed: {
+          tree: encodeBase58(ONE) as Address,
+          transaction: { payerPublicKeyHash: ONE },
+        } as unknown as Parameters<typeof value.finishSubmissionUnsigned>[0]["signed"],
+        feePayer: TREE,
+        recentBlockhash: encodeBase58(ONE),
+      })
+      .then(() => undefined)
+      .catch((error: unknown) => error);
+    expect(rejection).toBeInstanceOf(ClientError);
+    expect((rejection as ClientError).code).toBe("CLIENT_FEE_PAYER_MISMATCH");
   });
 
   it("requires Photon to return the submitted signature, not merely a matching tag", async () => {
