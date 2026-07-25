@@ -1,8 +1,8 @@
 {
   "canonicalSourceRevisions": {
-    "baseline": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
-    "client": "30b58b9b6e51de4a5a783461f98c91c8666c71d5",
-    "interface": "14ad30017ef5b512548f65284eae0212684d8197",
+    "baseline": "3e0ca42cc606de283e4b3fc321bef93fea5accac",
+    "client": "5713f9f1cf0a328c5a6d3262c05e1dc1e9c0f228",
+    "interface": "7060d2d5f708a9333202c59edccd82a522d17992",
     "merkleTree": "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa"
   },
   "files": [
@@ -16,11 +16,11 @@
     },
     {
       "path": "client/errors-v1.json",
-      "sha256": "16c6c7b85ad70e1508b14b4ba82da6ed48fbb1249ca88e0350411fe66b7c772b"
+      "sha256": "28cc3601c49bf05abb026b8537b57e12fcc40ed2e3953e7d65915ee428425b06"
     },
     {
       "path": "client/lib.json",
-      "sha256": "7557f77fcb59a5ea84192109915690d4b6148ba3c857d361905443f152f84fa4"
+      "sha256": "4e9fa1e1843a7003e63decf84ccabdd05f395efe3cee69262d13808363e2c706"
     },
     {
       "path": "client/proof-input-v1.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "client/rpc-indexer-v1.json",
-      "sha256": "e3ecba792f27f53f7e23c65eed53c58eff4b3730f9e7be7cb0998816f7d7b129"
+      "sha256": "47831a71cd91457beb5952bf66590a0cdae5eb0239bab6218202638952db4cd0"
     },
     {
       "path": "indexer-api/schema-v1.json",
@@ -152,7 +152,7 @@
     },
     {
       "path": "transaction/utxo-v1.json",
-      "sha256": "053bcee0a040e5fea9f4b8f4477f560f7ba726c1bdd830e6806b8c050926849c"
+      "sha256": "9499c26a6a7312b10dd4c7ffabc75f9f89b6480553283235253576f49eaca26f"
     },
     {
       "path": "transaction/values-and-errors-v1.json",
@@ -208,7 +208,7 @@
     },
     {
       "path": "wallet/wallet_sync.json",
-      "sha256": "fec1a3df3d6188e0a1a95a5c66a52045546c80136ac81a2eaa0cc9a4215dc4ea"
+      "sha256": "5122568c975072b3fd8d457e241e22eff684f6710a2af2b93f7ff28105e1f20f"
     },
     {
       "path": "workflows/action-ata-idempotent-v1.json",
