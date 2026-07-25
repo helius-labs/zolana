@@ -313,7 +313,7 @@ fn deposit_vectors(recipient: &ShieldedKeypair) -> Result<Value, Box<dyn std::er
     let blinding = derive_blinding(&BLINDING_SEED, 0);
     let amount = 42u64;
     let data = DepositIxData {
-        view_tag: recipient.viewing_pubkey().x(),
+        view_tag: recipient.shielded_address()?.confidential_view_tag()?,
         owner,
         blinding,
         amount,
