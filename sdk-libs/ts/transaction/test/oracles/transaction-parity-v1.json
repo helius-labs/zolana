@@ -496,7 +496,7 @@
         "variant": "DataWithoutOutput"
       },
       {
-        "display": "too many outputs to derive blinding positions",
+        "display": "too many outputs to encode",
         "tsCode": "TRANSACTION_TOO_MANY_OUTPUTS",
         "variant": "TooManyOutputs"
       },
@@ -651,6 +651,11 @@
         "variant": "ZoneHashesAlreadySet"
       },
       {
+        "display": "output data is 65536 bytes, over the 65535 the external data preimage encodes",
+        "tsCode": "TRANSACTION_INVALID_DATA_LENGTH",
+        "variant": "ExternalDataLengthOverflow"
+      },
+      {
         "display": "multiple public spl assets in one transaction",
         "tsCode": "TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS",
         "variant": "MultiplePublicSplAssets"
@@ -796,6 +801,104 @@
         "variant": "Authority"
       }
     ]
+  },
+  "externalData": {
+    "cases": [
+      {
+        "error": null,
+        "hashHex": "00b72d88e597037cb05f1dce70d6faac25fe8a8dbf50a1b34aed904941615f77",
+        "messageDataLength": 4,
+        "messages": 2,
+        "name": "small",
+        "outputDataLength": 4,
+        "outputs": 3
+      },
+      {
+        "error": null,
+        "hashHex": "00c9afa56abad76db1aaf6ec64ef18b0ce21020ff7836d7fd838ab8d56d85ca7",
+        "messageDataLength": 0,
+        "messages": 0,
+        "name": "outputsWithoutData",
+        "outputDataLength": null,
+        "outputs": 2
+      },
+      {
+        "error": null,
+        "hashHex": "0004176950865a782749edd097ce426ea6a50d85b7b0654f1675e26ffb1fa3cf",
+        "messageDataLength": 0,
+        "messages": 0,
+        "name": "maxOutputs",
+        "outputDataLength": null,
+        "outputs": 65535
+      },
+      {
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS",
+        "hashHex": null,
+        "messageDataLength": 0,
+        "messages": 0,
+        "name": "oneOutputPastMax",
+        "outputDataLength": null,
+        "outputs": 65536
+      },
+      {
+        "error": null,
+        "hashHex": "005d2c0e0978b9f4f30ec9707b8dbf8d992d0b1cb2f0d99d714d21a57f143acd",
+        "messageDataLength": 0,
+        "messages": 65535,
+        "name": "maxMessages",
+        "outputDataLength": null,
+        "outputs": 1
+      },
+      {
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS",
+        "hashHex": null,
+        "messageDataLength": 0,
+        "messages": 65536,
+        "name": "oneMessagePastMax",
+        "outputDataLength": null,
+        "outputs": 1
+      },
+      {
+        "error": null,
+        "hashHex": "00c8be4bc1ce876d6c8408a4167eb5a50c9f148808eb6317fab6d2338bf90095",
+        "messageDataLength": 0,
+        "messages": 0,
+        "name": "maxOutputDataLength",
+        "outputDataLength": 65535,
+        "outputs": 1
+      },
+      {
+        "error": "TRANSACTION_INVALID_DATA_LENGTH",
+        "hashHex": null,
+        "messageDataLength": 0,
+        "messages": 0,
+        "name": "oneOutputDataBytePastMax",
+        "outputDataLength": 65536,
+        "outputs": 1
+      },
+      {
+        "error": null,
+        "hashHex": "00d5a4f4bdbe9aa3095943822a32ee88bf4dc4100e5f03b7c7aac33c989fcfa9",
+        "messageDataLength": 65535,
+        "messages": 1,
+        "name": "maxMessageDataLength",
+        "outputDataLength": null,
+        "outputs": 1
+      },
+      {
+        "error": "TRANSACTION_INVALID_DATA_LENGTH",
+        "hashHex": null,
+        "messageDataLength": 65536,
+        "messages": 1,
+        "name": "oneMessageDataBytePastMax",
+        "outputDataLength": null,
+        "outputs": 1
+      }
+    ],
+    "messageDataByte": 205,
+    "outputDataByte": 171,
+    "saltHex": "09090909090909090909090909090909",
+    "txViewingPublicKeyHex": "020202020202020202020202020202020202020202020202020202020202020202"
   },
   "fields": {
     "assetField": [

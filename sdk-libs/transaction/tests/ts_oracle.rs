@@ -20,7 +20,8 @@ use std::{fs, path::PathBuf};
 
 use serde_json::{json, Map, Value};
 use solana_address::Address;
-use zolana_event::ProoflessOutput;
+use zolana_event::{MessageData, ProoflessOutput};
+use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
     hash::hash_field,
@@ -125,6 +126,7 @@ fn ts_code(error: &TransactionError) -> &'static str {
         TransactionError::PublicSolAlreadySet => "TRANSACTION_PUBLIC_SOL_ALREADY_SET",
         TransactionError::PublicSplAlreadySet => "TRANSACTION_PUBLIC_SPL_ALREADY_SET",
         TransactionError::ZoneHashesAlreadySet => "TRANSACTION_ZONE_HASHES_ALREADY_SET",
+        TransactionError::ExternalDataLengthOverflow { .. } => "TRANSACTION_INVALID_DATA_LENGTH",
         TransactionError::MultiplePublicSplAssets => "TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS",
         TransactionError::MissingPublicSplAsset => "TRANSACTION_MISSING_PUBLIC_SPL_ASSET",
         TransactionError::SignerNotP256 => "TRANSACTION_SIGNER_NOT_P256",
@@ -293,6 +295,14 @@ fn samples() -> Vec<(&'static str, TransactionError)> {
         (
             "ZoneHashesAlreadySet",
             TransactionError::ZoneHashesAlreadySet,
+        ),
+        (
+            "ExternalDataLengthOverflow",
+            TransactionError::ExternalDataLengthOverflow {
+                field: "output data",
+                maximum: 65_535,
+                actual: 65_536,
+            },
         ),
         (
             "MultiplePublicSplAssets",
@@ -2697,7 +2707,169 @@ fn oracle() -> Value {
         "transactTypes": transact_types_section(),
         "zoneAuthority": zone_authority_section(),
         "decrypt": decrypt_section(),
+        "externalData": external_data_section(),
     })
+}
+
+/// The four `u16` prefixes in the external-data preimage: the output count,
+/// each output's ciphertext length, the message count, and each message's
+/// length. `program-libs/interface` casts rather than checks, so an oversized
+/// input would be hashed over a shortened preimage; by owner ruling (T21) both
+/// SDKs refuse instead. Each case names the counts and lengths rather than the
+/// bytes so the boundary sizes stay describable in a committed fixture.
+fn external_data_section() -> Value {
+    let cases = [
+        ExternalDataShape {
+            name: "small",
+            outputs: 3,
+            messages: 2,
+            output_data_len: Some(4),
+            message_data_len: 4,
+        },
+        ExternalDataShape {
+            name: "outputsWithoutData",
+            outputs: 2,
+            messages: 0,
+            output_data_len: None,
+            message_data_len: 0,
+        },
+        ExternalDataShape {
+            name: "maxOutputs",
+            outputs: 65_535,
+            messages: 0,
+            output_data_len: None,
+            message_data_len: 0,
+        },
+        ExternalDataShape {
+            name: "oneOutputPastMax",
+            outputs: 65_536,
+            messages: 0,
+            output_data_len: None,
+            message_data_len: 0,
+        },
+        ExternalDataShape {
+            name: "maxMessages",
+            outputs: 1,
+            messages: 65_535,
+            output_data_len: None,
+            message_data_len: 0,
+        },
+        ExternalDataShape {
+            name: "oneMessagePastMax",
+            outputs: 1,
+            messages: 65_536,
+            output_data_len: None,
+            message_data_len: 0,
+        },
+        ExternalDataShape {
+            name: "maxOutputDataLength",
+            outputs: 1,
+            messages: 0,
+            output_data_len: Some(65_535),
+            message_data_len: 0,
+        },
+        ExternalDataShape {
+            name: "oneOutputDataBytePastMax",
+            outputs: 1,
+            messages: 0,
+            output_data_len: Some(65_536),
+            message_data_len: 0,
+        },
+        ExternalDataShape {
+            name: "maxMessageDataLength",
+            outputs: 1,
+            messages: 1,
+            output_data_len: None,
+            message_data_len: 65_535,
+        },
+        ExternalDataShape {
+            name: "oneMessageDataBytePastMax",
+            outputs: 1,
+            messages: 1,
+            output_data_len: None,
+            message_data_len: 65_536,
+        },
+    ]
+    .into_iter()
+    .map(|shape| {
+        let mut case = Map::new();
+        case.insert("name".into(), json!(shape.name));
+        case.insert("outputs".into(), json!(shape.outputs));
+        case.insert("messages".into(), json!(shape.messages));
+        case.insert("outputDataLength".into(), json!(shape.output_data_len));
+        case.insert("messageDataLength".into(), json!(shape.message_data_len));
+        match shape.build().hash() {
+            Ok(hash) => {
+                case.insert("hashHex".into(), json!(hex(&hash)));
+                case.insert("error".into(), Value::Null);
+            }
+            Err(error) => {
+                case.insert("hashHex".into(), Value::Null);
+                case.insert("error".into(), json!(ts_code(&error)));
+            }
+        }
+        Value::Object(case)
+    })
+    .collect::<Vec<_>>();
+
+    json!({
+        "txViewingPublicKeyHex": hex(&[2u8; 33]),
+        "saltHex": hex(&[9u8; 16]),
+        "outputDataByte": EXTERNAL_DATA_OUTPUT_BYTE,
+        "messageDataByte": EXTERNAL_DATA_MESSAGE_BYTE,
+        "cases": cases,
+    })
+}
+
+const EXTERNAL_DATA_OUTPUT_BYTE: u8 = 0xab;
+const EXTERNAL_DATA_MESSAGE_BYTE: u8 = 0xcd;
+
+/// Counts and payload sizes rather than the bytes themselves; both languages
+/// expand a shape the same way, so the boundary cases stay small on disk.
+struct ExternalDataShape {
+    name: &'static str,
+    outputs: usize,
+    messages: usize,
+    output_data_len: Option<usize>,
+    message_data_len: usize,
+}
+
+impl ExternalDataShape {
+    /// Output `i` takes `i` big-endian at the front of its commitment and at
+    /// the back of its owner tag, so a case that pairs the two the wrong way
+    /// round hashes differently instead of passing.
+    fn build(&self) -> ExternalData {
+        let indexed = |index: usize, at_front: bool| {
+            let mut bytes = [0u8; 32];
+            let position = if at_front { 0 } else { 30 };
+            bytes[position..position + 2].copy_from_slice(&(index as u16).to_be_bytes());
+            bytes
+        };
+        let outputs = (0..self.outputs)
+            .map(|index| TransactOutput {
+                utxo_hash: indexed(index, true),
+                owner_tag: OwnerTag::P256SigningKey,
+                data: self
+                    .output_data_len
+                    .map(|len| vec![EXTERNAL_DATA_OUTPUT_BYTE; len]),
+            })
+            .collect();
+        let messages = (0..self.messages)
+            .map(|index| MessageData {
+                view_tag: indexed(index, true),
+                data: vec![EXTERNAL_DATA_MESSAGE_BYTE; self.message_data_len],
+            })
+            .collect();
+        ExternalData::new(
+            [2u8; 33],
+            [9u8; 16],
+            outputs,
+            (0..self.outputs)
+                .map(|index| indexed(index, false))
+                .collect(),
+            messages,
+        )
+    }
 }
 
 const DECRYPT_USER_VIEWING_SEED: [u8; 32] = [31u8; 32];
