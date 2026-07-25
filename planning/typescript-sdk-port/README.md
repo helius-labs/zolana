@@ -33,11 +33,11 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker returns. Last update: 2026-07-25 20:27.
+Refreshed as each worker returns. Last update: 2026-07-25 20:31.
 
 | | |
 | --- | --- |
-| Rows supported by evidence | 19 of 145, once `port/program-libs` merges |
+| Rows supported by evidence | 1 of 145 in the checklist; 18 more land when `port/program-libs` merges |
 | Rows with an adverse verdict | 107 (55 partial, 39 divergent, 13 blocked) |
 | Rows with no verdict recorded | 27, in the `event`, `hasher`, `indexed-array`, and `user-registry-interface` crates |
 | Branch | 246 commits over two days |
@@ -53,7 +53,7 @@ In flight:
 | Keypair, 14 rows | Running, `port/keypair` |
 | Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc` |
 | The 27 uncovered rows | Done: 17 parity, 1 fixed, 9 not applicable |
-| Checklist reconciliation, log split, 27 new rows | Running |
+| Checklist reconciliation, log split, 27 new rows | Done, gate green at 145 rows |
 
 | `user_record` binding fix, own branch off `main` | Running |
 
