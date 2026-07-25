@@ -1,4 +1,10 @@
-export { Deposit, buildDepositTransaction, createDeposit, type DepositParams } from "../deposit.js";
+export {
+  Deposit,
+  buildDepositTransaction,
+  createDeposit,
+  deposit,
+  type DepositParams,
+} from "../deposit.js";
 export {
   UnsignedPrivateTransaction,
   createSplit,
@@ -12,6 +18,7 @@ export {
   type TransferRecipient,
   type WithdrawalParams,
 } from "../actions.js";
+export type { ResolvedAddress } from "../registry.js";
 export { buildPrivateTransaction, signPrivateTransaction } from "../private-transaction.js";
 export {
   MergeMaterial,

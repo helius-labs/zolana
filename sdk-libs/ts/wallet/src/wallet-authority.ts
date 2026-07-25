@@ -2,56 +2,53 @@ import type { Address, Bytes32 } from "@zolana/interface";
 import {
   randomSalt,
   type NullifierKey,
+  type P256PublicKey,
   type ShieldedAddress,
   type ShieldedKeypair,
   type ViewingKey,
 } from "@zolana/keypair";
 import type {
+  AnonymousRecipientSlot,
   AssetRegistry,
   EncryptedSplit,
   EncryptedTransfer,
   P256Signature,
   ProofOutputUtxo,
   SplitBundlePlaintext,
+  WalletAuthority,
   WalletSyncMaterial,
 } from "@zolana/transaction";
 import {
   EncryptedScheme,
+  encodeAnonymousRecipient,
+  encodeAnonymousSender,
   encodeOutputData,
   encodeSplitBundle,
+  encryptAnonymous,
   encryptConfidential,
   encryptSplit,
+  type AnonymousSenderPlaintext,
 } from "@zolana/transaction/serialization";
 
 import { WalletError } from "./error.js";
 
+/**
+ * Authority material owned by `@zolana/transaction`; re-exported here so the
+ * wallet package surface matches the Rust module, which is re-exports only.
+ */
+export type {
+  AnonymousRecipientSlot,
+  EncryptedSplit,
+  EncryptedTransfer,
+  P256Signature,
+  SyncWalletAuthority,
+  WalletAuthority,
+  WalletSyncMaterial,
+} from "@zolana/transaction";
+
 export interface ApprovalRequest {
   readonly solanaPublicKey: Address;
   readonly summary: string;
-}
-
-export interface WalletAuthority {
-  solanaPublicKey(): Address;
-  shieldedAddress(): Promise<ShieldedAddress>;
-  viewingKeys(): Promise<readonly ViewingKey[]>;
-  spendNullifierKey(): Promise<NullifierKey>;
-  syncMaterial(): Promise<WalletSyncMaterial>;
-  encryptConfidentialTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-    }>,
-  ): Promise<EncryptedTransfer>;
-  encryptSplit(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      viewTag: Bytes32;
-      bundle: SplitBundlePlaintext;
-    }>,
-  ): Promise<EncryptedSplit>;
-  requestUserApproval(request: ApprovalRequest): Promise<void>;
-  signP256(messageHash: Bytes32): Promise<P256Signature>;
 }
 
 export class LocalWalletAuthority implements WalletAuthority {
@@ -117,6 +114,61 @@ export class LocalWalletAuthority implements WalletAuthority {
       };
     });
     return Promise.resolve({ txViewingPublicKey: tx.publicKey(), salt, payload });
+  }
+
+  /**
+   * Slot 0 carries the sender bundle encrypted to this wallet's own viewing
+   * key; recipient `i` occupies slot `i + 1`. Both the order and the slot
+   * indices are bound into each ciphertext, so they must match the layout the
+   * transfer instruction publishes.
+   */
+  encryptAnonymousTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      senderViewTag: Bytes32;
+      sender: AnonymousSenderPlaintext;
+      recipients: readonly AnonymousRecipientSlot[];
+    }>,
+  ): Promise<EncryptedTransfer> {
+    const viewingKey = this.#keypair.viewingKey();
+    const tx = viewingKey.transactionViewingKey(input.firstNullifier);
+    const salt = randomSalt();
+    const slot = (
+      scheme: EncryptedScheme,
+      recipient: P256PublicKey,
+      plaintext: Uint8Array,
+      slotIndex: number,
+      viewTag: Bytes32,
+    ): Readonly<{ viewTag: Bytes32; data: Uint8Array }> => ({
+      viewTag,
+      data: encodeOutputData(
+        scheme,
+        encryptAnonymous(tx, recipient, plaintext, salt, slotIndex),
+        "encrypted",
+      ),
+    });
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: [
+        slot(
+          EncryptedScheme.anonymousSender,
+          viewingKey.publicKey(),
+          encodeAnonymousSender(input.sender),
+          0,
+          input.senderViewTag,
+        ),
+        ...input.recipients.map((recipient, index) =>
+          slot(
+            EncryptedScheme.anonymousRecipient,
+            recipient.recipientPublicKey,
+            encodeAnonymousRecipient(recipient.plaintext),
+            index + 1,
+            recipient.viewTag,
+          ),
+        ),
+      ],
+    });
   }
 
   encryptSplit(
