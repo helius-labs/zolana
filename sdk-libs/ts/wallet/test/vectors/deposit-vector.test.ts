@@ -106,6 +106,12 @@ describe("wallet deposit vector", () => {
 
     expect(hex(deposit.data.owner)).toBe(fixture.expected.sol.ownerBytes);
     expect(hex(deposit.viewTag())).toBe(fixture.expected.sol.viewTagBytes);
+    // The Rust-captured tag is the ruled-on one. Asserted against this
+    // fixture's own recipient rather than inferred from the generated-recipient
+    // case below, so regenerating the fixture from the pre-ruling derivation
+    // fails here.
+    expect(hex(recipient.confidentialViewTag())).toBe(fixture.expected.sol.viewTagBytes);
+    expect(hex(recipient.viewingPublicKey.x())).not.toBe(fixture.expected.sol.viewTagBytes);
     expect(deposit.spl).toBeUndefined();
     // The blinding is fresh per deposit, so the commitment is pinned to the
     // hash the recipient will spend rather than to a recorded value.
