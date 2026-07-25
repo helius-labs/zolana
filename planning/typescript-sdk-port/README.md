@@ -65,7 +65,7 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker commits. Last update: 2026-07-26 00:35.
+Refreshed as each worker commits. Last update: 2026-07-26 01:35.
 
 | | |
 | --- | --- |
@@ -75,8 +75,19 @@ Refreshed as each worker commits. Last update: 2026-07-26 00:35.
 | Rows still unexamined | None, and the Status column no longer holds a `todo` entry |
 | Rows carrying an adverse verdict | 45: 27 `PARTIAL`, 17 `DIVERGENT`, 1 `STALE`. No row is `BLOCKED` |
 | Rows this branch cannot close | None. See [scope-and-denominator.md](scope-and-denominator.md) |
-| Branch | 373 commits vs `main`. The checklist gate is green |
+| Branch | 374 commits vs `main`. The checklist gate is green |
 | Phase | 2 of 4: remediation. Phases 3 and 4 not started |
+| Entry gate to phase 3 | Criteria 1 and 3 pass. Criterion 2 fails on the 45 adverse rows, criterion 4 on CI |
+| Continuous integration | Six checks failing. `typescript / static` is fixed; a dedicated worker owns the rest |
+
+The six failing checks are one cause and change, not six. `main` deleted a dead
+field, `CreateTree.owner`, that this branch still carries, so `cargo check
+(workspace)` does not compile and the three Rust test jobs almost certainly
+inherit that rather than failing on their own account. `typescript / static`
+failed on three unformatted config scripts and is closed. `typescript /
+fixtures` is the one to watch: a stale provenance baseline has explained it
+twice, and regenerating fixtures to quiet a gate that is correctly reporting a
+divergence would destroy the evidence the parity claims rest on.
 
 The count moved from 19 to 90 in one evening, so it is worth saying what it does
 and does not mean. The gap between the two figures an earlier update carried was
