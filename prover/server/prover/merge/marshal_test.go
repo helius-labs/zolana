@@ -5,7 +5,11 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/frontend"
+
 	transaction "zolana/prover/circuits/spp_transaction/shared"
+	"zolana/prover/prover/common"
 )
 
 // TestMergeParametersJSONRoundTrip checks the wire format the Rust client
@@ -35,6 +39,25 @@ func TestMergeParametersJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMergeParametersCreateCompleteWitness(t *testing.T) {
+	params := sampleParams()
+	for _, circuitType := range []common.CircuitType{
+		common.MergeCircuitType,
+		common.MergeZoneCircuitType,
+	} {
+		t.Run(string(circuitType), func(t *testing.T) {
+			params.CircuitType = circuitType
+			assignment, err := params.CreateWitness()
+			if err != nil {
+				t.Fatalf("create assignment: %v", err)
+			}
+			if _, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField()); err != nil {
+				t.Fatalf("create gnark witness: %v", err)
+			}
+		})
+	}
+}
+
 func sampleParams() *MergeParameters {
 	inputs := make([]InputParams, MergeNInputs)
 	for i := range inputs {
@@ -51,6 +74,7 @@ func sampleParams() *MergeParameters {
 			NullifierLowPathIndex:    big.NewInt(0),
 			UtxoTreeRoot:             big.NewInt(11),
 			NullifierTreeRoot:        big.NewInt(13),
+			Nullifier:                big.NewInt(int64(100 + i)),
 		}
 	}
 	viewing := make([]*big.Int, 65)
@@ -59,17 +83,23 @@ func sampleParams() *MergeParameters {
 	}
 	return &MergeParameters{
 		Inputs:              inputs,
-		Output:              OutputParams{Blinding: big.NewInt(0x3333), ZoneDataHash: big.NewInt(0)},
+		Output:              OutputParams{Blinding: big.NewInt(0x3333), ZoneDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
 		Asset:               big.NewInt(1),
 		P256PubX:            big.NewInt(0x1111),
 		P256PubY:            big.NewInt(0x2222),
+		OwnerPkHash:         big.NewInt(0x1212),
 		UserNullifierPk:     big.NewInt(0x3333),
 		UserNullifierSecret: big.NewInt(0x4444),
 		TxViewingSk:         big.NewInt(0x5555),
 		UserViewingPubkey:   viewing,
+		TxViewingPkLo:       big.NewInt(0x1010),
+		TxViewingPkHi:       big.NewInt(0x2020),
+		CtHash:              big.NewInt(0x3030),
+		UserViewingPkHash:   big.NewInt(0x4040),
 		ExternalDataHash:    big.NewInt(0x6666),
 		PrivateTxHash:       big.NewInt(0x7777),
 		PublicInputHash:     big.NewInt(0x8888),
+		ZoneProgramID:       big.NewInt(0),
 	}
 }
 

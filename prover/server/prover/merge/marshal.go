@@ -20,11 +20,13 @@ type InputParamsJSON struct {
 	NullifierLowPathIndex    string   `json:"nullifierLowPathIndex"`
 	UtxoTreeRoot             string   `json:"utxoTreeRoot"`
 	NullifierTreeRoot        string   `json:"nullifierTreeRoot"`
+	Nullifier                string   `json:"nullifier"`
 }
 
 type OutputParamsJSON struct {
 	Blinding     string `json:"blinding"`
 	ZoneDataHash string `json:"zoneDataHash"`
+	Hash         string `json:"hash"`
 }
 
 type MergeParametersJSON struct {
@@ -39,6 +41,10 @@ type MergeParametersJSON struct {
 	UserNullifierSecret string             `json:"userNullifierSecret"`
 	TxViewingSk         string             `json:"txViewingSk"`
 	UserViewingPubkey   []string           `json:"userViewingPubkey"`
+	TxViewingPkLo       string             `json:"txViewingPkLo"`
+	TxViewingPkHi       string             `json:"txViewingPkHi"`
+	CtHash              string             `json:"ctHash"`
+	UserViewingPkHash   string             `json:"userViewingPkHash"`
 	ExternalDataHash    string             `json:"externalDataHash"`
 	PrivateTxHash       string             `json:"privateTxHash"`
 	PublicInputHash     string             `json:"publicInputHash"`
@@ -76,6 +82,10 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		UserNullifierSecret: feHex(p.UserNullifierSecret),
 		TxViewingSk:         feHex(p.TxViewingSk),
 		UserViewingPubkey:   feHexSlice(p.UserViewingPubkey),
+		TxViewingPkLo:       feHex(p.TxViewingPkLo),
+		TxViewingPkHi:       feHex(p.TxViewingPkHi),
+		CtHash:              feHex(p.CtHash),
+		UserViewingPkHash:   feHex(p.UserViewingPkHash),
 		ExternalDataHash:    feHex(p.ExternalDataHash),
 		PrivateTxHash:       feHex(p.PrivateTxHash),
 		PublicInputHash:     feHex(p.PublicInputHash),
@@ -96,12 +106,14 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 			NullifierLowPathIndex:    feHex(in.NullifierLowPathIndex),
 			UtxoTreeRoot:             feHex(in.UtxoTreeRoot),
 			NullifierTreeRoot:        feHex(in.NullifierTreeRoot),
+			Nullifier:                feHex(in.Nullifier),
 		}
 	}
 
 	paramsJson.Output = OutputParamsJSON{
 		Blinding:     feHex(p.Output.Blinding),
 		ZoneDataHash: feHex(p.Output.ZoneDataHash),
+		Hash:         feHex(p.Output.Hash),
 	}
 
 	return paramsJson
@@ -135,6 +147,18 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		return err
 	}
 	if p.UserViewingPubkey, err = feFromHexSlice(params.UserViewingPubkey); err != nil {
+		return err
+	}
+	if p.TxViewingPkLo, err = feFromHex(params.TxViewingPkLo); err != nil {
+		return err
+	}
+	if p.TxViewingPkHi, err = feFromHex(params.TxViewingPkHi); err != nil {
+		return err
+	}
+	if p.CtHash, err = feFromHex(params.CtHash); err != nil {
+		return err
+	}
+	if p.UserViewingPkHash, err = feFromHex(params.UserViewingPkHash); err != nil {
 		return err
 	}
 	if p.ExternalDataHash, err = feFromHex(params.ExternalDataHash); err != nil {
@@ -189,6 +213,9 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		if input.NullifierTreeRoot, err = feFromHex(in.NullifierTreeRoot); err != nil {
 			return err
 		}
+		if input.Nullifier, err = feFromHex(in.Nullifier); err != nil {
+			return err
+		}
 		p.Inputs[i] = input
 	}
 
@@ -197,6 +224,9 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		return err
 	}
 	if output.ZoneDataHash, err = feFromHex(params.Output.ZoneDataHash); err != nil {
+		return err
+	}
+	if output.Hash, err = feFromHex(params.Output.Hash); err != nil {
 		return err
 	}
 	p.Output = output

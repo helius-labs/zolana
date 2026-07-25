@@ -170,8 +170,21 @@ fn boundary_prover() -> ZoneAuthorityProver {
     let proofs = indexer
         .get_input_merkle_proofs(&commitments, None)
         .expect("merkle proofs");
-    ZoneAuthorityProver::try_from(ZoneAuthorityWitness { prepared, proofs })
-        .expect("zone-authority prover")
+    let dummy_nullifier_proofs = prepared
+        .inputs
+        .iter()
+        .filter(|input| input.is_dummy())
+        .map(|input| {
+            let nullifier = input.nullifier().expect("dummy nullifier");
+            TestIndexer::new().dummy_nullifier_proof(nullifier)
+        })
+        .collect();
+    ZoneAuthorityProver::try_from(ZoneAuthorityWitness {
+        prepared,
+        proofs,
+        dummy_nullifier_proofs,
+    })
+    .expect("zone-authority prover")
 }
 
 // ---- shared helpers -----------------------------------------------------------

@@ -272,6 +272,8 @@ pub(crate) struct MergeInputParamsJson {
     pub utxo_tree_root: String,
     #[serde(rename = "nullifierTreeRoot")]
     pub nullifier_tree_root: String,
+    #[serde(rename = "nullifier")]
+    pub nullifier: String,
 }
 
 /// Merge output slot: the only free leaf fields. Amount is assembled from the
@@ -282,6 +284,8 @@ pub(crate) struct MergeOutputParamsJson {
     pub blinding: String,
     #[serde(rename = "zoneDataHash")]
     pub zone_data_hash: String,
+    #[serde(rename = "hash")]
+    pub hash: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -309,6 +313,14 @@ pub(crate) struct MergeParametersJson {
     pub tx_viewing_sk: String,
     #[serde(rename = "userViewingPubkey")]
     pub user_viewing_pubkey: Vec<String>,
+    #[serde(rename = "txViewingPkLo")]
+    pub tx_viewing_pk_lo: String,
+    #[serde(rename = "txViewingPkHi")]
+    pub tx_viewing_pk_hi: String,
+    #[serde(rename = "ctHash")]
+    pub ciphertext_hash: String,
+    #[serde(rename = "userViewingPkHash")]
+    pub user_viewing_pk_hash: String,
     #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
@@ -346,6 +358,7 @@ fn merge_input_to_json(input: &TransferInput) -> MergeInputParamsJson {
         nullifier_low_path_index: big_uint_to_string(&input.nullifier_low_path_index),
         utxo_tree_root: big_uint_to_string(&input.utxo_tree_root),
         nullifier_tree_root: big_uint_to_string(&input.nullifier_tree_root),
+        nullifier: big_uint_to_string(&input.nullifier),
     }
 }
 
@@ -353,6 +366,7 @@ fn merge_output_to_json(output: &TransferOutput) -> MergeOutputParamsJson {
     MergeOutputParamsJson {
         blinding: fe_to_string(&output.utxo.blinding),
         zone_data_hash: fe_to_string(&output.utxo.zone_data_hash),
+        hash: big_uint_to_string(&output.hash),
     }
 }
 
@@ -373,6 +387,10 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
             .iter()
             .map(big_uint_to_string)
             .collect(),
+        tx_viewing_pk_lo: big_uint_to_string(&inputs.tx_viewing_pk_lo),
+        tx_viewing_pk_hi: big_uint_to_string(&inputs.tx_viewing_pk_hi),
+        ciphertext_hash: big_uint_to_string(&inputs.ciphertext_hash),
+        user_viewing_pk_hash: big_uint_to_string(&inputs.user_viewing_pk_hash),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
@@ -563,6 +581,10 @@ mod merge_tests {
             user_nullifier_secret: BigUint::from(4u8),
             tx_viewing_sk: BigUint::from(5u8),
             user_viewing_pubkey: (0..65u32).map(BigUint::from).collect(),
+            tx_viewing_pk_lo: BigUint::from(9u8),
+            tx_viewing_pk_hi: BigUint::from(10u8),
+            ciphertext_hash: BigUint::from(11u8),
+            user_viewing_pk_hash: BigUint::from(12u8),
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
             public_input_hash: BigUint::from(8u8),
@@ -574,6 +596,7 @@ mod merge_tests {
         for key in [
             "inputs",
             "output",
+            "asset",
             "p256PubX",
             "p256PubY",
             "ownerPkHash",
@@ -581,9 +604,14 @@ mod merge_tests {
             "userNullifierSecret",
             "txViewingSk",
             "userViewingPubkey",
+            "txViewingPkLo",
+            "txViewingPkHi",
+            "ctHash",
+            "userViewingPkHash",
             "externalDataHash",
             "privateTxHash",
             "publicInputHash",
+            "zoneProgramId",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }
@@ -591,19 +619,29 @@ mod merge_tests {
         assert_eq!(value["userViewingPubkey"].as_array().unwrap().len(), 65);
         let in0 = &value["inputs"][0];
         for key in [
-            "utxo",
-            "isDummy",
+            "domain",
+            "amount",
+            "blinding",
+            "zoneDataHash",
             "statePathElements",
+            "statePathIndex",
+            "nullifierLowValue",
+            "nullifierNextValue",
+            "nullifierLowPathElements",
+            "nullifierLowPathIndex",
+            "utxoTreeRoot",
             "nullifierTreeRoot",
             "nullifier",
         ] {
             assert!(!in0[key].is_null(), "missing input key {key}");
         }
-        // Inputs reuse the transfer JSON; the merge circuit ignores these
-        // transfer-only fields server-side.
-        assert!(!in0["ownerPkHash"].is_null());
-        assert!(!in0["nullifierSecret"].is_null());
+        assert_eq!(value["output"]["blinding"], "0x7");
+        assert_eq!(value["output"]["zoneDataHash"], "0x0");
         assert_eq!(value["output"]["hash"], "0xabc");
+        assert!(
+            in0["utxo"].is_null(),
+            "merge inputs must use the flat schema"
+        );
     }
 
     // Guards the zone-authority request against the Go server: it must carry the

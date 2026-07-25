@@ -28,6 +28,7 @@ use crate::{
         },
         Shape, TransferInputs,
     },
+    rpc::NonInclusionProof,
 };
 
 /// Zone-authority state transition over zone-owned UTXOs. The zone authority is
@@ -131,13 +132,21 @@ impl ZoneAuthorityProver {
 pub struct ZoneAuthorityWitness {
     pub prepared: PreparedZoneAuthority,
     pub proofs: Vec<SpendProof>,
+    /// One nullifier non-inclusion proof per dummy input, in dummy-slot order.
+    /// Unlike merge, the shared transfer circuit checks non-inclusion for every
+    /// slot, including padding.
+    pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
 
 impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
     type Error = ClientError;
 
     fn try_from(witness: ZoneAuthorityWitness) -> Result<Self, Self::Error> {
-        let ZoneAuthorityWitness { prepared, proofs } = witness;
+        let ZoneAuthorityWitness {
+            prepared,
+            proofs,
+            dummy_nullifier_proofs,
+        } = witness;
         let PreparedZoneAuthority {
             inputs,
             outputs,
@@ -148,7 +157,7 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
             shape,
         } = prepared;
 
-        let spends = attach_input_proofs(inputs, &proofs, &[])?;
+        let spends = attach_input_proofs(inputs, &proofs, &dummy_nullifier_proofs)?;
 
         Ok(ZoneAuthorityProver {
             inputs: spends,

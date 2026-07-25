@@ -26,12 +26,14 @@ type InputParams struct {
 
 	UtxoTreeRoot      *big.Int
 	NullifierTreeRoot *big.Int
+	Nullifier         *big.Int
 }
 
 // OutputParams mirrors merge.Output: only the free leaf fields.
 type OutputParams struct {
 	Blinding     *big.Int
 	ZoneDataHash *big.Int
+	Hash         *big.Int
 }
 
 // MergeParameters is the flat, pre-computed witness for the 8-in/1-out merge
@@ -68,6 +70,10 @@ type MergeParameters struct {
 	// Verifiable-encryption witnesses.
 	TxViewingSk       *big.Int
 	UserViewingPubkey []*big.Int // len 65, byte values of the uncompressed point
+	TxViewingPkLo     *big.Int
+	TxViewingPkHi     *big.Int
+	CtHash            *big.Int
+	UserViewingPkHash *big.Int
 
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int

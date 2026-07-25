@@ -505,9 +505,9 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle
 
-# Run only the decode scenario from test-spp-validator, which prints the parsed
-# `transact` instruction data, its named accounts, and the emitted event. The test
-# binary has `harness = false`, so the prints reach the terminal directly.
+# Run only the emitted-event decode scenario from test-spp-validator, which
+# prints the parsed `GeneralEvent`. The test binary has `harness = false`, so
+# the output reaches the terminal directly.
 test-spp-validator-decode: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -523,7 +523,7 @@ test-spp-validator-decode: build-programs build-prover-server build-cli ensure-p
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle -- --name "instruction data and accounts decode"
+      cargo test -p spp-test-validator --test lifecycle -- --name "A SOL transfer's emitted event decodes"
 
 # Run only the merge scenarios from test-spp-validator (the 1-8 consolidation
 # outline plus the disabled-service negative). For debugging the merge flow without
@@ -545,7 +545,7 @@ test-spp-validator-merge: build-programs build-prover-server build-cli ensure-ph
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle -- --name "Merge service"
 
-# Run only the randomized 500-transaction workload from test-spp-validator. This is
+# Run only the randomized 50-transaction workload from test-spp-validator. This is
 # intentionally isolated in CI because it is the longest and quietest scenario.
 test-spp-validator-randomized: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
@@ -565,7 +565,7 @@ test-spp-validator-randomized: build-programs build-prover-server build-cli ensu
       cargo test -p spp-test-validator --test lifecycle -- --name "Fifty randomized eddsa transactions"
 
 # Run the non-merge, non-randomized spp-validator scenarios: eddsa signer, P256
-# signer, mixed lifecycle, SOL lifecycle, and instruction/event decode.
+# signer, mixed lifecycle, SOL lifecycle, and emitted-event decode.
 test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -581,7 +581,7 @@ test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cl
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle -- --name "authorizes SOL, SPL, and mixed transfers|Fifty mixed transactions|Transfer recipient and sender change|instruction data and accounts decode"
+      cargo test -p spp-test-validator --test lifecycle -- --name "authorizes SOL, SPL, and mixed transfers|Fifty mixed transactions|Transfer recipient and sender change|A SOL transfer's emitted event decodes"
 
 # Run only the mixed-lifecycle scenario from test-spp-validator (deposits,
 # transfers, SOL withdrawals, and merges across three owners). For exercising the
@@ -808,9 +808,11 @@ build-prover-server:
 build-spp-keys:
     #!/usr/bin/env bash
     set -euo pipefail
-    prover/server/scripts/generate_keys_transfer.sh "{{spp-keys-dir}}"
-    prover/server/scripts/generate_keys_merge.sh "{{spp-keys-dir}}"
-    prover/server/scripts/regenerate_all_vkeys.sh "$(pwd)/{{spp-keys-dir}}"
+    keys_dir="$(cd "$(dirname "{{spp-keys-dir}}")" && pwd)/$(basename "{{spp-keys-dir}}")"
+    prover/server/scripts/generate_keys_transfer.sh "$keys_dir"
+    prover/server/scripts/generate_keys_merge.sh "$keys_dir"
+    prover/server/scripts/regenerate_all_vkeys.sh "$keys_dir"
+    python3 prover/server/scripts/generate_lockfile.py "$keys_dir"
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
 # (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws

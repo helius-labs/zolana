@@ -111,8 +111,8 @@ pub struct MergeInputs {
     pub inputs: Vec<TransferInput>,
     pub output: TransferOutput,
     /// Shared owner P256 signing pubkey coordinates and nullifier secret/commitment.
-    /// On the Solana (ed25519) rail the coordinates are a discarded dummy point and
-    /// `owner_pk_hash` carries the owner's pk_field; it is 0 on the P256 rail.
+    /// On the Solana (ed25519) rail the coordinates are a discarded dummy point.
+    /// `owner_pk_hash` carries the owner's pk_field on both owner rails.
     pub p256_pub_x: BigUint,
     pub p256_pub_y: BigUint,
     pub owner_pk_hash: BigUint,
@@ -123,6 +123,13 @@ pub struct MergeInputs {
     /// 65 bytes of the uncompressed point.
     pub tx_viewing_sk: BigUint,
     pub user_viewing_pubkey: Vec<BigUint>,
+    /// Public values derived alongside the merge ciphertext and bound into the
+    /// circuit's single public-input hash.
+    pub tx_viewing_pk_lo: BigUint,
+    pub tx_viewing_pk_hi: BigUint,
+    pub ciphertext_hash: BigUint,
+    /// Default-rail owner viewing-key tag. The zone rail does not publish it.
+    pub user_viewing_pk_hash: BigUint,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     pub public_input_hash: BigUint,

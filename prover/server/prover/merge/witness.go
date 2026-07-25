@@ -32,10 +32,19 @@ func (p *MergeParameters) createDefaultWitness() *mergecircuit.Circuit {
 	}
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
+	circuit.OutputHash = p.Output.Hash
+	circuit.TxViewingPkLo = p.TxViewingPkLo
+	circuit.TxViewingPkHi = p.TxViewingPkHi
+	circuit.CtHash = p.CtHash
+	circuit.UserSigningPkHash = p.OwnerPkHash
+	circuit.UserViewingPkHash = p.UserViewingPkHash
 	circuit.PublicInputHash = p.PublicInputHash
 
 	for i := range p.Inputs {
 		circuit.Inputs[i] = p.inputAt(i)
+		circuit.Nullifiers[i] = p.Inputs[i].Nullifier
+		circuit.UtxoTreeRoots[i] = p.Inputs[i].UtxoTreeRoot
+		circuit.NullifierTreeRoots[i] = p.Inputs[i].NullifierTreeRoot
 	}
 
 	circuit.Output = mergecircuit.Output{
@@ -59,11 +68,18 @@ func (p *MergeParameters) createZoneWitness() *mergecircuit.ZoneCircuit {
 	}
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
+	circuit.OutputHash = p.Output.Hash
+	circuit.TxViewingPkLo = p.TxViewingPkLo
+	circuit.TxViewingPkHi = p.TxViewingPkHi
+	circuit.CtHash = p.CtHash
 	circuit.ZoneProgramID = p.ZoneProgramID
 	circuit.PublicInputHash = p.PublicInputHash
 
 	for i := range p.Inputs {
 		circuit.Inputs[i] = p.inputAt(i)
+		circuit.Nullifiers[i] = p.Inputs[i].Nullifier
+		circuit.UtxoTreeRoots[i] = p.Inputs[i].UtxoTreeRoot
+		circuit.NullifierTreeRoots[i] = p.Inputs[i].NullifierTreeRoot
 	}
 
 	circuit.Output = mergecircuit.Output{

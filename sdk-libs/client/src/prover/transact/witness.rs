@@ -345,3 +345,44 @@ pub fn assemble(
         ix,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use solana_address::Address;
+    use zolana_transaction::instructions::types::SppProofInputUtxo;
+
+    use super::attach_input_proofs;
+    use crate::rpc::{MerkleContext, NonInclusionProof, NULLIFIER_TREE_HEIGHT};
+
+    #[test]
+    fn attaches_dummy_nullifier_proofs_in_slot_order() {
+        let inputs = vec![
+            SppProofInputUtxo::new_dummy(),
+            SppProofInputUtxo::new_dummy(),
+        ];
+        let proofs = [dummy_nullifier_proof(1), dummy_nullifier_proof(2)];
+
+        let spends = attach_input_proofs(inputs, &[], &proofs).expect("attach dummy proofs");
+
+        assert_eq!(spends[0].nullifier_proof.as_ref(), Some(&proofs[0]));
+        assert_eq!(spends[1].nullifier_proof.as_ref(), Some(&proofs[1]));
+    }
+
+    fn dummy_nullifier_proof(marker: u8) -> NonInclusionProof {
+        NonInclusionProof {
+            leaf: [marker; 32],
+            merkle_context: MerkleContext {
+                tree_type: 1,
+                tree: Address::new_from_array([marker; 32]),
+            },
+            path: vec![[marker; 32]; NULLIFIER_TREE_HEIGHT],
+            low_element: [0u8; 32],
+            low_element_index: 0,
+            high_element: [u8::MAX; 32],
+            high_element_index: 1,
+            root: [marker; 32],
+            root_seq: u64::from(marker),
+            root_index: u16::from(marker),
+        }
+    }
+}

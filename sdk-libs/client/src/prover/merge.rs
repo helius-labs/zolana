@@ -129,11 +129,10 @@ impl MergeProver {
         // SPP checks both against the owner's registry record; the owner recombines
         // the signing pk_field with their nullifier_pk to get user_owner_hash, so
         // the owner need not be carried in the ciphertext.
-        let user_viewing_pk_hash = PublicKey::from_p256(&self.user_viewing_pk).hash()?;
         let mut elements = merge.head.to_vec();
         elements.extend([
             merge.user_signing_pk_hash,
-            user_viewing_pk_hash,
+            merge.user_viewing_pk_hash,
             merge.tx_pk_lo,
             merge.tx_pk_hi,
             merge.ct_hash,
@@ -170,6 +169,7 @@ pub(crate) struct CommonMerge {
     pub tx_pk_hi: [u8; 32],
     pub ct_hash: [u8; 32],
     pub user_signing_pk_hash: [u8; 32],
+    pub user_viewing_pk_hash: [u8; 32],
     eddsa_owner: bool,
     p256_pub_x: [u8; 32],
     p256_pub_y: [u8; 32],
@@ -237,6 +237,7 @@ impl MergeProver {
         .hash()?;
 
         let user_signing_pk_hash = self.signing_pubkey.owner_pk_field()?;
+        let user_viewing_pk_hash = PublicKey::from_p256(&self.user_viewing_pk).hash()?;
         let head = [
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
@@ -246,18 +247,18 @@ impl MergeProver {
             external_data_hash,
         ];
 
-        // Owner rail select, mirroring the merge circuit: a P256 owner witnesses its
-        // real point (pk_field recomputed in-circuit, owner_pk_hash = 0); a
-        // Solana owner witnesses a discarded dummy point and feeds its pk_field
-        // through owner_pk_hash.
+        // The merge circuit receives the owner's pk_field directly on both owner
+        // rails. P256 coordinates remain in the wire shape for compatibility but
+        // are not circuit signals; the Solana rail supplies a harmless dummy point.
         let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
-        let (p256_pub_x, p256_pub_y, owner_pk_hash) = if eddsa_owner {
+        let (p256_pub_x, p256_pub_y) = if eddsa_owner {
             let (x, y) = dummy_p256_xy()?;
-            (x, y, BigUint::from_bytes_be(&user_signing_pk_hash))
+            (x, y)
         } else {
             let (x, y) = signing_xy(&self.signing_pubkey.as_p256()?)?;
-            (x, y, BigUint::ZERO)
+            (x, y)
         };
+        let owner_pk_hash = BigUint::from_bytes_be(&user_signing_pk_hash);
         let user_nullifier_pk = self.nullifier_key.pubkey()?;
         let user_nullifier_secret = right_align(self.nullifier_key.secret());
         let tx_viewing_sk_bytes: [u8; 32] = self.tx_viewing_sk.to_bytes().into();
@@ -289,6 +290,7 @@ impl MergeProver {
             tx_pk_hi,
             ct_hash,
             user_signing_pk_hash,
+            user_viewing_pk_hash,
             eddsa_owner,
             p256_pub_x,
             p256_pub_y,
@@ -319,6 +321,10 @@ impl CommonMerge {
             user_nullifier_secret: be(&self.user_nullifier_secret),
             tx_viewing_sk: BigUint::from_bytes_be(&self.tx_viewing_sk_bytes),
             user_viewing_pubkey: self.user_viewing_pubkey,
+            tx_viewing_pk_lo: be(&self.tx_pk_lo),
+            tx_viewing_pk_hi: be(&self.tx_pk_hi),
+            ciphertext_hash: be(&self.ct_hash),
+            user_viewing_pk_hash: be(&self.user_viewing_pk_hash),
             external_data_hash: be(&self.external_data_hash),
             private_tx_hash: be(&self.private_tx_hash),
             public_input_hash: be(&public_input),
