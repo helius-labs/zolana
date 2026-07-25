@@ -91,6 +91,20 @@ export function resolveShape(inputs: number, outputs: number, declared?: Shape):
   return validateSppShape(inputs, outputs, shape);
 }
 
+/**
+ * The ciphertext ordinal that keys AES-CTR for the slot at `position`, the
+ * counterpart of Rust `slot_ordinal`. Every published output of a confidential
+ * transfer carries a ciphertext, so the ordinal is the output position. It is a
+ * `u32` in the HKDF `info` string, and a wrapped value would reuse a
+ * `(key, nonce)` pair across two slots.
+ */
+export function slotOrdinal(position: number): number {
+  if (!Number.isInteger(position) || position < 0 || position > 0xffff_ffff) {
+    throw new TransactionError("TRANSACTION_OUTPUT_SLOT_OVERFLOW", { position });
+  }
+  return position;
+}
+
 export interface PublicAmounts {
   readonly sol?: bigint;
   readonly spl?: bigint;
@@ -529,10 +543,12 @@ function finalizeTransfer(
     payload: readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[];
   }>,
 ): SppProofInputs {
+  // Slots are read by output position, so a longer list would be dropped
+  // without a trace rather than encrypted into the transaction.
   if (encrypted.payload.length > prepared.outputs.length) {
-    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS", {
+    throw new TransactionError("TRANSACTION_EXCESS_OUTPUT_SLOTS", {
       got: encrypted.payload.length,
-      max: prepared.outputs.length,
+      outputs: prepared.outputs.length,
     });
   }
   const senderResolved = prepared.owner.confidentialViewTag();

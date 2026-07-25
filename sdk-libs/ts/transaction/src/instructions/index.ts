@@ -1,5 +1,6 @@
 export {
   ConfidentialSplit,
+  MERGE_INPUTS,
   Merge,
   MergeZone,
   PreparedMerge,
@@ -15,6 +16,7 @@ export {
   canonicalShape,
   createExternalData,
   resolveShape,
+  slotOrdinal,
 } from "./transact.js";
 export type {
   ExternalData,

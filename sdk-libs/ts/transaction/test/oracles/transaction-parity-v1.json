@@ -1,0 +1,4164 @@
+{
+  "asset": {
+    "addressForField": [
+      {
+        "fieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+        "mint": "11111111111111111111111111111111"
+      },
+      {
+        "fieldHex": "1d9811f297197604e6e4873f61eacfdcbc56012aa519a62b153e4d4a0b5febef",
+        "mint": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+      },
+      {
+        "fieldHex": "179ce35c5ee4f2d1763c22497dc82ce5b221f6790b7d56a646fd44a887fb7369",
+        "mint": null
+      }
+    ],
+    "assetId": [
+      {
+        "assetId": "1",
+        "error": null,
+        "mint": "11111111111111111111111111111111"
+      },
+      {
+        "assetId": "2",
+        "error": null,
+        "mint": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+      },
+      {
+        "assetId": "3",
+        "error": null,
+        "mint": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq"
+      },
+      {
+        "assetId": null,
+        "error": "TRANSACTION_UNKNOWN_MINT",
+        "mint": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
+      }
+    ],
+    "inserts": [
+      {
+        "assetId": "0",
+        "error": "TRANSACTION_RESERVED_ASSET_ID",
+        "mint": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+      },
+      {
+        "assetId": "1",
+        "error": "TRANSACTION_RESERVED_ASSET_ID",
+        "mint": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+      },
+      {
+        "assetId": "2",
+        "error": null,
+        "mint": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+      },
+      {
+        "assetId": "2",
+        "error": "TRANSACTION_DUPLICATE_ASSET_ID",
+        "mint": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq"
+      },
+      {
+        "assetId": "3",
+        "error": "TRANSACTION_DUPLICATE_MINT",
+        "mint": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+      },
+      {
+        "assetId": "3",
+        "error": null,
+        "mint": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq"
+      },
+      {
+        "assetId": "4",
+        "error": "TRANSACTION_DUPLICATE_MINT",
+        "mint": "11111111111111111111111111111111"
+      }
+    ],
+    "resolve": [
+      {
+        "assetId": "0",
+        "error": "TRANSACTION_UNKNOWN_ASSET",
+        "mint": null
+      },
+      {
+        "assetId": "1",
+        "error": null,
+        "mint": "11111111111111111111111111111111"
+      },
+      {
+        "assetId": "2",
+        "error": null,
+        "mint": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+      },
+      {
+        "assetId": "3",
+        "error": null,
+        "mint": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq"
+      },
+      {
+        "assetId": "5",
+        "error": "TRANSACTION_UNKNOWN_ASSET",
+        "mint": null
+      }
+    ],
+    "solAssetId": "1",
+    "solMint": "11111111111111111111111111111111"
+  },
+  "data": {
+    "cases": [
+      {
+        "encodedHex": "00",
+        "error": null,
+        "name": "empty",
+        "records": []
+      },
+      {
+        "encodedHex": "010102000909",
+        "error": null,
+        "name": "zoneOnly",
+        "records": [
+          {
+            "bytesHex": "0909",
+            "kind": "zoneData"
+          }
+        ]
+      },
+      {
+        "encodedHex": "0102010001",
+        "error": null,
+        "name": "utxoOnly",
+        "records": [
+          {
+            "bytesHex": "01",
+            "kind": "utxoData"
+          }
+        ]
+      },
+      {
+        "encodedHex": "01030200676d",
+        "error": null,
+        "name": "memoOnly",
+        "records": [
+          {
+            "bytesHex": "676d",
+            "kind": "memo"
+          }
+        ]
+      },
+      {
+        "encodedHex": "03010200090902010001030200676d",
+        "error": null,
+        "name": "canonicalOrder",
+        "records": [
+          {
+            "bytesHex": "0909",
+            "kind": "zoneData"
+          },
+          {
+            "bytesHex": "01",
+            "kind": "utxoData"
+          },
+          {
+            "bytesHex": "676d",
+            "kind": "memo"
+          }
+        ]
+      },
+      {
+        "encodedHex": "01032c01070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707",
+        "error": null,
+        "name": "memoLongerThanAByte",
+        "records": [
+          {
+            "bytesHex": "070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707",
+            "kind": "memo"
+          }
+        ]
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_DUPLICATE_DATA_RECORD",
+        "name": "duplicateMemo",
+        "records": [
+          {
+            "bytesHex": "01",
+            "kind": "memo"
+          },
+          {
+            "bytesHex": "02",
+            "kind": "memo"
+          }
+        ]
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_DUPLICATE_DATA_RECORD",
+        "name": "duplicateZone",
+        "records": [
+          {
+            "bytesHex": "01",
+            "kind": "zoneData"
+          },
+          {
+            "bytesHex": "02",
+            "kind": "zoneData"
+          }
+        ]
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_NON_CANONICAL_DATA_ORDER",
+        "name": "utxoBeforeZone",
+        "records": [
+          {
+            "bytesHex": "01",
+            "kind": "utxoData"
+          },
+          {
+            "bytesHex": "02",
+            "kind": "zoneData"
+          }
+        ]
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_NON_CANONICAL_DATA_ORDER",
+        "name": "zoneAfterMemo",
+        "records": [
+          {
+            "bytesHex": "00",
+            "kind": "memo"
+          },
+          {
+            "bytesHex": "01",
+            "kind": "zoneData"
+          }
+        ]
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_NON_CANONICAL_DATA_ORDER",
+        "name": "utxoAfterMemo",
+        "records": [
+          {
+            "bytesHex": "00",
+            "kind": "memo"
+          },
+          {
+            "bytesHex": "01",
+            "kind": "utxoData"
+          }
+        ]
+      },
+      {
+        "encodedHex": "01020000",
+        "error": null,
+        "name": "emptyRecordBytes",
+        "records": [
+          {
+            "bytesHex": "",
+            "kind": "utxoData"
+          }
+        ]
+      }
+    ]
+  },
+  "errors": {
+    "variants": [
+      {
+        "display": "unexpected discriminator: 9",
+        "tsCode": "TRANSACTION_BAD_DISCRIMINATOR",
+        "variant": "BadDiscriminator"
+      },
+      {
+        "display": "invalid length: expected 32, got 31",
+        "tsCode": "TRANSACTION_INVALID_LENGTH",
+        "variant": "InvalidLength"
+      },
+      {
+        "display": "serialization failed: boom",
+        "tsCode": "TRANSACTION_SERIALIZE",
+        "variant": "Serialize"
+      },
+      {
+        "display": "deserialization failed: boom",
+        "tsCode": "TRANSACTION_DESERIALIZE",
+        "variant": "Deserialize"
+      },
+      {
+        "display": "unknown asset id: 7",
+        "tsCode": "TRANSACTION_UNKNOWN_ASSET",
+        "variant": "UnknownAsset"
+      },
+      {
+        "display": "unknown mint: CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+        "tsCode": "TRANSACTION_UNKNOWN_MINT",
+        "variant": "UnknownMint"
+      },
+      {
+        "display": "reserved asset id: 1",
+        "tsCode": "TRANSACTION_RESERVED_ASSET_ID",
+        "variant": "ReservedAssetId"
+      },
+      {
+        "display": "duplicate asset id: 2",
+        "tsCode": "TRANSACTION_DUPLICATE_ASSET_ID",
+        "variant": "DuplicateAssetId"
+      },
+      {
+        "display": "duplicate mint: CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+        "tsCode": "TRANSACTION_DUPLICATE_MINT",
+        "variant": "DuplicateMint"
+      },
+      {
+        "display": "data attached to an output with zero amount",
+        "tsCode": "TRANSACTION_DATA_WITHOUT_OUTPUT",
+        "variant": "DataWithoutOutput"
+      },
+      {
+        "display": "too many outputs to derive blinding positions",
+        "tsCode": "TRANSACTION_TOO_MANY_OUTPUTS",
+        "variant": "TooManyOutputs"
+      },
+      {
+        "display": "duplicate data record",
+        "tsCode": "TRANSACTION_DUPLICATE_DATA_RECORD",
+        "variant": "DuplicateDataRecord"
+      },
+      {
+        "display": "data records out of canonical order",
+        "tsCode": "TRANSACTION_NON_CANONICAL_DATA_ORDER",
+        "variant": "NonCanonicalDataOrder"
+      },
+      {
+        "display": "zone data present without zone program id",
+        "tsCode": "TRANSACTION_MISSING_ZONE_PROGRAM_ID",
+        "variant": "MissingZoneProgramId"
+      },
+      {
+        "display": "program/zone data on this output cannot be processed yet",
+        "tsCode": "TRANSACTION_UNSUPPORTED_OUTPUT_DATA",
+        "variant": "UnsupportedOutputData"
+      },
+      {
+        "display": "poseidon hash failed: boom",
+        "tsCode": "TRANSACTION_POSEIDON",
+        "variant": "Poseidon"
+      },
+      {
+        "display": "hash failed: boom",
+        "tsCode": "TRANSACTION_HASH",
+        "variant": "Hash"
+      },
+      {
+        "display": "transaction has no output slots",
+        "tsCode": "TRANSACTION_MISSING_OUTPUT",
+        "variant": "MissingOutput"
+      },
+      {
+        "display": "invalid output count: expected 1, got 2",
+        "tsCode": "TRANSACTION_INVALID_OUTPUT_COUNT",
+        "variant": "InvalidOutputCount"
+      },
+      {
+        "display": "output 1 has a different owner",
+        "tsCode": "TRANSACTION_OUTPUT_OWNER_MISMATCH",
+        "variant": "OutputOwnerMismatch"
+      },
+      {
+        "display": "output 1 has a different asset",
+        "tsCode": "TRANSACTION_OUTPUT_ASSET_MISMATCH",
+        "variant": "OutputAssetMismatch"
+      },
+      {
+        "display": "output 1 has a different amount",
+        "tsCode": "TRANSACTION_OUTPUT_AMOUNT_MISMATCH",
+        "variant": "OutputAmountMismatch"
+      },
+      {
+        "display": "output 1 has a different blinding",
+        "tsCode": "TRANSACTION_OUTPUT_BLINDING_MISMATCH",
+        "variant": "OutputBlindingMismatch"
+      },
+      {
+        "display": "output 1 has different data",
+        "tsCode": "TRANSACTION_OUTPUT_DATA_MISMATCH",
+        "variant": "OutputDataMismatch"
+      },
+      {
+        "display": "output 1 has a different zone program id",
+        "tsCode": "TRANSACTION_OUTPUT_ZONE_MISMATCH",
+        "variant": "OutputZoneMismatch"
+      },
+      {
+        "display": "output position 3 is duplicated or noncanonical",
+        "tsCode": "TRANSACTION_INVALID_OUTPUT_POSITION",
+        "variant": "InvalidOutputPosition"
+      },
+      {
+        "display": "merge asset field has no matching asset: [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]",
+        "tsCode": "TRANSACTION_UNKNOWN_ASSET_FIELD",
+        "variant": "UnknownAssetField"
+      },
+      {
+        "display": "missing encryption context for scheme",
+        "tsCode": "TRANSACTION_MISSING_ENCRYPTION_CONTEXT",
+        "variant": "MissingEncryptionContext"
+      },
+      {
+        "display": "transaction has no inputs",
+        "tsCode": "TRANSACTION_NO_INPUTS",
+        "variant": "NoInputs"
+      },
+      {
+        "display": "dummy input carries a noncanonical amount",
+        "tsCode": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "variant": "NoncanonicalDummyInput"
+      },
+      {
+        "display": "address hash count 1 does not match input count 2",
+        "tsCode": "TRANSACTION_ADDRESS_HASH_COUNT_MISMATCH",
+        "variant": "AddressHashCountMismatch"
+      },
+      {
+        "display": "withdrawal already set",
+        "tsCode": "TRANSACTION_WITHDRAWAL_ALREADY_SET",
+        "variant": "WithdrawalAlreadySet"
+      },
+      {
+        "display": "withdrawal target does not match the withdrawn asset",
+        "tsCode": "TRANSACTION_WITHDRAWAL_ASSET_MISMATCH",
+        "variant": "WithdrawalAssetMismatch"
+      },
+      {
+        "display": "output slot 4294967296 exceeds the addressable ciphertext ordinal range",
+        "tsCode": "TRANSACTION_OUTPUT_SLOT_OVERFLOW",
+        "variant": "OutputSlotOverflow"
+      },
+      {
+        "display": "got 4 output slot encodings for 3 outputs",
+        "tsCode": "TRANSACTION_EXCESS_OUTPUT_SLOTS",
+        "variant": "ExcessOutputSlots"
+      },
+      {
+        "display": "zone authority requires a nonzero zone program id",
+        "tsCode": "TRANSACTION_MISSING_ZONE_AUTHORITY_PROGRAM_ID",
+        "variant": "MissingZoneAuthorityProgramId"
+      },
+      {
+        "display": "zone authority input 0 is not bound to the pinned zone",
+        "tsCode": "TRANSACTION_ZONE_AUTHORITY_INPUT_ZONE_MISMATCH",
+        "variant": "ZoneAuthorityInputZoneMismatch"
+      },
+      {
+        "display": "zone authority output 0 is not bound to the pinned zone",
+        "tsCode": "TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH",
+        "variant": "ZoneAuthorityOutputZoneMismatch"
+      },
+      {
+        "display": "public sol leg already set",
+        "tsCode": "TRANSACTION_PUBLIC_SOL_ALREADY_SET",
+        "variant": "PublicSolAlreadySet"
+      },
+      {
+        "display": "public spl leg already set",
+        "tsCode": "TRANSACTION_PUBLIC_SPL_ALREADY_SET",
+        "variant": "PublicSplAlreadySet"
+      },
+      {
+        "display": "zone hashes already set",
+        "tsCode": "TRANSACTION_ZONE_HASHES_ALREADY_SET",
+        "variant": "ZoneHashesAlreadySet"
+      },
+      {
+        "display": "multiple public spl assets in one transaction",
+        "tsCode": "TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS",
+        "variant": "MultiplePublicSplAssets"
+      },
+      {
+        "display": "public spl amount set but no spl asset among the transaction utxos",
+        "tsCode": "TRANSACTION_MISSING_PUBLIC_SPL_ASSET",
+        "variant": "MissingPublicSplAsset"
+      },
+      {
+        "display": "p256 signing requires a p256 keypair",
+        "tsCode": "TRANSACTION_SIGNER_NOT_P256",
+        "variant": "SignerNotP256"
+      },
+      {
+        "display": "insufficient balance: requested 5, available 4",
+        "tsCode": "TRANSACTION_INSUFFICIENT_BALANCE",
+        "variant": "InsufficientBalance"
+      },
+      {
+        "display": "unsupported proof shape: 9 input(s), 9 output(s)",
+        "tsCode": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "variant": "UnsupportedShape"
+      },
+      {
+        "display": "too many inputs: got 3, max 2",
+        "tsCode": "TRANSACTION_TOO_MANY_INPUTS",
+        "variant": "TooManyInputs"
+      },
+      {
+        "display": "too many outputs: got 4, max 3",
+        "tsCode": "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+        "variant": "TooManyOutputsForShape"
+      },
+      {
+        "display": "merge input 1 has a different owner rail",
+        "tsCode": "TRANSACTION_MERGE_INPUT_RAIL_MISMATCH",
+        "variant": "MergeInputRailMismatch"
+      },
+      {
+        "display": "merge input 1 has a different owner than the merging keypair",
+        "tsCode": "TRANSACTION_MERGE_INPUT_OWNER_MISMATCH",
+        "variant": "MergeInputOwnerMismatch"
+      },
+      {
+        "display": "merge input 1 has a different nullifier key than the merging keypair",
+        "tsCode": "TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH",
+        "variant": "MergeInputNullifierKeyMismatch"
+      },
+      {
+        "display": "merge input 1 has a different asset",
+        "tsCode": "TRANSACTION_MERGE_INPUT_ASSET_MISMATCH",
+        "variant": "MergeInputAssetMismatch"
+      },
+      {
+        "display": "merge input 1 has a different zone program id",
+        "tsCode": "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
+        "variant": "MergeInputZoneMismatch"
+      },
+      {
+        "display": "selected balance overflow",
+        "tsCode": "TRANSACTION_SELECTED_BALANCE_OVERFLOW",
+        "variant": "SelectedBalanceOverflow"
+      },
+      {
+        "display": "wallet balance overflow",
+        "tsCode": "TRANSACTION_WALLET_BALANCE_OVERFLOW",
+        "variant": "WalletBalanceOverflow"
+      },
+      {
+        "display": "tag scan window must be nonzero",
+        "tsCode": "TRANSACTION_INVALID_TAG_WINDOW",
+        "variant": "InvalidTagWindow"
+      },
+      {
+        "display": "merge input 1 carries program or zone data, which is not supported",
+        "tsCode": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "variant": "MergeInputHasData"
+      },
+      {
+        "display": "split part count 9 is out of range (2..=8)",
+        "tsCode": "TRANSACTION_SPLIT_INVALID_PART_COUNT",
+        "variant": "SplitInvalidPartCount"
+      },
+      {
+        "display": "split input asset does not match the requested split asset",
+        "tsCode": "TRANSACTION_SPLIT_INPUT_ASSET_MISMATCH",
+        "variant": "SplitInputAssetMismatch"
+      },
+      {
+        "display": "split input carries program or utxo data, which is not supported",
+        "tsCode": "TRANSACTION_SPLIT_INPUT_HAS_DATA",
+        "variant": "SplitInputHasData"
+      },
+      {
+        "display": "split input is bound to a zone, which is not supported",
+        "tsCode": "TRANSACTION_SPLIT_INPUT_ZONE_MISMATCH",
+        "variant": "SplitInputZoneMismatch"
+      },
+      {
+        "display": "split input is a dummy",
+        "tsCode": "TRANSACTION_SPLIT_INPUT_IS_DUMMY",
+        "variant": "SplitInputIsDummy"
+      },
+      {
+        "display": "split input has a different owner than the splitting address",
+        "tsCode": "TRANSACTION_SPLIT_INPUT_OWNER_MISMATCH",
+        "variant": "SplitInputOwnerMismatch"
+      },
+      {
+        "display": "split input has a different nullifier key than the splitting address",
+        "tsCode": "TRANSACTION_SPLIT_INPUT_NULLIFIER_KEY_MISMATCH",
+        "variant": "SplitInputNullifierKeyMismatch"
+      },
+      {
+        "display": "split amount mismatch: 3 parts of 3 do not sum to input 10",
+        "tsCode": "TRANSACTION_SPLIT_AMOUNT_MISMATCH",
+        "variant": "SplitAmountMismatch"
+      },
+      {
+        "display": "p256 error: boom",
+        "tsCode": "TRANSACTION_P256",
+        "variant": "P256"
+      },
+      {
+        "display": "keypair error: invalid public key",
+        "tsCode": "TRANSACTION_KEYPAIR",
+        "variant": "Keypair"
+      },
+      {
+        "display": "wallet authority identity does not match the wallet",
+        "tsCode": "TRANSACTION_WALLET_AUTHORITY_MISMATCH",
+        "variant": "WalletAuthorityMismatch"
+      },
+      {
+        "display": "wallet authority did not provide its current viewing key",
+        "tsCode": "TRANSACTION_MISSING_CURRENT_VIEWING_KEY",
+        "variant": "MissingCurrentViewingKey"
+      },
+      {
+        "display": "wallet authority error: boom",
+        "tsCode": "TRANSACTION_AUTHORITY",
+        "variant": "Authority"
+      }
+    ]
+  },
+  "fromUtxos": {
+    "anonymousRecipient": [
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f102000000000000000500000000000000b285d1efb215086b976c9baff9bf79be51119ff60d1cb01c010debb818b18500",
+        "error": null,
+        "name": "single",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 3,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f101000000000000000500000000000000b285d1efb215086b976c9baff9bf79be51119ff60d1cb01c010debb818b18501030200676d",
+        "error": null,
+        "name": "withMemo",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 3,
+            "records": [
+              {
+                "bytesHex": "676d",
+                "kind": "memo"
+              }
+            ],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f101000000000000000500000000000000b285d1efb215086b976c9baff9bf79be51119ff60d1cb01c010debb818b185010102000102",
+        "error": null,
+        "name": "zoneBound",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 3,
+            "records": [
+              {
+                "bytesHex": "0102",
+                "kind": "zoneData"
+              }
+            ],
+            "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+          }
+        ],
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_COUNT",
+        "name": "empty",
+        "utxos": [],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_COUNT",
+        "name": "twoUtxos",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 3,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "6",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 4,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_OWNER_MISMATCH",
+        "name": "foreignOwner",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "other",
+            "position": 3,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      }
+    ],
+    "anonymousSender": [
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a30200000000000000050000000000000007000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b01033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f10000",
+        "error": null,
+        "name": "splAndSol",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a30000000000000000000000000000000007000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b01033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f10000",
+        "error": null,
+        "name": "solOnly",
+        "utxos": [
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_MISSING_OUTPUT",
+        "name": "empty",
+        "utxos": [],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_POSITION",
+        "name": "solAtTheSplPosition",
+        "utxos": [
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_POSITION",
+        "name": "twoSplLegs",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "6",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      }
+    ],
+    "blindingSeedHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "otherPublicKeyHex": "0003741dd5bda817d95e4626537320e5d55179983028b2f82c99d500c5ee8624e3c4",
+    "ownerPublicKeyHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+    "plaintextTransfer": [
+      {
+        "encodedHex": "040b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0100028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a301050000000000000002000000000000000107000000000000000000020003741dd5bda817d95e4626537320e5d55179983028b2f82c99d500c5ee8624e3c401000000000000000b00000000000000000003741dd5bda817d95e4626537320e5d55179983028b2f82c99d500c5ee8624e3c402000000000000000d0000000000000001030200676d",
+        "error": null,
+        "name": "senderSplAndSolPlusTwoRecipients",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "11",
+            "asset": "11111111111111111111111111111111",
+            "owner": "other",
+            "position": 2,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "13",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "other",
+            "position": 3,
+            "records": [
+              {
+                "bytesHex": "676d",
+                "kind": "memo"
+              }
+            ],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "040b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0000",
+        "error": null,
+        "name": "empty",
+        "utxos": [],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "040b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b000100028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a301000000000000000b0000000000000000",
+        "error": null,
+        "name": "recipientsOnly",
+        "utxos": [
+          {
+            "amount": "11",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 2,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_ASSET_MISMATCH",
+        "name": "solInTheSplSlot",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_ASSET_MISMATCH",
+        "name": "splInTheSolSlot",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_OWNER_MISMATCH",
+        "name": "foreignOwnerInTheSenderSlot",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "other",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_MISSING_OUTPUT",
+        "name": "blindingOffTheSeed",
+        "utxos": [
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": null,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_POSITION",
+        "name": "recipientPositionGap",
+        "utxos": [
+          {
+            "amount": "11",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 2,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "12",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 4,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_ZONE_MISMATCH",
+        "name": "zoneMismatch",
+        "utxos": [
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_UNKNOWN_MINT",
+        "name": "unregisteredMint",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      }
+    ],
+    "proofless": [
+      {
+        "encodedHex": "0505050505050505050505050505050505050505050505050505050505050505e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d0000000000000000000000000000000000000000000000000000000000000000005000000000000000106060606060606060606060606060606060606060606060606060606060606060000000000",
+        "error": null,
+        "name": "single",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "0505050505050505050505050505050505050505050505050505050505050505e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d000000000000000000000000000000000000000000000000000000000000000000500000000000000010606060606060606060606060606060606060606060606060606060606060606010100000001010c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c000101000000090102000000676d",
+        "error": null,
+        "name": "everyRecord",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              {
+                "bytesHex": "09",
+                "kind": "zoneData"
+              },
+              {
+                "bytesHex": "01",
+                "kind": "utxoData"
+              },
+              {
+                "bytesHex": "676d",
+                "kind": "memo"
+              }
+            ],
+            "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+          }
+        ],
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_COUNT",
+        "name": "empty",
+        "utxos": [],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_OWNER_MISMATCH",
+        "name": "foreignOwner",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "other",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      }
+    ],
+    "prooflessDataHashHex": "0606060606060606060606060606060606060606060606060606060606060606",
+    "prooflessOwnerHashHex": "0505050505050505050505050505050505050505050505050505050505050505",
+    "senderViewingPublicKeyHex": "033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f1",
+    "splAssetId": "2",
+    "splMint": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+    "split": [
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a303020000000000000005000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b00",
+        "error": null,
+        "name": "threeEqualParts",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 2,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_MISSING_OUTPUT",
+        "name": "empty",
+        "utxos": [],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_AMOUNT_MISMATCH",
+        "name": "amountMismatch",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "6",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_ASSET_MISMATCH",
+        "name": "assetMismatch",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_DATA_MISMATCH",
+        "name": "dataMismatch",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              {
+                "bytesHex": "676d",
+                "kind": "memo"
+              }
+            ],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_BLINDING_MISMATCH",
+        "name": "blindingOutOfOrder",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      }
+    ],
+    "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+  },
+  "generator": "ZOLANA_WRITE_TS_ORACLES=1 cargo test -p zolana-transaction --test ts_oracle",
+  "schema": "zolana-transaction-parity-oracle-v1",
+  "scheme": {
+    "invalid": [
+      {
+        "byte": 4,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 8,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 9,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 10,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 11,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 12,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 13,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 14,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 15,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 16,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 17,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 18,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 19,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 20,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 21,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 22,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 23,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 24,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 25,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 26,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 27,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 28,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 29,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 30,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 31,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 32,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 33,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 34,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 35,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 36,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 37,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 38,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 39,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 40,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 41,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 42,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 43,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 44,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 45,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 46,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 47,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 48,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 49,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 50,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 51,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 52,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 53,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 54,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 55,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 56,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 57,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 58,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 59,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 60,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 61,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 62,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 63,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 64,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 65,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 66,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 67,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 68,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 69,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 70,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 71,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 72,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 73,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 74,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 75,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 76,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 77,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 78,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 79,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 80,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 81,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 82,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 83,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 84,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 85,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 86,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 87,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 88,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 89,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 90,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 91,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 92,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 93,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 94,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 95,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 96,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 97,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 98,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 99,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 100,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 101,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 102,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 103,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 104,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 105,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 106,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 107,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 108,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 109,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 110,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 111,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 112,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 113,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 114,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 115,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 116,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 117,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 118,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 119,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 120,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 121,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 122,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 123,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 124,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 125,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 126,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 127,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 128,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 129,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 130,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 131,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 132,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 133,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 134,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 135,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 136,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 137,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 138,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 139,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 140,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 141,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 142,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 143,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 144,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 145,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 146,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 147,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 148,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 149,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 150,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 151,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 152,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 153,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 154,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 155,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 156,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 157,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 158,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 159,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 160,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 161,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 162,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 163,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 164,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 165,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 166,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 167,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 168,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 169,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 170,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 171,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 172,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 173,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 174,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 175,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 176,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 177,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 178,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 179,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 180,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 181,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 182,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 183,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 184,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 185,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 186,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 187,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 188,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 189,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 190,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 191,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 192,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 193,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 194,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 195,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 196,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 197,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 198,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 199,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 200,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 201,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 202,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 203,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 204,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 205,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 206,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 207,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 208,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 209,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 210,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 211,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 212,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 213,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 214,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 215,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 216,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 217,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 218,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 219,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 220,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 221,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 222,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 223,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 224,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 225,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 226,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 227,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 228,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 229,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 230,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 231,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 232,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 233,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 234,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 235,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 236,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 237,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 238,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 239,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 240,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 241,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 242,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 243,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 244,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 245,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 246,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 247,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 248,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 249,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 250,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 251,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 252,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 253,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 254,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      },
+      {
+        "byte": 255,
+        "error": "TRANSACTION_BAD_DISCRIMINATOR"
+      }
+    ],
+    "values": [
+      {
+        "byte": 0,
+        "name": "proofless"
+      },
+      {
+        "byte": 1,
+        "name": "anonymousRecipient"
+      },
+      {
+        "byte": 2,
+        "name": "anonymousSender"
+      },
+      {
+        "byte": 3,
+        "name": "confidential"
+      },
+      {
+        "byte": 5,
+        "name": "split"
+      },
+      {
+        "byte": 6,
+        "name": "merge"
+      },
+      {
+        "byte": 7,
+        "name": "plaintextTransfer"
+      }
+    ]
+  },
+  "serialization": {
+    "confidential": [
+      {
+        "amount": "1000",
+        "assetId": "1",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "0100000000000000e8030000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0000",
+        "name": "bare",
+        "records": [],
+        "zoneProgramId": null
+      },
+      {
+        "amount": "42",
+        "assetId": "7",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "07000000000000002a000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b010c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c010102000909",
+        "name": "zoneBound",
+        "records": [
+          {
+            "bytesHex": "0909",
+            "kind": "zoneData"
+          }
+        ],
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "amount": "18446744073709551615",
+        "assetId": "2",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "0200000000000000ffffffffffffffff0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b010c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c03010200090902010001030200676d",
+        "name": "everyRecord",
+        "records": [
+          {
+            "bytesHex": "0909",
+            "kind": "zoneData"
+          },
+          {
+            "bytesHex": "01",
+            "kind": "utxoData"
+          },
+          {
+            "bytesHex": "676d",
+            "kind": "memo"
+          }
+        ],
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "amount": "0",
+        "assetId": "1",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "010000000000000000000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0000",
+        "name": "zeroAmount",
+        "records": [],
+        "zoneProgramId": null
+      }
+    ],
+    "merge": [
+      {
+        "amount": "0",
+        "assetFieldHex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "000000000000000000000000000000000000000000000000000000000000000000000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "name": "zero"
+      },
+      {
+        "amount": "18446744073709551615",
+        "assetFieldHex": "0404040404040404040404040404040404040404040404040404040404040404",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "ffffffffffffffff04040404040404040404040404040404040404040404040404040404040404040b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "name": "max"
+      }
+    ]
+  },
+  "shape": {
+    "canonical": [
+      {
+        "error": null,
+        "inputs": 0,
+        "outputs": 0,
+        "shape": {
+          "inputs": 1,
+          "outputs": 1
+        }
+      },
+      {
+        "error": null,
+        "inputs": 0,
+        "outputs": 1,
+        "shape": {
+          "inputs": 1,
+          "outputs": 1
+        }
+      },
+      {
+        "error": null,
+        "inputs": 0,
+        "outputs": 2,
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        }
+      },
+      {
+        "error": null,
+        "inputs": 0,
+        "outputs": 3,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 0,
+        "outputs": 4,
+        "shape": {
+          "inputs": 4,
+          "outputs": 4
+        }
+      },
+      {
+        "error": null,
+        "inputs": 0,
+        "outputs": 5,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "error": null,
+        "inputs": 0,
+        "outputs": 6,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "error": null,
+        "inputs": 0,
+        "outputs": 7,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "error": null,
+        "inputs": 0,
+        "outputs": 8,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 0,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "error": null,
+        "inputs": 1,
+        "outputs": 0,
+        "shape": {
+          "inputs": 1,
+          "outputs": 1
+        }
+      },
+      {
+        "error": null,
+        "inputs": 1,
+        "outputs": 1,
+        "shape": {
+          "inputs": 1,
+          "outputs": 1
+        }
+      },
+      {
+        "error": null,
+        "inputs": 1,
+        "outputs": 2,
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        }
+      },
+      {
+        "error": null,
+        "inputs": 1,
+        "outputs": 3,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 1,
+        "outputs": 4,
+        "shape": {
+          "inputs": 4,
+          "outputs": 4
+        }
+      },
+      {
+        "error": null,
+        "inputs": 1,
+        "outputs": 5,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "error": null,
+        "inputs": 1,
+        "outputs": 6,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "error": null,
+        "inputs": 1,
+        "outputs": 7,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "error": null,
+        "inputs": 1,
+        "outputs": 8,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 1,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "error": null,
+        "inputs": 2,
+        "outputs": 0,
+        "shape": {
+          "inputs": 2,
+          "outputs": 2
+        }
+      },
+      {
+        "error": null,
+        "inputs": 2,
+        "outputs": 1,
+        "shape": {
+          "inputs": 2,
+          "outputs": 2
+        }
+      },
+      {
+        "error": null,
+        "inputs": 2,
+        "outputs": 2,
+        "shape": {
+          "inputs": 2,
+          "outputs": 2
+        }
+      },
+      {
+        "error": null,
+        "inputs": 2,
+        "outputs": 3,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 2,
+        "outputs": 4,
+        "shape": {
+          "inputs": 4,
+          "outputs": 4
+        }
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 5,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 6,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 7,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "error": null,
+        "inputs": 3,
+        "outputs": 0,
+        "shape": {
+          "inputs": 3,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 3,
+        "outputs": 1,
+        "shape": {
+          "inputs": 3,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 3,
+        "outputs": 2,
+        "shape": {
+          "inputs": 3,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 3,
+        "outputs": 3,
+        "shape": {
+          "inputs": 3,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 3,
+        "outputs": 4,
+        "shape": {
+          "inputs": 4,
+          "outputs": 4
+        }
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 3,
+        "outputs": 5,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 3,
+        "outputs": 6,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 3,
+        "outputs": 7,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 3,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 3,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "error": null,
+        "inputs": 4,
+        "outputs": 0,
+        "shape": {
+          "inputs": 4,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 4,
+        "outputs": 1,
+        "shape": {
+          "inputs": 4,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 4,
+        "outputs": 2,
+        "shape": {
+          "inputs": 4,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 4,
+        "outputs": 3,
+        "shape": {
+          "inputs": 4,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 4,
+        "outputs": 4,
+        "shape": {
+          "inputs": 4,
+          "outputs": 4
+        }
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 4,
+        "outputs": 5,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 4,
+        "outputs": 6,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 4,
+        "outputs": 7,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 4,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 4,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "error": null,
+        "inputs": 5,
+        "outputs": 0,
+        "shape": {
+          "inputs": 5,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 5,
+        "outputs": 1,
+        "shape": {
+          "inputs": 5,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 5,
+        "outputs": 2,
+        "shape": {
+          "inputs": 5,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 5,
+        "outputs": 3,
+        "shape": {
+          "inputs": 5,
+          "outputs": 3
+        }
+      },
+      {
+        "error": null,
+        "inputs": 5,
+        "outputs": 4,
+        "shape": {
+          "inputs": 5,
+          "outputs": 4
+        }
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 5,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 6,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 7,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 0,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 1,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 2,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 3,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 4,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 5,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 6,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 7,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 9,
+        "shape": null
+      }
+    ],
+    "resolve": [
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 0,
+        "outputs": 0,
+        "shape": {
+          "inputs": 1,
+          "outputs": 1
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 0,
+        "outputs": 1,
+        "shape": {
+          "inputs": 1,
+          "outputs": 1
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 0,
+        "outputs": 2,
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 0,
+        "outputs": 3,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 0,
+        "outputs": 4,
+        "shape": {
+          "inputs": 4,
+          "outputs": 4
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 0,
+        "outputs": 5,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 0,
+        "outputs": 6,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 0,
+        "outputs": 7,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 0,
+        "outputs": 8,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 0,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 1,
+        "outputs": 0,
+        "shape": {
+          "inputs": 1,
+          "outputs": 1
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 1,
+        "outputs": 1,
+        "shape": {
+          "inputs": 1,
+          "outputs": 1
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 1,
+        "outputs": 2,
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 1,
+        "outputs": 3,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 1,
+        "outputs": 4,
+        "shape": {
+          "inputs": 4,
+          "outputs": 4
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 1,
+        "outputs": 5,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 1,
+        "outputs": 6,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 1,
+        "outputs": 7,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 1,
+        "outputs": 8,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 1,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 2,
+        "outputs": 0,
+        "shape": {
+          "inputs": 2,
+          "outputs": 2
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 2,
+        "outputs": 1,
+        "shape": {
+          "inputs": 2,
+          "outputs": 2
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 2,
+        "outputs": 2,
+        "shape": {
+          "inputs": 2,
+          "outputs": 2
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 2,
+        "outputs": 3,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 2,
+        "outputs": 4,
+        "shape": {
+          "inputs": 4,
+          "outputs": 4
+        }
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 5,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 6,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 7,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 3,
+        "outputs": 0,
+        "shape": {
+          "inputs": 3,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 3,
+        "outputs": 1,
+        "shape": {
+          "inputs": 3,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 3,
+        "outputs": 2,
+        "shape": {
+          "inputs": 3,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 3,
+        "outputs": 3,
+        "shape": {
+          "inputs": 3,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 3,
+        "outputs": 4,
+        "shape": {
+          "inputs": 4,
+          "outputs": 4
+        }
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 3,
+        "outputs": 5,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 3,
+        "outputs": 6,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 3,
+        "outputs": 7,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 3,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 3,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 4,
+        "outputs": 0,
+        "shape": {
+          "inputs": 4,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 4,
+        "outputs": 1,
+        "shape": {
+          "inputs": 4,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 4,
+        "outputs": 2,
+        "shape": {
+          "inputs": 4,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 4,
+        "outputs": 3,
+        "shape": {
+          "inputs": 4,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 4,
+        "outputs": 4,
+        "shape": {
+          "inputs": 4,
+          "outputs": 4
+        }
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 4,
+        "outputs": 5,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 4,
+        "outputs": 6,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 4,
+        "outputs": 7,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 4,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 4,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 5,
+        "outputs": 0,
+        "shape": {
+          "inputs": 5,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 5,
+        "outputs": 1,
+        "shape": {
+          "inputs": 5,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 5,
+        "outputs": 2,
+        "shape": {
+          "inputs": 5,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 5,
+        "outputs": 3,
+        "shape": {
+          "inputs": 5,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": null,
+        "error": null,
+        "inputs": 5,
+        "outputs": 4,
+        "shape": {
+          "inputs": 5,
+          "outputs": 4
+        }
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 5,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 6,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 7,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 0,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 1,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 2,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 3,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 4,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 5,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 6,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 7,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "declared": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 1
+        },
+        "error": null,
+        "inputs": 0,
+        "outputs": 0,
+        "shape": {
+          "inputs": 1,
+          "outputs": 1
+        }
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 1
+        },
+        "error": null,
+        "inputs": 1,
+        "outputs": 1,
+        "shape": {
+          "inputs": 1,
+          "outputs": 1
+        }
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 1
+        },
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "inputs": 2,
+        "outputs": 3,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 1
+        },
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "inputs": 5,
+        "outputs": 4,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 1
+        },
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+        "inputs": 1,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 1
+        },
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "inputs": 6,
+        "outputs": 1,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 1
+        },
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+        "inputs": 1,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "error": null,
+        "inputs": 0,
+        "outputs": 0,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "error": null,
+        "inputs": 1,
+        "outputs": 1,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "error": null,
+        "inputs": 2,
+        "outputs": 3,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        }
+      },
+      {
+        "declared": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "inputs": 5,
+        "outputs": 4,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+        "inputs": 1,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "inputs": 6,
+        "outputs": 1,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+        "inputs": 1,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 5,
+          "outputs": 4
+        },
+        "error": null,
+        "inputs": 0,
+        "outputs": 0,
+        "shape": {
+          "inputs": 5,
+          "outputs": 4
+        }
+      },
+      {
+        "declared": {
+          "inputs": 5,
+          "outputs": 4
+        },
+        "error": null,
+        "inputs": 1,
+        "outputs": 1,
+        "shape": {
+          "inputs": 5,
+          "outputs": 4
+        }
+      },
+      {
+        "declared": {
+          "inputs": 5,
+          "outputs": 4
+        },
+        "error": null,
+        "inputs": 2,
+        "outputs": 3,
+        "shape": {
+          "inputs": 5,
+          "outputs": 4
+        }
+      },
+      {
+        "declared": {
+          "inputs": 5,
+          "outputs": 4
+        },
+        "error": null,
+        "inputs": 5,
+        "outputs": 4,
+        "shape": {
+          "inputs": 5,
+          "outputs": 4
+        }
+      },
+      {
+        "declared": {
+          "inputs": 5,
+          "outputs": 4
+        },
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+        "inputs": 1,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 5,
+          "outputs": 4
+        },
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "inputs": 6,
+        "outputs": 1,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 5,
+          "outputs": 4
+        },
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+        "inputs": 1,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 8
+        },
+        "error": null,
+        "inputs": 0,
+        "outputs": 0,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 8
+        },
+        "error": null,
+        "inputs": 1,
+        "outputs": 1,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 8
+        },
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "inputs": 2,
+        "outputs": 3,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 8
+        },
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "inputs": 5,
+        "outputs": 4,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 8
+        },
+        "error": null,
+        "inputs": 1,
+        "outputs": 8,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        }
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 8
+        },
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "inputs": 6,
+        "outputs": 1,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 1,
+          "outputs": 8
+        },
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+        "inputs": 1,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 7,
+          "outputs": 7
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 0,
+        "outputs": 0,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 7,
+          "outputs": 7
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 1,
+        "outputs": 1,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 7,
+          "outputs": 7
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 3,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 7,
+          "outputs": 7
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 4,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 7,
+          "outputs": 7
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 1,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 7,
+          "outputs": 7
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 1,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 7,
+          "outputs": 7
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 1,
+        "outputs": 9,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 0,
+          "outputs": 0
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 0,
+        "outputs": 0,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 0,
+          "outputs": 0
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 1,
+        "outputs": 1,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 0,
+          "outputs": 0
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 2,
+        "outputs": 3,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 0,
+          "outputs": 0
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 5,
+        "outputs": 4,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 0,
+          "outputs": 0
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 1,
+        "outputs": 8,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 0,
+          "outputs": 0
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 6,
+        "outputs": 1,
+        "shape": null
+      },
+      {
+        "declared": {
+          "inputs": 0,
+          "outputs": 0
+        },
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": 1,
+        "outputs": 9,
+        "shape": null
+      }
+    ],
+    "supported": [
+      {
+        "inputs": 1,
+        "outputs": 1
+      },
+      {
+        "inputs": 1,
+        "outputs": 2
+      },
+      {
+        "inputs": 2,
+        "outputs": 2
+      },
+      {
+        "inputs": 2,
+        "outputs": 3
+      },
+      {
+        "inputs": 3,
+        "outputs": 3
+      },
+      {
+        "inputs": 4,
+        "outputs": 3
+      },
+      {
+        "inputs": 4,
+        "outputs": 4
+      },
+      {
+        "inputs": 5,
+        "outputs": 3
+      },
+      {
+        "inputs": 5,
+        "outputs": 4
+      },
+      {
+        "inputs": 1,
+        "outputs": 8
+      }
+    ]
+  },
+  "slots": {
+    "ordinals": [
+      {
+        "error": null,
+        "ordinal": 0,
+        "position": "0"
+      },
+      {
+        "error": null,
+        "ordinal": 1,
+        "position": "1"
+      },
+      {
+        "error": null,
+        "ordinal": 2,
+        "position": "2"
+      },
+      {
+        "error": null,
+        "ordinal": 7,
+        "position": "7"
+      },
+      {
+        "error": null,
+        "ordinal": 255,
+        "position": "255"
+      },
+      {
+        "error": null,
+        "ordinal": 65535,
+        "position": "65535"
+      },
+      {
+        "error": null,
+        "ordinal": 4294967295,
+        "position": "4294967295"
+      },
+      {
+        "error": "TRANSACTION_OUTPUT_SLOT_OVERFLOW",
+        "ordinal": null,
+        "position": "4294967296"
+      }
+    ]
+  },
+  "utxo": {
+    "deriveBlinding": [
+      {
+        "blindingHex": "e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d0",
+        "position": 0,
+        "seedHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+      },
+      {
+        "blindingHex": "15875e98abbb4043bbd77fa2d8846e15833eaaae791ab2fe1e7b60aa98b3df",
+        "position": 1,
+        "seedHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+      },
+      {
+        "blindingHex": "b0a95dd297dcbade4493a26f1d95c92bfd65e15553a16d955568d406b7b0cb",
+        "position": 7,
+        "seedHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+      },
+      {
+        "blindingHex": "4a4f9cb119d5bb3d390676cf4f2ddf01919d64b57f945542d3dbba865d0ffe",
+        "position": 128,
+        "seedHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+      },
+      {
+        "blindingHex": "d9a9bf53cddf75b0f676cc11c1c054bcc878889fb412d14b669e9bc52ee11e",
+        "position": 255,
+        "seedHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+      }
+    ],
+    "ownerUtxoHashes": [
+      {
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "hashHex": "0adb79b2f95c1e3c25727c500bdb80df484c67675fb61d7e33e80bbb42a29ddb",
+        "ownerHashHex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      {
+        "blindingHex": "00000000000000000000000000000000000000000000000000000000000000",
+        "hashHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+        "ownerHashHex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "blindingHex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "hashHex": "257921cd92c0928c899c849f77306f99c8ec74d0529dfae355096dc98e40cd91",
+        "ownerHashHex": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a"
+      }
+    ],
+    "proofInputHashes": [
+      {
+        "amount": "1000",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "dataHashHex": null,
+        "error": null,
+        "hashHex": "255b7a1337df2bb515d10ff13b26530c2d77588756d4fb2dae1dd68573e4b0c0",
+        "name": "bare",
+        "ownerHashHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "amount": "0",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "dataHashHex": null,
+        "error": null,
+        "hashHex": "13f854a2e3cfdeda73fa6cde23215307ec4f0e6dc8bbfae8a6861a10ed70290b",
+        "name": "zeroAmount",
+        "ownerHashHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "amount": "18446744073709551615",
+        "asset": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "dataHashHex": null,
+        "error": null,
+        "hashHex": "240ab9700a1612e9a0be76f3c08bb3de640dd8fd8149b8244a8fbb4563808142",
+        "name": "maxAmount",
+        "ownerHashHex": "0202020202020202020202020202020202020202020202020202020202020202",
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "amount": "7",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "dataHashHex": "0606060606060606060606060606060606060606060606060606060606060606",
+        "error": null,
+        "hashHex": "0feec744125ed6508e25f7f0df7200960debb155f87bf43068014a735b738fa3",
+        "name": "dataHashOnly",
+        "ownerHashHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "amount": "7",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "dataHashHex": "0606060606060606060606060606060606060606060606060606060606060606",
+        "error": null,
+        "hashHex": "0e5bbe3421cb794890d6a38cacb3b6a770594bf38cc0ac5d2f177fc3d04103dc",
+        "name": "zoneBound",
+        "ownerHashHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "zoneDataHashHex": "0808080808080808080808080808080808080808080808080808080808080808",
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "amount": "7",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "dataHashHex": null,
+        "error": null,
+        "hashHex": "0f1d1f7438fa8f955f3fdb0365597e0a84b37bf152cd86bd53d2a7de6a4c9961",
+        "name": "zoneProgramWithoutZoneData",
+        "ownerHashHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "zoneDataHashHex": null,
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "amount": "7",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "dataHashHex": null,
+        "error": "TRANSACTION_MISSING_ZONE_PROGRAM_ID",
+        "hashHex": null,
+        "name": "zoneDataWithoutZoneProgram",
+        "ownerHashHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "zoneDataHashHex": "0808080808080808080808080808080808080808080808080808080808080808",
+        "zoneProgramId": null
+      },
+      {
+        "amount": "0",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "07070707070707070707070707070707070707070707070707070707070707",
+        "dataHashHex": null,
+        "error": null,
+        "hashHex": "0497a9bf5848d01c8b5fc1f75603964e63c0e268a206f182e204152de2b7403c",
+        "name": "canonicalDummy",
+        "ownerHashHex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      }
+    ]
+  }
+}

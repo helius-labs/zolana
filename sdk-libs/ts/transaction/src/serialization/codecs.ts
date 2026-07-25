@@ -13,10 +13,11 @@ import {
   equal,
   hashField,
 } from "../internal.js";
-import type { AssetRegistry } from "../wallet/asset.js";
+import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
 import { Utxo, deriveBlinding } from "../utxo.js";
 
 const SPLIT_TYPE_PREFIX = 2;
+const TRANSFER_PLAINTEXT_TYPE_PREFIX = 4;
 
 export const EncryptedScheme = Object.freeze({
   proofless: 0,
@@ -46,6 +47,11 @@ export function encryptedSchemeFromByte(byte: number): EncryptedScheme {
     default:
       throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { byte });
   }
+}
+
+/** The wire byte for a scheme, the counterpart of Rust `EncryptedScheme::as_byte`. */
+export function encryptedSchemeToByte(scheme: EncryptedScheme): number {
+  return encryptedSchemeFromByte(scheme);
 }
 
 export function outputDataEncoding(scheme: EncryptedScheme): OutputDataEncoding {
@@ -535,7 +541,7 @@ export function encodePlaintextTransfer(value: TransferPlaintextUtxos): Uint8Arr
 
 export function decodePlaintextTransfer(
   bytes: Uint8Array,
-  expectedTypePrefix = 4,
+  expectedTypePrefix = TRANSFER_PLAINTEXT_TYPE_PREFIX,
 ): TransferPlaintextUtxos {
   const reader = new Reader(bytes);
   const typePrefix = reader.u8();
@@ -909,7 +915,7 @@ export function mergeUtxo(
 ): Utxo {
   const asset = assets.addressForField(checked<Bytes32>(value.assetField, 32, "asset field"));
   if (asset === undefined) {
-    throw new TransactionError("TRANSACTION_UNKNOWN_ASSET", {
+    throw new TransactionError("TRANSACTION_UNKNOWN_ASSET_FIELD", {
       assetField: [...value.assetField],
     });
   }
@@ -956,4 +962,259 @@ function requireOwner(utxo: Utxo, owner: ShieldedPublicKey): void {
   if (!equal(utxo.owner.toBytes(), owner.toBytes())) {
     throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index: 0 });
   }
+}
+
+/**
+ * The owner, registry, and zone a set of output UTXOs is converted under, the
+ * counterpart of Rust `OwnerCx`. The conversions below are the counterparts of
+ * the `UtxoSerialization::from_utxos` implementations, which is where a builder
+ * turns the UTXOs it just derived back into the plaintext it will encrypt.
+ */
+export interface OwnerContext {
+  readonly owner: ShieldedPublicKey;
+  readonly assets: AssetRegistry;
+  readonly zoneProgramId?: Address;
+}
+
+function singleUtxo(utxos: readonly Utxo[]): Utxo {
+  const first = utxos[0];
+  if (utxos.length !== 1 || first === undefined) {
+    throw new TransactionError("TRANSACTION_INVALID_OUTPUT_COUNT", {
+      expected: 1,
+      actual: utxos.length,
+    });
+  }
+  return first;
+}
+
+function validateOwner(utxo: Utxo, owner: ShieldedPublicKey, index: number): void {
+  if (!equal(utxo.owner.toBytes(), owner.toBytes())) {
+    throw new TransactionError("TRANSACTION_OUTPUT_OWNER_MISMATCH", { index });
+  }
+}
+
+function validateZone(utxo: Utxo, zoneProgramId: Address | undefined, index: number): void {
+  if (utxo.zoneProgramId !== zoneProgramId) {
+    throw new TransactionError("TRANSACTION_OUTPUT_ZONE_MISMATCH", { index });
+  }
+}
+
+/** The blinding position a UTXO sits at, or `undefined` if the seed derives none. */
+function blindingPosition(seed: Bytes31, blinding: Bytes31): number | undefined {
+  for (let position = 0; position <= 0xff; position++) {
+    if (equal(deriveBlinding(seed, position), blinding)) return position;
+  }
+  return undefined;
+}
+
+export function plaintextTransferFromUtxos(
+  utxos: readonly Utxo[],
+  owner: OwnerContext,
+  cx: Readonly<{ blindingSeed: Bytes31 }>,
+): TransferPlaintextUtxos {
+  const blindingSeed = checked<Bytes31>(cx.blindingSeed, 31, "blinding seed");
+  let senderOwner: ShieldedPublicKey | undefined;
+  let spl: TransferPlaintextSplChange | undefined;
+  let solAmount: bigint | undefined;
+  let splData = new Data();
+  let solData = new Data();
+  const recipients: (readonly [number, TransferPlaintextRecipient])[] = [];
+  const seen = new Set<number>();
+  for (const [index, utxo] of utxos.entries()) {
+    validateZone(utxo, owner.zoneProgramId, index);
+    const position = blindingPosition(blindingSeed, utxo.blinding);
+    if (position === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
+    if (seen.has(position)) {
+      throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position });
+    }
+    seen.add(position);
+    if (position === 0) {
+      validateOwner(utxo, owner.owner, index);
+      if (utxo.asset === SOL_MINT) {
+        throw new TransactionError("TRANSACTION_OUTPUT_ASSET_MISMATCH", { index });
+      }
+      senderOwner = owner.owner;
+      spl = { amount: utxo.amount, assetId: owner.assets.assetId(utxo.asset) };
+      splData = new Data(utxo.data.records());
+    } else if (position === 1) {
+      validateOwner(utxo, owner.owner, index);
+      if (utxo.asset !== SOL_MINT) {
+        throw new TransactionError("TRANSACTION_OUTPUT_ASSET_MISMATCH", { index });
+      }
+      senderOwner = owner.owner;
+      solAmount = utxo.amount;
+      solData = new Data(utxo.data.records());
+    } else {
+      recipients.push([
+        position,
+        {
+          ownerPublicKey: utxo.owner,
+          assetId: owner.assets.assetId(utxo.asset),
+          amount: utxo.amount,
+          data: new Data(utxo.data.records()),
+        },
+      ]);
+    }
+  }
+  recipients.sort(([left], [right]) => left - right);
+  for (const [offset, [position]] of recipients.entries()) {
+    const expected = offset + 2;
+    if (expected > 0xff) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
+    if (position !== expected) {
+      throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position });
+    }
+  }
+  return {
+    typePrefix: TRANSFER_PLAINTEXT_TYPE_PREFIX,
+    blindingSeed,
+    ...(senderOwner === undefined
+      ? {}
+      : {
+          sender: {
+            ownerPublicKey: senderOwner,
+            ...(spl === undefined ? {} : { spl }),
+            ...(solAmount === undefined ? {} : { solAmount }),
+            splData,
+            solData,
+          },
+        }),
+    recipientSlots: recipients.map(([, recipient]) => recipient),
+  };
+}
+
+export function anonymousRecipientFromUtxos(
+  utxos: readonly Utxo[],
+  owner: OwnerContext,
+  cx: Readonly<{ senderPublicKey: P256PublicKey }>,
+): AnonymousRecipientPlaintext {
+  const first = singleUtxo(utxos);
+  validateOwner(first, owner.owner, 0);
+  validateZone(first, owner.zoneProgramId, 0);
+  return {
+    ownerPublicKey: first.owner,
+    senderPublicKey: cx.senderPublicKey,
+    assetId: owner.assets.assetId(first.asset),
+    amount: first.amount,
+    blinding: copy(first.blinding),
+    data: new Data(first.data.records()),
+  };
+}
+
+export function anonymousSenderFromUtxos(
+  utxos: readonly Utxo[],
+  owner: OwnerContext,
+  cx: Readonly<{
+    blindingSeed: Bytes31;
+    recipientViewingPublicKeys: readonly P256PublicKey[];
+  }>,
+): AnonymousSenderPlaintext {
+  if (utxos.length === 0) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
+  const blindingSeed = checked<Bytes31>(cx.blindingSeed, 31, "blinding seed");
+  let splAssetId = 0n;
+  let splAmount = 0n;
+  let solAmount = 0n;
+  let splData = new Data();
+  let solData = new Data();
+  let splSeen = false;
+  let solSeen = false;
+  for (const [index, utxo] of utxos.entries()) {
+    validateOwner(utxo, owner.owner, index);
+    validateZone(utxo, owner.zoneProgramId, index);
+    if (utxo.asset === SOL_MINT) {
+      if (solSeen || !equal(utxo.blinding, deriveBlinding(blindingSeed, 1))) {
+        throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position: 1 });
+      }
+      solSeen = true;
+      solAmount = utxo.amount;
+      solData = new Data(utxo.data.records());
+    } else {
+      if (splSeen || !equal(utxo.blinding, deriveBlinding(blindingSeed, 0))) {
+        throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position: 0 });
+      }
+      splSeen = true;
+      splAssetId = owner.assets.assetId(utxo.asset);
+      splAmount = utxo.amount;
+      splData = new Data(utxo.data.records());
+    }
+  }
+  return {
+    ownerPublicKey: owner.owner,
+    splAssetId,
+    splAmount,
+    solAmount,
+    blindingSeed,
+    recipientViewingPublicKeys: [...cx.recipientViewingPublicKeys],
+    splData,
+    solData,
+  };
+}
+
+export function splitBundleFromUtxos(
+  utxos: readonly Utxo[],
+  owner: OwnerContext,
+  cx: Readonly<{ blindingSeed: Bytes31 }>,
+): SplitBundlePlaintext {
+  const first = utxos[0];
+  if (first === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
+  if (utxos.length > 0xff) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
+  const blindingSeed = checked<Bytes31>(cx.blindingSeed, 31, "blinding seed");
+  for (const [index, utxo] of utxos.entries()) {
+    validateOwner(utxo, owner.owner, index);
+    validateZone(utxo, owner.zoneProgramId, index);
+    if (utxo.asset !== first.asset) {
+      throw new TransactionError("TRANSACTION_OUTPUT_ASSET_MISMATCH", { index });
+    }
+    if (utxo.amount !== first.amount) {
+      throw new TransactionError("TRANSACTION_OUTPUT_AMOUNT_MISMATCH", { index });
+    }
+    if (!sameData(utxo.data, first.data)) {
+      throw new TransactionError("TRANSACTION_OUTPUT_DATA_MISMATCH", { index });
+    }
+    if (!equal(utxo.blinding, deriveBlinding(blindingSeed, index))) {
+      throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", { index });
+    }
+  }
+  return {
+    ownerPublicKey: owner.owner,
+    numOutputs: utxos.length,
+    assetId: owner.assets.assetId(first.asset),
+    assetAmount: first.amount,
+    blindingSeed,
+    data: new Data(first.data.records()),
+  };
+}
+
+export function prooflessFromUtxos(
+  utxos: readonly Utxo[],
+  owner: OwnerContext,
+  cx: Readonly<{ ownerHash: Bytes32; dataHash?: Bytes32; zoneDataHash?: Bytes32 }>,
+): ProoflessOutput {
+  const utxo = singleUtxo(utxos);
+  validateOwner(utxo, owner.owner, 0);
+  validateZone(utxo, owner.zoneProgramId, 0);
+  const utxoData = utxo.data.utxoData();
+  const zoneData = utxo.data.zoneData();
+  const memo = utxo.data.memo();
+  return {
+    owner: checked<Bytes32>(cx.ownerHash, 32, "owner hash"),
+    blinding: copy(utxo.blinding),
+    asset: utxo.asset,
+    amount: utxo.amount,
+    ...(cx.dataHash === undefined ? {} : { dataHash: cx.dataHash }),
+    ...(utxoData === undefined ? {} : { utxoData }),
+    ...(utxo.zoneProgramId === undefined ? {} : { zoneProgramId: utxo.zoneProgramId }),
+    ...(cx.zoneDataHash === undefined ? {} : { zoneDataHash: cx.zoneDataHash }),
+    ...(zoneData === undefined ? {} : { zoneData }),
+    ...(memo === undefined ? {} : { memo }),
+  };
+}
+
+function sameData(left: Data, right: Data): boolean {
+  const leftRecords = left.records();
+  const rightRecords = right.records();
+  if (leftRecords.length !== rightRecords.length) return false;
+  return leftRecords.every((record, index) => {
+    const other = rightRecords[index];
+    return other !== undefined && record.kind === other.kind && equal(record.bytes, other.bytes);
+  });
 }

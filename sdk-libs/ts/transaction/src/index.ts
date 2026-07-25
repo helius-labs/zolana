@@ -13,6 +13,7 @@ export {
 } from "./error.js";
 export {
   ConfidentialSplit,
+  MERGE_INPUTS,
   Merge,
   MergeZone,
   PreparedMerge,
@@ -25,6 +26,7 @@ export {
   createExternalData,
   prepareZoneAuthority,
   resolveShape,
+  slotOrdinal,
 } from "./instructions/index.js";
 export type {
   ExternalData,
@@ -67,9 +69,16 @@ export type {
 } from "./wallet/index.js";
 export {
   EncryptedScheme,
+  anonymousRecipientFromUtxos,
+  anonymousSenderFromUtxos,
   encryptedSchemeFromByte,
+  encryptedSchemeToByte,
   outputDataEncoding,
+  plaintextTransferFromUtxos,
+  prooflessFromUtxos,
+  splitBundleFromUtxos,
   type OutputDataEncoding,
+  type OwnerContext,
 } from "./serialization/index.js";
 
 export const TRANSFER = 1;
