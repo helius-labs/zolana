@@ -32,6 +32,10 @@ const names: Record<string, string> = {
 const rustValueExports = Object.keys(names);
 
 /**
+ * The `_sync` adapters Rust re-exports alongside each async action have no
+ * counterpart on purpose: they exist to serve blocking Rust callers, and the
+ * TypeScript actions are already the single promise-returning form.
+ *
  * TypeScript-only value exports, each with the reason Rust needs no counterpart.
  * `TransactionSigner` is type-only and so is absent from this runtime list.
  */
