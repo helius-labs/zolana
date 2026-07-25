@@ -9,11 +9,14 @@ cases. It is an implementation plan. It does not by itself upgrade any parity cl
 Verification snapshot:
 
 - branch: `ts-sdk-port`;
-- worktree HEAD: `7c697c2c7e63a824a383c29a7cbb940a0e9b4e92`;
+- worktree HEAD when the plan was written:
+  `7c697c2c7e63a824a383c29a7cbb940a0e9b4e92`;
 - Rust toolchain pin: `1.97.0` (`rust-toolchain.toml`);
 - fixture baseline: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`;
-- fixture count: 57 JSON files under `sdk-libs/ts/fixtures/`;
-- verification date: 2026-07-25.
+- fixture count: 59 JSON files under `sdk-libs/ts/fixtures/`, up from the 57
+  this plan was written against;
+- verification date: 2026-07-25, with the two divergences below and the fixture
+  count re-checked on 2026-07-26.
 
 Companion documents: [`production-readiness-issues.md`](production-readiness-issues.md) holds the
 issue register this plan draws on, and [`proof-and-key-parity.md`](proof-and-key-parity.md) holds
@@ -190,7 +193,7 @@ Four things the oracle cannot decide, recorded so that a green run is not misrea
 **Specification conflicts.** Where Rust and TypeScript agree and the specification differs, a
 differential run reports agreement. G7-1 is exactly this shape: the shielded pool, the circuit
 gadget, `PublicKey::owner_pk_field`, and the TypeScript port use the parity-free owner encoding,
-while `docs/spec.md` line 283 composes `owner_hash` from the parity-inclusive `pk_field`. The
+while `docs/spec.md` line 283 builds `owner_hash` from the parity-inclusive `pk_field`. The
 fixture set already holds both encodings side by side in `keypair/hash.json`, where
 `p256OwnerFieldBytes` and `p256PublicHashBytes` differ while the Ed25519 pair is identical. No
 amount of fuzzing surfaces this.
@@ -238,7 +241,7 @@ before committing to a packet.
 
 | Crate                    | `wasm32` status                   | Evidence                                                                                                                                                                                    | TypeScript counterpart     |
 | ------------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `program-libs/hasher`    | Clean                             | `light-poseidon`, `ark-bn254`, `sha2`, `sha3`, `num-bigint`, `tinyvec`; all pure Rust                                                                                                       | inlined across TS packages |
+| `program-libs/hasher`    | Clean                             | `light-poseidon`, `ark-bn254`, `sha2`, `sha3`, `num-bigint`, `tinyvec`, each pure Rust                                                                                                     | inlined across TS packages |
 | `sdk-libs/merkle-tree`   | Clean, lowest risk                | deps are `zolana-hasher`, `thiserror`, `num-bigint`, `num-traits`, `zolana-indexed-array`; `rand` is dev-only                                                                               | `sdk-libs/ts/merkle-tree`  |
 | `program-libs/interface` | Likely                            | `bytemuck`, `solana-address`, `solana-pubkey`, `wincode`, `groth16-solana`; data types and pure math                                                                                        | `sdk-libs/ts/interface`    |
 | `sdk-libs/keypair`       | Needs a `getrandom` change        | `p256`, `ed25519-dalek`, `aes`, `ctr`, `hkdf`, `sha2`, `zeroize` are fine; `rand` 0.8.5 and `solana-keypair` pull `getrandom` 0.2, which needs the `js` feature on `wasm32-unknown-unknown` | `sdk-libs/ts/keypair`      |
@@ -250,7 +253,7 @@ The `sdk-libs/client` block matters more than the others, because the prover ass
 the G3 and G4 issues live. The coupling is narrow. Of 4181 lines under
 `sdk-libs/client/src/prover/`, only `client.rs` at 1145 lines references `reqwest`, `tokio`, or
 `RpcClient`. The remaining 3036 lines (`field.rs`, `inputs.rs`, `json.rs`, `merge.rs`,
-`merge_zone.rs`, `proof.rs`, `zone_authority.rs`, and all of `transact/`) are pure computation.
+`merge_zone.rs`, `proof.rs`, `zone_authority.rs`, and `transact/` entire) are pure computation.
 
 So reaching the prover surface needs an extraction rather than a feature flag scattered through call
 sites. That is packet W-01.
@@ -337,7 +340,7 @@ committed fixture.
 
 **W-03. Hashing and field encoding.** `hash_field`, `split_be_128`, `pk_field_compressed`,
 `owner_pk_field_compressed`, `pack33`, `sha256_be`, `asset_field`, and `signed_to_field`. Generators
-cover byte arrays of every length from 0 to 64, values around the BN254 modulus, and integers around
+cover byte arrays at each length from 0 to 64, values around the BN254 modulus, and integers around
 `i64::MIN` and `i64::MAX`. This packet is expected to reproduce G1-1 and G1-2 on its first run,
 which is the acceptance criterion: if it does not, the boundary was widened wrongly.
 
@@ -386,7 +389,7 @@ Tracing G1-1 through the loop, because the value of each step is easier to judge
 than in the abstract.
 
 **Today.** `signedField` reduces its input modulo the BN254 modulus. Rust's `signed_to_field` takes
-an `i64`, so `i64::MAX + 1` never reaches it. There is no fixture for that value, `npm run check`
+an `i64`, so `i64::MAX + 1` does not reach it. There is no fixture for that value, `npm run check`
 passes, and a caller passing `9223372036854775808` receives a proof request for a different amount
 than it requested, with balance conservation intact so nothing downstream complains.
 
@@ -424,14 +427,20 @@ fastest tier. Proposed placement, which depends on the tier split that G9-2 leav
 - nightly: the same suites at a high case count, with any counterexample opened as a promotion task;
 - per-release: full run, and the exemption ledger below verified.
 
-Note the dependency: `test:property` and `test:cross` are defined in `package.json` but excluded
-from `check`, and none of the eight workflows under `.github/workflows/` runs the TypeScript suite.
-An oracle that nothing executes changes nothing, so G9-1 and G9-2 gate the value of this plan.
+The dependency this section used to name is closed, and the paragraph is kept in corrected form
+because the reasoning still decides where the suites go. It said that `test:property` and
+`test:cross` were excluded from `check` and that no workflow ran the TypeScript suite, so an oracle
+that nothing executes would change nothing. Both halves have since been fixed:
+`check:suites` runs `test:property` and `test:cross`, and `.github/workflows/typescript.yml` runs
+one job per sub-script of `check` behind a `merge gate` job, with a `gate scope` job that fails if
+the two drift apart. G9-1 and G9-2 are satisfied rather than pending, so this plan now has somewhere
+to run and the tier question above is a scheduling choice rather than a blocker.
 
 ## Completeness as an exemption ledger
 
 Completeness is not provable, so the deliverable is an explicit and enforced statement of what is
-uncovered. The scaffolding exists: a 118-row inventory, plus `test:inventory`, `test:exports`, and
+uncovered. The scaffolding exists: a row inventory, 145 rows since the coverage audit of 2026-07-25
+raised it from the 118 this plan was written against, plus `test:inventory`, `test:exports`, and
 `api:check`.
 
 Add one gate: each public TypeScript export is differentially covered, fixture covered, or listed in
@@ -503,7 +512,7 @@ lacks.
 
 ## What remains open after full coverage
 
-Completing every packet here yields one claim: the TypeScript implementation is equivalent to Rust
+Completing the packets here yields one claim: the TypeScript implementation is equivalent to Rust
 on the sampled domain, for the surfaces listed as reachable. Still open at that point:
 
 - the G7-1 owner-encoding conflict, which needs a specification amendment;
