@@ -84,7 +84,9 @@ export function createDeposit(params: DepositParams): Deposit {
     const owner = params.recipient.ownerHash();
     const blinding = randomBlinding();
     const data: DepositInstructionData = {
-      viewTag: params.recipient.viewingPublicKey.x(),
+      // Every output is tagged by its owner pubkey, so discovery keys on the
+      // recipient's signing key, not its viewing key.
+      viewTag: params.recipient.confidentialViewTag(),
       owner,
       blinding,
       amount: params.amount,

@@ -87,7 +87,7 @@ describe("wallet actions", () => {
     const sol = createDeposit({ recipient, asset: SOL_MINT, amount: 42n });
     expect(sol.spl).toBeUndefined();
     expect(sol.data.amount).toBe(42n);
-    expect(sol.viewTag()).toEqual(recipient.viewingPublicKey.x());
+    expect(sol.viewTag()).toEqual(recipient.confidentialViewTag());
 
     const token = createDeposit({
       recipient,
@@ -109,6 +109,18 @@ describe("wallet actions", () => {
     expect(transaction.messageBytes.length).toBeGreaterThan(
       token.instruction(TREE, OWNER).data.length,
     );
+  });
+
+  // A deposit tagged by anything other than the owner signing pubkey is
+  // invisible to a wallet that scans only what the spec defines, and nothing on
+  // the write path rejects it. Pin both halves so a return to the viewing key
+  // fails here instead of silently losing deposits.
+  it("tags a deposit with the recipient signing pubkey", () => {
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+    const deposit = createDeposit({ recipient, asset: SOL_MINT, amount: 42n });
+
+    expect(deposit.viewTag()).toEqual(recipient.confidentialViewTag());
+    expect(deposit.viewTag()).not.toEqual(recipient.viewingPublicKey.x());
   });
 
   it("selects inputs in wallet order and validates split divisibility", () => {

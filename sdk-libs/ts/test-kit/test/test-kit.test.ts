@@ -248,7 +248,7 @@ describe("standard protocol material and instruction helpers", () => {
     });
     expect(first).toEqual(second);
     expect(first.owner).toEqual(recipient.ownerHash());
-    expect(first.viewTag).toEqual(recipient.viewingPublicKey.x());
+    expect(first.viewTag).toEqual(recipient.confidentialViewTag());
     expect(depositSolInstruction({ tree: address, depositor: address, data: first }).data[0]).toBe(
       1,
     );

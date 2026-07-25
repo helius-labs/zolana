@@ -33,7 +33,7 @@ export function walletDepositData(
     amount: input.amount,
     owner: input.recipient.ownerHash(),
     blinding: deriveBlinding(input.blindingSeed, input.position),
-    viewTag: input.recipient.viewingPublicKey.x(),
+    viewTag: input.recipient.confidentialViewTag(),
     ...(input.memo === undefined ? {} : { memo: input.memo }),
   });
 }
