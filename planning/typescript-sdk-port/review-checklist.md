@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `a3d5a60fec597a80ff2fc454ea3c1b17c31215c8`
+- Review HEAD: `acc4fad0f188e27b2c73f8c48886b9fd6eac712f`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `4 done / 118 total`; `49 needs_fix`; `0 needs_re_review`; `2 in_progress`
-- Exact next eligible row: `K10 sdk-libs/keypair/src/error.rs`
+- Progress: `4 done / 118 total`; `51 needs_fix`; `0 needs_re_review`; `2 in_progress`
+- Exact next eligible row: `K11 sdk-libs/keypair/src/traits/view_key.rs`
 - Active reviews: `K04 sdk-libs/keypair/src/viewing_key.rs`; `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `I01 in_flight`; `I02 in_flight`; `I03 in_flight`; `I04 in_flight`; `I05 in_flight`; `I06 in_flight`; `I07 proposed`; `I08 in_flight`; `I09 in_flight`; `I10 proposed`; `I11 in_flight`; `I12 in_flight`; `I13 in_flight`; `I14 in_flight`; `I15 in_flight`; `I17 in_flight`; `I18 in_flight`; `I19 proposed`; `I20 in_flight`; `I21 in_flight`; `I22 proposed`; `I23 in_flight`; `I24 in_flight`; `I25 in_flight`; `I26 in_flight`; `I27 in_flight`; `I28 in_flight`; `I29 in_flight`; `I30 in_flight`; `I31 in_flight`; `I32 in_flight`; `I33 in_flight`; `I34 in_flight`; `I35 in_flight`; `I36 in_flight`; `I37 in_flight`; `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -184,7 +184,7 @@ Columns:
 | K07 | `sdk-libs/keypair/src/hash.rs` | `keypair/src/hash.ts`, `hash/index.ts` | needs_fix | DIVERGENT | proposed | Covered valid vectors match current Rust, but TypeScript omits the public Poseidon API, accepts malformed field widths and arities outside Rust's `1..=12`, and exposes extra unsafe hash helpers. Boundary, browser, and property evidence is incomplete, and owner hashing inherits the K06 spec conflict. Add the public Poseidon surface, enforce Rust widths and arities, remove or internalize unsafe helpers, resolve K06, and add exact rejection, boundary, browser, and property vectors. | 2026-07-25 review | - |
 | K08 | `sdk-libs/keypair/src/encryption.rs` | `keypair/src/encryption.ts` | needs_fix | PARTIAL | proposed | TypeScript matches current Rust P256 ECDH, HKDF, and AES-CTR bytes, and the internal API disposition is valid. Shared-secret cleanup is not exception-safe, and current-Rust multi-block and counter, empty and boundary, malformed salt and slot, tamper, truncation, extension, defensive-copy, browser, security, and fixture-description evidence is incomplete. Make cleanup exception-safe and add exact current-Rust boundary, malformed, mutation, browser, and provenance fixtures. | 2026-07-25 review | - |
 | K09 | `sdk-libs/keypair/src/merge.rs` | `keypair/src/merge/` | needs_fix | PARTIAL | proposed | Merge encryption and its frozen vector are byte-compatible, but the public Rust `symmetric_apply` capability is missing. Malformed-secret and structured-error behavior, info and chunk boundaries, temporary cleanup, exports, and provenance lack exact evidence. Fix Rust's info-length panic risk before porting unrestricted `symmetric_apply`, then add the API with bounded inputs, cleanup, and current-Rust rejection and boundary fixtures. | 2026-07-25 review | - |
-| K10 | `sdk-libs/keypair/src/error.rs` | `keypair/src/error.ts` | todo | - | none | - | - | - |
+| K10 | `sdk-libs/keypair/src/error.rs` | `keypair/src/error.ts` | needs_fix | DIVERGENT | proposed | TypeScript collapses or omits five Rust error distinctions, lacks code-indexed immutable diagnostics and exhaustive current-Rust evidence, and permits arbitrary enumerable causes or details to expose data. Define one-to-one closed codes and details, sanitize causes and redacted serialization, and add exhaustive current-Rust fixtures plus export and package tests. | 2026-07-25 review | - |
 | K11 | `sdk-libs/keypair/src/traits/view_key.rs` | `keypair/src/viewing-key.ts` | todo | - | none | - | - | - |
 | K12 | `sdk-libs/keypair/src/traits/shielded_keypair.rs` | `keypair/src/shielded.ts` | todo | - | none | - | - | - |
 | K13 | `sdk-libs/keypair/src/traits/mod.rs` | `keypair/src/index.ts` | todo | - | none | - | - | - |
@@ -221,7 +221,7 @@ Columns:
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | T01 | `sdk-libs/transaction/src/error.rs` | `transaction/src/error.ts` | needs_fix | DIVERGENT | proposed | The Rust error enum is an open public code set, but TypeScript collapses or misclassifies variants, drops structured payloads, and blurs keypair and authority boundaries. Redaction and current-Rust fixture coverage are absent. Add stable codes and details for each represented category, preserve unknown variants and payloads, keep authority errors distinct, and add boundary, redaction, and fixture tests. | 2026-07-25 review | - |
 | T02 | `sdk-libs/transaction/src/data.rs` | `transaction/src/data.ts` | needs_fix | DIVERGENT | proposed | Normal deterministic models and current-Rust bytes match, but malformed runtime kinds and byte values are coerced or silently encoded. The constructor moves Rust's serialization-time length boundary, the direct codec capability is not packed, and adversarial, boundary, error-detail, and fixture-provenance evidence is incomplete. Reject malformed runtime values, restore the canonical length boundary, expose the packed codec capability, and add exact current-Rust rejection and provenance fixtures. | 2026-07-25 review | - |
-| T03 | `sdk-libs/transaction/src/serialization/scheme.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
+| T03 | `sdk-libs/transaction/src/serialization/scheme.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | The seven tags match current Rust, but TypeScript omits the Rust root export and standalone checked conversion. Encoding accepts invalid runtime scheme values and scheme and encoding combinations, mishandles empty-blob details, and lacks direct rejection and export evidence. Add the checked conversion and root export, reject invalid values and combinations with exact details, and add current-Rust rejection and package-export fixtures. | 2026-07-25 review | - |
 | T04 | `sdk-libs/transaction/src/serialization/plaintext.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
 | T05 | `sdk-libs/transaction/src/serialization/confidential.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
 | T06 | `sdk-libs/transaction/src/serialization/anonymous.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
@@ -1097,3 +1097,29 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `4/118`; package `0/14`
 - Exact next file: `K10 sdk-libs/keypair/src/error.rs`
 - Full SDK parity claim: unsupported; cleanup and adversarial encryption evidence remain incomplete
+
+### 2026-07-25 11:30 UTC | K10 | `sdk-libs/keypair/src/error.rs`
+
+- Baseline: HEAD `acc4fad0f188e27b2c73f8c48886b9fd6eac712f`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module defines the keypair crate's public error distinctions.
+- Evidence: TypeScript collapses or omits five distinctions, lacks code-indexed immutable diagnostics and exhaustive current-Rust evidence, and allows enumerable causes or details to expose data. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Add one-to-one closed codes and details, sanitize causes and serialization, and add exhaustive fixtures plus export and package tests.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K11 sdk-libs/keypair/src/traits/view_key.rs`
+- Full SDK parity claim: unsupported; keypair errors lose distinctions and may expose data
+
+### 2026-07-25 11:30 UTC | T03 | `sdk-libs/transaction/src/serialization/scheme.rs`
+
+- Baseline: HEAD `acc4fad0f188e27b2c73f8c48886b9fd6eac712f`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module defines the seven serialization scheme tags and their checked conversion.
+- Evidence: Tags match current Rust. TypeScript omits the root export and standalone checked conversion, accepts invalid runtime schemes and scheme and encoding combinations, mishandles empty-blob details, and lacks direct rejection and export evidence. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Add checked conversion and the root export, reject invalid values and combinations with exact details, and add current-Rust rejection and export fixtures.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/31`
+- Exact next file: `K11 sdk-libs/keypair/src/traits/view_key.rs`
+- Full SDK parity claim: unsupported; serialization scheme rejection and exports diverge
