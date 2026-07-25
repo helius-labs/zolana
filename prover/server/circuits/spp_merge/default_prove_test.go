@@ -113,6 +113,70 @@ func TestMergeCircuitRejectsInvalidDomain(t *testing.T) {
 	}
 }
 
+// TestMergeCircuitRejectsNonzeroDefaultZoneData builds internally consistent
+// leaves, Merkle roots, nullifiers, transaction hashes, and encryption for the
+// nonzero zone data. Only the default wrapper's zero-zone assertion rejects it.
+func TestMergeCircuitRejectsNonzeroDefaultZoneData(t *testing.T) {
+	tests := []struct {
+		name    string
+		options defaultWitnessOptions
+	}{
+		{
+			name: "real input",
+			options: defaultWitnessOptions{
+				inputZoneData: []*big.Int{big.NewInt(1), big.NewInt(0)},
+			},
+		},
+		{
+			name: "output",
+			options: defaultWitnessOptions{
+				outputZoneData: big.NewInt(1),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := buildDefaultWitness(t, tc.options)
+			if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+				t.Fatal("expected default-zone data assertion to fail, got solved")
+			}
+		})
+	}
+}
+
+// TestMergeCircuitRejectsWrongPublishedOwnerHashes recomputes the public-input
+// hash around each incorrect published value. The witness therefore fails only
+// the default wrapper's binding to the owner identities derived in-circuit.
+func TestMergeCircuitRejectsWrongPublishedOwnerHashes(t *testing.T) {
+	tests := []struct {
+		name    string
+		options defaultWitnessOptions
+	}{
+		{
+			name: "signing key hash",
+			options: defaultWitnessOptions{
+				userSigningPkHash: big.NewInt(0xBADBAD),
+			},
+		},
+		{
+			name: "viewing key hash",
+			options: defaultWitnessOptions{
+				userViewingPkHash: big.NewInt(0xBADBAD),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := buildDefaultWitness(t, tc.options)
+			if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+				t.Fatal("expected published owner-hash binding to fail, got solved")
+			}
+		})
+	}
+}
+
 func buildValidWitness(t *testing.T) *merge.Circuit {
 	t.Helper()
 	return buildWitness(t, false)
@@ -123,6 +187,19 @@ func buildValidWitness(t *testing.T) *merge.Circuit {
 // OwnerPkField for a P256 owner.
 func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	t.Helper()
+	return buildDefaultWitness(t, defaultWitnessOptions{eddsa: eddsa})
+}
+
+type defaultWitnessOptions struct {
+	eddsa             bool
+	inputZoneData     []*big.Int
+	outputZoneData    *big.Int
+	userSigningPkHash *big.Int
+	userViewingPkHash *big.Int
+}
+
+func buildDefaultWitness(t *testing.T, options defaultWitnessOptions) *merge.Circuit {
+	t.Helper()
 	curve := elliptic.P256()
 
 	// Owner identity: signing key (P256 or Solana) + shared nullifier secret.
@@ -130,7 +207,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	ownerX, ownerY := curve.ScalarBaseMult(leftPad32(ownerSk))
 	var ownerKeyHash *big.Int
 	var err error
-	if eddsa {
+	if options.eddsa {
 		var solanaPubkey [32]byte
 		solanaPubkey[31] = 0x2a
 		ownerKeyHash, err = protocol.SolanaPkField(solanaPubkey)
@@ -170,6 +247,17 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	const numReal = 2
 	amounts := []*big.Int{big.NewInt(5), big.NewInt(7)}
 	blindings := []*big.Int{big.NewInt(0x1111), big.NewInt(0x2222)}
+	zoneData := []*big.Int{big.NewInt(0), big.NewInt(0)}
+	if options.inputZoneData != nil {
+		if len(options.inputZoneData) != numReal {
+			t.Fatalf("input zone data count: got %d want %d", len(options.inputZoneData), numReal)
+		}
+		zoneData = options.inputZoneData
+	}
+	outputZoneData := big.NewInt(0)
+	if options.outputZoneData != nil {
+		outputZoneData = options.outputZoneData
+	}
 
 	// Real input UTXOs and their state-tree leaves.
 	inUtxos := make([]protocol.Utxo, numReal)
@@ -183,7 +271,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			Amount:        amounts[i],
 			Blinding:      blindings[i],
 			DataHash:      big.NewInt(0),
-			ZoneDataHash:  big.NewInt(0),
+			ZoneDataHash:  zoneData[i],
 			ZoneProgramID: big.NewInt(0),
 		}
 		h, err := protocol.UtxoHash(inUtxos[i])
@@ -229,7 +317,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 		Amount:        outAmount,
 		Blinding:      outBlinding,
 		DataHash:      big.NewInt(0),
-		ZoneDataHash:  big.NewInt(0),
+		ZoneDataHash:  outputZoneData,
 		ZoneProgramID: big.NewInt(0),
 	}
 	outHash, err := protocol.UtxoHash(outUtxo)
@@ -260,6 +348,14 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	// Off-circuit verifiable encryption of (amount || asset || blinding).
 	ctHash, txViewingPkComp := encryptMerge(t, curve, txViewingSk, viewX, viewY, outUtxo)
 	pkLo, pkHi := pack33(txViewingPkComp)
+	userSigningPkHash := ownerKeyHash
+	if options.userSigningPkHash != nil {
+		userSigningPkHash = options.userSigningPkHash
+	}
+	userViewingPkHash := viewKeyHash
+	if options.userViewingPkHash != nil {
+		userViewingPkHash = options.userViewingPkHash
+	}
 
 	// Dummy slot: the DummyDomain sentinel with otherwise-empty content, matching
 	// the padding leaf the client builds (owner/asset/secret all zero). The circuit
@@ -307,8 +403,8 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 		hashChain(t, pubNfRoots),
 		privateTxHash,
 		externalDataHash,
-		ownerKeyHash,
-		viewKeyHash,
+		userSigningPkHash,
+		userViewingPkHash,
 		pkLo, pkHi,
 		ctHash,
 	})
@@ -325,8 +421,8 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	assignment.ExternalDataHash = externalDataHash
 	assignment.PrivateTxHash = privateTxHash
 	assignment.OutputHash = outHash
-	assignment.UserSigningPkHash = ownerKeyHash
-	assignment.UserViewingPkHash = viewKeyHash
+	assignment.UserSigningPkHash = userSigningPkHash
+	assignment.UserViewingPkHash = userViewingPkHash
 	assignment.TxViewingPkLo = pkLo
 	assignment.TxViewingPkHi = pkHi
 	assignment.CtHash = ctHash
@@ -342,7 +438,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			in.Domain = big.NewInt(protocol.UtxoDomain)
 			in.Amount = amounts[i]
 			in.Blinding = blindings[i]
-			in.ZoneDataHash = big.NewInt(0)
+			in.ZoneDataHash = zoneData[i]
 			fillPath(in.StatePathElements, stateProofs[uint64(i)].PathElements)
 			in.StatePathIndex = big.NewInt(int64(stateProofs[uint64(i)].PathIndex))
 			in.NullifierLowValue = nfWitnesses[i].LowValue
@@ -362,7 +458,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			in.NullifierLowPathIndex = big.NewInt(0)
 		}
 	}
-	assignment.Output = merge.Output{Blinding: outBlinding, ZoneDataHash: big.NewInt(0)}
+	assignment.Output = merge.Output{Blinding: outBlinding, ZoneDataHash: outputZoneData}
 
 	return assignment
 }
