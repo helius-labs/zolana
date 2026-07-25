@@ -84,6 +84,11 @@
           "isWritable": true
         },
         {
+          "address": "3hkpj3dQevt4ad1JSx3ke1sWmMR3wYToMKfFLCnxtKuH",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
           "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
           "isSigner": false,
           "isWritable": false
@@ -239,7 +244,7 @@
           "isWritable": true
         }
       ],
-      "data": "052424242424242424242424242424242424242424242424242424242424242424",
+      "data": "05",
       "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
     },
     "createTreeWithNullifierParams": {
@@ -260,7 +265,7 @@
           "isWritable": true
         }
       ],
-      "data": "052424242424242424242424242424242424242424242424242424242424242424000000000000000000003075000000000000fa000000000000007800000000000028000000",
+      "data": "053075000000000000fa000000000000007800000028000000",
       "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
     },
     "createZoneConfig": {
@@ -384,6 +389,11 @@
           "isWritable": false
         },
         {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
           "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
           "isSigner": false,
           "isWritable": false
@@ -410,6 +420,11 @@
           "isWritable": true
         },
         {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
           "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
           "isSigner": false,
           "isWritable": false
@@ -434,6 +449,11 @@
           "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
           "isSigner": true,
           "isWritable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
         },
         {
           "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
@@ -476,6 +496,11 @@
           "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
           "isSigner": false,
           "isWritable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
         },
         {
           "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
@@ -560,6 +585,11 @@
           "isWritable": false
         },
         {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
           "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
           "isSigner": false,
           "isWritable": false
@@ -597,6 +627,11 @@
         },
         {
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "11111111111111111111111111111111",
           "isSigner": false,
           "isWritable": false
         },
@@ -806,6 +841,11 @@
           "isWritable": false
         },
         {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
           "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
           "isSigner": false,
           "isWritable": false
@@ -853,6 +893,11 @@
         },
         {
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "11111111111111111111111111111111",
           "isSigner": false,
           "isWritable": false
         },
@@ -1164,6 +1209,11 @@
           "isWritable": false
         },
         {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
           "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
           "isSigner": false,
           "isWritable": false
@@ -1215,6 +1265,11 @@
           "isWritable": false
         },
         {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
           "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
           "isSigner": false,
           "isWritable": false
@@ -1260,6 +1315,14 @@
       "code": 7005,
       "message": "transaction has expired"
     },
+    "InsufficientForesterFeeBalance": {
+      "code": 7027,
+      "message": "tree does not contain enough fee funds to reimburse the forester"
+    },
+    "InvalidForesterFee": {
+      "code": 7026,
+      "message": "forester fee calculation overflowed or used an invalid tree configuration"
+    },
     "InvalidInstructionData": {
       "code": 7000,
       "message": "invalid instruction data"
@@ -1287,6 +1350,10 @@
     "InvalidSplAssetRegistry": {
       "code": 7011,
       "message": "SPL asset registry account is invalid"
+    },
+    "InvalidSystemProgram": {
+      "code": 7028,
+      "message": "system program account is invalid"
     },
     "InvalidTransactProofEncoding": {
       "code": 7007,
@@ -1458,7 +1525,6 @@
       "BatchUpdateNullifierTreeData",
       "CompressedProof",
       "CreateProtocolConfigData",
-      "CreateTreeData",
       "CreateZoneConfigData",
       "DepositIxData",
       "InputUtxo",
@@ -1493,7 +1559,6 @@
       "BatchUpdateNullifierTreeData",
       "CompressedProof",
       "CreateProtocolConfigData",
-      "CreateTreeData",
       "CreateZoneConfigData",
       "DepositIxData",
       "InputUtxo",
@@ -1529,12 +1594,14 @@
       "ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE",
       "ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE",
       "ADDRESS_TREE_ROOT_HISTORY_CAPACITY",
+      "FORESTER_REIMBURSEMENT_LAMPORTS",
       "ProtocolConfig",
       "STATE_HEIGHT",
       "SplAssetCounter",
       "SplAssetRegistry",
       "ZoneConfig",
       "address_tree_params",
+      "forester_fee_per_queue_element",
       "state_root_offset",
       "tree_account_size"
     ]
@@ -1680,7 +1747,7 @@
       "zoneConfig": 67
     },
     "tree": {
-      "accountSize": 1186136,
+      "accountSize": 1185664,
       "addressTreeHeight": 40,
       "inputQueueBatchSize": "30000",
       "inputQueueZkpBatchSize": "250",

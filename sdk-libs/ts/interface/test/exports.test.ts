@@ -15,6 +15,7 @@ describe("public exports", () => {
       "ASSOCIATED_TOKEN_PROGRAM_ID",
       "DEFAULT_TREE_ADDRESS",
       "FIRST_ASSET_ID",
+      "FORESTER_REIMBURSEMENT_LAMPORTS",
       "InstructionTag",
       "InterfaceError",
       "MERGE_ENCRYPTED_UTXO_LENGTH",
@@ -41,6 +42,7 @@ describe("public exports", () => {
       "decodeZoneConfig",
       "externalDataHash",
       "fetchTag",
+      "foresterFeePerQueueElement",
       "initializePoseidon",
       "isPoseidonInitialized",
       "ownerPkFieldCompressed",
@@ -52,7 +54,6 @@ describe("public exports", () => {
     expect(Object.keys(codecs).sort()).toEqual([
       "addressTreeParamsCodec",
       "batchUpdateNullifierTreeDataCodec",
-      "createTreeDataCodec",
       "createZoneConfigDataCodec",
       "depositInstructionDataCodec",
       "mergeExternalDataHash",

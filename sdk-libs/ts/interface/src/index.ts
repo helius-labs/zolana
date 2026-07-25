@@ -63,6 +63,8 @@ export {
   ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
   ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
   FIRST_ASSET_ID,
+  FORESTER_REIMBURSEMENT_LAMPORTS,
+  foresterFeePerQueueElement,
   STATE_HEIGHT,
   STATE_ROOT_OFFSET,
   StateDiscriminator,
@@ -162,26 +164,15 @@ export interface BatchUpdateNullifierTreeData {
   readonly compressedProof: CompressedProof;
 }
 
-export interface CreateTreeData {
-  readonly owner: Address;
-}
-
 export interface AddressTreeParams {
-  readonly index: bigint;
-  readonly programOwner?: Address;
-  readonly forester?: Address;
   readonly inputQueueBatchSize: bigint;
   readonly inputQueueZkpBatchSize: bigint;
   readonly rootHistoryCapacity: number;
-  readonly networkFee?: bigint;
-  readonly rolloverThreshold?: bigint;
-  readonly closeThreshold?: bigint;
   readonly height: number;
 }
 
 export function addressTreeParams(): AddressTreeParams {
   return Object.freeze({
-    index: 0n,
     inputQueueBatchSize: ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
     inputQueueZkpBatchSize: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
     rootHistoryCapacity: ADDRESS_TREE_ROOT_HISTORY_CAPACITY,

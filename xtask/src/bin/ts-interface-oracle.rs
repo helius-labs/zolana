@@ -131,6 +131,12 @@ fn errors() -> Value {
         ("BothPublicAmountsSet", BothPublicAmountsSet),
         ("MissingP256SigningKey", MissingP256SigningKey),
         ("OwnerTagAccountMissing", OwnerTagAccountMissing),
+        ("InvalidForesterFee", InvalidForesterFee),
+        (
+            "InsufficientForesterFeeBalance",
+            InsufficientForesterFeeBalance,
+        ),
+        ("InvalidSystemProgram", InvalidSystemProgram),
     ];
     let mut map = Map::new();
     for (name, error) in table {

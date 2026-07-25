@@ -7,7 +7,6 @@ import {
   type Bytes32,
   type Bytes33,
   type Bytes64,
-  type CreateTreeData,
   type CreateZoneConfigData,
   type DepositInstructionData,
   type MergeTransactInstructionData,
@@ -195,66 +194,21 @@ export const batchUpdateNullifierTreeDataCodec = strictCodec<BatchUpdateNullifie
   194,
 );
 
-export const createTreeDataCodec = strictCodec<CreateTreeData>(
-  (writer, value) => writer.bytes(addressBytes(value.owner, "owner")),
-  (reader) => ({ owner: encodeBase58(reader.bytes(32, "owner")) }),
-  32,
-);
-
-function writeOptionalAddress(writer: Writer, value: Address | undefined, name: string): void {
-  writer.option(value, (output, address) => output.bytes(addressBytes(address, name)));
-}
-
-function readOptionalAddress(reader: Reader, name: string): Address | undefined {
-  return reader.option(name, (input) => encodeBase58(input.bytes(32, name)));
-}
-
 export const addressTreeParamsCodec = strictCodec<AddressTreeParams>(
   (writer, value) => {
-    writer.u64(value.index, "index");
-    writeOptionalAddress(writer, value.programOwner, "programOwner");
-    writeOptionalAddress(writer, value.forester, "forester");
     writer
       .u64(value.inputQueueBatchSize, "inputQueueBatchSize")
       .u64(value.inputQueueZkpBatchSize, "inputQueueZkpBatchSize")
       .u32(value.rootHistoryCapacity, "rootHistoryCapacity")
-      .option(value.networkFee, (output, fee) => output.u64(fee, "networkFee"))
-      .option(value.rolloverThreshold, (output, threshold) =>
-        output.u64(threshold, "rolloverThreshold"),
-      )
-      .option(value.closeThreshold, (output, threshold) =>
-        output.u64(threshold, "closeThreshold"),
-      )
       .u32(value.height, "height");
   },
-  (reader) => {
-    const index = reader.u64("index");
-    const programOwner = readOptionalAddress(reader, "programOwner");
-    const forester = readOptionalAddress(reader, "forester");
-    const inputQueueBatchSize = reader.u64("inputQueueBatchSize");
-    const inputQueueZkpBatchSize = reader.u64("inputQueueZkpBatchSize");
-    const rootHistoryCapacity = reader.u32("rootHistoryCapacity");
-    const networkFee = reader.option("networkFee", (input) => input.u64("networkFee"));
-    const rolloverThreshold = reader.option("rolloverThreshold", (input) =>
-      input.u64("rolloverThreshold"),
-    );
-    const closeThreshold = reader.option("closeThreshold", (input) =>
-      input.u64("closeThreshold"),
-    );
-    const height = reader.u32("height");
-    return {
-      index,
-      inputQueueBatchSize,
-      inputQueueZkpBatchSize,
-      rootHistoryCapacity,
-      height,
-      ...(programOwner === undefined ? {} : { programOwner }),
-      ...(forester === undefined ? {} : { forester }),
-      ...(networkFee === undefined ? {} : { networkFee }),
-      ...(rolloverThreshold === undefined ? {} : { rolloverThreshold }),
-      ...(closeThreshold === undefined ? {} : { closeThreshold }),
-    };
-  },
+  (reader) => ({
+    inputQueueBatchSize: reader.u64("inputQueueBatchSize"),
+    inputQueueZkpBatchSize: reader.u64("inputQueueZkpBatchSize"),
+    rootHistoryCapacity: reader.u32("rootHistoryCapacity"),
+    height: reader.u32("height"),
+  }),
+  24,
 );
 
 function writeProof(writer: Writer, proof: TransactProof): void {

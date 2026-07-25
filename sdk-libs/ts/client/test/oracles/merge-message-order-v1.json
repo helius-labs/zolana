@@ -3,6 +3,7 @@
     "accountKeys": [
       "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
       "4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm",
+      "11111111111111111111111111111111",
       "ComputeBudget111111111111111111111111111111",
       "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
       "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2"
@@ -10,26 +11,28 @@
     "instructions": [
       {
         "accounts": [],
-        "programIdIndex": 2
+        "programIdIndex": 3
       },
       {
         "accounts": [
           1,
           0,
-          4,
-          3
+          5,
+          2,
+          4
         ],
-        "programIdIndex": 3
+        "programIdIndex": 4
       }
     ],
     "numReadonlySignedAccounts": 0,
-    "numReadonlyUnsignedAccounts": 3,
+    "numReadonlyUnsignedAccounts": 4,
     "numRequiredSignatures": 1
   },
   "expectedZone": {
     "accountKeys": [
       "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
       "4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm",
+      "11111111111111111111111111111111",
       "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
       "ComputeBudget111111111111111111111111111111",
       "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
@@ -38,20 +41,21 @@
     "instructions": [
       {
         "accounts": [],
-        "programIdIndex": 3
+        "programIdIndex": 4
       },
       {
         "accounts": [
           1,
-          5,
+          6,
           0,
-          4
+          2,
+          5
         ],
-        "programIdIndex": 2
+        "programIdIndex": 3
       }
     ],
     "numReadonlySignedAccounts": 0,
-    "numReadonlyUnsignedAccounts": 4,
+    "numReadonlyUnsignedAccounts": 5,
     "numRequiredSignatures": 1
   },
   "generator": "cargo test -p zolana-client --lib --features client client::tests::merge_message_account_order_oracle",
