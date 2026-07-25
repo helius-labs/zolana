@@ -1088,24 +1088,5 @@ describe("instruction builders", () => {
         data: { ...merge, nullifiers: merge.nullifiers.slice(1) },
       }),
     ).toThrow(expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }));
-    const wrongPrefix = merge.encryptedUtxo.slice();
-    wrongPrefix[0] = 0;
-    expect(() =>
-      mergeTransactInstructionDataCodec.encode({ ...merge, encryptedUtxo: wrongPrefix }),
-    ).toThrow(expect.objectContaining({ code: "INTERFACE_CODEC" }));
-
-    const encoded = mergeTransactInstructionDataCodec.encode(merge);
-    encoded[557] = 0;
-    expect(() => mergeTransactInstructionDataCodec.decode(encoded)).toThrow(
-      expect.objectContaining({ code: "INTERFACE_CODEC" }),
-    );
-    const encodedZone = mergeZoneInstructionDataCodec.encode({
-      mergeViewTag: b32(9),
-      merge,
-    });
-    encodedZone[589] = 0;
-    expect(() => mergeZoneInstructionDataCodec.decode(encodedZone)).toThrow(
-      expect.objectContaining({ code: "INTERFACE_CODEC" }),
-    );
   });
 });

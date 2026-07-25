@@ -25,11 +25,7 @@ import {
   type TransactProof,
   type ZoneConfigAccount,
 } from "../index.js";
-import {
-  MERGE_ENCRYPTED_UTXO_LENGTH,
-  MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
-  MERGE_INPUT_COUNT,
-} from "../constants.js";
+import { MERGE_ENCRYPTED_UTXO_LENGTH, MERGE_INPUT_COUNT } from "../constants.js";
 import { StateDiscriminator } from "../state.js";
 import {
   Reader,
@@ -444,24 +440,10 @@ export const transactInstructionDataCodec: Codec<TransactInstructionData> = {
   },
 };
 
-/**
- * Recorded divergence from `program-libs/interface`, pinned by
- * `interface/test/vectors/rust-oracle.test.ts`. `MergeTransactIxData` carries no
- * prefix rule, so Rust reads and writes any first byte and the shielded-pool
- * program is what refuses a non-canonical one with `InvalidMergeOutputScheme`.
- * Both merge codecs route through here so the pending ruling on whether the SDK
- * should refuse this early is a change in one place.
- */
-function checkMergeOutputScheme(encryptedUtxo: Uint8Array): void {
-  if (encryptedUtxo[0] !== MERGE_ENCRYPTED_UTXO_TYPE_PREFIX) {
-    fail("INTERFACE_CODEC", {
-      name: "encryptedUtxo.typePrefix",
-      expected: MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
-      actual: encryptedUtxo[0],
-    });
-  }
-}
-
+// Neither merge codec checks the `encryptedUtxo` type prefix, matching Rust,
+// whose decoders read and write any first byte. The prefix is not part of the
+// layout: the shielded-pool program is what rejects a non-canonical value, with
+// `InvalidMergeOutputScheme`.
 function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
   if (
     value.nullifiers.length !== MERGE_INPUT_COUNT ||
@@ -476,7 +458,6 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
       encryptedUtxo: value.encryptedUtxo.length,
     });
   }
-  checkMergeOutputScheme(value.encryptedUtxo);
   writer
     .u64(value.expiryUnixTs, "expiryUnixTs")
     .bytes(value.proof.a, 32, "proof.a")
@@ -543,7 +524,6 @@ function readMergeData(reader: Reader): MergeTransactInstructionData {
     });
   }
   const encryptedUtxo = reader.bytes(encryptedLength, "encryptedUtxo");
-  checkMergeOutputScheme(encryptedUtxo);
   return {
     expiryUnixTs,
     proof,
