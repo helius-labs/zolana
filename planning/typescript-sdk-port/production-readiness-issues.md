@@ -78,8 +78,8 @@ evidence.
 
 | Issue | Severity | Owner artifact | Now | Closed when | Proven by |
 | ----- | -------- | -------------- | --- | ----------- | --------- |
-| G9-1 | `blocker` | [`testing-and-conformance.md`](testing-and-conformance.md#continuous-integration-tiers) | Eight workflows exist; none run the TypeScript scripts. | A pull-request workflow runs the merge tier. | Full SDK gate: a repository workflow runs the TypeScript gate set. |
-| G9-2 | `blocker` | [`testing-and-conformance.md`](testing-and-conformance.md#continuous-integration-tiers) | `check` skips the cross-language, prover, browser, fixture, pack, and package-lint suites. | Those suites run in a named merge tier, and `check` states its real scope. | Full SDK gate: the merge tier covers the named suites. |
+| G9-1 | `blocker` | [`testing-and-conformance.md`](testing-and-conformance.md#continuous-integration-tiers) | `typescript.yml` runs `npm run check` on pull requests, one job per sub-script behind a `merge gate` job. | A pull-request workflow runs the merge gate. | Full SDK gate: a repository workflow runs the TypeScript gate set. |
+| G9-2 | `blocker` | [`testing-and-conformance.md`](testing-and-conformance.md#continuous-integration-tiers) | `check` is composed of `check:static`, `check:suites`, `check:packaging`, `check:fixtures`, and `check:e2e`, which cover the ten formerly excluded suites. | Those suites run in the merge gate, and `check` states its real scope. | Full SDK gate: the merge gate covers the named suites. |
 | G9-3 | `medium` | [`testing-and-conformance.md`](testing-and-conformance.md#continuous-integration-tiers) | `format:check` enumerates paths by hand, so a new package stays unformatted. | The list is glob-based with explicit ignores and covers `planning/`. | `npm run format:check` fails on an unformatted new file. |
 | G9-4 | `medium` | [`testing-and-conformance.md`](testing-and-conformance.md#failure-lag-and-runtime-matrix) | `browser-check.mjs` greps sources and bundles with esbuild. | The keypair and transaction vector suites execute in headless Chromium, with the required Web Crypto surfaces named. | Package gate: browser-capable packages execute their vectors in a browser engine. |
 | G8-1 | `high` | [`testing-and-conformance.md`](testing-and-conformance.md#fixture-layout-and-provenance) | The manifest pins four source revisions plus five more identity keys, with no compatibility rule. | Each revision key has a stated compatibility rule and a regeneration trigger, and a check rejects an incompatible pin. | Full SDK gate: the fixture provenance check rejects an incompatible revision combination. |
@@ -114,7 +114,7 @@ Each row here maps onto a packet that already exists. None of them creates a new
 | G4-1 | `blocker` | [PKP-06](proof-and-key-parity.md#pkp-06-add-native-verification-certification) | TypeScript proof tests compare against Rust-recorded fixtures only. | The test-only Rust oracle verifies TypeScript-assembled public inputs and proofs at the same revision. | PKP-06 exit: a TypeScript-produced artifact verifies only under its intended public input and key. |
 | G4-2 | `blocker` | [PKP-07](proof-and-key-parity.md#pkp-07-add-real-prove-to-chain-acceptance) | The two live suites reach a validator; neither sends a proof through the shielded pool. | Deposit, transact, and withdraw run against the same-revision local stack with a TypeScript-assembled proof. | PKP-07 exit: state transitions asserted, no stub in the proving, submission, or indexing path. |
 | G4-3 | `medium` | [PKP-06](proof-and-key-parity.md#pkp-06-add-native-verification-certification) tamper matrix | Adversarial coverage is thin next to `sdk-libs/client/tests`. | One negative case per public input and per proof component, each asserting a named typed rejection. | PKP-06 tamper matrix, with the G5-2 code split as its prerequisite. |
-| G6-3 | `medium` | [PKP-04](proof-and-key-parity.md#pkp-04-enforce-capability-and-secret-boundaries) K9 | `ShieldedKeypairLike` and `ViewingKeyLike` require nullifier and viewing-key material; no second implementation exists. | Support for a signing-only custodian is decided, and a second implementation exercises the seam if it is supported. | PKP-04 K9 conformance adapters. |
+| G6-3 | `medium` | [PKP-04](proof-and-key-parity.md#pkp-04-enforce-capability-and-secret-boundaries) K9 | Ruled: a signing-only custodian is not supported. A custodian holds nullifier and viewing key material, and `shielded.ts` states that at both interfaces. | The ruling is recorded and the interfaces state the requirement. | PKP-04 K9 conformance adapters, each holding that key material. |
 | G8-2 | `high` | [PKP-01](proof-and-key-parity.md#pkp-01-harden-fixture-provenance) | `provingKeyRelease` pins a lock hash; no proof fixture records the verifying key it was produced against. | Each proof fixture records the verifying-key module and its SHA-256. | PKP-01 exit plus the full SDK gate that fails on a verifying-key identity mismatch. |
 
 ## G1. Range and length validation
@@ -563,11 +563,18 @@ export interface ViewingKeyLike {
 
 These are the seams an external custodian would implement. `nullifier` requires the implementer to
 hold nullifier-key material, and `transactionViewingKey` requires viewing-key material, so a signer
-that exposes only a signing operation cannot satisfy them. Whether that is intended has not been
-recorded, and no non-software implementation has been built against them.
+that exposes only a signing operation cannot satisfy them.
 
-Closing this requires: a decision on whether a signing-only custodian is a supported configuration,
-and if so, a second implementation of these interfaces to prove the seam holds.
+Ruled by the protocol owner: that is intended. A signing-only custodian is not a supported
+configuration, and a custodian holds nullifier and viewing key material. The disposition is recorded
+under
+[the custody seam](security-and-release.md#custody-seam-width),
+and `sdk-libs/ts/keypair/src/shielded.ts` states the requirement at both interface definitions.
+
+What remains is evidence rather than a decision: the
+[PKP-04](proof-and-key-parity.md#pkp-04-enforce-capability-and-secret-boundaries) K9 adapters still
+have to show the seam holds for a custodian that does hold the material, such as an asynchronous
+mock HSM or a remote signer.
 
 ## G7. Specification authority conflicts
 
@@ -705,8 +712,15 @@ the workspace scripts.
 Impact: nothing prevents a merge that breaks the TypeScript build, types, lint, tests, or fixture
 agreement. Each gate described in the planning documents is currently manual.
 
-Closing this requires: a workflow that runs the aggregate gate on pull requests, with the tiering
-decision from G9-2 resolved first.
+Applied: `.github/workflows/typescript.yml` runs `npm run check` on pull requests and on pushes to
+`main`, split into a `static`, `suites`, `packaging`, `fixtures`, and `e2e` job by the services each
+part needs, plus a `gate scope` job that fails when `check` grows a sub-script the workflow does not
+run and a `merge gate` job that fails unless the five succeeded. The tier layout is recorded under
+[continuous integration tiers](testing-and-conformance.md#continuous-integration-tiers).
+
+Remaining: the gate is red at the revision that added it, on G8-1 fixture drift, the `lint:packages`
+backlog, and a `globalThis.process` read in the client prover bundle. Those are the defects the gate
+exists to surface, so each is reported rather than excluded.
 
 ### G9-2 The aggregate `check` script omits most certification gates (`blocker`)
 
@@ -729,9 +743,11 @@ the ones `check` does not run.
 Impact: "check passes" is routinely read as "the port is consistent with Rust", and it does not mean
 that.
 
-Closing this requires: an explicit tier split across per-commit, per-pull-request, and per-release,
-with the cross-language and prover suites in a tier that gates merge, and `check` either renamed or
-expanded so its name matches its scope.
+Applied, per the protocol owner's ruling that one gate runs the list, the prover and both end-to-end
+suites included: `check` now expands to `check:static && check:suites && check:packaging &&
+check:fixtures && check:e2e`, and the ten excluded suites sit in those five sub-scripts. The
+per-commit, per-pull-request, per-release tier split is withdrawn, since the ruling puts the
+end-to-end suites in the merge gate rather than a release tier.
 
 ### G9-3 `format:check` covers a hand-maintained file list (`medium`)
 

@@ -507,6 +507,13 @@ Required cross-tests:
   The pairs consume the code-per-variant table that
   [G5-2](production-readiness-issues.md#g5-2-the-keypair-error-taxonomy-is-collapsed-relative-to-rust-high)
   produces, so a collapsed code cannot satisfy the assertion.
+- Ruled, and resolved with no code change: each language keeps the error-naming
+  convention it already has. The `method` detail on an indexer error carries the
+  JSON-RPC name in Rust (`get_merkle_proofs`) and the SDK method name in
+  TypeScript (`getMerkleProofs`). The mapping test above pairs a code with a Rust
+  variant and does not compare that string. The consequence a consumer lives
+  with: correlating one call across both languages means reading two different
+  strings for it.
 
 ## Independent E2E suites
 
@@ -661,36 +668,51 @@ npm run pack:check
 
 ## Continuous integration tiers
 
-No workflow under `.github/workflows/` runs these commands, and the aggregate
-`check` script runs nine of them. The suites `check` skips are `test:vectors`,
-`test:property`, `test:cross`, `test:prover`, `test:browser`,
-`test:e2e:actions`, `test:e2e:instructions`, `fixtures:check`, `pack:check`, and
-`lint:packages`, which are the ones that carry the parity argument. So "check
-passes" reads as "the port agrees with Rust" and means something narrower
+The protocol owner ruled that there is one gate and it runs the whole list, the
+prover and both end-to-end suites included. That replaces the earlier commit,
+merge, and release split, under which "check passes" was read as "the port
+agrees with Rust" while `check` skipped `test:vectors`, `test:property`,
+`test:cross`, `test:prover`, `test:browser`, `test:e2e:actions`,
+`test:e2e:instructions`, `fixtures:check`, `pack:check`, and `lint:packages`
 ([G9-2](production-readiness-issues.md#g9-2-the-aggregate-check-script-omits-most-certification-gates-blocker)).
 
-Three tiers replace that split. Each command belongs to exactly one tier, and
-the tier a command sits in is the promise made when it passes.
+`npm run check` is the merge-gating entry point. It is composed of five named
+sub-scripts, grouped by the services each one needs:
 
-| Tier | Runs on | Contains |
+| Sub-script | Contains | Needs |
 | --- | --- | --- |
-| Commit | a local pre-commit hook and the pull-request job | `build`, `typecheck`, `lint`, `lint:packages`, `format:check`, `test:unit`, `test:inventory`, `test:exports`, `test:dependencies`, `api:check` |
-| Merge | the pull-request workflow, blocking merge | the commit tier plus `test:vectors`, `test:property`, `test:cross`, `test:prover`, `test:browser`, `fixtures:check`, `pack:check` |
-| Release | the release workflow and the phase-4 gate evaluation | the merge tier plus `test:e2e:actions` and `test:e2e:instructions` |
+| `check:static` | `build`, `typecheck`, `lint`, `lint:packages`, `format:check` | Node |
+| `check:suites` | `test:unit`, `test:vectors`, `test:property`, `test:cross`, `test:prover` | Node |
+| `check:packaging` | `test:inventory`, `test:exports`, `test:dependencies`, `api:check`, `test:browser`, `pack:check` | Node |
+| `check:fixtures` | `fixtures:check` | the pinned Rust toolchain and the frozen baseline blobs in git history |
+| `check:e2e` | `test:e2e:actions`, `test:e2e:instructions` | a Solana validator, the same-revision Photon, the local prover, and the built programs |
 
-The aggregate script named `check` runs the commit tier. Either it is renamed to
-match that scope or it grows to the merge tier; a script whose name outruns its
-contents is the defect
-([G9-2](production-readiness-issues.md#g9-2-the-aggregate-check-script-omits-most-certification-gates-blocker)).
-
-A pull-request workflow runs the merge tier. Until one exists, nothing stops a
-merge that breaks the build, the types, the lint, the tests, or fixture
-agreement, and each gate in the planning documents is a manual step whose result
-a reviewer cannot reproduce
+`.github/workflows/typescript.yml` runs one job per sub-script on pull requests
+and pushes to `main`, and a `merge gate` job that fails unless each of them
+succeeded
 ([G9-1](production-readiness-issues.md#g9-1-no-workflow-runs-the-typescript-suite-blocker)).
-The prover tier needs the pinned local prover and the proving-key cache keyed on
-the lockfile hash, which `rust.yml` already sets up and the TypeScript job
-reuses.
+Its `gate scope` job compares the `check` script against the five jobs, so a
+sixth sub-script cannot be added to `check` while the workflow keeps running
+five.
+
+The `e2e` job installs the Anza CLI for `solana-test-validator` and `spl-token`,
+builds the programs, the Go prover, and Photon from the checkout, and caches
+`prover/server/proving-keys` on the hash of
+`prover/server/prover/provingkeys/proving-keys.lock`, the same key `rust.yml`
+uses. It leaves `ZOLANA_PORT_OFFSET`, `ZOLANA_LOCALNET_URL`,
+`ZOLANA_INDEXER_URL`, and `ZOLANA_PROVER_URL` unset: each suite asserts its own
+offset (300 for actions, 400 for instructions) and starts the services it needs,
+and a set URL would make the test kit treat that service as already running.
+
+Three parts of the gate are red at the revision that added the workflow, each
+for a reason recorded elsewhere in the register rather than a workflow defect:
+`fixtures:check` reports `baseline fixture sources differ from revision
+43fde8e4`
+([G8-1](production-readiness-issues.md#g8-1-the-manifest-pins-multiple-source-revisions-high)),
+`lint:packages` reports eight errors across the client, interface, keypair, and
+wallet packages, and `test:browser` and `pack:check` reject a
+`globalThis.process` read in the client prover bundle. Each is a defect the gate
+is supposed to catch, so the gate reports it rather than skipping it.
 
 `format:check` selects files by glob with explicit ignores rather than the
 hand-maintained path list it uses now, and the globs cover `planning/`. A list
