@@ -97,6 +97,16 @@ const b33 = (value: number): Bytes33 => new Uint8Array(33).fill(value) as Bytes3
 const b64 = (value: number): Bytes64 => new Uint8Array(64).fill(value) as Bytes64;
 const hex = (value: Uint8Array): string =>
   [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const account = (address: Address, isSigner: boolean, isWritable: boolean) => ({
+  address,
+  isSigner,
+  isWritable,
+});
+const pdaAddress = (index: number): Address => {
+  const vector = CURRENT_RUST_INTERFACE_FIXTURE.pda.vectors[index];
+  if (vector === undefined) throw new Error("missing PDA fixture");
+  return vector.address;
+};
 
 function transactData(
   publicAmount?: Readonly<{ kind: "sol" | "spl"; amount: bigint }>,
@@ -853,6 +863,221 @@ describe("instruction builders", () => {
         mergeViewTag: b32(9),
       }).data[0],
     ).toBe(13);
+  });
+
+  it("routes exact default and policy-zone merge accounts in both modes", () => {
+    const { mint: payer, owner: tree, zoneProgram } = CURRENT_RUST_INTERFACE_FIXTURE.pda;
+    const defaultMerge = mergeTransactInstruction({
+      tree,
+      payer,
+      userRecord: ZERO,
+      data: merge,
+    });
+    expect(defaultMerge).toEqual({
+      programAddress: SHIELDED_POOL_PROGRAM_ID,
+      accounts: [
+        account(tree, false, true),
+        account(payer, true, true),
+        account(ZERO, false, false),
+        account(SHIELDED_POOL_PROGRAM_ID, false, false),
+      ],
+      data: Uint8Array.from([
+        InstructionTag.mergeTransact,
+        ...mergeTransactInstructionDataCodec.encode(merge),
+      ]),
+    });
+
+    const mergeViewTag = b32(9);
+    const outer = mergeZoneInstruction({
+      tree,
+      zoneProgramId: zoneProgram,
+      payer,
+      data: merge,
+      mergeViewTag,
+    });
+    const cpi = mergeZoneInstruction({
+      tree,
+      zoneProgramId: zoneProgram,
+      payer,
+      data: merge,
+      mergeViewTag,
+      cpi: true,
+    });
+    const zoneAuthority = pdaAddress(7);
+    const payload = Uint8Array.from([
+      13,
+      ...mergeZoneInstructionDataCodec.encode({ mergeViewTag, merge }),
+    ]);
+    expect(outer).toEqual({
+      programAddress: zoneProgram,
+      accounts: [
+        account(tree, false, true),
+        account(zoneAuthority, false, false),
+        account(payer, true, true),
+        account(SHIELDED_POOL_PROGRAM_ID, false, false),
+      ],
+      data: payload,
+    });
+    expect(cpi).toEqual({
+      ...outer,
+      programAddress: SHIELDED_POOL_PROGRAM_ID,
+      accounts: [
+        account(tree, false, true),
+        account(zoneAuthority, true, false),
+        account(payer, true, true),
+        account(SHIELDED_POOL_PROGRAM_ID, false, false),
+      ],
+    });
+  });
+
+  it("routes exact zone-config and SOL/SPL deposit outer and CPI accounts", () => {
+    const { mint: payer, owner: tree, zoneProgram } = CURRENT_RUST_INTERFACE_FIXTURE.pda;
+    const zoneAuthority = pdaAddress(7);
+    const create = createZoneConfigInstruction({
+      payer,
+      programId: zoneProgram,
+      authority: tree,
+      zoneAuthorityTransactIsEnabled: true,
+    });
+    expect(create.accounts).toEqual([
+      account(payer, true, true),
+      account(protocolConfigAddress(), false, false),
+      account(zoneAuthority, true, true),
+      account(ZERO, false, false),
+    ]);
+
+    const common = {
+      tree,
+      depositor: payer,
+      viewTag: b32(1),
+      owner: b32(2),
+      blinding: b31(3),
+      amount: 4n,
+      zoneProgramId: zoneProgram,
+      zoneDataHash: b32(5),
+      zoneData: Uint8Array.of(6),
+    };
+    const solOuter = zoneDepositInstruction(common);
+    const solCpi = zoneDepositInstruction({ ...common, cpi: true });
+    expect(solOuter.programAddress).toBe(zoneProgram);
+    expect(solOuter.accounts).toEqual([
+      account(tree, false, true),
+      account(payer, true, true),
+      account(zoneAuthority, false, false),
+      account(ZERO, false, false),
+      account(SOL_INTERFACE, false, true),
+      account(payer, false, true),
+      account(SHIELDED_POOL_PROGRAM_ID, false, false),
+    ]);
+    expect(solCpi.accounts).toEqual([
+      ...solOuter.accounts.slice(0, 2),
+      account(zoneAuthority, true, false),
+      ...solOuter.accounts.slice(3),
+    ]);
+    expect(solCpi.programAddress).toBe(SHIELDED_POOL_PROGRAM_ID);
+    expect(solCpi.data).toEqual(solOuter.data);
+
+    const spl = {
+      userToken: payer,
+      splTokenInterface: pdaAddress(5),
+      registry: pdaAddress(4),
+      tokenProgram: SPL_TOKEN_PROGRAM_ID,
+    };
+    const splOuter = zoneDepositInstruction({ ...common, spl });
+    const splCpi = zoneDepositInstruction({ ...common, spl, cpi: true });
+    expect(splOuter.accounts).toEqual([
+      account(tree, false, true),
+      account(payer, true, true),
+      account(zoneAuthority, false, false),
+      account(spl.userToken, false, true),
+      account(spl.splTokenInterface, false, true),
+      account(spl.registry, false, false),
+      account(SPL_TOKEN_PROGRAM_ID, false, false),
+      account(SHIELDED_POOL_PROGRAM_ID, false, false),
+    ]);
+    expect(splCpi.accounts[2]).toEqual(account(zoneAuthority, true, false));
+    expect(splCpi.data).toEqual(splOuter.data);
+  });
+
+  it("routes exact SOL/SPL zone transact accounts and owner index", () => {
+    const { mint: payer, owner: tree, zoneProgram } = CURRENT_RUST_INTERFACE_FIXTURE.pda;
+    const zoneAuthority = pdaAddress(7);
+    const solData = transactData({ kind: "sol", amount: -1n });
+    const solWithdrawal = { kind: "sol" as const, recipient: payer };
+    for (const build of [zoneTransactInstruction, zoneAuthorityTransactInstruction]) {
+      const outer = build({
+        payer,
+        tree,
+        zoneProgramId: zoneProgram,
+        withdrawal: solWithdrawal,
+        data: solData,
+      });
+      const cpi = build({
+        payer,
+        tree,
+        zoneProgramId: zoneProgram,
+        withdrawal: solWithdrawal,
+        data: solData,
+        cpi: true,
+      });
+      expect(outer.accounts).toEqual([
+        account(payer, true, true),
+        account(tree, false, true),
+        account(zoneAuthority, false, false),
+        account(SOL_INTERFACE, false, true),
+        account(payer, false, true),
+        account(ZERO, false, false),
+        account(SHIELDED_POOL_PROGRAM_ID, false, false),
+      ]);
+      expect(cpi.accounts[2]).toEqual(account(zoneAuthority, true, false));
+      expect(cpi.data).toEqual(outer.data);
+      expect(transactInstructionDataCodec.decode(outer.data.slice(1)).outputs[1]?.ownerTag).toEqual(
+        {
+          kind: "account",
+          index: 2,
+        },
+      );
+    }
+
+    const splData = transactData({ kind: "spl", amount: -1n });
+    const splWithdrawal = {
+      kind: "spl" as const,
+      cpiAuthority: zoneAuthority,
+      splTokenInterface: pdaAddress(5),
+      recipient: payer,
+      userTokenAccount: tree,
+      tokenProgram: SPL_TOKEN_PROGRAM_ID,
+    };
+    for (const build of [zoneTransactInstruction, zoneAuthorityTransactInstruction]) {
+      const outer = build({
+        payer,
+        tree,
+        zoneProgramId: zoneProgram,
+        withdrawal: splWithdrawal,
+        data: splData,
+      });
+      const cpi = build({
+        payer,
+        tree,
+        zoneProgramId: zoneProgram,
+        withdrawal: splWithdrawal,
+        data: splData,
+        cpi: true,
+      });
+      expect(outer.accounts).toEqual([
+        account(payer, true, true),
+        account(tree, false, true),
+        account(zoneAuthority, false, false),
+        account(zoneAuthority, false, false),
+        account(splWithdrawal.splTokenInterface, false, true),
+        account(payer, false, true),
+        account(tree, false, true),
+        account(SPL_TOKEN_PROGRAM_ID, false, false),
+        account(SHIELDED_POOL_PROGRAM_ID, false, false),
+      ]);
+      expect(cpi.accounts[2]).toEqual(account(zoneAuthority, true, false));
+      expect(cpi.data).toEqual(outer.data);
+    }
   });
 
   it("preserves malformed settlement combinations for program validation", () => {
