@@ -16,14 +16,14 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `ee8adef485f654d1eacd20dd6c73efd709d240d0`
+- Review HEAD: `33a6a3b9d1091502af6cecb597be1df1d584118c`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `31 done / 118 total`; `45 needs_fix`; `0 needs_re_review`; `1 in_progress`
+- Progress: `33 done / 118 total`; `44 needs_fix`; `0 needs_re_review`; `0 in_progress`
 - Exact next eligible row: `T19 sdk-libs/transaction/src/instructions/transact/types.rs`
-- Active reviews: `M02 sdk-libs/merkle-tree/src/lib.rs`
-- Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
+- Active reviews: `none`
+- Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
 
 Refresh the HEAD, fixture commit, drift result, progress, active fixes, and exact
@@ -194,8 +194,8 @@ Columns:
 
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| M01 | `sdk-libs/merkle-tree/src/indexed.rs` | `merkle-tree/src/indexed.ts` | needs_fix | DIVERGENT | proposed | Default vectors pass, but TypeScript lacks custom highest-sentinel behavior and public path, proof, and update APIs. Verification trusts the supplied root and path length, and numeric, error, sentinel, and mutation behavior diverges or lacks evidence. Add the missing public operations, validate roots and path lengths, align boundaries and errors, and add custom-sentinel and mutation vectors. | 2026-07-25 review | - |
-| M02 | `sdk-libs/merkle-tree/src/lib.rs` | `merkle-tree/src/merkle-tree.ts`, `index.ts` | in_progress | - | none | Active read-only review; recorder awaits the completed report. | - | - |
+| M01 | `sdk-libs/merkle-tree/src/indexed.rs` | `merkle-tree/src/indexed.ts` | done | PARITY | committed | Canonical Rust and TypeScript now align on atomic indexed mutations, exclusive sentinels, trusted roots, exact proof lengths, public operations, errors, exports, browser behavior, package contents, and current-source fixtures. P06 records the requested gates passing without scoped drift or blockers. | 2026-07-25 re-review | `4e271aac` |
+| M02 | `sdk-libs/merkle-tree/src/lib.rs` | `merkle-tree/src/merkle-tree.ts`, `index.ts` | done | PARITY | committed | Canonical Rust and TypeScript now align on atomic mutations, trusted roots, exact proof lengths, next-index and history behavior, public APIs, errors, exports, browser behavior, package contents, and current-source fixtures. P06 records the requested gates passing without scoped drift or blockers. | 2026-07-25 re-review | `4e271aac` |
 
 ### Indexer API, 1 row
 
@@ -1422,3 +1422,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `31/118`; package `0/31`
 - Exact next file: `T19 sdk-libs/transaction/src/instructions/transact/types.rs`
 - Full SDK parity claim: unsupported; dummy hashing, ownership boundaries, instructions exports, inventory, and evidence diverge
+
+### 2026-07-25 12:25 UTC | M01/M02 | `sdk-libs/merkle-tree`
+
+- Baseline: recorder HEAD `33a6a3b9d1091502af6cecb597be1df1d584118c`; canonical Rust fix `975783aa`; TypeScript alignment `bd4ed7bd`; provenance repair `4e271aac`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
+- Worker: completed final Merkle re-review; implementation commits `975783aa`, `bd4ed7bd`, and `4e271aac`
+- Explanation: M01 owns indexed insertion and non-inclusion behavior. M02 owns the aggregate Merkle tree implementation and package surface.
+- Evidence: Atomic mutations, exclusive sentinels, trusted roots, exact proof lengths, next-index and history behavior, public APIs, structured errors, exports, browser execution, packed contents, and current-source fixtures align. P06 records the requested gates passing with no scoped source drift or blocker. These checks were not rerun by the recorder.
+- Verdict: M01 and M02 are `PARITY`
+- Gap and smallest fix: none
+- Row transitions: M01 `needs_fix/DIVERGENT -> done/PARITY`; M02 `in_progress/- -> done/PARITY`
+- Progress: `33/118`; package `2/2`
+- Exact next file: `T19 sdk-libs/transaction/src/instructions/transact/types.rs`
+- Full SDK parity claim: unsupported; unrelated adverse rows and package gates remain
