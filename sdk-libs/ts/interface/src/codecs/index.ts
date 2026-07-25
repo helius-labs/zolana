@@ -439,6 +439,10 @@ export const transactInstructionDataCodec: Codec<TransactInstructionData> = {
   },
 };
 
+// Neither merge codec checks the `encryptedUtxo` type prefix, matching Rust,
+// whose decoders read and write any first byte. The prefix is not part of the
+// layout: the shielded-pool program is what rejects a non-canonical value, with
+// `InvalidMergeOutputScheme`.
 function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
   if (
     value.nullifiers.length !== 8 ||
@@ -451,13 +455,6 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
       utxoTreeRootIndexes: value.utxoTreeRootIndexes.length,
       nullifierTreeRootIndexes: value.nullifierTreeRootIndexes.length,
       encryptedUtxo: value.encryptedUtxo.length,
-    });
-  }
-  if (value.encryptedUtxo[0] !== 2) {
-    fail("INTERFACE_CODEC", {
-      name: "encryptedUtxo.typePrefix",
-      expected: 2,
-      actual: value.encryptedUtxo[0],
     });
   }
   writer
@@ -524,13 +521,6 @@ function readMergeData(reader: Reader): MergeTransactInstructionData {
     });
   }
   const encryptedUtxo = reader.bytes(encryptedLength, "encryptedUtxo");
-  if (encryptedUtxo[0] !== 2) {
-    fail("INTERFACE_CODEC", {
-      name: "encryptedUtxo.typePrefix",
-      expected: 2,
-      actual: encryptedUtxo[0],
-    });
-  }
   return {
     expiryUnixTs,
     proof,
