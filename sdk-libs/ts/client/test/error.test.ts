@@ -70,6 +70,140 @@ const NO_TYPESCRIPT_PRODUCER: Readonly<Partial<Record<CanonicalClientErrorCode, 
     "constructed only by program-tests/spp-test-validator/tests/deposit_action.rs, not by either SDK",
 };
 
+const KEYPAIR_SOURCE = path.join(repositoryRoot, "sdk-libs/ts/keypair/src");
+
+/**
+ * Detail values `@zolana/keypair` may attach: a quoted label, a numeric bound,
+ * a module constant, the length of some value, or the leading tag byte of a
+ * public key. The sanitizer in `keypair/src/error.ts` bounds which detail keys
+ * survive, not what they hold, so a call site that passed a computed value
+ * would carry it intact to `ClientError.cause.details`.
+ */
+const LABEL = /^"[^"]*"$/u;
+const SAFE_DETAIL_VALUES: readonly RegExp[] = [
+  LABEL,
+  /^-?\d[\d_]*$/u,
+  /^0x[\da-f_]+$/iu,
+  /^[A-Z][A-Z\d_]*$/u,
+  /^[\w$.#]+\.length$/u,
+  /^[\w$.#[\]]+\[0\] \?\? 0$/u,
+];
+
+/**
+ * Parameters forwarded into a detail literal rather than written there. Each
+ * one was traced to a literal or a length at every call site that reaches it.
+ * Adding a name here asserts that trace; it is not a way to quiet the scan.
+ */
+const AUDITED_DETAIL_PARAMETERS: ReadonlySet<string> = new Set([
+  "actual",
+  "expected",
+  "index",
+  "info",
+  "inputCount",
+  "length",
+  "name",
+  "type",
+]);
+
+interface SourceExpression {
+  readonly location: string;
+  readonly expression: string;
+}
+
+/** The text `source[open]` encloses, counting brackets and skipping string bodies. */
+function balancedSlice(source: string, open: number): string {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let index = open; index < source.length; index++) {
+    const character = source[index];
+    if (quote !== undefined) {
+      if (character === "\\") index++;
+      else if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") quote = character;
+    else if (character === "(" || character === "{" || character === "[") depth++;
+    else if (character === ")" || character === "}" || character === "]") {
+      depth--;
+      if (depth === 0) return source.slice(open + 1, index);
+    }
+  }
+  throw new Error(`unbalanced expression at offset ${String(open)}`);
+}
+
+function splitTopLevel(text: string): readonly string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: string | undefined;
+  let start = 0;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (quote !== undefined) {
+      if (character === "\\") index++;
+      else if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") quote = character;
+    else if (character === "(" || character === "{" || character === "[") depth++;
+    else if (character === ")" || character === "}" || character === "]") depth--;
+    else if (character === "," && depth === 0) {
+      parts.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  return [...parts, text.slice(start)].map((part) => part.trim()).filter((part) => part !== "");
+}
+
+async function keypairSources(): Promise<readonly (readonly [string, string])[]> {
+  const sources: (readonly [string, string])[] = [];
+  for (const entry of await readdir(KEYPAIR_SOURCE, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".ts")) continue;
+    const file = path.join(entry.parentPath, entry.name);
+    sources.push([path.relative(repositoryRoot, file), await readFile(file, "utf8")]);
+  }
+  return sources;
+}
+
+function locate(file: string, source: string, offset: number): string {
+  return `${file}:${String(source.slice(0, offset).split("\n").length)}`;
+}
+
+function normalize(expression: string): string {
+  return expression.trim().replace(/\s+/gu, " ");
+}
+
+/** Every value a `new KeypairError(...)` detail literal attaches. */
+function detailValues(file: string, source: string): readonly SourceExpression[] {
+  const values: SourceExpression[] = [];
+  for (const match of source.matchAll(/new KeypairError\(/gu)) {
+    const [, details] = splitTopLevel(balancedSlice(source, match.index + match[0].length - 1));
+    if (details === undefined || !details.startsWith("{")) continue;
+    for (const entry of splitTopLevel(balancedSlice(details, 0))) {
+      const separator = entry.indexOf(":");
+      const expression = separator === -1 ? entry : entry.slice(separator + 1);
+      values.push({
+        location: locate(file, source, match.index),
+        expression: normalize(expression),
+      });
+    }
+  }
+  return values;
+}
+
+/** The label every `checkedBytes(...)` names its rejected argument with. */
+function checkedBytesLabels(file: string, source: string): readonly SourceExpression[] {
+  const labels: SourceExpression[] = [];
+  for (const match of source.matchAll(/checkedBytes\s*(?:<[^>]*>)?\(/gu)) {
+    if (/\bfunction\s+$/u.test(source.slice(0, match.index))) continue;
+    const argument = splitTopLevel(balancedSlice(source, match.index + match[0].length - 1))[2];
+    labels.push({
+      location: locate(file, source, match.index),
+      expression: normalize(argument ?? "<missing>"),
+    });
+  }
+  return labels;
+}
+
 async function producedClientErrorCodes(): Promise<ReadonlySet<string>> {
   const workspace = JSON.parse(
     await readFile(path.join(repositoryRoot, "package.json"), "utf8"),
@@ -178,11 +312,12 @@ describe("ClientError", () => {
     expect(keypair).toMatchObject({
       code: "CLIENT_KEYPAIR",
       details: { code: "KEYPAIR_INVALID_SECRET_KEY" },
-      cause: {
-        category: "keypair",
-        code: "KEYPAIR_INVALID_SECRET_KEY",
-        details: { reason: "destroyed" },
-      },
+    });
+    // Exact, not a subset: a key that survived sanitizing must fail here.
+    expect(keypair.cause).toEqual({
+      category: "keypair",
+      code: "KEYPAIR_INVALID_SECRET_KEY",
+      details: { reason: "destroyed" },
     });
 
     const transaction = fromClientCause(
@@ -194,11 +329,11 @@ describe("ClientError", () => {
     expect(transaction).toMatchObject({
       code: "CLIENT_TRANSACTION",
       details: { code: "TRANSACTION_INSUFFICIENT_BALANCE" },
-      cause: {
-        category: "transaction",
-        code: "TRANSACTION_INSUFFICIENT_BALANCE",
-        details: { requested: "11", available: "10" },
-      },
+    });
+    expect(transaction.cause).toEqual({
+      category: "transaction",
+      code: "TRANSACTION_INSUFFICIENT_BALANCE",
+      details: { requested: "11", available: "10" },
     });
     expect(JSON.stringify([keypair, transaction])).not.toContain("must not escape");
   });
@@ -303,6 +438,69 @@ describe("ClientError", () => {
     });
     expect(JSON.stringify(error)).not.toContain("sensitive response body");
     expect(JSON.stringify(wrapped)).not.toContain("must not escape");
+  });
+
+  it("drops key material a keypair error carries, whatever shape it arrives in", () => {
+    const material = "de".repeat(32);
+    const carriers: Readonly<Record<string, KeypairError>> = {
+      "under an unknown key": new KeypairError("KEYPAIR_INVALID_SECRET_KEY", {
+        viewingKey: material,
+      } as never),
+      "as bytes under a known key": new KeypairError("KEYPAIR_INVALID_SECRET_KEY", {
+        name: new Uint8Array(32).fill(0xde),
+      } as never),
+      "nested under a known key": new KeypairError("KEYPAIR_INVALID_SECRET_KEY", {
+        name: { hex: material },
+      } as never),
+      // `encryption.ts` and `poseidon.ts` hand the underlying @noble rejection
+      // to the wrapper, and that message can quote the bytes it rejected.
+      "inside a dependency rejection": new KeypairError(
+        "KEYPAIR_HKDF",
+        undefined,
+        new Error(`ikm=${material}`),
+      ),
+    };
+
+    for (const [shape, carrier] of Object.entries(carriers)) {
+      const wrapped = fromClientCause(carrier);
+      expect([shape, wrapped.cause]).toEqual([shape, { category: "keypair", code: carrier.code }]);
+      expect([shape, JSON.stringify(wrapped).includes(material)]).toEqual([shape, false]);
+      expect([shape, Object.hasOwn(wrapped.cause ?? {}, "cause")]).toEqual([shape, false]);
+    }
+  });
+
+  it("keeps a known detail key verbatim, so its value is the call site's responsibility", () => {
+    const material = "de".repeat(32);
+    const wrapped = fromClientCause(new KeypairError("KEYPAIR_INVALID_LENGTH", { name: material }));
+
+    // Neither sanitizer can tell a label from a secret that is shaped like one:
+    // `name` is a known key, so whatever it holds crosses intact. Nothing below
+    // this line protects the value, which is why the next test reads the call
+    // sites instead of the runtime.
+    expect(wrapped.cause).toEqual({
+      category: "keypair",
+      code: "KEYPAIR_INVALID_LENGTH",
+      details: { name: material },
+    });
+  });
+
+  it("attaches only labels, bounds, and lengths at every keypair error call site", async () => {
+    const sources = await keypairSources();
+    const values = sources.flatMap(([file, source]) => detailValues(file, source));
+    const labels = sources.flatMap(([file, source]) => checkedBytesLabels(file, source));
+
+    // A rename that stopped either scan matching would pass vacuously.
+    expect(values.length).toBeGreaterThan(20);
+    expect(labels.length).toBeGreaterThan(20);
+
+    expect(
+      values.filter(
+        ({ expression }) =>
+          !AUDITED_DETAIL_PARAMETERS.has(expression) &&
+          !SAFE_DETAIL_VALUES.some((form) => form.test(expression)),
+      ),
+    ).toEqual([]);
+    expect(labels.filter(({ expression }) => !LABEL.test(expression))).toEqual([]);
   });
 
   it("rejects unknown codes and malformed code-specific details at runtime", () => {
