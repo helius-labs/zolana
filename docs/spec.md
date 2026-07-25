@@ -588,6 +588,9 @@ An empty `data` field is the single byte `count = 0`. Each populated record adds
 | --- | --- | --- | --- |
 | `0x01` | `zone_data` | `zone_data` | store zone utxo data |
 | `0x02` | `utxo_data` | `utxo_data` | store application utxo data |
+| `0x03` | `memo` | none | free-form bytes for the recipient |
+
+The `memo` record uses the same `u16_le` length prefix as the other records, so one memo holds up to 65535 bytes. It has no UTXO field: `data_hash` commits `utxo_data` and `zone_data_hash` commits `zone_data`, and neither covers the memo, so the recipient reads a memo from the decrypted plaintext and the proof says nothing about it. A `data` field holds at most one `memo` record, placed after `zone_data` and `utxo_data`.
 
 ## Transfer
 
