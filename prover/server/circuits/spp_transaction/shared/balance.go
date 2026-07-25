@@ -13,7 +13,7 @@ const (
 	signedAmountBits = AmountBits + 1
 )
 
-func AssertBalanceConservation(
+func assertBalanceConservation(
 	api frontend.API,
 	inputs []UtxoCircuitFields,
 	outputs []UtxoCircuitFields,

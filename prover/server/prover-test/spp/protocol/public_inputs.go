@@ -83,15 +83,18 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		utxoRootChain,
 		nullifierTreeRootChain,
 		inputs.PrivateTxHash,
-		inputs.P256MessageHash,
 		inputs.ExternalDataHash,
 	}
 	for i := 0; i < NPublicSlots; i++ {
 		fields = append(fields, inputs.PublicAssets[i], inputs.PublicAmounts[i])
 	}
+	// Everything from here on is variant-dependent, so the preimage keeps it at
+	// the end: the P256 message every variant carries (the constant Poseidon(0, 0)
+	// on the Solana-only rails), then the owner tags each variant publishes.
 	fields = append(fields,
 		inputs.ZoneProgramID,
 		inputs.PayerPubkeyHash,
+		inputs.P256MessageHash,
 	)
 	// The zone-authority variant keeps input owner pk_fields private; every other
 	// variant commits them so SPP can route the per-input signer check.

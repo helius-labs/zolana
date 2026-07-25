@@ -81,10 +81,10 @@ impl ZoneAuthorityProver {
         // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone-authority public-input layout: the 13 base elements, with input owner
-        // pk_fields kept private (no owner chain) and no confidential appendix.
-        // Mirrors zoneAuthorityPublicInputHash. hash_field(&[0;32])
-        // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element.
+        // Zone-authority public-input layout: the 12-element base, then a tail of
+        // only the P256 message — input owner pk_fields stay private (no owner
+        // chain) and there is no confidential appendix. hash_field(&[0;32])
+        // == Poseidon(0, 0), matching the circuit's zeroed P256 message.
         let slots = self.public_amounts.interleaved();
         let public_input = create_hash_chain_from_slice(&[
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
@@ -92,7 +92,6 @@ impl ZoneAuthorityProver {
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
-            hash_field(&[0u8; 32])?,
             external_data_hash,
             slots[0],
             slots[1],
@@ -100,6 +99,7 @@ impl ZoneAuthorityProver {
             slots[3],
             zone_program_id,
             self.payer_pubkey_hash,
+            hash_field(&[0u8; 32])?,
         ])?;
 
         let inputs = TransferInputs {

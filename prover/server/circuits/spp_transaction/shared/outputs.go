@@ -6,7 +6,7 @@ import (
 )
 
 // SignerOwners projects the signer array onto the owner identities it proved:
-// the owner hash of every input slot that carries content, which ConstrainInput
+// the owner hash of every input slot that carries content, which constrainInput
 // bound to that slot's signer. Slots that carry nothing are masked to 0.
 func SignerOwners(api frontend.API, inputs []Input) Signers {
 	owners := make(Signers, len(inputs))
@@ -16,27 +16,34 @@ func SignerOwners(api frontend.API, inputs []Input) Signers {
 	return owners
 }
 
-// ConstrainDefaultZoneOutput — default zone: an output must not be a member
-// of a zone, and a real output's owner_hash must recompute from the public
-// owner tag (ownerPkHash) and the witnessed nullifierPk. Dummy slots skip the
-// owner binding so their public tag stays free. Because the tag is bound to the
-// owner, a data-carrying output only needs that tag to be one of the signers.
-func ConstrainDefaultZoneOutput(
-	api frontend.API,
-	utxo UtxoCircuitFields,
-	hash, ownerPkHash, nullifierPk frontend.Variable,
-	signers Signers,
-) frontend.Variable {
-	utxo.AssertInDefaultZone(api)
-	AssertWhen(api, utxo.IsUtxo(api), checkOwnerIsPublicInput(api, utxo, ownerPkHash, nullifierPk))
-	return constrainOutput(api, utxo, hash, signers.Contains(api, ownerPkHash))
+// OutputOwners lists the owner hash of every output slot — the identity a
+// data-carrying output must have signed with on the variants that publish no
+// output owner tag.
+func OutputOwners(outputs []UtxoCircuitFields) []frontend.Variable {
+	owners := make([]frontend.Variable, len(outputs))
+	for i, utxo := range outputs {
+		owners[i] = utxo.Owner
+	}
+	return owners
 }
 
-// ConstrainCustomZoneOutput — custom zone: output owners stay private, so there
-// is no public tag to resolve against the signer pk hashes. A data-carrying
-// output must instead be owned by one of the owner identities the signers proved.
-func ConstrainCustomZoneOutput(api frontend.API, utxo UtxoCircuitFields, hash frontend.Variable, signerOwners Signers) frontend.Variable {
-	return constrainOutput(api, utxo, hash, signerOwners.Contains(api, utxo.Owner))
+// AssertOutputOwnerTags — default zone only: every real output's owner_hash must
+// recompute from its public owner tag and the witnessed nullifier pubkey, which
+// is what makes the tag usable as the output's signer identity. Dummy slots skip
+// the binding so their public tag stays free.
+func AssertOutputOwnerTags(
+	api frontend.API,
+	outputs []UtxoCircuitFields,
+	ownerPkHashes []frontend.Variable,
+	nullifierPks []frontend.Variable,
+) {
+	for i, utxo := range outputs {
+		ownerHash := abstractor.Call(api, OwnerHashGadget{
+			OwnerKeyHash: ownerPkHashes[i],
+			NullifierPk:  nullifierPks[i],
+		})
+		assertWhen(api, utxo.IsUtxo(api), api.IsZero(api.Sub(ownerHash, utxo.Owner)))
+	}
 }
 
 // constrainOutput classifies the slot, pins dummies, requires ownerSigned for
@@ -47,23 +54,13 @@ func constrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned
 	isUtxo := utxo.IsUtxo(api)
 	api.AssertIsEqual(api.Add(isUtxo, utxo.isDummy(api)), 1)
 
-	AssertWhen(api, utxo.isDummy(api), utxo.checkDummy(api))
+	assertWhen(api, utxo.isDummy(api), utxo.checkDummy(api))
 
 	dataIsSet := api.Sub(1, api.IsZero(utxo.DataHash))
-	AssertWhen(api, api.Mul(isUtxo, dataIsSet), ownerSigned)
+	assertWhen(api, api.Mul(isUtxo, dataIsSet), ownerSigned)
 
 	utxoHash := UtxoHashCircuit(api, utxo)
 	api.AssertIsEqual(utxoHash, hash)
 
 	return api.Select(isUtxo, utxoHash, frontend.Variable(0))
-}
-
-// checkOwnerIsPublicInput — default-zone variants only: returns 1 iff the
-// public owner tag recomputes the output owner_hash.
-func checkOwnerIsPublicInput(api frontend.API, utxo UtxoCircuitFields, ownerPkHash, nullifierPk frontend.Variable) frontend.Variable {
-	ownerHash := abstractor.Call(api, OwnerHashGadget{
-		OwnerKeyHash: ownerPkHash,
-		NullifierPk:  nullifierPk,
-	})
-	return api.IsZero(api.Sub(ownerHash, utxo.Owner))
 }

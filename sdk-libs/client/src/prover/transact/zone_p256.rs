@@ -96,10 +96,10 @@ impl ZoneTransferP256Prover {
         // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone P256 public-input layout: the 14-element base chain (input owner
-        // pk_fields committed, but P256 owners contribute the 0 sentinel so identities
-        // stay private), with the real hash_field(p256_message_hash) at the
-        // p256-message position. No output-owner chain and no p256_signing_pk_field.
+        // Zone P256 public-input layout: the 12-element base, then the tail of the
+        // real hash_field(p256_message_hash) and the input owner pk_field chain
+        // (committed, but P256 owners contribute the 0 sentinel so identities stay
+        // private). No output-owner chain and no p256_signing_pk_field.
         // Mirrors PublicInputHash with ZoneAuthority=false, Confidential=false in
         // prover/server/prover-test/spp/protocol/public_inputs.go.
         let slots = self.public_amounts.interleaved();
@@ -109,7 +109,6 @@ impl ZoneTransferP256Prover {
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
-            hash_field(&p256_message_hash)?,
             external_data_hash,
             slots[0],
             slots[1],
@@ -117,6 +116,7 @@ impl ZoneTransferP256Prover {
             slots[3],
             zone_program_id,
             self.payer_pubkey_hash,
+            hash_field(&p256_message_hash)?,
             create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
         ])?;
 

@@ -80,7 +80,6 @@ pub fn public_input_hash(
         create_hash_chain_from_slice(utxo_roots).expect("utxo root chain"),
         create_hash_chain_from_slice(nullifier_tree_roots).expect("nullifier root chain"),
         *private_tx,
-        hash_field(&zero).expect("p256 message field"),
         *external_data_hash,
         sol_slot_asset,
         *public_sol_amount,
@@ -88,6 +87,7 @@ pub fn public_input_hash(
         zero, // spl slot amount
         zero, // zone_program_id
         *payer_pubkey_hash,
+        hash_field(&zero).expect("p256 message field"),
         create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
         create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
         *p256_signing_pk_field,

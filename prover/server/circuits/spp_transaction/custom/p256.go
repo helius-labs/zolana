@@ -66,33 +66,45 @@ func NewCustomZoneP256Circuit(shape shared.Shape) (*CustomZoneP256Circuit, error
 	}, nil
 }
 
-func (c *CustomZoneP256Circuit) validateLayout() error {
-	if err := shared.ValidateInputs(c.Shape.NInputs, c.Private.Inputs); err != nil {
-		return err
+// transaction views this rail's witness as the shared transaction. Output owners
+// stay private here, so the preimage tail publishes only the input owner-tag
+// chain, and no shared signing key is published: P256-owned entries route on the
+// 0 sentinel instead.
+func (c *CustomZoneP256Circuit) transaction(api frontend.API) shared.Transaction {
+	return shared.Transaction{
+		Shape:              c.Shape,
+		Nullifiers:         c.Public.Nullifiers,
+		OutputHashes:       c.Public.OutputHashes,
+		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
+		NullifierTreeRoots: c.Public.NullifierTreeRoots,
+		Inputs:             c.Private.Inputs,
+		Outputs:            c.Private.Outputs,
+		PrivateTxHash:      c.Public.PrivateTxHash,
+		ExternalDataHash:   c.Public.ExternalDataHash,
+		PublicAssets:       c.Public.PublicAssets,
+		PublicAmounts:      c.Public.PublicAmounts,
+		ZoneProgramID:      c.Public.ZoneProgramID,
+		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
+		PublicInputHash:    c.Public.PublicInputHash,
+		PreimageTail: []frontend.Variable{
+			gadget.PoseidonHash(api, []frontend.Variable{
+				c.Public.P256MessageHashLow,
+				c.Public.P256MessageHashHigh,
+			}),
+			gadget.HashChain(api, c.Public.InputOwnerPkHashes),
+		},
 	}
-	checks := []struct {
-		name      string
-		got, want int
-	}{
-		{"nullifier", len(c.Public.Nullifiers), c.Shape.NInputs},
-		{"output hash", len(c.Public.OutputHashes), c.Shape.NOutputs},
-		{"utxo tree root", len(c.Public.UtxoTreeRoots), c.Shape.NInputs},
-		{"nullifier tree root", len(c.Public.NullifierTreeRoots), c.Shape.NInputs},
-		{"input owner pk hash", len(c.Public.InputOwnerPkHashes), c.Shape.NInputs},
-		{"output", len(c.Private.Outputs), c.Shape.NOutputs},
-	}
-	for _, check := range checks {
-		if err := shared.ValidateLength(check.name, check.got, check.want); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
-	if err := c.validateLayout(); err != nil {
+	tx := c.transaction(api)
+	if err := tx.ValidateLayout(
+		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Public.InputOwnerPkHashes), Want: c.Shape.NInputs},
+	); err != nil {
 		return err
 	}
+
+	shared.AssertZoneMemberOrFree(api, tx.Inputs, tx.Outputs, c.Public.ZoneProgramID)
 
 	p256, err := shared.NewP256Signer(
 		api,
@@ -106,65 +118,7 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 		return err
 	}
 
-	signers := shared.P256Signers(api, c.Private.Inputs, c.Public.InputOwnerPkHashes, p256)
-
-	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
-	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
-	for i, in := range c.Private.Inputs {
-		shared.AssertWhen(api, in.IsUtxo(api), shared.CheckZoneMemberOrFree(api, in.Utxo, c.Public.ZoneProgramID))
-		signals := shared.InputSignals{
-			Nullifier:         c.Public.Nullifiers[i],
-			UtxoTreeRoot:      c.Public.UtxoTreeRoots[i],
-			NullifierTreeRoot: c.Public.NullifierTreeRoots[i],
-			SignerPk:          signers[i],
-		}
-		inputHashes[i], addressHashes[i] = shared.ConstrainInput(api, in, signals)
-	}
-	shared.AssertDistinctNullifiers(api, c.Public.Nullifiers)
-
-	signerOwners := shared.SignerOwners(api, c.Private.Inputs)
-	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
-	for i, utxo := range c.Private.Outputs {
-		shared.AssertWhen(api, utxo.IsUtxo(api), shared.CheckZoneMemberOrFree(api, utxo, c.Public.ZoneProgramID))
-		outputHashes[i] = shared.ConstrainCustomZoneOutput(api, utxo, c.Public.OutputHashes[i], signerOwners)
-	}
-
-	shared.AssertBalanceConservation(
-		api,
-		shared.InputUtxos(c.Private.Inputs),
-		c.Private.Outputs,
-		c.Public.PublicAssets[:],
-		c.Public.PublicAmounts[:],
-	)
-
-	privateTxHash := shared.PrivateTxHashCircuit(
-		api,
-		inputHashes,
-		outputHashes,
-		addressHashes,
-		c.Public.ExternalDataHash,
-	)
-	api.AssertIsEqual(privateTxHash, c.Public.PrivateTxHash)
-
-	api.AssertIsEqual(c.Public.PublicInputHash, c.publicInputHash(api))
-	return nil
-}
-
-func (c *CustomZoneP256Circuit) publicInputHash(api frontend.API) frontend.Variable {
-	fields := []frontend.Variable{
-		gadget.HashChain(api, c.Public.Nullifiers),
-		gadget.HashChain(api, c.Public.OutputHashes),
-		gadget.HashChain(api, c.Public.UtxoTreeRoots),
-		gadget.HashChain(api, c.Public.NullifierTreeRoots),
-		c.Public.PrivateTxHash,
-		gadget.PoseidonHash(api, []frontend.Variable{c.Public.P256MessageHashLow, c.Public.P256MessageHashHigh}),
-		c.Public.ExternalDataHash,
-	}
-	fields = append(fields, shared.PublicSlots(c.Public.PublicAssets, c.Public.PublicAmounts)...)
-	fields = append(fields,
-		c.Public.ZoneProgramID,
-		c.Public.PayerPubkeyHash,
-		gadget.HashChain(api, c.Public.InputOwnerPkHashes),
-	)
-	return gadget.HashChain(api, fields)
+	signers := shared.P256Signers(api, tx.Inputs, c.Public.InputOwnerPkHashes, p256)
+	signerOwners := shared.SignerOwners(api, tx.Inputs)
+	return tx.Constrain(api, signers, signerOwners.ContainsEach(api, shared.OutputOwners(tx.Outputs)))
 }

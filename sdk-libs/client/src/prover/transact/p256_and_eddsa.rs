@@ -460,7 +460,6 @@ impl PublicInputs<'_> {
             create_hash_chain_from_slice(self.utxo_roots)?,
             create_hash_chain_from_slice(self.nullifier_tree_roots)?,
             *self.private_tx,
-            hash_field(self.p256_message_hash)?,
             *self.external_data_hash,
             slots[0],
             slots[1],
@@ -468,6 +467,8 @@ impl PublicInputs<'_> {
             slots[3],
             *self.zone_program_id,
             *self.payer_pubkey_hash,
+            // Variant-dependent tail: the P256 message, then the owner tags.
+            hash_field(self.p256_message_hash)?,
             create_hash_chain_from_slice(self.input_owner_pk_hashes)?,
             // Confidential appendix (the client always uses the confidential variant).
             create_hash_chain_from_slice(self.output_owner_pk_hashes)?,

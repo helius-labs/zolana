@@ -169,12 +169,12 @@ impl<'a> TransactProof<'a> {
             _ => [0u8; 32],
         };
 
-        // Mirrors the Go circuit variant `publicInputHash` builders
-        // (spp_transaction/default and /custom): a 13-element base, then
-        // `input_owner_pk_hashes` for every variant except the zone-authority one
-        // (owners stay private and do not sign), then the confidential appendix
-        // (`output_owner_pk_hashes`, `p256_signing_pk_field`) only for the
-        // confidential (non-zone) variant.
+        // Mirrors `shared.Transaction.publicInputHash` (Go): a 12-element base
+        // every variant shares, then the variant-dependent tail — the P256 message
+        // (`Poseidon(0, 0)` on the Solana-only rails), then `input_owner_pk_hashes`
+        // for every variant except the zone-authority one (owners stay private and
+        // do not sign), then the confidential appendix (`output_owner_pk_hashes`,
+        // `p256_signing_pk_field`) only for the confidential (non-zone) variant.
         let mut fields: ArrayVec<[[u8; 32]; 16]> = ArrayVec::new();
         fields.extend_from_slice(&[
             self.nullifier_chain()?,
@@ -182,7 +182,6 @@ impl<'a> TransactProof<'a> {
             hash_chain(utxo_roots)?,
             hash_chain(nullifier_tree_roots)?,
             *self.ix.private_tx_hash,
-            hash_field(&p256_message_hash)?,
             self.derived.external_data_hash,
             sol_slot_asset,
             amount_field(self.ix.public_sol_amount),
@@ -190,6 +189,7 @@ impl<'a> TransactProof<'a> {
             amount_field(self.ix.public_spl_amount),
             self.derived.zone_program_id,
             self.derived.payer_pubkey_hash,
+            hash_field(&p256_message_hash)?,
         ]);
         if !IS_AUTHORITY {
             fields.push(hash_chain(input_owner_pk_hashes)?);

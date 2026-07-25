@@ -344,7 +344,6 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             create_hash_chain_from_slice(&vec![utxo_root; n_in]).unwrap(),
             create_hash_chain_from_slice(&vec![nullifier_root; n_in]).unwrap(),
             ix_data.private_tx_hash,
-            hash_field(&p256_message_hash).unwrap(),
             external_data_hash,
             if ix_data.public_sol_amount.unwrap_or(0) != 0 {
                 zolana_interface::SOL_ASSET_FIELD
@@ -356,6 +355,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             signed_to_field(ix_data.public_spl_amount.unwrap_or(0)),
             zero, // zone_program_id
             payer_pubkey_hash,
+            hash_field(&p256_message_hash).unwrap(),
             create_hash_chain_from_slice(&input_owner).unwrap(),
             create_hash_chain_from_slice(&output_owner).unwrap(),
             p256_field,

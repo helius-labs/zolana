@@ -12,23 +12,164 @@ import (
 // This package holds the witness building blocks and constraint helpers shared
 // by the SPP transaction circuit variants. Each variant (in the default/ and
 // custom/ packages) owns its full witness layout as Public/Private sub-structs
-// and defines the proof in this order:
+// and is a thin wrapper around Transaction, the part every variant proves.
 //
-//  1. validate layout                          (per-variant validateLayout)
-//  2. build the signer array                   (signers.go; the P256 rails first
-//     verify their shared P256 signature)
-//  3. inputs (inputs.go):
-//     3.1. create nullifier pubkeys
-//     3.2. create utxo hashes
-//     3.3. verify owner binding
-//     3.4. create nullifiers
-//     3.5. verify inclusion proof
-//     3.6. verify nullifier non-inclusion proof
-//     3.7. verify every nullifier is unique
-//  4. outputs: bind output utxo hashes         (outputs.go)
-//  5. verify balance conservation              (balance.go)
-//  6. check private transaction hash           (private_tx_hash.go)
-//  7. check public inputs hash                 (per-variant public input hash)
+// A variant's Define runs:
+//
+//  1. view its witness as a Transaction    (per-variant transaction method)
+//  2. validate the layout                  (Transaction.ValidateLayout plus the
+//     variant's own slices)
+//  3. assert its zone rule                 (zone.go) and its ZoneProgramID value
+//  4. assert its output owner tags         (outputs.go, default zone only)
+//  5. resolve who signed into Signers      (signers.go; the P256 rails first
+//     verify their one shared P256 signature)
+//  6. Transaction.Constrain:
+//     6.1. inputs (inputs.go): nullifier pubkeys, utxo hashes, owner binding,
+//     nullifiers, inclusion, nullifier non-inclusion, uniqueness
+//     6.2. outputs (outputs.go): dummy pinning, data authorization, hash binding
+//     6.3. balance conservation            (balance.go)
+//     6.4. private transaction hash        (private_tx_hash.go)
+//     6.5. public input hash, ending in the variant's preimage tail
+
+// Transaction is the transaction every variant proves, over one variant's
+// already-allocated witness. It runs no signer, zone, or owner-tag check: the
+// variant asserts those and resolves who signed, then hands the results to
+// Constrain. What is left is shared by all five variants.
+//
+// It is deliberately not a gnark circuit struct: the witness schema stays the
+// per-variant Public/Private structs, whose field paths are the keys the host
+// mirrors.
+type Transaction struct {
+	Shape Shape
+
+	Nullifiers         []frontend.Variable
+	OutputHashes       []frontend.Variable
+	UtxoTreeRoots      []frontend.Variable
+	NullifierTreeRoots []frontend.Variable
+
+	Inputs  []Input
+	Outputs []UtxoCircuitFields
+
+	PrivateTxHash    frontend.Variable
+	ExternalDataHash frontend.Variable
+	PublicAssets     [NPublicSlots]frontend.Variable
+	PublicAmounts    [NPublicSlots]frontend.Variable
+	ZoneProgramID    frontend.Variable
+	PayerPubkeyHash  frontend.Variable
+	PublicInputHash  frontend.Variable
+
+	// PreimageTail ends the public-input-hash preimage with everything that is
+	// variant-dependent, in this order and count, mirroring the program's
+	// recomputation (transact/verify.rs):
+	//
+	//	default zone:      P256 message, input owner chain, output owner chain,
+	//	                   P256 signing key (the last two are the 0 the host feeds
+	//	                   on the eddsa rail)
+	//	custom zone:       P256 message, input owner chain
+	//	zone authority:    P256 message, owner tags stay private
+	//
+	// The P256 message is Poseidon(low, high) on the P256 rails and the constant
+	// Poseidon(0, 0) the host feeds on the Solana-only rails. Constrain only
+	// chains these, never reads them: the count varies, so naming them as fields
+	// would need nil-means-omit branching in here instead.
+	PreimageTail []frontend.Variable
+}
+
+// LengthCheck is one witness slice length a variant adds to the core's.
+type LengthCheck struct {
+	Name string
+	Got  int
+	Want int
+}
+
+// ValidateLayout checks every slice the transaction indexes against the length
+// the compiled skeleton was sized with, plus the variant's own slices. It must
+// run before anything indexes them, so a variant calls it before asserting its
+// zone rule or resolving its signers.
+func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
+	if err := validateInputs(t.Shape.NInputs, t.Inputs); err != nil {
+		return err
+	}
+	checks := []LengthCheck{
+		{"nullifier", len(t.Nullifiers), t.Shape.NInputs},
+		{"output hash", len(t.OutputHashes), t.Shape.NOutputs},
+		{"utxo tree root", len(t.UtxoTreeRoots), t.Shape.NInputs},
+		{"nullifier tree root", len(t.NullifierTreeRoots), t.Shape.NInputs},
+		{"output", len(t.Outputs), t.Shape.NOutputs},
+	}
+	for _, check := range append(checks, extra...) {
+		if err := validateLength(check.Name, check.Got, check.Want); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned []frontend.Variable) error {
+	if err := validateLength("signer", len(signers), t.Shape.NInputs); err != nil {
+		return err
+	}
+	if err := validateLength("output signed", len(outputSigned), t.Shape.NOutputs); err != nil {
+		return err
+	}
+	// 1. check inputs
+	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
+	addressHashes := make([]frontend.Variable, t.Shape.NInputs)
+	for i, in := range t.Inputs {
+		signals := inputSignals{
+			Nullifier:         t.Nullifiers[i],
+			UtxoTreeRoot:      t.UtxoTreeRoots[i],
+			NullifierTreeRoot: t.NullifierTreeRoots[i],
+			SignerPk:          signers[i],
+		}
+		inputHashes[i], addressHashes[i] = constrainInput(api, in, signals)
+	}
+	assertDistinctNullifiers(api, t.Nullifiers)
+
+	// 2. check outputs
+	outputHashes := make([]frontend.Variable, t.Shape.NOutputs)
+	for i, utxo := range t.Outputs {
+		outputHashes[i] = constrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i])
+	}
+
+	// 3. check balance
+	assertBalanceConservation(
+		api,
+		inputUtxos(t.Inputs),
+		t.Outputs,
+		t.PublicAssets[:],
+		t.PublicAmounts[:],
+	)
+
+	// 4. Check private tx hash.
+	privateTxHash := PrivateTxHashCircuit(
+		api,
+		inputHashes,
+		outputHashes,
+		addressHashes,
+		t.ExternalDataHash,
+	)
+	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
+
+	// 5. Check public input hash.
+	api.AssertIsEqual(t.PublicInputHash, t.publicInputHash(api))
+	return nil
+}
+
+func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
+	fields := []frontend.Variable{
+		gadget.HashChain(api, t.Nullifiers),
+		gadget.HashChain(api, t.OutputHashes),
+		gadget.HashChain(api, t.UtxoTreeRoots),
+		gadget.HashChain(api, t.NullifierTreeRoots),
+		t.PrivateTxHash,
+		t.ExternalDataHash,
+	}
+	fields = append(fields, publicSlots(t.PublicAssets, t.PublicAmounts)...)
+	fields = append(fields, t.ZoneProgramID, t.PayerPubkeyHash)
+	fields = append(fields, t.PreimageTail...)
+	return gadget.HashChain(api, fields)
+}
 
 // Shape identifies one fixed-size SPP transaction circuit by its input and
 // output counts. The host mirrors this as protocol.Shape (with the supported-set
@@ -50,10 +191,10 @@ func (s Shape) Validate() error {
 	return nil
 }
 
-// PublicSlots returns the public movement slots interleaved as
+// publicSlots returns the public movement slots interleaved as
 // [asset_0, amount_0, asset_1, amount_1] — the canonical public-input-hash
 // preimage order every variant and host mirror must share.
-func PublicSlots(assets, amounts [NPublicSlots]frontend.Variable) []frontend.Variable {
+func publicSlots(assets, amounts [NPublicSlots]frontend.Variable) []frontend.Variable {
 	slots := make([]frontend.Variable, 0, 2*NPublicSlots)
 	for i := 0; i < NPublicSlots; i++ {
 		slots = append(slots, assets[i], amounts[i])
@@ -61,9 +202,9 @@ func PublicSlots(assets, amounts [NPublicSlots]frontend.Variable) []frontend.Var
 	return slots
 }
 
-// ValidateLength checks one witness slice against the length the compiled
+// validateLength checks one witness slice against the length the compiled
 // skeleton was sized with.
-func ValidateLength(name string, got, want int) error {
+func validateLength(name string, got, want int) error {
 	if got != want {
 		return fmt.Errorf("spp: %s count mismatch: got %d want %d", name, got, want)
 	}
@@ -96,8 +237,8 @@ func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
 	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: cond, V: v})
 }
 
-// AssertWhen constrains check == 1 only when cond == 1. Check functions return
+// assertWhen constrains check == 1 only when cond == 1. Check functions return
 // an ungated satisfied bit; the kind gate is applied only at the call site.
-func AssertWhen(api frontend.API, cond, check frontend.Variable) {
+func assertWhen(api frontend.API, cond, check frontend.Variable) {
 	assertZeroWhen(api, cond, api.Sub(1, check))
 }

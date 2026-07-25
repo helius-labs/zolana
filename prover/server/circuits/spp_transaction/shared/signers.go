@@ -26,6 +26,17 @@ func (s Signers) Contains(api frontend.API, identity frontend.Variable) frontend
 	return api.Mul(api.IsZero(prod), api.Sub(1, api.IsZero(identity)))
 }
 
+// ContainsEach returns one bit per identity, set when that identity signed. The
+// variants use it to hand Transaction.Constrain the per-output-slot bit a
+// data-carrying output requires.
+func (s Signers) ContainsEach(api frontend.API, identities []frontend.Variable) []frontend.Variable {
+	signed := make([]frontend.Variable, len(identities))
+	for i, identity := range identities {
+		signed[i] = s.Contains(api, identity)
+	}
+	return signed
+}
+
 // EddsaOnlySigners builds the signer array for the Solana-only rails: the
 // program verified one ed25519 signature per input slot and published its pk
 // hash as that slot's owner tag. P256-owned entries route on the 0 sentinel and
@@ -36,7 +47,7 @@ func EddsaOnlySigners(api frontend.API, inputs []Input, ownerPkHashes []frontend
 	for i, in := range inputs {
 		carriesContent := in.isUtxoOrAddress(api)
 		pkHash := ownerPkHashes[i]
-		AssertWhen(api, carriesContent, api.Sub(1, api.IsZero(pkHash)))
+		assertWhen(api, carriesContent, api.Sub(1, api.IsZero(pkHash)))
 		signers[i] = api.Mul(carriesContent, pkHash)
 	}
 	return signers
@@ -92,7 +103,7 @@ func P256Signers(api frontend.API, inputs []Input, ownerPkHashes []frontend.Vari
 		carriesContent := in.isUtxoOrAddress(api)
 		pkHash := ownerPkHashes[i]
 		isP256 := api.IsZero(api.Sub(pkHash, p256.Sentinel))
-		AssertWhen(api, api.Mul(carriesContent, isP256), p256.SigValid)
+		assertWhen(api, api.Mul(carriesContent, isP256), p256.SigValid)
 		signers[i] = api.Mul(carriesContent, api.Select(isP256, p256.PkField, pkHash))
 	}
 	return signers

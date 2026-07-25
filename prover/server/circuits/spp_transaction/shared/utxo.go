@@ -51,8 +51,8 @@ func (u UtxoCircuitFields) isUtxoOrAddress(api frontend.API) frontend.Variable {
 	return api.Sub(1, u.isDummy(api))
 }
 
-// AssertInDefaultZone asserts the utxo is not a member of a zone.
-func (u UtxoCircuitFields) AssertInDefaultZone(api frontend.API) {
+// assertInDefaultZone asserts the utxo is not a member of a zone.
+func (u UtxoCircuitFields) assertInDefaultZone(api frontend.API) {
 	api.AssertIsEqual(u.ZoneDataHash, u.ZoneProgramID)
 	api.AssertIsEqual(u.ZoneDataHash, 0)
 }

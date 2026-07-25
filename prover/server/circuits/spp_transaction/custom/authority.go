@@ -64,95 +64,43 @@ func NewCustomZoneAuthorityCircuit(shape shared.Shape) (*CustomZoneAuthorityCirc
 	}, nil
 }
 
-func (c *CustomZoneAuthorityCircuit) validateLayout() error {
-	if err := shared.ValidateInputs(c.Shape.NInputs, c.Private.Inputs); err != nil {
-		return err
+// transaction views this rail's witness as the shared transaction. Neither the
+// input nor the output owner tags are published on this rail, so the preimage
+// tail is empty; the message slot is the constant Poseidon(0, 0) the host feeds.
+func (c *CustomZoneAuthorityCircuit) transaction(api frontend.API) shared.Transaction {
+	return shared.Transaction{
+		Shape:              c.Shape,
+		Nullifiers:         c.Public.Nullifiers,
+		OutputHashes:       c.Public.OutputHashes,
+		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
+		NullifierTreeRoots: c.Public.NullifierTreeRoots,
+		Inputs:             c.Private.Inputs,
+		Outputs:            c.Private.Outputs,
+		PrivateTxHash:      c.Public.PrivateTxHash,
+		ExternalDataHash:   c.Public.ExternalDataHash,
+		PublicAssets:       c.Public.PublicAssets,
+		PublicAmounts:      c.Public.PublicAmounts,
+		ZoneProgramID:      c.Public.ZoneProgramID,
+		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
+		PublicInputHash:    c.Public.PublicInputHash,
+		PreimageTail: []frontend.Variable{
+			gadget.PoseidonHash(api, []frontend.Variable{0, 0}),
+		},
 	}
-	checks := []struct {
-		name      string
-		got, want int
-	}{
-		{"nullifier", len(c.Public.Nullifiers), c.Shape.NInputs},
-		{"output hash", len(c.Public.OutputHashes), c.Shape.NOutputs},
-		{"utxo tree root", len(c.Public.UtxoTreeRoots), c.Shape.NInputs},
-		{"nullifier tree root", len(c.Public.NullifierTreeRoots), c.Shape.NInputs},
-		{"input owner pk hash", len(c.Private.InputOwnerPkHashes), c.Shape.NInputs},
-		{"output", len(c.Private.Outputs), c.Shape.NOutputs},
-	}
-	for _, check := range checks {
-		if err := shared.ValidateLength(check.name, check.got, check.want); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (c *CustomZoneAuthorityCircuit) Define(api frontend.API) error {
-	if err := c.validateLayout(); err != nil {
+	tx := c.transaction(api)
+	if err := tx.ValidateLayout(
+		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
+	); err != nil {
 		return err
 	}
 
-	signers := shared.EddsaOnlySigners(api, c.Private.Inputs, c.Private.InputOwnerPkHashes)
-
-	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
-	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
-	for i, in := range c.Private.Inputs {
-		shared.AssertWhen(api, in.IsUtxo(api), shared.CheckZoneMember(api, in.Utxo, c.Public.ZoneProgramID))
-		signals := shared.InputSignals{
-			Nullifier:         c.Public.Nullifiers[i],
-			UtxoTreeRoot:      c.Public.UtxoTreeRoots[i],
-			NullifierTreeRoot: c.Public.NullifierTreeRoots[i],
-			SignerPk:          signers[i],
-		}
-		inputHashes[i], addressHashes[i] = shared.ConstrainInput(api, in, signals)
-	}
-	shared.AssertDistinctNullifiers(api, c.Public.Nullifiers)
-
-	signerOwners := shared.SignerOwners(api, c.Private.Inputs)
-	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
-	for i, utxo := range c.Private.Outputs {
-		shared.AssertWhen(api, utxo.IsUtxo(api), shared.CheckZoneMember(api, utxo, c.Public.ZoneProgramID))
-		outputHashes[i] = shared.ConstrainCustomZoneOutput(api, utxo, c.Public.OutputHashes[i], signerOwners)
-	}
-
-	shared.AssertBalanceConservation(
-		api,
-		shared.InputUtxos(c.Private.Inputs),
-		c.Private.Outputs,
-		c.Public.PublicAssets[:],
-		c.Public.PublicAmounts[:],
-	)
-
+	shared.AssertZoneMember(api, tx.Inputs, tx.Outputs, c.Public.ZoneProgramID)
 	api.AssertIsDifferent(c.Public.ZoneProgramID, 0)
 
-	privateTxHash := shared.PrivateTxHashCircuit(
-		api,
-		inputHashes,
-		outputHashes,
-		addressHashes,
-		c.Public.ExternalDataHash,
-	)
-	api.AssertIsEqual(privateTxHash, c.Public.PrivateTxHash)
-
-	api.AssertIsEqual(c.Public.PublicInputHash, c.publicInputHash(api))
-	return nil
-}
-
-func (c *CustomZoneAuthorityCircuit) publicInputHash(api frontend.API) frontend.Variable {
-	fields := []frontend.Variable{
-		gadget.HashChain(api, c.Public.Nullifiers),
-		gadget.HashChain(api, c.Public.OutputHashes),
-		gadget.HashChain(api, c.Public.UtxoTreeRoots),
-		gadget.HashChain(api, c.Public.NullifierTreeRoots),
-		c.Public.PrivateTxHash,
-		// No P256 message on this rail: the host feeds the zero-limb digest.
-		gadget.PoseidonHash(api, []frontend.Variable{0, 0}),
-		c.Public.ExternalDataHash,
-	}
-	fields = append(fields, shared.PublicSlots(c.Public.PublicAssets, c.Public.PublicAmounts)...)
-	fields = append(fields,
-		c.Public.ZoneProgramID,
-		c.Public.PayerPubkeyHash,
-	)
-	return gadget.HashChain(api, fields)
+	signers := shared.EddsaOnlySigners(api, tx.Inputs, c.Private.InputOwnerPkHashes)
+	signerOwners := shared.SignerOwners(api, tx.Inputs)
+	return tx.Constrain(api, signers, signerOwners.ContainsEach(api, shared.OutputOwners(tx.Outputs)))
 }

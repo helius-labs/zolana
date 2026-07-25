@@ -12,7 +12,7 @@ import (
 // Input is the pure per-slot spend witness. The per-slot protocol-public
 // signals (nullifier, tree roots, owner pk hash) live in each variant's Public
 // struct (Private for the zone-authority owner tags) and reach the constraint
-// helpers as InputSignals.
+// helpers as inputSignals.
 type Input struct {
 	Utxo              UtxoCircuitFields
 	StatePathElements []frontend.Variable
@@ -26,10 +26,10 @@ type Input struct {
 	NullifierSecret frontend.Variable
 }
 
-// InputSignals carries one input slot's hoisted signals: the derived
+// inputSignals carries one input slot's hoisted signals: the derived
 // nullifier, the claimed tree roots, and the signer pk hash the ownership check
 // binds the owner to.
-type InputSignals struct {
+type inputSignals struct {
 	Nullifier         frontend.Variable
 	UtxoTreeRoot      frontend.Variable
 	NullifierTreeRoot frontend.Variable
@@ -46,9 +46,9 @@ func NewInputs(n int) []Input {
 	return inputs
 }
 
-// ValidateInputs checks the input count and path heights the circuit relies on
+// validateInputs checks the input count and path heights the circuit relies on
 // to size its witness.
-func ValidateInputs(nInputs int, inputs []Input) error {
+func validateInputs(nInputs int, inputs []Input) error {
 	if len(inputs) != nInputs {
 		return fmt.Errorf("spp: input count mismatch: got %d want %d", len(inputs), nInputs)
 	}
@@ -63,8 +63,8 @@ func ValidateInputs(nInputs int, inputs []Input) error {
 	return nil
 }
 
-// InputUtxos projects the utxo fields for balance conservation.
-func InputUtxos(inputs []Input) []UtxoCircuitFields {
+// inputUtxos projects the utxo fields for balance conservation.
+func inputUtxos(inputs []Input) []UtxoCircuitFields {
 	out := make([]UtxoCircuitFields, len(inputs))
 	for i := range inputs {
 		out[i] = inputs[i].Utxo
@@ -72,9 +72,9 @@ func InputUtxos(inputs []Input) []UtxoCircuitFields {
 	return out
 }
 
-// AssertDistinctNullifiers asserts pairwise inequality so no input slot is
+// assertDistinctNullifiers asserts pairwise inequality so no input slot is
 // spent twice within one proof.
-func AssertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) {
+func assertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) {
 	for i := range nullifiers {
 		for j := i + 1; j < len(nullifiers); j++ {
 			api.AssertIsDifferent(nullifiers[i], nullifiers[j])
@@ -82,11 +82,11 @@ func AssertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) 
 	}
 }
 
-// ConstrainInput binds one input slot to its signer. The rail's Signers array
+// constrainInput binds one input slot to its signer. The variant's Signers array
 // already resolved which pk hash signs for this slot, so a slot that carries
 // content only needs its owner hash to recompute from that pk and the witnessed
 // nullifier secret.
-func ConstrainInput(api frontend.API, in Input, signals InputSignals) (frontend.Variable, frontend.Variable) {
+func constrainInput(api frontend.API, in Input, signals inputSignals) (frontend.Variable, frontend.Variable) {
 	nullifierPk := abstractor.Call(api, NullifierPkGadget{
 		NullifierSecret: in.NullifierSecret,
 	})
@@ -95,28 +95,11 @@ func ConstrainInput(api frontend.API, in Input, signals InputSignals) (frontend.
 		NullifierPk:  nullifierPk,
 	})
 	ownerBinds := api.IsZero(api.Sub(ownerHash, in.Utxo.Owner))
-	AssertWhen(api, in.isUtxoOrAddress(api), ownerBinds)
+	assertWhen(api, in.isUtxoOrAddress(api), ownerBinds)
 	return constrainInputShared(api, in, signals)
 }
 
-// CheckZoneMember returns 1 iff the utxo is owned by the public zone.
-func CheckZoneMember(api frontend.API, u UtxoCircuitFields, zoneProgramID frontend.Variable) frontend.Variable {
-	return api.IsZero(api.Sub(u.ZoneProgramID, zoneProgramID))
-}
-
-// CheckZoneMemberOrFree returns 1 iff the utxo is owned by the signing zone or
-// is not a member of any zone; zone data always needs a zone program.
-func CheckZoneMemberOrFree(api frontend.API, u UtxoCircuitFields, zoneProgramID frontend.Variable) frontend.Variable {
-	inCustomZone := api.Sub(1, api.IsZero(u.ZoneProgramID))
-	isMemberOfSigningZone := api.IsZero(api.Sub(u.ZoneProgramID, zoneProgramID))
-	dataSet := api.Sub(1, api.IsZero(u.ZoneDataHash))
-	// If it is in custom zone it must be member of signing zone.
-	ok := api.Select(inCustomZone, isMemberOfSigningZone, frontend.Variable(1))
-	// Data must only be set if it is in custom zone.
-	return api.Mul(ok, api.Select(dataSet, inCustomZone, frontend.Variable(1)))
-}
-
-func constrainInputShared(api frontend.API, in Input, signals InputSignals) (frontend.Variable, frontend.Variable) {
+func constrainInputShared(api frontend.API, in Input, signals inputSignals) (frontend.Variable, frontend.Variable) {
 	isUtxo := in.IsUtxo(api)
 	isAddress := in.isAddress(api)
 	api.AssertIsEqual(api.Add(isUtxo, isAddress, in.isDummy(api)), 1)
@@ -124,9 +107,9 @@ func constrainInputShared(api frontend.API, in Input, signals InputSignals) (fro
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 	in.checkNonInclusion(api, utxoHash, signals)
 
-	AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
-	AssertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
-	AssertWhen(api, isAddress, in.checkAddress(api))
+	assertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
+	assertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
+	assertWhen(api, isAddress, in.checkAddress(api))
 
 	inputHash := api.Select(isUtxo, utxoHash, frontend.Variable(0))
 	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
@@ -154,8 +137,8 @@ func (in Input) isUtxoOrAddress(api frontend.API) frontend.Variable {
 }
 
 // checkInclusion — spendable utxo: returns 1 iff the utxo is a leaf of the
-// state tree at utxoTreeRoot. Ownership is checked in ConstrainInput and the
-// zone fields via the zone wrappers; asset and amount are constrained by
+// state tree at utxoTreeRoot. Ownership is checked in constrainInput and the
+// zone fields by the variant's zone rule; asset and amount are constrained by
 // balance conservation; blinding and data hash carry no additional checks.
 func (in Input) checkInclusion(api frontend.API, utxoHash, utxoTreeRoot frontend.Variable) frontend.Variable {
 	statePathIndices := api.ToBinary(in.StatePathIndex, StateTreeHeight)
@@ -198,7 +181,7 @@ func allZero(api frontend.API, values ...frontend.Variable) frontend.Variable {
 //  3. nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
 //
 // -> nullifier does not exist yet in indexed Merkle tree.
-func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, signals InputSignals) {
+func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, signals inputSignals) {
 	nullifier := abstractor.Call(api, NullifierGadget{
 		UtxoHash:        utxoHash,
 		Blinding:        in.Utxo.Blinding,

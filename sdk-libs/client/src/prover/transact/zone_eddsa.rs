@@ -9,9 +9,9 @@
 //! owner pk_field chain stays in the public-input preimage so SPP can route the
 //! per-input signer check. This matches the Go `Confidential=false,
 //! ZoneAuthority=false` case in
-//! `prover/server/prover-test/spp/protocol/public_inputs.go`: the 13-element base
-//! chain INCLUDING `input_owner_pk_hashes`, EXCLUDING the output-owner chain and
-//! `p256_signing_pk_field`.
+//! `prover/server/prover-test/spp/protocol/public_inputs.go`: the 12-element base
+//! chain, then a tail of the P256 message and `input_owner_pk_hashes`, EXCLUDING
+//! the output-owner chain and `p256_signing_pk_field`.
 
 use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
@@ -76,12 +76,12 @@ impl ZoneTransferProver {
         // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone eddsa-rail public-input layout: the 14-element base chain
-        // (Confidential=false, ZoneAuthority=false in public_inputs.go), i.e. the 13
-        // base elements PLUS create_hash_chain_from_slice(input_owner_pk_hashes), with NO confidential
-        // appendix (no output-owner chain, no p256_signing_pk_field). hash_field(&[0;32])
-        // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element on
-        // the eddsa rail.
+        // Zone eddsa-rail public-input layout (Confidential=false,
+        // ZoneAuthority=false in public_inputs.go): the 12-element base, then the
+        // tail of the P256 message and create_hash_chain_from_slice(
+        // input_owner_pk_hashes), with NO confidential appendix (no output-owner
+        // chain, no p256_signing_pk_field). hash_field(&[0;32]) == Poseidon(0, 0),
+        // matching the circuit's zeroed P256 message on the eddsa rail.
         let slots = self.public_amounts.interleaved();
         let public_input = create_hash_chain_from_slice(&[
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
@@ -89,7 +89,6 @@ impl ZoneTransferProver {
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
-            hash_field(&[0u8; 32])?,
             external_data_hash,
             slots[0],
             slots[1],
@@ -97,6 +96,7 @@ impl ZoneTransferProver {
             slots[3],
             zone_program_id,
             self.payer_pubkey_hash,
+            hash_field(&[0u8; 32])?,
             create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
         ])?;
 
