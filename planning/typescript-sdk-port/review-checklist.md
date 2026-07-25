@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `cd2a7eec69cdf1bbbc462838e905459b6fa95c0b`
+- Review HEAD: `7116c995542496f4265840b10a83513dc263ac29`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `33 done / 118 total`; `47 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `T22 sdk-libs/transaction/src/instructions/transact/slots.rs`
+- Progress: `33 done / 118 total`; `48 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `T23 sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs`
 - Active reviews: `none`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
@@ -240,7 +240,7 @@ Columns:
 | T19 | `sdk-libs/transaction/src/instructions/transact/types.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | TypeScript only partially covers the default private-hash and indexed-shape paths; it omits public Rust aggregate, builder, hash, and output-slot capabilities, runtime validation, owned copies, equality, root and instructions exports, fixtures for omitted capabilities, and adversarial cases. First require zero dummy hashes, address-hash cardinality equal to input cardinality, and a zone program when the zone hash is nonzero in Rust; then align the TypeScript surface and evidence while preserving T11 canonical UTXO and zone-validation ownership and T18 input construction, dummy, hash, nullifier, and ownership responsibility. | 2026-07-25 review | - |
 | T20 | `sdk-libs/transaction/src/instructions/transact/shape.rs` | `transaction/src/transact/index.ts` | needs_fix | DIVERGENT | proposed | The canonical immutable interface shape table and TypeScript selection match Rust, but TypeScript conflates `TooManyOutputsForShape`, treats malformed falsy declarations as omission, and lacks exhaustive boundary, error, declaration, runtime, and pack evidence. Align those TypeScript semantics and evidence while preserving I02 interface shape ownership; no Rust implementation change is required, though direct Rust tests are missing. | 2026-07-25 review | - |
 | T21 | `sdk-libs/transaction/src/instructions/transact/external_data.rs` | `transaction/src/instructions/transact.ts` | needs_fix | PARTIAL | proposed | The canonical hash preimage matches the spec and current interface, but TypeScript omits Rust constructor defaults, builders, and duplicate errors; retains optional hashes and arrays without complete defensive copies or freezing; has inconsistent malformed-input errors; and lacks root, subpath, export, boundary, property, tamper, and current-Rust fixture evidence. First replace Rust's unchecked `u16` casts with checked conversions and named errors, then align TypeScript and its evidence while preserving I11 ownership of canonical `externalDataHash`. | 2026-07-25 review | - |
-| T22 | `sdk-libs/transaction/src/instructions/transact/slots.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
+| T22 | `sdk-libs/transaction/src/instructions/transact/slots.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | TypeScript has only an internal wallet adaptation and omits the public Rust slot struct and two helpers; runtime, copy, error, and export evidence is incomplete. Both implementations mirror one ciphertext per output, conflicting with `docs/spec.md` sender-bundle and recipient-ordinal mapping. First correct Rust's layout per spec, use checked slot conversion, and reject inconsistent hash-only output contexts; then align TypeScript without taking authority or serialization ownership from T13 or T03-T10. | 2026-07-25 review | - |
 | T23 | `sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
 | T24 | `sdk-libs/transaction/src/instructions/transact/split.rs` | `transaction/src/instructions/builders.ts` | todo | - | none | - | - | - |
 | T25 | `sdk-libs/transaction/src/instructions/transact/transfer.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
@@ -1474,3 +1474,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `33/118`; package `0/31`
 - Exact next file: `T22 sdk-libs/transaction/src/instructions/transact/slots.rs`
 - Full SDK parity claim: unsupported; external-data API, ownership, error, export, boundary, property, tamper, and current-Rust fixture evidence remain incomplete
+
+### 2026-07-25 12:36 UTC | T22 | `sdk-libs/transaction/src/instructions/transact/slots.rs`
+
+- Baseline: HEAD `7116c995542496f4265840b10a83513dc263ac29`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module owns transaction slot assembly and confidential-output encryption. T13 retains wallet-authority capability ownership, and T03-T10 retain serialization ownership.
+- Evidence: TypeScript has only an internal wallet adaptation and omits the public Rust `EncryptedTransactionData`, `encrypt_transaction_data`, and `encode_confidential_slots` APIs. Runtime, copy, error, and export evidence is incomplete. Both Rust and TypeScript mirror one ciphertext per output, conflicting with the `docs/spec.md` sender-bundle and recipient-ordinal mapping.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: First correct Rust's slot layout per spec, replace unchecked slot casts with checked conversion and a named error, and reject inconsistent hash-only output contexts. Then align TypeScript's public adaptation and evidence without taking authority or serialization ownership from T13 or T03-T10.
+- Row transition: `todo -> needs_fix`
+- Progress: `33/118`; package `0/31`
+- Exact next file: `T23 sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs`
+- Full SDK parity claim: unsupported; slot layout, public API, runtime, ownership, error, export, and current-Rust evidence diverge
