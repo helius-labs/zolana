@@ -42,7 +42,12 @@
     "api:check": "node sdk-libs/ts/config/workspace-check.mjs api",
     "pack:check": "npm run build && node sdk-libs/ts/config/pack-check.mjs",
     "fixtures:check": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check",
-    "check": "npm run build && npm run typecheck && npm run lint && npm run format:check && npm run test:unit && npm run test:inventory && npm run test:exports && npm run test:dependencies && npm run api:check"
+    "check:static": "npm run build && npm run typecheck && npm run lint && npm run lint:packages && npm run format:check",
+    "check:suites": "npm run test:unit && npm run test:vectors && npm run test:property && npm run test:cross && npm run test:prover",
+    "check:packaging": "npm run test:inventory && npm run test:exports && npm run test:dependencies && npm run api:check && npm run test:browser && npm run pack:check",
+    "check:fixtures": "npm run fixtures:check",
+    "check:e2e": "npm run test:e2e:actions && npm run test:e2e:instructions",
+    "check": "npm run check:static && npm run check:suites && npm run check:packaging && npm run check:fixtures && npm run check:e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
