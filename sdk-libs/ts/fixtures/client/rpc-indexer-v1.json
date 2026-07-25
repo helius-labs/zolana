@@ -168,6 +168,6 @@
   "rustPath": "sdk-libs/client/src/client.rs; sdk-libs/client/src/solana_rpc.rs; sdk-libs/client/src/indexer.rs",
   "rustSymbol": "build_unsigned_solana_transaction; transact_output_view_tags_from_instruction_groups; indexer::{convert_encrypted_utxo_match,convert_shielded_transaction,convert_merkle_proof,convert_non_inclusion_proof}; IndexerPollConfig::backoff",
   "schema": "zolana-ts-fixtures-v1",
-  "sourceRevision": "3ba527850a7986f36c47ad2082598edff3e3e5b7",
+  "sourceRevision": "6d757791552874e1068cb527bc27875740c70362",
   "version": "1"
 }

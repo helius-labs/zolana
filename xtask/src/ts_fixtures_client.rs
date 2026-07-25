@@ -162,7 +162,10 @@ fn error_vectors() -> Value {
         },
         ClientError::MissingOutput,
         ClientError::Rpc("rpc failed".into()),
-        ClientError::Indexer("indexer failed".into()),
+        ClientError::Indexer {
+            method: "get_merkle_proofs",
+            retryable: true,
+        },
         ClientError::UnsupportedRpcMethod("get_slot"),
         ClientError::IndexerTimeout,
         ClientError::IndexerNotCaughtUp {
@@ -347,7 +350,10 @@ fn client_error_json(error: ClientError) -> Value {
         ),
         ClientError::MissingOutput => ("CLIENT_MISSING_OUTPUT", Value::Null),
         ClientError::Rpc(reason) => ("CLIENT_RPC", json!({"reason":reason})),
-        ClientError::Indexer(reason) => ("CLIENT_INDEXER", json!({"reason":reason})),
+        ClientError::Indexer { method, retryable } => (
+            "CLIENT_INDEXER",
+            json!({"method":method,"retryable":retryable}),
+        ),
         ClientError::UnsupportedRpcMethod(method) => {
             ("CLIENT_UNSUPPORTED_RPC_METHOD", json!({"method":method}))
         }
