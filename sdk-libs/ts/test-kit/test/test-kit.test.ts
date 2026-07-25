@@ -257,12 +257,15 @@ describe("standard protocol material and instruction helpers", () => {
   it("uses canonical SPL and zone builders and environment-aware program paths", () => {
     const spl = splInterfaceAddresses(address);
     expect(spl.registry).not.toBe(spl.vault);
+    const zoneProgram = "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8" as Address;
     const zone = createZoneConfig({
       payer: address,
-      programId: address,
+      programId: zoneProgram,
       authority: address,
       enabled: true,
     });
+    expect(zone.address).toBe("2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx");
+    expect(zone.instruction.accounts[2]?.address).toBe(zone.address);
     expect(zone.instruction.data[0]).toBe(9);
     const instruction = zoneDeposit({
       tree: address,

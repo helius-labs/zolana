@@ -183,22 +183,37 @@ describe("canonical values and PDAs", () => {
     });
   });
 
-  it("test-interface-pda-functions", () => {
-    expect(protocolConfigAddress()).toBe("5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj");
-    expect(solInterfaceAddress()).toBe(SOL_INTERFACE);
-    expect(shieldedPoolCpiAuthorityAddress()).toBe("6zQNhLqFHhWaP8JNYeHzQ9a1DfBH627gzibFv1ZaaM8E");
-    expect(splAssetCounterAddress()).toBe("77YYUwfwXB5BS7bEWpj4aNGkiqz6H6PE2mz7BUVLdwPn");
-    expect(splAssetRegistryAddress(ZERO)).toBe("2hvmk7fEKrgvYor9L3cBuBBa7m4AhguKJoCpN9yck43g");
-    expect(splAssetVaultAddress(ZERO)).toBe("AZR8qq1GyNwnZTRwvui7bLb7fkdu5MmxBzae1AtVnxnd");
-    expect(zoneConfigAddress(ZERO)).toEqual(["C5NTe24T2Z4avgpPBhZYUvysKUwudWRTiPHP9GKeJq6y", 255]);
-    expect(zoneAuthAddress(ZERO)).toHaveLength(2);
-    expect(associatedTokenAddress(ZERO, ZERO)).toBe("2a8MS8dWyyYNgBHgtzeTwrsDKsE6RnCoUqnonB4C8Xc3");
+  it("matches all current Rust PDA vectors and canonical zone bumps", () => {
+    const fixture = CURRENT_RUST_INTERFACE_FIXTURE.pda;
+    const actual = [
+      protocolConfigAddress(),
+      solInterfaceAddress(),
+      shieldedPoolCpiAuthorityAddress(),
+      splAssetCounterAddress(),
+      splAssetRegistryAddress(fixture.mint),
+      splAssetVaultAddress(fixture.mint),
+      zoneConfigAddress(fixture.zoneProgram)[0],
+      zoneAuthAddress(fixture.zoneProgram)[0],
+      associatedTokenAddress(fixture.owner, fixture.mint),
+    ];
+    expect(actual).toEqual(fixture.vectors.map((vector) => vector.address));
+    expect(zoneConfigAddress(fixture.zoneProgram)[1]).toBe(fixture.vectors[6]?.bump);
+    expect(zoneAuthAddress(fixture.zoneProgram)[1]).toBe(fixture.vectors[7]?.bump);
   });
 
-  it("rejects malformed addresses before derivation", () => {
-    expect(() => splAssetRegistryAddress("0" as Address)).toThrow(
-      expect.objectContaining({ code: "INTERFACE_INVALID_ADDRESS" }),
-    );
+  it("rejects malformed addresses in every PDA argument position", () => {
+    const invalid = "not-an-address" as Address;
+    const fixture = CURRENT_RUST_INTERFACE_FIXTURE.pda;
+    for (const derive of [
+      () => splAssetRegistryAddress(invalid),
+      () => splAssetVaultAddress(invalid),
+      () => zoneConfigAddress(invalid),
+      () => zoneAuthAddress(invalid),
+      () => associatedTokenAddress(invalid, fixture.mint),
+      () => associatedTokenAddress(fixture.owner, invalid),
+    ]) {
+      expect(derive).toThrow(expect.objectContaining({ code: "INTERFACE_INVALID_ADDRESS" }));
+    }
   });
 });
 

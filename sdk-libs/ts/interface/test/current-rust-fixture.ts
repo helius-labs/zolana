@@ -44,6 +44,58 @@ export const CURRENT_RUST_INTERFACE_FIXTURE = Object.freeze({
     publicSplAmount: 11n,
     expected: "000ad6170619653104627eee83a63d4c374e10ae1bf2c5f8345984ea0f5be282",
   }),
+  pda: Object.freeze({
+    mint: "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi" as Address,
+    owner: "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR" as Address,
+    zoneProgram: "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8" as Address,
+    vectors: Object.freeze([
+      Object.freeze({
+        name: "protocolConfig",
+        address: "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj" as Address,
+        bump: 254,
+      }),
+      Object.freeze({
+        name: "solInterface",
+        address: "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya" as Address,
+        bump: 252,
+      }),
+      Object.freeze({
+        name: "cpiAuthority",
+        address: "6zQNhLqFHhWaP8JNYeHzQ9a1DfBH627gzibFv1ZaaM8E" as Address,
+        bump: 254,
+      }),
+      Object.freeze({
+        name: "assetCounter",
+        address: "77YYUwfwXB5BS7bEWpj4aNGkiqz6H6PE2mz7BUVLdwPn" as Address,
+        bump: 254,
+      }),
+      Object.freeze({
+        name: "assetRegistry",
+        address: "ASEKuvSPK66P4mgkkZ1WkG5Z3jA1WFgrj7p6saEhFQVS" as Address,
+        bump: 254,
+      }),
+      Object.freeze({
+        name: "assetVault",
+        address: "67mW5mLvYpxXmvcXHGdebLj1Z9VbTYdBt76uzSjqmiBB" as Address,
+        bump: 255,
+      }),
+      Object.freeze({
+        name: "zoneConfig",
+        address: "54Qs55TY9AqbHgHzC3baEBEvGvV2U6zBUPpraa9Qwpt5" as Address,
+        bump: 255,
+      }),
+      Object.freeze({
+        name: "zoneAuth",
+        address: "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx" as Address,
+        bump: 253,
+      }),
+      Object.freeze({
+        name: "associatedToken",
+        address: "9SBAq6YVfq1ECthq7yBBLdGDoWnhwgDd7kSJ7eZREFDc" as Address,
+        bump: 255,
+      }),
+    ]),
+  }),
   discriminators: Object.freeze({
     treeAccount: 1,
     protocolConfig: 3,

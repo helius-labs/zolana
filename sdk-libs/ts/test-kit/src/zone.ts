@@ -1,5 +1,5 @@
 import type { Address, Bytes31, Bytes32, DepositSplAccounts, Instruction } from "@zolana/interface";
-import { zoneConfigAddress } from "@zolana/interface/pda";
+import { zoneAuthAddress } from "@zolana/interface/pda";
 import {
   createZoneConfigInstruction,
   updateZoneConfigInstruction,
@@ -15,7 +15,7 @@ export function createZoneConfig(
     enabled: boolean;
   }>,
 ): Readonly<{ address: Address; instruction: Instruction }> {
-  const [address] = zoneConfigAddress(input.programId);
+  const [address] = zoneAuthAddress(input.programId);
   return Object.freeze({
     address,
     instruction: createZoneConfigInstruction({
