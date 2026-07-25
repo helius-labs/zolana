@@ -1530,8 +1530,8 @@ wire base58 strings and bytes. These corrections require no product decision.
 
 ## `@zolana/merkle-tree`
 
-Source: [`sdk-libs/merkle-tree/src/lib.rs`](https://github.com/helius-labs/zolana/blob/fdb477903070dd0a394680dee835dba9ab7bdc80/sdk-libs/merkle-tree/src/lib.rs)
-and [`indexed.rs`](https://github.com/helius-labs/zolana/blob/fdb477903070dd0a394680dee835dba9ab7bdc80/sdk-libs/merkle-tree/src/indexed.rs).
+Source: [`sdk-libs/merkle-tree/src/lib.rs`](https://github.com/helius-labs/zolana/blob/975783aa38b65734585f7749e347201fd67a2b71/sdk-libs/merkle-tree/src/lib.rs)
+and [`indexed.rs`](https://github.com/helius-labs/zolana/blob/975783aa38b65734585f7749e347201fd67a2b71/sdk-libs/merkle-tree/src/indexed.rs).
 
 ```ts
 export interface Hasher32 { hash(left: Bytes32, right: Bytes32): Bytes32 }
@@ -1619,12 +1619,13 @@ export function verifyNonInclusionProof(
 ```
 
 All operations are synchronous. They validate configuration, capacity, u64
-indexes, ordering, proof length, trusted roots, and byte lengths. Returned
-bytes are owned. The concrete Poseidon, SHA-256, and Keccak hashers use
-browser-safe Noble entry points and match the current Rust vectors.
+indexes, ordering, exclusive sentinel bounds, proof length, trusted roots, and
+byte lengths. Failed state changes are atomic, and returned bytes are owned.
+The concrete Poseidon, SHA-256, and Keccak hashers use browser-safe Noble entry
+points and match the current Rust vectors.
 
 This `NonInclusionProof` is the reference indexed-tree result from current
-[`indexed.rs`](https://github.com/helius-labs/zolana/blob/fdb477903070dd0a394680dee835dba9ab7bdc80/sdk-libs/merkle-tree/src/indexed.rs).
+[`indexed.rs`](https://github.com/helius-labs/zolana/blob/975783aa38b65734585f7749e347201fd67a2b71/sdk-libs/merkle-tree/src/indexed.rs).
 It reconstructs the indexed leaf from `leafLowerRangeValue`, `nextIndex`, and
 `leafHigherRangeValue`; it is not the Photon wire proof or the client
 `SpendProof.nullifier` type. `@zolana/merkle-tree` has no client or indexer

@@ -83,7 +83,7 @@
     }
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
-  "currentMerkleCommit": "fdb477903070dd0a394680dee835dba9ab7bdc80",
+  "currentMerkleCommit": "975783aa38b65734585f7749e347201fd67a2b71",
   "frozenSources": [
     "sdk-libs/merkle-tree/src/lib.rs",
     "sdk-libs/merkle-tree/src/indexed.rs",
@@ -109,8 +109,8 @@
     "atomic TypeScript state on hasher, capacity, duplicate, range, length, and non-canonical-field failures"
   ],
   "fixtureAssessment": {
-    "correctionRequired": true,
-    "result": "paths-v1.json now identifies fdb477903070dd0a394680dee835dba9ab7bdc80 and records trusted-root rejection, exact proof lengths, custom sentinels, sparse paths, history indexes, next index, usize width, and Rust failure mutation"
+    "correctionRequired": false,
+    "result": "paths-v1.json identifies 975783aa38b65734585f7749e347201fd67a2b71 and records exclusive custom sentinels, atomic failures, trusted-root rejection, exact proof lengths, sparse paths, advancing history indexes, the next free leaf index, and usize width"
   },
   "ownedChangedPaths": [
     "planning/typescript-sdk-port/inventory-support.md",
@@ -159,20 +159,7 @@
       "result": "implemented the corrected seven-field reference-tree NonInclusionProof without Photon or client neighbor fields"
     }
   ],
-  "rustSemanticBlockers": [
-    {
-      "row": "M01",
-      "behavior": "Current Rust accepts insertion at a custom highest value even though the resulting non-inclusion interval cannot verify at that boundary.",
-      "typescriptDisposition": "TypeScript enforces the open interval zero < value < highestValue.",
-      "requiredDecision": "Define the sentinel boundary in the specification or fix the Rust indexed array before claiming exact boundary parity."
-    },
-    {
-      "row": "M02",
-      "behavior": "A failed Rust append pushes a leaf before returning capacity overflow; get_next_index returns rightmost_index + 1; get_history_root_index_v2 remains zero because num_root_updates is not updated.",
-      "typescriptDisposition": "TypeScript keeps failed mutations atomic and reproduces the observable next-index and v2 history-index results.",
-      "requiredDecision": "Confirm the intended Rust mutation, next-index, and v2 history semantics before changing either implementation."
-    }
-  ],
+  "rustSemanticBlockers": [],
   "schema": "zolana-ts-packet-evidence-v1",
   "transientUnrelatedFailures": [
     {

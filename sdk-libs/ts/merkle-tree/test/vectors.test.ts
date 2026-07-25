@@ -104,7 +104,7 @@ describe("frozen Merkle vectors", () => {
       expect(historyTree.historyRootIndex()).toBe(Number(vector.historyRootIndex));
       expect(historyTree.historyRootIndexV2()).toBe(Number(vector.historyRootIndexV2));
       expect(vector.failureMutation).toEqual({
-        leafLength: "5",
+        leafLength: "4",
         rightmostIndex: "4",
         rootHistoryLength: "5",
         sequenceNumber: "4",
@@ -148,7 +148,9 @@ describe("frozen indexed Merkle vectors", () => {
       );
       expect(customProof.merkleProof).toEqual(vector.customSentinel.proofBytes.map(hexBytes));
       expect(custom.verifyNonInclusionProof(customProof)).toBe(true);
-      expect(vector.customSentinel.appendAtSentinel).toBe("Ok(())");
+      expect(vector.customSentinel.appendAtSentinel).toBe(
+        "Err(Indexed(NewElementGreaterOrEqualToNextElement))",
+      );
       expect(vector.errors).toMatchObject({
         shortPath: "Reference(InvalidProofLength(3, 4))",
         wrongPath: "NonInclusionProofFailed",

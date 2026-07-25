@@ -25,13 +25,12 @@ use zolana_transaction::{
 };
 
 const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
-const MERKLE_SHA: &str = "fdb477903070dd0a394680dee835dba9ab7bdc80";
+const MERKLE_SHA: &str = "975783aa38b65734585f7749e347201fd67a2b71";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
 const EXPECTED_FIXTURE_COUNT: usize = 57;
-const FROZEN_SOURCE_PATHS: [&str; 14] = [
+const FROZEN_SOURCE_PATHS: [&str; 13] = [
     "program-libs/hasher/src",
-    "program-libs/indexed-array/src",
     "program-libs/interface/src/instruction",
     "program-tests/test-utils/src/smart_account.rs",
     "sdk-libs/client/src/prover",
@@ -157,6 +156,7 @@ fn assert_frozen_sources(root: &Path) -> Result<()> {
             "--quiet",
             MERKLE_SHA,
             "--",
+            "program-libs/indexed-array/src",
             "sdk-libs/merkle-tree/src",
         ])
         .status()?;

@@ -13,7 +13,7 @@
           "missingLeaf": "LeafDoesNotExist(9)"
         },
         "failureMutation": {
-          "leafLength": "5",
+          "leafLength": "4",
           "rightmostIndex": "4",
           "rootHistoryLength": "5",
           "sequenceNumber": "4"
@@ -22,7 +22,7 @@
         "hasherId": "0",
         "height": "4",
         "historyRootIndex": "0",
-        "historyRootIndexV2": "0",
+        "historyRootIndexV2": "1",
         "historyRootLength": "5",
         "id": "merkle-poseidon",
         "leafHashBytes": [
@@ -37,7 +37,7 @@
           "0303030303030303030303030303030303030303030303030303030303030303",
           "0404040404040404040404040404040404040404040404040404040404040404"
         ],
-        "nextIndex": "5",
+        "nextIndex": "4",
         "pairHashBytes": "0d54e1938f8a8c1c7deb5e0355f26319207b84fe9ca2ce1b26e735c829821990",
         "pairHashInputBytes": [
           "0101010101010101010101010101010101010101010101010101010101010101",
@@ -166,7 +166,7 @@
           "missingLeaf": "LeafDoesNotExist(9)"
         },
         "failureMutation": {
-          "leafLength": "5",
+          "leafLength": "4",
           "rightmostIndex": "4",
           "rootHistoryLength": "5",
           "sequenceNumber": "4"
@@ -175,7 +175,7 @@
         "hasherId": "1",
         "height": "4",
         "historyRootIndex": "0",
-        "historyRootIndexV2": "0",
+        "historyRootIndexV2": "1",
         "historyRootLength": "5",
         "id": "merkle-sha256",
         "leafHashBytes": [
@@ -190,7 +190,7 @@
           "0303030303030303030303030303030303030303030303030303030303030303",
           "0404040404040404040404040404040404040404040404040404040404040404"
         ],
-        "nextIndex": "5",
+        "nextIndex": "4",
         "pairHashBytes": "f818afd37a6dc3bc92fb44731011277006db4efa6e9023cd7468c02335d22a4d",
         "pairHashInputBytes": [
           "0101010101010101010101010101010101010101010101010101010101010101",
@@ -319,7 +319,7 @@
           "missingLeaf": "LeafDoesNotExist(9)"
         },
         "failureMutation": {
-          "leafLength": "5",
+          "leafLength": "4",
           "rightmostIndex": "4",
           "rootHistoryLength": "5",
           "sequenceNumber": "4"
@@ -328,7 +328,7 @@
         "hasherId": "2",
         "height": "4",
         "historyRootIndex": "0",
-        "historyRootIndexV2": "0",
+        "historyRootIndexV2": "1",
         "historyRootLength": "5",
         "id": "merkle-keccak",
         "leafHashBytes": [
@@ -343,7 +343,7 @@
           "0303030303030303030303030303030303030303030303030303030303030303",
           "0404040404040404040404040404040404040404040404040404040404040404"
         ],
-        "nextIndex": "5",
+        "nextIndex": "4",
         "pairHashBytes": "346d8c96a2454213fcc0daff3c96ad0398148181b9fa6488f7ae2c0af5b20aa0",
         "pairHashInputBytes": [
           "0101010101010101010101010101010101010101010101010101010101010101",
@@ -465,7 +465,7 @@
     "indexed": [
       {
         "customSentinel": {
-          "appendAtSentinel": "Ok(())",
+          "appendAtSentinel": "Err(Indexed(NewElementGreaterOrEqualToNextElement))",
           "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
           "proofBytes": [
             "2b52b90ca9a713e093c3278ea9e3518e5c383a256f790ca473e9fe8dfbe228c2",
@@ -610,7 +610,7 @@
       },
       {
         "customSentinel": {
-          "appendAtSentinel": "Ok(())",
+          "appendAtSentinel": "Err(Indexed(NewElementGreaterOrEqualToNextElement))",
           "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
           "proofBytes": [
             "9ebbcf3e7b9e01f8705586896d6cbb48280c6402e2e0a69e98228dd61130c1e8",
@@ -755,7 +755,7 @@
       },
       {
         "customSentinel": {
-          "appendAtSentinel": "Ok(())",
+          "appendAtSentinel": "Err(Indexed(NewElementGreaterOrEqualToNextElement))",
           "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
           "proofBytes": [
             "65ce8396b736f5da9d881cc6fbcb11ef9721292dc41ec8c40879fd9edea5744d",
@@ -941,6 +941,6 @@
   "rustPath": "sdk-libs/merkle-tree/src/lib.rs; sdk-libs/merkle-tree/src/indexed.rs; program-libs/hasher/src",
   "rustSymbol": "MerkleTree; IndexedMerkleTree; Poseidon; Sha256; Keccak",
   "schema": "zolana-ts-fixtures-v1",
-  "sourceRevision": "fdb477903070dd0a394680dee835dba9ab7bdc80",
+  "sourceRevision": "975783aa38b65734585f7749e347201fd67a2b71",
   "version": "1"
 }

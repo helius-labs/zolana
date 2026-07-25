@@ -70,6 +70,7 @@ export class CoreMerkleTree {
   private nextIndex = 0n;
   private currentRoot: Bytes32;
   private sequence = 0n;
+  private rootUpdates = 0n;
   private readonly rootHistoryStartOffset: bigint;
   private readonly rootHistoryArrayLength: number | undefined;
   private roots: Bytes32[];
@@ -305,7 +306,7 @@ export class CoreMerkleTree {
     if (this.rootHistoryArrayLength === undefined) {
       throw new MerkleTreeError("MERKLE_TREE_INVALID_HISTORY", "Root history is not configured");
     }
-    return 0;
+    return Number(this.rootUpdates % BigInt(this.rootHistoryArrayLength));
   }
 
   leafCount(): bigint {
@@ -313,7 +314,7 @@ export class CoreMerkleTree {
   }
 
   nextLeafIndex(): bigint {
-    return this.nextIndex + 1n;
+    return this.nextIndex;
   }
 
   sequenceNumber(): bigint {
@@ -415,6 +416,7 @@ export class CoreMerkleTree {
       current = parent;
     }
     this.roots.push(copyBytes(this.currentRoot));
+    this.rootUpdates += 1n;
   }
 
   private node(level: number, index: bigint): Bytes32 {
@@ -431,6 +433,7 @@ export class CoreMerkleTree {
     this.nextIndex = source.nextIndex;
     this.currentRoot = source.currentRoot;
     this.sequence = source.sequence;
+    this.rootUpdates = source.rootUpdates;
     this.roots = source.roots;
   }
 }

@@ -107,7 +107,7 @@ describe("MerkleTree", () => {
     const tree = new MerkleTree(3, modelHasher, { canopyDepth: 1 });
     expect(tree.appendBatch([leaf(1), leaf(2)])).toEqual([0n, 1n]);
     expect(tree.leafCount()).toBe(2n);
-    expect(tree.nextIndex()).toBe(3n);
+    expect(tree.nextIndex()).toBe(2n);
     expect(tree.sequenceNumber()).toBe(2n);
     expect(tree.leaves()).toEqual([leaf(1), leaf(2)]);
     expect(tree.leafIndex(leaf(2))).toBe(1n);
@@ -148,11 +148,11 @@ describe("MerkleTree", () => {
       rootHistoryStartOffset: 1n,
       rootHistoryArrayLength: 3,
     });
-    tree.appendBatch([leaf(1), leaf(2), leaf(3)]);
+    tree.appendBatch([leaf(1), leaf(2), leaf(3), leaf(4)]);
 
-    expect(tree.history()).toHaveLength(4);
-    expect(tree.historyRootIndex()).toBe(2);
-    expect(tree.historyRootIndexV2()).toBe(0);
+    expect(tree.history()).toHaveLength(5);
+    expect(tree.historyRootIndex()).toBe(0);
+    expect(tree.historyRootIndexV2()).toBe(1);
     expect(tree.nextIndex()).toBe(4n);
   });
 
