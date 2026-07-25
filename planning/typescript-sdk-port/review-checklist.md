@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `731b06511e06ff40311061b53925be8ce566c65e`
+- Review HEAD: `8a61adab06bc40d81b0b594bc8baca662c24d0bc`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `33 done / 118 total`; `55 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `T31 sdk-libs/transaction/src/lib.rs`
+- Progress: `33 done / 118 total`; `56 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `C01 sdk-libs/client/src/retry.rs`
 - Active reviews: `none`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
@@ -249,7 +249,7 @@ Columns:
 | T28 | `sdk-libs/transaction/src/instructions/merge_zone.rs` | `transaction/src/instructions/builders.ts` | needs_fix | DIVERGENT | proposed | The TypeScript builder, prepared flow, and proof flow exist, but reject Rust-accepted `ZoneData` and `Memo`, omit expiry configuration, do not revalidate prepared zone consistency, and alias or defer zone-hash and address validation. Add the accepted payloads, configurable expiry, finalization revalidation, canonical validation, and boundary, property, tamper, browser, pack, and live merge-zone evidence while preserving T09 serialization and T27 merge ownership. | 2026-07-25 review | - |
 | T29 | `sdk-libs/transaction/src/instructions/zone_authority.rs` | `transaction/src/instructions/builders.ts` | needs_fix | DIVERGENT | proposed | TypeScript omits `ExternalData`, shape and field-encoded public asset, and proof/finalization flow; changes optional-zone and public-amount semantics; uses noncanonical merge errors; aliases mutable inputs; and lacks direct fixture, malformed, tamper, browser, declaration, pack, and E2E evidence. First make Rust enforce canonical constructor and private invariants, a required nonzero zone, shape and tail padding, derived amounts and payer hash, and spec-required rejection of zone-authority withdrawals; then align TypeScript and add the missing evidence. | 2026-07-25 review | - |
 | T30 | `sdk-libs/transaction/src/instructions/mod.rs` | `transaction/src/instructions/index.ts` | needs_fix | DIVERGENT | proposed | The TypeScript instructions entry point is a narrowed, undocumented aggregate that omits approved Rust capabilities and instruction input/output types, forwards inconsistently from the package root, leaves an orphan transact barrel, inherits T18-T29 defects, and lacks exact declaration, runtime, tarball, browser, packed-consumer, and aggregate-fixture allowlists. Expand and document the coherent aggregate and add exact allowlists while preserving child-row ownership. | 2026-07-25 review | - |
-| T31 | `sdk-libs/transaction/src/lib.rs` | `transaction/src/index.ts` | todo | - | none | - | - | - |
+| T31 | `sdk-libs/transaction/src/lib.rs` | `transaction/src/index.ts` | needs_fix | DIVERGENT | proposed | The TypeScript root omits or remaps many Rust exports, exposes undocumented extras and a name collision, inherits T01-T30 gaps, and lacks exact declaration, runtime, tarball, browser, named-consumer, and root-fixture allowlists. Declare the direct Noble dependencies, complete license, repository, and package metadata, align and document the root surface, and add the missing allowlists while preserving child-row ownership. | 2026-07-25 review | - |
 
 ### Client, 22 rows
 
@@ -1578,3 +1578,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `33/118`; package `0/31`
 - Exact next file: `T31 sdk-libs/transaction/src/lib.rs`
 - Full SDK parity claim: unsupported; the instructions aggregate, root forwarding, capability and type exports, inherited child defects, and exact aggregate evidence diverge
+
+### 2026-07-25 13:04 UTC | T31 | `sdk-libs/transaction/src/lib.rs`
+
+- Baseline: HEAD `8a61adab06bc40d81b0b594bc8baca662c24d0bc`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module owns the transaction package root surface and package metadata; T01-T30 retain their child implementation and evidence ownership.
+- Evidence: The TypeScript root omits or remaps many Rust exports, exposes undocumented extras and a name collision, inherits T01-T30 gaps, lacks exact declaration, runtime, tarball, browser, named-consumer, and root-fixture allowlists, has undeclared direct Noble dependencies, and has incomplete license, repository, and package metadata.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Align and document the root surface, declare direct dependencies, complete package metadata, and add exact root allowlists while preserving T01-T30 child ownership.
+- Row transition: `todo -> needs_fix`
+- Progress: `33/118`; package review `31/31` complete; package parity gates failed
+- Exact next file: `C01 sdk-libs/client/src/retry.rs`
+- Full SDK parity claim: unsupported; transaction root exports, inherited child gaps, evidence allowlists, dependencies, and package metadata diverge
