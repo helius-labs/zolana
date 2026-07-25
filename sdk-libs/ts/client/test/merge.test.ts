@@ -341,7 +341,7 @@ function fixedInstructionData(): MergeTransactInstructionData {
     utxoTreeRootIndexes: Object.freeze(Array.from({ length: 8 }, (_, index) => index)),
     nullifierTreeRootIndexes: Object.freeze(Array.from({ length: 8 }, (_, index) => index + 10)),
     privateTxHash: new Uint8Array(32).fill(3) as Bytes32,
-    encryptedUtxo: new Uint8Array(110),
+    encryptedUtxo: Uint8Array.from({ length: 110 }, (_, index) => (index === 0 ? 2 : 0)),
     eddsaOwner: false,
   };
 }

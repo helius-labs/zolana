@@ -220,7 +220,7 @@ export interface MessageData {
 export interface OutputUtxo {
   readonly viewTag: Bytes32;
   readonly utxoHash: Bytes32;
-  readonly data?: Uint8Array;
+  readonly data: Uint8Array;
 }
 
 export interface ResolvedOutput {

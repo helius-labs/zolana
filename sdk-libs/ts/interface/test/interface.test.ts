@@ -472,6 +472,38 @@ describe("state account codecs", () => {
       expect.objectContaining({ code: "INTERFACE_INVALID_DISCRIMINATOR" }),
     );
   });
+
+  it("matches Rust nonzero state flags and ignores reserved bytes", () => {
+    const protocol = protocolConfigAccountCodec.encode({
+      authority: ZERO,
+      treeCreationAuthority: ZERO,
+      treeCreationIsPermissionless: false,
+      foresterAuthority: ZERO,
+      zoneCreationAuthority: ZERO,
+      zoneCreationIsPermissionless: false,
+      splInterfaceCreationIsPermissionless: false,
+    });
+    protocol[129] = 2;
+    protocol[130] = 0xff;
+    expect(protocolConfigAccountCodec.decode(protocol)).toMatchObject({
+      treeCreationIsPermissionless: true,
+      zoneCreationIsPermissionless: true,
+      splInterfaceCreationIsPermissionless: false,
+    });
+
+    const zone = zoneConfigAccountCodec.encode({
+      authority: ZERO,
+      programId: SHIELDED_POOL_PROGRAM_ID,
+      zoneAuthorityTransactIsEnabled: false,
+      bump: 1,
+    });
+    zone[65] = 2;
+    expect(zoneConfigAccountCodec.decode(zone).zoneAuthorityTransactIsEnabled).toBe(true);
+
+    const counter = splAssetCounterAccountCodec.encode({ nextId: 2n });
+    counter.fill(0xff, 1, 8);
+    expect(splAssetCounterAccountCodec.decode(counter)).toEqual({ nextId: 2n });
+  });
 });
 
 describe("instruction builders", () => {
@@ -489,7 +521,7 @@ describe("instruction builders", () => {
     utxoTreeRootIndexes: [0, 1, 2, 3, 4, 5, 6, 7],
     nullifierTreeRootIndexes: [8, 9, 10, 11, 12, 13, 14, 15],
     privateTxHash: b32(7),
-    encryptedUtxo: new Uint8Array(110),
+    encryptedUtxo: Uint8Array.from({ length: 110 }, (_, index) => (index === 0 ? 2 : 0)),
     eddsaOwner: false,
   };
 
@@ -723,5 +755,10 @@ describe("instruction builders", () => {
         data: { ...merge, nullifiers: merge.nullifiers.slice(1) },
       }),
     ).toThrow(expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }));
+    const wrongPrefix = merge.encryptedUtxo.slice();
+    wrongPrefix[0] = 0;
+    expect(() =>
+      mergeTransactInstructionDataCodec.encode({ ...merge, encryptedUtxo: wrongPrefix }),
+    ).toThrow(expect.objectContaining({ code: "INTERFACE_CODEC" }));
   });
 });

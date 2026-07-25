@@ -1,0 +1,99 @@
+import { describe, expect, it } from "vitest";
+
+import * as root from "../src/index.js";
+import * as codecs from "../src/codecs/index.js";
+import * as instructions from "../src/instructions/index.js";
+import * as pda from "../src/pda/index.js";
+
+describe("public exports", () => {
+  it("pins runtime exports by package entry point", () => {
+    expect(Object.keys(root).sort()).toEqual([
+      "ADDRESS_TREE_HEIGHT",
+      "ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE",
+      "ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE",
+      "ADDRESS_TREE_ROOT_HISTORY_CAPACITY",
+      "ASSOCIATED_TOKEN_PROGRAM_ID",
+      "DEFAULT_TREE_ADDRESS",
+      "FIRST_ASSET_ID",
+      "InstructionTag",
+      "InterfaceError",
+      "MERGE_ENCRYPTED_UTXO_LENGTH",
+      "MERGE_ENCRYPTED_UTXO_TYPE_PREFIX",
+      "MERGE_INPUT_COUNT",
+      "P256_PROOF_LENGTH",
+      "SHIELDED_POOL_CPI_AUTHORITY",
+      "SHIELDED_POOL_PROGRAM_ID",
+      "SOL_INTERFACE",
+      "SPL_TOKEN_PROGRAM_ID",
+      "SPP_SUPPORTED_SHAPES",
+      "STATE_HEIGHT",
+      "STATE_ROOT_OFFSET",
+      "ShieldedPoolError",
+      "StateDiscriminator",
+      "TREE_ACCOUNT_SIZE",
+      "UTXO_DOMAIN",
+      "addressTreeParams",
+      "ciphertextHash",
+      "decodeProtocolConfig",
+      "decodeShieldedPoolError",
+      "decodeSplAssetCounter",
+      "decodeSplAssetRegistry",
+      "decodeZoneConfig",
+      "fetchTag",
+      "ownerPkFieldCompressed",
+      "pack33",
+      "pkFieldCompressed",
+      "selectSppShape",
+      "validateSppShape",
+    ]);
+    expect(Object.keys(codecs).sort()).toEqual([
+      "addressTreeParamsCodec",
+      "batchUpdateNullifierTreeDataCodec",
+      "createTreeDataCodec",
+      "createZoneConfigDataCodec",
+      "depositInstructionDataCodec",
+      "mergeExternalDataHash",
+      "mergeTransactInstructionDataCodec",
+      "mergeZoneInstructionDataCodec",
+      "protocolConfigAccountCodec",
+      "splAssetCounterAccountCodec",
+      "splAssetRegistryAccountCodec",
+      "transactInstructionDataCodec",
+      "updateZoneConfigDataCodec",
+      "updateZoneConfigOwnerDataCodec",
+      "zoneConfigAccountCodec",
+      "zoneDepositInstructionDataCodec",
+    ]);
+    expect(Object.keys(instructions).sort()).toEqual([
+      "batchUpdateNullifierTreeInstruction",
+      "createAssetCounterInstruction",
+      "createAssociatedTokenAccountInstruction",
+      "createProtocolConfigInstruction",
+      "createSplInterfaceInstruction",
+      "createTreeInstruction",
+      "createZoneConfigInstruction",
+      "depositInstruction",
+      "mergeTransactInstruction",
+      "mergeZoneInstruction",
+      "pauseTreeInstruction",
+      "transactInstruction",
+      "updateProtocolConfigInstruction",
+      "updateZoneConfigInstruction",
+      "updateZoneConfigOwnerInstruction",
+      "zoneAuthorityTransactInstruction",
+      "zoneDepositInstruction",
+      "zoneTransactInstruction",
+    ]);
+    expect(Object.keys(pda).sort()).toEqual([
+      "associatedTokenAddress",
+      "protocolConfigAddress",
+      "shieldedPoolCpiAuthorityAddress",
+      "solInterfaceAddress",
+      "splAssetCounterAddress",
+      "splAssetRegistryAddress",
+      "splAssetVaultAddress",
+      "zoneAuthAddress",
+      "zoneConfigAddress",
+    ]);
+  });
+});

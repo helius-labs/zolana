@@ -451,6 +451,13 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
       encryptedUtxo: value.encryptedUtxo.length,
     });
   }
+  if (value.encryptedUtxo[0] !== 2) {
+    fail("INTERFACE_CODEC", {
+      name: "encryptedUtxo.typePrefix",
+      expected: 2,
+      actual: value.encryptedUtxo[0],
+    });
+  }
   writer
     .u64(value.expiryUnixTs, "expiryUnixTs")
     .bytes(value.proof.a, 32, "proof.a")
@@ -514,6 +521,14 @@ function readMergeData(reader: Reader): MergeTransactInstructionData {
       actual: encryptedLength,
     });
   }
+  const encryptedUtxo = reader.bytes(encryptedLength, "encryptedUtxo");
+  if (encryptedUtxo[0] !== 2) {
+    fail("INTERFACE_CODEC", {
+      name: "encryptedUtxo.typePrefix",
+      expected: 2,
+      actual: encryptedUtxo[0],
+    });
+  }
   return {
     expiryUnixTs,
     proof,
@@ -522,7 +537,7 @@ function readMergeData(reader: Reader): MergeTransactInstructionData {
     utxoTreeRootIndexes,
     nullifierTreeRootIndexes,
     privateTxHash,
-    encryptedUtxo: reader.bytes(encryptedLength, "encryptedUtxo"),
+    encryptedUtxo,
     eddsaOwner: reader.bool("eddsaOwner"),
   };
 }
