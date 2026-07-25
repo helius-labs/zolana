@@ -24,6 +24,18 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function required<T>(value: T | undefined, name: string): T {
+  if (value === undefined) throw new Error(`missing ${name}`);
+  return value;
+}
+
+function vector(name: string): (typeof fixture.hasher.hashChain.createHashChainFromSlice)[number] {
+  return required(
+    fixture.hasher.hashChain.createHashChainFromSlice.find((entry) => entry.name === name),
+    `hash chain vector ${name}`,
+  );
+}
+
 describe("program-libs/event/src/proofless.rs against the transaction codecs", () => {
   const proofless = fixture.event.proofless;
 
@@ -135,21 +147,16 @@ describe("program-libs/hasher/src/hash_chain.rs against transaction hashChain", 
   });
 
   it("returns a single element unhashed", () => {
-    const single = fixture.hasher.hashChain.createHashChainFromSlice.find(
-      (entry) => entry.name === "single",
-    );
-    expect(single).toBeDefined();
-    if (single === undefined) return;
-    expect(single.output).toBe(single.inputs[0]);
+    const single = vector("single");
+    const input = hexToBytes(required(single.inputs[0], "single input")) as Bytes32;
+    expect(bytesToHex(hashChain([input]))).toBe(single.output);
   });
 
   it("is order sensitive", () => {
-    const pair = fixture.hasher.hashChain.createHashChainFromSlice.find(
-      (entry) => entry.name === "pair",
-    );
-    const reversed = fixture.hasher.hashChain.createHashChainFromSlice.find(
-      (entry) => entry.name === "pair-reversed",
-    );
-    expect(pair?.output).not.toBe(reversed?.output);
+    const pair = vector("pair").inputs.map((input) => hexToBytes(input) as Bytes32);
+    const reversed = [...pair].reverse();
+    expect(bytesToHex(hashChain(pair))).toBe(vector("pair").output);
+    expect(bytesToHex(hashChain(reversed))).toBe(vector("pair-reversed").output);
+    expect(bytesToHex(hashChain(pair))).not.toBe(bytesToHex(hashChain(reversed)));
   });
 });
