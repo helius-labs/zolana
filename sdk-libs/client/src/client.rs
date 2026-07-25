@@ -1134,6 +1134,126 @@ mod tests {
         );
     }
 
+    /// Emits the account order `Message::new` produces for a SOL withdrawal, so
+    /// the TypeScript port can be compared against it rather than against a
+    /// hand-written expectation. The existing frozen legacy-message vectors only
+    /// cover `withdrawal: None`, where every privilege class holds at most two
+    /// accounts that already happen to be in ascending order, so they cannot
+    /// discriminate `CompiledKeys`'s address ordering from first-appearance
+    /// ordering. Regenerate with `ZOLANA_WRITE_ORACLES=1`.
+    #[test]
+    fn legacy_message_account_order_oracle() {
+        const ORACLE: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../ts/client/test/oracles/legacy-message-order-v1.json",
+        );
+
+        let fee_payer = Pubkey::new_from_array([9u8; 32]);
+        let tree = Address::new_from_array([6u8; 32]);
+        let recipient = Pubkey::new_from_array([3u8; 32]);
+        let blockhash = Hash::new_from_array([4u8; 32]);
+
+        let cases = [
+            ("sol-withdrawal-with-price", Some(25_000u64)),
+            ("sol-withdrawal-limit-only", None),
+        ]
+        .into_iter()
+        .map(|(name, price)| {
+            let transaction = build_unsigned_solana_transaction(
+                DEFAULT_TRANSACT_CU_LIMIT,
+                price,
+                fee_payer,
+                tree,
+                Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+                oracle_transact_data(),
+                blockhash,
+            )
+            .expect("build unsigned transaction");
+            let message = transaction.message;
+            json!({
+                "name": name,
+                "input": {
+                    "feePayer": fee_payer.to_string(),
+                    "tree": bs58::encode(tree.to_bytes()).into_string(),
+                    "recipient": recipient.to_string(),
+                    "recentBlockhash": blockhash.to_string(),
+                    "computeUnitLimit": DEFAULT_TRANSACT_CU_LIMIT,
+                    "computeUnitPriceMicroLamports": price.map(|price| price.to_string()),
+                    "withdrawal": "sol",
+                },
+                "expected": {
+                    "numRequiredSignatures": message.header.num_required_signatures,
+                    "numReadonlySignedAccounts": message.header.num_readonly_signed_accounts,
+                    "numReadonlyUnsignedAccounts": message.header.num_readonly_unsigned_accounts,
+                    "accountKeys": message
+                        .account_keys
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>(),
+                    "instructions": message
+                        .instructions
+                        .iter()
+                        .map(|instruction| json!({
+                            "programIdIndex": instruction.program_id_index,
+                            "accounts": instruction.accounts,
+                        }))
+                        .collect::<Vec<_>>(),
+                },
+            })
+        })
+        .collect::<Vec<_>>();
+
+        let oracle = json!({
+            "source": "sdk-libs/client/src/client.rs::build_unsigned_solana_transaction",
+            "generator": "cargo test -p zolana-client --lib client::tests::legacy_message_account_order_oracle",
+            "note": "Account keys and compiled indexes only; the instruction data bytes belong to the interface rows.",
+            "cases": cases,
+        });
+        let rendered = format!("{}\n", serde_json::to_string_pretty(&oracle).unwrap());
+
+        if std::env::var_os("ZOLANA_WRITE_ORACLES").is_some() {
+            std::fs::create_dir_all(std::path::Path::new(ORACLE).parent().unwrap())
+                .expect("create oracle directory");
+            std::fs::write(ORACLE, &rendered).expect("write oracle");
+            return;
+        }
+        let committed = std::fs::read_to_string(ORACLE).expect("committed oracle");
+        assert_eq!(
+            committed, rendered,
+            "legacy-message oracle is stale; regenerate with ZOLANA_WRITE_ORACLES=1"
+        );
+    }
+
+    /// Minimal well-formed `transact` data for the ordering oracle. Only its
+    /// length reaches the compiled message, never the account order.
+    fn oracle_transact_data(
+    ) -> zolana_interface::instruction::instruction_data::transact::TransactIxData {
+        use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TransactIxData};
+
+        TransactIxData {
+            proof: zolana_interface::instruction::instruction_data::transact::TransactProof::zeroed_eddsa(),
+            expiry_unix_ts: 0,
+            relayer_fee: 0,
+            private_tx_hash: [0u8; 32],
+            p256_signing_pk_x: None,
+            inputs: vec![InputUtxo {
+                nullifier_hash: [1u8; 32],
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+                tree_index: 0,
+                eddsa_signer_index: 0,
+            }],
+            public_sol_amount: Some(4),
+            public_spl_amount: None,
+            data_hash: None,
+            zone_data_hash: None,
+            tx_viewing_pk: [2u8; 33],
+            salt: [0u8; 16],
+            outputs: Vec::new(),
+            messages: Vec::new(),
+        }
+    }
+
     #[test]
     fn submit_validation_binds_fee_payer_and_tree() {
         let payer = Keypair::new();

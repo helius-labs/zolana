@@ -597,42 +597,45 @@ function compileLegacyTransaction(
 ): Transaction {
   const accountMap = new Map<
     Address,
-    { address: Address; isSigner: boolean; isWritable: boolean; order: number }
+    { address: Address; bytes: Uint8Array; isSigner: boolean; isWritable: boolean }
   >();
-  let order = 0;
   accountMap.set(feePayer, {
     address: feePayer,
+    bytes: addressBytes(feePayer),
     isSigner: true,
     isWritable: true,
-    order: order++,
   });
   for (const instruction of instructions) {
     addressBytes(instruction.programAddress);
     for (const account of instruction.accounts) {
-      addressBytes(account.address);
       const existing = accountMap.get(account.address);
       accountMap.set(account.address, {
         address: account.address,
+        bytes: existing?.bytes ?? addressBytes(account.address),
         isSigner: (existing?.isSigner ?? false) || account.isSigner,
         isWritable: (existing?.isWritable ?? false) || account.isWritable,
-        order: existing?.order ?? order++,
       });
     }
     if (!accountMap.has(instruction.programAddress)) {
       accountMap.set(instruction.programAddress, {
         address: instruction.programAddress,
+        bytes: addressBytes(instruction.programAddress),
         isSigner: false,
         isWritable: false,
-        order: order++,
       });
     }
   }
+  // `solana_message::Message::new` compiles through `CompiledKeys`, whose
+  // `BTreeMap<Address, _>` hands each privilege class back in ascending address
+  // order with the fee payer lifted to the front. Ordering by first appearance
+  // instead produces a different account list and different compiled indexes
+  // for the same instructions.
   const accounts = [...accountMap.values()].sort((left, right) => {
     if (left.address === feePayer) return -1;
     if (right.address === feePayer) return 1;
     if (left.isSigner !== right.isSigner) return left.isSigner ? -1 : 1;
     if (left.isWritable !== right.isWritable) return left.isWritable ? -1 : 1;
-    return left.order - right.order;
+    return compareBytes(left.bytes, right.bytes);
   });
   if (accounts.length > 256) throw new ClientError("CLIENT_TOO_MANY_ACCOUNTS");
   const index = new Map(accounts.map((account, itemIndex) => [account.address, itemIndex]));
@@ -670,6 +673,14 @@ function compileLegacyTransaction(
     messageBytes: concat(...parts),
     signatures: Object.freeze(Array.from({ length: requiredSignatures }, () => undefined)),
   });
+}
+
+function compareBytes(left: Uint8Array, right: Uint8Array): number {
+  for (let index = 0; index < left.length; index++) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 function computeUnitLimitInstruction(limit: number): Instruction {

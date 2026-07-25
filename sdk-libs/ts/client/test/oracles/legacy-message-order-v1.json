@@ -1,0 +1,97 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "accountKeys": [
+          "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+          "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+          "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF",
+          "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+          "11111111111111111111111111111111",
+          "ComputeBudget111111111111111111111111111111",
+          "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+        ],
+        "instructions": [
+          {
+            "accounts": [],
+            "programIdIndex": 5
+          },
+          {
+            "accounts": [],
+            "programIdIndex": 5
+          },
+          {
+            "accounts": [
+              0,
+              2,
+              3,
+              1,
+              4,
+              6
+            ],
+            "programIdIndex": 6
+          }
+        ],
+        "numReadonlySignedAccounts": 0,
+        "numReadonlyUnsignedAccounts": 3,
+        "numRequiredSignatures": 1
+      },
+      "input": {
+        "computeUnitLimit": 300000,
+        "computeUnitPriceMicroLamports": "25000",
+        "feePayer": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+        "recentBlockhash": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+        "recipient": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+        "tree": "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF",
+        "withdrawal": "sol"
+      },
+      "name": "sol-withdrawal-with-price"
+    },
+    {
+      "expected": {
+        "accountKeys": [
+          "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+          "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+          "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF",
+          "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+          "11111111111111111111111111111111",
+          "ComputeBudget111111111111111111111111111111",
+          "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+        ],
+        "instructions": [
+          {
+            "accounts": [],
+            "programIdIndex": 5
+          },
+          {
+            "accounts": [
+              0,
+              2,
+              3,
+              1,
+              4,
+              6
+            ],
+            "programIdIndex": 6
+          }
+        ],
+        "numReadonlySignedAccounts": 0,
+        "numReadonlyUnsignedAccounts": 3,
+        "numRequiredSignatures": 1
+      },
+      "input": {
+        "computeUnitLimit": 300000,
+        "computeUnitPriceMicroLamports": null,
+        "feePayer": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+        "recentBlockhash": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+        "recipient": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+        "tree": "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF",
+        "withdrawal": "sol"
+      },
+      "name": "sol-withdrawal-limit-only"
+    }
+  ],
+  "generator": "cargo test -p zolana-client --lib client::tests::legacy_message_account_order_oracle",
+  "note": "Account keys and compiled indexes only; the instruction data bytes belong to the interface rows.",
+  "source": "sdk-libs/client/src/client.rs::build_unsigned_solana_transaction"
+}
