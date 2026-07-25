@@ -277,10 +277,11 @@ Light's error taxonomy is dead code. `js/stateless.js/src/errors.ts` defines nin
 enums and nine `MetaError` subclasses under a `// TODO: Clean up` on line 1, and
 not one of them is referenced anywhere else in `js/src`. The real style is
 `throw new Error(...)`, twenty-three of them in `rpc.ts` alone, plus
-`SolanaJSONRPCError` for RPC failures. Zolana's model is better in kind: 140
-codes with a per-code detail schema, a runtime validator, and a redaction layer
-with no Rust counterpart (`client/src/error.ts`). Keep it. Three specific things
-about it would change a caller's experience.
+`SolanaJSONRPCError` for RPC failures. Zolana's model is better in kind: 106
+codes, 58 mirroring Rust and 48 added by the port, each with a detail schema, a
+runtime validator, and a redaction layer with no Rust counterpart
+(`client/src/error.ts:25-84`, `:278-327`). Keep it. Three specific things about
+it would change a caller's experience.
 
 **The message is the code.** `ClientError` passes the code as the `Error`
 message (`client/src/error.ts:530`), so `err.message` reads `CLIENT_RPC_HTTP`
