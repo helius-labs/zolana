@@ -69,10 +69,16 @@ export type {
 } from "./wallet/index.js";
 export {
   EncryptedScheme,
+  anonymousRecipientFromUtxos,
+  anonymousSenderFromUtxos,
   encryptedSchemeFromByte,
   encryptedSchemeToByte,
   outputDataEncoding,
+  plaintextTransferFromUtxos,
+  prooflessFromUtxos,
+  splitBundleFromUtxos,
   type OutputDataEncoding,
+  type OwnerContext,
 } from "./serialization/index.js";
 
 export const TRANSFER = 1;

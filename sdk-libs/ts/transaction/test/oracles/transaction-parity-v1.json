@@ -616,6 +616,615 @@
       }
     ]
   },
+  "fromUtxos": {
+    "anonymousRecipient": [
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f102000000000000000500000000000000b285d1efb215086b976c9baff9bf79be51119ff60d1cb01c010debb818b18500",
+        "error": null,
+        "name": "single",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 3,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f101000000000000000500000000000000b285d1efb215086b976c9baff9bf79be51119ff60d1cb01c010debb818b18501030200676d",
+        "error": null,
+        "name": "withMemo",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 3,
+            "records": [
+              {
+                "bytesHex": "676d",
+                "kind": "memo"
+              }
+            ],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f101000000000000000500000000000000b285d1efb215086b976c9baff9bf79be51119ff60d1cb01c010debb818b185010102000102",
+        "error": null,
+        "name": "zoneBound",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 3,
+            "records": [
+              {
+                "bytesHex": "0102",
+                "kind": "zoneData"
+              }
+            ],
+            "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+          }
+        ],
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_COUNT",
+        "name": "empty",
+        "utxos": [],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_COUNT",
+        "name": "twoUtxos",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 3,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "6",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 4,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_OWNER_MISMATCH",
+        "name": "foreignOwner",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "other",
+            "position": 3,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      }
+    ],
+    "anonymousSender": [
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a30200000000000000050000000000000007000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b01033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f10000",
+        "error": null,
+        "name": "splAndSol",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a30000000000000000000000000000000007000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b01033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f10000",
+        "error": null,
+        "name": "solOnly",
+        "utxos": [
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_MISSING_OUTPUT",
+        "name": "empty",
+        "utxos": [],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_POSITION",
+        "name": "solAtTheSplPosition",
+        "utxos": [
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_POSITION",
+        "name": "twoSplLegs",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "6",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      }
+    ],
+    "blindingSeedHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "otherPublicKeyHex": "0003741dd5bda817d95e4626537320e5d55179983028b2f82c99d500c5ee8624e3c4",
+    "ownerPublicKeyHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+    "plaintextTransfer": [
+      {
+        "encodedHex": "040b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0100028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a301050000000000000002000000000000000107000000000000000000020003741dd5bda817d95e4626537320e5d55179983028b2f82c99d500c5ee8624e3c401000000000000000b00000000000000000003741dd5bda817d95e4626537320e5d55179983028b2f82c99d500c5ee8624e3c402000000000000000d0000000000000001030200676d",
+        "error": null,
+        "name": "senderSplAndSolPlusTwoRecipients",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "11",
+            "asset": "11111111111111111111111111111111",
+            "owner": "other",
+            "position": 2,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "13",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "other",
+            "position": 3,
+            "records": [
+              {
+                "bytesHex": "676d",
+                "kind": "memo"
+              }
+            ],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "040b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0000",
+        "error": null,
+        "name": "empty",
+        "utxos": [],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "040b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b000100028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a301000000000000000b0000000000000000",
+        "error": null,
+        "name": "recipientsOnly",
+        "utxos": [
+          {
+            "amount": "11",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 2,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_ASSET_MISMATCH",
+        "name": "solInTheSplSlot",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_ASSET_MISMATCH",
+        "name": "splInTheSolSlot",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_OWNER_MISMATCH",
+        "name": "foreignOwnerInTheSenderSlot",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "other",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_MISSING_OUTPUT",
+        "name": "blindingOffTheSeed",
+        "utxos": [
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": null,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_POSITION",
+        "name": "recipientPositionGap",
+        "utxos": [
+          {
+            "amount": "11",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 2,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "12",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 4,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_ZONE_MISMATCH",
+        "name": "zoneMismatch",
+        "utxos": [
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_UNKNOWN_MINT",
+        "name": "unregisteredMint",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      }
+    ],
+    "proofless": [
+      {
+        "encodedHex": "0505050505050505050505050505050505050505050505050505050505050505e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d0000000000000000000000000000000000000000000000000000000000000000005000000000000000106060606060606060606060606060606060606060606060606060606060606060000000000",
+        "error": null,
+        "name": "single",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": "0505050505050505050505050505050505050505050505050505050505050505e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d000000000000000000000000000000000000000000000000000000000000000000500000000000000010606060606060606060606060606060606060606060606060606060606060606010100000001010c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c000101000000090102000000676d",
+        "error": null,
+        "name": "everyRecord",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              {
+                "bytesHex": "09",
+                "kind": "zoneData"
+              },
+              {
+                "bytesHex": "01",
+                "kind": "utxoData"
+              },
+              {
+                "bytesHex": "676d",
+                "kind": "memo"
+              }
+            ],
+            "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+          }
+        ],
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_INVALID_OUTPUT_COUNT",
+        "name": "empty",
+        "utxos": [],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_OWNER_MISMATCH",
+        "name": "foreignOwner",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "other",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      }
+    ],
+    "prooflessDataHashHex": "0606060606060606060606060606060606060606060606060606060606060606",
+    "prooflessOwnerHashHex": "0505050505050505050505050505050505050505050505050505050505050505",
+    "senderViewingPublicKeyHex": "033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f1",
+    "splAssetId": "2",
+    "splMint": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+    "split": [
+      {
+        "encodedHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a303020000000000000005000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b00",
+        "error": null,
+        "name": "threeEqualParts",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 2,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_MISSING_OUTPUT",
+        "name": "empty",
+        "utxos": [],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_AMOUNT_MISMATCH",
+        "name": "amountMismatch",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "6",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_ASSET_MISMATCH",
+        "name": "assetMismatch",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_DATA_MISMATCH",
+        "name": "dataMismatch",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              {
+                "bytesHex": "676d",
+                "kind": "memo"
+              }
+            ],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      },
+      {
+        "encodedHex": null,
+        "error": "TRANSACTION_OUTPUT_BLINDING_MISMATCH",
+        "name": "blindingOutOfOrder",
+        "utxos": [
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zoneProgramId": null
+          },
+          {
+            "amount": "5",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zoneProgramId": null
+          }
+        ],
+        "zoneProgramId": null
+      }
+    ],
+    "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+  },
   "generator": "ZOLANA_WRITE_TS_ORACLES=1 cargo test -p zolana-transaction --test ts_oracle",
   "schema": "zolana-transaction-parity-oracle-v1",
   "scheme": {

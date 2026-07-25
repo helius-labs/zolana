@@ -21,13 +21,28 @@ use std::{fs, path::PathBuf};
 use serde_json::{json, Map, Value};
 use solana_address::Address;
 use wincode;
-use zolana_keypair::constants::BLINDING_LEN;
+use zolana_keypair::{
+    constants::{BLINDING_LEN, SALT_LEN},
+    PublicKey, SigningKey, ViewingKey,
+};
 use zolana_transaction::{
     derive_blinding,
-    serialization::{confidential::ConfidentialOutputPlaintext, merge::MergePlaintext},
     instructions::transact::{canonical_shape, shape::resolve_shape, slot_ordinal, Shape},
-    owner_utxo_hash, AssetRegistry, Data, DataRecord, EncryptedScheme, ProofInputUtxo,
-    TransactionError, SOL_ASSET_ID, SOL_MINT,
+    owner_utxo_hash,
+    serialization::{
+        anonymous::{
+            AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
+            AnonymousSenderEncode,
+        },
+        confidential::ConfidentialOutputPlaintext,
+        merge::MergePlaintext,
+        plaintext::{PlaintextEncode, PlaintextTransfer},
+        proofless::{Proofless, ProoflessEncode},
+        split::{Split, SplitEncode},
+        OwnerCx, UtxoSerialization,
+    },
+    AssetRegistry, Data, DataRecord, EncryptedScheme, ProofInputUtxo, TransactionError, Utxo,
+    SOL_ASSET_ID, SOL_MINT,
 };
 
 const ORACLE_PATH: &str = "../ts/transaction/test/oracles/transaction-parity-v1.json";
@@ -897,6 +912,490 @@ fn serialization_section() -> Value {
     json!({ "confidential": confidential, "merge": merge })
 }
 
+const OWNER_SECRET: [u8; 32] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7,
+];
+const OTHER_SECRET: [u8; 32] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12,
+];
+const SENDER_VIEWING_SEED: [u8; 32] = [8; 32];
+const BLINDING_SEED: [u8; BLINDING_LEN] = [11; BLINDING_LEN];
+const SPL_MINT_BYTE: u8 = 3;
+const ZONE_BYTE: u8 = 12;
+
+fn owner_key(secret: &[u8; 32]) -> PublicKey {
+    SigningKey::from_bytes(secret)
+        .expect("signing key")
+        .pubkey()
+}
+
+/// A UTXO described the way both languages can rebuild it: `owner` names one of
+/// the two fixed signing secrets, `position` names the blinding the shared seed
+/// derives, and a `null` position carries a blinding the seed never derives.
+struct UtxoSpec {
+    owner: &'static str,
+    asset: Address,
+    amount: u64,
+    position: Option<u8>,
+    zone: Option<Address>,
+    records: Vec<(&'static str, Vec<u8>)>,
+}
+
+fn spec_utxo(spec: &UtxoSpec) -> Utxo {
+    let owner = match spec.owner {
+        "owner" => owner_key(&OWNER_SECRET),
+        "other" => owner_key(&OTHER_SECRET),
+        other => panic!("unknown owner {other}"),
+    };
+    Utxo {
+        owner,
+        asset: spec.asset,
+        amount: spec.amount,
+        blinding: match spec.position {
+            Some(position) => derive_blinding(&BLINDING_SEED, position),
+            None => [99u8; BLINDING_LEN],
+        },
+        zone_program_id: spec.zone,
+        data: Data::new(
+            spec.records
+                .iter()
+                .map(|(kind, bytes)| record(kind, bytes).0)
+                .collect(),
+        ),
+    }
+}
+
+fn spec_json(spec: &UtxoSpec) -> Value {
+    json!({
+        "owner": spec.owner,
+        "asset": spec.asset.to_string(),
+        "amount": spec.amount.to_string(),
+        "position": spec.position,
+        "zoneProgramId": spec.zone.map(|zone| zone.to_string()),
+        "records": spec
+            .records
+            .iter()
+            .map(|(kind, bytes)| json!({ "kind": kind, "bytesHex": hex(bytes) }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn from_utxos_case(
+    family: &str,
+    name: &str,
+    specs: Vec<UtxoSpec>,
+    zone_program_id: Option<Address>,
+    registry: &AssetRegistry,
+) -> Value {
+    let utxos = specs.iter().map(spec_utxo).collect::<Vec<_>>();
+    let cx = OwnerCx {
+        owner: owner_key(&OWNER_SECRET),
+        assets: registry,
+        zone_program_id,
+    };
+    let sender_viewing = ViewingKey::from_bytes(&SENDER_VIEWING_SEED).expect("viewing key");
+    let encoded = match family {
+        "plaintextTransfer" => PlaintextTransfer::from_utxos(
+            &utxos,
+            &cx,
+            &PlaintextEncode {
+                blinding_seed: BLINDING_SEED,
+            },
+        )
+        .and_then(|plaintext| PlaintextTransfer::serialize(&plaintext)),
+        "anonymousRecipient" => AnonymousRecipient::from_utxos(
+            &utxos,
+            &cx,
+            &AnonymousRecipientEncode {
+                tx: sender_viewing.clone(),
+                recipient_pubkey: sender_viewing.pubkey(),
+                sender_pubkey: sender_viewing.pubkey(),
+                salt: [10u8; SALT_LEN],
+                slot_index: 0,
+            },
+        )
+        .and_then(|plaintext| AnonymousRecipient::serialize(&plaintext)),
+        "anonymousSender" => AnonymousSenderBundle::from_utxos(
+            &utxos,
+            &cx,
+            &AnonymousSenderEncode {
+                tx: sender_viewing.clone(),
+                self_pubkey: sender_viewing.pubkey(),
+                salt: [10u8; SALT_LEN],
+                slot_index: 0,
+                blinding_seed: BLINDING_SEED,
+                recipient_viewing_pks: vec![sender_viewing.pubkey()],
+            },
+        )
+        .and_then(|plaintext| AnonymousSenderBundle::serialize(&plaintext)),
+        "split" => Split::from_utxos(
+            &utxos,
+            &cx,
+            &SplitEncode {
+                tx: sender_viewing.clone(),
+                recipient_pubkey: sender_viewing.pubkey(),
+                salt: [10u8; SALT_LEN],
+                slot_index: 0,
+                blinding_seed: BLINDING_SEED,
+            },
+        )
+        .and_then(|plaintext| Split::serialize(&plaintext)),
+        "proofless" => Proofless::from_utxos(
+            &utxos,
+            &cx,
+            &ProoflessEncode {
+                owner_hash: [5u8; 32],
+                data_hash: Some([6u8; 32]),
+                zone_data_hash: None,
+            },
+        )
+        .and_then(|plaintext| Proofless::serialize(&plaintext)),
+        other => panic!("unknown family {other}"),
+    };
+    let mut case = Map::new();
+    case.insert("name".into(), json!(name));
+    case.insert(
+        "utxos".into(),
+        Value::Array(specs.iter().map(spec_json).collect()),
+    );
+    case.insert(
+        "zoneProgramId".into(),
+        zone_program_id.map_or(Value::Null, |zone| json!(zone.to_string())),
+    );
+    match encoded {
+        Ok(bytes) => {
+            case.insert("encodedHex".into(), json!(hex(&bytes)));
+            case.insert("error".into(), Value::Null);
+        }
+        Err(error) => {
+            case.insert("encodedHex".into(), Value::Null);
+            case.insert("error".into(), json!(ts_code(&error)));
+        }
+    }
+    Value::Object(case)
+}
+
+/// The `from_utxos` conversions: a builder turning the UTXOs it derived back
+/// into the plaintext it encrypts. Both languages rebuild the inputs from the
+/// two fixed signing secrets and the shared blinding seed, so a divergence in
+/// key derivation shows up here as a byte mismatch rather than passing quietly.
+fn from_utxos_section() -> Value {
+    let spl_mint = address(SPL_MINT_BYTE);
+    let zone = address(ZONE_BYTE);
+    let registry = AssetRegistry::new([(2u64, spl_mint)]).expect("registry");
+    let owned = |asset: Address, amount: u64, position: Option<u8>| UtxoSpec {
+        owner: "owner",
+        asset,
+        amount,
+        position,
+        zone: None,
+        records: Vec::new(),
+    };
+
+    let plaintext_transfer = vec![
+        from_utxos_case(
+            "plaintextTransfer",
+            "senderSplAndSolPlusTwoRecipients",
+            vec![
+                owned(spl_mint, 5, Some(0)),
+                owned(SOL_MINT, 7, Some(1)),
+                UtxoSpec {
+                    owner: "other",
+                    asset: SOL_MINT,
+                    amount: 11,
+                    position: Some(2),
+                    zone: None,
+                    records: Vec::new(),
+                },
+                UtxoSpec {
+                    owner: "other",
+                    asset: spl_mint,
+                    amount: 13,
+                    position: Some(3),
+                    zone: None,
+                    records: vec![("memo", b"gm".to_vec())],
+                },
+            ],
+            None,
+            &registry,
+        ),
+        from_utxos_case("plaintextTransfer", "empty", Vec::new(), None, &registry),
+        from_utxos_case(
+            "plaintextTransfer",
+            "recipientsOnly",
+            vec![owned(SOL_MINT, 11, Some(2))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "plaintextTransfer",
+            "solInTheSplSlot",
+            vec![owned(SOL_MINT, 5, Some(0))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "plaintextTransfer",
+            "splInTheSolSlot",
+            vec![owned(spl_mint, 5, Some(1))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "plaintextTransfer",
+            "foreignOwnerInTheSenderSlot",
+            vec![UtxoSpec {
+                owner: "other",
+                asset: spl_mint,
+                amount: 5,
+                position: Some(0),
+                zone: None,
+                records: Vec::new(),
+            }],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "plaintextTransfer",
+            "blindingOffTheSeed",
+            vec![owned(SOL_MINT, 7, None)],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "plaintextTransfer",
+            "recipientPositionGap",
+            vec![owned(SOL_MINT, 11, Some(2)), owned(SOL_MINT, 12, Some(4))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "plaintextTransfer",
+            "zoneMismatch",
+            vec![owned(SOL_MINT, 7, Some(1))],
+            Some(zone),
+            &registry,
+        ),
+        from_utxos_case(
+            "plaintextTransfer",
+            "unregisteredMint",
+            vec![owned(address(9), 5, Some(0))],
+            None,
+            &registry,
+        ),
+    ];
+
+    let anonymous_recipient = vec![
+        from_utxos_case(
+            "anonymousRecipient",
+            "single",
+            vec![owned(spl_mint, 5, Some(3))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "anonymousRecipient",
+            "withMemo",
+            vec![UtxoSpec {
+                owner: "owner",
+                asset: SOL_MINT,
+                amount: 5,
+                position: Some(3),
+                zone: None,
+                records: vec![("memo", b"gm".to_vec())],
+            }],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "anonymousRecipient",
+            "zoneBound",
+            vec![UtxoSpec {
+                owner: "owner",
+                asset: SOL_MINT,
+                amount: 5,
+                position: Some(3),
+                zone: Some(zone),
+                records: vec![("zoneData", vec![1, 2])],
+            }],
+            Some(zone),
+            &registry,
+        ),
+        from_utxos_case("anonymousRecipient", "empty", Vec::new(), None, &registry),
+        from_utxos_case(
+            "anonymousRecipient",
+            "twoUtxos",
+            vec![owned(SOL_MINT, 5, Some(3)), owned(SOL_MINT, 6, Some(4))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "anonymousRecipient",
+            "foreignOwner",
+            vec![UtxoSpec {
+                owner: "other",
+                asset: SOL_MINT,
+                amount: 5,
+                position: Some(3),
+                zone: None,
+                records: Vec::new(),
+            }],
+            None,
+            &registry,
+        ),
+    ];
+
+    let anonymous_sender = vec![
+        from_utxos_case(
+            "anonymousSender",
+            "splAndSol",
+            vec![owned(spl_mint, 5, Some(0)), owned(SOL_MINT, 7, Some(1))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "anonymousSender",
+            "solOnly",
+            vec![owned(SOL_MINT, 7, Some(1))],
+            None,
+            &registry,
+        ),
+        from_utxos_case("anonymousSender", "empty", Vec::new(), None, &registry),
+        from_utxos_case(
+            "anonymousSender",
+            "solAtTheSplPosition",
+            vec![owned(SOL_MINT, 7, Some(0))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "anonymousSender",
+            "twoSplLegs",
+            vec![owned(spl_mint, 5, Some(0)), owned(spl_mint, 6, Some(0))],
+            None,
+            &registry,
+        ),
+    ];
+
+    let split = vec![
+        from_utxos_case(
+            "split",
+            "threeEqualParts",
+            vec![
+                owned(spl_mint, 5, Some(0)),
+                owned(spl_mint, 5, Some(1)),
+                owned(spl_mint, 5, Some(2)),
+            ],
+            None,
+            &registry,
+        ),
+        from_utxos_case("split", "empty", Vec::new(), None, &registry),
+        from_utxos_case(
+            "split",
+            "amountMismatch",
+            vec![owned(spl_mint, 5, Some(0)), owned(spl_mint, 6, Some(1))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "split",
+            "assetMismatch",
+            vec![owned(spl_mint, 5, Some(0)), owned(SOL_MINT, 5, Some(1))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "split",
+            "dataMismatch",
+            vec![
+                UtxoSpec {
+                    owner: "owner",
+                    asset: spl_mint,
+                    amount: 5,
+                    position: Some(0),
+                    zone: None,
+                    records: vec![("memo", b"gm".to_vec())],
+                },
+                owned(spl_mint, 5, Some(1)),
+            ],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "split",
+            "blindingOutOfOrder",
+            vec![owned(spl_mint, 5, Some(1)), owned(spl_mint, 5, Some(0))],
+            None,
+            &registry,
+        ),
+    ];
+
+    let proofless = vec![
+        from_utxos_case(
+            "proofless",
+            "single",
+            vec![owned(SOL_MINT, 5, Some(0))],
+            None,
+            &registry,
+        ),
+        from_utxos_case(
+            "proofless",
+            "everyRecord",
+            vec![UtxoSpec {
+                owner: "owner",
+                asset: SOL_MINT,
+                amount: 5,
+                position: Some(0),
+                zone: Some(zone),
+                records: vec![
+                    ("zoneData", vec![9]),
+                    ("utxoData", vec![1]),
+                    ("memo", b"gm".to_vec()),
+                ],
+            }],
+            Some(zone),
+            &registry,
+        ),
+        from_utxos_case("proofless", "empty", Vec::new(), None, &registry),
+        from_utxos_case(
+            "proofless",
+            "foreignOwner",
+            vec![UtxoSpec {
+                owner: "other",
+                asset: SOL_MINT,
+                amount: 5,
+                position: Some(0),
+                zone: None,
+                records: Vec::new(),
+            }],
+            None,
+            &registry,
+        ),
+    ];
+
+    json!({
+        "ownerPublicKeyHex": hex(owner_key(&OWNER_SECRET).as_bytes()),
+        "otherPublicKeyHex": hex(owner_key(&OTHER_SECRET).as_bytes()),
+        "senderViewingPublicKeyHex": hex(
+            ViewingKey::from_bytes(&SENDER_VIEWING_SEED)
+                .expect("viewing key")
+                .pubkey()
+                .as_bytes(),
+        ),
+        "blindingSeedHex": hex(&BLINDING_SEED),
+        "splMint": address(SPL_MINT_BYTE).to_string(),
+        "splAssetId": "2",
+        "zoneProgramId": address(ZONE_BYTE).to_string(),
+        "prooflessOwnerHashHex": hex(&[5u8; 32]),
+        "prooflessDataHashHex": hex(&[6u8; 32]),
+        "plaintextTransfer": plaintext_transfer,
+        "anonymousRecipient": anonymous_recipient,
+        "anonymousSender": anonymous_sender,
+        "split": split,
+        "proofless": proofless,
+    })
+}
+
 fn slots_section() -> Value {
     let cases = [
         0usize,
@@ -937,6 +1436,7 @@ fn oracle() -> Value {
         "utxo": utxo_section(),
         "slots": slots_section(),
         "serialization": serialization_section(),
+        "fromUtxos": from_utxos_section(),
     })
 }
 

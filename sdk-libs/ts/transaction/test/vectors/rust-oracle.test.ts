@@ -1,4 +1,5 @@
 import type { Address, Bytes31, Bytes32 } from "@zolana/interface";
+import { SigningKey, ViewingKey } from "@zolana/keypair";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,12 +10,18 @@ import {
   SOL_MINT,
   TRANSACTION_ERROR_CODES,
   TransactionError,
+  Utxo,
+  anonymousRecipientFromUtxos,
+  anonymousSenderFromUtxos,
   canonicalShape,
   deriveBlinding,
   encryptedSchemeFromByte,
   encryptedSchemeToByte,
   ownerUtxoHash,
+  plaintextTransferFromUtxos,
+  prooflessFromUtxos,
   resolveShape,
+  splitBundleFromUtxos,
   slotOrdinal,
   type DataRecord,
   type Shape,
@@ -24,9 +31,14 @@ import {
   decodeConfidential,
   decodeData,
   decodeMerge,
+  encodeAnonymousRecipient,
+  encodeAnonymousSender,
   encodeConfidential,
   encodeData,
   encodeMerge,
+  encodePlaintextTransfer,
+  encodeProofless,
+  encodeSplitBundle,
 } from "../../src/serialization/index.js";
 import oracle from "../oracles/transaction-parity-v1.json" with { type: "json" };
 
@@ -443,4 +455,113 @@ describe("the recorded TypeScript-only codes still have producers", () => {
       expect(declared.has(code as TransactionErrorCode)).toBe(true);
     }
   });
+});
+
+interface UtxoSpec {
+  readonly owner: string;
+  readonly asset: string;
+  readonly amount: string;
+  readonly position: number | null;
+  readonly zoneProgramId: string | null;
+  readonly records: readonly Readonly<{ kind: string; bytesHex: string }>[];
+}
+
+interface FromUtxosCase {
+  readonly name: string;
+  readonly utxos: readonly UtxoSpec[];
+  readonly zoneProgramId: string | null;
+  readonly encodedHex: string | null;
+  readonly error: string | null;
+}
+
+describe("the Rust oracle and TypeScript agree on the from-UTXO conversions", () => {
+  const fromUtxos = oracle.fromUtxos;
+  const ownerKey = SigningKey.fromBytes(
+    bytes(`${"00".repeat(31)}07`) as Bytes32,
+  ).publicKey();
+  const otherKey = SigningKey.fromBytes(
+    bytes(`${"00".repeat(31)}0c`) as Bytes32,
+  ).publicKey();
+  const senderViewing = ViewingKey.fromBytes(bytes("08".repeat(32)) as Bytes32).publicKey();
+  const blindingSeed = bytes(fromUtxos.blindingSeedHex) as Bytes31;
+  const splMint = fromUtxos.splMint as Address;
+
+  it("derives the same keys the Rust oracle recorded", () => {
+    expect(hex(ownerKey.toBytes())).toBe(fromUtxos.ownerPublicKeyHex);
+    expect(hex(otherKey.toBytes())).toBe(fromUtxos.otherPublicKeyHex);
+    expect(hex(senderViewing.toBytes())).toBe(fromUtxos.senderViewingPublicKeyHex);
+  });
+
+  function buildUtxo(spec: UtxoSpec): Utxo {
+    return new Utxo({
+      owner: spec.owner === "owner" ? ownerKey : otherKey,
+      asset: spec.asset as Address,
+      amount: BigInt(spec.amount),
+      blinding: (spec.position === null
+        ? (new Uint8Array(31).fill(99) as Bytes31)
+        : deriveBlinding(blindingSeed, spec.position)) as Bytes31,
+      data: new Data(
+        spec.records.map(
+          (record) => ({ kind: record.kind, bytes: bytes(record.bytesHex) }) as DataRecord,
+        ),
+      ),
+      ...(spec.zoneProgramId === null ? {} : { zoneProgramId: spec.zoneProgramId as Address }),
+    });
+  }
+
+  function run(family: string, testCase: FromUtxosCase): void {
+    const utxos = testCase.utxos.map(buildUtxo);
+    const owner = {
+      owner: ownerKey,
+      assets: new AssetRegistry([[2n, splMint]]),
+      ...(testCase.zoneProgramId === null
+        ? {}
+        : { zoneProgramId: testCase.zoneProgramId as Address }),
+    };
+    const convert = (): Uint8Array => {
+      switch (family) {
+        case "plaintextTransfer":
+          return encodePlaintextTransfer(plaintextTransferFromUtxos(utxos, owner, { blindingSeed }));
+        case "anonymousRecipient":
+          return encodeAnonymousRecipient(
+            anonymousRecipientFromUtxos(utxos, owner, { senderPublicKey: senderViewing }),
+          );
+        case "anonymousSender":
+          return encodeAnonymousSender(
+            anonymousSenderFromUtxos(utxos, owner, {
+              blindingSeed,
+              recipientViewingPublicKeys: [senderViewing],
+            }),
+          );
+        case "split":
+          return encodeSplitBundle(splitBundleFromUtxos(utxos, owner, { blindingSeed }));
+        default:
+          return encodeProofless(
+            prooflessFromUtxos(utxos, owner, {
+              ownerHash: bytes(fromUtxos.prooflessOwnerHashHex) as Bytes32,
+              dataHash: bytes(fromUtxos.prooflessDataHashHex) as Bytes32,
+            }),
+          );
+      }
+    };
+    if (testCase.error !== null) {
+      expect(codeOf(convert)).toBe(testCase.error);
+      return;
+    }
+    expect(hex(convert())).toBe(testCase.encodedHex);
+  }
+
+  for (const family of [
+    "plaintextTransfer",
+    "anonymousRecipient",
+    "anonymousSender",
+    "split",
+    "proofless",
+  ] as const) {
+    for (const testCase of fromUtxos[family] as readonly FromUtxosCase[]) {
+      it(`converts ${family} ${testCase.name} the same way`, () => {
+        run(family, testCase);
+      });
+    }
+  }
 });
