@@ -142,6 +142,12 @@ pub enum TransactionError {
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 
+    #[error("wallet balance overflow")]
+    WalletBalanceOverflow,
+
+    #[error("tag scan window must be nonzero")]
+    InvalidTagWindow,
+
     #[error("merge input {index} carries program or zone data, which is not supported")]
     MergeInputHasData { index: usize },
 

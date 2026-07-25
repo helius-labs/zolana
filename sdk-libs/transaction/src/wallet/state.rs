@@ -52,6 +52,7 @@ pub struct PrivateTransaction {
     pub counterparty_viewing_pubkey: Option<P256Pubkey>,
 }
 
+#[derive(Clone)]
 pub struct ViewingKeyEntry {
     pub viewing_pubkey: P256Pubkey,
     pub created_at: i64,
@@ -128,6 +129,7 @@ pub struct SyncReport {
     pub unknown_asset_ids: BTreeSet<u64>,
 }
 
+#[derive(Clone)]
 pub struct Wallet {
     /// Public wallet identity. All secret key material is supplied by a
     /// `WalletAuthority` when cryptographic work is required.
@@ -211,7 +213,10 @@ impl Wallet {
                     continue;
                 }
             }
-            balance.amount = balance.amount.saturating_add(wallet_utxo.utxo.amount);
+            balance.amount = balance
+                .amount
+                .checked_add(wallet_utxo.utxo.amount)
+                .ok_or(TransactionError::WalletBalanceOverflow)?;
             balance.utxos.push(wallet_utxo.utxo.clone());
         }
         Ok(balance)
@@ -229,7 +234,10 @@ impl Wallet {
                     utxos: Vec::new(),
                 }),
             };
-            balance.amount = balance.amount.saturating_add(wallet_utxo.utxo.amount);
+            balance.amount = balance
+                .amount
+                .checked_add(wallet_utxo.utxo.amount)
+                .ok_or(TransactionError::WalletBalanceOverflow)?;
             if !skip_utxos {
                 balance.utxos.push(wallet_utxo.utxo.clone());
             }
