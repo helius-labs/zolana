@@ -1,11 +1,15 @@
 import type { Address, Bytes31, Bytes32 } from "@zolana/interface";
-import { SigningKey, ViewingKey } from "@zolana/keypair";
+import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
 import { describe, expect, it } from "vitest";
 
 import {
   AssetRegistry,
+  BN254_MODULUS_DEC,
+  ConfidentialTransfer,
   Data,
   EncryptedScheme,
+  ProofInputUtxo,
+  SENDER_SLOT_COUNT,
   SOL_ASSET_ID,
   SOL_MINT,
   TRANSACTION_ERROR_CODES,
@@ -13,6 +17,7 @@ import {
   Utxo,
   anonymousRecipientFromUtxos,
   anonymousSenderFromUtxos,
+  assetField,
   canonicalShape,
   deriveBlinding,
   encryptedSchemeFromByte,
@@ -21,11 +26,14 @@ import {
   plaintextTransferFromUtxos,
   prooflessFromUtxos,
   resolveShape,
+  signedToField,
   splitBundleFromUtxos,
   slotOrdinal,
   type DataRecord,
+  type PreparedTransfer,
   type Shape,
   type TransactionErrorCode,
+  type WithdrawalTarget,
 } from "../../src/index.js";
 import {
   decodeConfidential,
@@ -565,4 +573,150 @@ describe("the Rust oracle and TypeScript agree on the from-UTXO conversions", ()
       });
     }
   }
+});
+
+type TransferOp =
+  | Readonly<{ kind: "send"; asset: string; amount: string }>
+  | Readonly<{ kind: "withdraw"; asset: string; amount: string; target: "sol" | "spl" }>
+  | Readonly<{ kind: "withShape"; shape: ShapeJson }>;
+
+interface TransferCase {
+  readonly name: string;
+  readonly inputs: readonly Readonly<{ asset: string; amount: string; position: number }>[];
+  readonly ops: readonly TransferOp[];
+  readonly error: string | null;
+  readonly shape: ShapeJson | null;
+  readonly preparedInputs: number | null;
+  readonly preparedOutputs: number | null;
+  readonly changeAmounts: readonly string[] | null;
+  readonly publicSol: string | null;
+  readonly publicSpl: string | null;
+  readonly userSolAccount: string | null;
+  readonly userSplToken: string | null;
+}
+
+describe("the Rust oracle and TypeScript agree on the transfer builder", () => {
+  const transfer = oracle.transfer;
+  const splTarget = transfer.splTarget;
+
+  function keypair(
+    secretByte: number,
+    viewingSeed: string,
+  ): Readonly<{ shielded: ShieldedKeypair; nullifier: NullifierKey }> {
+    const secret = new Uint8Array(32);
+    secret[31] = secretByte;
+    const signing = SigningKey.fromBytes(secret as Bytes32);
+    const nullifier = NullifierKey.fromSigningKey(signing);
+    return {
+      shielded: ShieldedKeypair.fromKeys(
+        signing,
+        nullifier,
+        ViewingKey.fromBytes(bytes(viewingSeed) as Bytes32),
+      ),
+      nullifier,
+    };
+  }
+
+  const sender = keypair(7, transfer.ownerViewingSeedHex);
+  const receiver = keypair(12, transfer.recipientViewingSeedHex);
+  const blindingSeed = new Uint8Array(31).fill(11) as Bytes31;
+
+  function withdrawalTarget(target: "sol" | "spl"): WithdrawalTarget {
+    return target === "sol"
+      ? { kind: "sol", recipient: transfer.solTarget as Address }
+      : {
+          kind: "spl",
+          userTokenAccount: splTarget.userSplToken as Address,
+          splTokenInterface: splTarget.splTokenInterface as Address,
+        };
+  }
+
+  function build(testCase: TransferCase): PreparedTransfer {
+    const builder = new ConfidentialTransfer(
+      sender.shielded.shieldedAddress(),
+      testCase.inputs.map(
+        (input) =>
+          new ProofInputUtxo({
+            utxo: new Utxo({
+              owner: sender.shielded.signingPublicKey(),
+              asset: input.asset as Address,
+              amount: BigInt(input.amount),
+              blinding: deriveBlinding(blindingSeed, input.position),
+            }),
+            nullifierKey: sender.nullifier,
+          }),
+      ),
+      transfer.payer as Address,
+    );
+    for (const op of testCase.ops) {
+      switch (op.kind) {
+        case "send":
+          builder.send(
+            receiver.shielded.shieldedAddress(),
+            op.asset as Address,
+            BigInt(op.amount),
+          );
+          break;
+        case "withdraw":
+          builder.withdraw(op.asset as Address, BigInt(op.amount), withdrawalTarget(op.target));
+          break;
+        default:
+          builder.withShape(op.shape);
+      }
+    }
+    return builder.prepare();
+  }
+
+  it("counts the same sender slots", () => {
+    expect(SENDER_SLOT_COUNT).toBe(transfer.senderSlotCount);
+  });
+
+  for (const testCase of transfer.cases as readonly TransferCase[]) {
+    it(`decides ${testCase.name} the same way`, () => {
+      if (testCase.error !== null) {
+        expect(codeOf(() => build(testCase))).toBe(testCase.error);
+        return;
+      }
+      const prepared = build(testCase);
+      // Rust pads inputs and outputs in `finalize`, so these counts stay at the
+      // real slot count; a language that padded in `prepare` would report the
+      // shape's width instead.
+      expect(prepared.inputs.length).toBe(testCase.preparedInputs);
+      expect(prepared.outputs.length).toBe(testCase.preparedOutputs);
+      expect(prepared.shape).toEqual(testCase.shape);
+      expect(
+        prepared.outputs.slice(0, SENDER_SLOT_COUNT).map((output) => output.amount.toString()),
+      ).toEqual(testCase.changeAmounts);
+      expect(prepared.publicSolAmount?.toString() ?? null).toBe(testCase.publicSol);
+      expect(prepared.publicSplAmount?.toString() ?? null).toBe(testCase.publicSpl);
+      expect(prepared.userSolAccount).toBe(testCase.userSolAccount);
+      expect(prepared.userSplToken).toBe(testCase.userSplToken);
+    });
+  }
+});
+
+describe("the Rust oracle and TypeScript agree on public-input field encodings", () => {
+  const fields = oracle.fields;
+
+  it("pins the same BN254 modulus", () => {
+    expect(BN254_MODULUS_DEC).toBe(fields.bn254Modulus);
+  });
+
+  it("wraps every signed amount into the same field element", () => {
+    for (const entry of fields.signedToField as readonly Readonly<{
+      value: string;
+      fieldHex: string;
+    }>[]) {
+      expect(hex(signedToField(BigInt(entry.value)))).toBe(entry.fieldHex);
+    }
+  });
+
+  it("hashes every asset into the same field element", () => {
+    for (const entry of fields.assetField as readonly Readonly<{
+      asset: string;
+      fieldHex: string;
+    }>[]) {
+      expect(hex(assetField(entry.asset as Address))).toBe(entry.fieldHex);
+    }
+  });
 });

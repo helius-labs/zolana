@@ -616,6 +616,61 @@
       }
     ]
   },
+  "fields": {
+    "assetField": [
+      {
+        "asset": "11111111111111111111111111111111",
+        "fieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864"
+      },
+      {
+        "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+        "fieldHex": "1d9811f297197604e6e4873f61eacfdcbc56012aa519a62b153e4d4a0b5febef"
+      },
+      {
+        "asset": "JEKNVnkbo3jma5nREBBJCDoXFVeKkD56V3xKrvRmWxFG",
+        "fieldHex": "2578c8bbec89b2fe57969cfb9b884d2e92f1949334ac9530537b324dc674f63d"
+      }
+    ],
+    "bn254Modulus": "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+    "signedToField": [
+      {
+        "fieldHex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "value": "0"
+      },
+      {
+        "fieldHex": "0000000000000000000000000000000000000000000000000000000000000001",
+        "value": "1"
+      },
+      {
+        "fieldHex": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000",
+        "value": "-1"
+      },
+      {
+        "fieldHex": "00000000000000000000000000000000000000000000000000000000000001f4",
+        "value": "500"
+      },
+      {
+        "fieldHex": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffe0d",
+        "value": "-500"
+      },
+      {
+        "fieldHex": "0000000000000000000000000000000000000000000000007fffffffffffffff",
+        "value": "9223372036854775807"
+      },
+      {
+        "fieldHex": "30644e72e131a029b85045b68181585d2833e84879b97090c3e1f593f0000001",
+        "value": "-9223372036854775808"
+      },
+      {
+        "fieldHex": "30644e72e131a029b85045b68181585d2833e84879b97090c3e1f593f0000002",
+        "value": "-9223372036854775807"
+      },
+      {
+        "fieldHex": "00000000000000000000000000000000000000000000000000000000ffffffff",
+        "value": "4294967295"
+      }
+    ]
+  },
   "fromUtxos": {
     "anonymousRecipient": [
       {
@@ -4016,6 +4071,515 @@
         "position": "4294967296"
       }
     ]
+  },
+  "transfer": {
+    "cases": [
+      {
+        "changeAmounts": [
+          "0",
+          "100"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "changeOnly",
+        "ops": [],
+        "preparedInputs": 1,
+        "preparedOutputs": 2,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "70"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "oneRecipient",
+        "ops": [
+          {
+            "amount": "30",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 3,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "100"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "zeroAmountRecipient",
+        "ops": [
+          {
+            "amount": "0",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 3,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "0"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "wholeBalanceLeavesNoChange",
+        "ops": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 3,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_INSUFFICIENT_BALANCE",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "recipientBeyondBalance",
+        "ops": [
+          {
+            "amount": "101",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "100"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "zeroAmountWithdrawal",
+        "ops": [
+          {
+            "amount": "0",
+            "asset": "11111111111111111111111111111111",
+            "kind": "withdraw",
+            "target": "sol"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 2,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        },
+        "userSolAccount": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "60"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "solWithdrawal",
+        "ops": [
+          {
+            "amount": "40",
+            "asset": "11111111111111111111111111111111",
+            "kind": "withdraw",
+            "target": "sol"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 2,
+        "publicSol": "-40",
+        "publicSpl": null,
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        },
+        "userSolAccount": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": [
+          "60",
+          "5"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "position": 0
+          },
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "position": 1
+          }
+        ],
+        "name": "splWithdrawal",
+        "ops": [
+          {
+            "amount": "40",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "kind": "withdraw",
+            "target": "spl"
+          }
+        ],
+        "preparedInputs": 2,
+        "preparedOutputs": 2,
+        "publicSol": null,
+        "publicSpl": "-40",
+        "shape": {
+          "inputs": 2,
+          "outputs": 2
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr"
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_WITHDRAWAL_ALREADY_SET",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "withdrawalTwice",
+        "ops": [
+          {
+            "amount": "10",
+            "asset": "11111111111111111111111111111111",
+            "kind": "withdraw",
+            "target": "sol"
+          },
+          {
+            "amount": "10",
+            "asset": "11111111111111111111111111111111",
+            "kind": "withdraw",
+            "target": "sol"
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_WITHDRAWAL_ASSET_MISMATCH",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "position": 0
+          }
+        ],
+        "name": "splAssetAtASolTarget",
+        "ops": [
+          {
+            "amount": "10",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "kind": "withdraw",
+            "target": "sol"
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_WITHDRAWAL_ASSET_MISMATCH",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "solAssetAtASplTarget",
+        "ops": [
+          {
+            "amount": "10",
+            "asset": "11111111111111111111111111111111",
+            "kind": "withdraw",
+            "target": "spl"
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "position": 0
+          },
+          {
+            "amount": "100",
+            "asset": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+            "position": 1
+          }
+        ],
+        "name": "twoSplAssets",
+        "ops": [],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "70"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "declaredShapeWithRoomToPad",
+        "ops": [
+          {
+            "amount": "30",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          },
+          {
+            "kind": "withShape",
+            "shape": {
+              "inputs": 1,
+              "outputs": 8
+            }
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 3,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "declaredShapeTooNarrow",
+        "ops": [
+          {
+            "amount": "30",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          },
+          {
+            "kind": "withShape",
+            "shape": {
+              "inputs": 1,
+              "outputs": 1
+            }
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "declaredShapeUnsupported",
+        "ops": [
+          {
+            "kind": "withShape",
+            "shape": {
+              "inputs": 7,
+              "outputs": 7
+            }
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "0"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "18446744073709551615",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "maxAmountRecipient",
+        "ops": [
+          {
+            "amount": "18446744073709551615",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 3,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      }
+    ],
+    "ownerViewingSeedHex": "1515151515151515151515151515151515151515151515151515151515151515",
+    "payer": "21nS9Wz9sUTQ6MkcYUtnN8aSfPA26xJJP7zqshfzCzqc",
+    "recipientViewingSeedHex": "1616161616161616161616161616161616161616161616161616161616161616",
+    "senderSlotCount": 2,
+    "solTarget": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+    "splTarget": {
+      "splTokenInterface": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+      "userSplToken": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr"
+    }
   },
   "utxo": {
     "deriveBlinding": [

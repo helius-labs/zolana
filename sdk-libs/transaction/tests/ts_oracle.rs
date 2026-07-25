@@ -23,11 +23,20 @@ use solana_address::Address;
 use wincode;
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
-    PublicKey, SigningKey, ViewingKey,
+    PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
 };
 use zolana_transaction::{
     derive_blinding,
-    instructions::transact::{canonical_shape, shape::resolve_shape, slot_ordinal, Shape},
+    instructions::{
+        transact::{
+            canonical_shape,
+            shape::resolve_shape,
+            slot_ordinal,
+            spp_proof_inputs::{asset_field, signed_to_field, BN254_MODULUS_DEC},
+            ConfidentialTransfer, Shape, WithdrawalTarget, SENDER_SLOT_COUNT,
+        },
+        types::SppProofInputUtxo,
+    },
     owner_utxo_hash,
     serialization::{
         anonymous::{
@@ -1396,6 +1405,416 @@ fn from_utxos_section() -> Value {
     })
 }
 
+const TRANSFER_VIEWING_SEED: [u8; 32] = [21; 32];
+const RECIPIENT_VIEWING_SEED: [u8; 32] = [22; 32];
+const PAYER_BYTE: u8 = 15;
+
+fn shielded_keypair(secret: &[u8; 32], viewing_seed: &[u8; 32]) -> ShieldedKeypair {
+    ShieldedKeypair::from_keys(
+        SigningKey::from_bytes(secret).expect("signing key"),
+        ViewingKey::from_bytes(viewing_seed).expect("viewing key"),
+    )
+    .expect("shielded keypair")
+}
+
+/// One call on the transfer builder. Both languages replay the same list in
+/// order, so a guard that fires on one side and not the other shows up as a
+/// different recorded outcome rather than as a shape difference later.
+enum TransferOp {
+    Send { asset: Address, amount: u64 },
+    Withdraw {
+        asset: Address,
+        amount: u64,
+        target: &'static str,
+    },
+    WithShape(Shape),
+}
+
+fn transfer_op_json(op: &TransferOp) -> Value {
+    match op {
+        TransferOp::Send { asset, amount } => json!({
+            "kind": "send",
+            "asset": asset.to_string(),
+            "amount": amount.to_string(),
+        }),
+        TransferOp::Withdraw {
+            asset,
+            amount,
+            target,
+        } => json!({
+            "kind": "withdraw",
+            "asset": asset.to_string(),
+            "amount": amount.to_string(),
+            "target": target,
+        }),
+        TransferOp::WithShape(shape) => json!({ "kind": "withShape", "shape": shape_json(*shape) }),
+    }
+}
+
+fn withdrawal_target(target: &str) -> WithdrawalTarget {
+    match target {
+        "sol" => WithdrawalTarget::Sol {
+            user_sol_account: address(20),
+        },
+        "spl" => WithdrawalTarget::Spl {
+            user_spl_token: address(21),
+            spl_token_interface: address(22),
+        },
+        other => panic!("unknown withdrawal target {other}"),
+    }
+}
+
+struct TransferCase {
+    name: &'static str,
+    /// `(asset, amount, blinding position)` per input, all owned by the fixed
+    /// transfer keypair so both languages derive the same commitments.
+    inputs: Vec<(Address, u64, u8)>,
+    ops: Vec<TransferOp>,
+}
+
+fn transfer_case(case: TransferCase) -> Value {
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let recipient = shielded_keypair(&OTHER_SECRET, &RECIPIENT_VIEWING_SEED);
+    let inputs = case
+        .inputs
+        .iter()
+        .map(|(asset, amount, position)| {
+            SppProofInputUtxo::new(
+                Utxo {
+                    owner: owner.signing_pubkey(),
+                    asset: *asset,
+                    amount: *amount,
+                    blinding: derive_blinding(&BLINDING_SEED, *position),
+                    zone_program_id: None,
+                    data: Data::default(),
+                },
+                &owner,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let mut json_case = Map::new();
+    json_case.insert("name".into(), json!(case.name));
+    json_case.insert(
+        "inputs".into(),
+        Value::Array(
+            case.inputs
+                .iter()
+                .map(|(asset, amount, position)| {
+                    json!({
+                        "asset": asset.to_string(),
+                        "amount": amount.to_string(),
+                        "position": position,
+                    })
+                })
+                .collect(),
+        ),
+    );
+    json_case.insert(
+        "ops".into(),
+        Value::Array(case.ops.iter().map(transfer_op_json).collect()),
+    );
+
+    let mut transfer = ConfidentialTransfer::new(
+        owner.shielded_address().expect("shielded address"),
+        inputs,
+        address(PAYER_BYTE),
+    );
+    let mut failure = None;
+    for op in &case.ops {
+        let outcome = match op {
+            TransferOp::Send { asset, amount } => transfer
+                .send(
+                    &recipient.shielded_address().expect("recipient address"),
+                    *asset,
+                    *amount,
+                )
+                .map(|_| ()),
+            TransferOp::Withdraw {
+                asset,
+                amount,
+                target,
+            } => transfer
+                .withdraw(*asset, *amount, withdrawal_target(target))
+                .map(|_| ()),
+            TransferOp::WithShape(shape) => {
+                transfer = transfer.with_shape(*shape);
+                Ok(())
+            }
+        };
+        if let Err(error) = outcome {
+            failure = Some(error);
+            break;
+        }
+    }
+
+    let prepared = match failure {
+        Some(error) => Err(error),
+        None => transfer.prepare(),
+    };
+    match prepared {
+        Ok(prepared) => {
+            json_case.insert("error".into(), Value::Null);
+            // Counts before padding: Rust pads in `finalize`, so a language that
+            // pads in `prepare` reports the shape's width here instead.
+            json_case.insert("preparedInputs".into(), json!(prepared.inputs.len()));
+            json_case.insert("preparedOutputs".into(), json!(prepared.outputs.len()));
+            json_case.insert("shape".into(), shape_json(prepared.shape));
+            json_case.insert(
+                "publicSol".into(),
+                prepared
+                    .public_sol_amount
+                    .map_or(Value::Null, |amount| json!(amount.to_string())),
+            );
+            json_case.insert(
+                "publicSpl".into(),
+                prepared
+                    .public_spl_amount
+                    .map_or(Value::Null, |amount| json!(amount.to_string())),
+            );
+            json_case.insert(
+                "changeAmounts".into(),
+                Value::Array(
+                    prepared
+                        .outputs
+                        .iter()
+                        .take(SENDER_SLOT_COUNT)
+                        .map(|output| json!(output.amount.to_string()))
+                        .collect(),
+                ),
+            );
+            json_case.insert(
+                "userSolAccount".into(),
+                json!(prepared.user_sol_account.to_string()),
+            );
+            json_case.insert(
+                "userSplToken".into(),
+                json!(prepared.user_spl_token.to_string()),
+            );
+        }
+        Err(error) => {
+            json_case.insert("error".into(), json!(ts_code(&error)));
+            for field in [
+                "preparedInputs",
+                "preparedOutputs",
+                "shape",
+                "publicSol",
+                "publicSpl",
+                "changeAmounts",
+                "userSolAccount",
+                "userSplToken",
+            ] {
+                json_case.insert(field.into(), Value::Null);
+            }
+        }
+    }
+    Value::Object(json_case)
+}
+
+/// The transfer builder's accept and reject set. Blindings and dummy tags are
+/// randomly sampled, so this pins what the builder decides rather than the bytes
+/// it produces: which inputs it takes, which shape it resolves, and how the
+/// public leg and the two change slots come out.
+fn transfer_section() -> Value {
+    let spl_mint = address(SPL_MINT_BYTE);
+    let sol_input = |amount: u64, position: u8| (SOL_MINT, amount, position);
+    let cases = vec![
+        transfer_case(TransferCase {
+            name: "changeOnly",
+            inputs: vec![sol_input(100, 0)],
+            ops: Vec::new(),
+        }),
+        transfer_case(TransferCase {
+            name: "oneRecipient",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Send {
+                asset: SOL_MINT,
+                amount: 30,
+            }],
+        }),
+        // The guard TypeScript used to apply here refused a zero amount that
+        // Rust takes, so this is the case that keeps the two ends together.
+        transfer_case(TransferCase {
+            name: "zeroAmountRecipient",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Send {
+                asset: SOL_MINT,
+                amount: 0,
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "wholeBalanceLeavesNoChange",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Send {
+                asset: SOL_MINT,
+                amount: 100,
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "recipientBeyondBalance",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Send {
+                asset: SOL_MINT,
+                amount: 101,
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "zeroAmountWithdrawal",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Withdraw {
+                asset: SOL_MINT,
+                amount: 0,
+                target: "sol",
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "solWithdrawal",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Withdraw {
+                asset: SOL_MINT,
+                amount: 40,
+                target: "sol",
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "splWithdrawal",
+            inputs: vec![(spl_mint, 100, 0), sol_input(5, 1)],
+            ops: vec![TransferOp::Withdraw {
+                asset: spl_mint,
+                amount: 40,
+                target: "spl",
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "withdrawalTwice",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![
+                TransferOp::Withdraw {
+                    asset: SOL_MINT,
+                    amount: 10,
+                    target: "sol",
+                },
+                TransferOp::Withdraw {
+                    asset: SOL_MINT,
+                    amount: 10,
+                    target: "sol",
+                },
+            ],
+        }),
+        transfer_case(TransferCase {
+            name: "splAssetAtASolTarget",
+            inputs: vec![(spl_mint, 100, 0)],
+            ops: vec![TransferOp::Withdraw {
+                asset: spl_mint,
+                amount: 10,
+                target: "sol",
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "solAssetAtASplTarget",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Withdraw {
+                asset: SOL_MINT,
+                amount: 10,
+                target: "spl",
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "twoSplAssets",
+            inputs: vec![(spl_mint, 100, 0), (address(9), 100, 1)],
+            ops: Vec::new(),
+        }),
+        transfer_case(TransferCase {
+            name: "declaredShapeWithRoomToPad",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![
+                TransferOp::Send {
+                    asset: SOL_MINT,
+                    amount: 30,
+                },
+                TransferOp::WithShape(Shape::IN1_OUT8),
+            ],
+        }),
+        transfer_case(TransferCase {
+            name: "declaredShapeTooNarrow",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![
+                TransferOp::Send {
+                    asset: SOL_MINT,
+                    amount: 30,
+                },
+                TransferOp::WithShape(Shape::IN1_OUT1),
+            ],
+        }),
+        transfer_case(TransferCase {
+            name: "declaredShapeUnsupported",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::WithShape(Shape::new(7, 7))],
+        }),
+        transfer_case(TransferCase {
+            name: "maxAmountRecipient",
+            inputs: vec![sol_input(u64::MAX, 0)],
+            ops: vec![TransferOp::Send {
+                asset: SOL_MINT,
+                amount: u64::MAX,
+            }],
+        }),
+    ];
+    json!({
+        "senderSlotCount": SENDER_SLOT_COUNT,
+        "payer": address(PAYER_BYTE).to_string(),
+        "ownerViewingSeedHex": hex(&TRANSFER_VIEWING_SEED),
+        "recipientViewingSeedHex": hex(&RECIPIENT_VIEWING_SEED),
+        "solTarget": address(20).to_string(),
+        "splTarget": {
+            "userSplToken": address(21).to_string(),
+            "splTokenInterface": address(22).to_string(),
+        },
+        "cases": cases,
+    })
+}
+
+/// The field encodings a proof's public inputs carry. `signed_to_field` wraps a
+/// negative amount around the BN254 modulus, which is the only place the SDK
+/// depends on the modulus value itself.
+fn fields_section() -> Value {
+    let signed = [
+        0i64,
+        1,
+        -1,
+        500,
+        -500,
+        i64::MAX,
+        i64::MIN,
+        i64::MIN + 1,
+        u32::MAX as i64,
+    ]
+    .iter()
+    .map(|value| {
+        json!({
+            "value": value.to_string(),
+            "fieldHex": hex(&signed_to_field(*value)),
+        })
+    })
+    .collect::<Vec<_>>();
+
+    let assets = [SOL_MINT, address(SPL_MINT_BYTE), address(255)]
+        .iter()
+        .map(|asset| {
+            json!({
+                "asset": asset.to_string(),
+                "fieldHex": hex(&asset_field(asset).expect("asset field")),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "bn254Modulus": BN254_MODULUS_DEC,
+        "signedToField": signed,
+        "assetField": assets,
+    })
+}
+
 fn slots_section() -> Value {
     let cases = [
         0usize,
@@ -1434,7 +1853,9 @@ fn oracle() -> Value {
         "shape": shape_section(),
         "asset": asset_section(),
         "utxo": utxo_section(),
+        "fields": fields_section(),
         "slots": slots_section(),
+        "transfer": transfer_section(),
         "serialization": serialization_section(),
         "fromUtxos": from_utxos_section(),
     })

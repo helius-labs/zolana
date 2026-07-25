@@ -12,6 +12,7 @@ export {
   type TransactionErrorValue,
 } from "./error.js";
 export {
+  BN254_MODULUS_DEC,
   ConfidentialSplit,
   MERGE_INPUTS,
   Merge,
@@ -19,13 +20,16 @@ export {
   PreparedMerge,
   PreparedMergeZone,
   PreparedSplit,
+  SENDER_SLOT_COUNT,
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
   ConfidentialTransfer,
+  assetField,
   canonicalShape,
   createExternalData,
   prepareZoneAuthority,
   resolveShape,
+  signedToField,
   slotOrdinal,
 } from "./instructions/index.js";
 export type {

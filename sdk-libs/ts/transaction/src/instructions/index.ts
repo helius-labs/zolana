@@ -10,12 +10,16 @@ export {
 } from "./builders.js";
 export type { PreparedZoneAuthority } from "./builders.js";
 export {
+  BN254_MODULUS_DEC,
   ConfidentialTransfer,
+  SENDER_SLOT_COUNT,
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
+  assetField,
   canonicalShape,
   createExternalData,
   resolveShape,
+  signedToField,
   slotOrdinal,
 } from "./transact.js";
 export type {
