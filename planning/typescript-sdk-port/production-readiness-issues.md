@@ -100,8 +100,8 @@ evidence.
 | ----- | -------- | -------------- | --- | ----------- | --------- |
 | G7-1 | `blocker` | [PKP-00](proof-and-key-parity.md#pkp-00-resolve-authorities-and-freeze-scope) plus the checklist rows marked `BLOCKED` | `docs/spec.md` builds `owner_hash` from the parity-inclusive `pk_field`; the program, circuit gadget, Rust, and TypeScript use the parity-free form. | The specification describes both encodings, names which one enters `owner_hash`, and restates the collision argument for the parity-free form. | PKP-00 exit: no disputed behavior is labelled canonical. |
 | G7-2 | `blocker` | [`proof-and-key-parity.md`](proof-and-key-parity.md#authority-and-conflict-policy) plus [`README.md`](README.md#source-precedence) | Two authority orders exist and differ; neither carries a per-conflict ruling row. | One reconciled order, one resolution procedure, and one row per open conflict with its ruling and the artifact changed. | PKP-00 exit plus the reconciled conflict ledger. |
-| G2-1 | `high` | [PKP-02](proof-and-key-parity.md#pkp-02-complete-key-encoding-and-signature-parity) K2 | Production signing pins `lowS: true`; the prover vector helper pins `lowS: false`. | The circuit's ECDSA gadget and the Go prover are read, the policy is recorded as the authority, and both call sites match it. | PKP-02 K2 corpus, covering low-S and equivalent high-S signatures. |
-| G2-2 | `medium` | [PKP-02](proof-and-key-parity.md#pkp-02-complete-key-encoding-and-signature-parity) K3 | `zip215: false` is pinned with no recorded rationale against the Solana runtime's policy. | The Ed25519 authority is named and any deliberate strictness is documented. | PKP-02 K3 corpus: a signature valid under one convention and not the other. |
+| G2-1 | `high` | [PKP-02](proof-and-key-parity.md#pkp-02-complete-key-encoding-and-signature-parity) K2 | Closed in `65100a09`. The gadget accepts high-S, so TypeScript signs and verifies with `lowS: false` and the helper override is gone. | Closed. | `sdk-libs/ts/client/test/vectors/p256-malleability.test.ts` over the ten committed P256 shapes. |
+| G2-2 | `medium` | [PKP-02](proof-and-key-parity.md#pkp-02-complete-key-encoding-and-signature-parity) K3 | Closed in `65100a09`. Both SDK helpers mirror the Solana runtime's `verify_strict`. | Closed. | `sdk-libs/ts/keypair/test/ed25519-acceptance.test.ts` and `ed25519_verify_mirrors_the_runtime`, over the same three vectors. |
 
 ### Phase 5: PKP-00 through PKP-08
 
@@ -269,6 +269,13 @@ three places without a recorded decision, and the choices disagree.
 
 ### G2-1 Production signing enforces low-S; the test oracle does not (`high`)
 
+Closed in `65100a09` by the ruling recorded in
+[`authority-rulings.md`](authority-rulings.md#ruled-ecdsa-malleability-policy-g2-1). The gadget
+range-checks `r` and `s` against the scalar modulus, with no comparison against `n/2`, so it is the
+permissive authority: TypeScript signs and verifies with `lowS: false`, and the helper override is
+gone because the helper now signs through `SigningKey`. The finding below is the state before that
+ruling.
+
 Scheduled: phase 3, owned by
 [PKP-02](proof-and-key-parity.md#pkp-02-complete-key-encoding-and-signature-parity), whose K2 suite
 already requires the release to choose and document one high-S policy against the circuit and the
@@ -297,6 +304,11 @@ signatures produced by a conforming Rust or hardware signer. If the circuit reje
 helper is producing vectors the protocol would refuse.
 
 ### G2-2 Ed25519 verification pins `zip215: false` without a recorded rationale (`medium`)
+
+Closed in `65100a09` by the ruling recorded in
+[`authority-rulings.md`](authority-rulings.md#ruled-ed25519-acceptance-g2-2). The authority is the
+Solana runtime, so `sdk-libs/keypair` calls `verify_strict` and `sdk-libs/ts/keypair` implements the
+same semantics by hand. The finding below is the state before that ruling.
 
 Scheduled: phase 3, owned by
 [PKP-02](proof-and-key-parity.md#pkp-02-complete-key-encoding-and-signature-parity), whose K3 suite

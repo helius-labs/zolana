@@ -18,8 +18,8 @@ piece named.
 
 - [Open: owner-hash encoding (G7-1)](#open-owner-hash-encoding-g7-1)
 - [Open: confidential owner tag (T23)](#open-confidential-owner-tag-t23)
-- [Open: ECDSA malleability policy (G2-1)](#open-ecdsa-malleability-policy-g2-1)
-- [Open: Ed25519 acceptance (G2-2)](#open-ed25519-acceptance-g2-2)
+- [Ruled: ECDSA malleability policy (G2-1)](#ruled-ecdsa-malleability-policy-g2-1)
+- [Ruled: Ed25519 acceptance (G2-2)](#ruled-ed25519-acceptance-g2-2)
 - [Open: the u64 integer domain (C04)](#open-the-u64-integer-domain-c04)
 - [Closed rulings](#closed-rulings)
 
@@ -319,7 +319,7 @@ Either option invalidates the P256 rail of
 | Date | |
 | Follow-up artifacts | |
 
-## Open: ECDSA malleability policy (G2-1)
+## Ruled: ECDSA malleability policy (G2-1)
 
 ### What the spec says
 
@@ -475,12 +475,16 @@ Option 3 breaks nothing.
 
 | Field | Value |
 | --- | --- |
-| Ruling | |
-| Ruled by | |
-| Date | |
-| Follow-up artifacts | |
+| Ruling | Option 1. TypeScript drops the low-S constraint on both `sign` and `verify`. The deployed circuit accepts a high-S signature, so the SDK accepts and produces one too. Malleability in `s` is a property of the deployed protocol; the SDK does not remove it unilaterally. |
+| Ruled by | Protocol owner |
+| Date | 2026-07-25 |
+| Follow-up artifacts | `sdk-libs/ts/keypair/src/signing-key.ts`, `sdk-libs/ts/client/test/helpers/prover-vectors.ts` (override dropped), `sdk-libs/ts/client/test/vectors/p256-malleability.test.ts` (new). No committed vector changed. Implemented in `65100a09`. |
 
-## Open: Ed25519 acceptance (G2-2)
+The prover run against a high-S witness that this section lists as unverified is
+still unverified. The three high-S shapes are exercised as signing and
+verification vectors, not through the prover.
+
+## Ruled: Ed25519 acceptance (G2-2)
 
 ### What the spec says
 
@@ -607,10 +611,24 @@ Option 3 removes a public method from `sdk-libs/ts/keypair` and
 
 | Field | Value |
 | --- | --- |
-| Ruling | |
-| Ruled by | |
-| Date | |
-| Follow-up artifacts | |
+| Ruling | Option 2. Both SDK helpers mirror the Solana runtime's `verify_strict`, so a caller asking the SDK whether a signature is valid gets the runtime's answer. |
+| Ruled by | Protocol owner |
+| Date | 2026-07-25 |
+| Follow-up artifacts | `sdk-libs/keypair/src/signing_key.rs`, `sdk-libs/ts/keypair/src/signing-key.ts`, `sdk-libs/ts/keypair/test/ed25519-acceptance.test.ts` (new). `sdk-libs/ts/fixtures/keypair/signing_key.json` is unchanged: its `verified` flags stay `true` under `verify_strict`. Implemented in `65100a09`. |
+
+Correction recorded with the ruling, against the evidence above. In
+`ed25519-dalek` 2.2.0 both `raw_verify` (`verifying.rs:201-217`) and
+`verify_strict` (`verifying.rs:357-380`) compare `expected_R == signature.R` as
+`CompressedEdwardsY` bytes, so the Rust helper was already cofactorless and
+already refused a non-canonical `R` encoding. The two functions differ only in
+that `verify_strict` decompresses `R` and refuses a small-order `R`, and refuses
+a small-order public key. The row for the Rust SDK helper in the comparison
+table above overstates its looseness in the first and fourth cases.
+
+Reachability through the SDK surface: `SigningKey::verify` derives the public
+key from the secret, so a small-order or non-canonically encoded public key
+cannot reach it. Only the small-order `R` case is reachable, and it is the one
+the new tests exercise in both languages.
 
 ## Open: the u64 integer domain (C04)
 
