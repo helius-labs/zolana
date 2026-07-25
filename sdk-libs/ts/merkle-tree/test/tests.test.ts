@@ -12,6 +12,8 @@ describe("MerkleTree", () => {
       "IndexedMerkleTreeError",
       "MerkleTree",
       "MerkleTreeError",
+      "initializePoseidon",
+      "isPoseidonInitialized",
       "keccakHasher",
       "poseidonHasher",
       "sha256Hasher",

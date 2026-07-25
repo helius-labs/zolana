@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import fixture from "../../../vectors/poseidon-parity-v1.json" with { type: "json" };
-import { HasherWasmError, MAX_POSEIDON_INPUTS, poseidon } from "../../src/index.js";
+import { HasherWasmError, MAX_POSEIDON_INPUTS, poseidon } from "@zolana/hasher";
 
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);

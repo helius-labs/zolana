@@ -1,3 +1,4 @@
+export { initializePoseidon, isPoseidonInitialized } from "@zolana/hasher";
 export { WALLET_ERROR_CODES, WalletError, type WalletErrorCode } from "./error.js";
 export {
   LocalWalletAuthority,
