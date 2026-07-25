@@ -121,6 +121,9 @@ impl ProofInputUtxo {
         zone_data_hash: [u8; 32],
         zone_program_id: &Option<Address>,
     ) -> Result<Self, TransactionError> {
+        if zone_data_hash != [0u8; 32] && zone_program_id.is_none() {
+            return Err(TransactionError::MissingZoneProgramId);
+        }
         self.zone_data_hash = zone_data_hash;
         self.zone_program_id = program_id_field(zone_program_id)?;
         Ok(self)
@@ -182,5 +185,22 @@ impl Utxo {
             zone_program_id: self.zone_program_id,
             data: self.data.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nonzero_zone_hash_requires_zone_program() {
+        let proof_input =
+            ProofInputUtxo::new([1u8; 32], &Address::default(), 1, &[2u8; BLINDING_LEN])
+                .expect("proof input");
+
+        assert_eq!(
+            proof_input.with_zone([3u8; 32], &None).unwrap_err(),
+            TransactionError::MissingZoneProgramId
+        );
     }
 }
