@@ -9,7 +9,7 @@ export const packageConfigurations = {
     browser: true,
   },
   keypair: {
-    entryPoints: [".", "./merge", "./hash"],
+    entryPoints: [".", "./merge", "./hash", "./traits"],
     dependencies: [
       "@noble/ciphers",
       "@noble/curves",

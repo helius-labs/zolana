@@ -1,7 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { pack33 as interfacePack33 } from "@zolana/interface";
 
-import { bigIntToBytes, bytesToBigInt, type Bytes32 } from "./bytes.js";
+import { type Bytes32 } from "./bytes.js";
 import { wrapKeypairError } from "./error.js";
 import { poseidon } from "./poseidon.js";
 

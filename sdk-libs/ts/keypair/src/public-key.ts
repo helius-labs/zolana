@@ -121,23 +121,23 @@ export class ShieldedPublicKey {
   hash(): Bytes32 {
     if (this.signatureType() === "p256") {
       try {
-        return pkFieldCompressed(this.p256().toBytes()) as Bytes32;
+        return pkFieldCompressed(this.p256().toBytes());
       } catch (error) {
         throw wrapKeypairError("KEYPAIR_HASH", error);
       }
     }
-    return hashField(this.confidentialViewTag()) as Bytes32;
+    return hashField(this.confidentialViewTag());
   }
 
   ownerPublicKeyField(): Bytes32 {
     if (this.signatureType() === "p256") {
       try {
-        return ownerPkFieldCompressed(this.p256().toBytes()) as Bytes32;
+        return ownerPkFieldCompressed(this.p256().toBytes());
       } catch (error) {
         throw wrapKeypairError("KEYPAIR_HASH", error);
       }
     }
-    return hashField(this.confidentialViewTag()) as Bytes32;
+    return hashField(this.confidentialViewTag());
   }
 
   ed25519(): Bytes32 {
