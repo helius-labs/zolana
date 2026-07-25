@@ -29,11 +29,10 @@ import { assemble } from "./prover/assembly.js";
 import { ProverClient, proveMerge, proveMergeZone } from "./prover/client.js";
 import { assembleMerge, assembleMergeZone } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
-import { DEFAULT_INDEXER_POLL_CONFIG, pollUntil, validatePollConfig } from "./retry.js";
+import { DEFAULT_INDEXER_RPC_CONFIG, pollUntil, validatePollConfig } from "./retry.js";
 import {
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
-  type IndexerPollConfig,
   type IndexerRpcConfig,
   type Rpc,
   type RpcAccount,
@@ -71,11 +70,12 @@ export class ZolanaClient implements Rpc {
   readonly #prover: ProverClient;
   readonly #computeUnitLimit: number;
   readonly #computeUnitPrice: bigint | undefined;
-  /// `ZolanaClient::indexer_config.poll` in Rust, which
-  /// `with_indexer_poll_config` overrides. Confirmation polled a hard-coded
-  /// default before, so a caller who shortened or lengthened the schedule got
-  /// the default anyway.
-  readonly #indexerPollConfig: IndexerPollConfig;
+  /// `ZolanaClient::indexer_config` in Rust, which `with_indexer_config` and
+  /// `with_indexer_poll_config` set. Confirmation polled a hard-coded default
+  /// before, and the delegating indexer methods forwarded the caller's
+  /// `undefined` straight through, so a configured client behaved like an
+  /// unconfigured one on both paths.
+  readonly #indexerConfig: IndexerRpcConfig;
 
   constructor(
     input: Readonly<{
@@ -85,7 +85,7 @@ export class ZolanaClient implements Rpc {
       tree: Address;
       computeUnitLimit?: number;
       computeUnitPriceMicroLamports?: bigint;
-      indexerPollConfig?: IndexerPollConfig;
+      indexerConfig?: IndexerRpcConfig;
     }>,
   ) {
     const candidate: unknown = input;
@@ -126,15 +126,15 @@ export class ZolanaClient implements Rpc {
     this.#prover = input.prover;
     this.tree = input.tree;
     this.#computeUnitPrice = input.computeUnitPriceMicroLamports;
-    const poll = input.indexerPollConfig ?? DEFAULT_INDEXER_POLL_CONFIG;
-    validatePollConfig(poll);
-    this.#indexerPollConfig = poll;
+    const indexerConfig = input.indexerConfig ?? DEFAULT_INDEXER_RPC_CONFIG;
+    validatePollConfig(indexerConfig.poll);
+    this.#indexerConfig = indexerConfig;
   }
 
-  /// The poll schedule confirmation uses, mirroring Rust's
-  /// `ZolanaClient::indexer_config`.
-  get indexerPollConfig(): IndexerPollConfig {
-    return this.#indexerPollConfig;
+  /// Mirrors Rust's `ZolanaClient::indexer_config`: the config every indexer
+  /// call falls back to and the schedule confirmation polls.
+  get indexerConfig(): IndexerRpcConfig {
+    return this.#indexerConfig;
   }
 
   getAccount(address: Address, context?: RequestContext): Promise<RpcAccount | undefined> {
@@ -179,7 +179,7 @@ export class ZolanaClient implements Rpc {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<GetMerkleProofsResponse> {
-    return this.indexer.getMerkleProofs(treeAccount, leaves, config, context);
+    return this.indexer.getMerkleProofs(treeAccount, leaves, this.#configOr(config), context);
   }
 
   getNonInclusionProofs(
@@ -188,7 +188,13 @@ export class ZolanaClient implements Rpc {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<GetNonInclusionProofsResponse> {
-    return this.indexer.getNonInclusionProofs(treeAccount, leaves, config, context);
+    return this.indexer.getNonInclusionProofs(treeAccount, leaves, this.#configOr(config), context);
+  }
+
+  /// `Some(config.unwrap_or(self.indexer_config))` in Rust: a caller who passes
+  /// nothing gets the client's config, not the indexer's own default.
+  #configOr(config: IndexerRpcConfig | undefined): IndexerRpcConfig {
+    return config ?? this.#indexerConfig;
   }
 
   async getInputMerkleProofs(
@@ -229,13 +235,13 @@ export class ZolanaClient implements Rpc {
       this.indexer.getMerkleProofs(
         this.tree,
         commitments.map((item) => item.utxoHash),
-        config,
+        this.#configOr(config),
         context,
       ),
       this.indexer.getNonInclusionProofs(
         this.tree,
         commitments.map((item) => item.nullifier),
-        config,
+        this.#configOr(config),
         context,
       ),
     ]);
@@ -491,14 +497,14 @@ export class ZolanaClient implements Rpc {
         () => this.rpc.confirmTransaction(signature, context),
         (confirmed) => confirmed,
         {
-          config: this.#indexerPollConfig,
+          config: this.#indexerConfig.poll,
           ...(context === undefined ? {} : { context }),
         },
       );
     } catch (cause) {
       if (!isClientError(cause) || cause.code !== "CLIENT_POLL_TIMED_OUT") throw cause;
       throw new ClientError("CLIENT_CONFIRMATION_TIMEOUT", {
-        details: { signature, attempts: this.#indexerPollConfig.numRetries + 1 },
+        details: { signature, attempts: this.#indexerConfig.poll.numRetries + 1 },
         cause,
       });
     }
@@ -519,7 +525,7 @@ export class ZolanaClient implements Rpc {
         (response) =>
           response.transactions.some((transaction) => transaction.txSignature === signature),
         {
-          config: this.#indexerPollConfig,
+          config: this.#indexerConfig.poll,
           ...(context === undefined ? {} : { context }),
         },
       );
@@ -530,7 +536,7 @@ export class ZolanaClient implements Rpc {
         details: {
           signature,
           expectedTags: tags.length,
-          attempts: this.#indexerPollConfig.numRetries + 1,
+          attempts: this.#indexerConfig.poll.numRetries + 1,
         },
         cause,
       });

@@ -467,9 +467,12 @@ describe("ZolanaIndexer and ZolanaClient", () => {
         fetch: vi.fn(() => Promise.reject(new Error("prover must not be called"))),
       }),
       tree: TREE,
-      indexerPollConfig: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
+      indexerConfig: {
+        waitForIndexer: false,
+        poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
+      },
     });
-    expect(configured.indexerPollConfig.numRetries).toBe(1);
+    expect(configured.indexerConfig.poll.numRetries).toBe(1);
 
     const pending = configured.confirmPrivateTransaction(SIGNATURE);
     const rejection = expect(pending).rejects.toEqual(
@@ -477,6 +480,49 @@ describe("ZolanaIndexer and ZolanaClient", () => {
         code: "CLIENT_INDEXER_TIMEOUT",
         details: expect.objectContaining({ attempts: 2 }),
       }),
+    );
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(calls).toBe(2);
+  });
+
+  // Every delegating indexer method in Rust passes
+  // `Some(config.unwrap_or(self.indexer_config))`, so a caller who omits the
+  // config gets the client's. Forwarding `undefined` handed the decision to
+  // `ZolanaIndexer`, which applies its own default and ignores the client's
+  // `waitForIndexer`.
+  it("substitutes its own indexer config when the caller omits one", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const api = new ZolanaApi({
+      url: "https://indexer.example.test",
+      fetch: vi.fn(() => {
+        calls++;
+        return Promise.resolve(
+          envelope({ context: { block_time: 0 }, proofs: [merkle(HASH)] }),
+        );
+      }),
+    });
+    const configured = new ZolanaClient({
+      rpc: fakeRpc(),
+      indexer: new ZolanaIndexer(api),
+      prover: new ProverClient({
+        url: "https://prover.example.test",
+        fetch: vi.fn(() => Promise.reject(new Error("prover must not be called"))),
+      }),
+      tree: TREE,
+      // `wait_for_indexer` with a `block_time` of 0 never catches up, so the
+      // client's config is observable: the call fails as not caught up instead
+      // of returning the proof the indexer default would accept.
+      indexerConfig: {
+        waitForIndexer: true,
+        poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
+      },
+    });
+
+    const pending = configured.getMerkleProofs(TREE, [ZERO]);
+    const rejection = expect(pending).rejects.toEqual(
+      expect.objectContaining({ code: "CLIENT_INDEXER_NOT_CAUGHT_UP" }),
     );
     await vi.runAllTimersAsync();
     await rejection;
