@@ -52,11 +52,11 @@ use zolana_transaction::{
         merge::{Merge as MergeSerialization, MergeEncode, MergePlaintext},
         plaintext::{PlaintextEncode, PlaintextTransfer},
         proofless::{Proofless, ProoflessEncode},
-        split::{Split, SplitEncode},
+        split::{Split, SplitEncode, SplitEncryptedUtxos},
         DecodeCx, OwnerCx, UtxoSerialization,
     },
     AssetRegistry, Data, DataRecord, EncryptedScheme, ProofInputUtxo, TransactionError, Utxo,
-    SOL_ASSET_ID, SOL_MINT,
+    SOL_ASSET_ID, SOL_MINT, SPLIT,
 };
 
 const ORACLE_PATH: &str = "../ts/transaction/test/oracles/transaction-parity-v1.json";
@@ -1059,6 +1059,56 @@ fn serialization_section() -> Value {
         "confidential": confidential,
         "merge": merge,
         "proofless": proofless_layout_cases(),
+        "splitEncrypted": split_encrypted_cases(),
+    })
+}
+
+/// The split bundle's outer envelope. Its ciphertext carries a `u16` length
+/// prefix, so the boundary cases are the empty payload and one longer than a
+/// byte prefix could hold; the reader also owes the discriminator check.
+fn split_encrypted_cases() -> Value {
+    let tx_viewing_pk = ViewingKey::from_bytes(&SENDER_VIEWING_SEED)
+        .expect("viewing key")
+        .pubkey();
+    let envelope = |ciphertext: Vec<u8>| SplitEncryptedUtxos {
+        type_prefix: SPLIT,
+        tx_viewing_pk,
+        salt: [10u8; SALT_LEN],
+        ciphertext,
+    };
+    let cases = [
+        ("empty", envelope(Vec::new())),
+        ("short", envelope(vec![1, 2, 3])),
+        ("overAByteLengthPrefix", envelope(vec![7u8; 300])),
+    ]
+    .into_iter()
+    .map(|(name, value)| {
+        let bytes = value.serialize().expect("serialize split envelope");
+        assert_eq!(
+            SplitEncryptedUtxos::deserialize(&bytes).expect("round trip"),
+            value
+        );
+        json!({
+            "name": name,
+            "typePrefix": value.type_prefix,
+            "txViewingPublicKeyHex": hex(value.tx_viewing_pk.as_bytes()),
+            "saltHex": hex(&value.salt),
+            "ciphertextHex": hex(&value.ciphertext),
+            "encodedHex": hex(&bytes),
+        })
+    })
+    .collect::<Vec<_>>();
+
+    let mut foreign_scheme = envelope(vec![1, 2, 3])
+        .serialize()
+        .expect("serialize split envelope");
+    foreign_scheme[0] = SPLIT + 1;
+    json!({
+        "cases": cases,
+        "foreignSchemeHex": hex(&foreign_scheme),
+        "foreignSchemeError": ts_code(
+            &SplitEncryptedUtxos::deserialize(&foreign_scheme).expect_err("foreign scheme"),
+        ),
     })
 }
 
