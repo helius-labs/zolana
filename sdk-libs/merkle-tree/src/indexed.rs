@@ -20,6 +20,8 @@ pub enum IndexedReferenceMerkleTreeError {
     NonInclusionProofFailedHigherBoundViolated,
     #[error("NonInclusionProofFailed")]
     NonInclusionProofFailed,
+    #[error("Value is at or above the tree's highest value")]
+    ValueOutsideIndexedRange,
     #[error(transparent)]
     Indexed(#[from] IndexedArrayError),
     #[error(transparent)]
@@ -131,8 +133,25 @@ where
         Ok(())
     }
 
+    /// The exclusion ranges tile `(0, highest_value)`: the greatest element's
+    /// leaf hashes its value against `highest_value`, so an element whose value
+    /// reaches the sentinel would claim an empty range and no non-inclusion
+    /// range could contain the sentinel itself. `zolana_indexed_array` bounds
+    /// the low end only, so the high end is enforced here, at the SDK entry
+    /// points, rather than in the protocol library.
+    fn check_below_highest_value(
+        &self,
+        value: &BigUint,
+    ) -> Result<(), IndexedReferenceMerkleTreeError> {
+        if *value >= self.indexed_array.highest_value {
+            return Err(IndexedReferenceMerkleTreeError::ValueOutsideIndexedRange);
+        }
+        Ok(())
+    }
+
     // TODO: add append with new value, so that we don't need to compute the lowlevel values manually
     pub fn append(&mut self, value: &BigUint) -> Result<(), IndexedReferenceMerkleTreeError> {
+        self.check_below_highest_value(value)?;
         let elements = self.indexed_array.elements.clone();
         let current_node_index = self.indexed_array.current_node_index;
         let highest_element_index = self.indexed_array.highest_element_index;
@@ -155,6 +174,7 @@ where
         &self,
         value: &BigUint,
     ) -> Result<NonInclusionProof, IndexedReferenceMerkleTreeError> {
+        self.check_below_highest_value(value)?;
         let (low_element, _next_value) =
             self.indexed_array.find_low_element_for_nonexistent(value)?;
         let merkle_proof =

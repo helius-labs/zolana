@@ -4,7 +4,7 @@ use zolana_hasher::{
     zero_bytes::{poseidon::ZERO_BYTES, ZeroBytes},
     Hasher, HasherError, Keccak, Poseidon, Sha256,
 };
-use zolana_merkle_tree::MerkleTree;
+use zolana_merkle_tree::{MerkleTree, ReferenceMerkleTreeError};
 
 static FAIL_HASHING: AtomicBool = AtomicBool::new(false);
 
@@ -858,4 +858,78 @@ fn next_index_and_v2_history_index_track_successful_root_updates() {
     assert_eq!(tree.get_next_index(), 4);
     assert_eq!(tree.num_root_updates, 5);
     assert_eq!(tree.get_history_root_index_v2().unwrap(), 2);
+}
+
+/// `new_with_history` takes the length and offset without validating them, and
+/// the accessors used to reach a divide-by-zero, an unwrap on a value wider
+/// than `u16`, and a `usize` subtraction below zero. Each is a rejection now.
+#[test]
+fn history_indexes_reject_unrepresentable_configurations() {
+    let unset = MerkleTree::<Poseidon>::new(3, 0);
+    assert_eq!(
+        unset.get_history_root_index(),
+        Err(ReferenceMerkleTreeError::RootHistoryArrayLenNotSet)
+    );
+    assert_eq!(
+        unset.get_history_root_index_v2(),
+        Err(ReferenceMerkleTreeError::RootHistoryArrayLenNotSet)
+    );
+
+    let zero_len = MerkleTree::<Poseidon>::new_with_history(3, 0, 0, 0);
+    assert_eq!(
+        zero_len.get_history_root_index(),
+        Err(ReferenceMerkleTreeError::InvalidRootHistoryArrayLen(0))
+    );
+    assert_eq!(
+        zero_len.get_history_root_index_v2(),
+        Err(ReferenceMerkleTreeError::InvalidRootHistoryArrayLen(0))
+    );
+
+    let wide_len = MerkleTree::<Poseidon>::new_with_history(3, 0, 0, u16::MAX as usize + 1);
+    assert_eq!(
+        wide_len.get_history_root_index(),
+        Err(ReferenceMerkleTreeError::InvalidRootHistoryArrayLen(
+            u16::MAX as usize + 1
+        ))
+    );
+
+    let mut ahead = MerkleTree::<Poseidon>::new_with_history(3, 0, 2, 3);
+    assert_eq!(
+        ahead.get_history_root_index(),
+        Err(ReferenceMerkleTreeError::RootHistoryStartOffsetAboveIndex {
+            offset: 2,
+            next_index: 0
+        })
+    );
+    // The v2 index counts root updates, so the leaf offset does not reach it.
+    assert_eq!(ahead.get_history_root_index_v2().unwrap(), 0);
+    ahead.append(&[1; 32]).unwrap();
+    assert_eq!(
+        ahead.get_history_root_index(),
+        Err(ReferenceMerkleTreeError::RootHistoryStartOffsetAboveIndex {
+            offset: 2,
+            next_index: 1
+        })
+    );
+    ahead.append(&[2; 32]).unwrap();
+    assert_eq!(ahead.get_history_root_index().unwrap(), 0);
+    assert_eq!(ahead.get_history_root_index_v2().unwrap(), 2);
+}
+
+/// `get_next_index` is the count of appended leaves with no offset applied. An
+/// indexed tree reads 1 immediately after construction because
+/// `IndexedMerkleTree::new` appends the initialized range leaf, which is the
+/// same reason `BatchedMerkleTree` seeds an AddressV2 tree at `next_index = 1`.
+#[test]
+fn next_index_counts_appended_leaves_without_an_offset() {
+    let mut tree = MerkleTree::<Poseidon>::new_with_history(3, 0, 2, 3);
+    assert_eq!(tree.get_next_index(), 0);
+    tree.append(&[1; 32]).unwrap();
+    assert_eq!(tree.get_next_index(), 1);
+    tree.update(&[2; 32], 0).unwrap();
+    assert_eq!(tree.get_next_index(), 1);
+
+    // Reconstruction helpers place nodes without claiming they were appended.
+    tree.insert_leaf(2, [3; 32]);
+    assert_eq!(tree.get_next_index(), 1);
 }

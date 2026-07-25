@@ -18,6 +18,10 @@ pub enum ReferenceMerkleTreeError {
     IndexedArray(#[from] IndexedArrayError),
     #[error("RootHistoryArrayLenNotSet")]
     RootHistoryArrayLenNotSet,
+    #[error("Root history array length {0} is outside 1..=65535")]
+    InvalidRootHistoryArrayLen(usize),
+    #[error("Root history start offset {offset} exceeds next index {next_index}")]
+    RootHistoryStartOffsetAboveIndex { offset: usize, next_index: usize },
     #[error("Level {level} exceeds tree height {height}")]
     InvalidLevel { level: usize, height: usize },
 }
@@ -82,27 +86,39 @@ where
         }
     }
 
-    pub fn get_history_root_index(&self) -> Result<u16, ReferenceMerkleTreeError> {
-        if let Some(root_history_array_len) = self.root_history_array_len {
-            Ok(
-                ((self.rightmost_index - self.root_history_start_offset) % root_history_array_len)
-                    .try_into()
-                    .unwrap(),
-            )
-        } else {
-            Err(ReferenceMerkleTreeError::RootHistoryArrayLenNotSet)
+    /// A configured length outside `1..=u16::MAX` has no representable index:
+    /// zero divides by zero and anything above `u16::MAX` cannot be returned.
+    /// `new_with_history` cannot reject it, so the accessors do.
+    fn checked_root_history_array_len(&self) -> Result<usize, ReferenceMerkleTreeError> {
+        let len = self
+            .root_history_array_len
+            .ok_or(ReferenceMerkleTreeError::RootHistoryArrayLenNotSet)?;
+        if len == 0 || len > u16::MAX as usize {
+            return Err(ReferenceMerkleTreeError::InvalidRootHistoryArrayLen(len));
         }
+        Ok(len)
+    }
+
+    pub fn get_history_root_index(&self) -> Result<u16, ReferenceMerkleTreeError> {
+        let root_history_array_len = self.checked_root_history_array_len()?;
+        let offset = self.root_history_start_offset;
+        if offset > self.rightmost_index {
+            return Err(ReferenceMerkleTreeError::RootHistoryStartOffsetAboveIndex {
+                offset,
+                next_index: self.rightmost_index,
+            });
+        }
+        Ok(((self.rightmost_index - offset) % root_history_array_len)
+            .try_into()
+            .unwrap())
     }
 
     /// Get root history index for v2 (batched) Merkle trees.
     pub fn get_history_root_index_v2(&self) -> Result<u16, ReferenceMerkleTreeError> {
-        if let Some(root_history_array_len) = self.root_history_array_len {
-            Ok(((self.num_root_updates) % root_history_array_len)
-                .try_into()
-                .unwrap())
-        } else {
-            Err(ReferenceMerkleTreeError::RootHistoryArrayLenNotSet)
-        }
+        let root_history_array_len = self.checked_root_history_array_len()?;
+        Ok((self.num_root_updates % root_history_array_len)
+            .try_into()
+            .unwrap())
     }
 
     /// Number of nodes to include in canopy, based on `canopy_depth`.
