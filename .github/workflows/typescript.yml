@@ -170,14 +170,9 @@ jobs:
       # asserts its own offset (300 for actions, 400 for instructions) and starts
       # the validator, prover, and Photon it needs. A set URL would make the test
       # kit treat that service as external and skip starting it.
+      # No log-collection step follows: the test kit keeps the last 8 KB of each
+      # service's output in memory and attaches it to the failure it throws.
       - run: npm run check:e2e
-      - name: Dump prover and Photon output on failure
-        if: failure()
-        run: |
-          find . -name prover-server.log -exec sh -c 'echo "--- {} ---"; tail -200 "{}"' \; 2>/dev/null \
-            || echo "(no prover log)"
-          find . -name photon.log -exec sh -c 'echo "--- {} ---"; tail -100 "{}"' \; 2>/dev/null \
-            || echo "(no photon log)"
 
   merge-gate:
     name: typescript / merge gate

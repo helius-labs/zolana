@@ -704,15 +704,24 @@ uses. It leaves `ZOLANA_PORT_OFFSET`, `ZOLANA_LOCALNET_URL`,
 offset (300 for actions, 400 for instructions) and starts the services it needs,
 and a set URL would make the test kit treat that service as already running.
 
-Three parts of the gate are red at the revision that added the workflow, each
-for a reason recorded elsewhere in the register rather than a workflow defect:
-`fixtures:check` reports `baseline fixture sources differ from revision
-43fde8e4`
+The cost of the `e2e` job sits in those builds rather than in the suites. Once
+the binaries exist, the test kit brings a validator, the prover, and Photon up
+in about three seconds, and each suite finishes in under ten. The proving-key
+cache is insurance rather than a saving today: the current suites reach the
+prover health check without asking it to prove, so the key download the
+lockfile pins is not triggered.
+
+Parts of the gate are red at the revision that added the workflow. Three have a
+cause already recorded rather than a workflow defect: `fixtures:check` reports
+`baseline fixture sources differ from revision 43fde8e4`
 ([G8-1](production-readiness-issues.md#g8-1-the-manifest-pins-multiple-source-revisions-high)),
-`lint:packages` reports eight errors across the client, interface, keypair, and
-wallet packages, and `test:browser` and `pack:check` reject a
-`globalThis.process` read in the client prover bundle. Each is a defect the gate
-is supposed to catch, so the gate reports it rather than skipping it.
+`lint:packages` reports unused imports, redundant assertions, and a spread over
+a class instance under `sdk-libs/ts/*/src` and `sdk-libs/ts/*/test`, paths the
+narrower `lint` glob leaves out, and `test:browser` and `pack:check` reject a
+`globalThis.process` read in the client prover bundle. The rest sit in packages
+under active change, the client error taxonomy and the wallet deposit flow, and
+belong to whoever lands the change that broke them. Each one is a defect the
+gate is supposed to catch, so the gate reports it rather than skipping it.
 
 `format:check` selects files by glob with explicit ignores rather than the
 hand-maintained path list it uses now, and the globs cover `planning/`. A list
