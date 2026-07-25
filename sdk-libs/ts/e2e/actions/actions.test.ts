@@ -608,7 +608,6 @@ describe("P12 action workflows", () => {
       },
       material,
       tree: TREE,
-      proverUrl: "http://127.0.0.1:3301",
       prepared: created.prepared,
     });
 

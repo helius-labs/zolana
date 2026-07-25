@@ -18,11 +18,11 @@ import {
 import { Merge } from "@zolana/transaction/instructions";
 
 import { WalletError, wrapWalletError } from "./error.js";
-import { bytesKey, compileTransaction, equalBytes } from "./internal.js";
+import { bytesKey, compileTransaction, decodeBase58, equalBytes } from "./internal.js";
 import {
-  internalMergingEnabled,
+  internalMergeSubmissionRecord,
   internalUserRecordAddress,
-  resolveRegisteredAddress,
+  type MergeSubmissionRecord,
 } from "./registry.js";
 
 export interface TransactionSigner {
@@ -54,6 +54,19 @@ export async function createAssociatedTokenAccount(
       ],
     });
     const signed = await input.payer.signNativeTransaction(transaction);
+    // The compiled message reserves one slot per required signer. Sending a
+    // transaction with an unfilled slot wastes a round trip on a message the
+    // cluster rejects.
+    const missing = signed.signatures.findIndex((signature) => signature === undefined);
+    if (signed.signatures.length !== transaction.signatures.length || missing !== -1) {
+      throw new WalletError("WALLET_INCOMPLETE_SIGNATURES", {
+        details: {
+          required: transaction.signatures.length,
+          provided: signed.signatures.length,
+          ...(missing === -1 ? {} : { missingIndex: missing }),
+        },
+      });
+    }
     const signature = await input.rpc.sendTransaction(signed, context);
     return Object.freeze({ signature, address });
   } catch (cause) {
@@ -172,6 +185,10 @@ export class MergeMaterial {
   }
 }
 
+/**
+ * `rpc` must be a `ZolanaClient`: it both sends the transaction and owns the
+ * prover connection, so no prover URL is passed separately here.
+ */
 export interface SubmitMergeTransaction {
   readonly rpc: Rpc;
   readonly indexer: Rpc;
@@ -179,7 +196,6 @@ export interface SubmitMergeTransaction {
   readonly payer: TransactionSigner;
   readonly material: MergeMaterial;
   readonly tree: Address;
-  readonly proverUrl: string;
   readonly prepared: PreparedMerge;
 }
 
@@ -224,34 +240,79 @@ function mergeClient(rpc: Rpc): MergeClient {
   return rpc as MergeClient;
 }
 
+/**
+ * The registry record commits the identity the on-chain program checks, so a
+ * mismatch can only fail after a proof has been paid for. Each key is reported
+ * separately because they fail for unrelated reasons.
+ */
+function validateMergeSubmission(
+  record: MergeSubmissionRecord,
+  owner: Address,
+  material: MergeMaterial,
+): void {
+  if (!record.mergingEnabled) {
+    throw new WalletError("WALLET_MERGE_DISABLED", { details: { owner } });
+  }
+  const signingPublicKey = material.signingPublicKey;
+  if (signingPublicKey.signatureType() === "p256") {
+    if (
+      record.ownerP256 === undefined ||
+      !equalBytes(record.ownerP256, signingPublicKey.p256().toBytes())
+    ) {
+      throw new WalletError("WALLET_MERGE_SIGNING_KEY_MISMATCH");
+    }
+  } else if (
+    record.ownerP256 !== undefined ||
+    !equalBytes(signingPublicKey.ed25519(), decodeBase58(owner, 32, "owner"))
+  ) {
+    throw new WalletError("WALLET_MERGE_SIGNING_KEY_MISMATCH");
+  }
+  if (!equalBytes(record.nullifierPublicKey, material.nullifierKey.publicKey())) {
+    throw new WalletError("WALLET_MERGE_NULLIFIER_KEY_MISMATCH");
+  }
+  if (!equalBytes(record.viewingPublicKey, material.viewingPublicKey.toBytes())) {
+    throw new WalletError("WALLET_MERGE_VIEWING_KEY_MISMATCH", { details: { owner } });
+  }
+}
+
+/**
+ * A merge proof only verifies against the tree its input proofs were resolved
+ * from, so an indexer answering from another tree must be rejected before the
+ * proof is paid for.
+ */
+function treeCheckedIndexer(
+  indexer: Pick<Rpc, "getInputMerkleProofs">,
+  submitTree: Address,
+): Pick<Rpc, "getInputMerkleProofs"> {
+  return {
+    getInputMerkleProofs: async (commitments, config, context) => {
+      const proofs = await indexer.getInputMerkleProofs(commitments, config, context);
+      for (const proof of proofs) {
+        for (const proofTree of [
+          proof.state.merkleContext.tree,
+          proof.nullifier.merkleContext.tree,
+        ])
+          if (proofTree !== submitTree) {
+            throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
+              details: { proofTree, submitTree },
+            });
+          }
+      }
+      return proofs;
+    },
+  };
+}
+
 export async function submitMergeTransaction(
   request: SubmitMergeTransaction,
   context?: RequestContext,
 ): Promise<SubmittedMerge> {
   try {
-    if (!(await internalMergingEnabled({ rpc: request.rpc, owner: request.owner }, context))) {
-      throw new WalletError("WALLET_MERGE_DISABLED", {
-        details: { owner: request.owner },
-      });
-    }
-    const registered = await resolveRegisteredAddress(
-      { rpc: request.rpc, owner: request.owner },
-      context,
+    validateMergeSubmission(
+      await internalMergeSubmissionRecord({ rpc: request.rpc, owner: request.owner }, context),
+      request.owner,
+      request.material,
     );
-    if (
-      registered === undefined ||
-      !equalBytes(
-        registered.address.signingPublicKey.toBytes(),
-        request.material.signingPublicKey.toBytes(),
-      ) ||
-      !equalBytes(
-        registered.address.viewingPublicKey.toBytes(),
-        request.material.viewingPublicKey.toBytes(),
-      ) ||
-      !equalBytes(registered.address.nullifierPublicKey, request.material.nullifierKey.publicKey())
-    ) {
-      throw new WalletError("WALLET_MERGE_MATERIAL_MISMATCH");
-    }
     const client = mergeClient(request.rpc);
     if (client.tree !== request.tree) {
       throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
@@ -262,7 +323,7 @@ export async function submitMergeTransaction(
       {
         prepared: request.prepared,
         material: request.material,
-        indexer: request.indexer,
+        indexer: treeCheckedIndexer(request.indexer, request.tree),
       },
       context,
     );

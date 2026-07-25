@@ -229,7 +229,6 @@ describe("merge submission", () => {
       payer,
       material,
       tree: TREE,
-      proverUrl: "http://127.0.0.1:3001",
       prepared: merge,
     });
     expect(submitted.signature).toBe(SIGNATURE);
@@ -259,7 +258,6 @@ describe("merge submission", () => {
       },
       material,
       tree: TREE,
-      proverUrl: "http://127.0.0.1:3001",
       prepared: prepared(localKeypair),
     });
     await expect(rejection).rejects.toEqual(
@@ -298,7 +296,6 @@ describe("merge submission", () => {
       },
       material,
       tree: TREE,
-      proverUrl: "http://127.0.0.1:3001",
       prepared: prepared(localKeypair),
     });
     await expect(mismatch).rejects.toEqual(
