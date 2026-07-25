@@ -78,6 +78,12 @@ pub enum ShieldedPoolError {
     MissingP256SigningKey = 7024,
     #[error("output owner tag account index is out of range")]
     OwnerTagAccountMissing = 7025,
+    #[error("forester fee calculation overflowed or used an invalid tree configuration")]
+    InvalidForesterFee = 7026,
+    #[error("tree does not contain enough fee funds to reimburse the forester")]
+    InsufficientForesterFeeBalance = 7027,
+    #[error("system program account is invalid")]
+    InvalidSystemProgram = 7028,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -141,6 +147,9 @@ mod tests {
             (BothPublicAmountsSet as u32, 7023),
             (MissingP256SigningKey as u32, 7024),
             (OwnerTagAccountMissing as u32, 7025),
+            (InvalidForesterFee as u32, 7026),
+            (InsufficientForesterFeeBalance as u32, 7027),
+            (InvalidSystemProgram as u32, 7028),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

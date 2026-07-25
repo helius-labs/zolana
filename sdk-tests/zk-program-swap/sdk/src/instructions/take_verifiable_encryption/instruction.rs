@@ -21,7 +21,7 @@ pub struct TakeVerifiableEncryption {
 /// selects the account whose pubkey the SPP proof's input_owner_pk_hash must
 /// match; it is not itself a proof public input, so overriding it post-proof is
 /// safe.
-const ORDER_AUTHORITY_SIGNER_INDEX: u8 = 2;
+const ORDER_AUTHORITY_SIGNER_INDEX: u8 = 3;
 
 impl TakeVerifiableEncryption {
     pub fn instruction(self) -> Result<Instruction> {
@@ -45,6 +45,7 @@ impl TakeVerifiableEncryption {
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(order_authority_pda(), false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];

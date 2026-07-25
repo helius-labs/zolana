@@ -50,6 +50,10 @@ fn tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey) -> ([u8; 32], [u8; 32]) {
     )
 }
 
+fn tree_lamports(rpc: &ZolanaProgramTest, tree: &Pubkey) -> u64 {
+    rpc.svm.get_account(tree).expect("tree account").lamports
+}
+
 /// Boot a program-test environment with a protocol config and one pool tree,
 /// the shared precondition for every `transact` scenario.
 struct TransactEnv {
@@ -173,9 +177,11 @@ fn transact_sends_valid_proof() {
 
     let payer = env.rpc.payer.pubkey();
     let transact_ix_data = build_valid_transact_ix(&env);
+    let tree_balance_before = tree_lamports(&env.rpc, &env.tree.pubkey());
 
-    // Accounts: `[payer (signer), tree (writable)]`. Index 0 is the fee payer
-    // and the eddsa signer the inputs reference (`eddsa_signer_index = 0`).
+    // Index 0 is the fee payer and the eddsa signer the inputs reference
+    // (`eddsa_signer_index = 0`); the builder also supplies the System Program
+    // for the single forester-fee CPI.
     let ix = Transact {
         payer,
         tree: env.tree.pubkey(),
@@ -188,6 +194,12 @@ fn transact_sends_valid_proof() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[]);
     assert!(result.is_ok(), "transact failed: {result:?}");
+    let tree_balance_after = tree_lamports(&env.rpc, &env.tree.pubkey());
+    assert_eq!(
+        tree_balance_after - tree_balance_before,
+        40,
+        "two inserted nullifiers must fund two 20-lamport forester shares"
+    );
 }
 
 /// A tampered output owner tag (changed after proving, so
@@ -203,6 +215,7 @@ fn transact_rejects_tampered_output_view_tag() {
 
     let payer = env.rpc.payer.pubkey();
     let mut transact_ix_data = build_valid_transact_ix(&env);
+    let tree_balance_before = tree_lamports(&env.rpc, &env.tree.pubkey());
 
     // Flip a recipient output's owner tag. The proof committed to the original
     // `hash_field(resolved_owner_tag)`, so the program's reconstruction now
@@ -224,5 +237,10 @@ fn transact_rejects_tampered_output_view_tag() {
     assert!(
         result.is_err(),
         "tampered output view_tag must be rejected, got: {result:?}"
+    );
+    let tree_balance_after = tree_lamports(&env.rpc, &env.tree.pubkey());
+    assert_eq!(
+        tree_balance_after, tree_balance_before,
+        "a rejected transact must not collect a forester fee"
     );
 }

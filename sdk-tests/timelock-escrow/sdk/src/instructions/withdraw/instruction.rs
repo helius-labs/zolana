@@ -19,11 +19,11 @@ pub struct Withdraw {
 }
 
 /// The escrow utxo (input 0) is owned by the escrow-authority PDA appended
-/// readonly after `tree`; the timelock escrow program signs for it via
+/// readonly after the System Program; the timelock escrow program signs for it via
 /// `invoke_signed`. The signer index selects the account whose pubkey the SPP
 /// proof's input_owner_pk_hash must match; it is not itself a proof public
 /// input, so overriding it post-proof is safe.
-const ESCROW_AUTHORITY_SIGNER_INDEX: u8 = 2;
+const ESCROW_AUTHORITY_SIGNER_INDEX: u8 = 3;
 
 impl Withdraw {
     pub fn instruction(self) -> Result<Instruction> {
@@ -54,6 +54,7 @@ impl Withdraw {
             AccountMeta::new_readonly(creator, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(escrow_authority_pda(), false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];

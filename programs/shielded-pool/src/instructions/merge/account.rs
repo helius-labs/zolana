@@ -9,6 +9,7 @@ use crate::instructions::hash::solana_pk_hash;
 /// `payer` (signer, pays fees), `user_record` (read-only).
 pub struct MergeTransactAccounts<'a> {
     pub tree: &'a mut AccountView,
+    pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
 }
 
@@ -19,9 +20,17 @@ impl<'a> MergeTransactAccounts<'a> {
     ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let tree = iter.next_mut("tree")?;
-        let _payer = iter.next_signer("payer")?;
+        let payer = iter.next_signer("payer")?;
         let user_record = iter.next_account("user_record")?;
-        Ok(Self { tree, user_record })
+        let system_program = iter.next_account("system_program")?;
+        if !pinocchio_system::check_id(system_program.address()) {
+            return Err(ShieldedPoolError::InvalidSystemProgram.into());
+        }
+        Ok(Self {
+            tree,
+            payer,
+            user_record,
+        })
     }
 }
 
@@ -78,4 +87,31 @@ pub fn load_user_record(
         viewing: record.viewing_pubkey,
         merging_enabled,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use pinocchio::error::ProgramError;
+    use zolana_account_checks::account_info::test_account_info::get_account_view;
+
+    use super::*;
+
+    #[test]
+    fn rejects_invalid_system_program_with_specific_error() {
+        let mut accounts = [
+            get_account_view([1; 32], crate::ID.to_bytes(), false, true, false, vec![]),
+            get_account_view([2; 32], [0; 32], true, true, false, vec![]),
+            get_account_view([3; 32], [0; 32], false, false, false, vec![]),
+            get_account_view([4; 32], [0; 32], false, false, true, vec![]),
+        ];
+
+        let error = match MergeTransactAccounts::validate_and_parse(&crate::ID, &mut accounts) {
+            Ok(_) => panic!("invalid System Program must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            ProgramError::Custom(ShieldedPoolError::InvalidSystemProgram as u32)
+        );
+    }
 }
