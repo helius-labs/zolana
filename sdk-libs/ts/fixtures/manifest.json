@@ -1,8 +1,8 @@
 {
   "canonicalSourceRevisions": {
-    "baseline": "e51ad12bda102d1c7649411a985b0b4c3f6707c2",
-    "client": "46926c9a17318784c95b3fa43f43036a6476d0e9",
-    "interface": "7060d2d5f708a9333202c59edccd82a522d17992",
+    "baseline": "9925756d504efe076e684a84fe04ce3458d77585",
+    "client": "5496e5fd90dbc4bde2bdf23bb37e393354ad05ed",
+    "interface": "9925756d504efe076e684a84fe04ce3458d77585",
     "merkleTree": "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa"
   },
   "files": [
@@ -16,11 +16,11 @@
     },
     {
       "path": "client/errors-v1.json",
-      "sha256": "d487220dafc733098931624ec1e37463ed7587e35a9e023603c7fd34fcac74b1"
+      "sha256": "acb63b5898e1f9e344a3be07724a13e6383c9554f486252e9b21ba93e50341e1"
     },
     {
       "path": "client/lib.json",
-      "sha256": "f57ad1a9cfe6d32b007b9c9413aff66651419901828163f0d8c2c061f1a59669"
+      "sha256": "50102f09b0d2e2270cd4ae753b381cd022f4dd3dc565c3984e70bed5b101c1f6"
     },
     {
       "path": "client/proof-input-v1.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "client/rpc-indexer-v1.json",
-      "sha256": "8873ecefc816cb8e6fe2e9d5e66bdac2acc2f5aa4e3b376e27ca23f525d49dc1"
+      "sha256": "a3b7791615e38108ef0098b25b503429e0f45c88e9491571a748005063c8b180"
     },
     {
       "path": "indexer-api/schema-v1.json",
@@ -216,11 +216,11 @@
     },
     {
       "path": "workflows/action-merge-v1.json",
-      "sha256": "8cce17bbe70d76816612dac88640ebcf621067ce9d56c3b172d2037aeeb668d3"
+      "sha256": "26baf462a04816ce65d42528574f44ad10101c7f69bda3a9cfe6ef3ee1db2509"
     },
     {
       "path": "workflows/action-split-v1.json",
-      "sha256": "3eddee0880cf899ab6e9e704d480b73e36bc786aa3b3fa2621a3278858497184"
+      "sha256": "45ac2f0c527b7ec1a504c74ac22084372269b9af30fd2993ede1696603156144"
     },
     {
       "path": "workflows/deposit-v1.json",
@@ -228,7 +228,7 @@
     },
     {
       "path": "workflows/instruction-transfer-v1.json",
-      "sha256": "b18c0ba3ba859450e306b58c61c2096f319a2bbf34e010581737867930d2d3ba"
+      "sha256": "91bc9ef6a17caf061a1c903930869ad236f1d523e1bc49669cce0b3e3c38c763"
     },
     {
       "path": "workflows/instruction-withdraw-sol-v1.json",
@@ -236,7 +236,7 @@
     },
     {
       "path": "workflows/instruction-withdraw-spl-v1.json",
-      "sha256": "185a03e51e28732a35b5b5cdae2c317eb4e1d8cdc17c94468fe79c39b14f7599"
+      "sha256": "72710dd2a796696799447d44848174e67d964cb4554d1953dab95f1160a35c27"
     }
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
