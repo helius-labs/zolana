@@ -840,3 +840,15 @@ before this document existed; the evidence sections are intentionally short.
 | Follow-up artifacts | `rust-sdk-changes.md` breaking-change sections, the cross-language error mapping fixture |
 
 This ruling covers the shape of the surface, not its behaviour. An SDK that refuses input the program and circuit accept is still a defect, because it makes a legal operation impossible to express, and having no users neither causes nor excuses it.
+
+### Merge order against PR #158
+
+| Field | Value |
+| --- | --- |
+| Conflict | Whether the signature-lookup PR or this port lands first. |
+| Ruling | PR #158 lands first and the port rebases onto it. Both branch from `43fde8e4`, but #158 is five commits against an unmoved base where this branch is 206, and the port is not verified enough to hold up a focused change. The port then owes one method, three wire types, two error variants, and a rename: the TypeScript `indexer-api` already exports `IndexedShieldedTransaction` for a different type than #158 claims the name for. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `row-updates/pr-158-impact.md` |
+
+Whoever performs that rebase should read `row-updates/pr-158-impact.md` first. The rebase has one visible conflict, in `indexer_error` in `sdk-libs/client/src/indexer.rs`, and one invisible hazard that matters more: `error.rs` merges without complaint into a type holding both error representations, after which `should_retry` matches `IndexerUnavailable`, a variant this branch's `indexer_error` does not produce, since it returns `Indexer { method, retryable }` instead. The result compiles, passes, and leaves the confirmation path unable to retry. Three of #158's tests also call the single-argument `indexer_error` from outside the conflicted region, so resolving the marked lines leaves the build broken in three call sites the conflict does not point at.
