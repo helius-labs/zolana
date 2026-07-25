@@ -203,11 +203,30 @@ TypeScript caller cannot prove a zone transaction on either rail
 (`transfer-zone`, `transfer-p256-zone`), cannot prove a zone-authority
 transition (`transfer-zone-authority`), and cannot prove a forester address
 append (`address-append`). The three zone provers are booked for PKP-05 under
-rows C13, C14, and C18. The address append is dispositioned `NOT_APPLICABLE`
-under C07 on the sound argument that TypeScript ships no forester, so the type
-would have neither producer nor consumer.
+rows C13, C14, and C18.
 
-Two things follow that are easy to miss. `inventory-client.md:61` still
+The address append is dispositioned `NOT_APPLICABLE` under C07, and that
+disposition rests on a claim that does not survive checking. The stated ground
+is that TypeScript ships no forester, so `BatchAddressAppendInputs` would have
+neither a producer nor a consumer. The producer half is right. The consumer
+half is wrong: `interface/src/instructions/index.ts:76` exports
+`batchUpdateNullifierTreeInstruction`, whose `BatchUpdateNullifierTreeData`
+requires a `compressedProof`, and `interface/test/exports.test.ts:69` together
+with `public-exports.md` establish that builder as deliberate public surface
+rather than an accident. In Rust the only thing that fills that proof is the
+forester, which builds `BatchAddressAppendInputs`, proves it on the
+`address-append` circuit, and submits the result through
+`batch_update_nullifier_tree` (`forester/src/run.rs:438-444`).
+
+So this is the zone-authority shape again, not a clean absence: TypeScript
+publishes and tests a builder for an instruction whose required proof it cannot
+produce. Deciding not to port a forester to TypeScript is defensible on its own
+terms. Publishing the final instruction of a pipeline whose earlier steps are
+missing is a separate decision, and it has not been made deliberately. Either
+port the witness or withdraw the builder from the public surface, and record
+which under C07.
+
+Two further things are easy to miss. `inventory-client.md:61` still
 dispositions the zone-authority prover as `port` and promises
 `src/prover/zone-authority.ts` and `fixtures/client/zone_authority.json`,
 neither of which exists, so the inventory and the checklist disagree and one of
