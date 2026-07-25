@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `42875823b9e5f1376b48f37ec4dbc2b36670bd42`
+- Review HEAD: `a3d5a60fec597a80ff2fc454ea3c1b17c31215c8`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `4 done / 118 total`; `48 needs_fix`; `0 needs_re_review`; `2 in_progress`
-- Exact next eligible row: `K08 sdk-libs/keypair/src/encryption.rs`
+- Progress: `4 done / 118 total`; `49 needs_fix`; `0 needs_re_review`; `2 in_progress`
+- Exact next eligible row: `K10 sdk-libs/keypair/src/error.rs`
 - Active reviews: `K04 sdk-libs/keypair/src/viewing_key.rs`; `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `I01 in_flight`; `I02 in_flight`; `I03 in_flight`; `I04 in_flight`; `I05 in_flight`; `I06 in_flight`; `I07 proposed`; `I08 in_flight`; `I09 in_flight`; `I10 proposed`; `I11 in_flight`; `I12 in_flight`; `I13 in_flight`; `I14 in_flight`; `I15 in_flight`; `I17 in_flight`; `I18 in_flight`; `I19 proposed`; `I20 in_flight`; `I21 in_flight`; `I22 proposed`; `I23 in_flight`; `I24 in_flight`; `I25 in_flight`; `I26 in_flight`; `I27 in_flight`; `I28 in_flight`; `I29 in_flight`; `I30 in_flight`; `I31 in_flight`; `I32 in_flight`; `I33 in_flight`; `I34 in_flight`; `I35 in_flight`; `I36 in_flight`; `I37 in_flight`; `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -182,7 +182,7 @@ Columns:
 | K05 | `sdk-libs/keypair/src/pubkey.rs` | `keypair/src/public-key.ts` | needs_fix | DIVERGENT | proposed | The Rust public key is a 34-byte tagged value, while TypeScript declares the runtime value as `Bytes33`. P256 decompression, canonical equality, and structured error behavior also differ or lack proof, and the public export ledger has no adversarial or browser evidence. Correct the tagged-key type and API, align decompression, equality, and errors, then add malformed, parity, export, and browser vectors from current Rust. | 2026-07-25 review | - |
 | K06 | `sdk-libs/keypair/src/shielded.rs` | `keypair/src/shielded.ts` | needs_fix | DIVERGENT | proposed | The spec-authoritative P256 owner-hash construction conflicts with the current TypeScript path. Construction and facade APIs, compressed-address handling, ownership boundaries, and current-Rust evidence are also missing or divergent. Resolve the owner-hash conflict, align construction and ownership capabilities, expose the required facade and address behavior, and add exact fixtures plus malformed and capability-separation tests. | 2026-07-25 review | - |
 | K07 | `sdk-libs/keypair/src/hash.rs` | `keypair/src/hash.ts`, `hash/index.ts` | needs_fix | DIVERGENT | proposed | Covered valid vectors match current Rust, but TypeScript omits the public Poseidon API, accepts malformed field widths and arities outside Rust's `1..=12`, and exposes extra unsafe hash helpers. Boundary, browser, and property evidence is incomplete, and owner hashing inherits the K06 spec conflict. Add the public Poseidon surface, enforce Rust widths and arities, remove or internalize unsafe helpers, resolve K06, and add exact rejection, boundary, browser, and property vectors. | 2026-07-25 review | - |
-| K08 | `sdk-libs/keypair/src/encryption.rs` | `keypair/src/encryption.ts` | todo | - | none | - | - | - |
+| K08 | `sdk-libs/keypair/src/encryption.rs` | `keypair/src/encryption.ts` | needs_fix | PARTIAL | proposed | TypeScript matches current Rust P256 ECDH, HKDF, and AES-CTR bytes, and the internal API disposition is valid. Shared-secret cleanup is not exception-safe, and current-Rust multi-block and counter, empty and boundary, malformed salt and slot, tamper, truncation, extension, defensive-copy, browser, security, and fixture-description evidence is incomplete. Make cleanup exception-safe and add exact current-Rust boundary, malformed, mutation, browser, and provenance fixtures. | 2026-07-25 review | - |
 | K09 | `sdk-libs/keypair/src/merge.rs` | `keypair/src/merge/` | needs_fix | PARTIAL | proposed | Merge encryption and its frozen vector are byte-compatible, but the public Rust `symmetric_apply` capability is missing. Malformed-secret and structured-error behavior, info and chunk boundaries, temporary cleanup, exports, and provenance lack exact evidence. Fix Rust's info-length panic risk before porting unrestricted `symmetric_apply`, then add the API with bounded inputs, cleanup, and current-Rust rejection and boundary fixtures. | 2026-07-25 review | - |
 | K10 | `sdk-libs/keypair/src/error.rs` | `keypair/src/error.ts` | todo | - | none | - | - | - |
 | K11 | `sdk-libs/keypair/src/traits/view_key.rs` | `keypair/src/viewing-key.ts` | todo | - | none | - | - | - |
@@ -1084,3 +1084,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `4/118`; package `0/14`
 - Exact next file: `K08 sdk-libs/keypair/src/encryption.rs`
 - Full SDK parity claim: unsupported; a public merge capability and boundary evidence are missing
+
+### 2026-07-25 11:29 UTC | K08 | `sdk-libs/keypair/src/encryption.rs`
+
+- Baseline: HEAD `a3d5a60fec597a80ff2fc454ea3c1b17c31215c8`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module performs P256 ECDH, HKDF derivation, and AES-CTR encryption.
+- Evidence: TypeScript matches current Rust bytes, and its internal API disposition is valid. Shared-secret cleanup is not exception-safe; multi-block, counter, empty, boundary, malformed salt and slot, tamper, truncation, extension, defensive-copy, browser, security, and provenance evidence is incomplete. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Make shared-secret cleanup exception-safe and add exact current-Rust boundary, malformed, mutation, browser, security, and fixture-description evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K10 sdk-libs/keypair/src/error.rs`
+- Full SDK parity claim: unsupported; cleanup and adversarial encryption evidence remain incomplete
