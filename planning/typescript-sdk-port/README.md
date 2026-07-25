@@ -136,6 +136,15 @@ cross-language, typecheck, build, and export gates are unaffected and remain the
 verification standard during a parallel push. The fix belongs to
 `test-kit/src/node/index.ts`, which the wallet batch owns.
 
+**Merge rule for the checklist.** The integration branch wins
+`review-checklist.md` against any batch branch. Resolve it that way and lift
+that batch's row transitions from its own `row-updates/<batch>.md`, which is
+where batches are asked to record them. `port/transaction` already conflicts
+this way; the other four are clean. The same applies to
+`planning/typescript-sdk-port/log/`: entries are per-file precisely so two
+branches cannot contend for one, and a batch that edits the table instead of
+adding a log file has bypassed that.
+
 Batches keep to their own package to make the merge trivial. Where a batch finds
 a defect in another batch's package it records the required change instead of
 making it: the fifth Poseidon copy in `client/src/internal.ts` and the
