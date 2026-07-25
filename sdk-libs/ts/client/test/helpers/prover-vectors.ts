@@ -204,6 +204,209 @@ export function buildProofInputs(
   return { proofInputs, spendProofs };
 }
 
+export interface ProverEdgeCase {
+  readonly name: string;
+  readonly publicInputHashBytes: string;
+  readonly proverInputs: Readonly<Record<string, unknown>>;
+  readonly eddsaSignerIndexes: readonly number[];
+  readonly nullifierBytes: readonly string[];
+  readonly rootIndexes: readonly (readonly [number, number])[];
+  readonly transactIxBytes: string;
+}
+
+export interface ProverEdgeCaseOracle {
+  readonly inputs: Readonly<{
+    blindingSeedBytes: string;
+    ed25519SecretBytes: string;
+    p256SecretBytes: string;
+    splMintBytes: string;
+    viewingSeedBytes: string;
+  }>;
+  readonly expected: Readonly<{ cases: readonly ProverEdgeCase[] }>;
+}
+
+type Rail = "eddsa" | "p256";
+
+/// One padded input slot: a real UTXO owned by the named rail's key, or a
+/// padding slot. Mirrors the `Case` layout in
+/// `sdk-libs/client/tests/ts_prover_oracle.rs`.
+export type EdgeCaseSlot = Readonly<{ rail: Rail; position: number } | { dummy: number }>;
+
+export interface EdgeCaseShape {
+  readonly inputs: readonly EdgeCaseSlot[];
+  /// Output 0 is real and owned by this rail; the rest are padding.
+  readonly outputRail: Rail;
+  readonly outputs: number;
+  /// `true` for the SPL public leg, `false` for the SOL one.
+  readonly splWithdrawal: boolean;
+  readonly p256: boolean;
+}
+
+/// The four edge cases the Rust oracle emits, in the same order. Kept beside
+/// the builder so a case added on one side fails the length assertion on the
+/// other rather than being silently skipped.
+export const PROVER_EDGE_CASES: readonly EdgeCaseShape[] = [
+  {
+    inputs: [{ rail: "eddsa", position: 0 }, { dummy: 1 }],
+    outputRail: "eddsa",
+    outputs: 3,
+    splWithdrawal: true,
+    p256: false,
+  },
+  {
+    inputs: [{ rail: "eddsa", position: 0 }, { dummy: 1 }, { rail: "p256", position: 2 }],
+    outputRail: "p256",
+    outputs: 3,
+    splWithdrawal: false,
+    p256: true,
+  },
+  {
+    inputs: [{ rail: "p256", position: 0 }, { dummy: 1 }, { rail: "eddsa", position: 2 }],
+    outputRail: "p256",
+    outputs: 3,
+    splWithdrawal: false,
+    p256: true,
+  },
+  {
+    inputs: [
+      { rail: "p256", position: 0 },
+      { rail: "p256", position: 3 },
+    ],
+    outputRail: "p256",
+    outputs: 2,
+    splWithdrawal: true,
+    p256: true,
+  },
+];
+
+function edgeCaseKeypair(oracle: ProverEdgeCaseOracle, rail: Rail): ShieldedKeypair {
+  const isP256 = rail === "p256";
+  const signing = isP256
+    ? SigningKey.fromBytes(bytes(oracle.inputs.p256SecretBytes) as Bytes32)
+    : SigningKey.fromEd25519Bytes(bytes(oracle.inputs.ed25519SecretBytes) as Bytes32);
+  return ShieldedKeypair.fromKeys(
+    signing,
+    NullifierKey.fromSigningKey(signing),
+    ViewingKey.fromSeed(bytes(oracle.inputs.viewingSeedBytes) as Bytes32, isP256 ? 1 : 0),
+  );
+}
+
+function edgeCaseSigningKey(oracle: ProverEdgeCaseOracle, rail: Rail): SigningKey {
+  return rail === "p256"
+    ? SigningKey.fromBytes(bytes(oracle.inputs.p256SecretBytes) as Bytes32)
+    : SigningKey.fromEd25519Bytes(bytes(oracle.inputs.ed25519SecretBytes) as Bytes32);
+}
+
+export function buildEdgeCase(
+  oracle: ProverEdgeCaseOracle,
+  shape: EdgeCaseShape,
+): Readonly<{ proofInputs: SppProofInputs; spendProofs: readonly SpendProof[] }> {
+  const blindingSeed = bytes(oracle.inputs.blindingSeedBytes) as Bytes31;
+  const splMint = encodeBase58(bytes(oracle.inputs.splMintBytes)) as Address;
+  const asset = shape.splWithdrawal ? splMint : SOL_MINT;
+  const inputs = shape.inputs.map((slot) => {
+    if ("dummy" in slot) return ProofInputUtxo.dummy(deriveBlinding(blindingSeed, slot.dummy));
+    const signing = edgeCaseSigningKey(oracle, slot.rail);
+    return new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: signing.publicKey(),
+        asset,
+        amount: 100n,
+        blinding: deriveBlinding(blindingSeed, slot.position),
+      }),
+      nullifierKey: NullifierKey.fromSigningKey(signing),
+    });
+  });
+  const outputOwner = edgeCaseKeypair(oracle, shape.outputRail);
+  const outputs = Array.from({ length: shape.outputs }, (_, index) =>
+    index === 0
+      ? createProofOutput({
+          ownerAddress: outputOwner.shieldedAddress(),
+          ownerTag: outputOwner.signingPublicKey().confidentialViewTag(),
+          asset,
+          amount: 100n,
+          blinding: deriveBlinding(blindingSeed, 64),
+        })
+      : createProofOutput({
+          ownerTag: new Uint8Array(32).fill(index + 64) as Bytes32,
+          asset: SOL_MINT,
+          amount: 0n,
+          blinding: deriveBlinding(blindingSeed, index + 64),
+        }),
+  );
+  const resolvedOwnerTags = outputs.map((output) => {
+    if (output.ownerTag === undefined) throw new Error("oracle output lacks owner tag");
+    return output.ownerTag;
+  });
+  const externalData = createExternalData({
+    instructionDiscriminator: 0,
+    expiryUnixTs: 0xffff_ffff_ffff_ffffn,
+    relayerFee: 0,
+    ...(shape.splWithdrawal ? { publicSplAmount: -5n } : { publicSolAmount: -5n }),
+    userSolAccount: shape.splWithdrawal
+      ? SOL_MINT
+      : (encodeBase58(new Uint8Array(32).fill(43)) as Address),
+    userSplToken: shape.splWithdrawal ? splMint : SOL_MINT,
+    splTokenInterface: shape.splWithdrawal
+      ? (encodeBase58(new Uint8Array(32).fill(8)) as Address)
+      : SOL_MINT,
+    txViewingPublicKey: {
+      toBytes: () => new Uint8Array(33).fill(41) as Bytes33,
+    } as P256PublicKey,
+    salt: new Uint8Array(16).fill(42) as Bytes16,
+    outputs: outputs.map((output, index) => ({
+      utxoHash: output.hash(),
+      ownerTag: { kind: "inline" as const, value: resolvedOwnerTags[index] as Bytes32 },
+      data: Uint8Array.of(1, 2, 3),
+    })),
+    resolvedOwnerTags,
+    messages: [],
+  });
+  const proofInputs = new SppProofInputs({
+    payerPublicKeyHash: payerHash(),
+    inputUtxos: inputs,
+    outputs,
+    externalData,
+  });
+  if (shape.p256) {
+    const signing = edgeCaseSigningKey(oracle, "p256");
+    const signature = signing.sign(proofInputs.messageHash());
+    proofInputs.applyP256Signature({
+      publicKey: signing.publicKey().p256(),
+      r: signature.slice(0, 32) as Bytes32,
+      s: signature.slice(32) as Bytes32,
+    });
+  }
+  return { proofInputs, spendProofs: edgeCaseSpendProofs(proofInputs) };
+}
+
+function edgeCaseSpendProofs(proofInputs: SppProofInputs): readonly SpendProof[] {
+  const tree = encodeBase58(new Uint8Array(32).fill(45)) as Address;
+  return proofInputs.inputContexts().map((context, index) => ({
+    state: {
+      leaf: context.utxoHash,
+      merkleContext: { treeType: 1, tree },
+      path: Array.from({ length: 32 }, () => fieldByte(46 + index)),
+      leafIndex: BigInt(index),
+      root: fieldByte(47),
+      rootSeq: 48n,
+      rootIndex: 49 + index,
+    },
+    nullifier: {
+      leaf: context.nullifier,
+      merkleContext: { treeType: 2, tree },
+      path: Array.from({ length: 40 }, () => fieldByte(50 + index)),
+      lowElement: fieldByte(51),
+      lowElementIndex: 0n,
+      highElement: fieldByte(52),
+      highElementIndex: 1n,
+      root: fieldByte(53),
+      rootSeq: 54n,
+      rootIndex: 55 + index,
+    },
+  }));
+}
+
 function decimal(value: Field): string {
   return value.toString();
 }
