@@ -31,8 +31,8 @@ export const packageConfigurations = {
     browser: true,
   },
   transaction: {
-    entryPoints: [".", "./serialization", "./instructions", "./wallet"],
-    dependencies: ["@zolana/interface", "@zolana/keypair"],
+    entryPoints: [".", "./serialization", "./instructions", "./transact", "./wallet"],
+    dependencies: ["@noble/curves", "@noble/hashes", "@zolana/interface", "@zolana/keypair"],
     browser: true,
   },
   "indexer-api": {

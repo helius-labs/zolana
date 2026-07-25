@@ -12,18 +12,28 @@ export {
   type TransactionErrorValue,
 } from "./error.js";
 export {
+  ConfidentialSplit,
+  Merge,
   MergeZone,
   PreparedMerge,
   PreparedMergeZone,
+  PreparedSplit,
+  SPP_SUPPORTED_SHAPES,
   SppProofInputs,
   ConfidentialTransfer,
   canonicalShape,
+  createExternalData,
+  prepareZoneAuthority,
   resolveShape,
 } from "./instructions/index.js";
 export type {
+  ExternalData,
   InputUtxoContext,
+  OutputContext,
   PreparedTransfer,
+  PreparedZoneAuthority,
   PublicAmounts,
+  Shape,
   WithdrawalTarget,
 } from "./instructions/index.js";
 export { ProofInputUtxo, Utxo, deriveBlinding, ownerUtxoHash } from "./utxo.js";
@@ -55,3 +65,10 @@ export {
   outputDataEncoding,
   type OutputDataEncoding,
 } from "./serialization/index.js";
+
+export const TRANSFER = 1;
+export const SPLIT = 2;
+export const MERGE = 3;
+export const TRANSFER_PLAINTEXT = 4;
+export const VIEW_TAG_LEN = 32;
+export const DEFAULT_TAG_WINDOW = 64n;

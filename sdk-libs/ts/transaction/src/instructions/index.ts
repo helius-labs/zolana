@@ -26,3 +26,4 @@ export type {
   Shape,
   WithdrawalTarget,
 } from "./transact.js";
+export { ProofInputUtxo } from "../utxo.js";

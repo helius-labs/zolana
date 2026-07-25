@@ -2,6 +2,12 @@
   "name": "@zolana/transaction",
   "version": "0.1.0",
   "description": "Deterministic Zolana transaction construction and private wallet state.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/transaction"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -29,6 +35,12 @@
       "import": "./dist/instructions/index.js",
       "default": "./dist/instructions/index.js"
     },
+    "./transact": {
+      "types": "./dist/transact/index.d.ts",
+      "browser": "./dist/transact/index.js",
+      "import": "./dist/transact/index.js",
+      "default": "./dist/transact/index.js"
+    },
     "./wallet": {
       "types": "./dist/wallet/index.d.ts",
       "browser": "./dist/wallet/index.js",
@@ -37,6 +49,8 @@
     }
   },
   "dependencies": {
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
     "@zolana/interface": "0.1.0",
     "@zolana/keypair": "0.1.0"
   },
