@@ -18,10 +18,11 @@ A second, separate finding fell out of the same reading: the circuit leaves a pa
 | `0` is already a nullifier-tree leaf and cannot be appended again | Execution |
 | Nullifier derivation is pinned to the specific UTXO in-circuit | Reading |
 | Every UTXO-consuming instruction nullifies every input | Reading |
-| The bloom-filter → root-zeroing handoff has no gap | Reading (arithmetic checked by hand) |
+| Clearing a bloom filter leaves only roots that already contain the batch | Execution (existing library test, run) |
+| That handoff holds under a real forester with real proofs | Reading (arithmetic checked by hand) |
 | Two transactions in the same slot serialise | Reading (Solana write-lock semantics) |
 
-Tests live in `program-tests/shielded-pool/tests/transact/double_spend.rs` (committed; 8 tests, all passing).
+My tests live in `program-tests/shielded-pool/tests/transact/double_spend.rs` (committed; 8 tests, all passing). One further piece of execution evidence is an existing library test I ran rather than wrote, `test_zero_out` in `program-libs/batched-merkle-tree/src/merkle_tree.rs:903`.
 
 ## The mechanism
 
@@ -85,6 +86,10 @@ Clearing is not forester-discretionary. `zero_out_previous_batch_bloom_filter` (
 So precisely the roots older than `r` are zeroed, and `r` and everything newer survive. The code asserts this identity rather than assuming it (`merkle_tree.rs:422-425`).
 
 **The handoff is therefore gapless.** Before clearing, the bloom filter rejects the replay. After clearing, every root a proof could still name contains the nullifier, so the circuit's non-inclusion proof is unsatisfiable. The two windows abut exactly; neither leaves a moment where a value is both absent from the filters and absent from every reachable root.
+
+**Confirmed by execution, not only by the arithmetic above.** An existing library test, `test_zero_out` (`program-libs/batched-merkle-tree/src/merkle_tree.rs:903`), drives nine batch-state scenarios and asserts the strongest form of the property directly: after `zero_out_previous_batch_bloom_filter` runs with overlapping roots present, it rebuilds the expected account and zeroes *every* root slot except `root_index`, then asserts full equality (`:1283-1290`). The only root left standing is the one that already contains the batch. I ran it and it passes.
+
+**That test does not run in CI.** It is gated behind the `test-only` feature, and no `just` recipe or workflow job builds this crate's tests: `rust.yml` runs `test-cli`, `test-shielded-pool`, `test-sdk-libs`, `test-programs`, `test-user-registry-litesvm`, and `test-client-integration`, none of which include `zolana-batched-merkle-tree`. Reproducing it needs `cargo test -p zolana-batched-merkle-tree --lib --features test-only`. The mechanism is correct and it is tested; the test simply is not wired up, so a regression in the one routine that closes this window would land silently. Wiring it in is a test-infrastructure change, not a program change, and it is the cheapest risk reduction available here.
 
 The on-chain half of the root half is `get_nullifier_tree_root`, which rejects any zeroed slot (`program-libs/tree/src/lib.rs:238-250`, the `root == [0u8; 32]` check at `:246-248`), surfaced as `StaleNullifierRoot`. **I confirmed this by execution** (`zeroed_nullifier_root_slot_is_rejected`): a spend naming an unwritten root-history slot fails with 7015 before proof verification.
 
@@ -167,6 +172,7 @@ Per the standing instruction that this port changes SDK code only, I have applie
 
 Stated so the residual risk is visible rather than implied to be zero:
 
+- **The root-zeroing property was verified in isolation, not end to end.** `test_zero_out` drives batch state by hand rather than by running a real forester through 120 append proofs, and my litesvm tests never advance a batch to the point of clearing. So I have execution evidence that the clearing routine zeroes the right roots, and reading plus arithmetic that the routine is reached with the right arguments on the live path. Closing that last step would need a full batch cycled through the forester with real proofs, which I judged too slow to build here. It is the single most valuable follow-up test.
 - **The forester append circuit itself.** I established that a duplicate value has no satisfiable witness via the Rust reference implementation (`indexed-array`), not by running the Go `batch_address_append` circuit. If that circuit diverges from the reference, my wedge conclusion would need revisiting, though the divergence would have to be a soundness bug allowing duplicate insertion, which would be worse.
 - **Same-slot concurrency was reasoned about, not executed.** I did not build a test that races two spends into one block. The argument rests on Solana serialising writers of the tree account, which is a runtime guarantee rather than a property of this code.
 - **Multi-tree isolation.** `create_tree` can be permissionless (`create_tree.rs:21-27`) and `TransactAccounts` validates the tree only by owner and discriminator, not as a canonical PDA (`transact/account.rs:24-27`). I convinced myself this is not a double-spend vector, because a note's inclusion proof binds it to one tree's UTXO root and both roots in a spend come from the same account, but I did not test whether a second tree sharing the program-wide SOL/SPL vaults creates a *fund-conservation* problem. That is a different question and I flag it as unexamined.

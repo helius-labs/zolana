@@ -161,9 +161,9 @@ for. The inconsistency points at `merge_transact`.
 ## 5. The regression test and its outcome
 
 `program-tests/shielded-pool/tests/merge_user_record.rs`, wired in as the
-`merge_user_record` test target. Two tests, both asserting that
+`merge_user_record` test target. Three tests, each asserting that
 `merge_transact` rejects a record that is not the merged owner's canonical
-record, and **both fail**.
+record, and **all three fail**.
 
 The tests submit a merge with a zeroed proof, which separates the account check
 from the proof check cleanly: a record SPP accepts runs on to proof verification
@@ -184,13 +184,25 @@ so the later result is attributable to the record and not to the zeroed proof.
    cannot write record bytes into it. The test therefore pins the derivation
    check rather than a live attack. Result: accepted, reaching 7008 rather than
    7018.
+3. `merge_transact_rejects_an_opt_in_borrowed_from_another_record`. The sharpest
+   of the three, and the one that shows a Solana owner is exposed too. The victim
+   registers with no `owner_p256` and leaves merging off; their own record
+   correctly refuses the merge with `MergeDisabled` (7017), which is the baseline
+   here. The impostor then registers `0x02 || victim_solana_address` as their
+   `owner_p256`. The test asserts, rather than assumes, that this encodes to the
+   victim's owner identity: `owner_pk_field_compressed(0x02 || address)` equals
+   `hash_field(address)`. Result: the merge takes the opt-in from the impostor's
+   record and reaches 7008, so an owner who never enabled merging was merged
+   anyway.
 
-Run output, both failures (verified by running):
+Run output, all three failures (verified by running):
 
 ```
 a record whose owner_p256 was claimed by a different registrant:
   expected Custom(7018), got: InstructionError(1, Custom(7008))
 a registry-owned record copy at a non-canonical address:
+  expected Custom(7018), got: InstructionError(1, Custom(7008))
+an impostor record claiming the merged owner's Solana address as a P256 key:
   expected Custom(7018), got: InstructionError(1, Custom(7008))
 ```
 
@@ -247,8 +259,8 @@ worth being explicit about: `owner_pk_field_compressed(0x02 || S)` equals
 x-coordinate is on the curve. An impostor record can therefore carry
 `0x02 || victim_solana_address` in `owner_p256` and impersonate an ed25519 owner
 through the P256 branch. This is the audit's Finding 1 attack shape
-(`owner-hash-collision-audit.md:388-406`); I verified the two hash functions
-agree by reading them, not by running.
+(`owner-hash-collision-audit.md:388-406`), and the third regression test asserts
+the equality directly, so it is now verified by running rather than by reading.
 
 ## 7. The smallest fix, and what it is worth
 
@@ -305,9 +317,13 @@ hands over the blinding.
 
 Verified by running:
 
-- Both regression tests fail with `Custom(7008)` where `Custom(7018)` is
-  required; the canonical-record baseline in each test reaches proof
-  verification, so the merge accepted the impostor and the planted record.
+- All three regression tests fail with `Custom(7008)` where `Custom(7018)` is
+  required. The baseline in each test behaves correctly, reaching proof
+  verification for an opted-in owner's own record and returning `MergeDisabled`
+  for an owner who did not opt in, so the failures are attributable to the
+  substituted record.
+- `owner_pk_field_compressed(0x02 || address) == hash_field(address)` for a
+  Solana address, asserted in the third test.
 - The ECDSA gadget does not solve for `Pub = (0,0)`; the real-key controls solve
   and report invalid then valid.
 - `OwnerPkFieldFromPubkeyCircuit((0,0))` solves and equals native
