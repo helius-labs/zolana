@@ -1,4 +1,9 @@
 export const packageConfigurations = {
+  hasher: {
+    entryPoints: ["."],
+    dependencies: [],
+    browser: true,
+  },
   interface: {
     entryPoints: [".", "./pda", "./codecs", "./instructions"],
     dependencies: ["@noble/curves"],

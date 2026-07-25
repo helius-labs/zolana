@@ -9,6 +9,7 @@
     "npm": ">=10 <11"
   },
   "workspaces": [
+    "sdk-libs/ts/hasher",
     "sdk-libs/ts/interface",
     "sdk-libs/ts/keypair",
     "sdk-libs/ts/transaction",

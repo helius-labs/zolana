@@ -1,0 +1,31 @@
+{
+  "name": "@zolana/hasher",
+  "version": "0.1.0",
+  "description": "Zolana's Poseidon, compiled from Rust to WebAssembly.",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.19.0 <23"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {},
+  "scripts": {
+    "build": "node ../config/build.mjs hasher",
+    "typecheck": "node ../config/typecheck.mjs hasher",
+    "lint": "eslint \"src/index.ts\" \"test/**/*.ts\"",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
+    "test:browser": "node ../config/browser-check.mjs hasher",
+    "embed": "node scripts/embed.mjs"
+  }
+}
