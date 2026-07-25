@@ -44,11 +44,11 @@ func TestProveAndVerifyEveryShape(t *testing.T) {
 				if err != nil {
 					t.Fatalf("build assignment: %v", err)
 				}
-				proof, err := Prove(ps, built.circuit)
+				proof, err := Prove(ps, built.witness)
 				if err != nil {
 					t.Fatalf("prove: %v", err)
 				}
-				if err := Verify(ps, built.circuit, proof); err != nil {
+				if err := Verify(ps, built.witness, proof); err != nil {
 					t.Fatalf("verify: %v", err)
 				}
 			})

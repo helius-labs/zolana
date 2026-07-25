@@ -34,7 +34,7 @@ func defaultOutputOwnerTag(t testing.TB) (*big.Int, *big.Int) {
 // makeDefaultZone turns an anonymous assignment whose outputs all carry the
 // default owner into a valid default-zone one: tag every output, set the shared
 // P256 signing field, and refresh the default-zone public-input hash.
-func makeDefaultZone(t testing.TB, assignment *Circuit, p256SigningPkField *big.Int) {
+func makeDefaultZone(t testing.TB, assignment *testAssignment, p256SigningPkField *big.Int) {
 	t.Helper()
 	if p256SigningPkField == nil {
 		p256SigningPkField = spptest.Fe(0)
@@ -48,7 +48,7 @@ func makeDefaultZone(t testing.TB, assignment *Circuit, p256SigningPkField *big.
 	refreshDefaultZonePublicInputHash(t, assignment)
 }
 
-func refreshDefaultZonePublicInputHash(t testing.TB, assignment *Circuit) {
+func refreshDefaultZonePublicInputHash(t testing.TB, assignment *testAssignment) {
 	refreshPublicInputHashVariant(t, assignment, true, false)
 }
 
@@ -67,7 +67,7 @@ func emptyOutputUtxo() protocol.Utxo {
 	}
 }
 
-func buildDefaultZoneEddsaOnlyAssignment(t testing.TB, shape protocol.Shape) *Circuit {
+func buildDefaultZoneEddsaOnlyAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
 	t.Helper()
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.P256MessageHashLow = spptest.Fe(0)

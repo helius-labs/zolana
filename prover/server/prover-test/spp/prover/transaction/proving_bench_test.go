@@ -45,7 +45,7 @@ func benchmarkProveShape(b *testing.B, shape protocol.Shape, p256 bool) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	assignment := built.circuit
+	assignment := built.witness
 
 	b.ReportAllocs()
 	b.ResetTimer()

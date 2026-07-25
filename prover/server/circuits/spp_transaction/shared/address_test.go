@@ -18,7 +18,7 @@ func addressNullifier(t testing.TB, fields UtxoCircuitFields, nullifierSecret *b
 	return spptest.MustNullifier(t, utxoHash, spptest.AsBigInt(fields.Blinding), nullifierSecret)
 }
 
-func makeAddressSlot(t testing.TB, assignment *Circuit, idx int, ownerPkHash, seed *big.Int) {
+func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkHash, seed *big.Int) {
 	t.Helper()
 	nullifierSecret := spptest.Fe(0)
 	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
@@ -40,7 +40,7 @@ func makeAddressSlot(t testing.TB, assignment *Circuit, idx int, ownerPkHash, se
 	in.Nullifier = addressNullifier(t, in.Utxo, nullifierSecret)
 }
 
-func finalizeAddressAssignment(t testing.TB, assignment *Circuit, requiresP256, confidential bool) {
+func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, requiresP256, confidential bool) {
 	t.Helper()
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
 	addressHashes := make([]*big.Int, len(assignment.Inputs))
@@ -88,7 +88,7 @@ func addressOwnerPkHash(t testing.TB) *big.Int {
 	return testSolanaPkFieldSeed(t, 0x55)
 }
 
-func buildZoneAddressAssignment(t testing.TB) (*Circuit, *big.Int, *big.Int) {
+func buildZoneAddressAssignment(t testing.TB) (*testAssignment, *big.Int, *big.Int) {
 	t.Helper()
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	solAsset := protocol.SolAsset()
@@ -165,13 +165,13 @@ func TestAddressSlotRejectsWrongNullifier(t *testing.T) {
 func TestAddressSlotRejectsUnpinnedField(t *testing.T) {
 	cases := []struct {
 		name string
-		set  func(in *Input)
+		set  func(in *testInput)
 	}{
-		{"blinding", func(in *Input) { in.Utxo.Blinding = spptest.Fe(5) }},
-		{"asset", func(in *Input) { in.Utxo.Asset = spptest.Fe(5) }},
-		{"zone_data_hash", func(in *Input) { in.Utxo.ZoneDataHash = spptest.Fe(5) }},
-		{"zone_program_id", func(in *Input) { in.Utxo.ZoneProgramID = spptest.Fe(5) }},
-		{"domain", func(in *Input) { in.Utxo.Domain = spptest.Fe(2) }},
+		{"blinding", func(in *testInput) { in.Utxo.Blinding = spptest.Fe(5) }},
+		{"asset", func(in *testInput) { in.Utxo.Asset = spptest.Fe(5) }},
+		{"zone_data_hash", func(in *testInput) { in.Utxo.ZoneDataHash = spptest.Fe(5) }},
+		{"zone_program_id", func(in *testInput) { in.Utxo.ZoneProgramID = spptest.Fe(5) }},
+		{"domain", func(in *testInput) { in.Utxo.Domain = spptest.Fe(2) }},
 	}
 	for _, tc := range cases {
 		tc := tc

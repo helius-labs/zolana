@@ -54,7 +54,7 @@ func TestCircuitRejectsBadNullifierNonInclusionPath(t *testing.T) {
 // and nullifier are unchanged, so only the membership witnesses and roots are
 // rewritten; the public input hash is refreshed since per-input roots are
 // committed in it.
-func reassignInputToFreshTrees(t testing.TB, assignment *Circuit, idx int) (stateRoot, nullifierRoot *big.Int) {
+func reassignInputToFreshTrees(t testing.TB, assignment *testAssignment, idx int) (stateRoot, nullifierRoot *big.Int) {
 	t.Helper()
 	if idx < 0 || idx >= len(assignment.Inputs) {
 		t.Fatalf("reassign input index %d out of range", idx)
@@ -234,7 +234,7 @@ func TestCircuitRejectsP256OwnerWithNonZeroOwnerKey(t *testing.T) {
 // baseline for the dummy-slot inertness constraints -- the input contributes 0
 // to the balance and the transaction-hash chain -- so a negative test can flip a
 // single inert field and attribute the failure to exactly that constraint.
-func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
+func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 	t.Helper()
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	solAsset := protocol.SolAsset()

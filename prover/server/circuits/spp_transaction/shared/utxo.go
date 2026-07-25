@@ -31,7 +31,27 @@ func (u UtxoCircuitFields) DefineGadget(api frontend.API) interface{} {
 	})
 }
 
-// AssertInDefaultZone returns 1 iff the utxo is not a member of a zone.
+// IsUtxo: the slot carries a spendable or created utxo.
+func (u UtxoCircuitFields) IsUtxo(api frontend.API) frontend.Variable {
+	return api.IsZero(api.Sub(u.Domain, UtxoDomain))
+}
+
+// isAddress: the slot creates an address.
+func (u UtxoCircuitFields) isAddress(api frontend.API) frontend.Variable {
+	return api.IsZero(api.Sub(u.Domain, AddressDomain))
+}
+
+// isDummy: the slot is padding and carries nothing.
+func (u UtxoCircuitFields) isDummy(api frontend.API) frontend.Variable {
+	return api.IsZero(api.Sub(u.Domain, DummyDomain))
+}
+
+// isUtxoOrAddress: the slot carries content — a spendable or an address utxo.
+func (u UtxoCircuitFields) isUtxoOrAddress(api frontend.API) frontend.Variable {
+	return api.Sub(1, u.isDummy(api))
+}
+
+// AssertInDefaultZone asserts the utxo is not a member of a zone.
 func (u UtxoCircuitFields) AssertInDefaultZone(api frontend.API) {
 	api.AssertIsEqual(u.ZoneDataHash, u.ZoneProgramID)
 	api.AssertIsEqual(u.ZoneDataHash, 0)

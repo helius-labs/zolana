@@ -9,11 +9,12 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
-// Circuit is the shared witness layout of every SPP transaction circuit
-// variant. It carries no constraints itself; each variant (in the default/ and
-// custom/ packages) embeds it and defines the proof in the order below:
+// This package holds the witness building blocks and constraint helpers shared
+// by the SPP transaction circuit variants. Each variant (in the default/ and
+// custom/ packages) owns its full witness layout as Public/Private sub-structs
+// and defines the proof in this order:
 //
-//  1. validate layout                          (ValidateLayout, transaction.go)
+//  1. validate layout                          (per-variant validateLayout)
 //  2. build the spend env                      (P256SpendEnv / EddsaOnlySpendEnv,
 //     spend_env.go)
 //  3. inputs (inputs.go):
@@ -24,87 +25,10 @@ import (
 //     3.5. verify inclusion proof
 //     3.6. verify nullifier non-inclusion proof
 //     3.7. verify every nullifier is unique
-//  4. outputs: create output utxo hashes       (outputs.go)
+//  4. outputs: bind output utxo hashes         (outputs.go)
 //  5. verify balance conservation              (balance.go)
 //  6. check private transaction hash           (private_tx_hash.go)
 //  7. check public inputs hash                 (per-variant public input hash)
-type Circuit struct {
-	Shape Shape `gnark:"-"`
-
-	Inputs  []Input
-	Outputs []Output
-
-	ExternalDataHash frontend.Variable
-	P256Pub          P256PublicKey
-	P256Sig          P256Signature
-	// P256SigningPkField is the shared P256 signing key's pk_field; public in the
-	// default-zone variants so SPP fills the P256-owned input owner entries.
-	P256SigningPkField frontend.Variable
-
-	PrivateTxHash frontend.Variable
-	// P256 ECDSA message digest (full SHA-256) carried as two big-endian 128-bit
-	// limbs: a 256-bit value does not fit in one BN254 element. Both are 0 on the
-	// Solana-only rail.
-	P256MessageHashLow  frontend.Variable
-	P256MessageHashHigh frontend.Variable
-	// PublicAssets/PublicAmounts are the uniform public movement slots: a
-	// signed net flow per asset (SOL is an ordinary asset id). Idle slots are
-	// pinned to (0, 0) by AssertBalanceConservation.
-	PublicAssets    [NPublicSlots]frontend.Variable
-	PublicAmounts   [NPublicSlots]frontend.Variable
-	ZoneProgramID   frontend.Variable
-	PayerPubkeyHash frontend.Variable
-
-	PublicInputHash frontend.Variable `gnark:",public"`
-}
-
-func NewCircuit(shape Shape) (*Circuit, error) {
-	if err := shape.Validate(); err != nil {
-		return nil, err
-	}
-	c := &Circuit{
-		Shape:   shape,
-		Inputs:  make([]Input, shape.NInputs),
-		Outputs: make([]Output, shape.NOutputs),
-	}
-	for i := 0; i < shape.NInputs; i++ {
-		c.Inputs[i].StatePathElements = make([]frontend.Variable, StateTreeHeight)
-		c.Inputs[i].NullifierLowPathElements = make([]frontend.Variable, NullifierTreeHeight)
-	}
-	return c, nil
-}
-
-func (c *Circuit) ValidateLayout() error {
-	in, out := c.Shape.NInputs, c.Shape.NOutputs
-	if len(c.Inputs) != in {
-		return fmt.Errorf("spp: input count mismatch: got %d want %d", len(c.Inputs), in)
-	}
-	if len(c.Outputs) != out {
-		return fmt.Errorf("spp: output count mismatch: got %d want %d", len(c.Outputs), out)
-	}
-
-	for i := 0; i < in; i++ {
-		input := c.Inputs[i]
-		if got := len(input.StatePathElements); got != StateTreeHeight {
-			return fmt.Errorf("spp: input %d state path height: got %d want %d", i, got, StateTreeHeight)
-		}
-		if got := len(input.NullifierLowPathElements); got != NullifierTreeHeight {
-			return fmt.Errorf("spp: input %d nullifier path height: got %d want %d", i, got, NullifierTreeHeight)
-		}
-	}
-	return nil
-}
-
-// PublicSlots returns the public movement slots interleaved as
-// [asset_0, amount_0, asset_1, amount_1] — the canonical public-input-hash
-// preimage order every variant and host mirror must share.
-func (c *Circuit) PublicSlots() []frontend.Variable {
-	slots := make([]frontend.Variable, 0, 2*NPublicSlots)
-	for i := 0; i < NPublicSlots; i++ {
-		slots = append(slots, c.PublicAssets[i], c.PublicAmounts[i])
-	}
-	return slots
-}
 
 // Shape identifies one fixed-size SPP transaction circuit by its input and
 // output counts. The host mirrors this as protocol.Shape (with the supported-set
@@ -122,6 +46,26 @@ func (s Shape) Validate() error {
 	}
 	if s.NOutputs < 1 {
 		return fmt.Errorf("spp: NOutputs must be >= 1, got %d", s.NOutputs)
+	}
+	return nil
+}
+
+// PublicSlots returns the public movement slots interleaved as
+// [asset_0, amount_0, asset_1, amount_1] — the canonical public-input-hash
+// preimage order every variant and host mirror must share.
+func PublicSlots(assets, amounts [NPublicSlots]frontend.Variable) []frontend.Variable {
+	slots := make([]frontend.Variable, 0, 2*NPublicSlots)
+	for i := 0; i < NPublicSlots; i++ {
+		slots = append(slots, assets[i], amounts[i])
+	}
+	return slots
+}
+
+// ValidateLength checks one witness slice against the length the compiled
+// skeleton was sized with.
+func ValidateLength(name string, got, want int) error {
+	if got != want {
+		return fmt.Errorf("spp: %s count mismatch: got %d want %d", name, got, want)
 	}
 	return nil
 }

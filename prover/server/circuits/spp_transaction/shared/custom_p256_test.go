@@ -140,6 +140,6 @@ func TestCustomZoneP256RejectsMismatchedZoneProgramID(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-func refreshCustomZonePublicInputHash(t testing.TB, assignment *Circuit) {
+func refreshCustomZonePublicInputHash(t testing.TB, assignment *testAssignment) {
 	refreshPublicInputHashVariant(t, assignment, false, false)
 }

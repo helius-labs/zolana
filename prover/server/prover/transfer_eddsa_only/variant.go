@@ -64,16 +64,3 @@ func newVariantCircuit(v Variant, shape txcircuit.Shape) (frontend.Circuit, erro
 		return customzone.NewCustomZoneEddsaOnlyCircuit(shape)
 	}
 }
-
-// wrapVariantAssignment wraps a filled witness core in the variant circuit type
-// so gnark sees the same schema the constraint system was compiled with.
-func wrapVariantAssignment(v Variant, core txcircuit.Circuit) frontend.Circuit {
-	switch v {
-	case ConfidentialVariant:
-		return &defaultzone.DefaultZoneEddsaOnlyCircuit{Circuit: core}
-	case ZoneAuthorityVariant:
-		return &customzone.CustomZoneAuthorityCircuit{Circuit: core}
-	default:
-		return &customzone.CustomZoneEddsaOnlyCircuit{Circuit: core}
-	}
-}

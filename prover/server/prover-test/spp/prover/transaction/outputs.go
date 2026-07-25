@@ -10,7 +10,7 @@ import (
 )
 
 type outputWitnesses struct {
-	outputs         []txcircuit.Output
+	outputs         []txcircuit.UtxoCircuitFields
 	hashes          []*big.Int
 	privateTxHashes []*big.Int
 	responses       []ProofUtxoResponse
@@ -25,7 +25,7 @@ type parsedUtxo struct {
 
 func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (outputWitnesses, error) {
 	outputs := outputWitnesses{
-		outputs:         make([]txcircuit.Output, shape.NOutputs),
+		outputs:         make([]txcircuit.UtxoCircuitFields, shape.NOutputs),
 		hashes:          make([]*big.Int, shape.NOutputs),
 		privateTxHashes: make([]*big.Int, shape.NOutputs),
 		responses:       make([]ProofUtxoResponse, 0, len(requests)),
@@ -39,12 +39,7 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 		if err != nil {
 			return outputWitnesses{}, err
 		}
-		outputs.outputs[i] = txcircuit.Output{
-			Utxo:        toProofCircuitFields(parsed.utxo),
-			Hash:        outputHash,
-			OwnerPkHash: big.NewInt(0),
-			NullifierPk: big.NewInt(0),
-		}
+		outputs.outputs[i] = toProofCircuitFields(parsed.utxo)
 		outputs.hashes[i] = outputHash
 		outputs.privateTxHashes[i] = outputHash
 		outputs.responses = append(outputs.responses, ProofUtxoResponse{
@@ -63,12 +58,7 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 		if err != nil {
 			return outputWitnesses{}, fmt.Errorf("dummy output %d hash: %w", i, err)
 		}
-		outputs.outputs[i] = txcircuit.Output{
-			Utxo:        dummyUtxoFields(blinding),
-			Hash:        hash,
-			OwnerPkHash: big.NewInt(0),
-			NullifierPk: big.NewInt(0),
-		}
+		outputs.outputs[i] = dummyUtxoFields(blinding)
 		outputs.hashes[i] = hash
 		outputs.privateTxHashes[i] = big.NewInt(0)
 	}

@@ -52,15 +52,13 @@ func mustNewSolanaCircuit(shape txcircuit.Shape) *customzone.CustomZoneEddsaOnly
 
 func solveAssignment(t *testing.T, shape protocol.Shape, built proofAssignment) {
 	t.Helper()
-	var circuit, witness frontend.Circuit
+	var circuit frontend.Circuit
 	if built.transcript.requiresP256OwnerWitness {
 		circuit = mustNewCircuit(txcircuit.Shape(shape))
-		witness = &customzone.CustomZoneP256Circuit{Circuit: *built.circuit}
 	} else {
 		circuit = mustNewSolanaCircuit(txcircuit.Shape(shape))
-		witness = &customzone.CustomZoneEddsaOnlyCircuit{Circuit: *built.circuit}
 	}
-	if err := test.IsSolved(circuit, witness, ecc.BN254.ScalarField()); err != nil {
+	if err := test.IsSolved(circuit, built.witness, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("assignment must solve the circuit: %v", err)
 	}
 }

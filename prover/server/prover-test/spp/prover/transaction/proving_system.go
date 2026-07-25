@@ -71,17 +71,17 @@ func Setup(shape protocol.Shape, requiresP256 bool) (*ProofSystem, error) {
 	}, nil
 }
 
-func Prove(ps *ProofSystem, assignment *txcircuit.Circuit) (groth16.Proof, error) {
-	witness, err := frontend.NewWitness(ps.wrapAssignment(assignment), ecc.BN254.ScalarField())
+func Prove(ps *ProofSystem, assignment frontend.Circuit) (groth16.Proof, error) {
+	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
 	if err != nil {
 		return nil, err
 	}
 	return groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 }
 
-func Verify(ps *ProofSystem, assignment *txcircuit.Circuit, proof groth16.Proof) error {
+func Verify(ps *ProofSystem, assignment frontend.Circuit, proof groth16.Proof) error {
 	witness, err := frontend.NewWitness(
-		ps.wrapAssignment(assignment),
+		assignment,
 		ecc.BN254.ScalarField(),
 		frontend.PublicOnly(),
 	)
@@ -89,15 +89,6 @@ func Verify(ps *ProofSystem, assignment *txcircuit.Circuit, proof groth16.Proof)
 		return err
 	}
 	return groth16.Verify(proof, ps.VerifyingKey, witness)
-}
-
-// wrapAssignment wraps a filled witness core in the circuit type the proof
-// system was compiled with, selected by the ownership rail.
-func (ps *ProofSystem) wrapAssignment(assignment *txcircuit.Circuit) frontend.Circuit {
-	if ps.RequiresP256 {
-		return &customzone.CustomZoneP256Circuit{Circuit: *assignment}
-	}
-	return &customzone.CustomZoneEddsaOnlyCircuit{Circuit: *assignment}
 }
 
 func WriteProofSystem(ps *ProofSystem, path string, vkeyPath string) error {

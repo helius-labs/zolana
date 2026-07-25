@@ -223,7 +223,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 		return ProofTransaction{}, err
 	}
 	assignment, publicInputs, publicInputHash, outputUtxos, transcript :=
-		built.circuit, built.publicInputs, built.publicInputHash, built.outputUtxos, built.transcript
+		built.witness, built.publicInputs, built.publicInputHash, built.outputUtxos, built.transcript
 	proof, err := Prove(ps, assignment)
 	if err != nil {
 		return ProofTransaction{}, err

@@ -5,70 +5,47 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
-type Output struct {
-	Utxo UtxoCircuitFields
-	Hash frontend.Variable // TODO: move to public inputs struct
-
-	// Default-zone variants only: OwnerPkHash is the public owner tag, NullifierPk
-	// the witnessed nullifier pubkey; together they recompute Utxo.Owner.
-	OwnerPkHash frontend.Variable
-	NullifierPk frontend.Variable
-}
-
-func (c *Circuit) OutputUtxos() []UtxoCircuitFields {
-	out := make([]UtxoCircuitFields, len(c.Outputs))
-	for i := range c.Outputs {
-		out[i] = c.Outputs[i].Utxo
-	}
-	return out
-}
-
-func (c *Circuit) OutputHashes() []frontend.Variable {
-	out := make([]frontend.Variable, len(c.Outputs))
-	for i := range c.Outputs {
-		out[i] = c.Outputs[i].Hash
-	}
-	return out
-}
-
-func (c *Circuit) OutputOwnerPkHashes() []frontend.Variable {
-	out := make([]frontend.Variable, len(c.Outputs))
-	for i := range c.Outputs {
-		out[i] = c.Outputs[i].OwnerPkHash
-	}
-	return out
-}
-
 // SignerOwners collects the owner hash of every real input slot — the
 // identities checkOwnership binds to a verified signer. Non-real slots are
 // masked to zero, which checkOwnerSigned never matches.
-func (c *Circuit) SignerOwners(api frontend.API) []frontend.Variable {
-	signers := make([]frontend.Variable, len(c.Inputs))
-	for i, in := range c.Inputs {
+func SignerOwners(api frontend.API, inputs []Input) []frontend.Variable {
+	signers := make([]frontend.Variable, len(inputs))
+	for i, in := range inputs {
 		signers[i] = api.Mul(in.isUtxoOrAddress(api), in.Utxo.Owner)
 	}
 	return signers
 }
 
-// ConstrainDefaultZoneOutput — default zone: a real output must not be a
-// member of a zone, and checkOwnerIsPublicInput.
-func (c *Circuit) ConstrainDefaultZoneOutput(api frontend.API, out Output, signers []frontend.Variable) frontend.Variable {
-	out.Utxo.AssertInDefaultZone(api)
-	out.checkOwnerIsPublicInput(api)
-	return ConstrainOutputShared(api, out, signers)
+// ConstrainDefaultZoneOutput — default zone: an output must not be a member
+// of a zone, and a real output's owner_hash must recompute from the public
+// owner tag (ownerPkHash) and the witnessed nullifierPk. Dummy slots skip the
+// owner binding so their public tag stays free.
+func ConstrainDefaultZoneOutput(
+	api frontend.API,
+	utxo UtxoCircuitFields,
+	hash, ownerPkHash, nullifierPk frontend.Variable,
+	signers []frontend.Variable,
+) frontend.Variable {
+	utxo.AssertInDefaultZone(api)
+	AssertWhen(api, utxo.IsUtxo(api), checkOwnerIsPublicInput(api, utxo, ownerPkHash, nullifierPk))
+	return ConstrainOutputShared(api, utxo, hash, signers)
 }
 
-func ConstrainOutputShared(api frontend.API, out Output, signers []frontend.Variable) frontend.Variable {
-	isUtxo := out.IsUtxo(api)
-	api.AssertIsEqual(api.Add(isUtxo, out.isDummy(api)), 1)
+// ConstrainOutputShared classifies the slot, pins dummies, requires a verified
+// signer for data-carrying outputs, and binds the public hash to the utxo
+// (dummies included — the public hash is the blinded dummy hash). Returns
+// Select(isUtxo, utxoHash, 0) for the private-tx-hash chain.
+func ConstrainOutputShared(api frontend.API, utxo UtxoCircuitFields, hash frontend.Variable, signers []frontend.Variable) frontend.Variable {
+	isUtxo := utxo.IsUtxo(api)
+	api.AssertIsEqual(api.Add(isUtxo, utxo.isDummy(api)), 1)
 
-	AssertWhen(api, out.isDummy(api), out.Utxo.checkDummy(api))
+	AssertWhen(api, utxo.isDummy(api), utxo.checkDummy(api))
 
-	dataIsSet := api.Sub(1, api.IsZero(out.Utxo.DataHash))
-	AssertWhen(api, api.Mul(isUtxo, dataIsSet), checkOwnerSigned(api, out.Utxo.Owner, signers))
+	dataIsSet := api.Sub(1, api.IsZero(utxo.DataHash))
+	AssertWhen(api, api.Mul(isUtxo, dataIsSet), checkOwnerSigned(api, utxo.Owner, signers))
 
-	utxoHash := UtxoHashCircuit(api, out.Utxo)
-	api.AssertIsEqual(utxoHash, out.Hash)
+	utxoHash := UtxoHashCircuit(api, utxo)
+	api.AssertIsEqual(utxoHash, hash)
 
 	return api.Select(isUtxo, utxoHash, frontend.Variable(0))
 }
@@ -84,21 +61,12 @@ func checkOwnerSigned(api frontend.API, owner frontend.Variable, signers []front
 	return api.Mul(api.IsZero(prod), api.Sub(1, api.IsZero(owner)))
 }
 
-// IsUtxo: the slot creates a utxo.
-func (out Output) IsUtxo(api frontend.API) frontend.Variable {
-	return api.IsZero(api.Sub(out.Utxo.Domain, UtxoDomain))
-}
-
-func (out Output) isDummy(api frontend.API) frontend.Variable {
-	return api.IsZero(api.Sub(out.Utxo.Domain, DummyDomain))
-}
-
-// checkOwnerIsPublicInput — default-zone variants only: returns 1 iff the public
-// owner tag matches the output owner_hash.
-func (out Output) checkOwnerIsPublicInput(api frontend.API) {
+// checkOwnerIsPublicInput — default-zone variants only: returns 1 iff the
+// public owner tag recomputes the output owner_hash.
+func checkOwnerIsPublicInput(api frontend.API, utxo UtxoCircuitFields, ownerPkHash, nullifierPk frontend.Variable) frontend.Variable {
 	ownerHash := abstractor.Call(api, OwnerHashGadget{
-		OwnerKeyHash: out.OwnerPkHash,
-		NullifierPk:  out.NullifierPk,
+		OwnerKeyHash: ownerPkHash,
+		NullifierPk:  nullifierPk,
 	})
-	api.AssertIsEqual(ownerHash, out.Utxo.Owner)
+	return api.IsZero(api.Sub(ownerHash, utxo.Owner))
 }

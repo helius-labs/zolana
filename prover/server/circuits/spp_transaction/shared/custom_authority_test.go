@@ -89,18 +89,18 @@ func TestCustomZoneAuthorityRejectsDefaultZoneOutput(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
-func buildZoneAuthorityAssignment(t testing.TB, shape protocol.Shape) *Circuit {
+func buildZoneAuthorityAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
 	t.Helper()
 	zone := zoneAuthorityZone()
 	return buildZoneAuthorityAssignmentWithZone(t, shape, zone, zone)
 }
 
-func buildZoneAuthorityAssignmentWithZone(t testing.TB, shape protocol.Shape, publicZone, utxoZone *big.Int) *Circuit {
+func buildZoneAuthorityAssignmentWithZone(t testing.TB, shape protocol.Shape, publicZone, utxoZone *big.Int) *testAssignment {
 	t.Helper()
 	return buildZoneAuthorityAssignmentZones(t, shape, publicZone, utxoZone, utxoZone)
 }
 
-func buildZoneAuthorityAssignmentZones(t testing.TB, shape protocol.Shape, publicZone, inputZone, outputZone *big.Int) *Circuit {
+func buildZoneAuthorityAssignmentZones(t testing.TB, shape protocol.Shape, publicZone, inputZone, outputZone *big.Int) *testAssignment {
 	t.Helper()
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	for i := range inputs {
@@ -117,6 +117,6 @@ func buildZoneAuthorityAssignmentZones(t testing.TB, shape protocol.Shape, publi
 	return assignment
 }
 
-func refreshZoneAuthorityPublicInputHash(t testing.TB, assignment *Circuit) {
+func refreshZoneAuthorityPublicInputHash(t testing.TB, assignment *testAssignment) {
 	refreshPublicInputHashVariant(t, assignment, false, true)
 }
