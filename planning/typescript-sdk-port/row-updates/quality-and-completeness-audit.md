@@ -154,6 +154,12 @@ The Rust originals are used: `sdk-libs/transaction/src/serialization/plaintext.r
 
 **Some vector tests record Rust facts rather than compare TypeScript against them, and they count toward the headline number.** `merkle-tree/test/vectors/program-libs-hasher.test.ts:44`, `:52`, `:82`, and `:123` assert only on fixture contents. Unlike F4 these are honest, because lines 53 and 83 carry comments saying precisely that no TypeScript counterpart exists to compare, and pinning a Rust value the port deliberately does not carry is a reasonable thing to do. The problem is only that "1018 unit tests pass" mixes them with tests that exercise the port. A reader who wants to know how much of the port is covered cannot get it from that number.
 
+### Q5
+
+**The suite runs on vitest's default 5-second per-test timeout, and several vector suites do not fit inside it under load.** `vitest.config.js` sets `pool: "forks"` and no `testTimeout`. The first run of this audit's verification pass, made while other workers were building in sibling worktrees, failed 8 tests in 8 files. Every failure was `Test timed out in 5000ms`, none was an assertion, and the run reported 124 seconds of transform work spread across the forks. Four later runs of the same command, cold cache included, passed in under 4 seconds each.
+
+A reader should conclude that the "phantom failure" this branch has seen before is a load-sensitive timeout, not a stale cache, and that it will recur on a busy CI runner. The suites that tipped over are the crypto-heavy ones, `keypair/test/vectors/keypair-parity.test.ts:452` among them, where a single `it` walks every plaintext length across the AES-CTR block boundary. Either raise `testTimeout` in `vitest.config.js` or split those loops into cases; leaving the default in place means a red run that tells nobody anything.
+
 ## What is good, and worth not losing
 
 Three things in this code are better than the surrounding process suggests, and they should be defended in review rather than rediscovered.
@@ -174,8 +180,11 @@ Run in this worktree after the three commits, with `node_modules/.vite` cleared 
 | `npm run typecheck` | clean |
 | `npm run lint` | clean |
 | `npm run lint:packages` | clean, after another worker's in-tree fix; see [F6](#f6) |
+| `npm run check:static` | clean, including `format:check` |
 
 The unit count rises from 1018 to 1143 because of the two new parity suites; none of the increase comes from relaxing an assertion.
+
+One earlier run of `npm run test:unit` reported 8 timeout failures under machine load. Four repeats passed. That flakiness is [Q5](#q5), not a regression from these commits.
 
 ## Commits
 
