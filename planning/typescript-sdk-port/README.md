@@ -56,7 +56,7 @@ In flight:
 
 | Work | State |
 | --- | --- |
-| Quality and no-shortcuts audit of `sdk-libs/ts` | Running |
+| Quality and no-shortcuts audit of `sdk-libs/ts` | Done. Functionality was cut, two live defects fixed, quality otherwise sound |
 | Fold three merged batches into the table | Running |
 | Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc`, 5 commits ahead and merging clean. Landed the indexed-range sentinel bound, the faucet-port offset, and the keypair bigint bound |
 | Keypair error redaction, is the guarantee real | Done. No secret reaches an error surface, but the sanitizer is not what prevents it |
@@ -190,6 +190,32 @@ into one; the 27 uncovered `program-libs` rows; the five rows pointing at the
 wrong file; the residual Rust prerequisites; the Merkle semantics questions; the
 PR #158 rebase; the WebAssembly differential oracle; and then PKP-00 through
 PKP-08.
+
+## What the TypeScript SDK cannot do
+
+Read this before describing the port as feature-complete. The audit in
+[row-updates/quality-and-completeness-audit.md](row-updates/quality-and-completeness-audit.md)
+established it by comparing the `circuitType` values each language sends to
+the prover, rather than by reading the packages.
+
+The Rust client emits eight `circuitType` values; TypeScript emits four. A
+TypeScript caller cannot prove a zone transaction on either rail
+(`transfer-zone`, `transfer-p256-zone`), cannot prove a zone-authority
+transition (`transfer-zone-authority`), and cannot prove a forester address
+append (`address-append`). The three zone provers are booked for PKP-05 under
+rows C13, C14, and C18. The address append is dispositioned `NOT_APPLICABLE`
+under C07 on the sound argument that TypeScript ships no forester, so the type
+would have neither producer nor consumer.
+
+Two things follow that are easy to miss. `inventory-client.md:61` still
+dispositions the zone-authority prover as `port` and promises
+`src/prover/zone-authority.ts` and `fixtures/client/zone_authority.json`,
+neither of which exists, so the inventory and the checklist disagree and one of
+them has to move. And the shortfall is sharper than a missing module: the
+transaction and interface packages already build `PreparedZoneAuthority` and
+the zone instruction data, so a caller can assemble a zone-authority
+transaction right up to proving it and then stop. A pipeline that ends one step
+short misleads more than an absent one.
 
 ## Worktree topology
 
