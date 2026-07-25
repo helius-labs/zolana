@@ -18,7 +18,13 @@ import {
   type ProofOutputUtxo,
 } from "../utxo.js";
 import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
-import { SppProofInputs, createExternalData, type InputUtxoContext } from "./transact.js";
+import {
+  SppProofInputs,
+  createExternalData,
+  exactShape,
+  type InputUtxoContext,
+  type Shape,
+} from "./transact.js";
 
 /** Padded input count of both merge rails, the counterpart of Rust `MERGE_INPUTS`. */
 export const MERGE_INPUTS = 8;
@@ -562,6 +568,7 @@ export interface PreparedZoneAuthority {
   readonly publicAmounts: Readonly<{ sol?: bigint; spl?: bigint }>;
   readonly zoneProgramId: Address;
   readonly payerPublicKeyHash: Bytes32;
+  readonly shape: Shape;
   inputUtxoHashes(): readonly InputUtxoContext[];
 }
 
@@ -593,8 +600,12 @@ export function prepareZoneAuthority(
       throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH", { index });
     }
   }
+  // The padded slot counts must name a proving system that exists, exactly as
+  // `SppProofInputs` requires of an owner-signed transact.
+  const shape = exactShape(input.inputs.length, input.outputs.length);
   return Object.freeze({
     ...input,
+    shape,
     publicAmounts: input.publicAmounts ?? {},
     inputUtxoHashes: (): readonly InputUtxoContext[] =>
       input.inputs

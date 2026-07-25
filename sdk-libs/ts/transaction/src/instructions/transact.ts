@@ -103,6 +103,21 @@ export function canonicalShape(inputs: number, outputs: number): Shape {
   }
 }
 
+/**
+ * The proving system whose slot counts the padded transaction already matches.
+ * Unlike `canonicalShape` this rounds nothing up: the counts are final by the
+ * time a proof is assembled.
+ */
+export function exactShape(inputs: number, outputs: number): Shape {
+  const exact = SPP_SUPPORTED_SHAPES.find(
+    (shape) => shape.inputs === inputs && shape.outputs === outputs,
+  );
+  if (!exact) {
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { inputs, outputs });
+  }
+  return Object.freeze({ ...exact });
+}
+
 export function resolveShape(inputs: number, outputs: number, declared?: Shape): Shape {
   if (declared === undefined) return canonicalShape(inputs, outputs);
   checkedCount(inputs, "inputs");
@@ -410,16 +425,7 @@ export class SppProofInputs {
   }
 
   checkShape(): Shape {
-    const exact = SPP_SUPPORTED_SHAPES.find(
-      (shape) => shape.inputs === this.inputUtxos.length && shape.outputs === this.outputs.length,
-    );
-    if (!exact) {
-      throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
-        inputs: this.inputUtxos.length,
-        outputs: this.outputs.length,
-      });
-    }
-    return Object.freeze({ ...exact });
+    return exactShape(this.inputUtxos.length, this.outputs.length);
   }
 
   publicAmounts(): PublicAmounts {

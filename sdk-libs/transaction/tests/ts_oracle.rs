@@ -38,7 +38,8 @@ use zolana_transaction::{
             ConfidentialSplit, ConfidentialTransfer, EncryptedTransaction, ExternalData, InputUtxo,
             PrivateTxHash, Shape, SppProofOutputUtxo, WithdrawalTarget, SENDER_SLOT_COUNT,
         },
-        types::SppProofInputUtxo,
+        types::{InputUtxoContext, SppProofInputUtxo},
+        zone_authority::PreparedZoneAuthority,
     },
     owner_utxo_hash,
     serialization::{
@@ -412,6 +413,21 @@ fn errors_section() -> Value {
         })
         .collect::<Vec<_>>();
     json!({ "variants": variants })
+}
+
+fn context_json(contexts: &[InputUtxoContext]) -> Value {
+    Value::Array(
+        contexts
+            .iter()
+            .map(|context| {
+                json!({
+                    "index": context.index,
+                    "utxoHashHex": hex(&context.utxo_hash),
+                    "nullifierHex": hex(&context.nullifier),
+                })
+            })
+            .collect(),
+    )
 }
 
 fn record_json(record: &DataRecord) -> Value {
@@ -1992,21 +2008,7 @@ fn merge_case(case: MergeCase) -> Value {
             json_case.insert("outputAmount".into(), json!(amount.to_string()));
             json_case.insert("paddedInputs".into(), json!(padded));
             json_case.insert("expiryUnixTs".into(), json!(expiry.to_string()));
-            json_case.insert(
-                "inputContexts".into(),
-                Value::Array(
-                    contexts
-                        .iter()
-                        .map(|context| {
-                            json!({
-                                "index": context.index,
-                                "utxoHashHex": hex(&context.utxo_hash),
-                                "nullifierHex": hex(&context.nullifier),
-                            })
-                        })
-                        .collect(),
-                ),
-            );
+            json_case.insert("inputContexts".into(), context_json(&contexts));
         }
         Err(error) => {
             json_case.insert("error".into(), json!(ts_code(&error)));
@@ -2499,7 +2501,162 @@ fn oracle() -> Value {
         "serialization": serialization_section(),
         "fromUtxos": from_utxos_section(),
         "transactTypes": transact_types_section(),
+        "zoneAuthority": zone_authority_section(),
     })
+}
+
+/// `PreparedZoneAuthority`: the unsigned rail whose only containment is the
+/// pinned zone, so every acceptance and rejection here is load-bearing.
+fn zone_authority_section() -> Value {
+    struct Case {
+        name: &'static str,
+        /// Zone carried by the real input and output; `None` leaves them unbound.
+        input_zone: Option<Address>,
+        output_zone: Option<Address>,
+        pinned_zone: Address,
+        public_sol: Option<i64>,
+        /// Extra dummy slots appended past the two the padded pair already has.
+        extra_outputs: usize,
+    }
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let zone = address(MERGE_ZONE_BYTE);
+    let other_zone = address(MERGE_ZONE_BYTE + 1);
+    let payer = address(PAYER_BYTE);
+    let case = |name, input_zone, output_zone, pinned_zone, public_sol, extra_outputs| Case {
+        name,
+        input_zone,
+        output_zone,
+        pinned_zone,
+        public_sol,
+        extra_outputs,
+    };
+    let cases = [
+        case("zoneBound", Some(zone), Some(zone), zone, None, 0),
+        case(
+            "unpinnedZone",
+            Some(zone),
+            Some(zone),
+            Address::default(),
+            None,
+            0,
+        ),
+        case(
+            "inputOutsideZone",
+            Some(other_zone),
+            Some(zone),
+            zone,
+            None,
+            0,
+        ),
+        case("inputUnbound", None, Some(zone), zone, None, 0),
+        case(
+            "outputOutsideZone",
+            Some(zone),
+            Some(other_zone),
+            zone,
+            None,
+            0,
+        ),
+        case("outputUnbound", Some(zone), None, zone, None, 0),
+        case("depositLeg", Some(zone), Some(zone), zone, Some(500), 0),
+        case("withdrawalLeg", Some(zone), Some(zone), zone, Some(-500), 0),
+        // 2 inputs by 5 outputs names no proving system.
+        case("unsupportedShape", Some(zone), Some(zone), zone, None, 3),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|case| {
+                let inputs = vec![
+                    zone_authority_input(&owner, case.input_zone),
+                    SppProofInputUtxo::new_dummy(),
+                ];
+                let mut outputs = vec![
+                    zone_authority_output(&owner, case.output_zone),
+                    SppProofOutputUtxo::default(),
+                ];
+                outputs.extend((0..case.extra_outputs).map(|_| SppProofOutputUtxo::default()));
+                let external_data = match case.public_sol {
+                    Some(amount) => {
+                        ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new())
+                            .with_public_sol(amount, Address::default())
+                            .expect("public sol leg")
+                    }
+                    None => {
+                        ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new())
+                    }
+                };
+                let prepared = PreparedZoneAuthority::new(
+                    case.pinned_zone,
+                    inputs,
+                    outputs,
+                    external_data,
+                    payer,
+                );
+                let contexts = prepared
+                    .as_ref()
+                    .ok()
+                    .map(|prepared| context_json(&prepared.input_utxo_hashes().expect("contexts")));
+                json!({
+                    "name": case.name,
+                    "inputZone": case.input_zone.map(|id| id.to_string()),
+                    "outputZone": case.output_zone.map(|id| id.to_string()),
+                    "pinnedZone": case.pinned_zone.to_string(),
+                    "publicSol": case.public_sol.map(|amount| amount.to_string()),
+                    "extraOutputs": case.extra_outputs,
+                    "error": prepared.as_ref().err().map(ts_code),
+                    "index": match &prepared {
+                        Err(TransactionError::ZoneAuthorityInputZoneMismatch { index })
+                        | Err(TransactionError::ZoneAuthorityOutputZoneMismatch { index }) => {
+                            json!(index)
+                        }
+                        _ => Value::Null,
+                    },
+                    "shape": prepared.as_ref().ok().map(|prepared| json!({
+                        "inputs": prepared.shape.n_inputs(),
+                        "outputs": prepared.shape.n_outputs(),
+                    })),
+                    "payerPublicKeyHashHex": prepared
+                        .as_ref()
+                        .ok()
+                        .map(|prepared| hex(&prepared.payer_pubkey_hash)),
+                    "inputContexts": contexts,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn zone_authority_input(
+    owner: &ShieldedKeypair,
+    zone_program_id: Option<Address>,
+) -> SppProofInputUtxo {
+    SppProofInputUtxo::new(
+        Utxo {
+            owner: owner.signing_key.pubkey(),
+            asset: SOL_MINT,
+            amount: 500,
+            blinding: TRANSACT_TYPES_BLINDING,
+            zone_program_id,
+            data: Data::default(),
+        },
+        owner,
+    )
+}
+
+fn zone_authority_output(
+    owner: &ShieldedKeypair,
+    zone_program_id: Option<Address>,
+) -> SppProofOutputUtxo {
+    SppProofOutputUtxo {
+        asset: SOL_MINT,
+        amount: 500,
+        blinding: TRANSACT_TYPES_BLINDING,
+        zone_program_id,
+        owner_address: Some(owner.shielded_address().expect("shielded address")),
+        ..Default::default()
+    }
 }
 
 const TRANSACT_TYPES_BLINDING: [u8; BLINDING_LEN] = [23; BLINDING_LEN];

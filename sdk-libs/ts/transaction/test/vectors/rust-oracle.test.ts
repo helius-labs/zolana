@@ -42,6 +42,7 @@ import {
   encryptedSchemeToByte,
   ownerUtxoHash,
   plaintextTransferFromUtxos,
+  prepareZoneAuthority,
   prooflessFromUtxos,
   resolveShape,
   signedToField,
@@ -49,6 +50,7 @@ import {
   slotOrdinal,
   type DataRecord,
   type PreparedTransfer,
+  type PreparedZoneAuthority,
   type Shape,
   type TransactionErrorCode,
   type WithdrawalTarget,
@@ -1273,6 +1275,92 @@ describe("the Rust oracle and TypeScript agree on the transaction types", () => 
         externalData: emptyExternalData(),
       });
       expect(hex(transaction.hash())).toBe(testCase.hashHex);
+    });
+  }
+});
+
+interface ZoneAuthorityCase {
+  readonly name: string;
+  readonly inputZone: string | null;
+  readonly outputZone: string | null;
+  readonly pinnedZone: string;
+  readonly publicSol: string | null;
+  readonly extraOutputs: number;
+  readonly error: string | null;
+  readonly index: number | null;
+  readonly shape: ShapeJson | null;
+  readonly payerPublicKeyHashHex: string | null;
+  readonly inputContexts: readonly ContextJson[] | null;
+}
+
+describe("the Rust oracle and TypeScript agree on the zone-authority rail", () => {
+  const owner = shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex);
+  const blinding = bytes(oracle.transactTypes.blindingHex) as Bytes31;
+  const payerPublicKeyHash = bytes(
+    (oracle.zoneAuthority as readonly ZoneAuthorityCase[])[0]?.payerPublicKeyHashHex ?? "",
+  ) as Bytes32;
+
+  for (const testCase of oracle.zoneAuthority as readonly ZoneAuthorityCase[]) {
+    it(`decides ${testCase.name} the same way`, () => {
+      const outputs = [
+        createProofOutput({
+          ownerAddress: owner.shieldedAddress(),
+          asset: SOL_MINT,
+          amount: 500n,
+          blinding,
+          ...(testCase.outputZone === null ? {} : { zoneProgramId: testCase.outputZone as Address }),
+        }),
+        ...Array.from({ length: testCase.extraOutputs + 1 }, () =>
+          createProofOutput({
+            asset: "11111111111111111111111111111111" as Address,
+            amount: 0n,
+            blinding: new Uint8Array(31) as Bytes31,
+          }),
+        ),
+      ];
+      const prepare = (): PreparedZoneAuthority =>
+        prepareZoneAuthority({
+          inputs: [
+            new ProofInputUtxo({
+              utxo: new Utxo({
+                owner: owner.signingPublicKey(),
+                asset: SOL_MINT,
+                amount: 500n,
+                blinding,
+                ...(testCase.inputZone === null
+                  ? {}
+                  : { zoneProgramId: testCase.inputZone as Address }),
+              }),
+              nullifierKey: owner.nullifierKey(),
+            }),
+            ProofInputUtxo.dummy(blinding),
+          ],
+          outputs,
+          zoneProgramId: testCase.pinnedZone as Address,
+          payerPublicKeyHash,
+          ...(testCase.publicSol === null
+            ? {}
+            : { publicAmounts: { sol: BigInt(testCase.publicSol) } }),
+        });
+      if (testCase.error !== null) {
+        expect(rejection(prepare)).toEqual({ code: testCase.error, field: null });
+        if (testCase.index !== null) {
+          expect(details(prepare)).toEqual({ index: testCase.index });
+        }
+        return;
+      }
+      const prepared = prepare();
+      expect({ inputs: prepared.shape.inputs, outputs: prepared.shape.outputs }).toEqual(
+        testCase.shape,
+      );
+      expect(hex(prepared.payerPublicKeyHash)).toBe(testCase.payerPublicKeyHashHex);
+      expect(
+        prepared.inputUtxoHashes().map((context) => ({
+          index: context.index,
+          utxoHashHex: hex(context.utxoHash),
+          nullifierHex: hex(context.nullifier),
+        })),
+      ).toEqual(testCase.inputContexts);
     });
   }
 });

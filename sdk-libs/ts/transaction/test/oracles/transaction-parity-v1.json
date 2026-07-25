@@ -6390,5 +6390,151 @@
         "zoneProgramId": null
       }
     ]
-  }
+  },
+  "zoneAuthority": [
+    {
+      "error": null,
+      "extraOutputs": 0,
+      "index": null,
+      "inputContexts": [
+        {
+          "index": 0,
+          "nullifierHex": "18284894667d6074f3ffb05bfaff1eadda0ffaafe69472ba9c9d97311414850d",
+          "utxoHashHex": "183431c419abccac7da399f3fbc5ffa8bebd92c66a4288fabc4e0244b2c0f259"
+        }
+      ],
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "zoneBound",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": {
+        "inputs": 2,
+        "outputs": 2
+      }
+    },
+    {
+      "error": "TRANSACTION_MISSING_ZONE_AUTHORITY_PROGRAM_ID",
+      "extraOutputs": 0,
+      "index": null,
+      "inputContexts": null,
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "unpinnedZone",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "11111111111111111111111111111111",
+      "publicSol": null,
+      "shape": null
+    },
+    {
+      "error": "TRANSACTION_ZONE_AUTHORITY_INPUT_ZONE_MISMATCH",
+      "extraOutputs": 0,
+      "index": 0,
+      "inputContexts": null,
+      "inputZone": "36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv",
+      "name": "inputOutsideZone",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": null
+    },
+    {
+      "error": "TRANSACTION_ZONE_AUTHORITY_INPUT_ZONE_MISMATCH",
+      "extraOutputs": 0,
+      "index": 0,
+      "inputContexts": null,
+      "inputZone": null,
+      "name": "inputUnbound",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": null
+    },
+    {
+      "error": "TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH",
+      "extraOutputs": 0,
+      "index": 0,
+      "inputContexts": null,
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "outputOutsideZone",
+      "outputZone": "36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv",
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": null
+    },
+    {
+      "error": "TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH",
+      "extraOutputs": 0,
+      "index": 0,
+      "inputContexts": null,
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "outputUnbound",
+      "outputZone": null,
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": null
+    },
+    {
+      "error": null,
+      "extraOutputs": 0,
+      "index": null,
+      "inputContexts": [
+        {
+          "index": 0,
+          "nullifierHex": "18284894667d6074f3ffb05bfaff1eadda0ffaafe69472ba9c9d97311414850d",
+          "utxoHashHex": "183431c419abccac7da399f3fbc5ffa8bebd92c66a4288fabc4e0244b2c0f259"
+        }
+      ],
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "depositLeg",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": "500",
+      "shape": {
+        "inputs": 2,
+        "outputs": 2
+      }
+    },
+    {
+      "error": null,
+      "extraOutputs": 0,
+      "index": null,
+      "inputContexts": [
+        {
+          "index": 0,
+          "nullifierHex": "18284894667d6074f3ffb05bfaff1eadda0ffaafe69472ba9c9d97311414850d",
+          "utxoHashHex": "183431c419abccac7da399f3fbc5ffa8bebd92c66a4288fabc4e0244b2c0f259"
+        }
+      ],
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "withdrawalLeg",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": "-500",
+      "shape": {
+        "inputs": 2,
+        "outputs": 2
+      }
+    },
+    {
+      "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+      "extraOutputs": 3,
+      "index": null,
+      "inputContexts": null,
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "unsupportedShape",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": null
+    }
+  ]
 }
