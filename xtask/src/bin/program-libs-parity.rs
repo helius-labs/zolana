@@ -21,7 +21,9 @@ use serde_json::{json, Map, Value};
 use zolana_event::{
     output_data::MessageData,
     output_utxo::OutputUtxo,
-    proofless::{encode_output_data, encode_verifiably_encrypted, OutputDataEncoding, ProoflessOutput},
+    proofless::{
+        encode_output_data, encode_verifiably_encrypted, OutputDataEncoding, ProoflessOutput,
+    },
     tag::{self, InstructionTag},
 };
 use zolana_hasher::{
@@ -182,20 +184,47 @@ fn instruction_tags() -> Value {
 /// cannot pass by matching the wrong one.
 fn output_data() -> Result<Value> {
     let cases = vec![
-        ("empty-data", MessageData { view_tag: fill(0x11), data: Vec::new() }),
-        ("short-data", MessageData { view_tag: fill(0x22), data: vec![1, 2, 3, 4, 5] }),
-        ("zero-view-tag", MessageData { view_tag: [0u8; 32], data: vec![0xff; 7] }),
+        (
+            "empty-data",
+            MessageData {
+                view_tag: fill(0x11),
+                data: Vec::new(),
+            },
+        ),
+        (
+            "short-data",
+            MessageData {
+                view_tag: fill(0x22),
+                data: vec![1, 2, 3, 4, 5],
+            },
+        ),
+        (
+            "zero-view-tag",
+            MessageData {
+                view_tag: [0u8; 32],
+                data: vec![0xff; 7],
+            },
+        ),
         (
             "long-data-300",
-            MessageData { view_tag: fill(0xab), data: (0..300u32).map(|i| (i % 251) as u8).collect() },
+            MessageData {
+                view_tag: fill(0xab),
+                data: (0..300u32).map(|i| (i % 251) as u8).collect(),
+            },
         ),
         (
             "boundary-255",
-            MessageData { view_tag: fill(0x01), data: vec![0x5a; 255] },
+            MessageData {
+                view_tag: fill(0x01),
+                data: vec![0x5a; 255],
+            },
         ),
         (
             "boundary-256",
-            MessageData { view_tag: fill(0x02), data: vec![0x5b; 256] },
+            MessageData {
+                view_tag: fill(0x02),
+                data: vec![0x5b; 256],
+            },
         ),
     ];
 
@@ -227,15 +256,27 @@ fn output_utxo() -> Result<Value> {
     let cases = vec![
         (
             "empty-data",
-            OutputUtxo { view_tag: fill(0x33), utxo_hash: fill(0x44), data: Vec::new() },
+            OutputUtxo {
+                view_tag: fill(0x33),
+                utxo_hash: fill(0x44),
+                data: Vec::new(),
+            },
         ),
         (
             "short-data",
-            OutputUtxo { view_tag: fill(0x55), utxo_hash: fill(0x66), data: vec![9, 8, 7] },
+            OutputUtxo {
+                view_tag: fill(0x55),
+                utxo_hash: fill(0x66),
+                data: vec![9, 8, 7],
+            },
         ),
         (
             "zeroed",
-            OutputUtxo { view_tag: [0u8; 32], utxo_hash: [0u8; 32], data: vec![0] },
+            OutputUtxo {
+                view_tag: [0u8; 32],
+                utxo_hash: [0u8; 32],
+                data: vec![0],
+            },
         ),
         (
             "long-data-600",
@@ -305,27 +346,45 @@ fn proofless() -> Result<Value> {
 
     cases.push((
         "data-hash-only",
-        ProoflessOutput { data_hash: Some(fill(0x07)), ..base.clone() },
+        ProoflessOutput {
+            data_hash: Some(fill(0x07)),
+            ..base.clone()
+        },
     ));
     cases.push((
         "utxo-data-only",
-        ProoflessOutput { utxo_data: Some(vec![0xaa; 40]), ..base.clone() },
+        ProoflessOutput {
+            utxo_data: Some(vec![0xaa; 40]),
+            ..base.clone()
+        },
     ));
     cases.push((
         "zone-program-id-only",
-        ProoflessOutput { zone_program_id: Some(fill(0x08)), ..base.clone() },
+        ProoflessOutput {
+            zone_program_id: Some(fill(0x08)),
+            ..base.clone()
+        },
     ));
     cases.push((
         "zone-data-hash-only",
-        ProoflessOutput { zone_data_hash: Some(fill(0x09)), ..base.clone() },
+        ProoflessOutput {
+            zone_data_hash: Some(fill(0x09)),
+            ..base.clone()
+        },
     ));
     cases.push((
         "zone-data-only",
-        ProoflessOutput { zone_data: Some(vec![0xbb; 5]), ..base.clone() },
+        ProoflessOutput {
+            zone_data: Some(vec![0xbb; 5]),
+            ..base.clone()
+        },
     ));
     cases.push((
         "memo-only",
-        ProoflessOutput { memo: Some(b"memo".to_vec()), ..base.clone() },
+        ProoflessOutput {
+            memo: Some(b"memo".to_vec()),
+            ..base.clone()
+        },
     ));
     cases.push((
         "empty-vec-options",
@@ -338,11 +397,20 @@ fn proofless() -> Result<Value> {
     ));
     cases.push((
         "zero-amount",
-        ProoflessOutput { amount: 0, owner: [0u8; 32], blinding: [0u8; 31], asset: [0u8; 32], ..base.clone() },
+        ProoflessOutput {
+            amount: 0,
+            owner: [0u8; 32],
+            blinding: [0u8; 31],
+            asset: [0u8; 32],
+            ..base.clone()
+        },
     ));
     cases.push((
         "max-amount",
-        ProoflessOutput { amount: u64::MAX, ..base.clone() },
+        ProoflessOutput {
+            amount: u64::MAX,
+            ..base.clone()
+        },
     ));
 
     let mut vectors = Vec::new();
@@ -356,8 +424,16 @@ fn proofless() -> Result<Value> {
     }
 
     let encodings = vec![
-        ("plaintext", OutputDataEncoding::PLAINTEXT_TAG, OutputDataEncoding::Plaintext(vec![1, 2, 3])),
-        ("encrypted", OutputDataEncoding::ENCRYPTED_TAG, OutputDataEncoding::Encrypted(vec![4, 5])),
+        (
+            "plaintext",
+            OutputDataEncoding::PLAINTEXT_TAG,
+            OutputDataEncoding::Plaintext(vec![1, 2, 3]),
+        ),
+        (
+            "encrypted",
+            OutputDataEncoding::ENCRYPTED_TAG,
+            OutputDataEncoding::Encrypted(vec![4, 5]),
+        ),
         (
             "verifiable",
             OutputDataEncoding::VERIFIABLY_ENCRYPTED_TAG,
@@ -477,11 +553,30 @@ fn digest_inputs() -> Vec<(&'static str, Vec<Vec<u8>>)> {
         ("split-abc", vec![b"a".to_vec(), b"bc".to_vec()]),
         ("zeros-32", vec![vec![0u8; 32]]),
         ("pair-zero-zero", vec![vec![0u8; 32], vec![0u8; 32]]),
-        ("pair-one-two", vec![fill(0x01).to_vec(), fill(0x02).to_vec()]),
-        ("pair-asymmetric", vec![fill(0x02).to_vec(), fill(0x01).to_vec()]),
-        ("three-parts", vec![fill(0xaa).to_vec(), fill(0xbb).to_vec(), fill(0xcc).to_vec()]),
-        ("uneven", vec![vec![0xde, 0xad], vec![0xbe, 0xef, 0x00], vec![0xff]]),
-        ("long-1000", vec![(0..1000u32).map(|i| (i % 256) as u8).collect()]),
+        (
+            "pair-one-two",
+            vec![fill(0x01).to_vec(), fill(0x02).to_vec()],
+        ),
+        (
+            "pair-asymmetric",
+            vec![fill(0x02).to_vec(), fill(0x01).to_vec()],
+        ),
+        (
+            "three-parts",
+            vec![
+                fill(0xaa).to_vec(),
+                fill(0xbb).to_vec(),
+                fill(0xcc).to_vec(),
+            ],
+        ),
+        (
+            "uneven",
+            vec![vec![0xde, 0xad], vec![0xbe, 0xef, 0x00], vec![0xff]],
+        ),
+        (
+            "long-1000",
+            vec![(0..1000u32).map(|i| (i % 256) as u8).collect()],
+        ),
         ("ff-32", vec![vec![0xffu8; 32]]),
     ]
 }
@@ -491,7 +586,8 @@ fn digest_inputs() -> Vec<(&'static str, Vec<Vec<u8>>)> {
 /// Both directions plus the length rejection, which is the only behaviour in
 /// this file a port can get wrong silently.
 fn bigint() -> Result<Value> {
-    let values: Vec<(&str, BigUint)> = vec![
+    let values: Vec<(&str, BigUint)> =
+        vec![
         ("zero", BigUint::from(0u8)),
         ("one", BigUint::from(1u8)),
         ("255", BigUint::from(255u8)),
@@ -578,7 +674,10 @@ fn hash_chain() -> Result<Value> {
         }));
     }
 
-    let two_input_cases: Vec<(&str, Vec<[u8; 32]>, Vec<[u8; 32]>)> = vec![
+    /// A named pair of equal-length hash columns.
+    type PairedCase = (&'static str, Vec<[u8; 32]>, Vec<[u8; 32]>);
+
+    let two_input_cases: Vec<PairedCase> = vec![
         ("empty", Vec::new(), Vec::new()),
         ("one-pair", vec![element(0x01)], vec![element(0x02)]),
         (
@@ -630,10 +729,22 @@ fn hasher_errors() -> Value {
         ("InvalidNumFields", HasherError::InvalidNumFields),
         ("EmptyInput", HasherError::EmptyInput),
         ("BorshError", HasherError::BorshError),
-        ("OptionHashToFieldSizeZero", HasherError::OptionHashToFieldSizeZero),
-        ("PoseidonFeatureNotEnabled", HasherError::PoseidonFeatureNotEnabled),
-        ("Sha256FeatureNotEnabled", HasherError::Sha256FeatureNotEnabled),
-        ("KeccakFeatureNotEnabled", HasherError::KeccakFeatureNotEnabled),
+        (
+            "OptionHashToFieldSizeZero",
+            HasherError::OptionHashToFieldSizeZero,
+        ),
+        (
+            "PoseidonFeatureNotEnabled",
+            HasherError::PoseidonFeatureNotEnabled,
+        ),
+        (
+            "Sha256FeatureNotEnabled",
+            HasherError::Sha256FeatureNotEnabled,
+        ),
+        (
+            "KeccakFeatureNotEnabled",
+            HasherError::KeccakFeatureNotEnabled,
+        ),
     ];
 
     let mut codes = Map::new();
@@ -708,7 +819,10 @@ fn indexed_array() -> Result<Value> {
     let standalone_hash = standalone.hash::<Poseidon>(&BigUint::from(99u8))?;
 
     let rejects = vec![
-        reject("append-duplicate", array.clone().append(&BigUint::from(30u8)).err()),
+        reject(
+            "append-duplicate",
+            array.clone().append(&BigUint::from(30u8)).err(),
+        ),
         reject(
             "low-element-too-high",
             array
@@ -812,12 +926,7 @@ fn indexed_array_error_variants() -> Value {
 /// The program id, the PDA seed and derivations, the `UserRecord` borsh layout,
 /// `space_for`, and the instruction discriminators with their payloads.
 fn user_registry() -> Result<Value> {
-    let owners: Vec<[u8; 32]> = vec![
-        [0u8; 32],
-        fill(0x01),
-        fill(0xff),
-        USER_REGISTRY_PROGRAM_ID,
-    ];
+    let owners: Vec<[u8; 32]> = vec![[0u8; 32], fill(0x01), fill(0xff), USER_REGISTRY_PROGRAM_ID];
     let mut pdas = Vec::new();
     for owner in &owners {
         let (pda, bump) = user_record_pda(&solana_pubkey::Pubkey::new_from_array(*owner));

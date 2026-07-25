@@ -10,7 +10,7 @@ import {
   encodeProofless,
   outputDataEncoding,
 } from "../../src/serialization/codecs.js";
-import type { Bytes32 } from "../../src/internal.js";
+import type { Bytes32 } from "@zolana/interface";
 
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);

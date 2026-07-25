@@ -25,8 +25,7 @@ function reachableVectors(
   vectors: readonly { name: string; inputs: readonly string[]; hashv: string }[],
 ): readonly { name: string; inputs: readonly string[]; hashv: string }[] {
   return vectors.filter(
-    (vector) =>
-      vector.inputs.length <= 2 && vector.inputs.every((input) => input.length === 64),
+    (vector) => vector.inputs.length <= 2 && vector.inputs.every((input) => input.length === 64),
   );
 }
 

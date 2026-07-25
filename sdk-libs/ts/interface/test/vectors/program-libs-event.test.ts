@@ -34,7 +34,12 @@ const b = (byte: number, length: number): Uint8Array => new Uint8Array(length).f
 /// isolates the `MessageData` bytes.
 function transactWithMessages(messages: readonly MessageData[]): TransactInstructionData {
   return {
-    proof: { rail: "eddsa", a: b(1, 32) as Bytes32, b: b(2, 64) as Bytes64, c: b(3, 32) as Bytes32 },
+    proof: {
+      rail: "eddsa",
+      a: b(1, 32) as Bytes32,
+      b: b(2, 64) as Bytes64,
+      c: b(3, 32) as Bytes32,
+    },
     expiryUnixTs: 42n,
     relayerFee: 7,
     privateTxHash: b(4, 32) as Bytes32,
