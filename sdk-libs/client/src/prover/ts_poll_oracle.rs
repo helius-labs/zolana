@@ -474,10 +474,7 @@ fn read_request_path(stream: &mut TcpStream) -> String {
     let mut buf = [0_u8; 1024];
     let mut body_start = None;
     let mut content_len = None;
-    loop {
-        let Ok(read) = stream.read(&mut buf) else {
-            break;
-        };
+    while let Ok(read) = stream.read(&mut buf) {
         if read == 0 {
             break;
         }
