@@ -1,7 +1,7 @@
 {
   "canonicalSourceRevisions": {
-    "baseline": "6de00db67ccfa4c3773344c1bbb74381697fbb7f",
-    "client": "6de00db67ccfa4c3773344c1bbb74381697fbb7f",
+    "baseline": "46926c9a17318784c95b3fa43f43036a6476d0e9",
+    "client": "46926c9a17318784c95b3fa43f43036a6476d0e9",
     "interface": "7060d2d5f708a9333202c59edccd82a522d17992",
     "merkleTree": "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa"
   },
@@ -16,11 +16,11 @@
     },
     {
       "path": "client/errors-v1.json",
-      "sha256": "a374524af02e3b8dfe8559c2753465c28cbc413fdd5d97367ad4d64bedc43ce7"
+      "sha256": "d487220dafc733098931624ec1e37463ed7587e35a9e023603c7fd34fcac74b1"
     },
     {
       "path": "client/lib.json",
-      "sha256": "0eb3c51c0d7108ec056451c7dc13107e8b1ce74e9ad71071913e36f04ba4f0d0"
+      "sha256": "f57ad1a9cfe6d32b007b9c9413aff66651419901828163f0d8c2c061f1a59669"
     },
     {
       "path": "client/proof-input-v1.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "client/rpc-indexer-v1.json",
-      "sha256": "08e6188b47aa7f3d60a821f1287ed218a093f92e12a91a9e84b4643374158e25"
+      "sha256": "8873ecefc816cb8e6fe2e9d5e66bdac2acc2f5aa4e3b376e27ca23f525d49dc1"
     },
     {
       "path": "indexer-api/schema-v1.json",
