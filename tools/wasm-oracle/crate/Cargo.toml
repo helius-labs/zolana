@@ -1,0 +1,53 @@
+[package]
+name = "zolana-wasm-oracle"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Disposable WebAssembly wrapper that exposes canonical Rust as a differential test oracle."
+
+# Its own workspace root: the oracle must not appear in the published Cargo.toml
+# member list, and it resolves wasm-only dependency features that the shipped
+# crates must not inherit.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+num-bigint = "0.4"
+
+# Feature set copied from the root workspace so this separate workspace resolves
+# the same `wincode` major that `zolana-transaction` derives against.
+solana-address = { version = "2.6", features = [
+    "atomic",
+    "borsh",
+    "bytemuck",
+    "copy",
+    "decode",
+    "wincode",
+] }
+zolana-hasher = { path = "../../../program-libs/hasher", features = [
+    "poseidon",
+    "sha256",
+    "keccak",
+] }
+zolana-indexed-array = { path = "../../../program-libs/indexed-array" }
+zolana-interface = { path = "../../../program-libs/interface" }
+zolana-keypair = { path = "../../../sdk-libs/keypair" }
+zolana-merkle-tree = { path = "../../../sdk-libs/merkle-tree" }
+zolana-transaction = { path = "../../../sdk-libs/transaction" }
+
+# W-02. The graph reaches two getrandom majors, and neither has a
+# wasm32-unknown-unknown backend by default. 0.2 needs the `js` feature; 0.3
+# needs `wasm_js` plus the `getrandom_backend` cfg set in `.cargo/config.toml`.
+# Both are declared here so they apply to the oracle build only, and no oracle
+# entry point calls a random source.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+
+[profile.release]
+opt-level = "s"
