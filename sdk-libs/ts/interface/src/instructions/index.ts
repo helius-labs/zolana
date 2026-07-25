@@ -11,7 +11,6 @@ import {
   type ZoneDepositInstructionData,
   type Bytes31,
   type Bytes32,
-  type Bytes64,
   type DepositInstructionData,
   type DepositSplAccounts,
   type Instruction,

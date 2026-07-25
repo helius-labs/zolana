@@ -138,7 +138,9 @@ function writeZoneDepositData(writer: Writer, value: ZoneDepositInstructionData)
       output.bytes(data.dataHash, 32, "utxoData.dataHash");
       byteVector(output, data.data, "utxoData.data");
     })
-    .option(value.memo, (output, memo) => byteVector(output, memo, "memo"));
+    .option(value.memo, (output, memo) => {
+      byteVector(output, memo, "memo");
+    });
 }
 
 function readZoneDepositData(reader: Reader): ZoneDepositInstructionData {
