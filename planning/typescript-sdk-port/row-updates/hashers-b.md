@@ -195,5 +195,129 @@ it genuinely coincides with a two-element `hashChain`: the seed is
 `H(first[0], second[0])`, which at one pair is indistinguishable. From two pairs
 on, the function folds three inputs at a time, and no composition of `hashChain`
 reproduces its output, whether concatenated, interleaved, or hashed as two
-chains and combined. That is the substitution the similarity of the two names invites, and
-it is now the thing a test refuses.
+chains and combined. That is the substitution the similarity of the two names
+invites, and it is now the thing a test refuses.
+
+## H08 `program-libs/hasher/src/hash_to_field_size.rs`
+
+Verdict: `NOT_APPLICABLE`, and the audit is right that the reasoning was weaker
+than the disposition. It is stronger now, though it is still an enumeration
+rather than a test, and that limit is worth stating plainly.
+
+The file exports one trait and five functions. Enumerating every reference in
+the repository outside the file and its own tests:
+
+| Symbol | References |
+| --- | --- |
+| `hash_to_bn254_field_size_be` | `program-libs/batched-merkle-tree/src/merkle_tree.rs:229`, `merkle_tree_metadata.rs:105` |
+| the trait and the other four functions | none |
+
+The previous argument was "no SDK caller", which is the shape the audit called
+weak, because absence is hard to establish. This one does not rest on absence.
+The two references that exist are both in `zolana-batched-merkle-tree`, and no
+crate under `sdk-libs/` depends on that crate: its dependents are `forester`,
+`bench/tree`, and three other `program-libs` crates. So the function is not
+merely uncalled from the SDK, it is unreachable from it, and a port would add a
+TypeScript surface with no Rust surface facing it.
+
+What this row still lacks is an artifact that fails if that changes. The
+cheapest one is the shape H05 now uses: generate the vectors into
+`program-libs-parity-v1.json` and consume them as a record, so a future porter
+inherits the oracle and the disposition cannot rot unnoticed. That is not done
+here.
+
+## M01 `sdk-libs/merkle-tree/src/indexed.rs`
+
+Verdict: `PARITY`. No new commit; the evidence was already in the tree and this
+row's claim against it is out of date.
+
+The row re-opens on `tools/wasm-oracle/report/w07-merkle.json`, which recorded
+Rust returning `ok` at the sentinel where TypeScript returns
+`INDEXED_MERKLE_TREE_INVALID_VALUE`, and the owner ruled Rust the defective side
+and required its correction to land first. That correction has landed.
+`sdk-libs/merkle-tree/src/indexed.rs:142-150` is `check_below_highest_value`,
+and both `append` (line 154) and `get_non_inclusion_proof` (line 177) call it as
+their first statement, returning `ValueOutsideIndexedRange`. The guard runs
+before any tree state is read, so it does not depend on the height or the
+element count the report probed. The instruction not to relax the TypeScript
+guard was right and is satisfied: TypeScript is unchanged, Rust is tightened,
+and the two refuse the same value.
+
+The evidence is a generated oracle rather than a reading.
+`xtask/src/bin/merkle-semantics.rs` writes
+`sdk-libs/ts/vectors/merkle-semantics-v1.json` by driving the Rust tree and
+recording each step's outcome and state.
+`merkle-tree/test/vectors/merkle-semantics.test.ts` replays it against
+`IndexedMerkleTree`, comparing the root, the element count, the sentinel, and
+the error code of each rejection through a table that fails on an unmapped Rust
+variant rather than skipping it.
+
+Two things were checked rather than assumed. Regenerating the fixture from
+current Rust produces a byte-identical file, so it describes the Rust in the
+tree today. And relaxing the TypeScript guard from `>=` to `>`, which is exactly
+the change the row warns against, fails both indexed scenarios.
+
+The row's two concerns are its two scenarios:
+`sentinel-closes-the-indexed-range` covers the sentinel being neither insertable
+nor provable, and `rejected-indexed-appends-leave-the-tree-provable` covers a
+failed insert leaving the tree at the same root and still able to prove
+non-inclusion.
+
+## M02 `sdk-libs/merkle-tree/src/lib.rs`
+
+Verdict: `PARITY`. `BLOCKED` was recorded because the row had never held a
+verdict and the relayed evidence had not been rerun. It has been rerun.
+
+The same oracle covers this row. `treeSnapshot` compares seven readings after
+every step: root, next index, leaf count, root-history length, sequence number,
+`historyRootIndex`, and `historyRootIndexV2`, with a rejected accessor compared
+by error code rather than skipped.
+
+`get_next_index` and the offset. `history-offset-does-not-shift-next-index`
+builds a height-3 tree with `rootHistoryStartOffset: 2` and
+`rootHistoryArrayLength: 3`, then appends, updates, and inserts. The next index
+counts leaves and ignores the offset, while `historyRootIndex` errs with
+`RootHistoryStartOffsetAboveIndex { offset: 2, next_index: 0 }` until the offset
+is passed.
+
+`get_history_root_index_v2`. It is not always zero, and the fixture shows why
+the question arises: it advances with the root-update count rather than the leaf
+count, so it reads `0, 0, 1, ...` where `historyRootIndex` reads
+`err, err, 0, 1`. The two disagree by construction, which is the reason for
+having both. Adding one to the TypeScript accessor fails two scenarios.
+
+## K11 to K14 `sdk-libs/keypair` traits and surface
+
+No verdict change. Each is short of `PARITY` for a reason that is someone else's
+to decide or someone else's to change. One of the blockers is now identified,
+which is the only new thing here.
+
+`K11`. What remains is that `transaction/src/wallet/sync.ts`,
+`transaction/src/serialization/codecs.ts`, and `wallet/src/sync.ts` bind to the
+concrete `ShieldedKeypair` rather than `ViewingKeyLike`, so a backend that
+typechecks still cannot be passed. Those files belong to the transaction and
+wallet rows, with parallel owners.
+
+`K12`. Rust's `nullifier_key()` returns secret material and TypeScript's
+interface offers only `nullifierPublicKey()`. TypeScript is the safer surface;
+which side moves is a protocol-owner call.
+
+`K13`. The row supposes the packed-package failure is "a defect in the
+packed-artifact gate or a freshly resolved dependency". It is neither, and it is
+one expression. `sdk-libs/ts/client/src/prover/client.ts:400` `localProverUrl`
+reads `(globalThis as { process?: ... }).process?.env?.["ZOLANA_PROVER_URL"]`,
+split across two lines in a form the source-level regex in `browser-check.mjs`
+does not match. esbuild's minifier collapses it to `globalThis.process`, which
+the bundle-level regex in both `browser-check.mjs` and `pack-check.mjs` does
+match. Stubbing that one expression out locally makes both gates pass for the
+whole workspace, which is how the attribution was established rather than
+argued. Every package fails together because the consumer bundle pulls in
+`@zolana/client`, which is why it looks cross-cutting.
+
+The fix is not to disguise the expression further. It is to stop reading the
+environment inside the SDK: `ProverClient.local()` should take its URL from the
+caller and the test harness should pass `process.env.ZOLANA_PROVER_URL`. That is
+a public change to `@zolana/client` and belongs to the client row.
+
+`K14`. Blocked on `K13` for the tarball and consumer allowlists, and on the
+stale metadata in `inventory-keypair.md` that `K01` already describes.
