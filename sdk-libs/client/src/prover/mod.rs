@@ -6,6 +6,10 @@ pub mod merge;
 pub mod merge_zone;
 mod proof;
 pub mod transact;
+#[cfg(test)]
+mod ts_merge_oracle;
+#[cfg(test)]
+mod ts_zone_oracle;
 pub mod zone_authority;
 
 pub use client::{

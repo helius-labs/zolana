@@ -105,60 +105,19 @@ function assembleUnchecked(
       ? 0n
       : bytesField(p256SigningOwner.ownerPublicKeyField(), "p256 signing public key");
 
-  const transferInputs: TransferInput[] = [];
-  const inputHashes: bigint[] = [];
-  const nullifiers: Bytes32[] = [];
-  const utxoRoots: bigint[] = [];
-  const nullifierRoots: bigint[] = [];
-  const inputOwnerFields: bigint[] = [];
-  const rootIndexes: Array<readonly [number, number]> = [];
-  let proofIndex = 0;
-  for (let index = 0; index < proofInputs.inputUtxos.length; index++) {
-    const input = proofInputs.inputUtxos[index];
-    if (!input) {
-      throw new ClientError("CLIENT_PROOF_INPUT_COUNT_MISMATCH", {
-        details: { got: index, expected: proofInputs.inputUtxos.length },
-      });
-    }
-    if (input.isDummy()) {
-      const first = transferInputs[0];
-      const roots = rootIndexes[0];
-      if (!first || !roots) throw new ClientError("CLIENT_NO_INPUTS");
-      const converted = createDummyTransferInput(
-        input,
-        first.utxoTreeRoot,
-        first.nullifierTreeRoot,
-        first.ownerPublicKeyHash,
-      );
-      transferInputs.push(converted);
-      inputHashes.push(0n);
-      nullifiers.push(bigintToBytes(converted.nullifier) as Bytes32);
-      utxoRoots.push(converted.utxoTreeRoot);
-      nullifierRoots.push(converted.nullifierTreeRoot);
-      inputOwnerFields.push(converted.ownerPublicKeyHash);
-      rootIndexes.push(roots);
-      continue;
-    }
-    const proof = spendProofs[proofIndex++];
-    if (!proof) {
-      throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
-        details: { index: proofIndex - 1 },
-      });
-    }
-    validateSpendProof(input, proof, proofIndex - 1);
-    const ownerField =
-      input.utxo.owner.signatureType() === "p256"
-        ? p256SigningField
-        : bytesField(input.utxo.owner.ownerPublicKeyField(), "owner public key");
-    const converted = createRealInput(input, proof, ownerField);
-    transferInputs.push(converted);
-    inputHashes.push(bytesToBigInt(input.hash()));
-    nullifiers.push(new Uint8Array(input.nullifier()) as Bytes32);
-    utxoRoots.push(converted.utxoTreeRoot);
-    nullifierRoots.push(converted.nullifierTreeRoot);
-    inputOwnerFields.push(ownerField);
-    rootIndexes.push([proof.state.rootIndex, proof.nullifier.rootIndex]);
-  }
+  const {
+    transferInputs,
+    inputHashes,
+    nullifiers,
+    utxoRoots,
+    nullifierRoots,
+    inputOwnerFields,
+    rootIndexes,
+  } = assembleSlots(proofInputs, spendProofs, (input) =>
+    input.utxo.owner.signatureType() === "p256"
+      ? p256SigningField
+      : bytesField(input.utxo.owner.ownerPublicKeyField(), "owner public key"),
+  );
 
   const transferOutputs = proofInputs.outputs.map(createOutput);
   const outputHashes = proofInputs.outputs.map((output) => bytesToBigInt(output.hash()));
@@ -313,6 +272,89 @@ function assembleUnchecked(
   });
 }
 
+export interface AssembledSlots {
+  readonly transferInputs: readonly TransferInput[];
+  readonly inputHashes: readonly bigint[];
+  readonly nullifiers: readonly Bytes32[];
+  readonly utxoRoots: readonly bigint[];
+  readonly nullifierRoots: readonly bigint[];
+  readonly inputOwnerFields: readonly bigint[];
+  readonly rootIndexes: readonly (readonly [number, number])[];
+}
+
+/// Mirrors Rust `assemble_inputs`. Padding is not decided here: a slot with a
+/// spend proof is a real spend, a slot without one is a dummy that copies the
+/// first real input's roots, root indexes, and owner field so the public-input
+/// chain and the on-chain root lookup agree. `ownerField` is the caller's rail:
+/// it is the one thing Rust's `OwnerMode` varies, and every rail shares the rest
+/// of this loop.
+export function assembleSlots(
+  proofInputs: SppProofInputs,
+  spendProofs: readonly SpendProof[],
+  ownerField: (input: ProofInputUtxo, index: number) => bigint,
+): AssembledSlots {
+  const transferInputs: TransferInput[] = [];
+  const inputHashes: bigint[] = [];
+  const nullifiers: Bytes32[] = [];
+  const utxoRoots: bigint[] = [];
+  const nullifierRoots: bigint[] = [];
+  const inputOwnerFields: bigint[] = [];
+  const rootIndexes: Array<readonly [number, number]> = [];
+  let proofIndex = 0;
+  for (let index = 0; index < proofInputs.inputUtxos.length; index++) {
+    const input = proofInputs.inputUtxos[index];
+    if (!input) {
+      throw new ClientError("CLIENT_PROOF_INPUT_COUNT_MISMATCH", {
+        details: { got: index, expected: proofInputs.inputUtxos.length },
+      });
+    }
+    if (input.isDummy()) {
+      const first = transferInputs[0];
+      const roots = rootIndexes[0];
+      if (!first || !roots) throw new ClientError("CLIENT_NO_INPUTS");
+      const converted = createDummyTransferInput(
+        input,
+        first.utxoTreeRoot,
+        first.nullifierTreeRoot,
+        first.ownerPublicKeyHash,
+      );
+      transferInputs.push(converted);
+      inputHashes.push(0n);
+      nullifiers.push(bigintToBytes(converted.nullifier) as Bytes32);
+      utxoRoots.push(converted.utxoTreeRoot);
+      nullifierRoots.push(converted.nullifierTreeRoot);
+      inputOwnerFields.push(converted.ownerPublicKeyHash);
+      rootIndexes.push(roots);
+      continue;
+    }
+    const proof = spendProofs[proofIndex++];
+    if (!proof) {
+      throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
+        details: { index: proofIndex - 1 },
+      });
+    }
+    validateSpendProof(input, proof, proofIndex - 1);
+    const owner = ownerField(input, index);
+    const converted = createRealInput(input, proof, owner);
+    transferInputs.push(converted);
+    inputHashes.push(bytesToBigInt(input.hash()));
+    nullifiers.push(new Uint8Array(input.nullifier()) as Bytes32);
+    utxoRoots.push(converted.utxoTreeRoot);
+    nullifierRoots.push(converted.nullifierTreeRoot);
+    inputOwnerFields.push(owner);
+    rootIndexes.push([proof.state.rootIndex, proof.nullifier.rootIndex]);
+  }
+  return Object.freeze({
+    transferInputs: Object.freeze(transferInputs),
+    inputHashes: Object.freeze(inputHashes),
+    nullifiers: Object.freeze(nullifiers),
+    utxoRoots: Object.freeze(utxoRoots),
+    nullifierRoots: Object.freeze(nullifierRoots),
+    inputOwnerFields: Object.freeze(inputOwnerFields),
+    rootIndexes: Object.freeze(rootIndexes),
+  });
+}
+
 export function createRealInput(
   input: ProofInputUtxo,
   proof: SpendProof,
@@ -463,7 +505,7 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
 /// not the key the caller signed with: the circuit routes ownership by comparing
 /// each P256 input's owner tag against this one value. A signature made with any
 /// other key can only produce a proof that fails to verify, so reject it here.
-function checkedP256Owner(
+export function checkedP256Owner(
   realInputs: readonly ProofInputUtxo[],
   signingKey: P256PublicKey,
 ): ShieldedPublicKey {
@@ -477,7 +519,7 @@ function checkedP256Owner(
   return owner;
 }
 
-function findPublicSplAsset(proofInputs: SppProofInputs): Address {
+export function findPublicSplAsset(proofInputs: SppProofInputs): Address {
   let found: Address | undefined;
   const assets = [
     ...proofInputs.inputUtxos.map((input) => input.utxo.asset),
@@ -496,16 +538,16 @@ function findPublicSplAsset(proofInputs: SppProofInputs): Address {
   return found;
 }
 
-function signedField(value: bigint, name: string): bigint {
+export function signedField(value: bigint, name: string): bigint {
   const result = ((value % BN254_MODULUS) + BN254_MODULUS) % BN254_MODULUS;
   return field(result, name);
 }
 
-function asField(value: bigint): Field {
+export function asField(value: bigint): Field {
   return field(value, "field") as Field;
 }
 
-function asInteger(value: bigint): Field {
+export function asInteger(value: bigint): Field {
   return value as Field;
 }
 

@@ -271,13 +271,15 @@ export class ZolanaClient implements Rpc {
             details: { index },
           });
         }
-        if (!equal(nullifierProof.leaf, commitment.nullifier)) {
-          throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
+        // Rust finishes the state proof before starting the nullifier one, so a
+        // pair wrong in both ways names the state tree and not the nullifier leaf.
+        if (stateProof.merkleContext.tree !== this.tree) {
+          throw new ClientError("CLIENT_STATE_PROOF_TREE_MISMATCH", {
             details: { index },
           });
         }
-        if (stateProof.merkleContext.tree !== this.tree) {
-          throw new ClientError("CLIENT_STATE_PROOF_TREE_MISMATCH", {
+        if (!equal(nullifierProof.leaf, commitment.nullifier)) {
+          throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
             details: { index },
           });
         }
@@ -293,6 +295,7 @@ export class ZolanaClient implements Rpc {
 
   async proveTransact(
     proofInputs: SppProofInputs,
+    config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
     if (!(proofInputs instanceof SppProofInputs)) {
@@ -301,7 +304,7 @@ export class ZolanaClient implements Rpc {
     try {
       const proofs = await this.getInputMerkleProofs(
         proofInputs.inputContexts(),
-        undefined,
+        config,
         context,
       );
       const assembled = assemble(proofInputs, proofs);
@@ -464,19 +467,21 @@ export class ZolanaClient implements Rpc {
     if (typeof candidate !== "object" || candidate === null) {
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
-    addressBytes(input.feePayer);
     decodeBase58(input.recentBlockhash, 32, "recentBlockhash");
-    if (input.signed.tree !== this.tree) {
-      throw new ClientError("CLIENT_TREE_MISMATCH", {
-        details: { transactionTree: input.signed.tree, clientTree: this.tree },
-      });
-    }
+    // Rust validates the fee payer before the tree, so a transaction wrong in
+    // both ways reports the mismatch the caller controls.
     const payerHash = sha256Bytes(addressBytes(input.feePayer));
     payerHash[0] = 0;
     if (!equal(payerHash, input.signed.transaction.payerPublicKeyHash)) {
       throw new ClientError("CLIENT_FEE_PAYER_MISMATCH");
     }
-    const data = await this.proveTransact(input.signed.transaction, context);
+    if (input.signed.tree !== this.tree) {
+      throw new ClientError("CLIENT_TREE_MISMATCH", {
+        details: { transactionTree: input.signed.tree, clientTree: this.tree },
+      });
+    }
+    // Rust passes `None` here: the submission path always reads the indexer's tip.
+    const data = await this.proveTransact(input.signed.transaction, undefined, context);
     return buildUnsignedTransaction({
       computeUnitLimit: this.#computeUnitLimit,
       ...(this.#computeUnitPrice === undefined

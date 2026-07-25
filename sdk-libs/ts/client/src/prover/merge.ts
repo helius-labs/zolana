@@ -3,7 +3,7 @@ import { mergeExternalDataHash } from "@zolana/interface/codecs";
 import type { MergeTransactInstructionData } from "@zolana/interface/instructions";
 import { NullifierKey, P256PublicKey, ShieldedPublicKey } from "@zolana/keypair";
 import { encryptVerifiable, mergePublicContribution } from "@zolana/keypair/merge";
-import { PreparedMerge, PreparedMergeZone } from "@zolana/transaction";
+import { MERGE_INPUTS, PreparedMerge, PreparedMergeZone } from "@zolana/transaction";
 import { EncryptedScheme, encodeMerge, encodeOutputData } from "@zolana/transaction/serialization";
 
 import { ClientError, fromClientCause } from "../error.js";
@@ -28,7 +28,6 @@ import {
 } from "./assembly.js";
 import type { Field, MergeInputs, TransferInput } from "./types.js";
 
-const MERGE_INPUTS = 8;
 const MERGE_INSTRUCTION_TAG = 12;
 const MERGE_ZONE_INSTRUCTION_TAG = 13;
 const P256_GENERATOR_X = 0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296n;

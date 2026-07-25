@@ -15,20 +15,26 @@ import {
 
 /// The prover server routes on `circuitType`, so the set of strings the shipped
 /// client can put in that field is the set of circuits it can reach. Rust
-/// `prover::json` writes eight: the four below plus `transfer-zone`,
-/// `transfer-p256-zone`, `transfer-zone-authority`, and `address-append`. The
-/// three zone rails are deferred to PKP-05 (C13, C14, C18) and the forester's
-/// address-append rail is in no TypeScript package, so this test is the
-/// evidence for the deferral rather than an assertion about it: it fails the
-/// moment a shipped source file can name one of them.
-const REACHABLE = ["merge", "merge-zone", "transfer-confidential", "transfer-p256-confidential"];
-
-const DEFERRED = [
-  "transfer-zone",
+/// `prover::json` writes eight, and TypeScript now reaches seven of them: the
+/// zone rails were built under the 2026-07-25 ruling that withdrew their
+/// deferral (C13, C14, C18).
+///
+/// `address-append` stays out on a fact rather than a preference. It is the
+/// forester's nullifier-tree rail, TypeScript ships no forester, and an SDK that
+/// exported the builder would be exporting an instruction whose proof it cannot
+/// generate. This test is the evidence for that disposition rather than an
+/// assertion about it: it fails the moment a shipped source file can name it.
+const REACHABLE = [
+  "merge",
+  "merge-zone",
+  "transfer-confidential",
+  "transfer-p256-confidential",
   "transfer-p256-zone",
+  "transfer-zone",
   "transfer-zone-authority",
-  "address-append",
 ];
+
+const UNREACHABLE = ["address-append"];
 
 const SOURCE_ROOT = fileURLToPath(new URL("../../src", import.meta.url));
 const oracle = oracleJson as ProverEdgeCaseOracle;
@@ -54,20 +60,22 @@ describe("reachable prover circuit types", () => {
     expect(circuitTypeOf(1)).toBe("transfer-p256-confidential");
   });
 
-  it("names no deferred circuit anywhere in the shipped source", () => {
+  it("names the forester circuit nowhere in the shipped source", () => {
     const files = sources(SOURCE_ROOT);
     const found = files.flatMap((path) => {
       const text = readFileSync(path, "utf8");
       // `transfer-zone` is a prefix of `transfer-zone-authority`, so match the
       // quoted literal rather than the bare substring.
-      return DEFERRED.filter((circuit) => text.includes(`"${circuit}"`)).map(
+      return UNREACHABLE.filter((circuit) => text.includes(`"${circuit}"`)).map(
         (circuit) => `${path}: ${circuit}`,
       );
     });
     expect(found).toEqual([]);
+  });
 
+  it("reaches exactly the seven circuits the SDK can prove", () => {
     const reachable = new Set(
-      files.flatMap((path) => {
+      sources(SOURCE_ROOT).flatMap((path) => {
         const text = readFileSync(path, "utf8");
         return REACHABLE.filter((circuit) => text.includes(`"${circuit}"`));
       }),
