@@ -828,3 +828,15 @@ before this document existed; the evidence sections are intentionally short.
 | Ruled by | Protocol owner |
 | Date | Recorded 2026-07-25 |
 | Follow-up artifacts | None |
+
+### Breaking changes to the SDK crates
+
+| Field | Value |
+| --- | --- |
+| Conflict | Whether the port may break the published Rust SDK surface, and whether the error enums should be extensible. |
+| Ruling | Breaking changes are free. The four SDK crates sit at `0.1.0` with no consumers, so a break costs nothing today and the port need not preserve the surface it inherited. Both `TransactionError` and `ClientError` stay closed rather than `#[non_exhaustive]`: a closed set on each side is what lets the cross-language mapping fixture pair the two enums one to one, and extensibility protects consumers who do not exist. Revisit at the first release. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `rust-sdk-changes.md` breaking-change sections, the cross-language error mapping fixture |
+
+This ruling covers the shape of the surface, not its behaviour. An SDK that refuses input the program and circuit accept is still a defect, because it makes a legal operation impossible to express, and having no users neither causes nor excuses it.
