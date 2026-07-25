@@ -142,6 +142,23 @@ pass on a re-run. They are called out here because they are the two jobs most
 likely to be misattributed to the `default-run` fix that legitimately explains
 the other five.
 
+## Why PR #162 reported no checks at all
+
+Worth knowing for the next person, because it looks exactly like a broken
+workflow and is not one. After the fixes were pushed, `gh pr checks 162` kept
+reporting "no checks reported" while runs plainly existed on the branch.
+
+The cause was `mergeable: CONFLICTING`. `ts-sdk-port` had moved twenty commits
+ahead and `sdk-libs/transaction/tests/ts_oracle.rs` conflicted. GitHub cannot
+build the merge commit that `pull_request` workflows run against, so it starts
+no jobs rather than reporting a failure. The PR looks untested and healthy at
+the same time.
+
+Merging `ts-sdk-port` in and resolving the one conflict flipped the PR to
+`MERGEABLE` and every workflow started within a minute. On a branch this
+long-lived, "no checks reported" should be read as a merge-state question
+before it is read as a CI question.
+
 ## Blocked by the scope rule
 
 ### `cargo check (workspace)`: `main` and the port disagree about `CreateTree`
@@ -209,8 +226,8 @@ Green under the pinned 1.97.0 toolchain: `cargo check --workspace --all-targets`
 with `RUSTFLAGS="-D warnings"`, `cargo fmt --all --check`, `cargo machete`, and
 `cargo clippy --workspace --all-targets -- -D warnings` (modulo the one blocked
 line). Green on the TypeScript side: `build`, `typecheck`, `lint:packages`,
-`test:unit` (1350 passing), `check:packaging`, and `fixtures:check` (58 fixtures,
-182 inventory rows).
+`test:unit` (1496 passing), `check:packaging`, and `fixtures:check` (58 fixtures,
+182 inventory rows). All re-run after merging `ts-sdk-port`.
 
 ## Row note
 
