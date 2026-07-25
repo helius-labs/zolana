@@ -103,6 +103,7 @@ const AUDITED_DETAIL_PARAMETERS: ReadonlySet<string> = new Set([
   "length",
   "name",
   "type",
+  "width",
 ]);
 
 interface SourceExpression {

@@ -181,6 +181,16 @@ The last row is the point. The dependency-cause path had no coverage, so a
 change that reconnected the client to the underlying `@noble` error would have
 landed green.
 
+The scan then caught an unrelated in-flight change on its first full run, which
+is the fairest test it could have had. The `bigIntToBytes` overflow fix adds
+`{ expected: length, actual: width }` at `keypair/src/bytes.ts:50`, and `width`
+is a locally computed count of significant bytes rather than a literal.
+Adjudicated as a length and admitted: the two callers inside the package pass
+domain-separation constants and a Poseidon digest, never a secret scalar, and
+the pair mirrors Rust's `InvalidInputLength(usize, usize)`
+(`program-libs/hasher/src/errors.rs:19`). The point is that the addition
+required a decision instead of passing unnoticed.
+
 Because no runtime check can tell the label `"wallet seed"` from a secret
 rendered as hex under the same key, the new suite pins the invariant where it
 actually lives. One test asserts the residual honestly, that a known key
