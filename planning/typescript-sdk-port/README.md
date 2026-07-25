@@ -198,18 +198,32 @@ Read this before describing the port as feature-complete. The audit in
 established it by comparing the `circuitType` values each language sends to
 the prover, rather than by reading the packages.
 
-The Rust client emits eight `circuitType` values; TypeScript emits four. A
-TypeScript caller cannot prove a zone transaction on either rail
-(`transfer-zone`, `transfer-p256-zone`), cannot prove a zone-authority
-transition (`transfer-zone-authority`), and cannot prove a forester address
-append (`address-append`). The three zone provers are booked for PKP-05 under
-rows C13, C14, and C18.
+The Rust client sends eight `circuitType` values. TypeScript now sends seven,
+up from four: the three zone rails landed on 2026-07-25 under rows C13, C14,
+and C18, each pinned by a Rust oracle covering the ten supported shapes per
+rail. A test scans the shipped sources and fails if the reachable set changes
+in either direction, so this paragraph cannot quietly go stale.
 
-The address append is dispositioned `NOT_APPLICABLE` under C07, and that
-disposition rests on a claim that does not survive checking. The stated ground
-is that TypeScript ships no forester, so `BatchAddressAppendInputs` would have
-neither a producer nor a consumer. The producer half is right. The consumer
-half is wrong: `interface/src/instructions/index.ts:76` exports
+The remaining one is `address-append`, the forester's batch tree-maintenance
+proof, and a TypeScript caller cannot produce it. That is now a decision rather
+than a gap: the owner ruled on 2026-07-25 that the forester stays Rust-only.
+
+Two hazards surfaced while building the zone rails, and neither was guarded,
+because fixing one language alone is how this project has introduced bugs
+before. The Rust zone provers take `Option<Address>` for the zone binding and
+accept `None`, which becomes a literal zero and ties the proof to no zone; the
+TypeScript signature cannot express that, so the two languages differ in what
+they accept. And `ZoneAuthorityProver` builds requests across the ten supported
+shapes while only four zone-authority verifying keys exist, so Rust can
+construct a 2x3 request no server can answer. Both need one change applied to both
+languages, and both belong to PKP-05.
+
+The address append was dispositioned `NOT_APPLICABLE` under C07 on a claim that
+did not survive checking, and the ruling settles the half that was wrong. The
+stated ground was that TypeScript ships no forester, so
+`BatchAddressAppendInputs` would have neither a producer nor a consumer. The
+producer half is right. The consumer half was wrong:
+`interface/src/instructions/index.ts:76` exports
 `batchUpdateNullifierTreeInstruction`, whose `BatchUpdateNullifierTreeData`
 requires a `compressedProof`, and `interface/test/exports.test.ts:69` together
 with `public-exports.md` establish that builder as deliberate public surface
@@ -236,8 +250,8 @@ SDK ports the decode side of tree maintenance without the build side:
 is for. There is no TypeScript builder for an append or a nullify anywhere in
 `js/`. The rule that produces is worth adopting outright:
 
-> Decode the instructions the program can emit. Build the instructions whose
-> inputs the SDK can itself produce, and no others.
+> Decode any instruction that can appear in a transaction. Build only those
+> whose inputs the SDK can itself produce.
 
 Read against that rule, this port has the asymmetry backwards in two places.
 It publishes `batchUpdateNullifierTreeInstruction`, a builder whose proof it
@@ -245,7 +259,7 @@ cannot generate, which Light deliberately does not ship. And by F5 it refuses
 to *decode* a merge ciphertext whose prefix byte is not `2`, which the Rust
 codec parses and hands back, so a TypeScript tool cannot inspect an instruction
 the Rust tool reads. Both move toward the rule rather than away from it: drop or
-complete the builder, and let the decoder read what the chain can carry.
+complete the builder, and let the decoder read whatever a transaction can carry.
 
 Two further things are easy to miss. `inventory-client.md:61` still
 dispositions the zone-authority prover as `port` and promises
@@ -264,19 +278,41 @@ another batch's work, and so agents stop contending for one index. The six
 branches below converge into `ts-sdk-port`, which is the single pull request.
 Nothing is published from a batch branch.
 
-| Worktree | Branch | Batch | Rows |
-| --- | --- | --- | ---: |
-| `zolana-ts-sdk-port` | `ts-sdk-port` | Integration, plan, client package, reconciliation, scope audit | 22 |
-| `zolana-ts-interface-a` | `port/interface-a` | `@zolana/interface` | 36 |
-| `zolana-ts-transaction` | `port/transaction` | `@zolana/transaction` | 31 |
-| `zolana-ts-keypair` | `port/keypair` | `@zolana/keypair` | 14 |
-| `zolana-ts-wallet-misc` | `port/wallet-misc` | wallet, merkle-tree, stragglers | 10 |
-| `zolana-ts-programlibs` | `port/program-libs` | the 27 rows the queue omitted. **Complete, verified to merge clean** | 27 |
-| `zolana-merge-record` | `fix/merge-user-record-binding` | program defect, **separate** pull request off `main` | 0 |
-| (no tree) | `fix/indexed-array-exclusive-highest-value` | protocol-library fix relocated out of the port, **separate** pull request off `main` | 0 |
+The first wave of batches has merged. The table below is the second wave, as of
+2026-07-25 23:10.
+
+| Worktree | Branch | Batch |
+| --- | --- | --- |
+| `zolana-ts-sdk-port` | `ts-sdk-port` | Integration, plan, reconciliation. The reconciler edits the checklist here, so treat the tree as occupied even when it looks idle. |
+| `zolana-ts-transaction` | `port/transaction-b` | remaining `T` rows |
+| `zolana-ts-wallet-misc` | `port/client-b` | remaining `C` rows and the three zone prover rails. **The directory name is wrong**; see below. |
+| `zolana-ts-keypair` | `port/hashers-b` | remaining `H`, `M`, `K` rows, and the Poseidon move to WebAssembly |
+| `zolana-ts-interface-a` | `port/ci-green` | the eight failing CI jobs |
+| `zolana-ts-programlibs` | none | free |
+| `zolana-merge-record` | `fix/merge-user-record-binding` | program defect, **separate** pull request off `main` |
+| (no tree) | `fix/indexed-array-exclusive-highest-value` | protocol-library fix relocated out of the port, **separate** pull request off `main` |
 
 Both `fix/*` branches are local and unpushed. Push them before removing any
 worktree, or the work is lost with it.
+
+### One tree, one branch, one agent
+
+This rule was learned twice in one evening, both times at the cost of nearly
+losing work. A worktree may hold one branch, and a branch may have one agent.
+The failure is not dramatic when it happens: the second agent's `git checkout`
+silently moves the first agent's `HEAD`, the first agent keeps editing files it
+believes are on its own branch, and the damage surfaces only at commit time.
+
+Two specific mistakes produced it, both in reassigning trees rather than in
+anything the agents did. A finished batch's tree was handed to a new batch while
+the finished batch's agent could still be resumed, and it was resumed. And the
+tree kept its old batch's name, so an agent reading its own working directory
+reasonably concluded the tree belonged to someone else.
+
+So: do not reassign a worktree while its previous agent can still be resumed,
+and rename a tree when you repurpose it. `zolana-ts-wallet-misc` currently holds
+`port/client-b` and stands as the counterexample; it is left as it is because
+renaming a live tree under a working agent trades one hazard for another.
 
 Each batch tree carries a copy-on-write clone of the root `node_modules`, which
 works because the npm workspace symlinks are relative and therefore resolve
