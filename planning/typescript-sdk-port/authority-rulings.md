@@ -1009,3 +1009,60 @@ module-scope await without changing many public signatures.
 The cost accepted is 585 KB gzipped once per application, and a named error when `poseidon()` runs
 before initialization. A clear failure is the price of the design; a silent wrong digest would not
 have been.
+
+### The external-data length prefix (T21)
+
+| Field | Value |
+| --- | --- |
+| Conflict | `program-libs/interface` truncates the `ExternalDataHash` length prefix through a `u16` cast. Erroring instead would change a preimage the deployed program computes. |
+| Ruling | Leave the program alone. Make both SDKs refuse the input loudly rather than truncate it quietly, and document the divergence. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-26 |
+| Follow-up artifacts | Row T21 |
+
+The trigger is more than 65,535 outputs or messages in one transaction, which a Solana transaction
+has no room to carry. So this is a divergence at a boundary no caller reaches, and buying agreement
+there with a program change and the key rotation behind it is a poor trade.
+
+Note what the two options actually produce, because the intuitive reading is backwards. Silent
+truncation in the SDK would *agree* with the program, since both would truncate identically. Raising
+an error disagrees with the program, but only for an input that cannot arrive. The ruling takes the
+loud disagreement: a caller who somehow constructs such a transaction learns immediately, rather than
+receiving a hash computed over a silently shortened preimage.
+
+Both SDKs move together. TypeScript already raises `TRANSACTION_TOO_MANY_OUTPUTS` past `0xffff`, and
+the Rust SDK gets the matching guard. Neither side may change alone: removing the TypeScript guard
+by itself would restore quiet truncation in one language, and that is the state this ruling exists to
+end. The cross-language vector at the boundary, `0xffff` accepted against `0x10000` refused, is owed
+by both and exists in neither.
+
+The revert question hanging over `bc55a9b9` is settled by this: the checked `length_prefix` in
+`program-libs/interface` stays reverted, the program keeps truncating, and the guard lives in the
+SDKs where this branch is allowed to put it.
+
+### Rail inference when parsing a proof (C08)
+
+| Field | Value |
+| --- | --- |
+| Conflict | Rust infers the proof rail from which fields are present, so an Ed25519 request answered with a commitment-bearing proof yields a P256 proof that cannot verify. TypeScript refuses it. |
+| Ruling | Fix Rust. TypeScript is correct. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-26 |
+| Follow-up artifacts | Row C08, `sdk-libs/client/src/prover/proof.rs` |
+
+Recorded partly to correct the coordinator, which listed this among the rows needing a change outside
+the branch. It does not. The defect is in `sdk-libs/client/src/prover/proof.rs`, an SDK crate the
+scope rule covers, and no program or circuit is involved.
+
+This inverts the usual direction and is worth noticing for that reason. Most divergences this port
+found were TypeScript refusing what Rust accepts, and the standing instruction has been to relax
+TypeScript, because a port that is stricter than its original silently breaks callers. Here the
+strictness is right: a proof whose commitment does not match the requested rail cannot verify, so
+refusing it early converts a confusing verification failure into a clear parse error. Rust should
+refuse it too.
+
+Three sibling findings on the same row were already fixed at `52ca1e25` and each is pinned by a case
+in `client/test/prover.test.ts`: an unknown JSON key no longer fails where `serde_json` ignores it,
+an empty `proof_commitment` array reads as absent, and a coordinate without the `0x` prefix parses.
+Those three were TypeScript being wrong. This fourth is Rust being wrong, and the row stays open
+until the Rust side moves.
