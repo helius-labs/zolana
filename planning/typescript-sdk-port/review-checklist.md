@@ -2081,7 +2081,7 @@ Copy this block for each wake. Do not rewrite earlier entries.
 
 - Baseline: HEAD `403d8309`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Worker: coordinator; command evidence only, no verdict change
-- The C01 and C02 re-review recorded `cargo run -p xtask --bin ts-fixtures -- --check --current-client` as the one command that could not produce a result, because `xtask` failed to compile against an uncommitted `ClientError::Indexer` change.
+- The C01 and C02 re-review recorded the `xtask` `ts-fixtures` binary in `--check --current-client` mode as the one command that could not produce a result, because `xtask` failed to compile against an uncommitted `ClientError::Indexer` change.
 - That change landed in `6d757791`. The command now reports `verified 2 current client fixtures` and exits `0`.
 - The same commit advanced `canonicalSourceRevisions.client` to `6d757791`, so the predicted stale client pin does not apply.
 - Default-mode `fixtures:check` stays blocked on baseline drift in `sdk-libs/client/src/prover/transact/witness.rs` and 14 `sdk-libs/transaction` paths. That is the register issue G8-1 and is not evidence about C01 or C02.
