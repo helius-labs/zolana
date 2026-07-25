@@ -100,6 +100,27 @@ pub enum TransactionError {
     #[error("withdrawal already set")]
     WithdrawalAlreadySet,
 
+    #[error("withdrawal target does not match the withdrawn asset")]
+    WithdrawalAssetMismatch,
+
+    #[error("output slot {position} exceeds the addressable ciphertext ordinal range")]
+    OutputSlotOverflow { position: usize },
+
+    #[error("got {got} output slot encodings for {outputs} outputs")]
+    ExcessOutputSlots { got: usize, outputs: usize },
+
+    #[error("zone authority requires a nonzero zone program id")]
+    MissingZoneAuthorityProgramId,
+
+    #[error("zone authority input {index} is not bound to the pinned zone")]
+    ZoneAuthorityInputZoneMismatch { index: usize },
+
+    #[error("zone authority output {index} is not bound to the pinned zone")]
+    ZoneAuthorityOutputZoneMismatch { index: usize },
+
+    #[error("zone authority cannot move value out of the zone")]
+    ZoneAuthorityWithdrawalNotAllowed,
+
     #[error("public sol leg already set")]
     PublicSolAlreadySet,
 
@@ -168,6 +189,15 @@ pub enum TransactionError {
 
     #[error("split input is bound to a zone, which is not supported")]
     SplitInputZoneMismatch,
+
+    #[error("split input is a dummy")]
+    SplitInputIsDummy,
+
+    #[error("split input has a different owner than the splitting address")]
+    SplitInputOwnerMismatch,
+
+    #[error("split input has a different nullifier key than the splitting address")]
+    SplitInputNullifierKeyMismatch,
 
     #[error(
         "split amount mismatch: {num_outputs} parts of {per_output} do not sum to input {input}"

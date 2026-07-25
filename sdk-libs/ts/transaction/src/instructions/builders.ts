@@ -122,12 +122,10 @@ export class Merge {
       if (input.utxo.asset !== asset) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_ASSET_MISMATCH", { index });
       }
-      if (
-        input.utxo.zoneProgramId ||
-        !input.utxo.data.isEmpty() ||
-        input.dataHash ||
-        input.zoneDataHash
-      ) {
+      if (input.utxo.zoneProgramId) {
+        throw new TransactionError("TRANSACTION_MERGE_INPUT_ZONE_MISMATCH", { index });
+      }
+      if (!input.utxo.data.isEmpty() || input.dataHash || input.zoneDataHash) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
       }
       amount += input.utxo.amount;
@@ -308,20 +306,29 @@ export class ConfidentialSplit {
         numOutputs: input.numOutputs,
       });
     }
+    // Split proves ownership in-circuit from the nullifier secret behind
+    // `ownerHash`, so an input the splitter cannot open is unprovable. A
+    // zero-owner slot has no openable owner hash at all.
+    if (input.input.isDummy()) {
+      throw new TransactionError("TRANSACTION_SPLIT_INPUT_IS_DUMMY");
+    }
+    if (!equal(input.input.utxo.owner.toBytes(), input.owner.signingPublicKey.toBytes())) {
+      throw new TransactionError("TRANSACTION_SPLIT_INPUT_OWNER_MISMATCH");
+    }
+    if (!equal(input.input.nullifierKey.publicKey(), input.owner.nullifierPublicKey)) {
+      throw new TransactionError("TRANSACTION_SPLIT_INPUT_NULLIFIER_KEY_MISMATCH");
+    }
     if (input.input.utxo.asset !== input.asset) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_ASSET_MISMATCH");
     }
-    if (
-      input.input.isDummy() ||
-      !equal(input.input.utxo.owner.toBytes(), input.owner.signingPublicKey.toBytes()) ||
-      !equal(input.input.nullifierKey.publicKey(), input.owner.nullifierPublicKey)
-    ) {
-      throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH");
-    }
-    if (input.input.utxo.zoneProgramId !== undefined || input.input.zoneDataHash !== undefined) {
+    if (input.input.utxo.zoneProgramId !== undefined) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_ZONE_MISMATCH");
     }
-    if (!input.input.utxo.data.isEmpty() || input.input.dataHash !== undefined) {
+    if (
+      input.input.dataHash !== undefined ||
+      input.input.zoneDataHash !== undefined ||
+      !input.input.utxo.data.isEmpty()
+    ) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_HAS_DATA");
     }
     const perOutputAmount = checkedU64(input.perOutputAmount, "perOutputAmount");
@@ -473,6 +480,9 @@ export class PreparedSplit {
   }
 }
 
+// The all-zero address: no zone at all, never a zone the authority may act for.
+const UNPINNED_ZONE = "11111111111111111111111111111111" as Address;
+
 export interface PreparedZoneAuthority {
   readonly inputs: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
@@ -491,15 +501,27 @@ export function prepareZoneAuthority(
     publicAmounts?: Readonly<{ sol?: bigint; spl?: bigint }>;
   }>,
 ): PreparedZoneAuthority {
+  // Nobody authorizes this spend: the circuit checks only nullifier-secret
+  // knowledge, so the zone binding is the sole reason the authority cannot move
+  // value out of its policy zone. The zone is therefore pinned nonzero, every
+  // real UTXO carries exactly it with no exemption for the default zone, and no
+  // public leg may pay value out.
+  if (input.zoneProgramId === UNPINNED_ZONE) {
+    throw new TransactionError("TRANSACTION_MISSING_ZONE_AUTHORITY_PROGRAM_ID");
+  }
   for (const [index, spend] of input.inputs.entries()) {
     if (!spend.isDummy() && spend.utxo.zoneProgramId !== input.zoneProgramId) {
-      throw new TransactionError("TRANSACTION_MERGE_INPUT_ZONE_MISMATCH", { index });
+      throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_INPUT_ZONE_MISMATCH", { index });
     }
   }
   for (const [index, output] of input.outputs.entries()) {
     if (!output.isDummy() && output.zoneProgramId !== input.zoneProgramId) {
-      throw new TransactionError("TRANSACTION_OUTPUT_ZONE_MISMATCH", { index });
+      throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH", { index });
     }
+  }
+  const { sol = 0n, spl = 0n } = input.publicAmounts ?? {};
+  if (sol !== 0n || spl !== 0n) {
+    throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_WITHDRAWAL_NOT_ALLOWED");
   }
   return Object.freeze({
     ...input,

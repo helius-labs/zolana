@@ -130,6 +130,16 @@ impl ConfidentialTransfer {
         if self.withdrawal.is_some() {
             return Err(TransactionError::WithdrawalAlreadySet);
         }
+        // The public leg and the external accounts are chosen by the target, so a
+        // SOL withdrawal routed at a token account (or the reverse) would debit
+        // one leg and credit an account the program never reads.
+        let target_matches_asset = match target {
+            WithdrawalTarget::Sol { .. } => asset == SOL_MINT,
+            WithdrawalTarget::Spl { .. } => asset != SOL_MINT,
+        };
+        if !target_matches_asset {
+            return Err(TransactionError::WithdrawalAssetMismatch);
+        }
         self.withdrawal = Some(Withdrawal {
             asset,
             amount,
@@ -210,7 +220,12 @@ impl ConfidentialTransfer {
         });
 
         for (i, recipient) in self.recipients.iter().enumerate() {
-            let position = RECIPIENT_POSITION_BASE + i as u8;
+            // Blindings are derived from a `u8` position, so a wrapped position
+            // would silently reuse an earlier slot's blinding.
+            let position = usize::from(RECIPIENT_POSITION_BASE)
+                .checked_add(i)
+                .and_then(|position| u8::try_from(position).ok())
+                .ok_or(TransactionError::TooManyOutputs)?;
             outputs.push(SppProofOutputUtxo {
                 owner_address: Some(recipient.address),
                 asset: recipient.asset,
@@ -337,6 +352,15 @@ impl PreparedTransfer {
             spl_token_interface,
             ..
         } = self;
+
+        // Slots are read by output position, so a longer list would be dropped
+        // without a trace rather than encrypted into the transaction.
+        if slots.len() > shape.n_outputs() {
+            return Err(TransactionError::ExcessOutputSlots {
+                got: slots.len(),
+                outputs: shape.n_outputs(),
+            });
+        }
 
         // The sender owns every change position; its resolved tag is the owner
         // view tag folded into the proof's owner-tag chain. The wire tag is the
@@ -546,9 +570,43 @@ fn dummy_ciphertext_len(
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::SigningKey;
+    use zolana_keypair::{ShieldedKeypair, SigningKey};
 
     use super::*;
+
+    const SPL_MINT: Address = Address::new_from_array([4u8; 32]);
+
+    /// The public leg the program debits is chosen by the asset while the account
+    /// it credits is chosen by the target, so a crossed pair pays the wrong rail.
+    #[test]
+    fn a_withdrawal_target_must_match_the_asset() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let owner = keypair.shielded_address().unwrap();
+        let sol_target = WithdrawalTarget::Sol {
+            user_sol_account: Address::default(),
+        };
+        let spl_target = WithdrawalTarget::Spl {
+            user_spl_token: Address::default(),
+            spl_token_interface: Address::default(),
+        };
+
+        for (asset, target) in [
+            (SPL_MINT, sol_target.clone()),
+            (SOL_MINT, spl_target.clone()),
+        ] {
+            let mut transfer = ConfidentialTransfer::new(owner, Vec::new(), Address::default());
+            let err = match transfer.withdraw(asset, 100, target) {
+                Ok(_) => panic!("a crossed asset and target was accepted"),
+                Err(err) => err,
+            };
+            assert_eq!(err, TransactionError::WithdrawalAssetMismatch);
+        }
+
+        for (asset, target) in [(SOL_MINT, sol_target), (SPL_MINT, spl_target)] {
+            let mut transfer = ConfidentialTransfer::new(owner, Vec::new(), Address::default());
+            assert!(transfer.withdraw(asset, 100, target).is_ok());
+        }
+    }
 
     /// An ed25519 owner who is also the fee payer at account index 0 is tagged
     /// `Account(0)`; the resolved value is the owner's view tag (the ed25519 key).

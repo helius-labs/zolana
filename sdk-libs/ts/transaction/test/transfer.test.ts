@@ -17,6 +17,7 @@ import {
   Merge,
   MergeZone,
   PreparedMerge,
+  prepareZoneAuthority,
   validateMergeZoneInputs,
 } from "../src/instructions/builders.js";
 import { createExternalData } from "../src/instructions/transact.js";
@@ -621,5 +622,150 @@ describe("manifest-verified transaction builders", () => {
       () =>
         new MergeZone(zoneSender.keypair, [fixedInput(zoneSender, 50n, SOL_MINT, seed, 0)], zone),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH" }));
+  });
+
+  // Rust names a zone-bound merge input and a data-carrying one separately, so
+  // folding both into one code loses which rule the caller broke.
+  it("names the zone binding and the attached data as separate merge rejections", () => {
+    const sender = owner(section(load("merge"), "inputs"));
+    const seed = new Uint8Array(31).fill(4) as Bytes31;
+    const zone = encodeAddress(new Uint8Array(32).fill(9));
+    const spend = (
+      overrides: Readonly<{ zoneProgramId?: Address; data?: Data; zoneDataHash?: Bytes32 }>,
+    ): ProofInputUtxo =>
+      new ProofInputUtxo({
+        utxo: new Utxo({
+          owner: sender.keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 10n,
+          blinding: deriveBlinding(seed, 0),
+          zoneProgramId: overrides.zoneProgramId,
+          data: overrides.data,
+        }),
+        nullifierKey: sender.nullifier,
+        zoneDataHash: overrides.zoneDataHash,
+      });
+
+    expect(() => new Merge(sender.keypair, [spend({ zoneProgramId: zone })])).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH" }),
+    );
+    for (const overrides of [
+      { data: new Data([{ kind: "utxoData" as const, bytes: Uint8Array.of(1) }]) },
+      { zoneDataHash: new Uint8Array(32).fill(6) as Bytes32 },
+    ]) {
+      expect(() => new Merge(sender.keypair, [spend(overrides)])).toThrow(
+        expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_HAS_DATA" }),
+      );
+    }
+  });
+
+  // Split proves ownership from the nullifier secret behind `ownerHash`, so each
+  // of these inputs is unprovable and Rust names its own rejection for each.
+  it("names each split input the owner cannot open", () => {
+    const sender = owner(section(load("split"), "inputs"));
+    const seed = new Uint8Array(31).fill(4) as Bytes31;
+    const build = (input: ProofInputUtxo): (() => ConfidentialSplit) => {
+      return () =>
+        new ConfidentialSplit({
+          owner: sender.keypair.shieldedAddress(),
+          input,
+          asset: SOL_MINT,
+          numOutputs: 2,
+          perOutputAmount: 5n,
+          payer: SOL_MINT,
+        });
+    };
+    const utxo = new Utxo({
+      owner: sender.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: deriveBlinding(seed, 0),
+    });
+
+    expect(build(ProofInputUtxo.dummy(deriveBlinding(seed, 1)))).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_SPLIT_INPUT_IS_DUMMY" }),
+    );
+
+    const foreignSecret = new Uint8Array(32);
+    foreignSecret[31] = 12;
+    const foreign = SigningKey.fromBytes(foreignSecret as Bytes32);
+    expect(
+      build(
+        new ProofInputUtxo({
+          utxo: new Utxo({
+            owner: foreign.publicKey(),
+            asset: SOL_MINT,
+            amount: 10n,
+            blinding: deriveBlinding(seed, 0),
+          }),
+          nullifierKey: NullifierKey.fromSigningKey(foreign),
+        }),
+      ),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_SPLIT_INPUT_OWNER_MISMATCH" }));
+
+    expect(
+      build(
+        new ProofInputUtxo({
+          utxo,
+          nullifierKey: NullifierKey.fromSecret(new Uint8Array(31).fill(9) as Bytes31),
+        }),
+      ),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_SPLIT_INPUT_NULLIFIER_KEY_MISMATCH" }));
+  });
+
+  // Nobody authorizes a zone-authority transact, so the zone binding is the only
+  // thing keeping value inside the policy zone.
+  it("pins a zone-authority transact to a nonzero zone and refuses a public leg", () => {
+    const sender = owner(section(load("zone"), "inputs"));
+    const seed = new Uint8Array(31).fill(4) as Bytes31;
+    const zone = encodeAddress(new Uint8Array(32).fill(9));
+    const zoned = (zoneProgramId?: Address): ProofInputUtxo =>
+      new ProofInputUtxo({
+        utxo: new Utxo({
+          owner: sender.keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 10n,
+          blinding: deriveBlinding(seed, 0),
+          zoneProgramId,
+        }),
+        nullifierKey: sender.nullifier,
+      });
+    const output = (zoneProgramId?: Address) =>
+      createProofOutput({
+        ownerAddress: sender.keypair.shieldedAddress(),
+        asset: SOL_MINT,
+        amount: 10n,
+        blinding: deriveBlinding(seed, 1),
+        zoneProgramId,
+      });
+    const payerPublicKeyHash = new Uint8Array(32).fill(3) as Bytes32;
+    const prepare = (overrides: Partial<Parameters<typeof prepareZoneAuthority>[0]>) =>
+      prepareZoneAuthority({
+        inputs: [zoned(zone)],
+        outputs: [output(zone)],
+        zoneProgramId: zone,
+        payerPublicKeyHash,
+        ...overrides,
+      });
+
+    expect(prepare({}).zoneProgramId).toBe(zone);
+    expect(prepare({}).inputUtxoHashes()).toHaveLength(1);
+
+    expect(() => prepare({ zoneProgramId: SOL_MINT })).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_MISSING_ZONE_AUTHORITY_PROGRAM_ID" }),
+    );
+    for (const stray of [undefined, encodeAddress(new Uint8Array(32).fill(8))]) {
+      expect(() => prepare({ inputs: [zoned(stray)] })).toThrow(
+        expect.objectContaining({ code: "TRANSACTION_ZONE_AUTHORITY_INPUT_ZONE_MISMATCH" }),
+      );
+      expect(() => prepare({ outputs: [output(stray)] })).toThrow(
+        expect.objectContaining({ code: "TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH" }),
+      );
+    }
+    for (const publicAmounts of [{ sol: -10n }, { spl: -10n }]) {
+      expect(() => prepare({ publicAmounts })).toThrow(
+        expect.objectContaining({ code: "TRANSACTION_ZONE_AUTHORITY_WITHDRAWAL_NOT_ALLOWED" }),
+      );
+    }
   });
 });

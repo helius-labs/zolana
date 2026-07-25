@@ -264,9 +264,7 @@ export class ProofInputUtxo {
       blinding: this.utxo.blinding,
       ...(this.dataHash === undefined ? {} : { dataHash: this.dataHash }),
       ...(this.zoneDataHash === undefined ? {} : { zoneDataHash: this.zoneDataHash }),
-      ...(this.utxo.zoneProgramId === undefined
-        ? {}
-        : { zoneProgramId: this.utxo.zoneProgramId }),
+      ...(this.utxo.zoneProgramId === undefined ? {} : { zoneProgramId: this.utxo.zoneProgramId }),
     });
   }
 
