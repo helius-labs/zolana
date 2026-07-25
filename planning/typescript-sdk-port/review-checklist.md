@@ -16,11 +16,11 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `a0c49ffcb18418873494a7910ccf75411c51125c`
+- Review HEAD: `6daa55950dd853fbc58a4a10685228a3d382048b`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `4 done / 118 total`; `56 needs_fix`; `0 needs_re_review`; `2 in_progress`
+- Progress: `4 done / 118 total`; `57 needs_fix`; `0 needs_re_review`; `2 in_progress`
 - Exact next eligible row: `K14 sdk-libs/keypair/src/lib.rs`
 - Active reviews: `K04 sdk-libs/keypair/src/viewing_key.rs`; `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `I01 in_flight`; `I02 in_flight`; `I03 in_flight`; `I04 in_flight`; `I05 in_flight`; `I06 in_flight`; `I07 proposed`; `I08 in_flight`; `I09 in_flight`; `I10 proposed`; `I11 in_flight`; `I12 in_flight`; `I13 in_flight`; `I14 in_flight`; `I15 in_flight`; `I17 in_flight`; `I18 in_flight`; `I19 proposed`; `I20 in_flight`; `I21 in_flight`; `I22 proposed`; `I23 in_flight`; `I24 in_flight`; `I25 in_flight`; `I26 in_flight`; `I27 in_flight`; `I28 in_flight`; `I29 in_flight`; `I30 in_flight`; `I31 in_flight`; `I32 in_flight`; `I33 in_flight`; `I34 in_flight`; `I35 in_flight`; `I36 in_flight`; `I37 in_flight`; `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
@@ -224,7 +224,7 @@ Columns:
 | T03 | `sdk-libs/transaction/src/serialization/scheme.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | The seven tags match current Rust, but TypeScript omits the Rust root export and standalone checked conversion. Encoding accepts invalid runtime scheme values and scheme and encoding combinations, mishandles empty-blob details, and lacks direct rejection and export evidence. Add the checked conversion and root export, reject invalid values and combinations with exact details, and add current-Rust rejection and package-export fixtures. | 2026-07-25 review | - |
 | T04 | `sdk-libs/transaction/src/serialization/plaintext.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Exact bytes match current Rust, but TypeScript permits inner/outer discriminator and scheme/encoding confusion, omits public conversion and sealing capabilities, diverges on output-limit and error boundaries, and lacks adversarial and export evidence. Correct Rust `from_utxos` positional and owner defects first, then align validation, capabilities, limits, errors, and evidence. | 2026-07-25 review | - |
 | T05 | `sdk-libs/transaction/src/serialization/confidential.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Exact plaintext and ciphertext bytes match, but recipient decryption accepts malformed embedded P256 keys. Sender decryption, embedded-key, and scheme-locked encode capabilities are not packed; crypto error boundaries and malformed and browser evidence are incomplete. Correct Rust's `from_utxos` cardinality defect first, then align validation, capabilities, errors, and evidence. | 2026-07-25 review | - |
-| T06 | `sdk-libs/transaction/src/serialization/anonymous.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
+| T06 | `sdk-libs/transaction/src/serialization/anonymous.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Exact frozen bytes match current Rust, but TypeScript diverges on zone-context resolution, omits scheme-locked UTXO-to-plaintext and authority flows, has no shared-tag state progression, and lacks adversarial, export, and browser evidence. Rust conflicts with `docs/spec.md` on anonymous recipient program and zone data and has lossy `from_utxos` defects; fix those prerequisites before copying behavior, then align the TypeScript flows and evidence. | 2026-07-25 review | - |
 | T07 | `sdk-libs/transaction/src/serialization/proofless.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
 | T08 | `sdk-libs/transaction/src/serialization/split.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
 | T09 | `sdk-libs/transaction/src/serialization/merge.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
@@ -1188,3 +1188,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `4/118`; package `0/14`
 - Exact next file: `K14 sdk-libs/keypair/src/lib.rs`
 - Full SDK parity claim: unsupported; the trait export surface and evidence remain incomplete
+
+### 2026-07-25 11:37 UTC | T06 | `sdk-libs/transaction/src/serialization/anonymous.rs`
+
+- Baseline: HEAD `6daa55950dd853fbc58a4a10685228a3d382048b`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module defines anonymous UTXO serialization and authority-context flows.
+- Evidence: Exact frozen bytes match current Rust, but TypeScript diverges on zone-context resolution, omits scheme-locked UTXO-to-plaintext and authority flows, has no shared-tag state progression, and lacks adversarial, export, and browser evidence. Rust conflicts with `docs/spec.md` on anonymous recipient program and zone data and has lossy `from_utxos` defects that must be fixed before copying. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Correct the Rust spec conflict and lossy conversion defects first, then align TypeScript zone resolution, scheme-locked and authority flows, shared-tag progression, and evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/31`
+- Exact next file: `K14 sdk-libs/keypair/src/lib.rs`
+- Full SDK parity claim: unsupported; anonymous context, capability, and state behavior diverge
