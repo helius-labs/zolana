@@ -193,3 +193,152 @@ copying: T05 names a Rust `Decrypt` variant that does not exist, T19 asks for
 `SppProofOutputUtxo` which TypeScript calls `ProofOutputUtxo`, and T29's
 withdrawal ruling is no longer blocking because Rust already accepts a public
 leg in either direction.
+
+# Third pass: T21 under the ruling, plus T06 and T28
+
+Four further commits on the same branch, all on the same oracle. It now runs
+240 tests, up from 214.
+
+| Commit | What it closed |
+| --- | --- |
+| `8ded1d7a` | The external-data `u16` refusal in Rust and the boundary vector |
+| `79ef374c` | The constructor defaults and the three external-data builders |
+| `4228b1c9` | The named output/tag pairing error and the frozen arrays |
+| `23781efc` | The anonymous shared-tag progression |
+
+## T21, now PARITY on the SDK half
+
+The ruling in [authority-rulings.md](../authority-rulings.md) settles the
+preimage question without a program change: `program-libs/interface` keeps
+truncating, and both SDKs refuse the oversized input. That refusal now exists in
+Rust, where it did not, and the boundary vector the row has been owed exists for
+the first time.
+
+The preimage has four `u16` prefixes, not one: the output count, each output's
+ciphertext length, the message count, and each message's length. TypeScript
+guarded all four; Rust guarded none. `ExternalData::hash` now checks them in
+TypeScript's order, and the codes match per site: `TooManyOutputs` for the two
+counts, which is the variant TypeScript's `TRANSACTION_TOO_MANY_OUTPUTS` already
+maps onto, and a new `ExternalDataLengthOverflow` for the two payload lengths,
+which gives `TRANSACTION_INVALID_DATA_LENGTH` a Rust producer and takes it off
+the TypeScript-only allowlist. Reading the ruling's "length prefix" as all four
+sites is the one interpretive step here; the alternative, guarding the counts
+and leaving the payload lengths truncating in Rust while TypeScript refuses
+them, keeps a divergence of exactly the kind the ruling ends.
+
+`TooManyOutputs` previously read "too many outputs to derive blinding
+positions", which was accurate for its `u8` sites and wrong for this one. Its
+message is now "too many outputs to encode" and its doc comment names both
+bounds. The oracle enforces one Rust variant per TypeScript code, so the shared
+code has to be the shared variant.
+
+The boundary vector is ten cases under `externalData` in the oracle, describing
+each shape by counts and payload sizes rather than by bytes so that 65,535
+outputs stay committable. `maxOutputs` (`0xffff` outputs) hashes to the same 32
+bytes in both languages; `oneOutputPastMax` (`0x10000`) is refused by both with
+`TRANSACTION_TOO_MANY_OUTPUTS`. The same pair exists for the message count and
+for both payload lengths.
+
+The rest of the row was ordinary SDK work and is done. `createExternalData` now
+fills what Rust `ExternalData::new` fills (the `transact` tag, the `u64::MAX`
+no-expiry sentinel, the zero relayer fee, and three unset accounts), so the
+confidential-split builder no longer restates them. The three builders
+`withPublicSol`, `withPublicSpl`, and `withZoneHashes` exist with Rust's
+already-set refusals, pinned by three duplicate-set cases and four accepted
+sequences. A builder re-enters the constructor, so a derived value is copied and
+frozen like the original, and a case checks that the value it derived from is
+unchanged. The arrays the hash closes over are frozen, which is what actually
+prevents a holder from changing the preimage under it; the element copies were
+already there.
+
+One malformed-input divergence turned up while checking the rest. Rust returned
+the generic `Hash(String)` where TypeScript raises
+`TRANSACTION_OUTPUT_TAG_MISMATCH`, so the same malformed external data surfaced
+under two codes, and the allowlist carried the difference as an exception.
+Rust now has `OutputTagMismatch { outputs, tags }`, and the oracle pins both
+directions, fewer tags than outputs and more.
+
+Evidence: `sdk-libs/ts/transaction/test/vectors/rust-oracle.test.ts`, "the Rust
+oracle and TypeScript agree at the external-data prefix bounds" (12 cases) and
+its nested "and on the constructor defaults and the three builders" (9 cases).
+Rust: `sdk-libs/transaction/tests/ts_oracle.rs`, `external_data_section`.
+
+What remains outside the SDK, unchanged and not blocking the row: the Rust
+interface still truncates, so a caller reaching the interface directly gets the
+truncation the ruling documents. `bc55a9b9` stays reverted.
+
+## T06, now PARITY: it was coverage
+
+The residual was buildable. The shared view tag is a pure function of the two
+viewing keys and an index, so a "progression" is a sequence of derivations
+rather than a state machine waiting on a design, and nothing prevented driving
+it forward.
+
+Four sequential anonymous transfers between a fixed sender and recipient are now
+in the oracle under `anonymousProgression`. At each index the sender derives the
+tag toward the recipient and the recipient derives it back toward the sender;
+both must equal what Rust recorded, and the four tags must differ from each
+other. Each step also carries the transfer that tag addresses: the recipient
+decrypts the slot with its own salt and slot index, decodes it, and must recover
+the amount, blinding, sender key, and owner Rust encoded. That is what keeps the
+tag stream and the payloads in step rather than only proving the tags agree in
+isolation.
+
+The tags matched on the first run, so this found no divergence; it converts an
+untested agreement into a tested one, which is what the row asked for.
+
+Evidence: `rust-oracle.test.ts`, "the Rust oracle and TypeScript agree on the
+anonymous tag progression" (5 cases). Rust: `anonymous_progression_section`.
+
+Note for the reconciler: the wallet-side scan that advances these counters
+across a sync, with its gap window, lives in `wallet/sync.rs` and belongs to the
+wallet rows, not here.
+
+## T28, still adverse, with the rule recorded
+
+Unchanged in code, deliberately. Neither language validates the zone hash or the
+zone address at construction, so they agree today, and inventing a rule in
+TypeScript alone would refuse input Rust accepts. Recording it precisely instead.
+
+What is accepted today, verified against the built TypeScript and read in
+`merge_zone.rs`:
+
+1. `zone_program_id` may be the all-zero address. `MergeZone::new(keypair,
+   inputs, Address::default(), None)` succeeds when the inputs carry the same
+   zero zone, and produces an output bound to a "zone" at the system program.
+2. `output_zone_data_hash` may be `Some([0u8; 32])`. The hash path takes
+   `zone_data_hash.unwrap_or_default()`, so an explicit zero and an absent hash
+   produce the identical commitment while the prepared value distinguishes them.
+   Zero is the absence marker, and passing it explicitly is an alias for
+   omitting it.
+3. `output_zone_data_hash` may be any 32 bytes, including a value at or above
+   the BN254 modulus. Construction accepts it; the refusal arrives later, when
+   the output is hashed, as `TRANSACTION_KEYPAIR` from Poseidon, an error that
+   names neither the field nor the call that supplied it.
+
+The rule I would add, in both languages, at `MergeZone::new` and the
+`SppProofOutputUtxo` zone builders:
+
+- Refuse a `zone_program_id` equal to the all-zero address, with a named error
+  such as `ZoneProgramIdNotSet`. `None` already means unbound; the zero address
+  as a bound zone is a third state nothing can enforce.
+- Refuse `Some([0u8; 32])` as a zone data hash, with a named error such as
+  `ZeroZoneDataHash`, directing the caller to omit it. This removes the alias
+  rather than changing any commitment.
+- Refuse a zone data hash at or above the BN254 modulus at the point the caller
+  supplies it, with a named error such as `NonCanonicalZoneDataHash`, moving
+  today's deferred Poseidon failure to the call that caused it. This refuses
+  nothing that currently succeeds; it only relabels and relocates the refusal.
+
+Cost: clause one could break a caller using the zero address as a placeholder
+zone, and clause two could break a caller that passes zeros rather than omitting
+the field. Both are narrow, but both are behaviour changes on the Rust side
+first, which is why this stays with the owner. Clause three is safe on its own
+and could be taken alone if the other two are unwanted.
+
+## Rows for the reconciler, in one line each
+
+- **T21**: `PARITY`. The SDK half is closed, including the boundary vector. The
+  interface truncation stays, documented by the ruling.
+- **T06**: `PARITY`. The residual was missing coverage, now built.
+- **T28**: adverse, unchanged. The rule above is a design decision, not a port.

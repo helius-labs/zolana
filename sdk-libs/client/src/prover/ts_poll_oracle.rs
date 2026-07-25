@@ -248,7 +248,7 @@ fn run(name: &str, job_id: &str, status_responses: Vec<MockResponse>) -> Value {
     let mut script = vec![queued(job_id)];
     script.extend(status_responses);
     let server = MockServer::respond_with(script);
-    let outcome = client(server.url()).send("{}".to_string());
+    let outcome = client(server.url()).send("{}".to_string(), false);
     let paths = server.paths();
     // The `/prove` request is not part of the poll; the count that matters is how
     // many times the loop went back for a status.

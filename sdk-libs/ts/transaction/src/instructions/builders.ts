@@ -17,7 +17,7 @@ import {
   deriveBlinding,
   type ProofOutputUtxo,
 } from "../utxo.js";
-import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
+import { type AssetRegistry } from "../wallet/asset.js";
 import {
   SppProofInputs,
   createExternalData,
@@ -543,12 +543,6 @@ export class PreparedSplit {
       inputUtxos: [this.input],
       outputs: this.outputs,
       externalData: createExternalData({
-        instructionDiscriminator: 0,
-        expiryUnixTs: 0xffff_ffff_ffff_ffffn,
-        relayerFee: 0,
-        userSolAccount: SOL_MINT,
-        userSplToken: SOL_MINT,
-        splTokenInterface: SOL_MINT,
         txViewingPublicKey: input.txViewingPublicKey,
         salt: input.salt,
         outputs,

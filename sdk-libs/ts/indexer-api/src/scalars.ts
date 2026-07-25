@@ -163,17 +163,55 @@ export function base64String(value: string | Uint8Array): Base64String {
   return encodeBase64(value) as Base64String;
 }
 
+/**
+ * Byte view of a wire payload, the counterpart of `base64String`.
+ *
+ * Rust's `Base64String` holds `Vec<u8>` and encodes only at the serde boundary,
+ * so `From<Base64String> for Vec<u8>` is free there. The port brands the wire
+ * string instead, which left callers no way back to the bytes except a decoder
+ * that does not enforce the canonical form this package requires.
+ */
+export function base64Bytes(value: Base64String): Uint8Array {
+  if (typeof value !== "string") {
+    return fail("INDEXER_SCHEMA_INVALID_BASE64", "$", "canonical base64", value);
+  }
+  return decodeBase64(value, "$");
+}
+
+/**
+ * Distinguish the two failures Rust's `ParseHashError` names: a length the
+ * encoding cannot carry (`WrongSize`) against input outside the base58
+ * alphabet (`Invalid`). Rust reports the over-long string and the wrongly
+ * sized decode as the same `WrongSize`, so both map to the same code here.
+ */
+function parseHash(value: string, path: string): Uint8Array {
+  if (value.length > 44) {
+    return fail("INDEXER_SCHEMA_HASH_WRONG_SIZE", path, "a base58 encoded 32-byte hash", value);
+  }
+  const bytes = decodeBase58(value);
+  if (bytes === undefined) {
+    return fail("INDEXER_SCHEMA_INVALID_HASH", path, "a base58 encoded 32-byte hash", value);
+  }
+  if (bytes.length !== 32) {
+    return fail("INDEXER_SCHEMA_HASH_WRONG_SIZE", path, "a base58 encoded 32-byte hash", value);
+  }
+  if (encodeBase58(bytes) !== value) {
+    return fail("INDEXER_SCHEMA_INVALID_HASH", path, "a base58 encoded 32-byte hash", value);
+  }
+  return bytes;
+}
+
 export function hash(value: string | Bytes32): Hash {
   if (typeof value !== "string") {
-    if (!(value instanceof Uint8Array) || value.length !== 32) {
+    if (!(value instanceof Uint8Array)) {
       return fail("INDEXER_SCHEMA_INVALID_HASH", "$", "exactly 32 bytes", value);
+    }
+    if (value.length !== 32) {
+      return fail("INDEXER_SCHEMA_HASH_WRONG_SIZE", "$", "exactly 32 bytes", value);
     }
     return encodeBase58(value) as Hash;
   }
-  const bytes = value.length <= 44 ? decodeBase58(value) : undefined;
-  if (bytes === undefined || bytes.length !== 32 || encodeBase58(bytes) !== value) {
-    return fail("INDEXER_SCHEMA_INVALID_HASH", "$", "a base58 encoded 32-byte hash", value);
-  }
+  parseHash(value, "$");
   return value as Hash;
 }
 
@@ -181,11 +219,7 @@ export function hashBytes(value: Hash): Bytes32 {
   if (typeof value !== "string") {
     return fail("INDEXER_SCHEMA_INVALID_HASH", "$", "a base58 encoded 32-byte hash", value);
   }
-  const bytes = decodeBase58(value);
-  if (bytes === undefined || bytes.length !== 32 || encodeBase58(bytes) !== value) {
-    return fail("INDEXER_SCHEMA_INVALID_HASH", "$", "a base58 encoded 32-byte hash", value);
-  }
-  return bytes as Bytes32;
+  return parseHash(value, "$") as Bytes32;
 }
 
 export function limit(value: bigint): Limit {

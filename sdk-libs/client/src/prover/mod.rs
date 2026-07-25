@@ -11,6 +11,8 @@ mod ts_merge_oracle;
 #[cfg(test)]
 mod ts_poll_oracle;
 #[cfg(test)]
+mod ts_proof_oracle;
+#[cfg(test)]
 mod ts_zone_oracle;
 pub mod zone_authority;
 

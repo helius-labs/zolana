@@ -50,6 +50,7 @@ import {
   splitBundleFromUtxos,
   slotOrdinal,
   type DataRecord,
+  type ExternalData,
   type PreparedTransfer,
   type PreparedZoneAuthority,
   type Shape,
@@ -57,11 +58,13 @@ import {
   type WithdrawalTarget,
 } from "../../src/index.js";
 import {
+  decodeAnonymousRecipient,
   decodeConfidential,
   decodeData,
   decodeMerge,
   decodeProofless,
   decodeSplitEncrypted,
+  decryptAnonymous,
   decryptConfidential,
   decryptMerge,
   encodeAnonymousRecipient,
@@ -144,10 +147,8 @@ const TYPESCRIPT_ONLY_CODES: Readonly<Record<string, string>> = Object.freeze({
   TRANSACTION_INVALID_AMOUNT: "checked integer bounds on a bigint amount",
   TRANSACTION_INVALID_ASSET_ID: "AssetRegistry rejects a non-bigint or out-of-range asset id",
   TRANSACTION_INVALID_BLINDING: "checked rejects a blinding of the wrong length",
-  TRANSACTION_INVALID_DATA_LENGTH: "codecs reject a record longer than its u16 length prefix",
   TRANSACTION_INVALID_INTEGER: "readers reject an integer wider than its encoded width",
   TRANSACTION_INVALID_POSITION: "deriveBlinding rejects a position outside 0..=255",
-  TRANSACTION_OUTPUT_TAG_MISMATCH: "external data rejects a tag count unequal to the output count",
   TRANSACTION_SIGNATURE_OWNER_MISMATCH: "a returned signature does not match the signing owner",
   TRANSACTION_TRAILING_BYTES: "decoders reject bytes left after an exact read",
   TRANSACTION_UNKNOWN_VARIANT: "unknownTransactionError wraps an unrecognized runtime value",
@@ -245,8 +246,8 @@ describe("the Rust oracle and TypeScript agree on the error code set", () => {
     expect([...unmapped].sort()).toEqual(Object.keys(TYPESCRIPT_ONLY_CODES).sort());
   });
 
-  it("covers all 70 Rust variants exactly once", () => {
-    expect(variants).toHaveLength(70);
+  it("covers all 72 Rust variants exactly once", () => {
+    expect(variants).toHaveLength(72);
     expect(new Set(variants.map((entry) => entry.variant)).size).toBe(variants.length);
   });
 });
@@ -1580,6 +1581,209 @@ describe("the Rust oracle and TypeScript agree on the encrypted rails' reader", 
       }).toEqual(testCase.plaintext);
     });
   }
+});
+
+interface ProgressionStep {
+  readonly index: number;
+  readonly tagHex: string;
+  readonly saltHex: string;
+  readonly slotIndex: number;
+  readonly amount: string;
+  readonly blindingHex: string;
+  readonly plaintextHex: string;
+  readonly bodyHex: string;
+}
+
+/**
+ * A sender and a recipient exchanging four anonymous transfers in sequence.
+ * The shared view tag advances by an index the two sides derive independently,
+ * which is how the recipient finds its slot without a per-transfer channel, and
+ * each step carries the transfer that tag addresses, so the tag stream and the
+ * payload are checked in step rather than only in isolation.
+ */
+describe("the Rust oracle and TypeScript agree on the anonymous tag progression", () => {
+  const progression = oracle.anonymousProgression;
+  const sender = ViewingKey.fromBytes(bytes(progression.senderViewingSeedHex) as Bytes32);
+  const recipient = ViewingKey.fromBytes(bytes(progression.recipientViewingSeedHex) as Bytes32);
+  const tx = ViewingKey.fromBytes(bytes(progression.txViewingSeedHex) as Bytes32);
+  const steps = progression.steps as readonly ProgressionStep[];
+
+  for (const step of steps) {
+    it(`derives the tag and the transfer at index ${String(step.index)} the same way`, () => {
+      const index = BigInt(step.index);
+      expect(hex(sender.sendSharedViewTag(recipient.publicKey(), index))).toBe(step.tagHex);
+      expect(hex(recipient.recipientSharedViewTag(sender.publicKey(), index))).toBe(step.tagHex);
+
+      const plaintext = decryptAnonymous(
+        recipient,
+        tx.publicKey(),
+        bytes(step.bodyHex),
+        bytes(step.saltHex) as Bytes16,
+        step.slotIndex,
+      );
+      expect(hex(plaintext)).toBe(step.plaintextHex);
+
+      const decoded = decodeAnonymousRecipient(plaintext);
+      expect(decoded.amount).toBe(BigInt(step.amount));
+      expect(hex(decoded.blinding)).toBe(step.blindingHex);
+      expect(hex(decoded.senderPublicKey.toBytes())).toBe(hex(sender.publicKey().toBytes()));
+      expect(hex(decoded.ownerPublicKey.toBytes())).toBe(progression.ownerPublicKeyHex);
+    });
+  }
+
+  it("advances the tag at every step", () => {
+    expect(new Set(steps.map((step) => step.tagHex)).size).toBe(steps.length);
+  });
+});
+
+interface BuilderSequenceCase {
+  readonly name: string;
+  readonly ops: readonly string[];
+  readonly hashHex: string | null;
+  readonly error: string | null;
+}
+
+interface ExternalDataCase {
+  readonly name: string;
+  readonly outputs: number;
+  readonly messages: number;
+  readonly outputDataLength: number | null;
+  readonly messageDataLength: number;
+  readonly tags: number | null;
+  readonly hashHex: string | null;
+  readonly error: string | null;
+}
+
+/**
+ * The preimage writes the output count, each output's ciphertext length, the
+ * message count, and each message's length behind `u16` prefixes, and
+ * `program-libs/interface` casts rather than checking. Under the T21 ruling
+ * both SDKs refuse the oversized input rather than hash a shortened preimage,
+ * so this is a deliberate and documented case of the SDKs being stricter than
+ * the deployed program, at a size no Solana transaction can carry.
+ */
+describe("the Rust oracle and TypeScript agree at the external-data prefix bounds", () => {
+  const external = oracle.externalData;
+  const txViewingPublicKey = P256PublicKey.fromBytes(
+    bytes(external.txViewingPublicKeyHex) as Bytes33,
+  );
+  const salt = bytes(external.saltHex) as Bytes16;
+  const zeroAddress = "11111111111111111111111111111111" as Address;
+  const defaults = oracle.transactTypes.emptyExternalData;
+
+  /// Index `i` big-endian at the front of the commitment and at the back of the
+  /// owner tag, matching the Rust shape, so pairing them the wrong way round
+  /// changes the hash rather than passing.
+  function indexed(index: number, atFront: boolean): Bytes32 {
+    const value = new Uint8Array(32);
+    const offset = atFront ? 0 : 30;
+    value[offset] = (index >> 8) & 0xff;
+    value[offset + 1] = index & 0xff;
+    return value as Bytes32;
+  }
+
+  for (const testCase of external.cases as readonly ExternalDataCase[]) {
+    it(`hashes or refuses the ${testCase.name} shape the same way`, () => {
+      const build = (): Bytes32 =>
+        createExternalData({
+          instructionDiscriminator: defaults.instructionDiscriminator,
+          expiryUnixTs: BigInt(defaults.expiryUnixTs),
+          relayerFee: defaults.relayerFee,
+          userSolAccount: zeroAddress,
+          userSplToken: zeroAddress,
+          splTokenInterface: zeroAddress,
+          txViewingPublicKey,
+          salt,
+          outputs: Array.from({ length: testCase.outputs }, (_unused, index) => ({
+            utxoHash: indexed(index, true),
+            ownerTag: { kind: "p256SigningKey" as const },
+            ...(testCase.outputDataLength === null
+              ? {}
+              : {
+                  data: new Uint8Array(testCase.outputDataLength).fill(external.outputDataByte),
+                }),
+          })),
+          resolvedOwnerTags: Array.from(
+            { length: testCase.tags ?? testCase.outputs },
+            (_unused, index) => indexed(index, false),
+          ),
+          messages: Array.from({ length: testCase.messages }, (_unused, index) => ({
+            viewTag: indexed(index, true),
+            data: new Uint8Array(testCase.messageDataLength).fill(external.messageDataByte),
+          })),
+        }).hash();
+
+      if (testCase.error !== null) {
+        expect(codeOf(build)).toBe(testCase.error);
+        return;
+      }
+      expect(hex(build())).toBe(testCase.hashHex);
+    });
+  }
+
+  describe("and on the constructor defaults and the three builders", () => {
+    const builders = external.builders;
+
+    const shaped = (): ExternalData =>
+      createExternalData({
+        txViewingPublicKey,
+        salt,
+        outputs: Array.from({ length: builders.outputs }, (_unused, index) => ({
+          utxoHash: indexed(index, true),
+          ownerTag: { kind: "p256SigningKey" as const },
+          data: new Uint8Array(builders.outputDataLength).fill(external.outputDataByte),
+        })),
+        resolvedOwnerTags: Array.from({ length: builders.outputs }, (_unused, index) =>
+          indexed(index, false),
+        ),
+        messages: Array.from({ length: builders.messages }, (_unused, index) => ({
+          viewTag: indexed(index, true),
+          data: new Uint8Array(builders.messageDataLength).fill(external.messageDataByte),
+        })),
+      });
+
+    const apply = (data: ExternalData, op: string): ExternalData => {
+      switch (op) {
+        case "publicSol":
+          return data.withPublicSol(BigInt(builders.solAmount), builders.solAccount as Address);
+        case "publicSpl":
+          return data.withPublicSpl(
+            BigInt(builders.splAmount),
+            builders.splToken as Address,
+            builders.splTokenInterface as Address,
+          );
+        case "zoneHashes":
+          return data.withZoneHashes(
+            bytes(builders.dataHashHex) as Bytes32,
+            bytes(builders.zoneDataHashHex) as Bytes32,
+          );
+        default:
+          throw new Error(`unknown builder op ${op}`);
+      }
+    };
+
+    for (const testCase of builders.cases as readonly BuilderSequenceCase[]) {
+      it(`applies ${testCase.name} the same way`, () => {
+        const build = (): Bytes32 =>
+          testCase.ops.reduce((data, op) => apply(data, op), shaped()).hash();
+        if (testCase.error !== null) {
+          expect(codeOf(build)).toBe(testCase.error);
+          return;
+        }
+        expect(hex(build())).toBe(testCase.hashHex);
+      });
+    }
+
+    it("leaves the value a builder derived from untouched", () => {
+      const defaults = (builders.cases as readonly BuilderSequenceCase[]).find(
+        (entry) => entry.name === "defaults",
+      );
+      const base = shaped();
+      base.withPublicSol(BigInt(builders.solAmount), builders.solAccount as Address);
+      expect(base.publicSolAmount).toBeUndefined();
+      expect(hex(base.hash())).toBe(defaults?.hashHex);
+    });
+  });
 });
 
 describe("the Rust oracle and TypeScript agree on public-input field encodings", () => {

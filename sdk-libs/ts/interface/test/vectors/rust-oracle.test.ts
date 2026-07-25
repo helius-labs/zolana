@@ -991,28 +991,49 @@ describe("decoder acceptance", () => {
   });
 
   /**
-   * Recorded divergence, not a target to tighten or relax silently. The Rust
-   * `MergeTransactIxData` / `MergeZoneIxData` decoders parse a merge payload
-   * whose `encrypted_utxo` does not start with the
-   * `OutputDataEncoding::VerifiablyEncrypted` byte; the shielded-pool program
-   * is what rejects it, with `InvalidMergeOutputScheme`. The TypeScript codec
-   * refuses the same bytes at decode time, so it cannot read an instruction the
-   * Rust decoder reads. No transaction is lost, because the program rejects
-   * that payload either way.
+   * The `encrypted_utxo` type prefix is not part of the merge layout, so both
+   * languages read and write any first byte and the shielded-pool program is
+   * what rejects a non-canonical one, with `InvalidMergeOutputScheme`. A codec
+   * guard on either side would make TypeScript unable to read or rebuild an
+   * instruction Rust reads, without protecting anything the program does not.
+   *
+   * Rust's own recorded bytes are the oracle: they are the canonical merge
+   * payload with the prefix set to `0` and nothing else changed, so decoding
+   * them and re-encoding the result back to the same bytes falsifies a guard at
+   * either end.
    */
-  it("pins the merge encrypted-UTXO prefix asymmetry against Rust", () => {
+  it("reads and rebuilds the non-canonical merge prefix Rust reads", () => {
     expect(acceptance.mergeAcceptsNonCanonicalPrefix).toBe(true);
     expect(acceptance.mergeZoneAcceptsNonCanonicalPrefix).toBe(true);
-    expect(() =>
-      mergeTransactInstructionDataCodec.decode(bytes(acceptance.mergeNonCanonicalPrefixBytes)),
-    ).toThrow(/INTERFACE_CODEC/);
-    expect(() =>
-      mergeZoneInstructionDataCodec.decode(bytes(acceptance.mergeZoneNonCanonicalPrefixBytes)),
-    ).toThrow(/INTERFACE_CODEC/);
+
+    const canonical = bytes(oracle.instructionData.mergeTransact);
+    const nonCanonical = bytes(acceptance.mergeNonCanonicalPrefixBytes);
+    // `encryptedUtxo` is the last blob before the trailing `eddsaOwner` byte.
+    const prefixOffset = canonical.length - MERGE_ENCRYPTED_UTXO_LENGTH - 1;
+    expect(canonical[prefixOffset]).toBe(MERGE_ENCRYPTED_UTXO_TYPE_PREFIX);
+    expect(
+      [...canonical].flatMap((byte, index) => (byte === nonCanonical[index] ? [] : [index])),
+    ).toEqual([prefixOffset]);
+
+    const merge = mergeTransactInstructionDataCodec.decode(nonCanonical);
+    expect(merge.encryptedUtxo[0]).not.toBe(MERGE_ENCRYPTED_UTXO_TYPE_PREFIX);
+    expect(hex(mergeTransactInstructionDataCodec.encode(merge))).toBe(
+      acceptance.mergeNonCanonicalPrefixBytes,
+    );
+
+    const zone = mergeZoneInstructionDataCodec.decode(
+      bytes(acceptance.mergeZoneNonCanonicalPrefixBytes),
+    );
+    expect(zone.merge.encryptedUtxo).toEqual(merge.encryptedUtxo);
+    expect(hex(mergeZoneInstructionDataCodec.encode(zone))).toBe(
+      acceptance.mergeZoneNonCanonicalPrefixBytes,
+    );
+
     expect(ShieldedPoolError.InvalidMergeOutputScheme).toBe(
       oracle.errors.InvalidMergeOutputScheme.code,
     );
   });
+
 });
 
 describe("fetch tag", () => {
