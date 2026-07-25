@@ -1,6 +1,7 @@
 {
   "canonicalSourceRevisions": {
     "baseline": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+    "client": "3ba527850a7986f36c47ad2082598edff3e3e5b7",
     "interface": "14ad30017ef5b512548f65284eae0212684d8197",
     "merkleTree": "975783aa38b65734585f7749e347201fd67a2b71"
   },
@@ -15,7 +16,7 @@
     },
     {
       "path": "client/errors-v1.json",
-      "sha256": "49acb09fb6205e33efa8209263e6f83698a48ec72ca59bf5d5ef784156874d1d"
+      "sha256": "03799f4ef2535af5a3ca3a6e6045cd04d6b4c976b4a50ac6ec1199b829a7ceec"
     },
     {
       "path": "client/proof-input-v1.json",
@@ -35,7 +36,7 @@
     },
     {
       "path": "client/rpc-indexer-v1.json",
-      "sha256": "998eeb1e4ff49dccabdb543a7983e57a2a1e7fdfae00c35abddea036fe9513ab"
+      "sha256": "1a2b69514ad411ef1722b23dac6feef0a771c8d0b20163878e23b9364bbe563f"
     },
     {
       "path": "indexer-api/schema-v1.json",

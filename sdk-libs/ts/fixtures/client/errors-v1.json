@@ -317,7 +317,9 @@
         "code": "CLIENT_POLL_TIMED_OUT",
         "details": {
           "attempts": 3,
-          "lastError": "transient"
+          "lastCause": {
+            "category": "indexer"
+          }
         }
       },
       {
@@ -328,7 +330,7 @@
         }
       },
       {
-        "code": "CLIENT_WITNESS_INPUT_COUNT_MISMATCH",
+        "code": "CLIENT_PROOF_INPUT_COUNT_MISMATCH",
         "details": {
           "expected": 2,
           "got": 1
@@ -359,5 +361,6 @@
   "rustPath": "sdk-libs/client/src/error.rs; sdk-libs/keypair/src/error.rs; sdk-libs/transaction/src/error.rs; program-libs/hasher/src/errors.rs",
   "rustSymbol": "ClientError; KeypairError; TransactionError; HasherError",
   "schema": "zolana-ts-fixtures-v1",
+  "sourceRevision": "3ba527850a7986f36c47ad2082598edff3e3e5b7",
   "version": "1"
 }
