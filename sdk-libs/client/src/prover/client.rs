@@ -209,7 +209,9 @@ impl ProverClient {
         self.send(to_json_batch_address_append(inputs))
     }
 
-    fn send(&self, body: String) -> Result<Proof, ClientError> {
+    /// Visible to the `prover` module so `ts_poll_oracle` can drive the real
+    /// poll loop rather than a copy of it.
+    pub(super) fn send(&self, body: String) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
         let mut attempt = 0;
         let response = loop {
