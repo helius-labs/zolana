@@ -21,14 +21,14 @@ for the disposition of each hunk before adding to them.
 
 ## Status
 
-Refreshed as each worker returns. Last update: 2026-07-25 19:52.
+Refreshed as each worker returns. Last update: 2026-07-25 19:56.
 
 | | |
 | --- | --- |
 | Rows supported by evidence | 1 of 145 |
 | Rows with an adverse verdict | 107 (55 partial, 39 divergent, 13 blocked) |
 | Rows with no verdict recorded | 27, in the `event`, `hasher`, `indexed-array`, and `user-registry-interface` crates |
-| Branch | 241 commits over two days |
+| Branch | 246 commits over two days |
 | Phase | 2 of 4: remediation. Phase 1 reopened, phases 3 and 4 not started |
 
 In flight:
@@ -36,7 +36,6 @@ In flight:
 | Work | State |
 | --- | --- |
 | Client package, rows C01 to C22 | Running |
-| Poseidon parity across four TypeScript implementations | Running |
 | Checklist reconciliation, log split, 27 new rows | Running |
 | `program-libs` scope audit and reverts | Running |
 | `user_record` binding fix, own branch off `main` | Running |
@@ -56,10 +55,26 @@ That last one also stopped the resolved tag moving when a sync delegate rotates
 a viewing key, so a scanning wallet's tag now survives delegation and
 revocation. The test asserting the opposite was inverted rather than deleted.
 
-Queued, not dispatched: the 27 uncovered `program-libs` rows, the five rows
-pointing at the wrong file, the residual Rust prerequisites, the Merkle
-semantics questions, the PR #158 rebase, the WebAssembly differential oracle,
-and then PKP-00 through PKP-08.
+Poseidon closed as the largest open risk. Four TypeScript reimplementations
+match `zolana-hasher` byte for byte across the arities Rust accepts, which was
+not a foregone conclusion: Rust reads its round constants from committed tables
+while TypeScript regenerates them from the Grain LFSR, two provenances for the
+same 6,798 constants and 819 matrix entries that nothing had ever compared. Two
+implementations accepted arities 13 to 16 that Rust rejects and the
+`sol_poseidon` syscall caps at 12, so any digest they produced was unverifiable
+on chain; both now stop where Rust stops. A generator at
+`xtask/src/bin/poseidon-parity.rs` pins the parameters and the digests with 312
+tests, and a control edit to one round count fails eight of them.
+
+Queued, not dispatched: a fifth Poseidon copy in `client/src/internal.ts` that
+the coverage audit missed and that still carries the over-wide arity table, a
+one-line change held only because a worker owns that file; branding
+`PreparedZoneAuthority` in both languages, whose public fields let a literal
+skip the constructor and its guards; folding three identical Poseidon copies
+into one; the 27 uncovered `program-libs` rows; the five rows pointing at the
+wrong file; the residual Rust prerequisites; the Merkle semantics questions; the
+PR #158 rebase; the WebAssembly differential oracle; and then PKP-00 through
+PKP-08.
 
 ## Current baseline
 
