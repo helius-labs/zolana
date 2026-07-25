@@ -341,7 +341,10 @@ fn ts_poll_oracle_is_current() {
         "jobIds": ids,
     });
 
-    let rendered = format!("{}\n", serde_json::to_string_pretty(&oracle).expect("render"));
+    let rendered = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&oracle).expect("render")
+    );
     let path = oracle_path();
     let current = std::fs::read_to_string(&path).unwrap_or_default();
     if current == rendered {
