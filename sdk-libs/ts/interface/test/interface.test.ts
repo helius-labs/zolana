@@ -1105,5 +1105,19 @@ describe("instruction builders", () => {
     expect(() =>
       mergeTransactInstructionDataCodec.encode({ ...merge, encryptedUtxo: wrongPrefix }),
     ).toThrow(expect.objectContaining({ code: "INTERFACE_CODEC" }));
+
+    const encoded = mergeTransactInstructionDataCodec.encode(merge);
+    encoded[557] = 0;
+    expect(() => mergeTransactInstructionDataCodec.decode(encoded)).toThrow(
+      expect.objectContaining({ code: "INTERFACE_CODEC" }),
+    );
+    const encodedZone = mergeZoneInstructionDataCodec.encode({
+      mergeViewTag: b32(9),
+      merge,
+    });
+    encodedZone[589] = 0;
+    expect(() => mergeZoneInstructionDataCodec.decode(encodedZone)).toThrow(
+      expect.objectContaining({ code: "INTERFACE_CODEC" }),
+    );
   });
 });
