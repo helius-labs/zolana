@@ -14,6 +14,7 @@ base64 = { workspace = true }
 bincode = "1.3"
 borsh = { workspace = true }
 bs58 = { workspace = true }
+bytemuck = { workspace = true }
 light-poseidon = { workspace = true }
 num-bigint = { workspace = true }
 serde_json = { workspace = true }
