@@ -88,28 +88,35 @@ try {
   process.exit(2);
 }
 
+// Transcript writes lag the work badly enough to be useless on their own: four
+// agents were once reported dead on a quiet transcript while every one of them
+// was committing. So a quiet agent is only worth waking someone over when the
+// branches have gone quiet too. Otherwise work is plainly still happening, the
+// transcripts are behind, and reporting it trains the reader to ignore the
+// check, which costs more than the occasional missed death.
+const newestBranchCommit = Number(
+  await git("log", "-1", "--format=%ct", "--all", "--branches=port/*").catch(() => "0"),
+);
+const branchesQuietMinutes = minutesSince(newestBranchCommit);
+
 const dropped = workers.filter((worker) => worker.state === "DROPPED");
-for (const worker of dropped) {
+const stranded = dropped.filter((worker) => branchesQuietMinutes >= worker.quietMinutes);
+
+for (const worker of stranded) {
   problems.push(
-    `agent ${worker.id} has no closing record and has been quiet ${worker.quietMinutes} min` +
+    `agent ${worker.id} has no closing record, has been quiet ${worker.quietMinutes} min, ` +
+      `and no worker branch has moved in ${branchesQuietMinutes} min` +
       (worker.kilobytes < TRIVIAL_KILOBYTES
-        ? " (transcript nearly empty; if it is dead, relaunching costs nothing)"
+        ? " (transcript nearly empty; relaunching costs nothing)"
         : ` (${worker.kilobytes} KB; check its worktree for uncommitted work before relaunching)`),
-  );
-}
-if (dropped.length > 0) {
-  // Transcript writes lag behind the work. One agent here sat apparently silent
-  // for seventeen minutes while committing every two, so a quiet transcript on
-  // its own is a reason to look at the branch, not a death certificate.
-  problems.push(
-    "before relaunching any of the above, confirm the branch is not still moving; " +
-      "transcript writes lag and have shown a working agent as silent for 17 minutes",
   );
 }
 report.push(
   `agents: ${workers.filter((w) => w.state === "working").length} working, ` +
-    `${workers.filter((w) => w.state === "finished").length} finished, ${dropped.length} dropped`,
+    `${workers.filter((w) => w.state === "finished").length} finished, ` +
+    `${dropped.length} quiet (${stranded.length} with no branch activity behind them)`,
 );
+report.push(`branch activity: newest worker commit ${branchesQuietMinutes} min ago`);
 
 // A transcript can lag behind an agent that is committing steadily, so a drop
 // call is softened when the branches show recent commits. Reported either way,
