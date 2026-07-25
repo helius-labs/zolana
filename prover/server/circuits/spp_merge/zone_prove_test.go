@@ -55,10 +55,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 	viewSk := big.NewInt(7)
 	viewX, viewY := curve.ScalarBaseMult(leftPad32(viewSk))
 	userViewingUncompressed := elliptic.Marshal(curve, viewX, viewY)
-	viewKeyHash, err := protocol.P256PkField(elliptic.MarshalCompressed(curve, viewX, viewY))
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	txViewingSk := big.NewInt(123456789)
 
@@ -210,8 +206,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 	assignment.ExternalDataHash = externalDataHash
 	assignment.PrivateTxHash = privateTxHash
 	assignment.OutputHash = outHash
-	assignment.UserSigningPkHash = ownerKeyHash
-	assignment.UserViewingPkHash = viewKeyHash
 	assignment.TxViewingPkLo = pkLo
 	assignment.TxViewingPkHi = pkHi
 	assignment.CtHash = ctHash

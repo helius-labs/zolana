@@ -1,4 +1,4 @@
-package merge
+package shared
 
 import (
 	"github.com/consensys/gnark/frontend"
@@ -13,12 +13,14 @@ import (
 // on the zone rail, ZoneDataHash), so nothing beyond those is witnessed. The
 // merged output is always real, so no dummy gating applies. Returns its UTXO hash
 // for the private-transaction-hash chain.
-func constrainOutput(api frontend.API, out Output, userOwnerHash, asset, amount frontend.Variable, zone bool, zoneProgramID frontend.Variable) frontend.Variable {
-	// Default rail: the output carries no zone data.
-	if !zone {
-		api.AssertIsEqual(out.ZoneDataHash, 0)
-	}
-
+func constrainOutput(
+	api frontend.API,
+	out Output,
+	userOwnerHash,
+	asset,
+	amount,
+	zoneProgramID frontend.Variable,
+) frontend.Variable {
 	// The merged amount is assembled from the input sum, not witnessed. Range-check
 	// it to 64 bits (pairs with the per-input checks so sum(inputs) == output holds
 	// over the integers, not just mod p).

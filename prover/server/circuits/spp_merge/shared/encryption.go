@@ -1,4 +1,4 @@
-package merge
+package shared
 
 import (
 	"github.com/consensys/gnark/frontend"

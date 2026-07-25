@@ -1,4 +1,4 @@
-package merge
+package shared
 
 import (
 	"github.com/consensys/gnark/frontend"
@@ -15,7 +15,16 @@ import (
 // input whose committed leaf disagrees fails inclusion. Every check is gated on
 // the slot being real; a dummy slot skips them. Returns the input's UTXO hash (0
 // for a dummy) for the private-transaction-hash chain and its nullifier.
-func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecret, asset, utxoTreeRoot, nullifierTreeRoot frontend.Variable, zone bool, zoneProgramID frontend.Variable) (frontend.Variable, frontend.Variable) {
+func constrainInput(
+	api frontend.API,
+	in Input,
+	userOwnerHash,
+	userNullifierSecret,
+	asset,
+	utxoTreeRoot,
+	nullifierTreeRoot,
+	zoneProgramID frontend.Variable,
+) (frontend.Variable, frontend.Variable) {
 	// Slot type is decoded from the domain, matching spp_transaction: a real
 	// input carries UtxoDomain, a padding slot carries DummyDomain. The partition
 	// assert both pins the domain to one of the two values and defines notDummy.
@@ -33,12 +42,6 @@ func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecr
 	// proof self-contained rather than relying on upstream creation circuits to
 	// keep every tree UTXO u64-bounded.
 	abstractor.CallVoid(api, transaction.RangeCheck64{Value: in.Amount})
-
-	// Default rail: an input carries no zone data. The zone rail leaves
-	// ZoneDataHash free (part of the committed leaf).
-	if !zone {
-		assertZeroWhen(api, notDummy, in.ZoneDataHash)
-	}
 
 	// Reconstruct the leaf. A real slot binds the shared owner, asset, nullifier
 	// secret, and zone program; a dummy slot zeroes all of them so its leaf and
