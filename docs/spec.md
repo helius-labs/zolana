@@ -264,26 +264,33 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 
 ## Pubkey Field Encoding
 
-A pubkey is encoded into a single BN254 field via nested 2-input Poseidon over 128-bit big-endian limbs. This `pk_field(pk)` is the canonical form used wherever a pubkey appears inside a Poseidon hash anywhere in this spec.
+A pubkey is encoded into a single BN254 field via nested 2-input Poseidon over 128-bit big-endian limbs. A P256 key has two encodings with different roles: the parity-free `owner_pk_field`, the owner identity that enters [`owner_hash`](#owner-hash), and the parity-inclusive `pk_field`, which the protocol applies to a registered viewing key. Over a 32-byte value, a Solana / Ed25519 pubkey or a program id, there is one encoding and the two names denote the same function.
 
 ```
-P256 (33 B SEC1: parity || x_be32):
-  x_hash := Poseidon(x_low_128, x_high_128)
+Owner identity, P256 (33 B SEC1: parity || x_be32):
+  owner_pk_field(pk) := Poseidon(x_low_128, x_high_128)
+
+Owner identity, Solana / Ed25519 (32 B):
+  owner_pk_field(pk) := Poseidon(pk_low_128, pk_high_128)
+
+Viewing key, P256 (33 B SEC1: parity || x_be32):
+  x_hash       := Poseidon(x_low_128, x_high_128)
   pk_field(pk) := Poseidon(y_is_odd, x_hash)
-
-Solana / Ed25519 (32 B):
-  pk_field(pk) := Poseidon(pk_low_128, pk_high_128)
 ```
 
-P256's extra `y_is_odd` layer means the two encodings cannot collide except via Poseidon preimage collision (~2⁻²⁵⁴); no explicit scheme tag is needed.
+`owner_pk_field` leaves the parity bit out because parity travels in the encrypted UTXO data rather than in the owner identity, which also gives a P256 owner field the same shape as an Ed25519 one. Authoritative implementations: `OwnerPkFieldGadget` (`prover/server/circuits/spp_transaction/p256.go:88-90`), `verifier::hash_field` with its Ed25519 counterpart `solana_pk_hash` (`programs/shielded-pool/src/instructions/verifier.rs:27-37`, `instructions/hash.rs:24-29`), the merge owner derivation (`instructions/merge/account.rs:73`), and `merge_utils::owner_pk_field_compressed`, `PublicKey::owner_pk_field`, `ownerPkFieldCompressed`, `ShieldedPublicKey.ownerPublicKeyField` in the SDKs.
+
+`pk_field` keeps the parity bit and applies to a registered viewing key, which is the one role that uses it: `merge::verify::pk_field` over `record.viewing_pubkey` at its `merge_transact` call site (`programs/shielded-pool/src/instructions/merge/processor.rs:50`), `P256PkFieldGadget` (`p256.go:33-36`), and `merge_utils::pk_field_compressed`, `PublicKey::hash`, `ShieldedPublicKey.hash` in the SDKs.
+
+**Pending: separation of the two rails.** The argument that stood here rested on the P256 encoding carrying a `y_is_odd` layer the Ed25519 encoding lacks. `owner_pk_field` applies no such layer, so both rails run the same function over 32 bytes and a P256 x-coordinate equal byte for byte to an Ed25519 pubkey produces the same owner field. A replacement argument, and a ruling on whether the parity-free form needs an explicit scheme tag, are under audit in `planning/typescript-sdk-port/owner-hash-collision-audit.md`. Treat the question as unsettled until that audit lands.
 
 ## Owner Hash
 
 ```
-owner_hash := Poseidon(pk_field(signing_pk), nullifier_pk)
+owner_hash := Poseidon(owner_pk_field(signing_pk), nullifier_pk)
 ```
 
-The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Solana / Ed25519 inputs, SPP supplies it from the verified signer account.
+The proof recomputes `owner_pk_field(signing_pk)` from a witnessed P256 point; for Solana / Ed25519 inputs, SPP supplies it from the verified signer account.
 
 # Signing Key
 
@@ -403,7 +410,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 ### Merge view tag
 
-5. **`merge_view_tag`** — used by [`merge_zone`](#merge_zone) only. `merge_transact` is a confidential [default-zone](#default-zone) operation, so it tags the merged output by the owner's signing pubkey — the same owner-pubkey tag every default-zone output carries (see [recipient slot](#recipient-slot)). The merge proof binds the signing `pk_field` to the output, and replay protection comes from the input nullifiers, so it needs no separate single-use view tag.
+5. **`merge_view_tag`** — used by [`merge_zone`](#merge_zone) only. `merge_transact` is a confidential [default-zone](#default-zone) operation, so it tags the merged output by the owner's signing pubkey — the same owner-pubkey tag every default-zone output carries (see [recipient slot](#recipient-slot)). The merge proof binds the signing `owner_pk_field` to the output, and replay protection comes from the input nullifiers, so it needs no separate single-use view tag.
     - Derived by: the owner (wallet) and its [sync delegate](#sync-delegate), independently — both derive from `view_root` (see [Derived secrets](#derived-secrets)); the merge service holds no keys and is handed pre-derived values (see [Merge Service](#merge-service-1)).
     - Tx sent by: the zone program (`merge_zone`).
     - Indexed by: the owner.
@@ -837,7 +844,7 @@ One ciphertext for the single merged output.
 
 ```rust
 /// 71 B plaintext, AES-256-CTR (no tag). The owner is not transmitted: it is
-/// recovered from the public `pk_field(user_signing_pk)` and the owner's keys.
+/// recovered from the public `owner_pk_field(user_signing_pk)` and the owner's keys.
 struct MergeBundlePlaintext {
     /// Sum of input amounts.
     amount: u64,
@@ -881,8 +888,8 @@ struct MergeEncryptedUtxo {
 | public_spl_asset_pubkey | derived by SPP from the vault token account's mint |
 | zone_program_id | single `pk_field` of the policy zone authorizing the transaction's UTXOs; `0` (non-zone / default transact) — instruction data |
 | payer_pubkey_hash | `Sha256BE(payer)` derived by SPP from the `payer` account |
-| solana_owner_pk_hashes (one per input UTXO) | `pk_field` (see [Shielded Address](#shielded-address)) of the input's Solana / Ed25519 owner; `0` for a P256-owned input. |
-| p256_signing_pk | `hash_field(p256_signing_pk_x)`, the transaction's shared P256 signing key. SPP computes it on-chain from the raw x-coordinate in instruction data (`0` on the eddsa rail); the circuit routes P256-owned inputs by equality against it. |
+| solana_owner_pk_hashes (one per input UTXO) | Per-input owner tag. For a Solana / Ed25519 owner it is `owner_pk_field` of that owner (see [Shielded Address](#shielded-address)). For a P256-owned input the marker depends on the [variant](#circuit-variants): `p256_signing_pk` on the confidential variants, `0` on the anonymous and zone-authority ones (see [Owner tag by variant](#owner-tag-by-variant)). |
+| p256_signing_pk | `hash_field(p256_signing_pk_x)`, which is `owner_pk_field` of the transaction's shared P256 signing key. SPP computes it on-chain from the raw x-coordinate in instruction data (`0` on the eddsa rail). The confidential variants route P256-owned inputs by equality against it, the anonymous variants by a zero test (see [Owner tag by variant](#owner-tag-by-variant)). |
 
 See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
@@ -890,7 +897,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). An Ed25519-owned input uses the public `solana_owner_pk_hashes[i]`. |
+| owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `owner_pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). An Ed25519-owned input uses the public `solana_owner_pk_hashes[i]`. |
 | `nullifier_secret` | the input owner's secret (see [Nullifier Key](#nullifier-key)); recomputes the input's `nullifier_pk` and [nullifier](#nullifier) |
 | `blinding`, `asset`, `amount`, `data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
@@ -941,7 +948,7 @@ message(m) := m.view_tag || u16_be(m.data.len()) || m.data
 | Check | Description |
 | --- | --- |
 | Owner hash binding (per input) | The recomputed `owner_hash` (see [Shielded Address](#shielded-address)) must equal the input's `owner`, the value hashed into `utxo_hash` for the inclusion check. |
-| UTXO Ownership | Spent input UTXOs must be authorized by their owner. `solana_owner_pk_hashes[i]` selects the input's path: `0` → owner binds to `pk_field(signing_pk)`, authorized by the one P256 signature over `private_tx_hash`; non-zero → owner binds to the entry, and SPP verifies the account named in `in_utxo_signer_indices` is a transaction signer. Ed25519 owners may differ per input; P256-owned inputs share the one witnessed `signing_pk`. The Solana-only [variant](#circuit-variants) forces every real input onto the non-zero path. See [UTXO Ownership Check](#utxo-ownership-check). |
+| UTXO Ownership | Spent input UTXOs must be authorized by their owner. `solana_owner_pk_hashes[i]` selects the input's path: the P256 marker (`0`, or `p256_signing_pk` on the confidential variants, see [Owner tag by variant](#owner-tag-by-variant)) → owner binds to `owner_pk_field(signing_pk)`, authorized by the one P256 signature over `private_tx_hash`; any other entry → owner binds to the entry, and SPP verifies the account named in `in_utxo_signer_indices` is a transaction signer. Ed25519 owners may differ per input; P256-owned inputs share the one witnessed `signing_pk`. The Solana-only [variant](#circuit-variants) forces every real input onto the Ed25519 path. See [UTXO Ownership Check](#utxo-ownership-check). |
 | Inclusion | Each spent input UTXO must be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
 | Nullifier secret binding (per input) | The input's `nullifier_pk` (see [Nullifier Key](#nullifier-key)) is recomputed from its `nullifier_secret` witness and enters the input's recomputed [owner hash](#shielded-address). |
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
@@ -955,8 +962,22 @@ message(m) := m.view_tag || u16_be(m.data.len()) || m.data
 
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
-1. P256 signature over `private_tx_hash` verified in the SPP proof; the same point recomputes `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). The hash covers every input, every output, and the external-data hash, so the proof cannot be replayed with different state. The SHA-256 message digest is computed **outside** the circuit: SPP recomputes `private_tx_hash_digest = SHA-256(private_tx_hash)` on-chain from the `private_tx_hash` public input and feeds it to the proof, which verifies the ECDSA signature against the digest using only EC arithmetic. Binding holds across the public inputs — the proof recomputes `private_tx_hash` from the private input/output hash chains and asserts it equals the `private_tx_hash` public input, SPP asserts `private_tx_hash_digest = SHA-256(private_tx_hash)`, and the proof asserts the signature verifies against `private_tx_hash_digest`.
-2. Ed25519 Solana signer checked by SPP. The non-zero entry in the public `solana_pk_hashes` array tells the circuit to skip the P256 signature check on the input and bind the input's owner to the SPP-derived `pk_field`; SPP separately reads `in_utxo_signer_indices` from instruction data and verifies the named 32-byte Solana account is a signer of the transaction. The nullifier-secret binding is still checked by the proof for these inputs.
+1. P256 signature over `private_tx_hash` verified in the SPP proof; the same point recomputes `owner_pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). The hash covers every input, every output, and the external-data hash, so the proof cannot be replayed with different state. The SHA-256 message digest is computed **outside** the circuit: SPP recomputes `private_tx_hash_digest = SHA-256(private_tx_hash)` on-chain from the `private_tx_hash` public input and feeds it to the proof, which verifies the ECDSA signature against the digest using only EC arithmetic. Binding holds across the public inputs — the proof recomputes `private_tx_hash` from the private input/output hash chains and asserts it equals the `private_tx_hash` public input, SPP asserts `private_tx_hash_digest = SHA-256(private_tx_hash)`, and the proof asserts the signature verifies against `private_tx_hash_digest`.
+2. Ed25519 Solana signer checked by SPP. An entry in the public `solana_pk_hashes` array that is not the P256 marker (see [Owner tag by variant](#owner-tag-by-variant)) tells the circuit to skip the P256 signature check on the input and bind the input's owner to the SPP-derived `owner_pk_field`; SPP separately reads `in_utxo_signer_indices` from instruction data and verifies the named 32-byte Solana account is a signer of the transaction. The nullifier-secret binding is still checked by the proof for these inputs.
+
+<a id="owner-tag-by-variant"></a>
+**Owner tag by variant**
+
+The circuit marks a P256-owned input differently on the two owner-tag variants, and instruction data selects the variant.
+
+| Variant | `solana_owner_pk_hashes[i]` for a P256-owned input | How the circuit routes it |
+| --- | --- | --- |
+| Confidential (`transfer_confidential_*`, `transfer_p256_confidential_*`) | `p256_signing_pk` | equality against the `p256_signing_pk` public input; the entry already is the owner key hash, so no substitution |
+| Anonymous and zone-authority (`transfer_zone_*`, `transfer_p256_zone_*`, `transfer_zone_authority_*`) | `0` | zero test, then the recomputed P256 owner key is substituted for the entry |
+
+The two forms prove the same statement. The confidential variant pins the `p256_signing_pk` public input to the key the circuit recomputes from the witnessed point (`prover/server/circuits/spp_transaction/circuit.go:184`), so the equality test selects the same inputs the zero test selects, and the owner key hash that reaches `owner_hash` is the same value on both. On the Solana-only confidential rail the recomputed key is the constant `0` (`circuit.go:177`), which makes the equality test the zero test. The branch is at `inputs.go:90-96`. SPP writes the matching per-input value at `programs/shielded-pool/src/instructions/transact/processor.rs:266-285`, and the Rust and TypeScript clients follow the same split.
+
+Because the two forms are equivalent, the split is a representation choice rather than a security property. Collapsing it would regenerate the confidential or the anonymous verifying keys and rotate the proving keys for no change in what is proven.
 
 <a id="circuit-variants"></a>
 **Circuit Combinations**
@@ -980,7 +1001,7 @@ A third axis selects a zone-capable instantiation at compile time. The non-zone 
 | 5 in 4 out | Higher concurrency, two recipients | 1 SOL fee UTXO, 4 sender input UTXOs, 2 recipient outputs, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 1 in 8 out | Split UTXO | Split 1 UTXO into up to 8 equal parts; equal parts reduce encrypted data | P256, Solana-only |
 
-**Zone-authority instantiation.** A separate instantiation proves no owner authorization at all: it is the Solana-only zone variant (no P256 gadget, no in-circuit signature) and keeps every input owner `pk_field` private (omitted from the public input hash). Each input owner is an opaque field element hashed into `owner_hash` exactly like the merge circuit, so both P256- and Ed25519-owned UTXOs can be spent — the prover supplies the owner `pk_field` directly and the proof never checks ownership. The only in-circuit binding is `nullifier_secret` knowledge through `owner_hash`; authorization is the `zone_config` PDA signer plus the zone program's own policy, requiring `zone_authority_transact_is_enabled` set (instruction `zone_authority_transact`). It pairs only with the anonymous owner-tag variant. Because owners do not authorize the spend, value cannot leave the zone here: the public `zone_program_id` is pinned non-zero and **every** non-dummy input *and* output `zone_program_id` must equal it (strict binding, no zero exemption). A default-zone UTXO can neither be spent nor created, so the authority cannot move funds out of the policy zone without an owner-signed path. Supported shapes:
+**Zone-authority instantiation.** A separate instantiation proves no owner authorization at all: it is the Solana-only zone variant (no P256 gadget, no in-circuit signature) and keeps every input owner `owner_pk_field` private (omitted from the public input hash). Each input owner is an opaque field element hashed into `owner_hash` exactly like the merge circuit, so both P256- and Ed25519-owned UTXOs can be spent — the prover supplies the owner `owner_pk_field` directly and the proof never checks ownership. The only in-circuit binding is `nullifier_secret` knowledge through `owner_hash`; authorization is the `zone_config` PDA signer plus the zone program's own policy, requiring `zone_authority_transact_is_enabled` set (instruction `zone_authority_transact`). It pairs only with the anonymous owner-tag variant. Because owners do not authorize the spend, value cannot leave the zone here: the public `zone_program_id` is pinned non-zero and **every** non-dummy input *and* output `zone_program_id` must equal it (strict binding, no zero exemption). A default-zone UTXO can neither be spent nor created, so the authority cannot move funds out of the policy zone without an owner-signed path. Supported shapes:
 
 | Circuit | Use | Shape |
 | --- | --- | --- |
@@ -1006,7 +1027,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
 | private_tx_hash | instruction data |
 | external_data_hash | instruction data. SPP recomputes it from the `merge_transact` instruction and checks it matches this public input. Its own public input for the same reason as in the [SPP Proof](#spp-proof---solana-privacy-zk-proof): SPP cannot recompute `private_tx_hash` (it covers the private input UTXO hashes), so the proof must expose `external_data_hash` to bind it to the instruction. |
-| pk_field(user_signing_pk) | owner identity; derived by SPP from the registry record by the rail the `merge_transact` `eddsa_owner` flag selects: `pk_field(owner_p256)` for a P256 owner, or `pk_field` of the registry account `owner` (the ed25519 signing key) for a Solana owner. The proof computes the same `pk_field` in its public input hash, so it fails unless they match. Stands in for `owner_hash` as the public identifier. |
+| owner_pk_field(user_signing_pk) | owner identity; derived by SPP from the registry record by the rail the `merge_transact` `eddsa_owner` flag selects: `owner_pk_field(owner_p256)` for a P256 owner, or `owner_pk_field` of the registry account `owner` (the ed25519 signing key) for a Solana owner. The proof computes the same `owner_pk_field` in its public input hash, so it fails unless they match. Stands in for `owner_hash` as the public identifier. |
 | pk_field(user_viewing_pk) | derived by SPP from `user_record.viewing_pubkey`. The proof computes the same `pk_field`, so the output is provably encrypted to the owner's registered viewing key. |
 | tx_viewing_pk | instruction data (from the merge ciphertext blob) |
 | ciphertext_hash | `Poseidon` over the ciphertext, recomputed by SPP from the blob's `ciphertext`. Replaces exposing the raw ciphertext and is the integrity binding in place of a tag. |
@@ -1023,7 +1044,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 
 | Input | Description |
 | --- | --- |
-| owner signing key witness | Rail-selected, mirroring the [SPP Proof](#spp-proof---solana-privacy-zk-proof) owner rails: a P256 owner witnesses the canonical point `(x, y)` and compressed-key parity and recomputes `pk_field(user_signing_pk)` in-circuit; a Solana (ed25519) owner witnesses the precomputed `pk_field(user_signing_pk)` directly (the P256 point witness is then an unused dummy). Either way it produces the same `pk_field(user_signing_pk)` public input (see [Shielded Address](#shielded-address)). Merge verifies no signature on either rail; ownership rests on the shared `nullifier_secret` and the owner-preserving output. |
+| owner signing key witness | Rail-selected, mirroring the [SPP Proof](#spp-proof---solana-privacy-zk-proof) owner rails: a P256 owner witnesses the canonical point `(x, y)` and compressed-key parity and recomputes `owner_pk_field(user_signing_pk)` in-circuit; a Solana (ed25519) owner witnesses the precomputed `owner_pk_field(user_signing_pk)` directly (the P256 point witness is then an unused dummy). Either way it produces the same `owner_pk_field(user_signing_pk)` public input (see [Shielded Address](#shielded-address)). Merge verifies no signature on either rail; ownership rests on the shared `nullifier_secret` and the owner-preserving output. |
 | `user_nullifier_pk` | shared owner's nullifier commitment, a 32-byte field element |
 | `nullifier_secret` | wallet's symmetric nullifier secret; held by the sync delegate that operates this merge service |
 | `user_viewing_pk` | owner's P256 viewing pubkey; the proof recomputes the public `pk_field(user_viewing_pk)` from it, which SPP checks against `UserRecord.viewing_pubkey` |
@@ -1040,7 +1061,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 
 | Check | Description |
 | --- | --- |
-| Owner hash binding | `user_owner_hash` (see [Shielded Address](#shielded-address)) is recomputed by the proof from the witnessed P256 point; `pk_field(user_signing_pk)` is exposed as a public input for the registry check. |
+| Owner hash binding | `user_owner_hash` (see [Shielded Address](#shielded-address)) is recomputed by the proof from the witnessed P256 point; `owner_pk_field(user_signing_pk)` is exposed as a public input for the registry check. |
 | Viewing key exposure | `pk_field(user_viewing_pk)` is recomputed from the witnessed viewing key and exposed as a public input, so SPP can bind the encryption to the owner's registered viewing key. |
 | Ownership uniformity | Every input UTXO's `owner` equals `user_owner_hash`. |
 | Asset uniformity | Every input UTXO's `asset` equals the output's `asset`. |
@@ -1642,7 +1663,7 @@ struct ZoneDepositIxData {
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
 | 2 | payer |   | x | fee payer; any account may run the merge |
-| 3 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and binds the proof's signing / viewing `pk_field`s to it |
+| 3 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and binds the proof's `owner_pk_field` (signing) and `pk_field` (viewing) to it |
 
 **Instruction data**
 
@@ -1669,7 +1690,7 @@ struct MergeTransactIxData {
     /// [Output UTXO Serialization § Merge](#merge). SPP recomputes `ciphertext_hash`
     /// from it for the public input hash.
     encrypted_utxo: Vec<u8>,
-    /// Selects the owner rail for the `pk_field(user_signing_pk)` public input:
+    /// Selects the owner rail for the `owner_pk_field(user_signing_pk)` public input:
     /// false derives it from `user_record.owner_p256` (P256), true from the
     /// registry account `owner` (ed25519 signing key).
     eddsa_owner: bool,
@@ -1682,7 +1703,7 @@ struct MergeTransactIxData {
 2. Each `utxo_tree_root_index[i]` references a non-stale UTXO-tree root, and each `nullifier_tree_root_index[i]` references a non-stale nullifier-tree root.
 3. `tree_account` is not paused.
 4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
-5. SPP derives `pk_field(user_record.viewing_pubkey)` and, by the `eddsa_owner` flag, the signing `pk_field` (from `owner_p256` or the registry account `owner`), and uses them as the proof's owner public inputs, so the proof verifies only if it encrypted the output to the owner's registered viewing key. The merged output is tagged in the [`GeneralEvent`](#general-event) by the owner's signing pubkey — the confidential [default-zone](#default-zone) owner-pubkey tag — so the owner finds it on sync; the proof binds that signing `pk_field` to the output.
+5. SPP derives `pk_field(user_record.viewing_pubkey)` and, by the `eddsa_owner` flag, the signing `owner_pk_field` (from `owner_p256` or the registry account `owner`), and uses them as the proof's owner public inputs, so the proof verifies only if it encrypted the output to the owner's registered viewing key. The merged output is tagged in the [`GeneralEvent`](#general-event) by the owner's signing pubkey — the confidential [default-zone](#default-zone) owner-pubkey tag — so the owner finds it on sync; the proof binds that signing `owner_pk_field` to the output.
 6. Proof verifies against public inputs (`ciphertext_hash` recomputed from `encrypted_utxo`).
 7. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
 8. Insert each input nullifier into the nullifier queue. Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of a single-use view tag. SPP does not parse `encrypted_utxo` beyond hashing it; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.
@@ -1763,18 +1784,20 @@ A ZK program is a third-party Solana program that runs a custom ZK circuit over 
 
 All RPC services can be run independently. RPC providers can offer the endpoints of the services in a bundled API.
 
+**Integer encoding.** An integer in an RPC request or response is a JSON number restricted to the IEEE-754 safe-integer range, `-(2^53 - 1)` through `2^53 - 1`, whatever width its Rust declaration gives it. A decoder rejects a value outside that range rather than reading it with lost precision (`sdk-libs/ts/indexer-api/src/codec.ts:69`). The range covers the quantities these services carry: a Solana slot, a Unix block time, a leaf index in a tree of height 32, and a monotonic root sequence each sit far below `2^53`. A service that sends a value above the bound is the defect, not the decoder that refuses it.
+
 ## Indexer
 
 Indexes the SPP program instructions to parse encrypted UTXOs, utxo hashes, nullifiers and private transactions.
 
 **Privacy.** Endpoints that take tags as input (default-zone owner pubkeys, or policy-zone view tags), [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags), [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags), [`subscribe_to_shielded_transactions_by_tags`](#subscribe_to_shielded_transactions_by_tags), can run inside a TEE (Trusted Execution Environment) to add partial RPC-level privacy. A client's tag set identifies which transactions it cares about; an operator that sees the plaintext request links the client to those UTXOs. A TEE hides the tag set and ciphertext stream from the operator.
 
-Every response is wrapped in a `Context` struct so the client knows the slot the response was assembled at.
+Every response is wrapped in a `Context` struct so the client knows how far the indexer had progressed when it assembled the response.
 
 ```rust
 struct Context {
-    /// Solana slot at which the indexer assembled this response.
-    slot: u64,
+    /// Unix timestamp of the most recent block the indexer has processed.
+    block_time: i64,
 }
 
 struct MerkleContext {
@@ -2071,7 +2094,7 @@ UTXOs with `utxo_data` set (non-zero `data_hash`) cannot be merged since they ar
 
 **Merging UTXOs.** A merge service needs decrypted UTXOs but does not hold encryption keys. Therefore a wallet or [sync delegate](#sync-delegate) must trigger the merge service and supply the merge proof inputs.
 
-**Sync.** After each `merge_transact`, the merged ciphertext is indexed by the owner pubkey (the public `pk_field(user_signing_pk)`). The wallet finds it by scanning that tag (see [First Time Sync Wallet](#first-time-sync-wallet)).
+**Sync.** After each `merge_transact`, the merged ciphertext is indexed by the owner pubkey (the public `owner_pk_field(user_signing_pk)`). The wallet finds it by scanning that tag (see [First Time Sync Wallet](#first-time-sync-wallet)).
 
 **Threat model.** The merge service cannot change ownership, encrypt incorrectly, or destroy value; it can leak private information out-of-protocol or refuse to process a transaction. It cannot encrypt incorrectly because `merge_transact` binds the output to the owner's registered `viewing_pk` (see Checks). A merge is value-preserving: it only reconsolidates the user's own same-owner, same-asset UTXOs into one output owned by that same user, bound to the owner's registered signing / viewing keys by the proof. Even though any caller may submit `merge_transact` once the owner has enabled merging, a caller cannot decrypt the user's UTXOs or build the merge proof without the user's viewing and nullifier secrets, which only the user (or its sync delegate) provides. A caller the user never feeds therefore cannot act on that user's UTXOs, so safety does not depend on an explicit per-service authorization.
 
@@ -2333,7 +2356,7 @@ sequenceDiagram
     Merge->>SPP: merge_transact(proof, output_utxo_hash, encrypted_utxo, ...)<br/>pays fees as any caller may
 
     Note over SPP: Verify and apply
-    SPP->>SPP: check expiry + root indices fresh + tree not paused<br/>check user_record.merging_enabled == true + bind signing/viewing pk_field<br/>verify merge proof against public inputs
+    SPP->>SPP: check expiry + root indices fresh + tree not paused<br/>check user_record.merging_enabled == true + bind signing owner_pk_field and viewing pk_field<br/>verify merge proof against public inputs
     SPP->>Trees: append output_utxo_hash to UTXO tree
     SPP->>Trees: insert N input nullifiers
     SPP-->>Indexer: index merged ciphertext in shielded_utxos under the owner pubkey
