@@ -46,6 +46,7 @@ impl TakeVerifiableEncryption {
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(order_authority_pda(), false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
         let mut instruction_data = vec![tag::TAKE_VERIFIABLE_ENCRYPTION];
