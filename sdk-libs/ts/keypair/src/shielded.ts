@@ -9,11 +9,17 @@ import {
   concatBytes,
   copyBytes,
 } from "./bytes.js";
-import { ownerHash } from "./hash.js";
+import { ownerHash, pack33 } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
-import { P256PublicKey, ShieldedPublicKey, type ViewTag } from "./public-key.js";
+import { poseidon } from "./poseidon.js";
+import {
+  P256PublicKey,
+  ShieldedPublicKey,
+  type SignatureType,
+  type ViewTag,
+} from "./public-key.js";
 import { SigningKey } from "./signing-key.js";
-import { ViewingKey } from "./viewing-key.js";
+import { type Salt, ViewingKey } from "./viewing-key.js";
 
 export class ShieldedAddress {
   readonly signingPublicKey: ShieldedPublicKey;
@@ -64,8 +70,40 @@ export class ShieldedAddress {
   }
 }
 
-export interface CompressedShieldedAddress {
-  readonly bytes: Uint8Array;
+/**
+ * Mirrors Rust's `CompressedShieldedAddress`: the owner hash plus the viewing
+ * key, with the same Poseidon compression the circuit applies. `bytes` is the
+ * 65-byte wire form (`owner_hash || viewing_pk`).
+ */
+export class CompressedShieldedAddress {
+  readonly ownerHash: Bytes32;
+  readonly viewingPublicKey: P256PublicKey;
+
+  private constructor(ownerHash: Bytes32, viewingPublicKey: P256PublicKey) {
+    this.ownerHash = ownerHash;
+    this.viewingPublicKey = viewingPublicKey;
+    Object.freeze(this);
+  }
+
+  static fromParts(ownerHash: Bytes32, viewingPublicKey: P256PublicKey): CompressedShieldedAddress {
+    return new CompressedShieldedAddress(
+      checkedBytes<Bytes32>(ownerHash, 32, "owner hash"),
+      P256PublicKey.fromBytes(viewingPublicKey.toBytes()),
+    );
+  }
+
+  static fromAddress(address: ShieldedAddress): CompressedShieldedAddress {
+    return CompressedShieldedAddress.fromParts(address.ownerHash(), address.viewingPublicKey);
+  }
+
+  get bytes(): Uint8Array {
+    return concatBytes(this.ownerHash, this.viewingPublicKey.toBytes());
+  }
+
+  hash(): Bytes32 {
+    const [low, high] = pack33(this.viewingPublicKey.toBytes());
+    return poseidon([this.ownerHash, low, high]) as Bytes32;
+  }
 }
 
 export interface P256Signature {
@@ -75,25 +113,76 @@ export interface P256Signature {
 }
 
 /**
+ * The `ShieldedKeypairTrait` surface: signing identity, address derivation,
+ * spend signing, and nullifier derivation. Every operation may be asynchronous
+ * so an HSM- or wallet-backed implementer can satisfy it. View-tag derivation
+ * and UTXO encryption live on {@link ViewingKeyLike}; a backend exposes both.
+ *
  * An implementer must hold nullifier-key material. A custodian that exposes a
  * signing operation alone is not a supported configuration.
  */
 export interface ShieldedKeypairLike {
-  shieldedAddress(): ShieldedAddress;
+  signingPublicKey(): ShieldedPublicKey | Promise<ShieldedPublicKey>;
+  viewingPublicKey(): P256PublicKey | Promise<P256PublicKey>;
+  /** The rail this keypair signs on, which selects the transfer circuit. */
+  curve(): SignatureType | Promise<SignatureType>;
+  shieldedAddress(): ShieldedAddress | Promise<ShieldedAddress>;
+  ownerHash(): Bytes32 | Promise<Bytes32>;
+  compressedAddress(): CompressedShieldedAddress | Promise<CompressedShieldedAddress>;
   sign(message: Uint8Array): Bytes64 | Promise<Bytes64>;
   nullifier(utxoHash: Bytes32, blinding: Bytes31): Bytes32 | Promise<Bytes32>;
+  /** The nullifier public key, so a caller can build inputs without the secret. */
+  nullifierPublicKey(): Bytes32 | Promise<Bytes32>;
 }
 
 /**
+ * The `ViewingKeyTrait` surface. Constructors and `secretBytes` are excluded on
+ * purpose: a backend keeps the secret and exposes only operations over it.
+ *
  * An implementer must hold viewing-key material. A custodian that exposes a
  * signing operation alone is not a supported configuration.
  */
 export interface ViewingKeyLike {
-  publicKey(): P256PublicKey;
+  publicKey(): P256PublicKey | Promise<P256PublicKey>;
+  ecdh(counterparty: P256PublicKey): Bytes32 | Promise<Bytes32>;
+  senderViewTag(txCount: bigint): ViewTag | Promise<ViewTag>;
+  recipientRequestViewTag(requestCount: bigint): ViewTag | Promise<ViewTag>;
+  mergeViewTag(mergeCount: bigint): ViewTag | Promise<ViewTag>;
+  sendSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag | Promise<ViewTag>;
+  recipientSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag | Promise<ViewTag>;
+  recipientBootstrapViewTag(): ViewTag | Promise<ViewTag>;
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey | Promise<ViewingKey>;
+  encryptSlot(
+    recipientPublicKey: P256PublicKey,
+    plaintext: Uint8Array,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array | Promise<Uint8Array>;
+  decryptUtxo(
+    ciphertext: Uint8Array,
+    txViewingPublicKey: P256PublicKey,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array | Promise<Uint8Array>;
+  decryptSlotEphemeral(
+    recipientPublicKey: P256PublicKey,
+    ciphertext: Uint8Array,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array | Promise<Uint8Array>;
+  encryptVerifiable(
+    userViewingPublicKey: P256PublicKey,
+    plaintext: Uint8Array,
+  ):
+    | Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }>
+    | Promise<Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }>>;
+  decryptVerifiable(
+    txViewingPublicKey: P256PublicKey,
+    ciphertext: Uint8Array,
+  ): Uint8Array | Promise<Uint8Array>;
 }
 
-export class ShieldedKeypair implements ShieldedKeypairLike {
+export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
   readonly #signing: SigningKey;
   readonly #nullifier: NullifierKey;
   readonly #viewing: ViewingKey;
@@ -105,12 +194,16 @@ export class ShieldedKeypair implements ShieldedKeypairLike {
   }
 
   static generate(): ShieldedKeypair {
-    const signing = SigningKey.generate();
-    return ShieldedKeypair.fromKeys(
-      signing,
-      NullifierKey.fromSigningKey(signing),
-      ViewingKey.generate(),
-    );
+    return ShieldedKeypair.fromSigningAndViewingKeys(SigningKey.generate(), ViewingKey.generate());
+  }
+
+  /**
+   * Mirrors Rust's two-argument `ShieldedKeypair::from_keys`: the nullifier key
+   * is derived from the signing secret rather than supplied, which is what
+   * makes the owner hash reproducible from the signing key alone.
+   */
+  static fromSigningAndViewingKeys(signing: SigningKey, viewing: ViewingKey): ShieldedKeypair {
+    return new ShieldedKeypair(signing, NullifierKey.fromSigningKey(signing), viewing);
   }
 
   static fromKeys(
@@ -156,6 +249,14 @@ export class ShieldedKeypair implements ShieldedKeypairLike {
     }
   }
 
+  curve(): SignatureType {
+    return this.#signing.signatureType();
+  }
+
+  nullifierPublicKey(): Bytes32 {
+    return this.#nullifier.publicKey();
+  }
+
   shieldedAddress(): ShieldedAddress {
     return ShieldedAddress.fromPublicKeys(
       this.signingPublicKey(),
@@ -164,11 +265,98 @@ export class ShieldedKeypair implements ShieldedKeypairLike {
     );
   }
 
+  ownerHash(): Bytes32 {
+    return ownerHash(
+      this.signingPublicKey().ownerPublicKeyField(),
+      this.#nullifier.publicKey(),
+    ) as Bytes32;
+  }
+
   compressedAddress(): CompressedShieldedAddress {
-    const address = this.shieldedAddress();
-    return Object.freeze({
-      bytes: concatBytes(address.ownerHash(), address.viewingPublicKey.toBytes()),
-    });
+    return CompressedShieldedAddress.fromParts(this.ownerHash(), this.viewingPublicKey());
+  }
+
+  // --- ViewingKeyLike: forwards to the inner viewing key, so a full keypair
+  // stands in wherever a viewing-key backend is required (Rust does the same
+  // with its `ViewingKeyTrait for ShieldedKeypair` impl).
+
+  /**
+   * The viewing public key, matching `ViewingKeyTrait::pubkey` for Rust's
+   * `ShieldedKeypair`. Prefer {@link ShieldedKeypair.viewingPublicKey} when the
+   * call site is not going through {@link ViewingKeyLike}.
+   */
+  publicKey(): P256PublicKey {
+    return this.viewingPublicKey();
+  }
+
+  ecdh(counterparty: P256PublicKey): Bytes32 {
+    return this.#viewing.ecdh(counterparty);
+  }
+
+  senderViewTag(txCount: bigint): ViewTag {
+    return this.#viewing.senderViewTag(txCount);
+  }
+
+  recipientRequestViewTag(requestCount: bigint): ViewTag {
+    return this.#viewing.recipientRequestViewTag(requestCount);
+  }
+
+  mergeViewTag(mergeCount: bigint): ViewTag {
+    return this.#viewing.mergeViewTag(mergeCount);
+  }
+
+  sendSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag {
+    return this.#viewing.sendSharedViewTag(counterparty, index);
+  }
+
+  recipientSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag {
+    return this.#viewing.recipientSharedViewTag(counterparty, index);
+  }
+
+  recipientBootstrapViewTag(): ViewTag {
+    return this.#viewing.recipientBootstrapViewTag();
+  }
+
+  transactionViewingKey(firstNullifier: Bytes32): ViewingKey {
+    return this.#viewing.transactionViewingKey(firstNullifier);
+  }
+
+  encryptSlot(
+    recipientPublicKey: P256PublicKey,
+    plaintext: Uint8Array,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array {
+    return this.#viewing.encryptSlot(recipientPublicKey, plaintext, salt, slotIndex);
+  }
+
+  decryptUtxo(
+    ciphertext: Uint8Array,
+    txViewingPublicKey: P256PublicKey,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array {
+    return this.#viewing.decryptUtxo(ciphertext, txViewingPublicKey, salt, slotIndex);
+  }
+
+  decryptSlotEphemeral(
+    recipientPublicKey: P256PublicKey,
+    ciphertext: Uint8Array,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array {
+    return this.#viewing.decryptSlotEphemeral(recipientPublicKey, ciphertext, salt, slotIndex);
+  }
+
+  encryptVerifiable(
+    userViewingPublicKey: P256PublicKey,
+    plaintext: Uint8Array,
+  ): Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }> {
+    return this.#viewing.encryptVerifiable(userViewingPublicKey, plaintext);
+  }
+
+  decryptVerifiable(txViewingPublicKey: P256PublicKey, ciphertext: Uint8Array): Uint8Array {
+    return this.#viewing.decryptVerifiable(txViewingPublicKey, ciphertext);
   }
 
   sign(message: Uint8Array): Bytes64 {

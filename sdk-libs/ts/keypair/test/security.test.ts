@@ -62,7 +62,7 @@ describe("validation and secret lifecycle", () => {
           new Uint8Array(32).fill(0xff) as Bytes32,
           new Uint8Array(31) as Bytes31,
         ),
-      "KEYPAIR_HASH",
+      "KEYPAIR_POSEIDON",
     );
     expectCode(() => mergeCiphertextHash(new Uint8Array()), "KEYPAIR_HASH");
   });

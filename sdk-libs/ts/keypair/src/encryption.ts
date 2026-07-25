@@ -36,7 +36,7 @@ function deriveKeyNonce(
     const output = hkdf(sha256, ikm, undefined, info, 44);
     return [output.subarray(0, 32), output.subarray(32)];
   } catch (error) {
-    throw wrapKeypairError("KEYPAIR_ENCRYPTION", error);
+    throw wrapKeypairError("KEYPAIR_HKDF", error);
   } finally {
     ikm.fill(0);
   }
@@ -51,21 +51,20 @@ export function applyTransferCipher(
   salt: Uint8Array,
   slotIndex: number,
 ): Uint8Array {
+  // Every derived secret is wiped on the way out, including when HKDF or the
+  // cipher throws: a rejected ciphertext must not leave the shared secret or
+  // the AES key sitting in a live buffer.
   const shared = ecdhX(secret, counterparty);
-  const [key, nonce] = deriveKeyNonce(
-    shared,
-    ephemeralPublicKey,
-    recipientPublicKey,
-    salt,
-    slotIndex,
-  );
-  shared.fill(0);
-  const counter = new Uint8Array(16);
-  counter.set(nonce);
-  counter[15] = 2;
+  let key: Uint8Array | undefined;
   try {
+    let nonce: Uint8Array;
+    [key, nonce] = deriveKeyNonce(shared, ephemeralPublicKey, recipientPublicKey, salt, slotIndex);
+    const counter = new Uint8Array(16);
+    counter.set(nonce);
+    counter[15] = 2;
     return ctr(key, counter).encrypt(copyBytes(input));
   } finally {
-    key.fill(0);
+    shared.fill(0);
+    key?.fill(0);
   }
 }

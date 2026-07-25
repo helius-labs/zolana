@@ -1,7 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { pack33 as interfacePack33 } from "@zolana/interface";
 
-import { bigIntToBytes, bytesToBigInt, type Bytes32 } from "./bytes.js";
+import { type Bytes32 } from "./bytes.js";
 import { wrapKeypairError } from "./error.js";
 import { poseidon } from "./poseidon.js";
 
@@ -15,10 +15,6 @@ export function splitBigEndian128(value: Uint8Array): readonly [Uint8Array, Uint
 
 export function hashField(value: Uint8Array): Bytes32 {
   return poseidon(splitBigEndian128(value)) as Bytes32;
-}
-
-export function hashPublicKeyX(x: Uint8Array, yIsOdd: boolean): Uint8Array {
-  return poseidon([bigIntToBytes(yIsOdd ? 1n : 0n), hashField(x)]);
 }
 
 export function ownerHash(
@@ -46,6 +42,3 @@ export function sha256Be(bytes: Uint8Array): Bytes32 {
   return digest as Bytes32;
 }
 
-export function fieldFromBytes(bytes: Uint8Array): Uint8Array {
-  return bigIntToBytes(bytesToBigInt(bytes));
-}

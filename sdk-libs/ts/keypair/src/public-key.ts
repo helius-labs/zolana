@@ -1,7 +1,7 @@
 import { p256 } from "@noble/curves/nist.js";
 import { ownerPkFieldCompressed, pkFieldCompressed } from "@zolana/interface";
 
-import { type Bytes32, type Bytes33, checkedBytes, copyBytes } from "./bytes.js";
+import { type Bytes32, type Bytes33, type Bytes34, checkedBytes, copyBytes } from "./bytes.js";
 import { P256_PUBLIC_KEY_LENGTH, SHIELDED_PUBLIC_KEY_LENGTH } from "./constants.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
 import { hashField } from "./hash.js";
@@ -41,6 +41,13 @@ export class P256PublicKey {
   yIsOdd(): boolean {
     return this.#bytes[0] === 3;
   }
+
+  /** Mirrors the derived `PartialEq` on Rust's `P256Pubkey`: compressed bytes. */
+  equals(other: P256PublicKey): boolean {
+    const left = this.#bytes;
+    const right = other.#bytes;
+    return left.length === right.length && left.every((byte, index) => byte === right[index]);
+  }
 }
 
 export class ShieldedPublicKey {
@@ -67,7 +74,7 @@ export class ShieldedPublicKey {
     return new ShieldedPublicKey(bytes);
   }
 
-  static fromBytes(bytes: Bytes33): ShieldedPublicKey {
+  static fromBytes(bytes: Bytes34): ShieldedPublicKey {
     const owned = checkedBytes<Uint8Array>(
       bytes,
       SHIELDED_PUBLIC_KEY_LENGTH,
@@ -80,13 +87,20 @@ export class ShieldedPublicKey {
         throw new KeypairError("KEYPAIR_INVALID_PUBLIC_KEY", { reason: "nonzeroPadding" });
       }
     } else {
-      throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { prefix: owned[0] });
+      throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { prefix: owned[0] ?? 0 });
     }
     return new ShieldedPublicKey(owned);
   }
 
-  toBytes(): Bytes33 {
-    return copyBytes(this.#bytes) as Bytes33;
+  toBytes(): Bytes34 {
+    return copyBytes(this.#bytes) as Bytes34;
+  }
+
+  /** Mirrors the derived `PartialEq` on Rust's `PublicKey`: all 34 tagged bytes. */
+  equals(other: ShieldedPublicKey): boolean {
+    const left = this.#bytes;
+    const right = other.#bytes;
+    return left.length === right.length && left.every((byte, index) => byte === right[index]);
   }
 
   isZero(): boolean {
@@ -96,7 +110,7 @@ export class ShieldedPublicKey {
   signatureType(): SignatureType {
     if (this.#bytes[0] === 0) return "p256";
     if (this.#bytes[0] === 1) return "ed25519";
-    throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { prefix: this.#bytes[0] });
+    throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { prefix: this.#bytes[0] ?? 0 });
   }
 
   confidentialViewTag(): ViewTag {
@@ -107,23 +121,23 @@ export class ShieldedPublicKey {
   hash(): Bytes32 {
     if (this.signatureType() === "p256") {
       try {
-        return pkFieldCompressed(this.p256().toBytes()) as Bytes32;
+        return pkFieldCompressed(this.p256().toBytes());
       } catch (error) {
         throw wrapKeypairError("KEYPAIR_HASH", error);
       }
     }
-    return hashField(this.confidentialViewTag()) as Bytes32;
+    return hashField(this.confidentialViewTag());
   }
 
   ownerPublicKeyField(): Bytes32 {
     if (this.signatureType() === "p256") {
       try {
-        return ownerPkFieldCompressed(this.p256().toBytes()) as Bytes32;
+        return ownerPkFieldCompressed(this.p256().toBytes());
       } catch (error) {
         throw wrapKeypairError("KEYPAIR_HASH", error);
       }
     }
-    return hashField(this.confidentialViewTag()) as Bytes32;
+    return hashField(this.confidentialViewTag());
   }
 
   ed25519(): Bytes32 {

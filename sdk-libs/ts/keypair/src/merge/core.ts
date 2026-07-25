@@ -9,11 +9,19 @@ import {
   copyBytes,
 } from "../bytes.js";
 import { ecdhX } from "../encryption.js";
+import { KeypairError } from "../error.js";
 import { pack33 } from "../hash.js";
 import { poseidon } from "../poseidon.js";
 import { P256PublicKey } from "../public-key.js";
 
 export const MERGE_INFO = new TextEncoder().encode("TSPP/merge");
+
+/**
+ * `packInfo` writes the label into two field limbs of 31 and 32 bytes, so a
+ * longer label has nowhere to go. Rust raises `InfoTooLong` at the same bound
+ * instead of indexing past the second limb.
+ */
+export const MAX_INFO_LENGTH = 62;
 
 const DOM_SEP_SHARED_SECRET = 0x544d_5353n;
 const DOM_SEP_SILO = 0x544d_5349n;
@@ -29,6 +37,12 @@ function pack32(bytes: Uint8Array): readonly [Uint8Array, Uint8Array] {
 }
 
 function packInfo(info: Uint8Array): readonly [Uint8Array, Uint8Array] {
+  if (info.length > MAX_INFO_LENGTH) {
+    throw new KeypairError("KEYPAIR_INFO_TOO_LONG", {
+      maximum: MAX_INFO_LENGTH,
+      actual: info.length,
+    });
+  }
   const split = Math.min(info.length, 31);
   const low = new Uint8Array(32);
   low[0] = info.length;
@@ -57,8 +71,11 @@ function deriveSharedSecret(
   ]);
 }
 
-function keySchedule(sharedSecret: Uint8Array): readonly [Uint8Array, Uint8Array] {
-  const [infoLow, infoHigh] = packInfo(MERGE_INFO);
+function keySchedule(
+  sharedSecret: Uint8Array,
+  info: Uint8Array,
+): readonly [Uint8Array, Uint8Array] {
+  const [infoLow, infoHigh] = packInfo(info);
   const siloed = poseidon([bigIntToBytes(DOM_SEP_SILO), sharedSecret, infoLow, infoHigh]);
   const keyLow = poseidon([bigIntToBytes(DOM_SEP_KEY), siloed]);
   const keyHigh = poseidon([bigIntToBytes(DOM_SEP_KEY + 1n), siloed]);
@@ -76,18 +93,49 @@ function applyMergeCipher(
   input: Uint8Array,
 ): Uint8Array {
   const dh = ecdhX(secret, counterparty);
-  const sharedSecret = deriveSharedSecret(dh, ephemeralPublicKey, recipientPublicKey);
-  dh.fill(0);
-  const [key, nonce] = keySchedule(sharedSecret);
-  sharedSecret.fill(0);
-  const counter = new Uint8Array(16);
-  counter.set(nonce);
-  counter[15] = 2;
+  let sharedSecret: Uint8Array | undefined;
   try {
+    sharedSecret = deriveSharedSecret(dh, ephemeralPublicKey, recipientPublicKey);
+    return applyKeySchedule(sharedSecret, MERGE_INFO, input);
+  } finally {
+    dh.fill(0);
+    sharedSecret?.fill(0);
+  }
+}
+
+function applyKeySchedule(
+  sharedSecret: Uint8Array,
+  info: Uint8Array,
+  input: Uint8Array,
+): Uint8Array {
+  let key: Uint8Array | undefined;
+  try {
+    let nonce: Uint8Array;
+    [key, nonce] = keySchedule(sharedSecret, info);
+    const counter = new Uint8Array(16);
+    counter.set(nonce);
+    counter[15] = 2;
     return ctr(key, counter).encrypt(copyBytes(input));
   } finally {
-    key.fill(0);
+    key?.fill(0);
   }
+}
+
+/**
+ * Mirrors `zolana_keypair::merge::symmetric_apply`: the merge key schedule over
+ * a pre-shared secret with no ECDH. Encryption and decryption are the same
+ * operation, so applying it twice returns the input.
+ */
+export function symmetricApply(
+  sharedSecret: Uint8Array,
+  info: Uint8Array,
+  data: Uint8Array,
+): Uint8Array {
+  return applyKeySchedule(
+    checkedBytes<Bytes32>(sharedSecret, 32, "shared secret"),
+    info,
+    data,
+  );
 }
 
 export function encryptVerifiableSecret(

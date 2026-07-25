@@ -29,6 +29,7 @@ import { applyTransferCipher, ecdhX } from "./encryption.js";
 import { KeypairError } from "./error.js";
 import { decryptVerifiableSecret, encryptVerifiableSecret } from "./merge/core.js";
 import { P256PublicKey, type ViewTag } from "./public-key.js";
+import type { ViewingKeyLike } from "./shielded.js";
 
 export type Salt = Bytes16;
 
@@ -37,10 +38,13 @@ const P256_ORDER =
   115_792_089_210_356_248_762_697_446_949_407_573_529_996_955_224_135_760_342_422_259_061_068_512_044_369n;
 const P_CONST = P256PublicKey.fromBytes(P_CONST_SEC1 as import("./bytes.js").Bytes33);
 
+// Rust separates `ZeroScalar` from `InvalidSecretKey`: the first says the
+// derivation landed on zero, the second says the caller supplied an out-of-range
+// secret. Collapsing them would hide which one a wallet hit.
 function scalarFromOkm(okm: Uint8Array): Bytes32 {
   const scalar = bytesToBigInt(okm) % P256_ORDER;
   if (scalar === 0n) {
-    throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", { reason: "zeroScalar" });
+    throw new KeypairError("KEYPAIR_ZERO_SCALAR");
   }
   const bytes = new Uint8Array(32);
   let value = scalar;
@@ -49,6 +53,20 @@ function scalarFromOkm(okm: Uint8Array): Bytes32 {
     value >>= 8n;
   }
   return bytes as Bytes32;
+}
+
+/** Every HKDF failure surfaces as Rust's `Hkdf`, not as a generic key error. */
+function expandOrThrow(
+  ikm: Uint8Array,
+  info: Uint8Array,
+  length: number,
+  salt?: Uint8Array,
+): Uint8Array {
+  try {
+    return hkdf(sha256, ikm, salt, info, length);
+  } catch (error) {
+    throw new KeypairError("KEYPAIR_HKDF", { actual: length }, error);
+  }
 }
 
 function checkCounter(value: bigint, name: string): Uint8Array {
@@ -73,7 +91,7 @@ function checkSlotIndex(value: number): number {
   return value;
 }
 
-export class ViewingKey {
+export class ViewingKey implements ViewingKeyLike {
   #secret: Uint8Array;
   #viewRoot: Uint8Array;
   #destroyed = false;
@@ -111,7 +129,7 @@ export class ViewingKey {
     }
     const seed = checkedBytes<Bytes32>(walletSeed, 32, "wallet seed");
     const info = concatBytes(encoder.encode("TSPP/seed/p256_viewing"), u32be(account));
-    return ViewingKey.fromBytes(scalarFromOkm(hkdf(sha256, seed, undefined, info, 48)));
+    return ViewingKey.fromBytes(scalarFromOkm(expandOrThrow(seed, info, 48)));
   }
 
   publicKey(): P256PublicKey {
@@ -169,9 +187,17 @@ export class ViewingKey {
     this.#assertUsable();
     const nullifier = checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier");
     const txViewingSecret = this.#viewSecret(INFO_TX_VIEWING);
-    const salted = hkdf(sha256, txViewingSecret, nullifier, encoder.encode(INFO_TX_VIEWING), 48);
-    txViewingSecret.fill(0);
-    return ViewingKey.fromBytes(scalarFromOkm(salted));
+    try {
+      const salted = expandOrThrow(
+        txViewingSecret,
+        encoder.encode(INFO_TX_VIEWING),
+        48,
+        nullifier,
+      );
+      return ViewingKey.fromBytes(scalarFromOkm(salted));
+    } finally {
+      txViewingSecret.fill(0);
+    }
   }
 
   encryptSlot(
@@ -240,15 +266,22 @@ export class ViewingKey {
 
   #viewSecret(info: string): Uint8Array {
     this.#assertUsable();
-    return expand(sha256, this.#viewRoot, encoder.encode(info), 32);
+    try {
+      return expand(sha256, this.#viewRoot, encoder.encode(info), 32);
+    } catch (error) {
+      throw new KeypairError("KEYPAIR_HKDF", { name: info }, error);
+    }
   }
 
   #viewTag(secretInfo: string, prefix: string, counter: Uint8Array): ViewTag {
     const secret = this.#viewSecret(secretInfo);
-    const tag = new Uint8Array(32);
-    tag.set(hkdf(sha256, secret, undefined, concatBytes(encoder.encode(prefix), counter), 31), 1);
-    secret.fill(0);
-    return tag as ViewTag;
+    try {
+      const tag = new Uint8Array(32);
+      tag.set(expandOrThrow(secret, concatBytes(encoder.encode(prefix), counter), 31), 1);
+      return tag as ViewTag;
+    } finally {
+      secret.fill(0);
+    }
   }
 
   #sharedViewTag(
@@ -257,27 +290,23 @@ export class ViewingKey {
     counter: Uint8Array,
   ): ViewTag {
     const shared = this.ecdh(counterparty);
-    const domain = hkdf(
-      sha256,
-      shared,
-      undefined,
-      concatBytes(encoder.encode(INFO_PAIR_DOMAIN_PREFIX), recipientPublicKey.toBytes()),
-      32,
-    );
-    shared.fill(0);
-    const tag = new Uint8Array(32);
-    tag.set(
-      hkdf(
-        sha256,
-        domain,
-        undefined,
-        concatBytes(encoder.encode(INFO_PAIR_HINT_PREFIX), counter),
-        31,
-      ),
-      1,
-    );
-    domain.fill(0);
-    return tag as ViewTag;
+    let domain: Uint8Array | undefined;
+    try {
+      domain = expandOrThrow(
+        shared,
+        concatBytes(encoder.encode(INFO_PAIR_DOMAIN_PREFIX), recipientPublicKey.toBytes()),
+        32,
+      );
+      const tag = new Uint8Array(32);
+      tag.set(
+        expandOrThrow(domain, concatBytes(encoder.encode(INFO_PAIR_HINT_PREFIX), counter), 31),
+        1,
+      );
+      return tag as ViewTag;
+    } finally {
+      shared.fill(0);
+      domain?.fill(0);
+    }
   }
 
   #assertUsable(): void {

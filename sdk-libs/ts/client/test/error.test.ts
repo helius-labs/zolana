@@ -295,10 +295,12 @@ describe("ClientError", () => {
     expect(Object.isFrozen(error.details?.lastCause)).toBe(true);
     expect(error.cause).toEqual({ category: "external", code: "REMOTE_FAILURE" });
     expect(Object.isFrozen(error.cause)).toBe(true);
-    expect(wrapped.cause).toMatchObject({
-      details: { public: { nested: ["kept"] }, nested: { value: 4 } },
+    // `KeypairError` now keeps a closed set of primitive diagnostics, so a
+    // nested object never reaches the client wrapper in the first place.
+    expect(wrapped.cause).toEqual({
+      category: "keypair",
+      code: "KEYPAIR_INVALID_SECRET_KEY",
     });
-    expect(Object.isFrozen((wrapped.cause as { details?: object }).details)).toBe(true);
     expect(JSON.stringify(error)).not.toContain("sensitive response body");
     expect(JSON.stringify(wrapped)).not.toContain("must not escape");
   });

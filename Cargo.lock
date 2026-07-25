@@ -11682,6 +11682,7 @@ dependencies = [
  "hkdf",
  "p256",
  "rand 0.8.7",
+ "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-keypair",

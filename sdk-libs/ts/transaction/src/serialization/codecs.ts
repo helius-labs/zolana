@@ -1,5 +1,5 @@
 import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "@zolana/interface";
-import { P256PublicKey, ShieldedPublicKey, ViewingKey } from "@zolana/keypair";
+import { P256PublicKey, ShieldedPublicKey, ViewingKey, type Bytes34 } from "@zolana/keypair";
 import { decryptVerifiable, encryptVerifiable } from "@zolana/keypair/merge";
 
 import { Data, type DataRecord } from "../data.js";
@@ -395,7 +395,7 @@ export function encodeAnonymousRecipient(value: AnonymousRecipientPlaintext): Ui
 export function decodeAnonymousRecipient(bytes: Uint8Array): AnonymousRecipientPlaintext {
   const reader = new Reader(bytes);
   const result: AnonymousRecipientPlaintext = {
-    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes33),
+    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
     senderPublicKey: P256PublicKey.fromBytes(reader.take(33) as Bytes33),
     assetId: reader.u64(),
     amount: reader.u64(),
@@ -442,7 +442,7 @@ export function encodeAnonymousSender(value: AnonymousSenderPlaintext): Uint8Arr
 
 export function decodeAnonymousSender(bytes: Uint8Array): AnonymousSenderPlaintext {
   const reader = new Reader(bytes);
-  const ownerPublicKey = ShieldedPublicKey.fromBytes(reader.take(34) as Bytes33);
+  const ownerPublicKey = ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34);
   const splAssetId = reader.u64();
   const splAmount = reader.u64();
   const solAmount = reader.u64();
@@ -544,7 +544,7 @@ export function decodePlaintextTransfer(
   }
   const blindingSeed = reader.take(31) as Bytes31;
   const sender = reader.option<TransferPlaintextSender>(() => {
-    const ownerPublicKey = ShieldedPublicKey.fromBytes(reader.take(34) as Bytes33);
+    const ownerPublicKey = ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34);
     const spl = reader.option<TransferPlaintextSplChange>(() => ({
       amount: reader.u64(),
       assetId: reader.u64(),
@@ -559,7 +559,7 @@ export function decodePlaintextTransfer(
     };
   });
   const recipientSlots = Array.from({ length: reader.u8() }, (): TransferPlaintextRecipient => ({
-    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes33),
+    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
     assetId: reader.u64(),
     amount: reader.u64(),
     data: readData(reader),
@@ -587,7 +587,7 @@ export function encodeSplitBundle(value: SplitBundlePlaintext): Uint8Array {
 export function decodeSplitBundle(bytes: Uint8Array): SplitBundlePlaintext {
   const reader = new Reader(bytes);
   const result: SplitBundlePlaintext = {
-    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes33),
+    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
     numOutputs: reader.u8(),
     assetId: reader.u64(),
     assetAmount: reader.u64(),
