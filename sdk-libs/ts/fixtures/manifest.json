@@ -200,7 +200,7 @@
     },
     {
       "path": "wallet/user_registry.json",
-      "sha256": "868399178ba1b5daddfe8b2e955f11a69077d8f9e883a87aac0a66a89b93a6aa"
+      "sha256": "6e2ffd256822e9301e7af6d2e0a4853f383ef1e7054fcea56e790d1ef4ebe1db"
     },
     {
       "path": "wallet/wallet_authority.json",

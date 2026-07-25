@@ -331,14 +331,19 @@ function signingPublicKeyFromRecord(owner: Address, record: UserRecord): Shielde
 export function resolvedAddressFromRecord(owner: Address, record: UserRecord): ResolvedAddress {
   const signingPublicKey = signingPublicKeyFromRecord(owner, record);
   const viewingPublicKey = P256PublicKey.fromBytes(senderViewingPublicKey(record));
+  const address = ShieldedAddress.fromPublicKeys(
+    signingPublicKey,
+    record.nullifierPublicKey,
+    viewingPublicKey,
+  );
+  // A sender that resolves a recipient here writes this tag onto the output it
+  // creates, so it must be the owner tag every wallet scans for, not the
+  // viewing key of the moment: a sync delegate rotates the viewing key while
+  // the owner pubkey stays put.
   return Object.freeze({
     owner,
-    address: ShieldedAddress.fromPublicKeys(
-      signingPublicKey,
-      record.nullifierPublicKey,
-      viewingPublicKey,
-    ),
-    viewTag: viewingPublicKey.x(),
+    address,
+    viewTag: address.confidentialViewTag(),
   });
 }
 

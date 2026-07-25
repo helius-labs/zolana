@@ -20,7 +20,7 @@
     "resolved": {
       "nullifierPubkeyBytes": "004d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
       "signingPubkeyBytes": "00033250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83",
-      "viewTagBytes": "ae140a144f8ed7344d97b2e6ce70d541eb9b9e9f2bc5b204e708b4883b664264",
+      "viewTagBytes": "3250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83",
       "viewingPubkeyBytes": "03ae140a144f8ed7344d97b2e6ce70d541eb9b9e9f2bc5b204e708b4883b664264"
     },
     "rotation": {

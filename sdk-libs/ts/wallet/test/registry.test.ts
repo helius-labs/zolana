@@ -184,6 +184,14 @@ describe("wallet registry", () => {
       fixture.expected.resolved.signingPubkeyBytes,
     );
     expect(hex(resolved.viewTag)).toBe(fixture.expected.resolved.viewTagBytes);
+    expect(hex(resolved.viewTag)).toBe(hex(localKeypair.shieldedAddress().confidentialViewTag()));
+    expect(hex(resolved.viewTag)).not.toBe(
+      hex(
+        P256PublicKey.fromBytes(
+          hexBytes(fixture.expected.resolved.viewingPubkeyBytes) as Bytes33,
+        ).x(),
+      ),
+    );
   });
 
   it("resolves a delegated recipient to the delegate's latest epoch viewing key", async () => {
@@ -201,7 +209,10 @@ describe("wallet registry", () => {
     const delegated = await resolveRegisteredAddress({ rpc: active, owner: fixture.inputs.owner });
     if (delegated === undefined) throw new Error("missing delegated address");
     expect(hex(delegated.address.viewingPublicKey.toBytes())).toBe(hex(latestEpoch.toBytes()));
-    expect(hex(delegated.viewTag)).toBe(hex(latestEpoch.x()));
+    expect(hex(delegated.viewTag)).toBe(
+      hex(keypair(fixture).shieldedAddress().confidentialViewTag()),
+    );
+    expect(hex(delegated.viewTag)).not.toBe(hex(latestEpoch.x()));
     const record = await fetchUserRecord({ rpc: active, owner: fixture.inputs.owner });
     expect(hex(record?.viewingPublicKey ?? new Uint8Array())).toBe(
       fixture.expected.resolved.viewingPubkeyBytes,
