@@ -6,6 +6,7 @@ import { AssetRegistry, Data, SOL_MINT, Utxo, deriveBlinding } from "../src/inde
 import { decodeAddress, hashField } from "../src/internal.js";
 import {
   EncryptedScheme,
+  anonymousRecipientUtxo,
   confidentialPlaintextFromUtxo,
   decodeAnonymousRecipient,
   decodeAnonymousSender,
@@ -142,6 +143,26 @@ describe("manifest-verified transaction serialization", () => {
       assetId: 1n,
       amount: 19n,
     });
+    expect(
+      anonymousRecipientUtxo(
+        {
+          ...anonymousRecipient,
+          data: new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }]),
+        },
+        new AssetRegistry(),
+      ).data.utxoData(),
+    ).toEqual(Uint8Array.of(1));
+    const zoneProgramId = "SysvarRent111111111111111111111111111111111" as Address;
+    expect(
+      anonymousRecipientUtxo(
+        {
+          ...anonymousRecipient,
+          data: new Data([{ kind: "zoneData", bytes: Uint8Array.of(2) }]),
+        },
+        new AssetRegistry(),
+        zoneProgramId,
+      ).zoneProgramId,
+    ).toBe(zoneProgramId);
 
     const anonymousSender = {
       ownerPublicKey: keypair.signingPublicKey(),

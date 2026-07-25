@@ -411,9 +411,6 @@ export function anonymousRecipientUtxo(
   assets: AssetRegistry,
   zoneProgramId?: Address,
 ): Utxo {
-  if (value.data.zoneData() || value.data.utxoData()) {
-    throw new TransactionError("TRANSACTION_UNSUPPORTED_OUTPUT_DATA");
-  }
   return new Utxo({
     owner: value.ownerPublicKey,
     asset: assets.resolve(value.assetId),
