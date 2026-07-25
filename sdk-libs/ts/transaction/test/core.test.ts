@@ -31,6 +31,77 @@ function scalar(value: number): Bytes32 {
   return bytes as Bytes32;
 }
 
+function hex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+// Pinned from `SppProofInputUtxo::new_dummy` with a `[7u8; 31]` blinding; the
+// same two digests are asserted in `sdk-libs/transaction/src/instructions/types.rs`.
+const DUMMY_ORACLE_HASH = "0497a9bf5848d01c8b5fc1f75603964e63c0e268a206f182e204152de2b7403c";
+const DUMMY_ORACLE_NULLIFIER = "1afecf4cfcfd1c73219605b615e66d7236c98ec083f9e555ce904900204d0f29";
+
+const DUMMY_BLINDING = new Uint8Array(31).fill(7) as Bytes31;
+const ZERO_NULLIFIER_KEY = (): NullifierKey =>
+  NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
+
+function zeroOwnerUtxo(overrides: Partial<ConstructorParameters<typeof Utxo>[0]> = {}): Utxo {
+  return new Utxo({
+    owner: ShieldedPublicKey.zeroed(),
+    asset: SOL_MINT,
+    amount: 0n,
+    blinding: DUMMY_BLINDING,
+    ...overrides,
+  });
+}
+
+// The same seven cases the Rust `check_canonical_dummy` table rejects.
+function noncanonicalDummies(): readonly (readonly [
+  string,
+  ConstructorParameters<typeof ProofInputUtxo>[0],
+])[] {
+  return [
+    [
+      "asset",
+      {
+        utxo: zeroOwnerUtxo({ asset: "SysvarRent111111111111111111111111111111111" as Address }),
+        nullifierKey: ZERO_NULLIFIER_KEY(),
+      },
+    ],
+    ["amount", { utxo: zeroOwnerUtxo({ amount: 1n }), nullifierKey: ZERO_NULLIFIER_KEY() }],
+    [
+      "data",
+      {
+        utxo: zeroOwnerUtxo({ data: new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }]) }),
+        nullifierKey: ZERO_NULLIFIER_KEY(),
+      },
+    ],
+    [
+      "zone_program_id",
+      {
+        utxo: zeroOwnerUtxo({
+          zoneProgramId: "SysvarRent111111111111111111111111111111111" as Address,
+        }),
+        nullifierKey: ZERO_NULLIFIER_KEY(),
+      },
+    ],
+    [
+      "data_hash",
+      { utxo: zeroOwnerUtxo(), nullifierKey: ZERO_NULLIFIER_KEY(), dataHash: scalar(9) },
+    ],
+    [
+      "zone_data_hash",
+      { utxo: zeroOwnerUtxo(), nullifierKey: ZERO_NULLIFIER_KEY(), zoneDataHash: scalar(10) },
+    ],
+    [
+      "nullifier_key",
+      {
+        utxo: zeroOwnerUtxo(),
+        nullifierKey: NullifierKey.fromSecret(new Uint8Array(31).fill(11) as Bytes31),
+      },
+    ],
+  ];
+}
+
 function keyMaterial(): Readonly<{
   keypair: ShieldedKeypair;
   nullifier: NullifierKey;
@@ -131,7 +202,31 @@ describe("transaction core", () => {
           }),
           nullifierKey: NullifierKey.fromSecret(new Uint8Array(31) as Bytes31),
         }),
-    ).toThrow(expect.objectContaining({ code: "TRANSACTION_DUMMY_INPUT_NOT_ALLOWED" }));
+    ).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        details: { field: "asset" },
+      }),
+    );
+  });
+
+  it("accepts and hashes a canonical dummy exactly as Rust does", () => {
+    const dummy = ProofInputUtxo.dummy(new Uint8Array(31).fill(7) as Bytes31);
+
+    expect(dummy.isDummy()).toBe(true);
+    expect(hex(dummy.hash())).toBe(DUMMY_ORACLE_HASH);
+    expect(hex(dummy.nullifier())).toBe(DUMMY_ORACLE_NULLIFIER);
+  });
+
+  it("rejects every field a zero-owner input must leave zero", () => {
+    for (const [field, input] of noncanonicalDummies()) {
+      expect(() => new ProofInputUtxo(input)).toThrow(
+        expect.objectContaining({
+          code: "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+          details: { field },
+        }),
+      );
+    }
   });
 
   it("derives position-specific blindings and validates their range", () => {

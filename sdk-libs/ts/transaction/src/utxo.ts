@@ -214,9 +214,7 @@ export class ProofInputUtxo {
     if (input.zoneDataHash) {
       this.zoneDataHash = checked<Bytes32>(input.zoneDataHash, 32, "zone data hash");
     }
-    if (this.isDummy() && !this.#isCanonicalDummy()) {
-      throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED");
-    }
+    this.checkCanonicalDummy();
   }
 
   static dummy(blinding = random31()): ProofInputUtxo {
@@ -240,33 +238,54 @@ export class ProofInputUtxo {
     return this.utxo.owner.isZero();
   }
 
-  hash(): Bytes32 {
-    if (this.isDummy()) {
-      return fullOwnerUtxoHash({
-        owner: ZERO_32,
-        asset: this.utxo.asset,
-        amount: 0n,
-        blinding: this.utxo.blinding,
-      });
+  /**
+   * A zero owner is not a parseable key, so a zero-owner input can only stand
+   * for an unused slot. Every other field must be zero as well: the circuit
+   * treats the slot as absent, and anything carried here would be committed
+   * under an owner hash no key can reproduce.
+   */
+  checkCanonicalDummy(): void {
+    if (!this.isDummy()) return;
+    const field = noncanonicalDummyField(this);
+    if (field !== undefined) {
+      throw new TransactionError("TRANSACTION_NONCANONICAL_DUMMY_INPUT", { field });
     }
-    return this.utxo.hash(this.nullifierKey.publicKey(), this.dataHash, this.zoneDataHash);
+  }
+
+  hash(): Bytes32 {
+    this.checkCanonicalDummy();
+    const owner = this.isDummy()
+      ? ZERO_32
+      : poseidon([this.utxo.owner.ownerPublicKeyField(), this.nullifierKey.publicKey()]);
+    return fullOwnerUtxoHash({
+      owner,
+      asset: this.utxo.asset,
+      amount: this.utxo.amount,
+      blinding: this.utxo.blinding,
+      ...(this.dataHash === undefined ? {} : { dataHash: this.dataHash }),
+      ...(this.zoneDataHash === undefined ? {} : { zoneDataHash: this.zoneDataHash }),
+      ...(this.utxo.zoneProgramId === undefined
+        ? {}
+        : { zoneProgramId: this.utxo.zoneProgramId }),
+    });
   }
 
   nullifier(): Bytes32 {
     return this.nullifierKey.nullifier(this.hash(), this.utxo.blinding);
   }
+}
 
-  #isCanonicalDummy(): boolean {
-    return (
-      this.utxo.asset === ("11111111111111111111111111111111" as Address) &&
-      this.utxo.amount === 0n &&
-      this.utxo.data.isEmpty() &&
-      this.utxo.zoneProgramId === undefined &&
-      this.dataHash === undefined &&
-      this.zoneDataHash === undefined &&
-      isZeroNullifierKey(this.nullifierKey)
-    );
-  }
+const DUMMY_ASSET = "11111111111111111111111111111111" as Address;
+
+function noncanonicalDummyField(input: ProofInputUtxo): string | undefined {
+  if (input.utxo.asset !== DUMMY_ASSET) return "asset";
+  if (input.utxo.amount !== 0n) return "amount";
+  if (!input.utxo.data.isEmpty()) return "data";
+  if (input.utxo.zoneProgramId !== undefined) return "zone_program_id";
+  if (input.dataHash !== undefined) return "data_hash";
+  if (input.zoneDataHash !== undefined) return "zone_data_hash";
+  if (!isZeroNullifierKey(input.nullifierKey)) return "nullifier_key";
+  return undefined;
 }
 
 export interface ProofOutputUtxo {

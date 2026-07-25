@@ -372,6 +372,12 @@ pub struct ExternalDataHash<'a, M: OutputDataBytes> {
     pub messages: &'a [M],
 }
 
+fn length_prefix(len: usize) -> Result<[u8; 2], HasherError> {
+    u16::try_from(len)
+        .map(u16::to_be_bytes)
+        .map_err(|_| HasherError::IntegerOverflow)
+}
+
 impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         let mut preimage = Vec::new();
@@ -389,7 +395,9 @@ impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
         // byte keep the preimage injective: no bytes can shift across an output,
         // a message, or a `data` boundary and forge the same hash for distinct
         // instructions, and `None` never collides with `Some(&[])`.
-        preimage.extend_from_slice(&(self.outputs.len() as u16).to_be_bytes());
+        // Every length is checked rather than truncated: a `u16` wrap would let
+        // two different instructions share one preimage and defeat the framing.
+        preimage.extend_from_slice(&length_prefix(self.outputs.len())?);
         for output in self.outputs {
             preimage.extend_from_slice(output.utxo_hash);
             preimage.extend_from_slice(&output.owner_tag);
@@ -397,15 +405,15 @@ impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
                 None => preimage.push(0),
                 Some(data) => {
                     preimage.push(1);
-                    preimage.extend_from_slice(&(data.len() as u16).to_be_bytes());
+                    preimage.extend_from_slice(&length_prefix(data.len())?);
                     preimage.extend_from_slice(data);
                 }
             }
         }
-        preimage.extend_from_slice(&(self.messages.len() as u16).to_be_bytes());
+        preimage.extend_from_slice(&length_prefix(self.messages.len())?);
         for message in self.messages {
             preimage.extend_from_slice(message.view_tag());
-            preimage.extend_from_slice(&(message.data().len() as u16).to_be_bytes());
+            preimage.extend_from_slice(&length_prefix(message.data().len())?);
             preimage.extend_from_slice(message.data());
         }
         Sha256BE::hash(&preimage)
@@ -415,6 +423,15 @@ impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A truncated prefix would let a 65 536-byte datum frame as an empty one,
+    /// so the boundary is a rejection rather than a wrap.
+    #[test]
+    fn length_prefixes_reject_lengths_above_u16() {
+        assert_eq!(length_prefix(0), Ok([0, 0]));
+        assert_eq!(length_prefix(0xffff), Ok([0xff, 0xff]));
+        assert_eq!(length_prefix(0x1_0000), Err(HasherError::IntegerOverflow));
+    }
 
     fn eddsa_proof() -> TransactProof {
         TransactProof::Eddsa {

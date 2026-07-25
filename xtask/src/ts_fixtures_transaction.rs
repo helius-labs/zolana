@@ -233,6 +233,50 @@ fn data_vectors() -> Result<Value, Box<dyn std::error::Error>> {
     ))
 }
 
+/// One case per field a zero-owner input has to leave zero. Each carries the
+/// exact input Rust rejects, so the TypeScript port can rebuild it and prove it
+/// rejects the same set for the same reason.
+fn noncanonical_dummy_vectors(dummy: &SppProofInputUtxo) -> Value {
+    let mut asset = dummy.clone();
+    asset.utxo.asset = Address::new_from_array([7u8; 32]);
+    let mut amount = dummy.clone();
+    amount.utxo.amount = 1;
+    let mut data = dummy.clone();
+    data.utxo.data = Data::new(vec![DataRecord::UtxoData(vec![1, 2, 3])]);
+    let mut zone_program_id = dummy.clone();
+    zone_program_id.utxo.zone_program_id = Some(Address::new_from_array([8u8; 32]));
+    let mut data_hash = dummy.clone();
+    data_hash.data_hash = Some([9u8; 32]);
+    let mut zone_data_hash = dummy.clone();
+    zone_data_hash.zone_data_hash = Some([10u8; 32]);
+    let mut nullifier_key = dummy.clone();
+    nullifier_key.nullifier_key = NullifierKey::from_secret([11u8; BLINDING_LEN]);
+
+    Value::Array(
+        [
+            asset,
+            amount,
+            data,
+            zone_program_id,
+            data_hash,
+            zone_data_hash,
+            nullifier_key,
+        ]
+        .iter()
+        .map(|spend| {
+            let rejection = spend.hash().expect_err("noncanonical dummy is rejected");
+            json!({
+                "utxo": utxo_json(&spend.utxo),
+                "dataHashBytes": spend.data_hash.map(|hash| hex(&hash)),
+                "zoneDataHashBytes": spend.zone_data_hash.map(|hash| hex(&hash)),
+                "nullifierSecretBytes": hex(spend.nullifier_key.secret()),
+                "error": error(&rejection)
+            })
+        })
+        .collect(),
+    )
+}
+
 fn utxo_vectors(keypair: &ShieldedKeypair) -> Result<Value, Box<dyn std::error::Error>> {
     let mut utxo = fixed_utxo(keypair, 42, 0);
     utxo.data = Data::new(vec![
@@ -287,8 +331,11 @@ fn utxo_vectors(keypair: &ShieldedKeypair) -> Result<Value, Box<dyn std::error::
             "ownerUtxoHashBytes": hex(&owner_utxo_hash),
             "dummy": {
                 "isDummy": true,
+                "utxo": utxo_json(&dummy.utxo),
+                "nullifierSecretBytes": hex(dummy.nullifier_key.secret()),
                 "hashBytes": hex(&dummy_hash),
-                "nullifierBytes": hex(&dummy_nullifier)
+                "nullifierBytes": hex(&dummy_nullifier),
+                "rejected": noncanonical_dummy_vectors(&dummy)
             },
             "error": error(&missing_zone)
         }),

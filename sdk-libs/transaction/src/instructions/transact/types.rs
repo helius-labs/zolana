@@ -37,6 +37,10 @@ impl InputUtxo {
             &self.zone_data_hash.unwrap_or_default(),
         )
     }
+
+    pub fn is_dummy(&self) -> bool {
+        self.utxo.owner.is_zero()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -163,16 +167,30 @@ pub struct EncryptedTransaction {
 }
 
 impl EncryptedTransaction {
+    /// An unused slot contributes a zero hash, matching the circuit's
+    /// `private_tx_hash` and [`SppProofInputs::message_hash`](crate::instructions::transact::SppProofInputs::message_hash).
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         let input_hashes = self
             .inputs
             .iter()
-            .map(InputUtxo::hash)
+            .map(|input| {
+                if input.is_dummy() {
+                    Ok([0u8; 32])
+                } else {
+                    input.hash()
+                }
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let output_hashes = self
             .outputs
             .iter()
-            .map(SppProofOutputUtxo::hash)
+            .map(|output| {
+                if output.is_dummy() {
+                    Ok([0u8; 32])
+                } else {
+                    output.hash()
+                }
+            })
             .collect::<Result<Vec<_>, _>>()?;
         PrivateTxHash::new(&input_hashes, &output_hashes, &self.external_data.hash()?).hash()
     }
@@ -199,10 +217,18 @@ impl<'a> PrivateTxHash<'a> {
         }
     }
 
+    /// The circuit reads one address hash per input slot, so a supplied set of a
+    /// different length would silently shift the address chain.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         let input_chain = create_hash_chain_from_slice(self.input_hashes)?;
         let output_chain = create_hash_chain_from_slice(self.output_hashes)?;
         let address_chain = match self.address_hashes {
+            Some(address_hashes) if address_hashes.len() != self.input_hashes.len() => {
+                return Err(TransactionError::AddressHashCountMismatch {
+                    expected: self.input_hashes.len(),
+                    actual: address_hashes.len(),
+                })
+            }
             Some(address_hashes) => create_hash_chain_from_slice(address_hashes)?,
             None => create_hash_chain_from_slice(&vec![[0u8; 32]; self.input_hashes.len()])?,
         };
@@ -212,6 +238,71 @@ impl<'a> PrivateTxHash<'a> {
             &address_chain,
             self.external_data_hash,
         ])?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::PublicKey;
+
+    use super::*;
+
+    fn empty_external_data() -> ExternalData {
+        ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new())
+    }
+
+    fn dummy_input() -> InputUtxo {
+        InputUtxo {
+            utxo: Utxo {
+                owner: PublicKey::zeroed(),
+                asset: Address::default(),
+                amount: 0,
+                blinding: [4u8; 31],
+                zone_program_id: None,
+                data: Data::default(),
+            },
+            nullifier_pk: [0u8; 32],
+            zone_data_hash: None,
+            data_hash: None,
+        }
+    }
+
+    #[test]
+    fn address_hashes_must_pair_with_the_input_slots() {
+        let inputs = [[1u8; 32], [2u8; 32]];
+        let outputs = [[3u8; 32]];
+        let addresses = [[4u8; 32]];
+        let external_data_hash = [5u8; 32];
+
+        let mut private_tx = PrivateTxHash::new(&inputs, &outputs, &external_data_hash);
+        private_tx.address_hashes = Some(&addresses);
+
+        assert_eq!(
+            private_tx.hash(),
+            Err(TransactionError::AddressHashCountMismatch {
+                expected: 2,
+                actual: 1,
+            })
+        );
+    }
+
+    /// Padding slots must drop out of `private_tx_hash` exactly as the circuit
+    /// drops them, so the same transaction hashes the same on both paths.
+    #[test]
+    fn dummy_slots_contribute_zero_hashes() {
+        let external_data = empty_external_data();
+        let external_data_hash = external_data.hash().expect("external data hash");
+        let transaction = EncryptedTransaction {
+            inputs: vec![dummy_input()],
+            outputs: vec![SppProofOutputUtxo::default()],
+            external_data,
+        };
+
+        let expected = PrivateTxHash::new(&[[0u8; 32]], &[[0u8; 32]], &external_data_hash)
+            .hash()
+            .expect("private tx hash");
+
+        assert_eq!(transaction.hash().expect("transaction hash"), expected);
     }
 }
 

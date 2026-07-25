@@ -91,6 +91,12 @@ pub enum TransactionError {
     #[error("transaction has no inputs")]
     NoInputs,
 
+    #[error("dummy input carries a noncanonical {field}")]
+    NoncanonicalDummyInput { field: &'static str },
+
+    #[error("address hash count {actual} does not match input count {expected}")]
+    AddressHashCountMismatch { expected: usize, actual: usize },
+
     #[error("withdrawal already set")]
     WithdrawalAlreadySet,
 

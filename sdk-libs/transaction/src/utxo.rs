@@ -129,7 +129,13 @@ impl ProofInputUtxo {
         Ok(self)
     }
 
+    /// The fields are public, so the zone rule is re-checked here rather than
+    /// only in [`Self::with_zone`]: zone data bound to no zone program would
+    /// commit to a policy nobody can enforce.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
+        if self.zone_data_hash != [0u8; 32] && self.zone_program_id == [0u8; 32] {
+            return Err(TransactionError::MissingZoneProgramId);
+        }
         let zone_hash = poseidon(&[&self.zone_data_hash, &self.zone_program_id])?;
         let owner_utxo_hash = poseidon(&[&self.owner_hash, &self.blinding])?;
         poseidon(&[
@@ -200,6 +206,21 @@ mod tests {
 
         assert_eq!(
             proof_input.with_zone([3u8; 32], &None).unwrap_err(),
+            TransactionError::MissingZoneProgramId
+        );
+    }
+
+    /// The fields are public, so the rule has to hold for a directly assembled
+    /// value too, not only for one built through `with_zone`.
+    #[test]
+    fn hashing_rejects_zone_data_without_a_zone_program() {
+        let mut proof_input =
+            ProofInputUtxo::new([1u8; 32], &Address::default(), 1, &[2u8; BLINDING_LEN])
+                .expect("proof input");
+        proof_input.zone_data_hash = [3u8; 32];
+
+        assert_eq!(
+            proof_input.hash().unwrap_err(),
             TransactionError::MissingZoneProgramId
         );
     }
