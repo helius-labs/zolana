@@ -9,7 +9,9 @@ use zolana_user_registry_interface::{
     },
     user_record_pda,
 };
-pub use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry, UserRecord};
+pub use zolana_user_registry_interface::{
+    p256_owner_claim_pda, user_registry_program_id, P256OwnerClaim, SyncDelegateEntry, UserRecord,
+};
 
 pub fn build_register_ix(
     owner: &Pubkey,
@@ -96,4 +98,13 @@ pub fn fetch_user_record(svm: &litesvm::LiteSVM, owner: &Pubkey) -> Option<UserR
     let (pda, _bump) = user_record_pda(owner);
     let account = svm.get_account(&pda)?;
     UserRecord::try_from_account_data(&account.data).ok()
+}
+
+pub fn fetch_p256_owner_claim(
+    svm: &litesvm::LiteSVM,
+    owner_p256: &[u8; 33],
+) -> Option<P256OwnerClaim> {
+    let (pda, _bump) = p256_owner_claim_pda(owner_p256);
+    let account = svm.get_account(&pda)?;
+    P256OwnerClaim::try_from_account_data(&account.data).ok()
 }

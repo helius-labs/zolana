@@ -19,6 +19,14 @@ pub enum UserRegistryError {
     InvalidRecordAccount,
     #[error("system program account mismatch")]
     InvalidSystemProgram,
+    #[error("p256 owner claim account is invalid")]
+    InvalidP256ClaimAccount,
+    #[error("p256 owner identity account does not match the expected PDA")]
+    InvalidP256IdentityAccount,
+    #[error("p256 owner identity is already claimed by another record")]
+    P256IdentityAlreadyClaimed,
+    #[error("p256 owner identity is a registered owner's identity")]
+    P256IdentityIsRegisteredOwner,
 }
 
 impl UserRegistryError {
@@ -32,6 +40,10 @@ impl UserRegistryError {
             Self::OwnerMismatch => "OwnerMismatch",
             Self::InvalidRecordAccount => "InvalidRecordAccount",
             Self::InvalidSystemProgram => "InvalidSystemProgram",
+            Self::InvalidP256ClaimAccount => "InvalidP256ClaimAccount",
+            Self::InvalidP256IdentityAccount => "InvalidP256IdentityAccount",
+            Self::P256IdentityAlreadyClaimed => "P256IdentityAlreadyClaimed",
+            Self::P256IdentityIsRegisteredOwner => "P256IdentityIsRegisteredOwner",
         }
     }
 }

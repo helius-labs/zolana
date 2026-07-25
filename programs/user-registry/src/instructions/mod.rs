@@ -1,4 +1,5 @@
 pub mod common;
+pub mod p256_identity;
 pub mod register;
 pub mod revoke_sync_delegate;
 pub mod rotate_sync_delegate_key;

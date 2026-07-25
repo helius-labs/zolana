@@ -1639,7 +1639,7 @@ struct ZoneDepositIxData {
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
 | 2 | payer |   | x | fee payer; any account may run the merge |
-| 3 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and binds the proof's signing / viewing `pk_field`s to it |
+| 3 | user_record |   |   | read-only; the owner's [registry](#registry) record, at the canonical record PDA of the `owner` it stores (else `InvalidUserRecord`). SPP checks `merging_enabled == true` and binds the proof's signing / viewing `pk_field`s to it |
 
 **Instruction data**
 
@@ -2055,7 +2055,7 @@ A merge service consolidates a user's fragmented UTXOs into fewer larger ones by
 
 **Identity.** A merge service is a Solana account (Ed25519). It signs its own `merge_transact` transactions as the fee payer, so the Solana runtime verifies the signature; SPP does not check the signer against any registered authority.
 
-**Authorization.** There is no per-user merge authority. The owner enables merging by setting `merging_enabled = true` on their [registry record](#registry). Once enabled, any caller may submit `merge_transact` for that owner; SPP only checks `merging_enabled == true` (else `MergeDisabled`) and binds the merge to the owner's registered `owner_p256` / `viewing_pk` through the proof. In a policy zone, [`merge_zone`](#merge_zone) uses the [`merge_view_tag`](#merge-view-tag) stream instead.
+**Authorization.** There is no per-user merge authority. The owner enables merging by setting `merging_enabled = true` on their [registry record](#registry). Once enabled, any caller may submit `merge_transact` for that owner; SPP only checks `merging_enabled == true` (else `MergeDisabled`) and binds the merge to the owner's registered `owner_p256` / `viewing_pk` through the proof. Nothing signs for the record, so what makes those the owner's keys is the account: SPP requires the canonical record PDA of the `owner` the record stores, and the registry keeps a P-256 owner identity exclusive to one record (see [`register`](#register)). In a policy zone, [`merge_zone`](#merge_zone) uses the [`merge_view_tag`](#merge-view-tag) stream instead.
 
 **Scope.** The merge service consolidates UTXOs in both default and policy zones if the zone program exposes a merge instruction. In policy zones the zone program authorizes the merge (see [`merge_zone`](#merge_zone)); the registry `merging_enabled` flag applies only to default-zone `merge_transact`.
 UTXOs with `utxo_data` set (non-zero `data_hash`) cannot be merged since they are subject to program logic.
@@ -2147,6 +2147,8 @@ struct GetRecordResponse {
 #### `register`
 
 Creates a record with the given owner P-256 pubkey (optional), nullifier pubkey, and viewing pubkey, no delegate, and no entries. Fails if a record for `owner` already exists. Registry rejects non-canonical `nullifier_pk` values (`>= Fr`).
+
+An `owner_p256` is exclusive to the record that claims it, because [`merge_transact`](#merge_transact) reads owner identity out of a record no one signs for. Owner identity drops the SEC1 parity prefix, so `0x02 || x` and `0x03 || x` name the same owner, and `pk_field(0x02 || S)` is the Solana owner identity of the address `S`. `register` therefore claims the identity for the record it creates, and refuses an `owner_p256` whose identity another record already claimed or whose x-coordinate is a registered owner's address. Key rotation applies the same rule and leaves the previously claimed identity reserved for that owner. This is first-claim-wins rather than proof of possession: an identity claimed before its holder registers stays with the first claimant.
 
 Authorized signer: `owner`.
 

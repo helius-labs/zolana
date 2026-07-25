@@ -48,6 +48,41 @@ Feature: User registry program
     When "alice" tries to register again
     Then the transaction fails with "AccountAlreadyInitialized"
 
+  # === p256 owner identity exclusivity ===
+
+  Scenario: Registering a p256 owner key claims that owner identity
+    Given owner "alice" with p256 keys
+    When "alice" registers on-chain
+    Then "alice" holds the claim on her owner p256 identity
+
+  Scenario: A second registrant cannot claim another record's owner p256 key
+    Given owner "alice" with p256 keys
+    And "alice" registers on-chain
+    And owner "dave" with p256 keys
+    When "dave" tries to register with the owner p256 key of "alice"
+    Then the transaction fails with "P256IdentityAlreadyClaimed"
+
+  Scenario: An owner p256 key encoding a registered owner's address is refused
+    Given owner "alice" with p256 keys
+    And "alice" registers on-chain without an owner p256 key
+    And owner "dave" with p256 keys
+    When "dave" tries to register with an owner p256 key encoding the address of "alice"
+    Then the transaction fails with "P256IdentityIsRegisteredOwner"
+
+  Scenario: Key rotation cannot take another record's owner p256 key
+    Given owner "alice" with p256 keys
+    And "alice" registers on-chain
+    And owner "dave" with p256 keys
+    And "dave" registers on-chain
+    When "dave" tries to update registry keys to the owner p256 key of "alice"
+    Then the transaction fails with "P256IdentityAlreadyClaimed"
+
+  Scenario: An owner may keep the owner p256 identity it already holds
+    Given owner "alice" with p256 keys
+    And "alice" registers on-chain
+    When "alice" updates registry keys keeping the same owner p256 key
+    Then "alice" holds the claim on her owner p256 identity
+
   # === set_sync_delegate ===
 
   Scenario: Set sync delegate appends an entry
