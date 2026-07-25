@@ -1,23 +1,24 @@
 # Versioned transactions and address lookup tables
 
-**The wall is real, it arrived before this study started, and versioned
-transactions are not the thing that removes it. The binding limit is the
-1232-byte transaction size, not the account count. Zolana's widest shape (1 in,
-8 out) compiles to a 2108-byte transfer today, and a lookup table makes it 2113.
-Three of the ten supported shapes cannot be sent right now, in either message
-version. The fix is the ciphertext format, which is already specified and which
-brings nine of the ten shapes under the limit; v0 and lookup tables buy 5 bytes
-of harm on a pure transfer and 57 bytes of help on an SPL withdrawal. Do not
-schedule v0 for the size problem. Do add a size check to the compiler this week,
-because the SDK currently builds unsendable transactions and reports them as
-confirmation timeouts.**
+**The wall is real and the SDK is already through it, but versioned transactions
+are not what removes it. The binding limit is the 1232-byte transaction size, not
+the account count. Zolana's widest shape (1 in, 8 out) compiles to a 2108-byte
+transfer today; a lookup table makes it 2113. Three of the ten supported shapes
+cannot be sent as transfers and four cannot be sent as withdrawals, in either
+message version. What moves those numbers is the ciphertext format the spec
+already defines, which brings nine of the ten shapes under the limit. Versioned
+transactions with a lookup table cost a shielded transfer 5 bytes and save an SPL
+withdrawal 57. So do not schedule v0 for the size problem. Do add a size check to
+the compiler before the SDK is used in production, because it currently builds
+unsendable transactions and reports them as confirmation timeouts.**
 
 Written 2026-07-26 on branch `port/versioned-tx` at the integration tip
 (`515a2fb4`). This document answers finding F1's lookup-table paragraph in
 [`light-protocol-comparison.md`](light-protocol-comparison.md) and corrects two of
 its claims. It does not settle the wider `@solana/kit` question, which is F1's
-main body and which turns out to rest on different grounds than the ones stated
-there.
+main body. It does remove one argument F1 offers for it, since Light's own kit
+dependency is an instruction-conversion shim rather than a transaction-layer
+move.
 
 ## Goal
 
@@ -71,7 +72,7 @@ nullifier tree lives inside that same account rather than beside it
 (`programs/shielded-pool/src/instructions/transact/processor.rs:211-220`). Going
 from one input to five adds 38 bytes of instruction data and zero accounts.
 
-### The message size is the constraint, and three shapes already exceed it
+### The message size is the constraint, and four of the ten shapes exceed it
 
 Signed transaction size, current ciphertext format (AES-GCM, recipient and
 sender public keys repeated inside each ciphertext, 192-byte proof). Bold marks
@@ -124,21 +125,24 @@ table, because transaction ingestion has to compute fees and compute limits by
 static analysis before resolving tables
 ([solana-labs/solana#25034](https://github.com/solana-labs/solana/issues/25034),
 [`v0::Message` docs](https://docs.rs/solana-program/latest/solana_program/message/v0/struct.Message.html)).
-That leaves the tree. The measured `+5` in the transfer column is that
+That leaves the tree. The 5-byte growth in the transfer column is that
 arithmetic, byte for byte.
 
 An SPL withdrawal has three compressible protocol-owned addresses (tree, vault,
 recipient), so it saves 96 and pays 39, a net 57 bytes. Across the ten shapes
 that rescues precisely one: a 5 in 3 out withdrawal at 1240 bytes drops to 1183
-and becomes sendable. It moves no transfer under the limit and it moves the three
-oversized shapes nowhere near it.
+and becomes sendable. It brings no transfer under the limit, and the three shapes
+that overflow by 62 bytes or more stay out of reach.
 
 ### The ciphertext format is what moves the number
 
-The specified format (AES-256-CTR, no authentication tag, owner and sender public
-keys dropped from the ciphertexts, proof as a 1-byte rail tag plus 128 bytes on
-the eddsa rail) is already described in `xtask/src/main.rs:347-353`. Measured at
-that format:
+`docs/spec.md` already defines the target format: AES-256-CTR with no
+authentication tag (`docs/spec.md:560`, `:586`), the owner recovered from
+`owner_pk_field` rather than carried in the ciphertext (`:855`), a 48-byte
+recipient plaintext (`:622`), and a 57-byte sender plaintext (`:651`). Those are
+the constants the measurement uses (`xtask/src/main.rs:347-353`), so the second
+table is the specified protocol rather than a hypothetical. The proof also
+shrinks, to a 1-byte rail tag plus 128 bytes on the eddsa rail. Measured:
 
 | Shape | ix data | Transfer | Withdraw |
 | --- | --- | --- | --- |
@@ -155,9 +159,9 @@ that format:
 
 Nine of the ten shapes fit, the widest of them using 1126 of 1232 bytes. The P256
 rail adds 64 bytes for the BSB22 commitment and its proof of knowledge, which
-keeps the same nine inside the limit. A recipient costs 116 bytes instead of 232,
-so the format change is worth roughly seven recipients' worth of budget, against
-the 5 bytes a lookup table costs a transfer.
+leaves the same nine inside the limit (the widest reaches 1190). A recipient
+costs 116 bytes instead of 232, so the format change returns 116 bytes per
+recipient where a lookup table costs a transfer 5.
 
 The remaining 1 in 8 out overflow is a property of the multi-recipient layout
 rather than of the shape. When one sender bundle covers each output slot, the
@@ -230,8 +234,8 @@ supports; a kit decision has to stand on Zolana's own constraints.
 
 ## What v0 would cost
 
-Two paths, and the important thing about them is that they cost very differently
-and only one of them incurs F1's price.
+Two paths. They differ by an order of magnitude in scope, and only one of them
+incurs F1's price.
 
 **Path A, extend the hand-written compiler.** A v0 message is the legacy message
 with a `0x80` version prefix in front and an address-table-lookups vector on the
@@ -302,9 +306,10 @@ why. This is an afternoon and it does not depend on any decision below.
 **Before the SDK is used in production. Decide what the shape list advertises.**
 `SPP_SUPPORTED_SHAPES` lists ten shapes
 (`sdk-libs/ts/interface/src/shape.ts:12-23`) and `resolveShape` will select any of
-them, including three the current ciphertext format cannot send. Either narrow
-what the builder will resolve to, or record the three as known-unsendable until
-the format change lands. Leaving `resolveShape` free to pick 1 in 8 out while
+them, including the three the current ciphertext format cannot send as transfers
+and the four it cannot send as withdrawals. Either narrow what the builder will
+resolve to, or record those rows as known-unsendable until the format change
+lands. Leaving `resolveShape` free to pick 1 in 8 out while
 nothing can send it is the state that produced the confusing failure above.
 
 **Schedule soon, and not for this reason. Land the ciphertext format change.** It
@@ -324,12 +329,15 @@ would move no shape from unsendable to sendable.
 
 Revisit when any of these becomes observable, rather than on a calendar.
 
-**A second pool tree is deployed.** `InputUtxo::tree_index` is a `u8` that is
-zero everywhere today because `TransactAccounts` loads one tree
-(`account.rs:24-27`). The moment a spend can name two trees, a transfer has two
-compressible protocol-owned addresses, which is exactly the lookup-table
-break-even, and a five-input spend across five trees would put four more 32-byte
-addresses inline. This is the most likely trigger and the one worth watching.
+**A second pool tree is deployed.** `InputUtxo::tree_index` is a reserved `u8`:
+the codec carries it and the prover witness places it, but the shielded-pool
+program does not read it, and the clients that write it set `DEFAULT_TREE_INDEX`
+(`sdk-libs/client/src/prover/transact/witness.rs:76`, `:312`). `TransactAccounts`
+loads exactly one tree (`account.rs:24-27`). Once a spend can name two trees, a
+transfer has two compressible protocol-owned addresses, which is the
+lookup-table break-even, and a five-input spend across five trees would put four
+more 32-byte addresses inline. This is the most likely trigger and the one worth
+watching.
 
 **Multi-owner spends reach the account list.** `eddsa_signer_index` selects a
 signer account per input (`processor.rs:266-278`), so a spend of five inputs
@@ -372,7 +380,11 @@ Zolana:
 - `program-libs/interface/src/instruction/instruction_data/transact.rs:78-92`,
   `InputUtxo` and `OwnerTag`; `:113-175`, `TransactIxData`.
 - `programs/shielded-pool/src/instructions/transact/account.rs:24-27`, the single
-  tree account; `processor.rs:211-220`, the nullifier tree inside it.
+  tree account; `processor.rs:211-220`, the nullifier tree inside it;
+  `processor.rs:266-278`, the per-input signer index.
+- `sdk-libs/client/src/prover/transact/witness.rs:76`, `:312`, `tree_index` fixed
+  at its default.
+- `docs/spec.md:560`, `:586`, `:622`, `:651`, `:855`, the target ciphertext format.
 - `xtask/src/main.rs:326-660`, the size measurement tool.
 
 Light Protocol, at `b7936408`:
