@@ -21,6 +21,7 @@ import {
   parseCompiledInstruction,
   programBinaryPath,
   redactDiagnostic,
+  sidecarPorts,
   singleOutput,
   splInterfaceAddresses,
   standardAccounts,
@@ -98,7 +99,7 @@ describe("public test-kit contract", () => {
 });
 
 describe("local stack configuration", () => {
-  it("applies one offset to validator, Photon, prover, and prover metrics", () => {
+  it("applies one offset to validator, Photon, prover, faucet, and prover metrics", () => {
     withEnvironment(
       {
         ZOLANA_PORT_OFFSET: "100",
@@ -112,8 +113,18 @@ describe("local stack configuration", () => {
         expect(urls.indexerUrl.toString()).toBe("http://127.0.0.1:8884/");
         expect(urls.proverUrl.toString()).toBe("http://127.0.0.1:3101/");
         expect(urls.external).toEqual({ rpc: false, indexer: false, prover: false });
+        // The faucet and the metrics endpoint carry the same offset, so two
+        // clones at different offsets never contend for 9900 or 9998.
+        expect(sidecarPorts({ rpcPort: 8999, proverPort: 3101 })).toEqual({
+          faucet: 10_000,
+          proverMetrics: 10_098,
+        });
       },
     );
+    expect(sidecarPorts({ rpcPort: 8899, proverPort: 3001 })).toEqual({
+      faucet: 9900,
+      proverMetrics: 9998,
+    });
   });
 
   it("honors explicit service URLs without claiming process ownership", () => {

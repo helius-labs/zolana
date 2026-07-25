@@ -180,3 +180,82 @@ fn indexed_capacity_and_hash_errors_are_atomic() {
     assert_eq!(full_tree.indexed_array.elements, full_elements);
     assert_eq!(full_tree.merkle_tree.get_next_index(), 2);
 }
+
+/// The sentinel closes the indexed range from above. Reaching it leaves no
+/// exclusion range that could contain the value, so neither entry point may
+/// accept one: `get_non_inclusion_proof` used to return a proof its own
+/// `verify_non_inclusion_proof` rejected, and `append` used to build elements
+/// above the sentinel indefinitely.
+#[test]
+fn sentinel_and_above_are_outside_the_indexed_range() {
+    let highest = BigUint::from_str_radix(HIGHEST_ADDRESS_PLUS_ONE, 10).unwrap();
+    let mut tree =
+        IndexedMerkleTree::<Poseidon, usize>::new(MERKLE_TREE_HEIGHT, MERKLE_TREE_CANOPY).unwrap();
+
+    for value in [highest.clone(), &highest + 1u32, &highest * 2u32] {
+        assert_eq!(
+            tree.get_non_inclusion_proof(&value).err(),
+            Some(IndexedReferenceMerkleTreeError::ValueOutsideIndexedRange)
+        );
+        assert_eq!(
+            tree.append(&value),
+            Err(IndexedReferenceMerkleTreeError::ValueOutsideIndexedRange)
+        );
+    }
+
+    // The rejection is exclusive at the sentinel only: one below still proves
+    // and verifies against the same tree.
+    let below = &highest - 1u32;
+    let proof = tree.get_non_inclusion_proof(&below).unwrap();
+    tree.verify_non_inclusion_proof(&proof).unwrap();
+    tree.append(&below).unwrap();
+
+    // The bound follows a custom sentinel rather than the address constant.
+    let custom = BigUint::from(100u32);
+    let mut custom_tree = IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(
+        MERKLE_TREE_HEIGHT,
+        MERKLE_TREE_CANOPY,
+        custom.clone(),
+    )
+    .unwrap();
+    custom_tree.append(&BigUint::from(30u32)).unwrap();
+    assert_eq!(
+        custom_tree.append(&custom),
+        Err(IndexedReferenceMerkleTreeError::ValueOutsideIndexedRange)
+    );
+    assert_eq!(
+        custom_tree.append(&BigUint::from(150u32)),
+        Err(IndexedReferenceMerkleTreeError::ValueOutsideIndexedRange)
+    );
+    // A rejected append leaves the array untouched, so the tree still proves.
+    let proof = custom_tree
+        .get_non_inclusion_proof(&BigUint::from(35u32))
+        .unwrap();
+    custom_tree.verify_non_inclusion_proof(&proof).unwrap();
+}
+
+/// Every proof `get_non_inclusion_proof` returns must satisfy the tree's own
+/// verifier. This is the self-consistency the differential oracle probes.
+#[test]
+fn every_returned_non_inclusion_proof_verifies() {
+    let highest = BigUint::from_str_radix(HIGHEST_ADDRESS_PLUS_ONE, 10).unwrap();
+    let mut tree =
+        IndexedMerkleTree::<Poseidon, usize>::new(MERKLE_TREE_HEIGHT, MERKLE_TREE_CANOPY).unwrap();
+    tree.append(&BigUint::from(30u32)).unwrap();
+    tree.append(&BigUint::from(10u32)).unwrap();
+
+    for value in [
+        BigUint::from(1u32),
+        BigUint::from(9u32),
+        BigUint::from(11u32),
+        BigUint::from(31u32),
+        &highest - 2u32,
+        &highest - 1u32,
+    ] {
+        let proof = tree
+            .get_non_inclusion_proof(&value)
+            .unwrap_or_else(|error| panic!("no proof for {value}: {error:?}"));
+        tree.verify_non_inclusion_proof(&proof)
+            .unwrap_or_else(|error| panic!("proof for {value} rejected: {error:?}"));
+    }
+}

@@ -119,8 +119,10 @@ describe("IndexedMerkleTree", () => {
     expect(() => tree.insert(new Uint8Array(31))).toThrow(
       expect.objectContaining({ code: "INDEXED_MERKLE_TREE_INVALID_VALUE" }),
     );
+    // Zero is the tree's first element, so Rust rejects it as a duplicate
+    // rather than as a value below the indexed range.
     expect(() => tree.insert(new Uint8Array(32))).toThrow(
-      expect.objectContaining({ code: "INDEXED_MERKLE_TREE_INVALID_VALUE" }),
+      expect.objectContaining({ code: "INDEXED_MERKLE_TREE_DUPLICATE" }),
     );
     expect(() => tree.insert(new Uint8Array(32).fill(255))).toThrow(
       expect.objectContaining({ code: "INDEXED_MERKLE_TREE_INVALID_VALUE" }),

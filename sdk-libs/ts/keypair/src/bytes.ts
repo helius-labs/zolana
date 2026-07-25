@@ -1,4 +1,4 @@
-import { KeypairError, invalidLength } from "./error.js";
+import { invalidLength } from "./error.js";
 
 type FixedBytes<Length extends number> = Uint8Array & {
   readonly __fixedBytesLength: Length;
@@ -33,25 +33,17 @@ export function bytesToBigInt(bytes: Uint8Array): bigint {
   return value;
 }
 
+/**
+ * The Rust counterpart is `bigint_to_be_bytes_array`, which takes a `BigUint`
+ * and returns `HasherError::InvalidInputLength` when the value needs more bytes
+ * than the array holds. A negative value cannot be handed to it at all. Both
+ * cases were silently absorbed here: truncation dropped the high bytes and a
+ * negative value wrapped to its two's complement, either of which feeds Poseidon
+ * a field element the caller never asked for.
+ */
 export function bigIntToBytes(value: bigint, length = 32): Uint8Array {
-  // `bigint_to_be_bytes_array` takes a `BigUint` and returns
-  // `InvalidInputLength` when the value needs more bytes than the array holds,
-  // so neither a negative nor an oversized value has a big-endian form. Writing
-  // the low bytes anyway would hand the caller a different value than it asked
-  // to encode, and for a negative it would be an all-ones prefix.
-  if (value < 0n) {
-    throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
-      name: "bigIntToBytes",
-      reason: "negative",
-    });
-  }
-  const width = byteWidth(value);
-  if (width > length) {
-    throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
-      name: "bigIntToBytes",
-      expected: length,
-      actual: width,
-    });
+  if (value < 0n || value >= 1n << BigInt(length * 8)) {
+    throw invalidLength("bigIntToBytes", length, bigIntByteWidth(value));
   }
   const bytes = new Uint8Array(length);
   let remaining = value;
@@ -62,10 +54,12 @@ export function bigIntToBytes(value: bigint, length = 32): Uint8Array {
   return bytes;
 }
 
-/** Significant bytes in the big-endian form; zero needs none. */
-function byteWidth(value: bigint): number {
+/// Width in bytes of an unsigned value. A negative one has none, so it reports
+/// the `-1` that `checkedBytes` uses for an input with no readable length.
+function bigIntByteWidth(value: bigint): number {
+  if (value < 0n) return -1;
   let width = 0;
-  for (let remaining = value; remaining > 0n; remaining >>= 8n) width++;
+  for (let remaining = value; remaining > 0n; remaining >>= 8n) width += 1;
   return width;
 }
 

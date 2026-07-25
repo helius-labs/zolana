@@ -3,7 +3,7 @@
     "baseline": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
     "client": "30b58b9b6e51de4a5a783461f98c91c8666c71d5",
     "interface": "14ad30017ef5b512548f65284eae0212684d8197",
-    "merkleTree": "975783aa38b65734585f7749e347201fd67a2b71"
+    "merkleTree": "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa"
   },
   "files": [
     {
@@ -104,7 +104,7 @@
     },
     {
       "path": "merkle-tree/paths-v1.json",
-      "sha256": "b6af4f7c9e9bd473c1440ac5dd2dd75c2eee058e50ca16d4e5d262bfb71879b3"
+      "sha256": "fbdb6168f4424f9f8bf7132ece9347114d0f74135f5618206765fca91ea9ad66"
     },
     {
       "path": "smart-account-client/standard-create-v1.json",

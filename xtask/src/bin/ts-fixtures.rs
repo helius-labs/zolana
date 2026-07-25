@@ -26,7 +26,7 @@ use zolana_transaction::{
 
 const HISTORICAL_BASELINE_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 const INTERFACE_SHA: &str = "14ad30017ef5b512548f65284eae0212684d8197";
-const MERKLE_SHA: &str = "975783aa38b65734585f7749e347201fd67a2b71";
+const MERKLE_SHA: &str = "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
 const EXPECTED_FIXTURE_COUNT: usize = 58;

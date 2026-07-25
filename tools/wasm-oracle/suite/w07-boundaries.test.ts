@@ -30,12 +30,17 @@ describe("W-07 boundaries", () => {
     expect(roundTrip(HIGHEST_ADDRESS_PLUS_ONE - 1n).arm).toBe("ok");
   });
 
-  it("refuses its own proof at and above the sentinel", () => {
+  /**
+   * Rust used to hand back a proof here and then reject it with
+   * `NonInclusionProofFailedHigherBoundViolated`. The value is now refused
+   * before a proof is built, which is what TypeScript has always done.
+   */
+  it("refuses to build a proof at or above the sentinel", () => {
     for (const value of [HIGHEST_ADDRESS_PLUS_ONE, HIGHEST_ADDRESS_PLUS_ONE + 1n, 1n << 248n]) {
       const outcome = roundTrip(value);
       expect(outcome.arm).toBe("err");
       if (outcome.arm !== "err") return;
-      expect(outcome.code).toBe("NonInclusionProofFailedHigherBoundViolated");
+      expect(outcome.code).toBe("ValueOutsideIndexedRange");
     }
   });
 });

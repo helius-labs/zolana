@@ -21,10 +21,6 @@ use crate::{
 /// instead of reading a table.
 const ORACLE_MAX_HEIGHT: usize = MAX_HEIGHT;
 
-/// `get_history_root_index` casts its result with `try_into().unwrap()`, so a
-/// history length above `u16::MAX` can panic, and `% len` divides by zero at 0.
-const ORACLE_MAX_HISTORY_LEN: usize = u16::MAX as usize;
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TreeRequest {
@@ -245,19 +241,6 @@ fn history_query(request: &str, v2: bool) -> String {
         Ok(length) => length,
         Err(details) => return err_boundary(BAD_INTEGER, details),
     };
-    if length == 0 || length > ORACLE_MAX_HISTORY_LEN {
-        return err_boundary(
-            "OracleUnrepresentableHistoryLength",
-            format!("root_history_array_len {length} is outside 1..={ORACLE_MAX_HISTORY_LEN}"),
-        );
-    }
-    let leaf_count = query.tree.leaves.len();
-    if !v2 && offset > leaf_count {
-        return err_boundary(
-            "OracleHistoryOffsetAboveIndex",
-            format!("root_history_start_offset {offset} exceeds rightmost index {leaf_count}"),
-        );
-    }
     let bounds = match tree_bounds(&query.tree) {
         Ok(bounds) => bounds,
         Err(rejection) => return rejection,

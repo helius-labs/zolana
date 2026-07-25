@@ -211,6 +211,13 @@ function selectInputs(
     if (entry.spent || entry.utxo.asset !== asset || entry.outputContext.tree !== tree) continue;
     selected.push({ entry });
     available += entry.utxo.amount;
+    // Rust sums into a `u64`, so a running total past that ceiling is a
+    // rejection there rather than a wider number.
+    if (available > 0xffff_ffff_ffff_ffffn) {
+      throw new WalletError("WALLET_SELECTED_BALANCE_OVERFLOW", {
+        details: { available: available.toString() },
+      });
+    }
     if (available >= amount) return Object.freeze(selected);
   }
   throw new WalletError("WALLET_INSUFFICIENT_BALANCE", {
