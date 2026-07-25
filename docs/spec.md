@@ -282,7 +282,16 @@ Viewing key, P256 (33 B SEC1: parity || x_be32):
 
 `pk_field` keeps the parity bit and applies to a registered viewing key, which is the one role that uses it: `merge::verify::pk_field` over `record.viewing_pubkey` at its `merge_transact` call site (`programs/shielded-pool/src/instructions/merge/processor.rs:50`), `P256PkFieldGadget` (`p256.go:33-36`), and `merge_utils::pk_field_compressed`, `PublicKey::hash`, `ShieldedPublicKey.hash` in the SDKs.
 
-**Pending: separation of the two rails.** The argument that stood here rested on the P256 encoding carrying a `y_is_odd` layer the Ed25519 encoding lacks. `owner_pk_field` applies no such layer, so both rails run the same function over 32 bytes and a P256 x-coordinate equal byte for byte to an Ed25519 pubkey produces the same owner field. A replacement argument, and a ruling on whether the parity-free form needs an explicit scheme tag, are under audit in `planning/typescript-sdk-port/owner-hash-collision-audit.md`. Treat the question as unsettled until that audit lands.
+**Separation of the two rails.** The owner field is an identity commitment, not an authorization, and the encoding does not separate the rails: both run `owner_pk_field` over 32 bytes, so a P256 x-coordinate equal byte for byte to an Ed25519 pubkey produces the same owner field. Separation rests on two properties, either of which is sufficient on its own.
+
+1. `owner_hash` is a fixed target. Its second half, `nullifier_pk = Poseidon(nullifier_secret)`, comes from a private witness the prover chooses freely, so a party attacking the hash already holds that half of the preimage and gains nothing from it: reusing another owner's `owner_hash` means hitting one specific Poseidon output, a preimage at roughly 2⁻²⁵⁴, rather than a birthday collision at 2⁻¹²⁷. The circuit places no constraint tying `nullifier_secret` to a signing key, and this argument needs none.
+2. Each rail authorizes the same 32 bytes under a different hardness assumption. The Ed25519 rail requires the named Solana account to sign the transaction. The P256 rail requires an ECDSA signature that the proof checks against a witnessed point whose x-coordinate is those bytes.
+
+**Assumption.** Because the two rails share one identity space, an Ed25519 owner at Solana address `S` is also addressable as the P256 owner of x = `S`, and roughly half of 32-byte addresses are valid P256 x-coordinates. The Ed25519 signer check SPP performs is therefore one of two alternatives rather than a required check, and the party spending chooses which to satisfy. An Ed25519 owner's spend authorization is the weaker of Ed25519 signing and the P256 discrete log at x = `S`; the protocol assumes the latter is hard.
+
+The [zone-authority instantiation](#circuit-variants) sits outside this argument. It omits input owner fields from the public inputs and proves no owner authorization, so it does not rely on the rails being separated.
+
+The case analysis behind these statements, including the reverse direction and the reachable identity set on each rail, is in `planning/typescript-sdk-port/owner-hash-collision-audit.md`.
 
 ## Owner Hash
 
