@@ -1,5 +1,4 @@
-import { Field } from "@noble/curves/abstract/modular.js";
-import { grainGenConstants, poseidon as createPoseidon } from "@noble/curves/abstract/poseidon.js";
+import { MAX_POSEIDON_INPUTS, poseidon as hash } from "@zolana/hasher";
 
 import { InterfaceError } from "./errors.js";
 import { copyBytes } from "./internal.js";
@@ -7,9 +6,6 @@ import type { Bytes32 } from "./index.js";
 
 const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
-const PARTIAL_ROUNDS = [56, 57, 56, 60, 60, 63, 64, 63, 60, 66, 60, 65] as const;
-const Fp = Field(BN254_MODULUS);
-const permutations = new Map<number, ReturnType<typeof createPoseidon>>();
 
 function bytesToBigInt(bytes: Uint8Array): bigint {
   let value = 0n;
@@ -17,49 +13,23 @@ function bytesToBigInt(bytes: Uint8Array): bigint {
   return value;
 }
 
-function bigIntToBytes(value: bigint): Bytes32 {
-  const bytes = new Uint8Array(32);
-  for (let index = 31; index >= 0; index -= 1) {
-    bytes[index] = Number(value & 0xffn);
-    value >>= 8n;
-  }
-  return bytes as Bytes32;
-}
-
-function permutation(inputCount: number): ReturnType<typeof createPoseidon> {
-  const cached = permutations.get(inputCount);
-  if (cached !== undefined) return cached;
-  const roundsPartial = PARTIAL_ROUNDS[inputCount - 1];
-  if (roundsPartial === undefined) {
+// The bounds are checked here rather than left to the module so a rejection
+// still arrives as the `INTERFACE_HASH` its callers catch, with the detail that
+// says which input was wrong.
+function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
+  if (inputs.length < 1 || inputs.length > MAX_POSEIDON_INPUTS) {
     throw new InterfaceError("INTERFACE_HASH", {
-      inputCount,
+      inputCount: inputs.length,
       minimum: 1,
-      maximum: PARTIAL_ROUNDS.length,
+      maximum: MAX_POSEIDON_INPUTS,
     });
   }
-  const options = {
-    Fp,
-    t: inputCount + 1,
-    roundsFull: 8,
-    roundsPartial,
-    sboxPower: 5,
-  } as const;
-  const generated = createPoseidon({ ...options, ...grainGenConstants(options) });
-  permutations.set(inputCount, generated);
-  return generated;
-}
-
-function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
-  const values = inputs.map((input, index) => {
-    const value = bytesToBigInt(input);
-    if (input.length > 32 || value >= BN254_MODULUS) {
+  inputs.forEach((input, index) => {
+    if (input.length > 32 || bytesToBigInt(input) >= BN254_MODULUS) {
       throw new InterfaceError("INTERFACE_HASH", { index, length: input.length });
     }
-    return value;
   });
-  const result = permutation(values.length)([0n, ...values])[0];
-  if (result === undefined) throw new InterfaceError("INTERFACE_HASH");
-  return bigIntToBytes(result);
+  return hash(inputs) as Bytes32;
 }
 
 function rightAlign(bytes: Uint8Array): Bytes32 {

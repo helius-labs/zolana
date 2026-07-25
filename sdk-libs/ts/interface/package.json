@@ -45,6 +45,7 @@
     "api:check": "node ../config/workspace-check.mjs api"
   },
   "dependencies": {
-    "@noble/curves": "^2.2.0"
+    "@noble/curves": "^2.2.0",
+    "@zolana/hasher": "0.1.0"
   }
 }

@@ -6,11 +6,8 @@ export const packageConfigurations = {
   },
   interface: {
     entryPoints: [".", "./pda", "./codecs", "./instructions"],
-    dependencies: ["@noble/curves"],
-    browserDependencies: [
-      "@noble/curves/abstract/modular.js",
-      "@noble/curves/abstract/poseidon.js",
-    ],
+    dependencies: ["@noble/curves", "@zolana/hasher"],
+    browserDependencies: ["@noble/curves/abstract/modular.js"],
     browser: true,
   },
   keypair: {
@@ -20,12 +17,12 @@ export const packageConfigurations = {
       "@noble/curves",
       "@noble/ed25519",
       "@noble/hashes",
+      "@zolana/hasher",
       "@zolana/interface",
       "bs58",
     ],
     browserDependencies: [
       "@noble/ciphers/webcrypto.js",
-      "@noble/curves/abstract/poseidon.js",
       "@noble/curves/nist.js",
       "@noble/ed25519",
       "@noble/hashes/hkdf.js",
@@ -37,7 +34,13 @@ export const packageConfigurations = {
   },
   transaction: {
     entryPoints: [".", "./serialization", "./instructions", "./transact", "./wallet"],
-    dependencies: ["@noble/curves", "@noble/hashes", "@zolana/interface", "@zolana/keypair"],
+    dependencies: [
+      "@noble/curves",
+      "@noble/hashes",
+      "@zolana/hasher",
+      "@zolana/interface",
+      "@zolana/keypair",
+    ],
     browser: true,
   },
   "indexer-api": {
@@ -54,6 +57,7 @@ export const packageConfigurations = {
     entryPoints: [".", "./prover", "./retry"],
     dependencies: [
       "@zolana/api",
+      "@zolana/hasher",
       "@zolana/indexer-api",
       "@zolana/interface",
       "@zolana/keypair",
@@ -68,12 +72,8 @@ export const packageConfigurations = {
   },
   "merkle-tree": {
     entryPoints: ["."],
-    dependencies: ["@noble/curves", "@noble/hashes", "@zolana/interface"],
-    browserDependencies: [
-      "@noble/curves/abstract/poseidon.js",
-      "@noble/hashes/sha2.js",
-      "@noble/hashes/sha3.js",
-    ],
+    dependencies: ["@noble/curves", "@noble/hashes", "@zolana/hasher", "@zolana/interface"],
+    browserDependencies: ["@noble/hashes/sha2.js", "@noble/hashes/sha3.js"],
     browser: true,
   },
   "smart-account-client": {

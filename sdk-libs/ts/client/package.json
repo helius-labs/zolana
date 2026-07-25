@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@zolana/api": "0.1.0",
+    "@zolana/hasher": "0.1.0",
     "@zolana/indexer-api": "0.1.0",
     "@zolana/interface": "0.1.0",
     "@zolana/keypair": "0.1.0",

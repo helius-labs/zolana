@@ -1,6 +1,5 @@
-import { Field } from "@noble/curves/abstract/modular.js";
-import { grainGenConstants, poseidon as createPoseidon } from "@noble/curves/abstract/poseidon.js";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { MAX_POSEIDON_INPUTS, poseidon as hash } from "@zolana/hasher";
 
 import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "@zolana/interface";
 export { hashField, sha256Be } from "@zolana/keypair/hash";
@@ -9,13 +8,7 @@ import { TransactionError } from "./error.js";
 
 const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
-// Circom x5 partial-round counts for widths 2 through 13, stopping at twelve
-// inputs to match the Rust hasher: `light_poseidon` caps the width at 13 and
-// the `sol_poseidon` syscall takes at most twelve inputs.
-const PARTIAL_ROUNDS = [56, 57, 56, 60, 60, 63, 64, 63, 60, 66, 60, 65] as const;
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-const FIELD = Field(BN254_MODULUS);
-const permutations = new Map<number, ReturnType<typeof createPoseidon>>();
 
 export const ZERO_32 = new Uint8Array(32) as Bytes32;
 export const U64_MAX = 0xffff_ffff_ffff_ffffn;
@@ -88,40 +81,22 @@ export function rightAlign(bytes: Uint8Array): Bytes32 {
   return output as Bytes32;
 }
 
-function permutation(inputCount: number): ReturnType<typeof createPoseidon> {
-  const cached = permutations.get(inputCount);
-  if (cached) return cached;
-  const roundsPartial = PARTIAL_ROUNDS[inputCount - 1];
-  if (roundsPartial === undefined) {
-    throw new TransactionError("TRANSACTION_KEYPAIR", { inputCount });
-  }
-  const options = {
-    Fp: FIELD,
-    t: inputCount + 1,
-    roundsFull: 8,
-    roundsPartial,
-    sboxPower: 5,
-  } as const;
-  const generated = createPoseidon({ ...options, ...grainGenConstants(options) });
-  permutations.set(inputCount, generated);
-  return generated;
-}
-
 /**
  * Rust routes every Poseidon and hash-chain failure through `KeypairError`, so
  * an out-of-field input reports the keypair category rather than the hash one.
+ * The bounds are checked here rather than left to the module so a rejection
+ * still arrives as the error its callers catch.
  */
 export function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
-  const values = inputs.map((input, index) => {
-    const value = bytesToBigInt(input);
-    if (input.length > 32 || value >= BN254_MODULUS) {
+  if (inputs.length < 1 || inputs.length > MAX_POSEIDON_INPUTS) {
+    throw new TransactionError("TRANSACTION_KEYPAIR", { inputCount: inputs.length });
+  }
+  inputs.forEach((input, index) => {
+    if (input.length > 32 || bytesToBigInt(input) >= BN254_MODULUS) {
       throw new TransactionError("TRANSACTION_KEYPAIR", { index, reason: "invalidField" });
     }
-    return value;
   });
-  const result = permutation(values.length)([0n, ...values])[0];
-  if (result === undefined) throw new TransactionError("TRANSACTION_KEYPAIR");
-  return bigIntBytes(result) as Bytes32;
+  return hash(inputs) as Bytes32;
 }
 
 export function hashChain(values: readonly Bytes32[]): Bytes32 {
