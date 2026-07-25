@@ -61,6 +61,6 @@ pub fn build_transact_event(
         first_output_leaf_index: tree_write.first_output_leaf_index,
         output_tree: tree_write.output_tree,
         relay_fee: (ix.relayer_fee != 0).then_some(u64::from(ix.relayer_fee)),
-        deposit_withdraw,
+        deposit_withdraws: deposit_withdraw.into_iter().collect(),
     }
 }

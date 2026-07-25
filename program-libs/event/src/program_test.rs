@@ -96,14 +96,33 @@ pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessOutput, EventDe
         .first()
         .ok_or(EventDecodeError::MissingOutput)?;
     let proofless = decode_output_data(&output.data)?;
-    let deposit_withdraw = event
-        .deposit_withdraw
-        .as_ref()
-        .ok_or(EventDecodeError::MissingDepositWithdraw)?;
-    if !deposit_withdraw.is_deposit {
+    require_deposit(event)?;
+    Ok(proofless)
+}
+
+/// Decode every output of a batched proofless `deposit` event, in slot order.
+pub fn proofless_outputs(event: &GeneralEvent) -> Result<Vec<ProoflessOutput>, EventDecodeError> {
+    if event.outputs.is_empty() {
+        return Err(EventDecodeError::MissingOutput);
+    }
+    require_deposit(event)?;
+    event
+        .outputs
+        .iter()
+        .map(|output| decode_output_data(&output.data))
+        .collect()
+}
+
+fn require_deposit(event: &GeneralEvent) -> Result<(), EventDecodeError> {
+    if event.deposit_withdraws.is_empty()
+        || !event
+            .deposit_withdraws
+            .iter()
+            .all(|deposit_withdraw| deposit_withdraw.is_deposit)
+    {
         return Err(EventDecodeError::MissingDepositWithdraw);
     }
-    Ok(proofless)
+    Ok(())
 }
 
 /// Returns the [`EventKind`] carried by an indexed `EMIT_EVENT` self-CPI payload

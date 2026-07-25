@@ -40,6 +40,6 @@ pub fn build_merge_event(
         first_output_leaf_index: tree_write.output_leaf_index,
         output_tree: tree_write.output_tree,
         relay_fee: None,
-        deposit_withdraw: None,
+        deposit_withdraws: Vec::new(),
     }
 }

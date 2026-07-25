@@ -198,7 +198,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             owner: env.authority.keypair.signing_pubkey(),
             asset: SOL_MINT,
             amount: reserved,
-            blinding: deposit.data.blinding,
+            blinding: deposit.deposit.blinding,
             zone_program_id: None,
             data: Data::default(),
         }

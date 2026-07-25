@@ -33,8 +33,10 @@ pub struct GeneralEvent {
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
     pub relay_fee: Option<u64>,
-    /// `Some` for shield/unshield, `None` for shielded transfer.
-    pub deposit_withdraw: Option<DepositWithdraw>,
+    /// Per-asset public movements: empty for a shielded transfer, one entry per
+    /// settled asset for shield/unshield. `transact` settles at most one asset;
+    /// a batched `deposit` carries one entry per deposited asset.
+    pub deposit_withdraws: Vec<DepositWithdraw>,
 }
 
 /// One spent input. Inputs may originate from different trees.

@@ -1372,11 +1372,11 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
             first_output_leaf_index: 0,
             output_tree: TEST_TREE,
             relay_fee: None,
-            deposit_withdraw: Some(DepositWithdraw {
+            deposit_withdraws: vec![DepositWithdraw {
                 is_deposit: true,
                 amount: 100,
                 asset: None,
-            }),
+            }],
         },
     )
 }
@@ -1414,7 +1414,7 @@ fn shielded_transfer_transaction_info() -> TransactionInfo {
             first_output_leaf_index: 1,
             output_tree: TEST_TREE,
             relay_fee: None,
-            deposit_withdraw: None,
+            deposit_withdraws: Vec::new(),
         },
     )
 }
@@ -1437,11 +1437,11 @@ fn unshield_transaction_info() -> TransactionInfo {
             first_output_leaf_index: 4,
             output_tree: TEST_TREE,
             relay_fee: None,
-            deposit_withdraw: Some(DepositWithdraw {
+            deposit_withdraws: vec![DepositWithdraw {
                 is_deposit: false,
                 amount: 40,
                 asset: None,
-            }),
+            }],
         },
     )
 }
@@ -1464,7 +1464,7 @@ fn encrypted_transfer_transaction_info() -> TransactionInfo {
             first_output_leaf_index: 2,
             output_tree: TEST_TREE,
             relay_fee: None,
-            deposit_withdraw: None,
+            deposit_withdraws: Vec::new(),
         },
     )
 }

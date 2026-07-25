@@ -4,8 +4,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, CreateZoneConfigData, DepositSplAccounts, UpdateZoneConfig,
-        UpdateZoneConfigOwner, ZoneDeposit, ZoneDepositIxData,
+        encode_instruction, tag, CreateZoneConfigData, DepositAssetKind, DepositSplAccounts,
+        UpdateZoneConfig, UpdateZoneConfigOwner, ZoneDeposit, ZoneDepositIxData,
     },
     pda,
 };
@@ -103,6 +103,7 @@ impl ZolanaProgramTest {
         blinding: [u8; BLINDING_LEN],
     ) -> ZoneDepositIxData {
         ZoneDepositIxData {
+            asset: DepositAssetKind::Sol,
             view_tag: [0u8; 32],
             owner,
             blinding,
@@ -122,6 +123,7 @@ impl ZolanaProgramTest {
     ) -> Result<ZoneDepositIxData, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok(ZoneDepositIxData {
+            asset: DepositAssetKind::Sol,
             view_tag: fields.view_tag,
             owner: fields.owner,
             blinding: fields.blinding,
@@ -141,6 +143,7 @@ impl ZolanaProgramTest {
     ) -> Result<ZoneDepositIxData, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok(ZoneDepositIxData {
+            asset: DepositAssetKind::Spl,
             view_tag: fields.view_tag,
             owner: fields.owner,
             blinding: fields.blinding,
@@ -189,10 +192,8 @@ impl ZolanaProgramTest {
             tree: *tree,
             depositor: depositor.pubkey(),
             spl: Some(DepositSplAccounts {
+                mint: *mint,
                 user_token: *user_token,
-                spl_token_interface: pda::spl_asset_vault(mint),
-                registry: pda::spl_asset_registry(mint),
-                token_program: Self::token_program_id(),
             }),
             view_tag: data.view_tag,
             owner: data.owner,

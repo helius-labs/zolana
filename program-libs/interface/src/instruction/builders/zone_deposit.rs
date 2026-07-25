@@ -2,8 +2,8 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, DepositSplAccounts, UtxoData, ZoneDepositIxData},
-    pda, PROGRAM_ID_PUBKEY,
+    instruction::{tag, DepositAssetKind, DepositSplAccounts, UtxoData, ZoneDepositIxData},
+    pda, PROGRAM_ID_PUBKEY, SPL_TOKEN_PROGRAM_ID,
 };
 
 pub struct ZoneDeposit {
@@ -42,6 +42,10 @@ impl ZoneDeposit {
         let zone_config = pda::zone_auth(&self.zone_program_id).0;
 
         let ix_data = ZoneDepositIxData {
+            asset: match self.spl {
+                Some(_) => DepositAssetKind::Spl,
+                None => DepositAssetKind::Sol,
+            },
             view_tag: self.view_tag,
             owner: self.owner,
             blinding: self.blinding,
@@ -66,10 +70,10 @@ impl ZoneDeposit {
         ];
         match self.spl {
             Some(spl) => account_metas.extend([
+                AccountMeta::new_readonly(Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID), false),
                 AccountMeta::new(spl.user_token, false),
-                AccountMeta::new(spl.spl_token_interface, false),
-                AccountMeta::new_readonly(spl.registry, false),
-                AccountMeta::new_readonly(spl.token_program, false),
+                AccountMeta::new(pda::spl_asset_vault(&spl.mint), false),
+                AccountMeta::new_readonly(pda::spl_asset_registry(&spl.mint), false),
             ]),
             None => account_metas.extend([
                 AccountMeta::new_readonly(Pubkey::default(), false),

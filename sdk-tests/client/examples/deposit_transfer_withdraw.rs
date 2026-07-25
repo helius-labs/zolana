@@ -2,7 +2,9 @@ use anyhow::{anyhow, Result};
 use client_example::{setup, SetupContext};
 use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
-use zolana_interface::instruction::{Deposit, Transact, TransactSolWithdrawal, TransactWithdrawal};
+use zolana_interface::instruction::{
+    AssetDeposit, Deposit, DepositAsset, Transact, TransactSolWithdrawal, TransactWithdrawal,
+};
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
     decrypt_transactions,
@@ -41,13 +43,15 @@ fn main() -> Result<()> {
         let deposit_ix = Deposit {
             tree,
             depositor: alice_solana_keypair.pubkey(),
-            spl: None,
-            view_tag: alice_shielded_address.confidential_view_tag()?,
-            owner: alice_shielded_address.owner_hash()?,
-            blinding: random_blinding(),
-            amount: DEPOSIT_AMOUNT,
-            utxo_data: None,
-            memo: None,
+            deposits: vec![AssetDeposit {
+                asset: DepositAsset::Sol,
+                view_tag: alice_shielded_address.confidential_view_tag()?,
+                owner: alice_shielded_address.owner_hash()?,
+                blinding: random_blinding(),
+                amount: DEPOSIT_AMOUNT,
+                utxo_data: None,
+                memo: None,
+            }],
         }
         .instruction();
         client.create_and_send_transaction(

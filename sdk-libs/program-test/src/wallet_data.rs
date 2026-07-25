@@ -1,4 +1,5 @@
-use zolana_interface::instruction::DepositIxData;
+use solana_pubkey::Pubkey;
+use zolana_interface::instruction::{AssetDeposit, DepositAsset, DepositSplAccounts};
 use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedAddress};
 use zolana_transaction::{derive_blinding, TransactionError};
 
@@ -29,8 +30,9 @@ impl ZolanaProgramTest {
         lamports: u64,
         owner: [u8; 32],
         blinding: [u8; BLINDING_LEN],
-    ) -> DepositIxData {
-        DepositIxData {
+    ) -> AssetDeposit {
+        AssetDeposit {
+            asset: DepositAsset::Sol,
             view_tag: [0u8; 32],
             owner,
             blinding,
@@ -44,8 +46,11 @@ impl ZolanaProgramTest {
         amount: u64,
         owner: [u8; 32],
         blinding: [u8; BLINDING_LEN],
-    ) -> DepositIxData {
-        DepositIxData {
+        mint: &Pubkey,
+        user_token: &Pubkey,
+    ) -> AssetDeposit {
+        AssetDeposit {
+            asset: Self::spl_asset(mint, user_token),
             view_tag: [0u8; 32],
             owner,
             blinding,
@@ -60,9 +65,10 @@ impl ZolanaProgramTest {
         recipient: &ShieldedAddress,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<DepositIxData, ProgramTestError> {
+    ) -> Result<AssetDeposit, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
-        Ok(DepositIxData {
+        Ok(AssetDeposit {
+            asset: DepositAsset::Sol,
             view_tag: fields.view_tag,
             owner: fields.owner,
             blinding: fields.blinding,
@@ -77,15 +83,25 @@ impl ZolanaProgramTest {
         recipient: &ShieldedAddress,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<DepositIxData, ProgramTestError> {
+        mint: &Pubkey,
+        user_token: &Pubkey,
+    ) -> Result<AssetDeposit, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
-        Ok(DepositIxData {
+        Ok(AssetDeposit {
+            asset: Self::spl_asset(mint, user_token),
             view_tag: fields.view_tag,
             owner: fields.owner,
             blinding: fields.blinding,
             amount,
             utxo_data: None,
             memo: None,
+        })
+    }
+
+    pub fn spl_asset(mint: &Pubkey, user_token: &Pubkey) -> DepositAsset {
+        DepositAsset::Spl(DepositSplAccounts {
+            mint: *mint,
+            user_token: *user_token,
         })
     }
 }

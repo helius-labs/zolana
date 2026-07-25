@@ -135,8 +135,8 @@ impl TestIndexer {
         for (offset, output) in event.outputs.iter().enumerate() {
             let leaf_index = event.first_output_leaf_index + offset as u64;
             let payload = if event
-                .deposit_withdraw
-                .as_ref()
+                .deposit_withdraws
+                .first()
                 .is_some_and(|deposit| deposit.is_deposit)
                 && offset == 0
             {

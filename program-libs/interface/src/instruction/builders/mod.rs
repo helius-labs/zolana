@@ -18,7 +18,7 @@ pub use create_asset_counter::CreateAssetCounter;
 pub use create_associated_token_account::CreateAssociatedTokenAccount;
 pub use create_spl_interface::CreateSplInterface;
 pub use create_tree::CreateTree;
-pub use deposit::{Deposit, DepositSplAccounts};
+pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositSplAccounts};
 pub use merge_transact::MergeTransact;
 pub use merge_zone::MergeZone;
 pub use protocol_config::{CreateProtocolConfig, PauseTree, UpdateProtocolConfig};

@@ -39,7 +39,7 @@ fn sample_transact_event() -> GeneralEvent {
         first_output_leaf_index: 0,
         output_tree: [0x66; 32],
         relay_fee: None,
-        deposit_withdraw: None,
+        deposit_withdraws: Vec::new(),
     }
 }
 

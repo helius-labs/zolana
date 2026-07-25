@@ -3,7 +3,7 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
-use zolana_interface::instruction::DepositIxData;
+use zolana_interface::instruction::AssetDeposit;
 use zolana_program_test::DepositOutput;
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -15,7 +15,7 @@ use super::{
 pub struct DepositAssertArgs<'a> {
     pub tree: &'a Pubkey,
     pub event: &'a DepositOutput,
-    pub data: &'a DepositIxData,
+    pub data: &'a AssetDeposit,
     pub expected_amount: u64,
     pub expected_asset: Address,
     pub signature: Signature,

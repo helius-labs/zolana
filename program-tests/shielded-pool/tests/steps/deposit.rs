@@ -4,7 +4,11 @@ use cucumber::{then, when};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{error::ShieldedPoolError, instruction::tag, pda};
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::{tag, DepositAssetKind, DepositEntry, DepositIxData},
+    pda,
+};
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::litesvm_assert_deposit;
@@ -31,9 +35,20 @@ fn send_raw(world: &mut ShieldedPoolWorld, accounts: Vec<AccountMeta>) {
     let program_id = world.rpc().program_id;
     let mut data = vec![tag::DEPOSIT];
     data.extend_from_slice(
-        &ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 31])
-            .serialize()
-            .expect("proofless ix data serialization is infallible"),
+        &DepositIxData {
+            assets: vec![DepositAssetKind::Sol],
+            deposits: vec![DepositEntry {
+                asset_index: 0,
+                view_tag: [0u8; 32],
+                owner: [8u8; 32],
+                blinding: [8u8; 31],
+                amount: 1_000_000,
+                utxo_data: None,
+                memo: None,
+            }],
+        }
+        .serialize()
+        .expect("proofless ix data serialization is infallible"),
     );
     let ix = Instruction {
         program_id,

@@ -10,15 +10,27 @@ pub struct UtxoData {
     pub data: Vec<u8>,
 }
 
-/// Public deposit without a proof (spec: `deposit`, tag 1).
-///
-/// The program commits the settled amount/asset into the UTXO hash and emits a
-/// [`crate::event::GeneralEvent`] carrying a proofless output for wallet
-/// discovery.
+/// Maximum number of distinct assets (settlement groups) per `deposit` batch.
+pub const MAX_DEPOSIT_ASSETS: usize = 5;
+
+/// Kind of one settlement group, declaring how many accounts it consumes and how
+/// they are validated: `Sol` takes (`system_program`, `sol_interface`), `Spl`
+/// takes (`token_program`, `user_token`, `vault`, `registry`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[wincode(tag_encoding = "u8")]
+pub enum DepositAssetKind {
+    Sol,
+    Spl,
+}
+
+/// One output of a batched public deposit (see [`DepositIxData`]).
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct DepositIxData {
-    /// Indexing tag for the single output slot; chosen per the spec's View
-    /// Tag Selection.
+pub struct DepositEntry {
+    /// Index into [`DepositIxData::assets`]. Selects the asset this entry
+    /// deposits and the settlement group that funds it.
+    pub asset_index: u8,
+    /// Indexing tag for this output slot; chosen per the spec's View Tag
+    /// Selection.
     pub view_tag: [u8; 32],
     /// Recipient `owner_hash`; the program nests it with `blinding` into the
     /// UTXO's `owner_utxo_hash`.
@@ -26,8 +38,7 @@ pub struct DepositIxData {
     /// Fresh CSPRNG per deposit; sent in the clear so a third-party depositor
     /// needs no shared secret and the recipient spends it directly.
     pub blinding: [u8; 31],
-    /// Deposited amount. The asset (native SOL vs SPL mint) is inferred from the
-    /// settlement accounts the caller passes; deposits are deposit-only.
+    /// Deposited amount of the asset selected by `asset_index`.
     pub amount: u64,
     /// Application data committed into the UTXO's `data_hash`, authorized by the
     /// payer; `None` for a plain user deposit. Policy-zone deposits use
@@ -37,6 +48,24 @@ pub struct DepositIxData {
     /// Not committed into any hash, so it is informational only.
     #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
     pub memo: Option<Vec<u8>>,
+}
+
+/// Batched public deposit without a proof (spec: `deposit`, tag 1).
+///
+/// Each entry appends one output UTXO. Entries deposit into at most
+/// [`MAX_DEPOSIT_ASSETS`] distinct assets; per-asset amounts are summed so each
+/// asset settles with a single transfer, and the program emits one
+/// [`crate::event::GeneralEvent`] carrying every proofless output for wallet
+/// discovery.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct DepositIxData {
+    /// Settlement groups in account order. The program reads the accounts each
+    /// kind names, in this order, so the account layout is declared rather than
+    /// inferred from the account count.
+    #[wincode(with = "containers::Vec<DepositAssetKind, FixIntLen<u8>>")]
+    pub assets: Vec<DepositAssetKind>,
+    #[wincode(with = "containers::Vec<DepositEntry, FixIntLen<u8>>")]
+    pub deposits: Vec<DepositEntry>,
 }
 
 impl DepositIxData {
@@ -55,6 +84,8 @@ impl DepositIxData {
 /// zone and additionally carries the zone's `policy_data`.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct ZoneDepositIxData {
+    /// Settlement group kind for this deposit's single asset.
+    pub asset: DepositAssetKind,
     /// As in [`DepositIxData`].
     pub view_tag: [u8; 32],
     pub owner: [u8; 32],

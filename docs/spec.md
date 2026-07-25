@@ -1379,15 +1379,15 @@ GeneralEvent {
     // None on deposit (payer = user), Some on relayed transfer/withdraw.
     relay_fee: (instruction_data.relayer_fee != 0)
         .then_some(instruction_data.relayer_fee as u64),
-    // Some for deposit/withdraw, None for shielded transfer. is_deposit = true
-    // when value enters the pool (deposit).
-    deposit_withdraw: match (
+    // One record for a deposit/withdraw, empty for a shielded transfer.
+    // is_deposit = true when value enters the pool (deposit).
+    deposit_withdraws: match (
         instruction_data.public_sol_amount,
         instruction_data.public_spl_amount,
     ) {
-        (Some(amount), None) => Some(DepositWithdraw { is_deposit, amount, asset: None }),
-        (None, Some(amount)) => Some(DepositWithdraw { is_deposit, amount, asset: Some(mint) }),
-        (None, None) => None,
+        (Some(amount), None) => vec![DepositWithdraw { is_deposit, amount, asset: None }],
+        (None, Some(amount)) => vec![DepositWithdraw { is_deposit, amount, asset: Some(mint) }],
+        (None, None) => vec![],
         // Checks reject a deposit that is both SOL and SPL.
         (Some(_), Some(_)) => unreachable!(),
     },
@@ -1402,19 +1402,41 @@ GeneralEvent {
 
 **Description.** Public deposit without a proof; deposits dynamic amounts and assets, e.g. the output of a swap. The depositor sends the recipient `owner` (its `owner_hash` from [Shielded Address](#shielded-address)) and a fresh `blinding` in the clear, and the program recomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)). The depositor needs only the recipient's public [Shielded Address](#shielded-address), so a third party can deposit to a recipient it shares no secret with; the recipient is not hidden on this rail.
 
+One instruction is a batch: it carries a list of entries, each appending one output UTXO, and a list of settlement groups (`assets`) naming the assets those entries deposit — at most `MAX_DEPOSIT_ASSETS` (5). Entries naming the same asset are summed, so each asset settles with exactly one transfer regardless of how many outputs it funds, and the whole batch emits a single [`GeneralEvent`](#general-event). A single deposit is a batch of one.
+
 **Accounts**
+
+Settlement groups follow `payer` in the order `assets` declares them: a `Sol` group reads two accounts, an `Spl` group four. The instruction data declares the layout, so the program never infers it from the account count.
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | UTXO tree |
 | 2 | payer |   | x | depositor; signer authorizes any attached `utxo_data` |
+| .. | settlement groups |   |   | per `assets` entry: `Sol` = (`system_program`, `sol_interface`); `Spl` = (`token_program`, `user_spl_token_account`, `spl_token_interface`, `spl_asset_registry`) |
+| n | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 
 **Instruction data**
 
 ```rust
 struct DepositIxData {
+    /// Settlement groups in account order; `DepositEntry::asset_index` indexes
+    /// this. At most MAX_DEPOSIT_ASSETS (5) entries, pairwise-distinct assets.
+    assets: Vec<DepositAssetKind>,
+    /// One entry per output UTXO; at least one.
+    deposits: Vec<DepositEntry>,
+}
+
+enum DepositAssetKind {
+    Sol,
+    Spl,
+}
+
+struct DepositEntry {
+    /// Index into `DepositIxData::assets`: the asset this entry deposits and the
+    /// settlement group that funds it.
+    asset_index: u8,
     /// Recipient's signing pubkey (eddsa: the 32-byte key; P256: the
-    /// X-coordinate); the indexing tag for the single output slot.
+    /// X-coordinate); the indexing tag for this output slot.
     owner: [u8; 32],
     /// Recipient `owner_hash`; nested with `blinding` into the UTXO's
     /// `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
@@ -1422,10 +1444,8 @@ struct DepositIxData {
     /// Fresh CSPRNG per deposit, sent in the clear; the recipient spends it
     /// directly.
     blinding: [u8; 31],
-    /// `Some` for a SOL deposit.
-    public_sol_amount: Option<u64>,
-    /// `Some` for an SPL deposit.
-    public_spl_amount: Option<u64>,
+    /// Deposited amount of the asset `asset_index` selects.
+    amount: u64,
     /// Data hash; authorized by the `payer` signer.
     data_hash: Option<[u8; 32]>,
     /// Preimage of `data_hash`.
@@ -1441,23 +1461,28 @@ the instruction data. It is not derived; the recipient reads it back from the
 **Checks**
 
 1. `tree_account` is not paused.
-2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
-3. `data_hash` and `utxo_data` are either both set or both absent; when set, the `payer` signer authorizes them. SPP commits the hash unchecked.
-4. Compute `owner_utxo_hash = Poseidon(owner_hash, blinding)`, then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `data_hash` from instruction data or `0`, `zone_program_id` is `0`, `zone_data_hash` is `0`.
-5. Append the hash to the UTXO tree.
-6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
-7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
+2. `deposits` is non-empty and `assets` holds 1..=`MAX_DEPOSIT_ASSETS` entries.
+3. Read the accounts each `assets` entry names, validating each group as its kind requires. Two groups must not name the same asset: that would split one asset's settlement across two transfers and let an entry pick either.
+4. Every `asset_index` is within `assets`, and every declared asset is named by at least one entry; an unfunded group would otherwise pass validation without settling.
+5. `data_hash` and `utxo_data` are either both set or both absent; when set, the `payer` signer authorizes them. SPP commits the hash unchecked.
+6. Per entry, compute `owner_utxo_hash = Poseidon(owner_hash, blinding)`, then the [UTXO hash](#utxo-hash): `asset` from the entry's settlement group (the mint pubkey, SOL: `Address::default()`) and `amount` from the entry, `data_hash` from instruction data or `0`, `zone_program_id` is `0`, `zone_data_hash` is `0`. Append each hash to the UTXO tree in entry order.
+7. Sum each asset's entry amounts; the sum must not overflow.
+8. Transfer each asset's total once: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
+9. Emit one [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, carrying every output.
 
 **Event**
 
-The event lets an indexer index the created UTXO: its hash and mint do not
-exist in instruction data. For a proofless deposit the
-[`GeneralEvent`](#general-event) is populated as:
+The event lets an indexer index the created UTXOs: their hashes and mints do not
+exist in instruction data. One event covers the whole batch: `outputs` holds one
+slot per entry in entry order, and `deposit_withdraws` one record per settled
+asset. For a proofless deposit the [`GeneralEvent`](#general-event) is populated
+as (shown for a single entry):
 
 ```rust
 GeneralEvent {
     // No UTXOs are spent.
     inputs: vec![],
+    // One slot per batch entry, in entry order.
     outputs: vec![OutputUtxo {
         // The recipient's signing pubkey; lets them index the deposit by their
         // own pubkey.
@@ -1483,8 +1508,9 @@ GeneralEvent {
     output_tree: tree_account,
     // The depositor funds the deposit directly.
     relay_fee: None,
+    // One record per settled asset, carrying that asset's summed amount.
     // asset is the deposited mint (SOL: Address::default()).
-    deposit_withdraw: Some(DepositWithdraw { is_deposit: true, amount, asset }),
+    deposit_withdraws: vec![DepositWithdraw { is_deposit: true, amount, asset }],
 }
 ```
 
@@ -1520,8 +1546,10 @@ struct GeneralEvent {
     first_output_leaf_index: u64,
     output_tree: Pubkey,
     relay_fee: Option<u64>,
-    /// `Some` for deposit/withdraw, `None` for shielded transfer.
-    deposit_withdraw: Option<DepositWithdraw>,
+    /// Per-asset public movements: empty for a shielded transfer, one record per
+    /// settled asset otherwise. `transact` settles at most one asset; a batched
+    /// `deposit` carries one record per deposited asset.
+    deposit_withdraws: Vec<DepositWithdraw>,
 }
 
 /// One spent input. Inputs may originate from different trees.
@@ -1581,7 +1609,7 @@ struct DepositWithdraw {
 
 **Discriminator:** 15
 
-**Description.** Policy-zone analog of [`deposit`](#deposit): a public deposit without a proof that creates a UTXO owned by the calling zone program. The zone program CPIs into SPP with its [`zone_config`](#zone-accounts) signer; the UTXO carries the program's `zone_program_id` (read from `zone_config`) and any policy/utxo data the program attaches.
+**Description.** Policy-zone analog of [`deposit`](#deposit): a public deposit without a proof that creates a UTXO owned by the calling zone program. Unlike [`deposit`](#deposit) this rail is not batched: it deposits one asset into one output. The zone program CPIs into SPP with its [`zone_config`](#zone-accounts) signer; the UTXO carries the program's `zone_program_id` (read from `zone_config`) and any policy/utxo data the program attaches.
 
 **Accounts**
 
@@ -1595,6 +1623,9 @@ struct DepositWithdraw {
 
 ```rust
 struct ZoneDepositIxData {
+    /// Settlement group kind for this deposit's single asset; the program reads
+    /// the accounts it names, as in `deposit`.
+    asset: DepositAssetKind,
     /// Indexing tag for the output slot; a policy-zone view tag in an anonymous
     /// zone, or the recipient `owner` pubkey otherwise.
     view_tag: [u8; 32],

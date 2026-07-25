@@ -11,8 +11,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::indexed_events_from_instruction_groups;
 use zolana_interface::{
-    instruction::{DepositSplAccounts, ZoneDeposit, ZoneDepositIxData},
-    pda, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+    instruction::{DepositAssetKind, DepositSplAccounts, ZoneDeposit, ZoneDepositIxData},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::random_blinding;
 use zolana_program_test::{deposit_output_from_event, ZONE_TEST_PROGRAM_ID};
@@ -36,9 +36,15 @@ impl ZoneLifecycleWorld {
     /// Build the recipient-hidden, wallet-discoverable zone deposit data for `name`:
     /// owner = recipient owner-hash, fresh blinding, the recipient bootstrap view
     /// tag, and the public amount. No zone/program data.
-    fn zone_deposit_data(&self, name: &str, amount: u64) -> Result<ZoneDepositIxData> {
+    fn zone_deposit_data(
+        &self,
+        name: &str,
+        amount: u64,
+        asset: DepositAssetKind,
+    ) -> Result<ZoneDepositIxData> {
         let keypair = &self.actor(name).keypair;
         Ok(ZoneDepositIxData {
+            asset,
             view_tag: keypair.recipient_bootstrap_view_tag(),
             owner: keypair.owner_hash()?,
             blinding: random_blinding(),
@@ -61,7 +67,7 @@ impl ZoneLifecycleWorld {
         let depositor = Keypair::new();
         self.rpc.airdrop(&depositor.pubkey(), 5_000_000_000)?;
 
-        let data = self.zone_deposit_data(name, amount)?;
+        let data = self.zone_deposit_data(name, amount, DepositAssetKind::Sol)?;
         let tree_before = fetch_account(&self.rpc, &tree)?;
 
         let ix = ZoneDeposit {
@@ -127,16 +133,11 @@ impl ZoneLifecycleWorld {
         let vault_before = fetch_account(&self.rpc, &vault)?;
         let user_token_before = fetch_account(&self.rpc, &user_token)?;
 
-        let data = self.zone_deposit_data(name, amount)?;
+        let data = self.zone_deposit_data(name, amount, DepositAssetKind::Spl)?;
         let ix = ZoneDeposit {
             tree,
             depositor: payer.pubkey(),
-            spl: Some(DepositSplAccounts {
-                user_token,
-                spl_token_interface: vault,
-                registry: pda::spl_asset_registry(&mint),
-                token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
-            }),
+            spl: Some(DepositSplAccounts { mint, user_token }),
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,

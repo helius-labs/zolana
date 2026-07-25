@@ -78,6 +78,18 @@ pub enum ShieldedPoolError {
     MissingP256SigningKey = 7024,
     #[error("output owner tag account index is out of range")]
     OwnerTagAccountMissing = 7025,
+    #[error("deposit batch contains no entries")]
+    EmptyDepositBatch = 7026,
+    #[error("deposit entry references an asset index out of range")]
+    InvalidDepositAssetIndex = 7027,
+    #[error("deposit settlement accounts contain a duplicate asset")]
+    DuplicateDepositAsset = 7028,
+    #[error("deposit batch amounts overflow for an asset")]
+    DepositAmountOverflow = 7029,
+    #[error("deposit settlement asset is not referenced by any entry")]
+    UnreferencedDepositAsset = 7030,
+    #[error("deposit batch exceeds the maximum number of assets")]
+    TooManyDepositAssets = 7031,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -141,6 +153,12 @@ mod tests {
             (BothPublicAmountsSet as u32, 7023),
             (MissingP256SigningKey as u32, 7024),
             (OwnerTagAccountMissing as u32, 7025),
+            (EmptyDepositBatch as u32, 7026),
+            (InvalidDepositAssetIndex as u32, 7027),
+            (DuplicateDepositAsset as u32, 7028),
+            (DepositAmountOverflow as u32, 7029),
+            (UnreferencedDepositAsset as u32, 7030),
+            (TooManyDepositAssets as u32, 7031),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

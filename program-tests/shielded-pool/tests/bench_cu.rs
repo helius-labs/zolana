@@ -19,8 +19,7 @@ use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
-        Deposit, DepositSplAccounts, Transact, TransactSolWithdrawal, TransactSplWithdrawal,
-        TransactWithdrawal,
+        Deposit, Transact, TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal,
     },
     pda, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
     SPL_TOKEN_PROGRAM_ID,
@@ -197,6 +196,7 @@ fn bench_cu_deposit() {
     });
 
     bench_deposit_sol(&mollusk, &program_id, &mut bench);
+    bench_deposit_sol_batch(&mollusk, &program_id, &mut bench);
     bench_deposit_spl(&mollusk, &program_id, &token_program_account, &mut bench);
     bench_transfer(&mollusk, &program_id, &mut bench);
     bench_withdrawal_sol(&mollusk, &program_id, &mut bench);
@@ -263,13 +263,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
     let ix = Deposit {
         tree,
         depositor: depositor.pubkey(),
-        spl: None,
-        view_tag: data.view_tag,
-        owner: data.owner,
-        blinding: data.blinding,
-        amount: data.amount,
-        utxo_data: data.utxo_data.clone(),
-        memo: None,
+        deposits: vec![data],
     }
     .instruction();
 
@@ -284,6 +278,47 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
         "no profiling entries for 'deposit sol'; build the profiling .so with --features profile-program"
     );
     bench.add_from_entries("deposit sol", entries);
+}
+
+/// Three SOL outputs in one instruction. Compare against `deposit sol` (one
+/// output) for the marginal cost of a batch entry: the batch appends once and
+/// settles once regardless of entry count.
+fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuBenchmark) {
+    let (mut pt, _authority, tree) = bench_setup();
+    let depositor = Keypair::new();
+    pt.airdrop(&depositor.pubkey(), 1_000_000_000)
+        .expect("airdrop depositor");
+
+    let recipient = ShieldedKeypair::new()
+        .expect("recipient keypair")
+        .shielded_address()
+        .expect("shielded address");
+    let seed = [3u8; BLINDING_LEN];
+    let deposits = (0..3)
+        .map(|position| {
+            ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient, &seed, position)
+                .expect("wallet deposit data")
+        })
+        .collect();
+
+    let ix = Deposit {
+        tree,
+        depositor: depositor.pubkey(),
+        deposits,
+    }
+    .instruction();
+
+    let accounts = deposit_sol_accounts(&pt, &ix, program_id);
+    let mollusk_ix = to_mollusk_instruction(&ix);
+
+    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+
+    let entries = take_profiling_entries();
+    assert!(
+        !entries.is_empty(),
+        "no profiling entries for the batch bench; build the profiling .so with --features profile-program"
+    );
+    bench.add_from_entries("deposit sol batch 3", entries);
 }
 
 fn bench_deposit_spl(
@@ -313,24 +348,14 @@ fn bench_deposit_spl(
         .shielded_address()
         .expect("shielded address");
     let seed = [7u8; BLINDING_LEN];
-    let data = ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &seed, 0)
-        .expect("wallet deposit data");
+    let data =
+        ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &seed, 0, &mint, &user_token)
+            .expect("wallet deposit data");
 
     let ix = Deposit {
         tree,
         depositor: depositor.pubkey(),
-        spl: Some(DepositSplAccounts {
-            user_token,
-            spl_token_interface: pda::spl_asset_vault(&mint),
-            registry: pda::spl_asset_registry(&mint),
-            token_program: ZolanaProgramTest::token_program_id(),
-        }),
-        view_tag: data.view_tag,
-        owner: data.owner,
-        blinding: data.blinding,
-        amount: data.amount,
-        utxo_data: data.utxo_data.clone(),
-        memo: None,
+        deposits: vec![data],
     }
     .instruction();
 
@@ -625,9 +650,10 @@ fn bench_withdrawal_spl(
     let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
 
-    let data = ZolanaProgramTest::spl_shield_data(AMOUNT, owner_field, blinding);
+    let data =
+        ZolanaProgramTest::spl_shield_data(AMOUNT, owner_field, blinding, &mint, &user_token);
     let event = pt
-        .deposit_spl(&tree, &payer, &user_token, &mint, &data)
+        .deposit(&tree, &payer, &data)
         .expect("proofless spl deposit");
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     assert_eq!(utxo_hash, event.utxo_hash);

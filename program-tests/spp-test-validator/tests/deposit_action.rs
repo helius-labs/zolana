@@ -10,9 +10,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ClientError, Rpc};
-use zolana_interface::{
-    instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
-    pda,
+use zolana_interface::instruction::{
+    AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
 use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{Data, Utxo, SOL_MINT};
@@ -23,8 +22,8 @@ use zolana_transaction::{Data, Utxo, SOL_MINT};
 pub struct DepositResult {
     pub signature: Signature,
     pub utxo: Utxo,
-    /// The instruction data that was sent, for asserting the indexed deposit.
-    pub data: DepositIxData,
+    /// The deposit that was sent, for asserting the indexed deposit.
+    pub data: AssetDeposit,
 }
 
 /// A direct (non-zone) proofless shield that appends a recipient-hidden,
@@ -71,14 +70,14 @@ impl Deposit<'_> {
             .map(|account| account.owner == Pubkey::new_from_array([0u8; 32]))
             .unwrap_or(true);
 
-        let (asset, spl_accounts) = if system_owned {
+        let (asset, deposit_asset) = if system_owned {
             // SOL: the funding system account must itself sign the debit.
             if self.sender != authority.pubkey() {
                 return Err(ClientError::DepositSenderNotSigner {
                     sender: self.sender.to_bytes(),
                 });
             }
-            (SOL_MINT, None)
+            (SOL_MINT, DepositAsset::Sol)
         } else {
             // SPL: `sender` is a token account; everything else derives from it.
             let account = sender_account.ok_or(ClientError::AccountNotFound {
@@ -94,16 +93,15 @@ impl Deposit<'_> {
             let mint = Pubkey::new_from_array(mint_bytes);
             (
                 Address::new_from_array(mint_bytes),
-                Some(DepositSplAccounts {
+                DepositAsset::Spl(DepositSplAccounts {
+                    mint,
                     user_token: self.sender,
-                    spl_token_interface: pda::spl_asset_vault(&mint),
-                    registry: pda::spl_asset_registry(&mint),
-                    token_program: account.owner,
                 }),
             )
         };
 
-        let data = DepositIxData {
+        let data = AssetDeposit {
+            asset: deposit_asset,
             view_tag,
             owner,
             blinding,
@@ -114,13 +112,7 @@ impl Deposit<'_> {
         let ix = DepositInstruction {
             tree: self.tree,
             depositor: authority.pubkey(),
-            spl: spl_accounts,
-            view_tag: data.view_tag,
-            owner: data.owner,
-            blinding: data.blinding,
-            amount: data.amount,
-            utxo_data: data.utxo_data.clone(),
-            memo: data.memo.clone(),
+            deposits: vec![data.clone()],
         }
         .instruction();
         let mut signers: Vec<&Keypair> = vec![payer];
