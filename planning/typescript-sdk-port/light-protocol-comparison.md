@@ -610,10 +610,12 @@ ergonomics are worse; the two are independent and F6 asks only for the second.
 
 **Caching.** Light caches state tree infos for an hour behind a single in-flight
 promise so concurrent callers share one fetch
-(`js/stateless.js/src/rpc.ts:721-748`). Zolana caches nothing: `ZolanaClient`
-takes its tree as a constructor argument and every indexer call goes to the
-wire. For a single-tree deployment that is the right answer, and it becomes
-wrong the moment a second tree exists.
+(`js/stateless.js/src/rpc.ts:721-748`). Zolana caches no network response at
+all; the only memoisation in the SDK is the Poseidon permutation table
+(`keypair/src/poseidon.ts:18`). `ZolanaClient` takes its tree as a constructor
+argument, so there is nothing to discover and nothing to cache. That is the
+right answer for a single-tree deployment and stops being the right answer the
+moment a second tree exists.
 
 **Instruction decoding as public surface.** Light exports
 `deserializeAppendNullifyCreateAddressInputsIndexer` from
