@@ -20,8 +20,8 @@ Update this block at the start of each session.
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `32 done / 118 total`; `57 needs_fix`; `1 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `C02 sdk-libs/client/src/error.rs` re-review
+- Progress: `32 done / 118 total`; `58 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `C03 sdk-libs/client/src/rpc.rs`
 - Active reviews: `none`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
@@ -256,7 +256,7 @@ Columns:
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | C01 | `sdk-libs/client/src/retry.rs` | `client/src/indexer.ts` | needs_fix | DIVERGENT | proposed | Normal private backoff matches, but TypeScript omits Rust's public retry operations, defaults, factories, and `pollUntil`; differs on Rust-valid configurations, zero delay, timer bounds, maximum attempts, and retry errors; duplicates the loops; and lacks focused fixture, error, export, and pack evidence. First classify Rust's idempotent retry policy, retain structured causes, cap the first delay, and pin attempt counts; then expose and reuse the aligned TypeScript surface with focused evidence. | 2026-07-25 review | - |
-| C02 | `sdk-libs/client/src/error.rs` | `client/src/error.ts` | needs_re_review | PARITY | committed | Re-review the closed client error boundary against the transaction error contract changed by `6882ca25`. | 2026-07-24 re-review | `6882ca25` |
+| C02 | `sdk-libs/client/src/error.rs` | `client/src/error.ts` | needs_fix | PARTIAL | proposed | The exhaustive 58-code fixture proves structural mapping, but `CLIENT_POLL_TIMED_OUT` has no TypeScript runtime producer; the runtime constructor accepts arbitrary codes and malformed payloads; details/cause validation plus deep immutability and redaction evidence are incomplete; and call-site reachability is unproven. Close and validate runtime construction, produce each implemented code through its intended boundary, and add deep immutability, redaction, malformed-payload, and call-site evidence. | 2026-07-25 re-review | - |
 | C03 | `sdk-libs/client/src/rpc.rs` | `client/src/rpc.ts` | todo | - | none | - | - | - |
 | C04 | `sdk-libs/client/src/indexer.rs` | `client/src/indexer.ts` | done | PARITY | committed | The asynchronous adapter preserves the four requests, owned conversions, block-time polling, bounded failures, browser operation, and Rust-only blocking disposition. | 2026-07-24 re-review | `7cb3acda` |
 | C05 | `sdk-libs/client/src/solana_rpc.rs` | `client/src/solana-rpc.ts` | todo | - | none | - | - | - |
@@ -1604,3 +1604,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `32/118`; package `1/22`; `C02` reopened for re-review after transaction error changes in `6882ca25`
 - Exact next file: `C02 sdk-libs/client/src/error.rs` re-review
 - Full SDK parity claim: unsupported; retry policy, public surface, boundary behavior, reuse, and focused evidence diverge
+
+### 2026-07-25 13:13 UTC | C02 | `sdk-libs/client/src/error.rs`
+
+- Baseline: HEAD `f0006e69211c5edea9193398be0692f1ea6b7e7b`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only re-review; implementation commit `none`
+- Explanation: This module owns the public client error taxonomy and its dependency-error conversions; C01 retains retry-policy ownership.
+- Evidence: The exhaustive 58-code fixture proves structural mapping, but `CLIENT_POLL_TIMED_OUT` has no TypeScript runtime producer. The runtime constructor accepts arbitrary codes and malformed payloads; details/cause validation plus deep immutability and redaction evidence are incomplete; and call-site reachability is unproven.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Close and validate runtime construction, produce each implemented code through its intended boundary, and add deep immutability, redaction, malformed-payload, and call-site evidence.
+- Row transition: `needs_re_review -> needs_fix`
+- Progress: `32/118`; package `1/22`
+- Exact next file: `C03 sdk-libs/client/src/rpc.rs`
+- Full SDK parity claim: unsupported; runtime construction, timeout production, validation, immutability, redaction, and reachability evidence remain incomplete
