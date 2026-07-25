@@ -403,7 +403,7 @@ measurable. The five copies of this logic in the SDK were created on a single da
 | `test-kit/src/user-registry.ts` compiler and `compactU16` | `e20d0469` | 2026-07-24 |
 | `e2e/instructions/acceptance.test.ts` `compactU16` | `9905e992` | 2026-07-24 |
 
-One message compiler became three and one `compactU16` became five, in five
+One message compiler became three and one `compactU16` became five, across four
 commits, in a package that is two days old. The pattern is that each new package
 needing to build or parse a transaction writes its own copy, because there is no
 shared one to import. If that rate continues even slowly, a v0 change that costs
