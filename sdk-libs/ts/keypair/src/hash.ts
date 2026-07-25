@@ -17,10 +17,6 @@ export function hashField(value: Uint8Array): Bytes32 {
   return poseidon(splitBigEndian128(value)) as Bytes32;
 }
 
-export function hashPublicKeyX(x: Uint8Array, yIsOdd: boolean): Uint8Array {
-  return poseidon([bigIntToBytes(yIsOdd ? 1n : 0n), hashField(x)]);
-}
-
 export function ownerHash(
   ownerPublicKeyField: Uint8Array,
   nullifierPublicKey: Uint8Array,
@@ -46,6 +42,3 @@ export function sha256Be(bytes: Uint8Array): Bytes32 {
   return digest as Bytes32;
 }
 
-export function fieldFromBytes(bytes: Uint8Array): Uint8Array {
-  return bigIntToBytes(bytesToBigInt(bytes));
-}

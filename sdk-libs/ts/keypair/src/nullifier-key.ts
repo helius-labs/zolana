@@ -32,15 +32,18 @@ export class NullifierKey {
     }
   }
 
+  /**
+   * Rust takes `&[u8]`, so the input keying material has no fixed width: an
+   * ed25519 seed, a P256 secret, or any other wallet-side secret is legal.
+   */
   static fromSigningSecret(bytes: Uint8Array): NullifierKey {
-    const secret = hkdf(
-      sha256,
-      new Uint8Array(bytes),
-      undefined,
-      encoder.encode(INFO_NULLIFIER),
-      31,
-    );
-    return new NullifierKey(secret);
+    try {
+      return new NullifierKey(
+        hkdf(sha256, new Uint8Array(bytes), undefined, encoder.encode(INFO_NULLIFIER), 31),
+      );
+    } catch (error) {
+      throw new KeypairError("KEYPAIR_HKDF", { name: INFO_NULLIFIER }, error);
+    }
   }
 
   static fromSecret(bytes: Bytes31): NullifierKey {

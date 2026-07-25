@@ -94,19 +94,34 @@ impl SigningKey {
         }
     }
 
-    pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
+    /// Signs `msg`. On the P256 rail `msg` is a prehash and must be exactly 32
+    /// bytes; anything else is a caller error rather than a signable message.
+    pub fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
         match &self.inner {
             SigningKeyInner::P256(sk) => {
+                if msg.len() != 32 {
+                    return Err(KeypairError::InvalidPrehashLength(msg.len()));
+                }
                 let signing = EcdsaSigningKey::from(sk);
                 let sig: EcdsaSig = signing
                     .sign_prehash(msg)
-                    .expect("p256 prehash signing is infallible for a 32-byte digest");
+                    .map_err(|_| KeypairError::InvalidPrehashLength(msg.len()))?;
                 let mut out = [0u8; 64];
                 out.copy_from_slice(&sig.to_bytes());
-                out
+                Ok(out)
             }
-            SigningKeyInner::Ed25519(sk) => sk.sign(msg).to_bytes(),
+            SigningKeyInner::Ed25519(sk) => Ok(sk.sign(msg).to_bytes()),
         }
+    }
+
+    /// [`Self::try_sign`] for callers that already hold a 32-byte prehash (or
+    /// are on the ed25519 rail, which signs any message).
+    ///
+    /// # Panics
+    /// Panics when the P256 rail is handed a prehash that is not 32 bytes.
+    pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
+        self.try_sign(msg)
+            .expect("p256 signing requires a 32-byte prehash")
     }
 
     pub fn verify(&self, msg: &[u8], sig: &[u8; 64]) -> bool {

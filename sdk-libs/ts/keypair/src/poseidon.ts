@@ -18,11 +18,15 @@ function permutation(inputCount: number): ReturnType<typeof createPoseidon> {
   const cached = permutations.get(inputCount);
   if (cached) return cached;
   if (inputCount < 1 || inputCount > PARTIAL_ROUNDS.length) {
-    throw new KeypairError("KEYPAIR_HASH", { inputCount });
+    throw new KeypairError("KEYPAIR_POSEIDON", {
+      actual: inputCount,
+      minimum: 1,
+      maximum: PARTIAL_ROUNDS.length,
+    });
   }
   const roundsPartial = PARTIAL_ROUNDS[inputCount - 1];
   if (roundsPartial === undefined) {
-    throw new KeypairError("KEYPAIR_HASH", { inputCount });
+    throw new KeypairError("KEYPAIR_POSEIDON", { actual: inputCount });
   }
   const options = {
     Fp,
@@ -40,18 +44,22 @@ export function poseidon(inputs: readonly Uint8Array[]): Uint8Array {
   try {
     const values = inputs.map((input, index) => {
       if (input.length > 32) {
-        throw new KeypairError("KEYPAIR_HASH", { index, maximum: 32, actual: input.length });
+        throw new KeypairError("KEYPAIR_FIELD_ELEMENT_TOO_LONG", {
+          index,
+          maximum: 32,
+          actual: input.length,
+        });
       }
       const value = bytesToBigInt(input);
       if (value >= BN254_MODULUS) {
-        throw new KeypairError("KEYPAIR_HASH", { index, reason: "nonCanonicalField" });
+        throw new KeypairError("KEYPAIR_POSEIDON", { index, reason: "nonCanonicalField" });
       }
       return value;
     });
     const result = permutation(values.length)([0n, ...values])[0];
-    if (result === undefined) throw new KeypairError("KEYPAIR_HASH");
+    if (result === undefined) throw new KeypairError("KEYPAIR_POSEIDON");
     return bigIntToBytes(result);
   } catch (error) {
-    throw wrapKeypairError("KEYPAIR_HASH", error);
+    throw wrapKeypairError("KEYPAIR_POSEIDON", error);
   }
 }

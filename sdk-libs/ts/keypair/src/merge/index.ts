@@ -10,6 +10,8 @@ import {
   packMergePublicKey,
 } from "./core.js";
 
+export { MAX_INFO_LENGTH, symmetricApply } from "./core.js";
+
 export const MERGE_INFO = copyBytes(MERGE_INFO_BYTES);
 
 export interface MergeCiphertextPublicInputs {

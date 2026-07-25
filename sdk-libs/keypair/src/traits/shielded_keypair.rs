@@ -34,6 +34,10 @@ pub trait ShieldedKeypairTrait {
 
     fn sign(&self, msg: &[u8]) -> [u8; 64];
 
+    /// [`Self::sign`] without the P256 prehash-length panic, for backends that
+    /// take a message from an untrusted caller.
+    fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError>;
+
     // --- nullifiers ---
 
     fn nullifier(
@@ -76,6 +80,10 @@ impl ShieldedKeypairTrait for ShieldedKeypair {
 
     fn sign(&self, msg: &[u8]) -> [u8; 64] {
         self.sign(msg)
+    }
+
+    fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
+        self.try_sign(msg)
     }
 
     fn nullifier(

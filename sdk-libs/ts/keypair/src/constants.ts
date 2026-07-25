@@ -2,6 +2,7 @@ export const BLINDING_LENGTH = 31;
 export const SALT_LENGTH = 16;
 export const P256_PUBLIC_KEY_LENGTH = 33;
 export const SHIELDED_PUBLIC_KEY_LENGTH = 34;
+export const VIEW_TAG_LENGTH = 32;
 
 export const DST_VIEW_ROOT = "TSPP/view_root/P_const/v1";
 export const P_CONST_SEC1 = Uint8Array.from([

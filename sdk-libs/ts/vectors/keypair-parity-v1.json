@@ -1,0 +1,667 @@
+{
+  "constants": {
+    "blindingLen": 31,
+    "dstViewRootPConst": "TSPP/view_root/P_const/v1",
+    "dstViewRootPConstBytes": "545350502f766965775f726f6f742f505f636f6e73742f7631",
+    "maxInfoLen": 62,
+    "mergeInfoBytes": "545350502f6d65726765",
+    "p256PubkeyLen": 33,
+    "pConstSec1Bytes": "030e4df946bce14b95292f13e133d2b0c64e898b5644f620a5bed25a061a42fcdb",
+    "publicKeyLen": 34,
+    "saltLen": 16,
+    "viewTagLen": 32
+  },
+  "encryption": {
+    "ephemeralRecoveredBytes": "7061726974792f656e6372797074696f6e20706c61696e7465787420626c6f636b20626f756e64617279",
+    "extendedRecoveredBytes": "7061726974792f656e6372797074696f6e20706c61696e7465787420626c6f636b20626f756e6461727974adb233a0b05fbc6bd39229976eea67",
+    "lengths": [
+      {
+        "ciphertextBytes": "",
+        "length": 0,
+        "plaintextBytes": "",
+        "recoveredBytes": ""
+      },
+      {
+        "ciphertextBytes": "81",
+        "length": 1,
+        "plaintextBytes": "01",
+        "recoveredBytes": "01"
+      },
+      {
+        "ciphertextBytes": "818f37c28191040a4c27491fe32bcd",
+        "length": 15,
+        "plaintextBytes": "01060b10151a1f24292e33383d4247",
+        "recoveredBytes": "01060b10151a1f24292e33383d4247"
+      },
+      {
+        "ciphertextBytes": "818f37c28191040a4c27491fe32bcd0c",
+        "length": 16,
+        "plaintextBytes": "01060b10151a1f24292e33383d42474c",
+        "recoveredBytes": "01060b10151a1f24292e33383d42474c"
+      },
+      {
+        "ciphertextBytes": "818f37c28191040a4c27491fe32bcd0c1b",
+        "length": 17,
+        "plaintextBytes": "01060b10151a1f24292e33383d42474c51",
+        "recoveredBytes": "01060b10151a1f24292e33383d42474c51"
+      },
+      {
+        "ciphertextBytes": "818f37c28191040a4c27491fe32bcd0c1bb2cade0ed3e701d33414fdedf5d5",
+        "length": 31,
+        "plaintextBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d9297",
+        "recoveredBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d9297"
+      },
+      {
+        "ciphertextBytes": "818f37c28191040a4c27491fe32bcd0c1bb2cade0ed3e701d33414fdedf5d5d5",
+        "length": 32,
+        "plaintextBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979c",
+        "recoveredBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979c"
+      },
+      {
+        "ciphertextBytes": "818f37c28191040a4c27491fe32bcd0c1bb2cade0ed3e701d33414fdedf5d5d587",
+        "length": 33,
+        "plaintextBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979ca1",
+        "recoveredBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979ca1"
+      },
+      {
+        "ciphertextBytes": "818f37c28191040a4c27491fe32bcd0c1bb2cade0ed3e701d33414fdedf5d5d587d377f20ecc2fb81659a7756fd1475cae4a90d39723987af3790158c94b74c2",
+        "length": 64,
+        "plaintextBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2e7ecf1f6fb00050a0f14191e23282d32373c",
+        "recoveredBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2e7ecf1f6fb00050a0f14191e23282d32373c"
+      },
+      {
+        "ciphertextBytes": "818f37c28191040a4c27491fe32bcd0c1bb2cade0ed3e701d33414fdedf5d5d587d377f20ecc2fb81659a7756fd1475cae4a90d39723987af3790158c94b74c2853acceb80ba99",
+        "length": 71,
+        "plaintextBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2e7ecf1f6fb00050a0f14191e23282d32373c41464b50555a5f",
+        "recoveredBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2e7ecf1f6fb00050a0f14191e23282d32373c41464b50555a5f"
+      },
+      {
+        "ciphertextBytes": "818f37c28191040a4c27491fe32bcd0c1bb2cade0ed3e701d33414fdedf5d5d587d377f20ecc2fb81659a7756fd1475cae4a90d39723987af3790158c94b74c2853acceb80ba997bf99c5af644bbcc051539a66c55b36c64b5ff0cd0cafc3cc368bd07ddcd39cf12e3d19bc8961350d0cbe94b969095ef1e9ed1ca1d354cd079",
+        "length": 128,
+        "plaintextBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2e7ecf1f6fb00050a0f14191e23282d32373c41464b50555a5f64696e73787d82878c91969ba0a5aaafb4b9bec3c8cdd2d7dce1e6ebf0f5faff04090e13181d22272c31363b40454a4f54595e63686d72777c",
+        "recoveredBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2e7ecf1f6fb00050a0f14191e23282d32373c41464b50555a5f64696e73787d82878c91969ba0a5aaafb4b9bec3c8cdd2d7dce1e6ebf0f5faff04090e13181d22272c31363b40454a4f54595e63686d72777c"
+      },
+      {
+        "ciphertextBytes": "818f37c28191040a4c27491fe32bcd0c1bb2cade0ed3e701d33414fdedf5d5d587d377f20ecc2fb81659a7756fd1475cae4a90d39723987af3790158c94b74c2853acceb80ba997bf99c5af644bbcc051539a66c55b36c64b5ff0cd0cafc3cc368bd07ddcd39cf12e3d19bc8961350d0cbe94b969095ef1e9ed1ca1d354cd0799e",
+        "length": 129,
+        "plaintextBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2e7ecf1f6fb00050a0f14191e23282d32373c41464b50555a5f64696e73787d82878c91969ba0a5aaafb4b9bec3c8cdd2d7dce1e6ebf0f5faff04090e13181d22272c31363b40454a4f54595e63686d72777c81",
+        "recoveredBytes": "01060b10151a1f24292e33383d42474c51565b60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2e7ecf1f6fb00050a0f14191e23282d32373c41464b50555a5f64696e73787d82878c91969ba0a5aaafb4b9bec3c8cdd2d7dce1e6ebf0f5faff04090e13181d22272c31363b40454a4f54595e63686d72777c81"
+      }
+    ],
+    "plaintextBytes": "7061726974792f656e6372797074696f6e20706c61696e7465787420626c6f636b20626f756e64617279",
+    "recipientSecretBytes": "a1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f272d353b434951575f656d737b",
+    "salts": [
+      {
+        "ciphertextBytes": "5cbe8f1b7bb1a0f0fd5d6a5c87e1a20224f5e1c41cb2b8485bd24699375626bc7e506a849b7d79591910",
+        "saltBytes": "00000000000000000000000000000000"
+      },
+      {
+        "ciphertextBytes": "807519678c192562b40d37fd832f8319199c60ebb0e30075c73d58f484ed771f04fccca365e1e3068fe5",
+        "saltBytes": "ffffffffffffffffffffffffffffffff"
+      },
+      {
+        "ciphertextBytes": "f0e84ebbe0f2344b0b6a085eae1de32f24c4e1d20ad0e601cf32e355020b2d2a4d55be2dce18f41dadee",
+        "saltBytes": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+      }
+    ],
+    "senderSecretBytes": "4d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f27",
+    "slots": [
+      {
+        "ciphertextBytes": "cb03a6b93d20f2267d46b26f90ca245901b41687ecea762c95d86bffd0601fbe841f95aa5636bbdce711",
+        "slot": 0
+      },
+      {
+        "ciphertextBytes": "0af8f04589be73334b24caf1660d874f63e472c7c15ea656b070d4ddd9cde354ce422e19a3b479e365a7",
+        "slot": 1
+      },
+      {
+        "ciphertextBytes": "1696f2589e49448ff56d917c2509887a7901f5271507ced5538a9929446e51a3c22d6e8a3f62d861b0a5",
+        "slot": 2
+      },
+      {
+        "ciphertextBytes": "eafb1dfcc9fd3d2afb6acf928d0cde56167e542ff83fba1b253c02780107167b09893f64dc15d67963c1",
+        "slot": 65535
+      },
+      {
+        "ciphertextBytes": "2cec7956c860c48233f53ff46f60b0523766107df6ce8c29892e24831931e6fae608755d21e081c0b86a",
+        "slot": 4294967295
+      }
+    ],
+    "tamperedRecoveredBytes": "8f61726974792f656e6372797074696f6e20706c61696e7465787420626c6f636b20626f756e64617279",
+    "truncatedRecoveredBytes": "7061726974792f65",
+    "wrongSaltRecoveredBytes": "34740940fd625fb4f5fb503c558bd67ebc5ed57e9525f087c96216691d07af59f310800c3c09e62ed122",
+    "wrongSlotRecoveredBytes": "2213e04be44cc6718d77bc3b2d5a50d589d01feda2f227ef7f95f8b1f5a07a5a867759c00f25d28f9a67"
+  },
+  "errors": {
+    "badPaddingBytes": "01c7f8c9e321f4a72847894e5e20dbc2b211ecb8dd6f7a51a5638d81008fd8955801",
+    "badPaddingError": {
+      "display": "invalid public key",
+      "variant": "InvalidPublicKey"
+    },
+    "badPointBytes": "0002590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9fa6",
+    "badPointError": {
+      "display": "invalid public key",
+      "variant": "InvalidPublicKey"
+    },
+    "badPrefixBytes": "0202590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+    "badPrefixError": {
+      "display": "invalid signature-type prefix: 2",
+      "variant": "InvalidSignatureType"
+    },
+    "fieldElementTooLongReachableFromPublicApi": false,
+    "notEd25519Error": {
+      "display": "signing key is not ed25519",
+      "variant": "NotEd25519"
+    },
+    "variants": [
+      {
+        "display": "invalid public key",
+        "variant": "InvalidPublicKey"
+      },
+      {
+        "display": "invalid secret key",
+        "variant": "InvalidSecretKey"
+      },
+      {
+        "display": "derived scalar is zero",
+        "variant": "ZeroScalar"
+      },
+      {
+        "display": "invalid signature-type prefix: 7",
+        "variant": "InvalidSignatureType"
+      },
+      {
+        "display": "signing key is not ed25519",
+        "variant": "NotEd25519"
+      },
+      {
+        "display": "HKDF expansion failed",
+        "variant": "Hkdf"
+      },
+      {
+        "display": "poseidon hash failed (code 3)",
+        "variant": "Poseidon"
+      },
+      {
+        "display": "field element input exceeds 32 bytes",
+        "variant": "FieldElementTooLong"
+      },
+      {
+        "display": "p256 prehash must be 32 bytes, got 31",
+        "variant": "InvalidPrehashLength"
+      },
+      {
+        "display": "key-schedule info exceeds 62 bytes",
+        "variant": "InfoTooLong"
+      }
+    ],
+    "wrongRailError": {
+      "display": "invalid signature-type prefix: 0",
+      "variant": "InvalidSignatureType"
+    }
+  },
+  "hashes": {
+    "hashFieldBytes": "1ceebca41e27a6aef63d4b9700ff646a3ed432295e16b51cbb60d18f3a5cb4e8",
+    "hashFieldZeroBytes": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+    "nonCanonicalInputBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "nonCanonicalInputRejected": true,
+    "nonCanonicalNullifierRejected": true,
+    "ownerHashBytes": "1526809238f25c4fa9cd6085100203018d582ec2b4cc51d697481e57c0c7a654",
+    "poseidonArities": [
+      {
+        "digestBytes": "0101e197e64d77dbdc3ed72148c669c95110864bd5d40189f78c6668835dc84c",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000101"
+        ]
+      },
+      {
+        "digestBytes": "053ce2393be17b1605bfabf7f13d9589aa291fcd57c7bb97c23f30b9afafec9a",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000201",
+          "0000000000000000000000000000000000000000000000000000000000000202"
+        ]
+      },
+      {
+        "digestBytes": "22347ae0b8816182ce4d144ce31245d8b368ab3ffd7b86b201d06cfd0ee0f254",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000301",
+          "0000000000000000000000000000000000000000000000000000000000000302",
+          "0000000000000000000000000000000000000000000000000000000000000303"
+        ]
+      },
+      {
+        "digestBytes": "0127156f5ad9d910dd2a3a1485a08b7bfb66c1c28418a426f24e3d535ed5ba9b",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000401",
+          "0000000000000000000000000000000000000000000000000000000000000402",
+          "0000000000000000000000000000000000000000000000000000000000000403",
+          "0000000000000000000000000000000000000000000000000000000000000404"
+        ]
+      },
+      {
+        "digestBytes": "2a86e20e1bf0f3854a3127a5b8b48dd833dbdb5a28b67d05e06ce18e3a8f8f67",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000501",
+          "0000000000000000000000000000000000000000000000000000000000000502",
+          "0000000000000000000000000000000000000000000000000000000000000503",
+          "0000000000000000000000000000000000000000000000000000000000000504",
+          "0000000000000000000000000000000000000000000000000000000000000505"
+        ]
+      },
+      {
+        "digestBytes": "0152de8c38563e5857fde080bf2d4271a3acb6447ba6fa5490c428f60d679150",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000601",
+          "0000000000000000000000000000000000000000000000000000000000000602",
+          "0000000000000000000000000000000000000000000000000000000000000603",
+          "0000000000000000000000000000000000000000000000000000000000000604",
+          "0000000000000000000000000000000000000000000000000000000000000605",
+          "0000000000000000000000000000000000000000000000000000000000000606"
+        ]
+      },
+      {
+        "digestBytes": "2aff3f241c9a38fc346d918b81c7036f8b7a36b9aa1a826a575d50a5a85c3520",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000701",
+          "0000000000000000000000000000000000000000000000000000000000000702",
+          "0000000000000000000000000000000000000000000000000000000000000703",
+          "0000000000000000000000000000000000000000000000000000000000000704",
+          "0000000000000000000000000000000000000000000000000000000000000705",
+          "0000000000000000000000000000000000000000000000000000000000000706",
+          "0000000000000000000000000000000000000000000000000000000000000707"
+        ]
+      },
+      {
+        "digestBytes": "179725785026fa86b4480ecd317b4225c8b8b1f0de37d2a6933d9ae588b1ec40",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000801",
+          "0000000000000000000000000000000000000000000000000000000000000802",
+          "0000000000000000000000000000000000000000000000000000000000000803",
+          "0000000000000000000000000000000000000000000000000000000000000804",
+          "0000000000000000000000000000000000000000000000000000000000000805",
+          "0000000000000000000000000000000000000000000000000000000000000806",
+          "0000000000000000000000000000000000000000000000000000000000000807",
+          "0000000000000000000000000000000000000000000000000000000000000808"
+        ]
+      },
+      {
+        "digestBytes": "23877a7f273c198e8de5576babb128713e24f1224b7871e51c9f7f4e5e4364b5",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000901",
+          "0000000000000000000000000000000000000000000000000000000000000902",
+          "0000000000000000000000000000000000000000000000000000000000000903",
+          "0000000000000000000000000000000000000000000000000000000000000904",
+          "0000000000000000000000000000000000000000000000000000000000000905",
+          "0000000000000000000000000000000000000000000000000000000000000906",
+          "0000000000000000000000000000000000000000000000000000000000000907",
+          "0000000000000000000000000000000000000000000000000000000000000908",
+          "0000000000000000000000000000000000000000000000000000000000000909"
+        ]
+      },
+      {
+        "digestBytes": "1a81261db30728688e53db20be6a27b83a73ea37d6b79b7e9331191ab51a08c7",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000a01",
+          "0000000000000000000000000000000000000000000000000000000000000a02",
+          "0000000000000000000000000000000000000000000000000000000000000a03",
+          "0000000000000000000000000000000000000000000000000000000000000a04",
+          "0000000000000000000000000000000000000000000000000000000000000a05",
+          "0000000000000000000000000000000000000000000000000000000000000a06",
+          "0000000000000000000000000000000000000000000000000000000000000a07",
+          "0000000000000000000000000000000000000000000000000000000000000a08",
+          "0000000000000000000000000000000000000000000000000000000000000a09",
+          "0000000000000000000000000000000000000000000000000000000000000a0a"
+        ]
+      },
+      {
+        "digestBytes": "0c958511ce9e14c3284fd770738ba298a32e29ecb3a22bd9f6e5170b4c47c46d",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000b01",
+          "0000000000000000000000000000000000000000000000000000000000000b02",
+          "0000000000000000000000000000000000000000000000000000000000000b03",
+          "0000000000000000000000000000000000000000000000000000000000000b04",
+          "0000000000000000000000000000000000000000000000000000000000000b05",
+          "0000000000000000000000000000000000000000000000000000000000000b06",
+          "0000000000000000000000000000000000000000000000000000000000000b07",
+          "0000000000000000000000000000000000000000000000000000000000000b08",
+          "0000000000000000000000000000000000000000000000000000000000000b09",
+          "0000000000000000000000000000000000000000000000000000000000000b0a",
+          "0000000000000000000000000000000000000000000000000000000000000b0b"
+        ]
+      },
+      {
+        "digestBytes": "1fc58f52e111ef6e9fbeda30cac2339e82a56462bb399da74b6c7ab15d03bb22",
+        "inputsBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000c01",
+          "0000000000000000000000000000000000000000000000000000000000000c02",
+          "0000000000000000000000000000000000000000000000000000000000000c03",
+          "0000000000000000000000000000000000000000000000000000000000000c04",
+          "0000000000000000000000000000000000000000000000000000000000000c05",
+          "0000000000000000000000000000000000000000000000000000000000000c06",
+          "0000000000000000000000000000000000000000000000000000000000000c07",
+          "0000000000000000000000000000000000000000000000000000000000000c08",
+          "0000000000000000000000000000000000000000000000000000000000000c09",
+          "0000000000000000000000000000000000000000000000000000000000000c0a",
+          "0000000000000000000000000000000000000000000000000000000000000c0b",
+          "0000000000000000000000000000000000000000000000000000000000000c0c"
+        ]
+      }
+    ],
+    "preimageBytes": "7061726974792f68617368",
+    "sha256BeBytes": "00fde0ba535335b170d8dc4bad41a02f51b9660a099eb39535b2046871e02c6a",
+    "sha256Bytes": "00fde0ba535335b170d8dc4bad41a02f51b9660a099eb39535b2046871e02c6a",
+    "splitHighBytes": "0000000000000000000000000000000000fde0ba535335b170d8dc4bad41a02f",
+    "splitLowBytes": "0000000000000000000000000000000051b9660a099eb39535b2046871e02c6a",
+    "tooManyInputsRejected": true,
+    "zeroInputsRejected": true
+  },
+  "merge": {
+    "ciphertextBytes": "6ca70870651a8b3e0a852acee464f9436b6261c82fd60ff45e66eccae4c09d919a67c8920640b2928c2b2e4bf1eb437a7738821432cf361bba87e324f78e92ccaa51ef8735d06a",
+    "ciphertextHashBytes": "17d3c25db0e51ad4552b0457947b3f8d0c615f34b7a664161167a69bea07a99d",
+    "emptyCiphertextHashRejected": true,
+    "fieldLimitedInfoBytes": "6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c",
+    "fieldLimitedInfoError": {
+      "display": "poseidon hash failed (code 7002)",
+      "variant": "Poseidon"
+    },
+    "overlongInfoBytes": "6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c",
+    "overlongInfoError": {
+      "display": "key-schedule info exceeds 62 bytes",
+      "variant": "InfoTooLong"
+    },
+    "plaintextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546",
+    "recoveredBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546",
+    "symmetric": [
+      {
+        "ciphertextBytes": "089db710dec5938102e9d7a2e9fd9cc248db1693e9a812f3c48e196696ce629e0f1cbb68bc48ce0d16ec70ad9a98175fa382be809c54fef5c6ed061fd422d4d295ccb61c7cee28",
+        "infoBytes": "",
+        "infoLength": 0,
+        "roundTripBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546"
+      },
+      {
+        "ciphertextBytes": "c35fffc6ca0450197635ce8720e26d08deda89519e85a56b00e22a9fdcb4140c287fbdb855f0e6f0513d96d8e2bf544c996f010f17001bbe227e2665c98dc249ed628ef20ae63a",
+        "infoBytes": "6c",
+        "infoLength": 1,
+        "roundTripBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546"
+      },
+      {
+        "ciphertextBytes": "ce872becca0023b46ce612023ca148c25ae6b3fd1ddb5d64a35b7a310473d234839a57d455e14f4d568702e837743ee733e51f16f501a10ab3e07443b847a4e8a8b9a9b5f95b1e",
+        "infoBytes": "6c6c6c6c6c6c6c6c6c6c",
+        "infoLength": 10,
+        "roundTripBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546"
+      },
+      {
+        "ciphertextBytes": "19e649ee65a064ca7ecd8c820c6425d71092f9922ff1fb924195b447b9c8341f4ef38ff4a48e3eaafda168c2d476631d439b8aea39ac94f4deb6dc675c6e795798d21665f5f5e7",
+        "infoBytes": "6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c",
+        "infoLength": 31,
+        "roundTripBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546"
+      },
+      {
+        "ciphertextBytes": "19c2c1a3b04dd38011c1cf491df6719e9aafe4f36fad9b509d0050f779de9f8b5bcd4b1431db56cf429a4bd300d33ef2031d56dfb4e80bb7777cf2bab874be5a5dc522e3720098",
+        "infoBytes": "6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c",
+        "infoLength": 32,
+        "roundTripBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546"
+      },
+      {
+        "ciphertextBytes": "991a8cbd2ee8f784d75d6d370f40d7b4e9541c5ebdc169be4e5ef971156eac05b51628b7bfd8cf89c18662a42f79c71765f2f8ab3f9b4c935bc3303541b361d8987260c83a0f03",
+        "infoBytes": "6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c",
+        "infoLength": 47,
+        "roundTripBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546"
+      }
+    ],
+    "symmetricSharedSecretBytes": "0058c6312a5a5ea4d46c929f3fb2f767b18d4a3978b5631d4e05a4d53faf478c",
+    "txSecretBytes": "1f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f9",
+    "txViewingPublicKeyBytes": "037bed4876638198685d05fb150a851c6f2d9c786401155cdf0d6e8df4765395d6",
+    "txViewingPublicKeyHighBytes": "00000000000000000000000000000000000000000000000000000000000095d6",
+    "txViewingPublicKeyLowBytes": "00037bed4876638198685d05fb150a851c6f2d9c786401155cdf0d6e8df47653",
+    "userPublicKeyBytes": "03d2b1a411534610409c6fc5240cde01ed2fa9e3f935d9597aea513dea169ce79d",
+    "userSecretBytes": "737b81898f979da5abb3b9c1c7cfd5dde3ebf1f9ff070d151b232931373f454d"
+  },
+  "note": "Every value is produced by the current zolana-keypair crate. Regenerate with UPDATE_KEYPAIR_VECTORS=1.",
+  "nullifierKeys": {
+    "direct": {
+      "maxBlindingNullifierBytes": "245f8229d0c459396daf21db63b5ce7b62b2c430a7a39c8d2f60bcdb329a9b0f",
+      "nullifierBytes": "0f3aaafbc66ba49275635f81532ac1581e4ad73bbdafcdafe1412ba182fbd337",
+      "publicKeyBytes": "0608480e96e028af0b6b24089cbd0715f75c4ad58c76f26261b44283181834e5",
+      "secretBytes": "05050505050505050505050505050505050505050505050505050505050505",
+      "zeroBlindingNullifierBytes": "137f568ce42b0def88e9ccfe3161fad23a4bee9be3de3959ed72cfc2887493e8",
+      "zeroUtxoNullifierBytes": "1d44fec4e4876601015a7fbf346a5014a71c769347b08af4d721607705a85484"
+    },
+    "fromSigningKey": {
+      "publicKeyBytes": "162161f3c64d0d40707662e0c43dd24c02ceb716d9b0bb289b3044f13395ce08",
+      "repeatsIdentically": true,
+      "secretBytes": "3e8f8e4317c89287dfa102474361df5a8c2be013b5f90185dc102e4bc039b8",
+      "signingSecretBytes": "151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef"
+    },
+    "ikmLengths": [
+      {
+        "ikmBytes": "",
+        "publicKeyBytes": "2647b06f9d9eb50dbbe3ce2e605d9f3752d01085d3f225b2616bd0cbd5620d9c",
+        "secretBytes": "44997b0c6f601862135d3214b43c6705525e3ae97703fff65c7c4e3bec191a"
+      },
+      {
+        "ikmBytes": "a7",
+        "publicKeyBytes": "25bad786c8032b86b5e36fbca8ace302ca823ef3f663998709570c95fb2d5c51",
+        "secretBytes": "ca14c08c78f759eb51dd88818f55b117993939f6688fb7f362af141d8e96ba"
+      },
+      {
+        "ikmBytes": "a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7",
+        "publicKeyBytes": "01d72b9f9849c54b848146e3230aa97634d0ede1875226926082cc51cd657883",
+        "secretBytes": "7084c8aa67fee59915a0382ad85831c4b2d2177205081dcb44cbc214aefd8a"
+      },
+      {
+        "ikmBytes": "a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7",
+        "publicKeyBytes": "266016e4ebc0b5c761b2ea0f9b07488aa265da3ed0ed6436fe41231e134b3bf0",
+        "secretBytes": "582199b1b0dc82c36639e67f1b735b60903fab4b065ba9955fbd3d7fa88b32"
+      },
+      {
+        "ikmBytes": "a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7",
+        "publicKeyBytes": "16ae9bc173ac0bd0f669013d1da536813425baaa528aea2348dd589bb81229ea",
+        "secretBytes": "08f6e844a17ad130be27d65ee224f3fbc303791330f752b10b485a4ce33858"
+      },
+      {
+        "ikmBytes": "a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7",
+        "publicKeyBytes": "04a92ff21bb0fd9c71901456083caf4095d5f04ea7a44fb0dc505a69c8a64999",
+        "secretBytes": "f7b994f005ccda4a2df9f262ce207071c2ee3f138bc90b7c0a32a1ac772b90"
+      }
+    ],
+    "maxSecret": {
+      "publicKeyBytes": "110efe7da9ba65f484ee1d298aa75ecb2cfff997d4ad174092fff9121bf0b4db"
+    },
+    "zeroSecret": {
+      "publicKeyBytes": "2a09a9fd93c590c26b91effbb2499f07e8f7aa12e2b4940a3aed2411cb65e11c",
+      "secretBytes": "00000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "pubkeys": {
+    "ed25519": {
+      "confidentialViewTagBytes": "c7f8c9e321f4a72847894e5e20dbc2b211ecb8dd6f7a51a5638d81008fd89558",
+      "hashBytes": "27fef11d8bb64efd63716ae5489dda4f3720c7e632c4749c7e498f446ff077b8",
+      "isZero": false,
+      "ownerPkFieldBytes": "27fef11d8bb64efd63716ae5489dda4f3720c7e632c4749c7e498f446ff077b8",
+      "rawBytes": "c7f8c9e321f4a72847894e5e20dbc2b211ecb8dd6f7a51a5638d81008fd89558",
+      "signatureType": "ed25519",
+      "taggedBytes": "01c7f8c9e321f4a72847894e5e20dbc2b211ecb8dd6f7a51a5638d81008fd8955800"
+    },
+    "equality": {
+      "crossRailEqual": false,
+      "differentKeyEqual": false,
+      "sameKeyEqual": true
+    },
+    "p256": {
+      "compressedBytes": "02590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+      "confidentialViewTagBytes": "590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+      "hashBytes": "2c3d759a995e839bd50b254e1a73eaef8a30f8c1151bd1020079fe9593f8a826",
+      "isZero": false,
+      "ownerPkFieldBytes": "24420fd152b32291bb0b1fdb004cd5f302c252e315d5ff3a1aef63f7cb6277b5",
+      "signatureType": "p256",
+      "taggedBytes": "0002590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+      "xBytes": "590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+      "yIsOdd": false
+    },
+    "signatureTypeBytes": {
+      "ed25519": 1,
+      "p256": 0
+    },
+    "zeroed": {
+      "isZero": true,
+      "taggedBytes": "00000000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "schema": "zolana-keypair-parity-v1",
+  "shielded": {
+    "ed25519": {
+      "derived": {
+        "addressOwnerHashBytes": "14d42dc0f852e3c3a1efe81adcf4b2f8669c0cc0ccbae14f833355db5db0b26e",
+        "compressedHashBytes": "2d6f57c6b761d062f5cf6c5f94dfe503f10249e6ad05183da8e96d938559474a",
+        "compressedOwnerHashBytes": "14d42dc0f852e3c3a1efe81adcf4b2f8669c0cc0ccbae14f833355db5db0b26e",
+        "compressedViewingPublicKeyBytes": "02e51fbdaf8ce9c4469a8d01e96a93f1e4f794a67d94c28ddf7fb26c2438b2a13b",
+        "confidentialViewTagBytes": "c7f8c9e321f4a72847894e5e20dbc2b211ecb8dd6f7a51a5638d81008fd89558",
+        "nullifierBytes": "09afa6475182a6504041d989c656fc748d1b941ea1846e18d4d7bbeabe195ab0",
+        "nullifierPublicKeyBytes": "2fa0a93c12bf84dad2c8cfe2be48efdc005db01de5db361e1d527e47c7b2bf3b",
+        "ownerHashBytes": "14d42dc0f852e3c3a1efe81adcf4b2f8669c0cc0ccbae14f833355db5db0b26e",
+        "signingPublicKeyBytes": "01c7f8c9e321f4a72847894e5e20dbc2b211ecb8dd6f7a51a5638d81008fd8955800",
+        "solanaAddress": "ETcAPCraQpLhWhjz9cy2f673jyZYmKHRKnyz62FWHFjD",
+        "viewingPublicKeyBytes": "02e51fbdaf8ce9c4469a8d01e96a93f1e4f794a67d94c28ddf7fb26c2438b2a13b"
+      },
+      "signingSecretBytes": "3f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b1119",
+      "solanaKeypairSecretBytes": "3f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b1119",
+      "viewingAccount": 0
+    },
+    "fromKeysDerivesNullifierFromSigningSecret": true,
+    "p256": {
+      "derived": {
+        "addressOwnerHashBytes": "1c0243bf472ec5bed2059ec4666afda212ae431f89fa0700e0344fec835cec85",
+        "compressedHashBytes": "1f0c70cd5009cc78b701d7262ea651319f28ba3a5a4b67226e91880c76b0adfe",
+        "compressedOwnerHashBytes": "1c0243bf472ec5bed2059ec4666afda212ae431f89fa0700e0344fec835cec85",
+        "compressedViewingPublicKeyBytes": "03be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3",
+        "confidentialViewTagBytes": "590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+        "nullifierBytes": "2ee5571bc2d682d0f7c5ed80da34aa37a4ef9ea73ede2933d86a681051ac123a",
+        "nullifierPublicKeyBytes": "162161f3c64d0d40707662e0c43dd24c02ceb716d9b0bb289b3044f13395ce08",
+        "ownerHashBytes": "1c0243bf472ec5bed2059ec4666afda212ae431f89fa0700e0344fec835cec85",
+        "signingPublicKeyBytes": "0002590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+        "solanaAddress": null,
+        "viewingPublicKeyBytes": "03be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3"
+      },
+      "signingSecretBytes": "151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef",
+      "viewingSecretBytes": "4d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f27"
+    }
+  },
+  "signing": {
+    "ed25519": {
+      "emptyMessageSignatureBytes": "65996a8d2ec433ad3aae13bb85a7891a0258d80af776824bf92bd766af1503fdb78790dab857c5f47d4098000c46a3d79da08369733995c3a117a8ebcc81110d",
+      "emptyMessageVerified": true,
+      "isEd25519": true,
+      "messageBytes": "7061726974792f65643235353139206d657373616765",
+      "publicKeyBytes": "01c7f8c9e321f4a72847894e5e20dbc2b211ecb8dd6f7a51a5638d81008fd8955800",
+      "secretBytes": "3f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b1119",
+      "secretRoundTripBytes": "3f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b1119",
+      "signatureBytes": "7367bc0879691713716f5c4b9396d3376356b53726eed02ddc84549262b039c127f11b873a6d41f5454a55e683f470a01d319130c25034939bb9d785a6f27102",
+      "verified": true,
+      "wrongMessageVerified": false
+    },
+    "invalidSecretBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+    "invalidSecretError": {
+      "display": "invalid secret key",
+      "variant": "InvalidSecretKey"
+    },
+    "p256": {
+      "emptyPrehashError": {
+        "display": "p256 prehash must be 32 bytes, got 0",
+        "variant": "InvalidPrehashLength"
+      },
+      "isEd25519": false,
+      "longPrehashError": {
+        "display": "p256 prehash must be 32 bytes, got 33",
+        "variant": "InvalidPrehashLength"
+      },
+      "messageBytes": "914318a02181767f66686e68d4e73b1bf2c91730fa3436a0b2ca32ca1e9fe828",
+      "negatedSVerified": true,
+      "publicKeyBytes": "0002590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+      "secretBytes": "151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef",
+      "secretRoundTripBytes": "151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef",
+      "shortPrehashError": {
+        "display": "p256 prehash must be 32 bytes, got 31",
+        "variant": "InvalidPrehashLength"
+      },
+      "signatureBytes": "64627f132daca32b2d6775a700c589d5ed635c690e687263c0ef4f8aee9809070f8084ebf0c502d5f643fbee9da3c999338d9815cb3217ad251b4dbc2454970a",
+      "verified": true,
+      "wrongMessageVerified": false
+    }
+  },
+  "source": "sdk-libs/keypair/tests/parity_vectors.rs",
+  "viewingKeys": {
+    "bootstrapTagBytes": "be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3",
+    "counterpartyPublicKeyBytes": "02fb274331a8163409c3c6bb3c68cfd3be64392cac14788a3c7a0f11abd207c0af",
+    "counterpartySecretBytes": "a1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f272d353b434951575f656d737b",
+    "ecdhBytes": "5f163071cb484568bf610ce109b6c9b8bd88a90133e2e412fa3964affc7b3681",
+    "ecdhWithPConstBytes": "00abc82618bb404a3d08a8e78117ff3ae006dba956c44e1ef59d573c9a5e56d8",
+    "firstNullifierBytes": "007dd05cbd46d1f732d2b4ad63d9c05143058464b242d8592b5bf7f5a8444201",
+    "invalidSecretError": {
+      "display": "invalid secret key",
+      "variant": "InvalidSecretKey"
+    },
+    "publicKeyBytes": "03be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3",
+    "secretBytes": "4d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f27",
+    "seedBytes": "d9e1e7eff5fd030b11191f272d353b434951575f656d737b81898f979da5abb3",
+    "seeded": [
+      {
+        "account": 0,
+        "publicKeyBytes": "03db048948c761e0e5322177d3ab00817d2091eb8ad78b8f3f8dee10900e55e24b",
+        "secretBytes": "b60d01fe2b4c1c7392996adad60cb6981e9ebdb8aecc75d7809e794b6b910a8f"
+      },
+      {
+        "account": 1,
+        "publicKeyBytes": "03413acb11b5d3380624f933e85be9ba040ceef187494035ce3ff6e6a70ac3c748",
+        "secretBytes": "f3a13f7fca2b3eb7e2863f5d6e091fc9d2dd188874cd2c762f4c2f9793182ad4"
+      },
+      {
+        "account": 7,
+        "publicKeyBytes": "02216eb58966c3231ce17a451828027c53082224cca6e8488644738293bd6c82b3",
+        "secretBytes": "7e3e93ce338b37f7fe1a9dca7625428740511b82bc37032fd455ee989b0f9dd5"
+      },
+      {
+        "account": 4294967295,
+        "publicKeyBytes": "0274c3a5497cbda58273b111f9befb9c94e9471de609fcccfe0dd7eda6211fbbda",
+        "secretBytes": "6333e08fb0d525c60bbdb659e0036d51f0a54cd28d049d75bf0d31d6ed6c8735"
+      }
+    ],
+    "sharedTagsAgree": true,
+    "tags": [
+      {
+        "counter": "0",
+        "mergeBytes": "00f87fdc8b96a5b08a6e5290e3e7cc650b8229848c6c697c176edb114b661cf6",
+        "recipientRequestBytes": "00b98cd9216815edb3320e237648cc67fb9c2ddf2558d9d50bf40e0c4ecaf46d",
+        "recipientSharedBytes": "002a6b4256ae5572c7b16d70fa6c6617bdae8c60782a9094ed47a3ef6a1b2de3",
+        "sendSharedBytes": "004e000a8764edca03fb5f582a4b7e548012bc8f28711f766825fdec04ef4da4",
+        "senderBytes": "00ca2c29c034a537c4ec53a6f186a91c3480dd64c21b1998b5efb8e0bbc13c25"
+      },
+      {
+        "counter": "1",
+        "mergeBytes": "00d3e7351c73a54cc430d06769ea89435a82f5f0d882d39bf069d12d04bf2961",
+        "recipientRequestBytes": "00f7e14ca6b95b81d8e8787d9ef45e6199100c8fde95c5c240b12155d6fa6ef5",
+        "recipientSharedBytes": "00bbf2919c435c1153049d83d3583f0546cdd9327e5080f3ba23130f4eff3ac7",
+        "sendSharedBytes": "00869795bf1719326e4446955abcb7b6ddec87f4da5c52d43d2795bcfda43ad6",
+        "senderBytes": "0099e198b2fa424cd44f539a34c396f0f0e2088bf6ac08f5849f33aba2f6fee0"
+      },
+      {
+        "counter": "42",
+        "mergeBytes": "00373660da356ea297747e0ea441c2139a171d5297b343f7b110cc1104d7cffa",
+        "recipientRequestBytes": "00349788cdb3d3317b38b265d4c5cdb80239fe31d036adb0eda05220ef90c925",
+        "recipientSharedBytes": "001aed55e21f0b55de19abda0254a555a6a057a177829c2c4bb3d6021480e805",
+        "sendSharedBytes": "00eac30951da4fb03c0aa458e68d83942fac3f56e9fa3f186b349e64a1962472",
+        "senderBytes": "003468bb420bc6e7fbb7d0bea5c1748f13f9d6352789b83d59e39fad0799931d"
+      },
+      {
+        "counter": "18446744073709551615",
+        "mergeBytes": "00de4afe3750552c6878d2ac34beb905304a506b0a19866f61ab18251aa3b9b9",
+        "recipientRequestBytes": "0090f0135c12a89f1593729d9ec5372e94552ccfd742f72374ec3019b3c56c0a",
+        "recipientSharedBytes": "00eddebba1ba1236a1a1b7212f54cc8883a77b8a09d56fe0ec7bda2a5502c398",
+        "sendSharedBytes": "007b5369c142dd9ddde54deba10efd1abf6cfa574e886377db5a9c7511d87938",
+        "senderBytes": "00dbeb766e18f4c6040bcd4885b74e17523398bbe40994207f9e947431639a37"
+      }
+    ],
+    "transactionPublicKeyBytes": "02a510d13903943abfda2c39559d6d6d58f704c7e5490e2225c0060833888f03fa",
+    "transactionSecretBytes": "907da0920687b55253204074d61e3aa377e6b8ac5039858a8e9d8754672bac7e"
+  }
+}

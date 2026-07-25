@@ -28,6 +28,12 @@
       "browser": "./dist/hash/index.js",
       "import": "./dist/hash/index.js",
       "default": "./dist/hash/index.js"
+    },
+    "./traits": {
+      "types": "./dist/traits/index.d.ts",
+      "browser": "./dist/traits/index.js",
+      "import": "./dist/traits/index.js",
+      "default": "./dist/traits/index.js"
     }
   },
   "scripts": {

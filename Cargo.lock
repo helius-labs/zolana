@@ -6210,6 +6210,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "solana-account 2.2.1",
+ "solana-account 3.4.0",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",
  "solana-instruction 2.3.3",
@@ -6233,6 +6234,7 @@ dependencies = [
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
+ "zolana-user-registry-interface",
  "zolana-wallet",
 ]
 
@@ -11674,6 +11676,7 @@ dependencies = [
  "hkdf",
  "p256",
  "rand 0.8.7",
+ "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-keypair",

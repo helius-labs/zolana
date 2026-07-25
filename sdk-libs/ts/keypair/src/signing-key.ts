@@ -10,7 +10,7 @@ import {
   copyBytes,
   randomBytes,
 } from "./bytes.js";
-import { KeypairError, invalidLength, wrapKeypairError } from "./error.js";
+import { KeypairError, wrapKeypairError } from "./error.js";
 import { P256PublicKey, ShieldedPublicKey, type SignatureType } from "./public-key.js";
 
 export type EcdsaSignature = Bytes64;
@@ -87,6 +87,15 @@ export class SigningKey {
     return new SigningKey(checkedBytes<Bytes32>(bytes, 32, "Ed25519 signing secret"), "ed25519");
   }
 
+  /** Mirrors `SigningKey::is_ed25519`: which rail this key signs on. */
+  isEd25519(): boolean {
+    return this.#type === "ed25519";
+  }
+
+  signatureType(): SignatureType {
+    return this.#type;
+  }
+
   publicKey(): ShieldedPublicKey {
     this.#assertUsable();
     if (this.#type === "p256") {
@@ -99,7 +108,12 @@ export class SigningKey {
     this.#assertUsable();
     try {
       if (this.#type === "p256") {
-        if (message.length !== 32) throw invalidLength("P256 message digest", 32, message.length);
+        if (message.length !== 32) {
+          throw new KeypairError("KEYPAIR_INVALID_PREHASH_LENGTH", {
+            expected: 32,
+            actual: message.length,
+          });
+        }
         // The circuit range-checks s against the curve order only, so s above
         // n/2 is valid and must not be normalized into the lower half.
         return p256.sign(message, this.#secret, {
@@ -110,7 +124,7 @@ export class SigningKey {
       }
       return ed25519.sign(message, this.#secret) as Bytes64;
     } catch (error) {
-      throw wrapKeypairError("KEYPAIR_INVALID_SIGNATURE", error);
+      throw wrapKeypairError("KEYPAIR_INVALID_SECRET_KEY", error);
     }
   }
 
