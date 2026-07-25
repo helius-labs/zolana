@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+# The port added seven binaries under `src/bin`, which made the bare
+# `cargo run -p xtask -- program-ids` the localnet recipes rely on ambiguous.
+# Those recipes `eval` its output, so the failure surfaced only as an unset
+# SHIELDED_POOL_PROGRAM_ID minutes later.
+default-run = "xtask"
 
 [dependencies]
 anyhow = { workspace = true }
