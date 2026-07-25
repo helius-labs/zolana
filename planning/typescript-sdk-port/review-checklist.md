@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `7116c995542496f4265840b10a83513dc263ac29`
+- Review HEAD: `176509028d7367ff9bcaaa7aaf8968ff745a0658`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `33 done / 118 total`; `48 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `T23 sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs`
+- Progress: `33 done / 118 total`; `49 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `T24 sdk-libs/transaction/src/instructions/transact/split.rs`
 - Active reviews: `none`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
@@ -241,7 +241,7 @@ Columns:
 | T20 | `sdk-libs/transaction/src/instructions/transact/shape.rs` | `transaction/src/transact/index.ts` | needs_fix | DIVERGENT | proposed | The canonical immutable interface shape table and TypeScript selection match Rust, but TypeScript conflates `TooManyOutputsForShape`, treats malformed falsy declarations as omission, and lacks exhaustive boundary, error, declaration, runtime, and pack evidence. Align those TypeScript semantics and evidence while preserving I02 interface shape ownership; no Rust implementation change is required, though direct Rust tests are missing. | 2026-07-25 review | - |
 | T21 | `sdk-libs/transaction/src/instructions/transact/external_data.rs` | `transaction/src/instructions/transact.ts` | needs_fix | PARTIAL | proposed | The canonical hash preimage matches the spec and current interface, but TypeScript omits Rust constructor defaults, builders, and duplicate errors; retains optional hashes and arrays without complete defensive copies or freezing; has inconsistent malformed-input errors; and lacks root, subpath, export, boundary, property, tamper, and current-Rust fixture evidence. First replace Rust's unchecked `u16` casts with checked conversions and named errors, then align TypeScript and its evidence while preserving I11 ownership of canonical `externalDataHash`. | 2026-07-25 review | - |
 | T22 | `sdk-libs/transaction/src/instructions/transact/slots.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | TypeScript has only an internal wallet adaptation and omits the public Rust slot struct and two helpers; runtime, copy, error, and export evidence is incomplete. Both implementations mirror one ciphertext per output, conflicting with `docs/spec.md` sender-bundle and recipient-ordinal mapping. First correct Rust's layout per spec, use checked slot conversion, and reject inconsistent hash-only output contexts; then align TypeScript without taking authority or serialization ownership from T13 or T03-T10. | 2026-07-25 review | - |
-| T23 | `sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
+| T23 | `sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | Core current-Rust proof assembly and frozen prover vectors match, but the public helper and `PublicAmounts` API disposition is incomplete; constructor, signature, error, mutation, and real-before-dummy validation differ; and boundary, property, tamper, declaration, and pack evidence is incomplete. Resolve the `docs/spec.md` P256 input-owner conflict with Rust, Go, and TypeScript behavior and add canonical BN254 validation to Rust before aligning the TypeScript API and evidence, while preserving client/prover and T19 ownership. | 2026-07-25 review | - |
 | T24 | `sdk-libs/transaction/src/instructions/transact/split.rs` | `transaction/src/instructions/builders.ts` | todo | - | none | - | - | - |
 | T25 | `sdk-libs/transaction/src/instructions/transact/transfer.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
 | T26 | `sdk-libs/transaction/src/instructions/transact/mod.rs` | `transaction/src/transact/index.ts` | todo | - | none | - | - | - |
@@ -1487,3 +1487,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `33/118`; package `0/31`
 - Exact next file: `T23 sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs`
 - Full SDK parity claim: unsupported; slot layout, public API, runtime, ownership, error, export, and current-Rust evidence diverge
+
+### 2026-07-25 12:38 UTC | T23 | `sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs`
+
+- Baseline: HEAD `176509028d7367ff9bcaaa7aaf8968ff745a0658`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module owns transaction proof-input assembly and its public transaction helpers. Client/prover retain prover transport and proof-generation ownership, and T19 retains aggregate transaction-input ownership.
+- Evidence: Core current-Rust proof assembly and frozen prover vectors match. The public helper and `PublicAmounts` API disposition is incomplete; constructor, signature, error, mutation, and real-before-dummy validation differ; and boundary, property, tamper, declaration, and pack evidence is incomplete.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Resolve the `docs/spec.md` P256 input-owner field conflict with current Rust, Go, and TypeScript behavior, and add canonical BN254 validation to Rust. Then align the TypeScript API, validation, errors, ownership, and evidence without taking client/prover or T19 ownership.
+- Row transition: `todo -> needs_fix`
+- Progress: `33/118`; package `0/31`
+- Exact next file: `T24 sdk-libs/transaction/src/instructions/transact/split.rs`
+- Full SDK parity claim: unsupported; public API, validation, errors, mutation, spec, BN254, and boundary/property/tamper/declaration/pack evidence diverge
