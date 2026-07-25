@@ -18,7 +18,9 @@ pub(crate) fn wallet_shield_fields(
     let blinding = derive_blinding(blinding_seed, position);
     let owner = recipient.owner_hash().map_err(TransactionError::from)?;
     Ok(WalletShieldFields {
-        view_tag: recipient.viewing_pubkey.x(),
+        view_tag: recipient
+            .confidential_view_tag()
+            .map_err(TransactionError::from)?,
         owner,
         blinding,
     })

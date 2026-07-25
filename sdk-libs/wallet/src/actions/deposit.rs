@@ -48,7 +48,9 @@ impl Deposit {
         // needs no shared secret and the recipient spends the note directly.
         let owner = request.recipient.owner_hash()?;
         let blinding = random_blinding();
-        let view_tag = request.recipient.viewing_pubkey.x();
+        // Every output is tagged by its owner pubkey, so discovery keys on the
+        // recipient's signing key, not its viewing key.
+        let view_tag = request.recipient.confidential_view_tag()?;
         let utxo_hash =
             ProofInputUtxo::new(owner, &request.asset, request.amount, &blinding)?.hash()?;
         let spl = spl_accounts(request.asset, request.spl_token_account)?;
@@ -299,11 +301,34 @@ mod tests {
         })
         .expect("prepared deposit");
 
-        assert_eq!(prepared.data.view_tag, recipient.viewing_pubkey().x());
         assert_eq!(prepared.data.amount, 1_000);
         assert_ne!(prepared.data.blinding, [0u8; 31]);
         assert_ne!(prepared.data.owner, [0u8; 32]);
         assert_ne!(prepared.utxo_hash, [0u8; 32]);
+    }
+
+    /// A deposit tagged by anything other than the owner signing pubkey is
+    /// invisible to a wallet that scans only what the spec defines, and nothing
+    /// on the write path rejects it. Pin both halves so a return to the viewing
+    /// key fails here instead of silently losing deposits.
+    #[test]
+    fn deposit_tags_the_recipient_signing_pubkey() {
+        let recipient = ShieldedKeypair::new().unwrap();
+        let recipient_address = recipient.shielded_address().unwrap();
+        let prepared = create_deposit(DepositParams {
+            recipient: &recipient_address,
+            asset: SOL_MINT,
+            amount: 1_000,
+            spl_token_account: None,
+            memo: None,
+        })
+        .expect("prepared deposit");
+
+        assert_eq!(
+            prepared.view_tag(),
+            recipient_address.confidential_view_tag().unwrap()
+        );
+        assert_ne!(prepared.view_tag(), recipient.viewing_pubkey().x());
     }
 
     #[tokio::test]
