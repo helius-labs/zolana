@@ -24,8 +24,13 @@ use zolana_transaction::{
     derive_blinding, instructions::transact::canonical_shape, AssetRegistry, Data, DataRecord,
 };
 
+/// The frozen plan baseline. It pins history the fixtures quote -- the 182-path
+/// `sdk-libs` inventory, `docs/spec.md`, the proving-key lockfile -- and so it
+/// does not move when the port changes a source the fixtures are generated
+/// from. Those live pins are the three below.
 const HISTORICAL_BASELINE_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
-const INTERFACE_SHA: &str = "14ad30017ef5b512548f65284eae0212684d8197";
+const BASELINE_SHA: &str = "e51ad12bda102d1c7649411a985b0b4c3f6707c2";
+const INTERFACE_SHA: &str = "7060d2d5f708a9333202c59edccd82a522d17992";
 const MERKLE_SHA: &str = "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
@@ -136,24 +141,11 @@ fn run() -> Result<()> {
 }
 
 fn generate_current_client_fixtures(root: &Path, check: bool) -> Result<()> {
-    let revision = command_text(
-        root,
-        "git",
-        &["log", "-1", "--format=%H", "--", "sdk-libs/client/src"],
-    )?;
+    let revision = current_client_revision(root)?;
     let vectors = production_client_vectors(root)?;
-    let fixtures = client_fixtures(root, &vectors)?
+    let fixtures = stamp_current_client(client_fixtures(root, &vectors)?, &revision)
         .into_iter()
-        .filter(|(path, _)| {
-            matches!(
-                *path,
-                "client/errors-v1.json" | "client/lib.json" | "client/rpc-indexer-v1.json"
-            )
-        })
-        .map(|(path, mut fixture)| {
-            fixture["sourceRevision"] = Value::String(revision.trim().to_string());
-            (path, fixture)
-        })
+        .filter(|(path, _)| CURRENT_CLIENT_FIXTURES.contains(path))
         .collect::<Vec<_>>();
     let fixtures_root = root.join("sdk-libs/ts/fixtures");
 
@@ -164,7 +156,7 @@ fn generate_current_client_fixtures(root: &Path, check: bool) -> Result<()> {
                 bail!("current client fixture differs: {path}");
             }
         }
-        verify_current_client_manifest(&fixtures_root, revision.trim(), &fixtures)?;
+        verify_current_client_manifest(&fixtures_root, &revision, &fixtures)?;
         println!("verified {} current client fixtures", fixtures.len());
         return Ok(());
     }
@@ -174,7 +166,7 @@ fn generate_current_client_fixtures(root: &Path, check: bool) -> Result<()> {
     }
     let manifest_path = fixtures_root.join("manifest.json");
     let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path)?)?;
-    manifest["canonicalSourceRevisions"]["client"] = Value::String(revision.trim().to_string());
+    manifest["canonicalSourceRevisions"]["client"] = Value::String(revision.clone());
     let entries = manifest["files"]
         .as_array_mut()
         .ok_or_else(|| anyhow::anyhow!("manifest files is not an array"))?;
@@ -189,6 +181,41 @@ fn generate_current_client_fixtures(root: &Path, check: bool) -> Result<()> {
     write_json(&manifest_path, &manifest)?;
     println!("generated {} current client fixtures", fixtures.len());
     Ok(())
+}
+
+/// The three client fixtures that track the latest committed `sdk-libs/client`
+/// rather than a pinned revision, because the client is under active review.
+/// Both generation modes stamp them, so `--check` verifies the same bytes
+/// `--current-client` writes; stamping in only one mode left the committed
+/// fixtures unreproducible by the mode CI runs.
+const CURRENT_CLIENT_FIXTURES: [&str; 3] = [
+    "client/errors-v1.json",
+    "client/lib.json",
+    "client/rpc-indexer-v1.json",
+];
+
+fn current_client_revision(root: &Path) -> Result<String> {
+    let revision = command_text(
+        root,
+        "git",
+        &["log", "-1", "--format=%H", "--", "sdk-libs/client/src"],
+    )?;
+    Ok(revision.trim().to_string())
+}
+
+fn stamp_current_client(
+    fixtures: Vec<(&'static str, Value)>,
+    revision: &str,
+) -> Vec<(&'static str, Value)> {
+    fixtures
+        .into_iter()
+        .map(|(path, mut fixture)| {
+            if CURRENT_CLIENT_FIXTURES.contains(&path) {
+                fixture["sourceRevision"] = Value::String(revision.to_string());
+            }
+            (path, fixture)
+        })
+        .collect()
 }
 
 fn verify_current_client_manifest(
@@ -226,11 +253,7 @@ fn workspace_root() -> Result<PathBuf> {
 
 fn assert_frozen_sources(root: &Path) -> Result<()> {
     for (name, revision, paths) in [
-        (
-            "baseline",
-            HISTORICAL_BASELINE_SHA,
-            BASELINE_SOURCE_PATHS.as_slice(),
-        ),
+        ("baseline", BASELINE_SHA, BASELINE_SOURCE_PATHS.as_slice()),
         (
             "interface",
             INTERFACE_SHA,
@@ -398,7 +421,7 @@ fn generate(root: &Path, out: &Path, inventory: &[InventoryRow]) -> Result<()> {
     }
     write_inventory_report(&out.join("reports/inventory.json"), inventory)?;
     write_manifest(root, &fixtures)?;
-    verify_manifest(&fixtures)?;
+    verify_manifest(&fixtures, &current_client_revision(root)?)?;
     write_packet_report(out, inventory)?;
     Ok(())
 }
@@ -791,7 +814,10 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     fixtures.extend(keypair_fixtures(&keypair_vectors)?);
     fixtures.extend(transaction_fixtures(&transaction_vectors)?);
     fixtures.push(api_fixture(&api_vectors)?);
-    fixtures.extend(client_fixtures(root, &client_vectors)?);
+    fixtures.extend(stamp_current_client(
+        client_fixtures(root, &client_vectors)?,
+        &current_client_revision(root)?,
+    ));
     fixtures.extend(instruction_workflow_fixtures(&client_vectors)?);
     fixtures.extend(wallet_fixtures(&wallet_vectors)?);
     fixtures.extend(workflow_fixtures(&wallet_vectors)?);
@@ -2464,7 +2490,8 @@ fn write_manifest(root: &Path, fixtures: &Path) -> Result<()> {
         &json!({
             "files":entries.into_iter().map(|(path, sha256)| json!({"path":path,"sha256":sha256})).collect::<Vec<_>>(),
             "canonicalSourceRevisions":{
-                "baseline":HISTORICAL_BASELINE_SHA,
+                "baseline":BASELINE_SHA,
+                "client":current_client_revision(root)?,
                 "interface":INTERFACE_SHA,
                 "merkleTree":MERKLE_SHA
             },
@@ -2763,11 +2790,12 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
     )
 }
 
-fn verify_manifest(fixtures: &Path) -> Result<()> {
+fn verify_manifest(fixtures: &Path, client_revision: &str) -> Result<()> {
     let manifest: Value = serde_json::from_slice(&fs::read(fixtures.join("manifest.json"))?)?;
     if manifest["frozenCommit"] != HISTORICAL_BASELINE_SHA
         || manifest["historicalBaselineCommit"] != HISTORICAL_BASELINE_SHA
-        || manifest["canonicalSourceRevisions"]["baseline"] != HISTORICAL_BASELINE_SHA
+        || manifest["canonicalSourceRevisions"]["baseline"] != BASELINE_SHA
+        || manifest["canonicalSourceRevisions"]["client"] != client_revision
         || manifest["canonicalSourceRevisions"]["interface"] != INTERFACE_SHA
         || manifest["canonicalSourceRevisions"]["merkleTree"] != MERKLE_SHA
         || manifest["schema"] != FIXTURE_SCHEMA

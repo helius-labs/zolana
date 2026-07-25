@@ -3,7 +3,143 @@
     "dummy": {
       "hashBytes": "27d80a9a35f8ad0309444a2d925743ee7201fb9bbeeb7fa5457247ad17f33226",
       "isDummy": true,
-      "nullifierBytes": "0cc40617eb862a87232d2188c2e4c4202bf3b4091567c18d6b4e4c0c2117e3e9"
+      "nullifierBytes": "0cc40617eb862a87232d2188c2e4c4202bf3b4091567c18d6b4e4c0c2117e3e9",
+      "nullifierSecretBytes": "00000000000000000000000000000000000000000000000000000000000000",
+      "rejected": [
+        {
+          "dataHashBytes": null,
+          "error": {
+            "code": "NoncanonicalDummyInput",
+            "details": "NoncanonicalDummyInput { field: \"asset\" }"
+          },
+          "nullifierSecretBytes": "00000000000000000000000000000000000000000000000000000000000000",
+          "utxo": {
+            "amount": "0",
+            "assetBytes": "0707070707070707070707070707070707070707070707070707070707070707",
+            "blindingBytes": "d9a9bf53cddf75b0f676cc11c1c054bcc878889fb412d14b669e9bc52ee11e",
+            "data": [],
+            "ownerBytes": "00000000000000000000000000000000000000000000000000000000000000000000",
+            "zoneProgramIdBytes": null
+          },
+          "zoneDataHashBytes": null
+        },
+        {
+          "dataHashBytes": null,
+          "error": {
+            "code": "NoncanonicalDummyInput",
+            "details": "NoncanonicalDummyInput { field: \"amount\" }"
+          },
+          "nullifierSecretBytes": "00000000000000000000000000000000000000000000000000000000000000",
+          "utxo": {
+            "amount": "1",
+            "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+            "blindingBytes": "d9a9bf53cddf75b0f676cc11c1c054bcc878889fb412d14b669e9bc52ee11e",
+            "data": [],
+            "ownerBytes": "00000000000000000000000000000000000000000000000000000000000000000000",
+            "zoneProgramIdBytes": null
+          },
+          "zoneDataHashBytes": null
+        },
+        {
+          "dataHashBytes": null,
+          "error": {
+            "code": "NoncanonicalDummyInput",
+            "details": "NoncanonicalDummyInput { field: \"data\" }"
+          },
+          "nullifierSecretBytes": "00000000000000000000000000000000000000000000000000000000000000",
+          "utxo": {
+            "amount": "0",
+            "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+            "blindingBytes": "d9a9bf53cddf75b0f676cc11c1c054bcc878889fb412d14b669e9bc52ee11e",
+            "data": [
+              {
+                "bytes": "010203",
+                "tag": "UtxoData",
+                "tagByte": "2"
+              }
+            ],
+            "ownerBytes": "00000000000000000000000000000000000000000000000000000000000000000000",
+            "zoneProgramIdBytes": null
+          },
+          "zoneDataHashBytes": null
+        },
+        {
+          "dataHashBytes": null,
+          "error": {
+            "code": "NoncanonicalDummyInput",
+            "details": "NoncanonicalDummyInput { field: \"zone_program_id\" }"
+          },
+          "nullifierSecretBytes": "00000000000000000000000000000000000000000000000000000000000000",
+          "utxo": {
+            "amount": "0",
+            "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+            "blindingBytes": "d9a9bf53cddf75b0f676cc11c1c054bcc878889fb412d14b669e9bc52ee11e",
+            "data": [],
+            "ownerBytes": "00000000000000000000000000000000000000000000000000000000000000000000",
+            "zoneProgramIdBytes": "0808080808080808080808080808080808080808080808080808080808080808"
+          },
+          "zoneDataHashBytes": null
+        },
+        {
+          "dataHashBytes": "0909090909090909090909090909090909090909090909090909090909090909",
+          "error": {
+            "code": "NoncanonicalDummyInput",
+            "details": "NoncanonicalDummyInput { field: \"data_hash\" }"
+          },
+          "nullifierSecretBytes": "00000000000000000000000000000000000000000000000000000000000000",
+          "utxo": {
+            "amount": "0",
+            "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+            "blindingBytes": "d9a9bf53cddf75b0f676cc11c1c054bcc878889fb412d14b669e9bc52ee11e",
+            "data": [],
+            "ownerBytes": "00000000000000000000000000000000000000000000000000000000000000000000",
+            "zoneProgramIdBytes": null
+          },
+          "zoneDataHashBytes": null
+        },
+        {
+          "dataHashBytes": null,
+          "error": {
+            "code": "NoncanonicalDummyInput",
+            "details": "NoncanonicalDummyInput { field: \"zone_data_hash\" }"
+          },
+          "nullifierSecretBytes": "00000000000000000000000000000000000000000000000000000000000000",
+          "utxo": {
+            "amount": "0",
+            "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+            "blindingBytes": "d9a9bf53cddf75b0f676cc11c1c054bcc878889fb412d14b669e9bc52ee11e",
+            "data": [],
+            "ownerBytes": "00000000000000000000000000000000000000000000000000000000000000000000",
+            "zoneProgramIdBytes": null
+          },
+          "zoneDataHashBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
+        },
+        {
+          "dataHashBytes": null,
+          "error": {
+            "code": "NoncanonicalDummyInput",
+            "details": "NoncanonicalDummyInput { field: \"nullifier_key\" }"
+          },
+          "nullifierSecretBytes": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+          "utxo": {
+            "amount": "0",
+            "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+            "blindingBytes": "d9a9bf53cddf75b0f676cc11c1c054bcc878889fb412d14b669e9bc52ee11e",
+            "data": [],
+            "ownerBytes": "00000000000000000000000000000000000000000000000000000000000000000000",
+            "zoneProgramIdBytes": null
+          },
+          "zoneDataHashBytes": null
+        }
+      ],
+      "utxo": {
+        "amount": "0",
+        "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "blindingBytes": "d9a9bf53cddf75b0f676cc11c1c054bcc878889fb412d14b669e9bc52ee11e",
+        "data": [],
+        "ownerBytes": "00000000000000000000000000000000000000000000000000000000000000000000",
+        "zoneProgramIdBytes": null
+      }
     },
     "error": {
       "code": "MissingZoneProgramId",

@@ -30,7 +30,7 @@
       },
       "timeout": {
         "code": "PollTimedOut",
-        "details": "PollTimedOut { attempts: 3, last_error: Some(\"IndexerTimeout\") }"
+        "details": "PollTimedOut { attempts: 3, last_cause: Some(IndexerTimeout) }"
       }
     },
     "supportedShapeCount": "10"

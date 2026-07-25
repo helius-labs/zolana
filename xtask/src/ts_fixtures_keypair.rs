@@ -387,7 +387,9 @@ fn error_json(error: KeypairError) -> Value {
             KeypairError::NotEd25519 => "NotEd25519",
             KeypairError::Hkdf => "Hkdf",
             KeypairError::Poseidon(_) => "Poseidon",
-            KeypairError::FieldElementTooLong => "FieldElementTooLong"
+            KeypairError::FieldElementTooLong => "FieldElementTooLong",
+            KeypairError::InvalidPrehashLength(_) => "InvalidPrehashLength",
+            KeypairError::InfoTooLong => "InfoTooLong"
         },
         "details": format!("{error:?}")
     })

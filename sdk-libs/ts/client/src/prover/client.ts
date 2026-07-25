@@ -83,12 +83,14 @@ export class ProverClient {
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
   }
 
-  /// Client for the local prover, `ZOLANA_PROVER_URL` when the runtime exposes
-  /// it, else [`SERVER_ADDRESS`].
+  /// Client for the prover at [`SERVER_ADDRESS`]. Rust's counterpart resolves
+  /// `ZOLANA_PROVER_URL` here; this package is browser-compatible and so reads
+  /// no environment. Node callers who need the offset-aware URL take it from
+  /// `@zolana/test-kit`'s `localStackUrls` and pass it to the constructor.
   static local(
     input?: Readonly<{ fetch?: typeof globalThis.fetch; asyncPoll?: AsyncPollConfig }>,
   ): ProverClient {
-    return new ProverClient({ ...input, url: localProverUrl() });
+    return new ProverClient({ ...input, url: SERVER_ADDRESS });
   }
 
   async prove(inputs: ProverInputs | ZoneProverInputs, context?: RequestContext): Promise<Proof> {
@@ -429,10 +431,4 @@ function asyncPollConfig(input: AsyncPollConfig | undefined): AsyncPollConfig {
     }
   }
   return Object.freeze({ pollIntervalMs: input.pollIntervalMs, maxWaitMs: input.maxWaitMs });
-}
-
-function localProverUrl(): string {
-  const url: unknown = (globalThis as { process?: { env?: Record<string, string | undefined> } })
-    .process?.env?.["ZOLANA_PROVER_URL"];
-  return typeof url === "string" && url.trim() !== "" ? url.trim() : SERVER_ADDRESS;
 }

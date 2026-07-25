@@ -10,14 +10,13 @@
 use serde_json::{json, Map, Value};
 use zolana_keypair::{
     constants::{
-        BLINDING_LEN, DST_VIEW_ROOT_P_CONST, PUBLIC_KEY_LEN, P256_PUBKEY_LEN, P_CONST_SEC1,
+        BLINDING_LEN, DST_VIEW_ROOT_P_CONST, P256_PUBKEY_LEN, PUBLIC_KEY_LEN, P_CONST_SEC1,
         SALT_LEN, VIEW_TAG_LEN,
     },
     error::KeypairError,
     hash::{hash_field, owner_hash, poseidon, sha256, sha256_be, split_be_128},
     merge::{
-        merge_ciphertext_hash, merge_public_contribution, symmetric_apply, MAX_INFO_LEN,
-        MERGE_INFO,
+        merge_ciphertext_hash, merge_public_contribution, symmetric_apply, MAX_INFO_LEN, MERGE_INFO,
     },
     nullifier_key::NullifierKey,
     pubkey::{P256Pubkey, PublicKey, SignatureType},
@@ -304,7 +303,9 @@ fn hashes() -> Value {
     let value = sha256(b"parity/hash");
     let (low, high) = split_be_128(&value);
     let signing_public = p256_key(3).pubkey();
-    let nullifier_public = NullifierKey::from_secret([5u8; BLINDING_LEN]).pubkey().unwrap();
+    let nullifier_public = NullifierKey::from_secret([5u8; BLINDING_LEN])
+        .pubkey()
+        .unwrap();
 
     let arities: Vec<Value> = (1..=12usize)
         .map(|arity| {
@@ -377,7 +378,9 @@ fn viewing_keys() -> Value {
         })
         .collect();
 
-    let transaction = key.get_transaction_viewing_key(&sha256_be(b"parity/nullifier")).unwrap();
+    let transaction = key
+        .get_transaction_viewing_key(&sha256_be(b"parity/nullifier"))
+        .unwrap();
 
     json!({
         "secretBytes": hex(&secret32(11)),
@@ -530,9 +533,12 @@ fn merge() -> Value {
         .collect();
 
     let mut overlong = plaintext.clone();
-    let overlong_error =
-        symmetric_apply(&sha256_be(b"parity/shared"), &[0x6c; MAX_INFO_LEN + 1], &mut overlong)
-            .unwrap_err();
+    let overlong_error = symmetric_apply(
+        &sha256_be(b"parity/shared"),
+        &[0x6c; MAX_INFO_LEN + 1],
+        &mut overlong,
+    )
+    .unwrap_err();
 
     json!({
         "txSecretBytes": hex(&secret32(41)),
@@ -567,8 +573,11 @@ fn merge() -> Value {
 
 fn shielded() -> Value {
     let p256 = ShieldedKeypair::from_keys(p256_key(3), viewing(11)).unwrap();
-    let ed = ShieldedKeypair::from_ed25519(&secret32(9), ViewingKey::from_seed(&secret32(9), 0).unwrap())
-        .unwrap();
+    let ed = ShieldedKeypair::from_ed25519(
+        &secret32(9),
+        ViewingKey::from_seed(&secret32(9), 0).unwrap(),
+    )
+    .unwrap();
 
     let describe = |keypair: &ShieldedKeypair| -> Value {
         let address = keypair.shielded_address().unwrap();

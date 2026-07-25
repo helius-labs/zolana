@@ -34,7 +34,6 @@ zolana-hasher = { path = "../../../program-libs/hasher", features = [
     "sha256",
     "keccak",
 ] }
-zolana-indexed-array = { path = "../../../program-libs/indexed-array" }
 zolana-interface = { path = "../../../program-libs/interface" }
 zolana-keypair = { path = "../../../sdk-libs/keypair" }
 zolana-merkle-tree = { path = "../../../sdk-libs/merkle-tree" }

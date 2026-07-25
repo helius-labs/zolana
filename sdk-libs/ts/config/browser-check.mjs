@@ -10,6 +10,14 @@ import {
   packageConfigurations,
 } from "./packages.mjs";
 
+/// Node-only globals no browser package may reach. The `process` alternative
+/// tolerates an optional-chaining `?`, because `globalThis.process?.env` reads
+/// the environment just as surely as `process.env` does and once slipped a
+/// `ZOLANA_PROVER_URL` lookup past this scan into `@zolana/client`.
+const NODE_GLOBAL = String.raw`\bBuffer\b|\brequire\s*\(|\bprocess\s*\??\s*(?:\.|\[)|typeof\s+process|\b(?:globalThis|window|self)\s*\.\s*process\b`;
+const forbiddenInSource = new RegExp(`${NODE_GLOBAL}|["']node:`, "u");
+const forbiddenInBundle = new RegExp(NODE_GLOBAL, "u");
+
 const packagesRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageName = process.argv[2];
 const selectedConfiguration = packageName ? packageConfigurations[packageName] : undefined;
@@ -34,10 +42,7 @@ async function checkBrowserSource(packageName) {
   }
   for (const entry of entries.filter((name) => name.endsWith(".ts"))) {
     const source = await readFile(path.join(sourceRoot, entry), "utf8");
-    const forbidden =
-      /\bBuffer\b|\brequire\s*\(|["']node:|\bprocess\s*(?:\.|\[)|typeof\s+process|\b(?:globalThis|window|self)\.process\b/u.exec(
-        source,
-      );
+    const forbidden = forbiddenInSource.exec(source);
     if (forbidden) throw new Error(`@zolana/${packageName} source contains ${forbidden[0]}`);
   }
 }
@@ -79,10 +84,7 @@ try {
   );
   if (forbiddenImport) throw new Error(`browser graph imports ${forbiddenImport}`);
   const bundle = await readFile(output, "utf8");
-  const forbiddenGlobal =
-    /\bBuffer\b|\brequire\s*\(|\bprocess\s*(?:\.|\[)|typeof\s+process|\b(?:globalThis|window|self)\.process\b/u.exec(
-      bundle,
-    );
+  const forbiddenGlobal = forbiddenInBundle.exec(bundle);
   if (forbiddenGlobal) throw new Error(`browser bundle contains ${forbiddenGlobal[0]}`);
 } finally {
   await rm(directory, { recursive: true, force: true });

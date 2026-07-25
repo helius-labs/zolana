@@ -1360,7 +1360,9 @@ mod tests {
     /// length reaches the compiled message, never the account order.
     fn oracle_transact_data(
     ) -> zolana_interface::instruction::instruction_data::transact::TransactIxData {
-        use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TransactIxData};
+        use zolana_interface::instruction::instruction_data::transact::{
+            InputUtxo, TransactIxData,
+        };
 
         TransactIxData {
             proof: zolana_interface::instruction::instruction_data::transact::TransactProof::zeroed_eddsa(),
