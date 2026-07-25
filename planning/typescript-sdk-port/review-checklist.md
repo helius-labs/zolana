@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `33a6a3b9d1091502af6cecb597be1df1d584118c`
+- Review HEAD: `ac364ba03994d909f0d89888d3df83882c8787c5`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `33 done / 118 total`; `44 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `T19 sdk-libs/transaction/src/instructions/transact/types.rs`
+- Progress: `33 done / 118 total`; `45 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `T20 sdk-libs/transaction/src/instructions/transact/shape.rs`
 - Active reviews: `none`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
@@ -237,7 +237,7 @@ Columns:
 | T16 | `sdk-libs/transaction/src/wallet/parallel.rs` | `transaction/src/wallet/sync.ts` | needs_fix | DIVERGENT | proposed | The TypeScript worker-equivalent is only a serial alias: it lacks Rust's feature-gated parallel capability and worker adaptation, deterministic merge, cancellation, error, and secret-transfer behavior, plus worker evidence. First make Rust's parallel path record confidential sends, sort keys and merge deterministically, run feature tests in normal gates, and assert exact serial-parallel state; then implement and prove the TypeScript adaptation while preserving T15 ownership. | 2026-07-25 review | - |
 | T17 | `sdk-libs/transaction/src/wallet/mod.rs` | `transaction/src/wallet/index.ts` | needs_fix | DIVERGENT | proposed | TypeScript root and wallet entry points omit much of Rust's aggregate public API, expose an undeclared serial worker alias plus mutable internals and registry entries, and lack exact runtime, declaration, tarball, browser, named-consumer, and aggregate-fixture allowlists. Add the missing aggregate surface, remove or document excess exports, and prove exact entry-point contracts while preserving T12-T16 ownership and their Rust prerequisites. | 2026-07-25 review | - |
 | T18 | `sdk-libs/transaction/src/instructions/types.rs` | `transaction/src/instructions/index.ts`, `utxo.ts` | needs_fix | DIVERGENT | proposed | A TypeScript proof-input wrapper exists, but custom zero-owner inputs hash different fields, construction retains mutable UTXO and nullifier-key references instead of Rust ownership and clone semantics, the instructions subpath omits the mapped class, and inventory and evidence are stale. First make Rust reject noncanonical zero-owner dummies; meanwhile require TypeScript to match current-Rust hashing, then align ownership, exports, inventory, and evidence. | 2026-07-25 review | - |
-| T19 | `sdk-libs/transaction/src/instructions/transact/types.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
+| T19 | `sdk-libs/transaction/src/instructions/transact/types.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | TypeScript only partially covers the default private-hash and indexed-shape paths; it omits public Rust aggregate, builder, hash, and output-slot capabilities, runtime validation, owned copies, equality, root and instructions exports, fixtures for omitted capabilities, and adversarial cases. First require zero dummy hashes, address-hash cardinality equal to input cardinality, and a zone program when the zone hash is nonzero in Rust; then align the TypeScript surface and evidence while preserving T11 canonical UTXO and zone-validation ownership and T18 input construction, dummy, hash, nullifier, and ownership responsibility. | 2026-07-25 review | - |
 | T20 | `sdk-libs/transaction/src/instructions/transact/shape.rs` | `transaction/src/transact/index.ts` | todo | - | none | - | - | - |
 | T21 | `sdk-libs/transaction/src/instructions/transact/external_data.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
 | T22 | `sdk-libs/transaction/src/instructions/transact/slots.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
@@ -1435,3 +1435,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `33/118`; package `2/2`
 - Exact next file: `T19 sdk-libs/transaction/src/instructions/transact/types.rs`
 - Full SDK parity claim: unsupported; unrelated adverse rows and package gates remain
+
+### 2026-07-25 12:27 UTC | T19 | `sdk-libs/transaction/src/instructions/transact/types.rs`
+
+- Baseline: HEAD `ac364ba03994d909f0d89888d3df83882c8787c5`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This public transact-types module owns transaction aggregates, builders, private hashes, indexed shapes, output slots, equality, and its root and instructions exports. T11 retains canonical UTXO, proof-field, and zone-pair validation ownership; T18 retains proof-input construction, dummy, hash, nullifier, and ownership responsibility.
+- Evidence: TypeScript partially covers only the default private-hash and indexed-shape paths. It omits several public Rust aggregate, builder, hash, and output-slot capabilities, runtime validation, owned copies, equality, root and instructions exports, fixtures for omitted capabilities, and adversarial cases.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: First make Rust require zero dummy hashes, address-hash cardinality equal to input cardinality, and a zone program when the zone hash is nonzero. Then align `transaction/src/instructions/transact.ts` and package exports with the omitted public surface, validation, ownership, equality, fixtures, and adversarial evidence without taking T11 or T18 ownership.
+- Row transition: `todo -> needs_fix`
+- Progress: `33/118`; package `0/31`
+- Exact next file: `T20 sdk-libs/transaction/src/instructions/transact/shape.rs`
+- Full SDK parity claim: unsupported; transact aggregate, validation, ownership, equality, export, fixture, and adversarial coverage diverge
