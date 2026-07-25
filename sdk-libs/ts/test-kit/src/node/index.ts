@@ -16,10 +16,12 @@ import { WORKSPACE_ROOT } from "../paths.js";
 import { writeProgramConfigFixture } from "../standard-accounts.js";
 
 export * from "../admin.js";
+export * from "../base58.js";
 export * from "../events.js";
 export * from "../harness.js";
 export * from "../indexer.js";
 export * from "../instructions.js";
+export * from "../native.js";
 export * from "../paths.js";
 export * from "../proofless.js";
 export * from "../prover.js";
@@ -209,11 +211,14 @@ export async function startLocalStack(
             String(port(urls.indexerUrl)),
             "--start-slot",
             "latest",
-            "--db-url",
-            `sqlite://${path.join(temporaryDirectory, "photon.db")}`,
           ],
           "Photon",
           workspace,
+          // Photon only migrates the schema of a database it creates itself, so
+          // passing --db-url leaves every table missing and each query fails.
+          // It creates that database under the system temp directory, which two
+          // stacks would otherwise share, so point it at this stack's directory.
+          { TMPDIR: temporaryDirectory },
         ),
       );
       await waitForHttp(urls.indexerUrl, "/readiness", "Photon", input.signal, owned.at(-1));
@@ -302,11 +307,12 @@ function spawnOwned(
   args: readonly string[],
   name: string,
   cwd: string,
+  env: Readonly<Record<string, string>> = {},
 ): OwnedProcess {
   const child = spawn(command, args, {
     cwd,
     detached: process.platform !== "win32",
-    env: { ...process.env },
+    env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
