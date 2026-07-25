@@ -90,6 +90,15 @@ As of 2026-07-26 01:40, branch `ts-sdk-port` at 420 commits ahead of `main`:
 confirmed `NOT_APPLICABLE` disposition, which the gate counts separately. Both
 figures are right; 96 rows are closed and 90 is the number the gate reports.
 
+**Do not trust a row that says `PARITY` without reading its evidence.** An audit
+on 2026-07-25 examined the 36 rows then claiming it and found one supported by
+an independent entry naming a reviewer, a commit, and a committed oracle. The
+rest recorded a verdict after someone read two files and found them similar.
+Those rows were reopened. A row reaches parity when a test, a fixture, or an
+executed comparison demonstrates it, and recording that you could not close a
+row is worth more than a verdict nobody can check. That standard is why several
+steps below ask for a Rust-generated oracle where a reading already exists.
+
 **The 45 is behind the code, and knowing by how much saves you rework.** Batches
 write their row transitions into `row-updates/<batch>.md` and a reconciler moves
 them into the table, so a row can carry a committed fix with oracle evidence and
@@ -125,7 +134,8 @@ rather than bookkeeping after it.
 Steps 5, 6, 7, and 8 touch disjoint packages and can run at the same time. Hold
 concurrency at three: five workers exhausted the account's capacity on
 2026-07-25 and died together. Step 4 waits on step 3 for a reason given in the
-step. Step 2 needs a decision rather than work and can be asked for today.
+step. Step 2 is a merge and a fold-in rather than work, so it needs the
+reconciler rather than a worker.
 
 Read the branch column of the worktree table in [`README.md`](README.md#worktree-topology)
 before taking a step. Four directory names no longer describe what their tree
@@ -283,8 +293,8 @@ looked right. Reading is not the standard here.
 [`row-updates/open-threads-2026-07-25.md`](row-updates/open-threads-2026-07-25.md)
 and
 [`row-updates/parity-evidence-audit.md`](row-updates/parity-evidence-audit.md),
-which is the audit that reopened 30 rows and is worth reading once before you
-record any verdict.
+which is the audit behind the standard above and is worth reading once before
+you record any verdict.
 
 ## Step 4. Interface, four rows
 
@@ -401,8 +411,16 @@ touching a `C` row, because the table does not yet show any of this.
   `@zolana/interface`, because its `compressedProof` comes from the
   `address-append` circuit no TypeScript path can prove.
   `batchUpdateNullifierTreeDataCodec` stays, so a tool that finds such an
-  instruction can still read it. That is Light's rule and a breaking change the
-  pre-1.0 ruling permits.
+  instruction can still read it. That is a breaking change the pre-1.0 ruling
+  permits, and it follows the rule Light Protocol's SDK holds to, which is worth
+  adopting outright because it also decided the merge prefix in step 2:
+
+  > Decode any instruction that can appear in a transaction. Build only those
+  > whose inputs the SDK can itself produce.
+
+  Light's forester is Rust only and `js/stateless.js` ports the decode side of
+  tree maintenance without the build side. There is no TypeScript builder for an
+  append or a nullify anywhere in its `js/`.
 - `C19` reopened and then closed on generated evidence. Its nine polling
   behaviours had been matched to Rust's `poll_async` by eye, and driving the real
   Rust through a mock server instead turned up two divergences that reading had
@@ -597,7 +615,7 @@ summary is not a substitute for the record when you are about to change code.
 | [`light-protocol-comparison.md`](light-protocol-comparison.md) | Eleven findings against Light's SDK, read from source with a path and line per claim |
 | [`row-updates/quality-and-completeness-audit.md`](row-updates/quality-and-completeness-audit.md) | What the TypeScript SDK cannot do, established by comparing the `circuitType` values each language sends |
 | [`row-updates/program-lib-scope-audit.md`](row-updates/program-lib-scope-audit.md) | The audit of the scope rule and the two lessons that generalize |
-| [`row-updates/parity-evidence-audit.md`](row-updates/parity-evidence-audit.md) | The audit that reopened 30 rows upgraded on a reading |
+| [`row-updates/parity-evidence-audit.md`](row-updates/parity-evidence-audit.md) | The audit of the paper trail behind the 36 rows then claiming `PARITY`, which reopened the ones upgraded on a reading |
 | [`production-readiness-issues.md`](production-readiness-issues.md) | 26 cross-cutting findings that no single row owns, each scheduled into a phase |
 | [`log/`](log/) | One file per review, per fix, per reconciliation. A reconciler owns it |
 | [`archive/`](archive/) | Documents superseded by the work they planned, kept for the record |
