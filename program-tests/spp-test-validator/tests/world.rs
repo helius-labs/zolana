@@ -129,6 +129,9 @@ impl LifecycleWorld {
         // The shielded pool program requires the fee payer == protocol_authority,
         // so we CPI via execute_sync_ix with the protocol vault as the inner fee payer.
         rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
+        // Merge instructions likewise use the merge vault as their inner payer.
+        // Fund it so it can collect the per-nullifier forester fee.
+        rpc.airdrop(&accounts.merge_vault, 5_000_000_000)?;
 
         let create_config_ix = CreateProtocolConfig {
             authority: accounts.protocol_vault,
