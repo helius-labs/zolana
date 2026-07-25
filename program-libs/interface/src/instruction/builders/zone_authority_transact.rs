@@ -55,7 +55,6 @@ impl ZoneAuthorityTransact {
             Some(TransactWithdrawal::Sol(sol)) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
                 accounts.push(AccountMeta::new(sol.recipient, false));
-                accounts.push(AccountMeta::new_readonly(Pubkey::default(), false));
             }
             Some(TransactWithdrawal::Spl(spl)) => {
                 if let Some(cpi_authority) = spl.cpi_authority {
@@ -68,6 +67,7 @@ impl ZoneAuthorityTransact {
             }
             None => {}
         }
+        accounts.push(AccountMeta::new_readonly(Pubkey::default(), false));
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Instruction {
@@ -121,7 +121,13 @@ mod tests {
         let keys: Vec<_> = ix.accounts.iter().map(|m| m.pubkey).collect();
         assert_eq!(
             keys,
-            vec![builder.payer, builder.tree, zone_config, PROGRAM_ID_PUBKEY]
+            vec![
+                builder.payer,
+                builder.tree,
+                zone_config,
+                Pubkey::default(),
+                PROGRAM_ID_PUBKEY
+            ]
         );
         assert!(!ix.accounts[2].is_signer);
     }

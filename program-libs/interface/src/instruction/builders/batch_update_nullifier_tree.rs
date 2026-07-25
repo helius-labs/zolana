@@ -9,6 +9,7 @@ use crate::{
 pub struct BatchUpdateNullifierTree {
     pub authority: Pubkey,
     pub tree: Pubkey,
+    pub reimbursement_recipient: Pubkey,
     pub new_root: [u8; 32],
     pub old_root: [u8; 32],
     pub zkp_batch_index: u16,
@@ -36,6 +37,7 @@ impl BatchUpdateNullifierTree {
                 AccountMeta::new_readonly(self.authority, true),
                 AccountMeta::new_readonly(pda::protocol_config(), false),
                 AccountMeta::new(self.tree, false),
+                AccountMeta::new(self.reimbursement_recipient, false),
                 AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             ],
             data: encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &data),

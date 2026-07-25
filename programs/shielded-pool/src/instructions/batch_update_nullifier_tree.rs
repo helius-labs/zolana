@@ -9,6 +9,7 @@ use zolana_tree::TreeAccount;
 
 use crate::instructions::{
     event::emit_batch_address_append_event, protocol_config::loader::load_protocol_config,
+    shared::reimburse_forester,
 };
 
 pub fn process_batch_update_nullifier_tree(
@@ -21,6 +22,7 @@ pub fn process_batch_update_nullifier_tree(
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;
     let tree = iter.next_mut("tree")?;
+    let reimbursement_recipient = iter.next_mut("reimbursement_recipient")?;
 
     let config = load_protocol_config(protocol_config)?;
     config
@@ -28,16 +30,19 @@ pub fn process_batch_update_nullifier_tree(
         .map_err(ShieldedPoolError::from)?;
     drop(config);
 
-    let mut tree = TreeAccount::from_account_view_mut(tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
-        .map_err(ShieldedPoolError::from)?;
-
-    let event = tree
-        .nullifer_tree()
-        .update_tree_from_address_queue(instruction)
-        .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
+    let event = {
+        let mut tree_account =
+            TreeAccount::from_account_view_mut(&mut *tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
+                .map_err(ShieldedPoolError::from)?;
+        tree_account
+            .nullifer_tree()
+            .update_tree_from_address_queue(instruction)
+            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?
+    };
 
     // The emit self-CPI passes no accounts, so the tree borrow does not conflict.
     if let Some(event) = event {
+        reimburse_forester(tree, reimbursement_recipient, event.num_update)?;
         emit_batch_address_append_event(&event)?;
     }
     Ok(())
