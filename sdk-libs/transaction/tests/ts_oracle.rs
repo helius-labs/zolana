@@ -127,6 +127,7 @@ fn ts_code(error: &TransactionError) -> &'static str {
         TransactionError::PublicSplAlreadySet => "TRANSACTION_PUBLIC_SPL_ALREADY_SET",
         TransactionError::ZoneHashesAlreadySet => "TRANSACTION_ZONE_HASHES_ALREADY_SET",
         TransactionError::ExternalDataLengthOverflow { .. } => "TRANSACTION_INVALID_DATA_LENGTH",
+        TransactionError::OutputTagMismatch { .. } => "TRANSACTION_OUTPUT_TAG_MISMATCH",
         TransactionError::MultiplePublicSplAssets => "TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS",
         TransactionError::MissingPublicSplAsset => "TRANSACTION_MISSING_PUBLIC_SPL_ASSET",
         TransactionError::SignerNotP256 => "TRANSACTION_SIGNER_NOT_P256",
@@ -295,6 +296,13 @@ fn samples() -> Vec<(&'static str, TransactionError)> {
         (
             "ZoneHashesAlreadySet",
             TransactionError::ZoneHashesAlreadySet,
+        ),
+        (
+            "OutputTagMismatch",
+            TransactionError::OutputTagMismatch {
+                outputs: 2,
+                tags: 1,
+            },
         ),
         (
             "ExternalDataLengthOverflow",
@@ -2725,69 +2733,66 @@ fn external_data_section() -> Value {
             messages: 2,
             output_data_len: Some(4),
             message_data_len: 4,
+            ..ExternalDataShape::default()
         },
         ExternalDataShape {
             name: "outputsWithoutData",
             outputs: 2,
-            messages: 0,
-            output_data_len: None,
-            message_data_len: 0,
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "fewerTagsThanOutputs",
+            outputs: 2,
+            tags: Some(1),
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "moreTagsThanOutputs",
+            outputs: 2,
+            tags: Some(3),
+            ..ExternalDataShape::default()
         },
         ExternalDataShape {
             name: "maxOutputs",
             outputs: 65_535,
-            messages: 0,
-            output_data_len: None,
-            message_data_len: 0,
+            ..ExternalDataShape::default()
         },
         ExternalDataShape {
             name: "oneOutputPastMax",
             outputs: 65_536,
-            messages: 0,
-            output_data_len: None,
-            message_data_len: 0,
+            ..ExternalDataShape::default()
         },
         ExternalDataShape {
             name: "maxMessages",
-            outputs: 1,
             messages: 65_535,
-            output_data_len: None,
-            message_data_len: 0,
+            ..ExternalDataShape::default()
         },
         ExternalDataShape {
             name: "oneMessagePastMax",
-            outputs: 1,
             messages: 65_536,
-            output_data_len: None,
-            message_data_len: 0,
+            ..ExternalDataShape::default()
         },
         ExternalDataShape {
             name: "maxOutputDataLength",
-            outputs: 1,
-            messages: 0,
             output_data_len: Some(65_535),
-            message_data_len: 0,
+            ..ExternalDataShape::default()
         },
         ExternalDataShape {
             name: "oneOutputDataBytePastMax",
-            outputs: 1,
-            messages: 0,
             output_data_len: Some(65_536),
-            message_data_len: 0,
+            ..ExternalDataShape::default()
         },
         ExternalDataShape {
             name: "maxMessageDataLength",
-            outputs: 1,
             messages: 1,
-            output_data_len: None,
             message_data_len: 65_535,
+            ..ExternalDataShape::default()
         },
         ExternalDataShape {
             name: "oneMessageDataBytePastMax",
-            outputs: 1,
             messages: 1,
-            output_data_len: None,
             message_data_len: 65_536,
+            ..ExternalDataShape::default()
         },
     ]
     .into_iter()
@@ -2798,6 +2803,7 @@ fn external_data_section() -> Value {
         case.insert("messages".into(), json!(shape.messages));
         case.insert("outputDataLength".into(), json!(shape.output_data_len));
         case.insert("messageDataLength".into(), json!(shape.message_data_len));
+        case.insert("tags".into(), json!(shape.tags));
         match shape.build().hash() {
             Ok(hash) => {
                 case.insert("hashHex".into(), json!(hex(&hash)));
@@ -2837,6 +2843,7 @@ fn external_data_builder_cases() -> Value {
         messages: 1,
         output_data_len: Some(3),
         message_data_len: 2,
+        ..ExternalDataShape::default()
     };
     let sequences: [(&str, &[&str]); 8] = [
         ("defaults", &[]),
@@ -2913,6 +2920,24 @@ struct ExternalDataShape {
     messages: usize,
     output_data_len: Option<usize>,
     message_data_len: usize,
+    /// Resolved owner tags, when the case pairs a different number of them
+    /// with the outputs than there are outputs.
+    tags: Option<usize>,
+}
+
+/// One output with no ciphertext and no messages: the smallest shape a case
+/// can vary from.
+impl Default for ExternalDataShape {
+    fn default() -> Self {
+        Self {
+            name: "",
+            outputs: 1,
+            messages: 0,
+            output_data_len: None,
+            message_data_len: 0,
+            tags: None,
+        }
+    }
 }
 
 impl ExternalDataShape {
@@ -2945,7 +2970,7 @@ impl ExternalDataShape {
             [2u8; 33],
             [9u8; 16],
             outputs,
-            (0..self.outputs)
+            (0..self.tags.unwrap_or(self.outputs))
                 .map(|index| indexed(index, false))
                 .collect(),
             messages,

@@ -114,9 +114,10 @@ impl ExternalData {
     /// owner tags, so the client and program hash the identical preimage.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         if self.outputs.len() != self.resolved_owner_tags.len() {
-            return Err(TransactionError::Hash(
-                "resolved owner tags do not pair 1:1 with outputs".to_string(),
-            ));
+            return Err(TransactionError::OutputTagMismatch {
+                outputs: self.outputs.len(),
+                tags: self.resolved_owner_tags.len(),
+            });
         }
         self.check_preimage_prefixes()?;
         let resolved: Vec<ResolvedOutput> = self

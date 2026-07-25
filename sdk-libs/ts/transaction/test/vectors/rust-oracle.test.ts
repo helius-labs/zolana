@@ -147,7 +147,6 @@ const TYPESCRIPT_ONLY_CODES: Readonly<Record<string, string>> = Object.freeze({
   TRANSACTION_INVALID_BLINDING: "checked rejects a blinding of the wrong length",
   TRANSACTION_INVALID_INTEGER: "readers reject an integer wider than its encoded width",
   TRANSACTION_INVALID_POSITION: "deriveBlinding rejects a position outside 0..=255",
-  TRANSACTION_OUTPUT_TAG_MISMATCH: "external data rejects a tag count unequal to the output count",
   TRANSACTION_SIGNATURE_OWNER_MISMATCH: "a returned signature does not match the signing owner",
   TRANSACTION_TRAILING_BYTES: "decoders reject bytes left after an exact read",
   TRANSACTION_UNKNOWN_VARIANT: "unknownTransactionError wraps an unrecognized runtime value",
@@ -245,8 +244,8 @@ describe("the Rust oracle and TypeScript agree on the error code set", () => {
     expect([...unmapped].sort()).toEqual(Object.keys(TYPESCRIPT_ONLY_CODES).sort());
   });
 
-  it("covers all 71 Rust variants exactly once", () => {
-    expect(variants).toHaveLength(71);
+  it("covers all 72 Rust variants exactly once", () => {
+    expect(variants).toHaveLength(72);
     expect(new Set(variants.map((entry) => entry.variant)).size).toBe(variants.length);
   });
 });
@@ -1595,6 +1594,7 @@ interface ExternalDataCase {
   readonly messages: number;
   readonly outputDataLength: number | null;
   readonly messageDataLength: number;
+  readonly tags: number | null;
   readonly hashHex: string | null;
   readonly error: string | null;
 }
@@ -1648,8 +1648,9 @@ describe("the Rust oracle and TypeScript agree at the external-data prefix bound
                   data: new Uint8Array(testCase.outputDataLength).fill(external.outputDataByte),
                 }),
           })),
-          resolvedOwnerTags: Array.from({ length: testCase.outputs }, (_unused, index) =>
-            indexed(index, false),
+          resolvedOwnerTags: Array.from(
+            { length: testCase.tags ?? testCase.outputs },
+            (_unused, index) => indexed(index, false),
           ),
           messages: Array.from({ length: testCase.messages }, (_unused, index) => ({
             viewTag: indexed(index, true),

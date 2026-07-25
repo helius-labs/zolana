@@ -651,6 +651,11 @@
         "variant": "ZoneHashesAlreadySet"
       },
       {
+        "display": "2 outputs are paired with 1 resolved owner tags",
+        "tsCode": "TRANSACTION_OUTPUT_TAG_MISMATCH",
+        "variant": "OutputTagMismatch"
+      },
+      {
         "display": "output data is 65536 bytes, over the 65535 the external data preimage encodes",
         "tsCode": "TRANSACTION_INVALID_DATA_LENGTH",
         "variant": "ExternalDataLengthOverflow"
@@ -893,7 +898,8 @@
         "messages": 2,
         "name": "small",
         "outputDataLength": 4,
-        "outputs": 3
+        "outputs": 3,
+        "tags": null
       },
       {
         "error": null,
@@ -902,7 +908,28 @@
         "messages": 0,
         "name": "outputsWithoutData",
         "outputDataLength": null,
-        "outputs": 2
+        "outputs": 2,
+        "tags": null
+      },
+      {
+        "error": "TRANSACTION_OUTPUT_TAG_MISMATCH",
+        "hashHex": null,
+        "messageDataLength": 0,
+        "messages": 0,
+        "name": "fewerTagsThanOutputs",
+        "outputDataLength": null,
+        "outputs": 2,
+        "tags": 1
+      },
+      {
+        "error": "TRANSACTION_OUTPUT_TAG_MISMATCH",
+        "hashHex": null,
+        "messageDataLength": 0,
+        "messages": 0,
+        "name": "moreTagsThanOutputs",
+        "outputDataLength": null,
+        "outputs": 2,
+        "tags": 3
       },
       {
         "error": null,
@@ -911,7 +938,8 @@
         "messages": 0,
         "name": "maxOutputs",
         "outputDataLength": null,
-        "outputs": 65535
+        "outputs": 65535,
+        "tags": null
       },
       {
         "error": "TRANSACTION_TOO_MANY_OUTPUTS",
@@ -920,7 +948,8 @@
         "messages": 0,
         "name": "oneOutputPastMax",
         "outputDataLength": null,
-        "outputs": 65536
+        "outputs": 65536,
+        "tags": null
       },
       {
         "error": null,
@@ -929,7 +958,8 @@
         "messages": 65535,
         "name": "maxMessages",
         "outputDataLength": null,
-        "outputs": 1
+        "outputs": 1,
+        "tags": null
       },
       {
         "error": "TRANSACTION_TOO_MANY_OUTPUTS",
@@ -938,7 +968,8 @@
         "messages": 65536,
         "name": "oneMessagePastMax",
         "outputDataLength": null,
-        "outputs": 1
+        "outputs": 1,
+        "tags": null
       },
       {
         "error": null,
@@ -947,7 +978,8 @@
         "messages": 0,
         "name": "maxOutputDataLength",
         "outputDataLength": 65535,
-        "outputs": 1
+        "outputs": 1,
+        "tags": null
       },
       {
         "error": "TRANSACTION_INVALID_DATA_LENGTH",
@@ -956,7 +988,8 @@
         "messages": 0,
         "name": "oneOutputDataBytePastMax",
         "outputDataLength": 65536,
-        "outputs": 1
+        "outputs": 1,
+        "tags": null
       },
       {
         "error": null,
@@ -965,7 +998,8 @@
         "messages": 1,
         "name": "maxMessageDataLength",
         "outputDataLength": null,
-        "outputs": 1
+        "outputs": 1,
+        "tags": null
       },
       {
         "error": "TRANSACTION_INVALID_DATA_LENGTH",
@@ -974,7 +1008,8 @@
         "messages": 1,
         "name": "oneMessageDataBytePastMax",
         "outputDataLength": null,
-        "outputs": 1
+        "outputs": 1,
+        "tags": null
       }
     ],
     "messageDataByte": 205,

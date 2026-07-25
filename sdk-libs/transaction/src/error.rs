@@ -137,6 +137,9 @@ pub enum TransactionError {
     /// `planning/typescript-sdk-port/authority-rulings.md`. The count prefixes
     /// at the same boundary raise [`Self::TooManyOutputs`], which is the code
     /// TypeScript already raises there.
+    #[error("{outputs} outputs are paired with {tags} resolved owner tags")]
+    OutputTagMismatch { outputs: usize, tags: usize },
+
     #[error("{field} is {actual} bytes, over the {maximum} the external data preimage encodes")]
     ExternalDataLengthOverflow {
         field: &'static str,

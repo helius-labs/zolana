@@ -319,28 +319,34 @@ export function createExternalData(input: ExternalDataInit): ExternalData {
     userSplToken: input.userSplToken ?? UNSET_ACCOUNT,
     splTokenInterface: input.splTokenInterface ?? UNSET_ACCOUNT,
     salt: checked<Bytes16>(input.salt, 16, "salt"),
-    outputs: input.outputs.map((output) =>
-      Object.freeze({
-        ...output,
-        utxoHash: checked<Bytes32>(output.utxoHash, 32, "output hash"),
-        ownerTag:
-          output.ownerTag.kind === "inline"
-            ? Object.freeze({
-                kind: "inline" as const,
-                value: checked<Bytes32>(output.ownerTag.value, 32, "output owner tag"),
-              })
-            : Object.freeze({ ...output.ownerTag }),
-        ...(output.data === undefined ? {} : { data: new Uint8Array(output.data) }),
-      }),
+    // The hash closes over these arrays, so freezing them is what keeps a
+    // holder of the returned value from changing the preimage under it.
+    outputs: Object.freeze(
+      input.outputs.map((output) =>
+        Object.freeze({
+          ...output,
+          utxoHash: checked<Bytes32>(output.utxoHash, 32, "output hash"),
+          ownerTag:
+            output.ownerTag.kind === "inline"
+              ? Object.freeze({
+                  kind: "inline" as const,
+                  value: checked<Bytes32>(output.ownerTag.value, 32, "output owner tag"),
+                })
+              : Object.freeze({ ...output.ownerTag }),
+          ...(output.data === undefined ? {} : { data: new Uint8Array(output.data) }),
+        }),
+      ),
     ),
-    resolvedOwnerTags: input.resolvedOwnerTags.map((tag) =>
-      checked<Bytes32>(tag, 32, "resolved owner tag"),
+    resolvedOwnerTags: Object.freeze(
+      input.resolvedOwnerTags.map((tag) => checked<Bytes32>(tag, 32, "resolved owner tag")),
     ),
-    messages: input.messages.map((message) =>
-      Object.freeze({
-        viewTag: checked<Bytes32>(message.viewTag, 32, "message view tag"),
-        data: new Uint8Array(message.data),
-      }),
+    messages: Object.freeze(
+      input.messages.map((message) =>
+        Object.freeze({
+          viewTag: checked<Bytes32>(message.viewTag, 32, "message view tag"),
+          data: new Uint8Array(message.data),
+        }),
+      ),
     ),
   };
   return sealExternalData(snapshot);
