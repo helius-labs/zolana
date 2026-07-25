@@ -36,10 +36,20 @@ try {
       throw new Error(`@zolana/${packageName} tarball contains ${buildMetadata.path}`);
     }
     for (const conditions of Object.values(manifest.exports)) {
-      for (const target of new Set(Object.values(conditions))) {
+      const targets = Object.values(conditions).flatMap((target) =>
+        typeof target === "string" ? [target] : Object.values(target),
+      );
+      for (const target of new Set(targets)) {
         if (!packedPaths.has(target.slice(2))) {
           throw new Error(`@zolana/${packageName} tarball lacks ${target}`);
         }
+      }
+    }
+    // Node reads the module format of a build from the manifest beside it, so
+    // the tarball is broken without them however complete the exports map is.
+    for (const marker of ["dist/es/package.json", "dist/cjs/package.json"]) {
+      if (!packedPaths.has(marker)) {
+        throw new Error(`@zolana/${packageName} tarball lacks ${marker}`);
       }
     }
     tarballs.push(path.join(directory, filename));
@@ -72,11 +82,35 @@ if (apiExports !== '["ApiError","ZolanaApi"]') {
 }
 `,
   );
+  // The CommonJS half, required to resolve and to agree with the ESM half
+  // digest for digest. Two builds of one hasher that disagree would be the
+  // duplication this work removed, reintroduced by the packaging.
+  const commonJsConsumer = path.join(directory, "cjs-consumer.cjs");
+  await writeFile(
+    commonJsConsumer,
+    `${imports.map((specifier) => `require(${JSON.stringify(specifier)});`).join("\n")}
+const cjs = require("@zolana/hasher");
+const input = [Uint8Array.from([1]), Uint8Array.from([2])];
+const hex = (bytes) => Buffer.from(bytes).toString("hex");
+void (async () => {
+  await cjs.initializePoseidon();
+  const fromRequire = hex(cjs.poseidon(input));
+  const esm = await import("@zolana/hasher");
+  await esm.initializePoseidon();
+  const fromImport = hex(esm.poseidon(input));
+  if (fromRequire !== fromImport) {
+    throw new Error(\`require gives \${fromRequire} where import gives \${fromImport}\`);
+  }
+})();
+`,
+  );
   for (const major of ["20", "22"]) {
-    execFileSync("npm", ["exec", "--yes", `--package=node@${major}`, "--", "node", nodeConsumer], {
-      cwd: directory,
-      stdio: "inherit",
-    });
+    for (const consumer of [nodeConsumer, commonJsConsumer]) {
+      execFileSync("npm", ["exec", "--yes", `--package=node@${major}`, "--", "node", consumer], {
+        cwd: directory,
+        stdio: "inherit",
+      });
+    }
   }
 
   const typeConsumer = path.join(directory, "type-consumer.mts");
@@ -90,6 +124,29 @@ const apiError: ApiError = new ApiError("API_TEST", "test");
 void [apiClient, apiError];
 `,
   );
+  // The same surface reached by `require`, which resolves the CommonJS
+  // declarations. A tarball whose `require` types point into the ESM build
+  // typechecks here as a default import that does not exist.
+  await writeFile(
+    path.join(directory, "type-consumer.cts"),
+    `${imports
+      .map(
+        (specifier, index) =>
+          `import required${String(index)} = require(${JSON.stringify(specifier)});\nvoid required${String(index)};`,
+      )
+      .join("\n")}
+import { ApiError, ZolanaApi, type ZolanaApiConfig } from "@zolana/api";
+import { initializePoseidon, poseidon } from "@zolana/hasher";
+const apiConfig: ZolanaApiConfig = { url: "https://rpc.example.test" };
+const apiClient: ZolanaApi = new ZolanaApi(apiConfig);
+const apiError: ApiError = new ApiError("API_TEST", "test");
+const digest: Promise<Uint8Array> = initializePoseidon().then(() =>
+  poseidon([Uint8Array.from([1]), Uint8Array.from([2])]),
+);
+void [apiClient, apiError, digest];
+`,
+  );
+
   const typeScriptConfig = path.join(directory, "tsconfig.json");
   await writeFile(
     typeScriptConfig,
@@ -102,7 +159,7 @@ void [apiClient, apiError];
         target: "ES2022",
         types: [],
       },
-      files: ["type-consumer.mts"],
+      files: ["type-consumer.mts", "type-consumer.cts"],
     })}\n`,
   );
   execFileSync(process.execPath, [typescript, "--project", typeScriptConfig], {

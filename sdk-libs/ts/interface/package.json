@@ -12,30 +12,69 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "browser": "./dist/index.js",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "browser": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "import": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
+      "default": "./dist/es/index.js"
     },
     "./pda": {
-      "types": "./dist/pda/index.d.ts",
-      "browser": "./dist/pda/index.js",
-      "import": "./dist/pda/index.js",
-      "default": "./dist/pda/index.js"
+      "browser": {
+        "types": "./dist/es/pda/index.d.ts",
+        "default": "./dist/es/pda/index.js"
+      },
+      "import": {
+        "types": "./dist/es/pda/index.d.ts",
+        "default": "./dist/es/pda/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/pda/index.d.ts",
+        "default": "./dist/cjs/pda/index.js"
+      },
+      "default": "./dist/es/pda/index.js"
     },
     "./codecs": {
-      "types": "./dist/codecs/index.d.ts",
-      "browser": "./dist/codecs/index.js",
-      "import": "./dist/codecs/index.js",
-      "default": "./dist/codecs/index.js"
+      "browser": {
+        "types": "./dist/es/codecs/index.d.ts",
+        "default": "./dist/es/codecs/index.js"
+      },
+      "import": {
+        "types": "./dist/es/codecs/index.d.ts",
+        "default": "./dist/es/codecs/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/codecs/index.d.ts",
+        "default": "./dist/cjs/codecs/index.js"
+      },
+      "default": "./dist/es/codecs/index.js"
     },
     "./instructions": {
-      "types": "./dist/instructions/index.d.ts",
-      "browser": "./dist/instructions/index.js",
-      "import": "./dist/instructions/index.js",
-      "default": "./dist/instructions/index.js"
+      "browser": {
+        "types": "./dist/es/instructions/index.d.ts",
+        "default": "./dist/es/instructions/index.js"
+      },
+      "import": {
+        "types": "./dist/es/instructions/index.d.ts",
+        "default": "./dist/es/instructions/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/instructions/index.d.ts",
+        "default": "./dist/cjs/instructions/index.js"
+      },
+      "default": "./dist/es/instructions/index.js"
     }
   },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/es/index.js",
+  "types": "./dist/es/index.d.ts",
   "scripts": {
     "build": "node ../config/build.mjs interface",
     "typecheck": "node ../config/typecheck.mjs interface",

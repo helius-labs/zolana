@@ -12,30 +12,69 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "browser": "./dist/index.js",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "browser": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "import": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
+      "default": "./dist/es/index.js"
     },
     "./merge": {
-      "types": "./dist/merge/index.d.ts",
-      "browser": "./dist/merge/index.js",
-      "import": "./dist/merge/index.js",
-      "default": "./dist/merge/index.js"
+      "browser": {
+        "types": "./dist/es/merge/index.d.ts",
+        "default": "./dist/es/merge/index.js"
+      },
+      "import": {
+        "types": "./dist/es/merge/index.d.ts",
+        "default": "./dist/es/merge/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/merge/index.d.ts",
+        "default": "./dist/cjs/merge/index.js"
+      },
+      "default": "./dist/es/merge/index.js"
     },
     "./hash": {
-      "types": "./dist/hash/index.d.ts",
-      "browser": "./dist/hash/index.js",
-      "import": "./dist/hash/index.js",
-      "default": "./dist/hash/index.js"
+      "browser": {
+        "types": "./dist/es/hash/index.d.ts",
+        "default": "./dist/es/hash/index.js"
+      },
+      "import": {
+        "types": "./dist/es/hash/index.d.ts",
+        "default": "./dist/es/hash/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/hash/index.d.ts",
+        "default": "./dist/cjs/hash/index.js"
+      },
+      "default": "./dist/es/hash/index.js"
     },
     "./traits": {
-      "types": "./dist/traits/index.d.ts",
-      "browser": "./dist/traits/index.js",
-      "import": "./dist/traits/index.js",
-      "default": "./dist/traits/index.js"
+      "browser": {
+        "types": "./dist/es/traits/index.d.ts",
+        "default": "./dist/es/traits/index.js"
+      },
+      "import": {
+        "types": "./dist/es/traits/index.d.ts",
+        "default": "./dist/es/traits/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/traits/index.d.ts",
+        "default": "./dist/cjs/traits/index.js"
+      },
+      "default": "./dist/es/traits/index.js"
     }
   },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/es/index.js",
+  "types": "./dist/es/index.d.ts",
   "scripts": {
     "build": "node ../config/build.mjs keypair",
     "typecheck": "node ../config/typecheck.mjs keypair",

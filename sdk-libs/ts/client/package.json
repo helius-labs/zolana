@@ -12,24 +12,54 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "browser": "./dist/index.js",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "browser": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "import": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
+      "default": "./dist/es/index.js"
     },
     "./prover": {
-      "types": "./dist/prover/index.d.ts",
-      "browser": "./dist/prover/index.js",
-      "import": "./dist/prover/index.js",
-      "default": "./dist/prover/index.js"
+      "browser": {
+        "types": "./dist/es/prover/index.d.ts",
+        "default": "./dist/es/prover/index.js"
+      },
+      "import": {
+        "types": "./dist/es/prover/index.d.ts",
+        "default": "./dist/es/prover/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/prover/index.d.ts",
+        "default": "./dist/cjs/prover/index.js"
+      },
+      "default": "./dist/es/prover/index.js"
     },
     "./retry": {
-      "types": "./dist/retry/index.d.ts",
-      "browser": "./dist/retry/index.js",
-      "import": "./dist/retry/index.js",
-      "default": "./dist/retry/index.js"
+      "browser": {
+        "types": "./dist/es/retry/index.d.ts",
+        "default": "./dist/es/retry/index.js"
+      },
+      "import": {
+        "types": "./dist/es/retry/index.d.ts",
+        "default": "./dist/es/retry/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/retry/index.d.ts",
+        "default": "./dist/cjs/retry/index.js"
+      },
+      "default": "./dist/es/retry/index.js"
     }
   },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/es/index.js",
+  "types": "./dist/es/index.d.ts",
   "dependencies": {
     "@zolana/api": "0.1.0",
     "@zolana/hasher": "0.1.0",

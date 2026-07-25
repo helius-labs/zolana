@@ -13,21 +13,30 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "import": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "default": "./dist/es/index.js"
     },
     "./node": {
-      "types": "./dist/node/index.d.ts",
-      "import": "./dist/node/index.js",
-      "default": "./dist/node/index.js"
+      "import": {
+        "types": "./dist/es/node/index.d.ts",
+        "default": "./dist/es/node/index.js"
+      },
+      "default": "./dist/es/node/index.js"
     },
     "./fixtures": {
-      "types": "./dist/fixtures/index.d.ts",
-      "import": "./dist/fixtures/index.js",
-      "default": "./dist/fixtures/index.js"
+      "import": {
+        "types": "./dist/es/fixtures/index.d.ts",
+        "default": "./dist/es/fixtures/index.js"
+      },
+      "default": "./dist/es/fixtures/index.js"
     }
   },
+  "main": "./dist/es/index.js",
+  "module": "./dist/es/index.js",
+  "types": "./dist/es/index.d.ts",
   "dependencies": {
     "@zolana/api": "0.1.0",
     "@zolana/client": "0.1.0",
