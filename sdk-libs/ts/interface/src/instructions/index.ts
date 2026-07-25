@@ -6,7 +6,6 @@ import {
   SPL_TOKEN_PROGRAM_ID,
   type Address,
   type AddressTreeParams,
-  type BatchUpdateNullifierTreeData,
   type MergeTransactInstructionData,
   type ZoneDepositInstructionData,
   type Bytes31,
@@ -29,7 +28,6 @@ import {
 } from "../pda/index.js";
 import {
   addressTreeParamsCodec,
-  batchUpdateNullifierTreeDataCodec,
   createTreeDataCodec,
   createZoneConfigDataCodec,
   depositInstructionDataCodec,
@@ -73,22 +71,16 @@ function tagged(tag: number, payload?: Uint8Array): Uint8Array {
   return data;
 }
 
-export function batchUpdateNullifierTreeInstruction(
-  input: Readonly<{
-    authority: Address;
-    tree: Address;
-  }> &
-    Omit<BatchUpdateNullifierTreeData, "compressedProof"> &
-    Readonly<{ compressedProof: BatchUpdateNullifierTreeData["compressedProof"] }>,
-): Instruction {
-  const payload = batchUpdateNullifierTreeDataCodec.encode(input);
-  return instruction(tagged(InstructionTag.batchUpdateNullifierTree, payload), [
-    meta(input.authority, true, false),
-    meta(protocolConfigAddress(), false, false),
-    meta(input.tree, false, true),
-    meta(SHIELDED_POOL_PROGRAM_ID, false, false),
-  ]);
-}
+/// The forester's `batch_update_nullifier_tree` builder is deliberately absent.
+/// Its `compressedProof` comes from the `address-append` circuit, which no
+/// TypeScript path can prove: nothing here ships a forester, and producing the
+/// proof needs witness generation and gnark proving rather than the hashing that
+/// compiles. Publishing the builder advertised the last step of a pipeline whose
+/// earlier steps are missing.
+///
+/// `batchUpdateNullifierTreeDataCodec` stays. Reading such an instruction out of
+/// a transaction needs nothing we cannot do, so a TypeScript tool that finds one
+/// can still decode it.
 
 export function createAssetCounterInstruction(
   input: Readonly<{ authority: Address }>,
