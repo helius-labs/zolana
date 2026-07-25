@@ -1,0 +1,1435 @@
+{
+  "event": {
+    "outputData": {
+      "lengthPrefix": {
+        "borsh": "u32",
+        "wincode": "u16"
+      },
+      "rustPath": "program-libs/event/src/output_data.rs",
+      "rustSymbol": "MessageData",
+      "vectors": [
+        {
+          "borsh": "111111111111111111111111111111111111111111111111111111111111111100000000",
+          "dataLen": 0,
+          "name": "empty-data",
+          "value": {
+            "data": "",
+            "viewTag": "1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          "wincode": "11111111111111111111111111111111111111111111111111111111111111110000"
+        },
+        {
+          "borsh": "2222222222222222222222222222222222222222222222222222222222222222050000000102030405",
+          "dataLen": 5,
+          "name": "short-data",
+          "value": {
+            "data": "0102030405",
+            "viewTag": "2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          "wincode": "222222222222222222222222222222222222222222222222222222222222222205000102030405"
+        },
+        {
+          "borsh": "000000000000000000000000000000000000000000000000000000000000000007000000ffffffffffffff",
+          "dataLen": 7,
+          "name": "zero-view-tag",
+          "value": {
+            "data": "ffffffffffffff",
+            "viewTag": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "wincode": "00000000000000000000000000000000000000000000000000000000000000000700ffffffffffffff"
+        },
+        {
+          "borsh": "abababababababababababababababababababababababababababababababab2c010000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fa000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30",
+          "dataLen": 300,
+          "name": "long-data-300",
+          "value": {
+            "data": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fa000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30",
+            "viewTag": "abababababababababababababababababababababababababababababababab"
+          },
+          "wincode": "abababababababababababababababababababababababababababababababab2c01000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fa000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30"
+        },
+        {
+          "borsh": "0101010101010101010101010101010101010101010101010101010101010101ff0000005a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+          "dataLen": 255,
+          "name": "boundary-255",
+          "value": {
+            "data": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "viewTag": "0101010101010101010101010101010101010101010101010101010101010101"
+          },
+          "wincode": "0101010101010101010101010101010101010101010101010101010101010101ff005a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+        },
+        {
+          "borsh": "0202020202020202020202020202020202020202020202020202020202020202000100005b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b",
+          "dataLen": 256,
+          "name": "boundary-256",
+          "value": {
+            "data": "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b",
+            "viewTag": "0202020202020202020202020202020202020202020202020202020202020202"
+          },
+          "wincode": "020202020202020202020202020202020202020202020202020202020202020200015b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b"
+        }
+      ]
+    },
+    "outputUtxo": {
+      "lengthPrefix": {
+        "borsh": "u32",
+        "wincode": "u16"
+      },
+      "rustPath": "program-libs/event/src/output_utxo.rs",
+      "rustSymbol": "OutputUtxo",
+      "vectors": [
+        {
+          "borsh": "3333333333333333333333333333333333333333333333333333333333333333444444444444444444444444444444444444444444444444444444444444444400000000",
+          "dataLen": 0,
+          "name": "empty-data",
+          "value": {
+            "data": "",
+            "utxoHash": "4444444444444444444444444444444444444444444444444444444444444444",
+            "viewTag": "3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          "wincode": "333333333333333333333333333333333333333333333333333333333333333344444444444444444444444444444444444444444444444444444444444444440000"
+        },
+        {
+          "borsh": "5555555555555555555555555555555555555555555555555555555555555555666666666666666666666666666666666666666666666666666666666666666603000000090807",
+          "dataLen": 3,
+          "name": "short-data",
+          "value": {
+            "data": "090807",
+            "utxoHash": "6666666666666666666666666666666666666666666666666666666666666666",
+            "viewTag": "5555555555555555555555555555555555555555555555555555555555555555"
+          },
+          "wincode": "555555555555555555555555555555555555555555555555555555555555555566666666666666666666666666666666666666666666666666666666666666660300090807"
+        },
+        {
+          "borsh": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000",
+          "dataLen": 1,
+          "name": "zeroed",
+          "value": {
+            "data": "00",
+            "utxoHash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "viewTag": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "wincode": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000"
+        },
+        {
+          "borsh": "7777777777777777777777777777777777777777777777777777777777777777888888888888888888888888888888888888888888888888888888888888888858020000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfc000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfc000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d",
+          "dataLen": 600,
+          "name": "long-data-600",
+          "value": {
+            "data": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfc000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfc000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d",
+            "utxoHash": "8888888888888888888888888888888888888888888888888888888888888888",
+            "viewTag": "7777777777777777777777777777777777777777777777777777777777777777"
+          },
+          "wincode": "777777777777777777777777777777777777777777777777777777777777777788888888888888888888888888888888888888888888888888888888888888885802000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfc000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfc000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d"
+        }
+      ]
+    },
+    "proofless": {
+      "encodeOutputDataVersionByte": 0,
+      "encodeVerifiablyEncrypted": {
+        "empty": "0200000000",
+        "sample": "0204000000deadbeef"
+      },
+      "fieldOrder": [
+        "owner",
+        "blinding",
+        "asset",
+        "amount",
+        "dataHash",
+        "utxoData",
+        "zoneProgramId",
+        "zoneDataHash",
+        "zoneData",
+        "memo"
+      ],
+      "outputDataEncoding": [
+        {
+          "borsh": "0003000000010203",
+          "name": "plaintext",
+          "tag": 0
+        },
+        {
+          "borsh": "01020000000405",
+          "name": "encrypted",
+          "tag": 1
+        },
+        {
+          "borsh": "020100000006",
+          "name": "verifiable",
+          "tag": 2
+        }
+      ],
+      "rustPath": "program-libs/event/src/proofless.rs",
+      "rustSymbol": "ProoflessOutput",
+      "vectors": [
+        {
+          "borsh": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df4102211000000000000",
+          "encodeOutputData": "006e00000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df4102211000000000000",
+          "name": "all-none",
+          "value": {
+            "amount": "1234567890123456789",
+            "asset": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "blinding": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "dataHash": null,
+            "memo": null,
+            "owner": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "utxoData": null,
+            "zoneData": null,
+            "zoneDataHash": null,
+            "zoneProgramId": null
+          }
+        },
+        {
+          "borsh": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df410221101d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d401040000000102030401e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e501f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f60103000000090909010a00000068656c6c6f206d656d6f",
+          "encodeOutputData": "00eb00000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df410221101d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d401040000000102030401e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e501f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f60103000000090909010a00000068656c6c6f206d656d6f",
+          "name": "all-some",
+          "value": {
+            "amount": "1234567890123456789",
+            "asset": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "blinding": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "dataHash": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+            "memo": "68656c6c6f206d656d6f",
+            "owner": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "utxoData": "01020304",
+            "zoneData": "090909",
+            "zoneDataHash": "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6",
+            "zoneProgramId": "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"
+          }
+        },
+        {
+          "borsh": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df41022110107070707070707070707070707070707070707070707070707070707070707070000000000",
+          "encodeOutputData": "008e00000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df41022110107070707070707070707070707070707070707070707070707070707070707070000000000",
+          "name": "data-hash-only",
+          "value": {
+            "amount": "1234567890123456789",
+            "asset": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "blinding": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "dataHash": "0707070707070707070707070707070707070707070707070707070707070707",
+            "memo": null,
+            "owner": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "utxoData": null,
+            "zoneData": null,
+            "zoneDataHash": null,
+            "zoneProgramId": null
+          }
+        },
+        {
+          "borsh": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df4102211000128000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00000000",
+          "encodeOutputData": "009a00000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df4102211000128000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00000000",
+          "name": "utxo-data-only",
+          "value": {
+            "amount": "1234567890123456789",
+            "asset": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "blinding": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "dataHash": null,
+            "memo": null,
+            "owner": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "utxoData": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "zoneData": null,
+            "zoneDataHash": null,
+            "zoneProgramId": null
+          }
+        },
+        {
+          "borsh": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df41022110000010808080808080808080808080808080808080808080808080808080808080808000000",
+          "encodeOutputData": "008e00000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df41022110000010808080808080808080808080808080808080808080808080808080808080808000000",
+          "name": "zone-program-id-only",
+          "value": {
+            "amount": "1234567890123456789",
+            "asset": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "blinding": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "dataHash": null,
+            "memo": null,
+            "owner": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "utxoData": null,
+            "zoneData": null,
+            "zoneDataHash": null,
+            "zoneProgramId": "0808080808080808080808080808080808080808080808080808080808080808"
+          }
+        },
+        {
+          "borsh": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df41022110000000109090909090909090909090909090909090909090909090909090909090909090000",
+          "encodeOutputData": "008e00000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df41022110000000109090909090909090909090909090909090909090909090909090909090909090000",
+          "name": "zone-data-hash-only",
+          "value": {
+            "amount": "1234567890123456789",
+            "asset": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "blinding": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "dataHash": null,
+            "memo": null,
+            "owner": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "utxoData": null,
+            "zoneData": null,
+            "zoneDataHash": "0909090909090909090909090909090909090909090909090909090909090909",
+            "zoneProgramId": null
+          }
+        },
+        {
+          "borsh": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df4102211000000000105000000bbbbbbbbbb00",
+          "encodeOutputData": "007700000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df4102211000000000105000000bbbbbbbbbb00",
+          "name": "zone-data-only",
+          "value": {
+            "amount": "1234567890123456789",
+            "asset": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "blinding": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "dataHash": null,
+            "memo": null,
+            "owner": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "utxoData": null,
+            "zoneData": "bbbbbbbbbb",
+            "zoneDataHash": null,
+            "zoneProgramId": null
+          }
+        },
+        {
+          "borsh": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df4102211000000000001040000006d656d6f",
+          "encodeOutputData": "007600000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df4102211000000000001040000006d656d6f",
+          "name": "memo-only",
+          "value": {
+            "amount": "1234567890123456789",
+            "asset": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "blinding": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "dataHash": null,
+            "memo": "6d656d6f",
+            "owner": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "utxoData": null,
+            "zoneData": null,
+            "zoneDataHash": null,
+            "zoneProgramId": null
+          }
+        },
+        {
+          "borsh": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df4102211000100000000000001000000000100000000",
+          "encodeOutputData": "007a00000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c31581e97df4102211000100000000000001000000000100000000",
+          "name": "empty-vec-options",
+          "value": {
+            "amount": "1234567890123456789",
+            "asset": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "blinding": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "dataHash": null,
+            "memo": "",
+            "owner": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "utxoData": "",
+            "zoneData": "",
+            "zoneDataHash": null,
+            "zoneProgramId": null
+          }
+        },
+        {
+          "borsh": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "encodeOutputData": "006e0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "name": "zero-amount",
+          "value": {
+            "amount": "0",
+            "asset": "0000000000000000000000000000000000000000000000000000000000000000",
+            "blinding": "00000000000000000000000000000000000000000000000000000000000000",
+            "dataHash": null,
+            "memo": null,
+            "owner": "0000000000000000000000000000000000000000000000000000000000000000",
+            "utxoData": null,
+            "zoneData": null,
+            "zoneDataHash": null,
+            "zoneProgramId": null
+          }
+        },
+        {
+          "borsh": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3ffffffffffffffff000000000000",
+          "encodeOutputData": "006e00000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3ffffffffffffffff000000000000",
+          "name": "max-amount",
+          "value": {
+            "amount": "18446744073709551615",
+            "asset": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+            "blinding": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+            "dataHash": null,
+            "memo": null,
+            "owner": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "utxoData": null,
+            "zoneData": null,
+            "zoneDataHash": null,
+            "zoneProgramId": null
+          }
+        }
+      ]
+    },
+    "tag": {
+      "acceptedBytes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        51
+      ],
+      "count": 18,
+      "rejectedCount": 238,
+      "rejectedSample": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40
+      ],
+      "rustPath": "program-libs/event/src/tag.rs",
+      "values": {
+        "batchUpdateNullifierTree": 51,
+        "createAssetCounter": 16,
+        "createProtocolConfig": 6,
+        "createSplInterface": 4,
+        "createTree": 5,
+        "createZoneConfig": 9,
+        "deposit": 1,
+        "emitEvent": 14,
+        "mergeTransact": 12,
+        "pauseTree": 8,
+        "transact": 0,
+        "updateProtocolConfig": 7,
+        "updateZoneConfig": 11,
+        "updateZoneConfigOwner": 10,
+        "zoneAuthorityTransact": 3,
+        "zoneDeposit": 15,
+        "zoneMergeTransact": 13,
+        "zoneTransact": 2
+      }
+    }
+  },
+  "generatorCommand": "cargo run -p xtask --bin program-libs-parity",
+  "hasher": {
+    "bigint": {
+      "rejects": [
+        {
+          "beError": "Allowed input length 32 provided 33",
+          "decimal": "115792089237316195423570985008687907853269984665640564039457584007913129639936",
+          "leError": "Allowed input length 32 provided 33",
+          "name": "two-pow-256-into-32",
+          "width": 32
+        }
+      ],
+      "rustPath": "program-libs/hasher/src/bigint.rs",
+      "rustSymbol": "bigint_to_be_bytes_array",
+      "vectors": [
+        {
+          "be32": "0000000000000000000000000000000000000000000000000000000000000000",
+          "decimal": "0",
+          "le32": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "zero"
+        },
+        {
+          "be32": "0000000000000000000000000000000000000000000000000000000000000001",
+          "decimal": "1",
+          "le32": "0100000000000000000000000000000000000000000000000000000000000000",
+          "name": "one"
+        },
+        {
+          "be32": "00000000000000000000000000000000000000000000000000000000000000ff",
+          "decimal": "255",
+          "le32": "ff00000000000000000000000000000000000000000000000000000000000000",
+          "name": "255"
+        },
+        {
+          "be32": "0000000000000000000000000000000000000000000000000000000000000100",
+          "decimal": "256",
+          "le32": "0001000000000000000000000000000000000000000000000000000000000000",
+          "name": "256"
+        },
+        {
+          "be32": "000000000000000000000000000000000000000000000000ffffffffffffffff",
+          "decimal": "18446744073709551615",
+          "le32": "ffffffffffffffff000000000000000000000000000000000000000000000000",
+          "name": "u64-max"
+        },
+        {
+          "be32": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000",
+          "decimal": "21888242871839275222246405745257275088548364400416034343698204186575808495616",
+          "le32": "000000f093f5e1439170b97948e833285d588181b64550b829a031e1724e6430",
+          "name": "bn254-modulus-minus-one"
+        },
+        {
+          "be32": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "decimal": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+          "le32": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00",
+          "name": "highest-address-plus-one"
+        },
+        {
+          "be32": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "decimal": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+          "le32": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "name": "max-32-bytes"
+        }
+      ]
+    },
+    "errors": {
+      "codes": {
+        "BorshError": 7008,
+        "EmptyInput": 7007,
+        "IntegerOverflow": 7001,
+        "InvalidInputLength": 7005,
+        "InvalidNumFields": 7006,
+        "KeccakFeatureNotEnabled": 7012,
+        "OptionHashToFieldSizeZero": 7009,
+        "PoseidonFeatureNotEnabled": 7010,
+        "Sha256FeatureNotEnabled": 7011
+      },
+      "messages": {
+        "BorshError": "Borsh serialization failed.",
+        "EmptyInput": "Empty input",
+        "IntegerOverflow": "Integer overflow, value too large",
+        "InvalidInputLength": "Allowed input length 0 provided 0",
+        "InvalidNumFields": "Invalid number of fields",
+        "KeccakFeatureNotEnabled": "Keccak feature is not enabled. Enable the keccak feature to use Keccak hashing in non-Solana targets",
+        "OptionHashToFieldSizeZero": "Option hash to field size returned [0u8;32], a collision with None for an Option type.",
+        "PoseidonFeatureNotEnabled": "Poseidon feature is not enabled. Without feature poseidon only syscalls are accessible in target os solana",
+        "Sha256FeatureNotEnabled": "SHA256 feature is not enabled. Enable the sha256 feature to use SHA256 hashing in non-Solana targets"
+      },
+      "note": "Poseidon(_) is 7002 and PoseidonSyscall/UnknownSolanaSyscall carry their own values.",
+      "rustPath": "program-libs/hasher/src/errors.rs",
+      "rustSymbol": "HasherError"
+    },
+    "hashChain": {
+      "createHashChainFromSlice": [
+        {
+          "inputs": [],
+          "name": "empty",
+          "output": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "inputs": [
+            "0101010101010101010101010101010101010101010101010101010101010101"
+          ],
+          "name": "single",
+          "output": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        {
+          "inputs": [
+            "0101010101010101010101010101010101010101010101010101010101010101",
+            "0202020202020202020202020202020202020202020202020202020202020202"
+          ],
+          "name": "pair",
+          "output": "0d54e1938f8a8c1c7deb5e0355f26319207b84fe9ca2ce1b26e735c829821990"
+        },
+        {
+          "inputs": [
+            "0202020202020202020202020202020202020202020202020202020202020202",
+            "0101010101010101010101010101010101010101010101010101010101010101"
+          ],
+          "name": "pair-reversed",
+          "output": "0705dcc90f1f235ec211dff0db9d47629ef3d829a0b03cc4d3f52a9518dc94e5"
+        },
+        {
+          "inputs": [
+            "0101010101010101010101010101010101010101010101010101010101010101",
+            "0202020202020202020202020202020202020202020202020202020202020202",
+            "0303030303030303030303030303030303030303030303030303030303030303"
+          ],
+          "name": "triple",
+          "output": "13663c973799da39d13087b91f23324ff0a324bcadf8f68cf17fdc96e0a7d102"
+        },
+        {
+          "inputs": [
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          "name": "zeros-three",
+          "output": "175352575ea4560d77e6e115b63b29ae2a02bfbd9deac37a678e5289e7314d6a"
+        },
+        {
+          "inputs": [
+            "0101010101010101010101010101010101010101010101010101010101010101",
+            "0202020202020202020202020202020202020202020202020202020202020202",
+            "0303030303030303030303030303030303030303030303030303030303030303",
+            "0404040404040404040404040404040404040404040404040404040404040404",
+            "0505050505050505050505050505050505050505050505050505050505050505",
+            "0606060606060606060606060606060606060606060606060606060606060606",
+            "0707070707070707070707070707070707070707070707070707070707070707",
+            "0808080808080808080808080808080808080808080808080808080808080808"
+          ],
+          "name": "eight",
+          "output": "1d022e231210410be8bd8eaa35ea7fe57010774c87dab75a18666ffae277c2f7"
+        }
+      ],
+      "createTwoInputsHashChain": [
+        {
+          "first": [],
+          "name": "empty",
+          "output": "0000000000000000000000000000000000000000000000000000000000000000",
+          "second": []
+        },
+        {
+          "first": [
+            "0101010101010101010101010101010101010101010101010101010101010101"
+          ],
+          "name": "one-pair",
+          "output": "0d54e1938f8a8c1c7deb5e0355f26319207b84fe9ca2ce1b26e735c829821990",
+          "second": [
+            "0202020202020202020202020202020202020202020202020202020202020202"
+          ]
+        },
+        {
+          "first": [
+            "0101010101010101010101010101010101010101010101010101010101010101",
+            "0303030303030303030303030303030303030303030303030303030303030303"
+          ],
+          "name": "two-pairs",
+          "output": "21aae414c80014bd36f72858e4c4726faf2cd11c660446edad20971c4e7755b7",
+          "second": [
+            "0202020202020202020202020202020202020202020202020202020202020202",
+            "0404040404040404040404040404040404040404040404040404040404040404"
+          ]
+        },
+        {
+          "first": [
+            "0101010101010101010101010101010101010101010101010101010101010101",
+            "0202020202020202020202020202020202020202020202020202020202020202",
+            "0303030303030303030303030303030303030303030303030303030303030303",
+            "0404040404040404040404040404040404040404040404040404040404040404"
+          ],
+          "name": "four-pairs",
+          "output": "10ceddff78af18bb15c5dac806f114faf59b2cddbf19697a41d27bec6ebed052",
+          "second": [
+            "0505050505050505050505050505050505050505050505050505050505050505",
+            "0606060606060606060606060606060606060606060606060606060606060606",
+            "0707070707070707070707070707070707070707070707070707070707070707",
+            "0808080808080808080808080808080808080808080808080808080808080808"
+          ]
+        }
+      ],
+      "emptyReturnsZero": true,
+      "rustPath": "program-libs/hasher/src/hash_chain.rs",
+      "twoInputsLengthMismatch": {
+        "code": 7005,
+        "error": "Allowed input length 1 provided 0"
+      }
+    },
+    "keccak": {
+      "rustPath": "program-libs/hasher/src/keccak.rs",
+      "rustSymbol": "<Keccak as Hasher>::hashv",
+      "vectors": [
+        {
+          "hashv": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "inputs": [
+            ""
+          ],
+          "name": "empty-single"
+        },
+        {
+          "hashv": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "inputs": [
+            "",
+            ""
+          ],
+          "name": "empty-two"
+        },
+        {
+          "hashv": "bc36789e7a1e281436464229828f817d6612f7b477d66591ff96a9e064bcc98a",
+          "inputs": [
+            "00"
+          ],
+          "name": "one-byte"
+        },
+        {
+          "hashv": "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45",
+          "inputs": [
+            "616263"
+          ],
+          "name": "abc"
+        },
+        {
+          "hashv": "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45",
+          "inputs": [
+            "61",
+            "6263"
+          ],
+          "name": "split-abc"
+        },
+        {
+          "hashv": "290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
+          "inputs": [
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          "name": "zeros-32"
+        },
+        {
+          "hashv": "ad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5",
+          "inputs": [
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          "name": "pair-zero-zero"
+        },
+        {
+          "hashv": "346d8c96a2454213fcc0daff3c96ad0398148181b9fa6488f7ae2c0af5b20aa0",
+          "inputs": [
+            "0101010101010101010101010101010101010101010101010101010101010101",
+            "0202020202020202020202020202020202020202020202020202020202020202"
+          ],
+          "name": "pair-one-two"
+        },
+        {
+          "hashv": "5cd53f16d699e84453c6f769b9a5bc1e927c618e3b612143cd5ae7dee1ce3087",
+          "inputs": [
+            "0202020202020202020202020202020202020202020202020202020202020202",
+            "0101010101010101010101010101010101010101010101010101010101010101"
+          ],
+          "name": "pair-asymmetric"
+        },
+        {
+          "hashv": "1ae35526dabfe21efe24a72e97d99a4be0482feeb298a4b123094fa635779e2d",
+          "inputs": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          ],
+          "name": "three-parts"
+        },
+        {
+          "hashv": "34f3d66f3f7c1b33805f48f00f9290717f258a3f83dd8016f4ca770fe48f452a",
+          "inputs": [
+            "dead",
+            "beef00",
+            "ff"
+          ],
+          "name": "uneven"
+        },
+        {
+          "hashv": "aca79e4146e30eb1c733f6d6060d72471c36ea4e01ebf45d7f4916249c2bbd82",
+          "inputs": [
+            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7"
+          ],
+          "name": "long-1000"
+        },
+        {
+          "hashv": "a9c584056064687e149968cbab758a3376d22aedc6a55823d1b3ecbee81b8fb9",
+          "inputs": [
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          ],
+          "name": "ff-32"
+        }
+      ]
+    },
+    "sha256": {
+      "note": "Sha256BE is Sha256 with byte 0 forced to zero, for BN254 big-endian fit.",
+      "rustPath": "program-libs/hasher/src/sha256.rs",
+      "rustSymbol": "<Sha256 as Hasher>::hashv",
+      "vectors": [
+        {
+          "hashv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "inputs": [
+            ""
+          ],
+          "name": "empty-single",
+          "sha256Be": "00b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "hashv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "inputs": [
+            "",
+            ""
+          ],
+          "name": "empty-two",
+          "sha256Be": "00b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "hashv": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+          "inputs": [
+            "00"
+          ],
+          "name": "one-byte",
+          "sha256Be": "00340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
+        },
+        {
+          "hashv": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "inputs": [
+            "616263"
+          ],
+          "name": "abc",
+          "sha256Be": "007816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        },
+        {
+          "hashv": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "inputs": [
+            "61",
+            "6263"
+          ],
+          "name": "split-abc",
+          "sha256Be": "007816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        },
+        {
+          "hashv": "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
+          "inputs": [
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          "name": "zeros-32",
+          "sha256Be": "00687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925"
+        },
+        {
+          "hashv": "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+          "inputs": [
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          "name": "pair-zero-zero",
+          "sha256Be": "00a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b"
+        },
+        {
+          "hashv": "f818afd37a6dc3bc92fb44731011277006db4efa6e9023cd7468c02335d22a4d",
+          "inputs": [
+            "0101010101010101010101010101010101010101010101010101010101010101",
+            "0202020202020202020202020202020202020202020202020202020202020202"
+          ],
+          "name": "pair-one-two",
+          "sha256Be": "0018afd37a6dc3bc92fb44731011277006db4efa6e9023cd7468c02335d22a4d"
+        },
+        {
+          "hashv": "c57d4f59c961b13e406cd991b0f342ec79e571dc2c1415ff72c6550645a3b198",
+          "inputs": [
+            "0202020202020202020202020202020202020202020202020202020202020202",
+            "0101010101010101010101010101010101010101010101010101010101010101"
+          ],
+          "name": "pair-asymmetric",
+          "sha256Be": "007d4f59c961b13e406cd991b0f342ec79e571dc2c1415ff72c6550645a3b198"
+        },
+        {
+          "hashv": "6bdaf8651d78f983ab7ce864414ace095b2942cbe5ff43deade48d51aa34b2cd",
+          "inputs": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          ],
+          "name": "three-parts",
+          "sha256Be": "00daf8651d78f983ab7ce864414ace095b2942cbe5ff43deade48d51aa34b2cd"
+        },
+        {
+          "hashv": "9d75d071ba512516dccba91d6f1adbf305c24c773250f1c0a49180819141bc3a",
+          "inputs": [
+            "dead",
+            "beef00",
+            "ff"
+          ],
+          "name": "uneven",
+          "sha256Be": "0075d071ba512516dccba91d6f1adbf305c24c773250f1c0a49180819141bc3a"
+        },
+        {
+          "hashv": "a8af099bf2e878609558dbf69d8f88f4a31040a8cf84b549a0cfa912f12ffc3f",
+          "inputs": [
+            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7"
+          ],
+          "name": "long-1000",
+          "sha256Be": "00af099bf2e878609558dbf69d8f88f4a31040a8cf84b549a0cfa912f12ffc3f"
+        },
+        {
+          "hashv": "af9613760f72635fbdb44a5a0a63c39f12af30f950a6ee5c971be188e89c4051",
+          "inputs": [
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          ],
+          "name": "ff-32",
+          "sha256Be": "009613760f72635fbdb44a5a0a63c39f12af30f950a6ee5c971be188e89c4051"
+        }
+      ]
+    },
+    "trait": {
+      "hashBytes": 32,
+      "ids": {
+        "keccak": 2,
+        "poseidon": 0,
+        "sha256": 1,
+        "sha256Be": 3
+      },
+      "rustPath": "program-libs/hasher/src/lib.rs",
+      "rustSymbol": "Hasher"
+    },
+    "zeroBytes": {
+      "keccak": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "ad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5",
+        "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+        "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85",
+        "e58769b32a1beaf1ea27375a44095a0d1fb664ce2dd358e7fcbfb78c26a19344",
+        "0eb01ebfc9ed27500cd4dfc979272d1f0913cc9f66540d7e8005811109e1cf2d",
+        "887c22bd8750d34016ac3c66b5ff102dacdd73f6b014e710b51e8022af9a1968",
+        "ffd70157e48063fc33c97a050f7f640233bf646cc98d9524c6b92bcf3ab56f83",
+        "9867cc5f7f196b93bae1e27e6320742445d290f2263827498b54fec539f756af",
+        "cefad4e508c098b9a7e1d8feb19955fb02ba9675585078710969d3440f5054e0",
+        "f9dc3e7fe016e050eff260334f18a5d4fe391d82092319f5964f2e2eb7c1c3a5",
+        "f8b13a49e282f609c317a833fb8d976d11517c571d1221a265d25af778ecf892",
+        "3490c6ceeb450aecdc82e28293031d10c7d73bf85e57bf041a97360aa2c5d99c",
+        "c1df82d9c4b87413eae2ef048f94b4d3554cea73d92b0f7af96e0271c691e2bb",
+        "5c67add7c6caf302256adedf7ab114da0acfe870d449a3a489f781d659e8becc",
+        "da7bce9f4e8618b6bd2f4132ce798cdc7a60e7e1460a7299e3c6342a579626d2",
+        "2733e50f526ec2fa19a22b31e8ed50f23cd1fdf94c9154ed3a7609a2f1ff981f",
+        "e1d3b5c807b281e4683cc6d6315cf95b9ade8641defcb32372f1c126e398ef7a",
+        "5a2dce0a8a7f68bb74560f8f71837c2c2ebbcbf7fffb42ae1896f13f7c7479a0",
+        "b46a28b6f55540f89444f63de0378e3d121be09e06cc9ded1c20e65876d36aa0",
+        "c65e9645644786b620e2dd2ad648ddfcbf4a7e5b1a3a4ecfe7f64667a3f0b7e2",
+        "f4418588ed35a2458cffeb39b93d26f18d2ab13bdce6aee58e7b99359ec2dfd9",
+        "5a9c16dc00d6ef18b7933a6f8dc65ccb55667138776f7dea101070dc8796e377",
+        "4df84f40ae0c8229d0d6069e5c8f39a7c299677a09d367fc7b05e3bc380ee652",
+        "cdc72595f74c7b1043d0e1ffbab734648c838dfb0527d971b602bc216c9619ef",
+        "0abf5ac974a1ed57f4050aa510dd9c74f508277b39d7973bb2dfccc5eeb0618d",
+        "b8cd74046ff337f0a7bf2c8e03e10f642c1886798d71806ab1e888d9e5ee87d0",
+        "838c5655cb21c6cb83313b5a631175dff4963772cce9108188b34ac87c81c41e",
+        "662ee4dd2dd7b2bc707961b1e646c4047669dcb6584f0d8d770daf5d7e7deb2e",
+        "388ab20e2573d171a88108e79d820e98f26c0b84aa8b2f4aa4968dbb818ea322",
+        "93237c50ba75ee485f4c22adf2f741400bdf8d6a9cc7df7ecae576221665d735",
+        "8448818bb4ae4562849e949e17ac16e0be16688e156b5cf15e098c627c0056a9",
+        "27ae5ba08d7291c96c8cbddcc148bf48a6d68c7974b94356f53754ef6171d757",
+        "bf558bebd2ceec7f3c5dce04a4782f88c2c6036ae78ee206d0bc5289d20461a2",
+        "e21908c2968c0699040a6fd866a577a99a9d2ec88745c815fd4a472c789244da",
+        "ae824d72ddc272aab68a8c3022e36f10454437c1886f3ff9927b64f232df414f",
+        "27e429a4bef3083bc31a671d046ea5c1f5b8c3094d72868d9dfdc12c7334ac5f",
+        "743cc5c365a9a6a15c1f240ac25880c7a9d1de290696cb766074a1d83d927816",
+        "4adcf616c3bfabf63999a01966c998b7bb572774035a63ead49da73b5987f347",
+        "75786645d0c5dd7c04a2f8a75dcae085213652f5bce3ea8b9b9bedd1cab3c5e9",
+        "b88b152c9b8a7b79637d35911848b0c41e7cc7cca2ab4fe9a15f9c38bb4bb939"
+      ],
+      "maxHeight": 40,
+      "poseidon": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+        "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+        "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238",
+        "07f9d837cb17b0d36320ffe93ba52345f1b728571a568265caac97559dbc952a",
+        "2b94cf5e8746b3f5c9631f4c5df32907a699c58c94b2ad4d7b5cec1639183f55",
+        "2dee93c5a666459646ea7d22cca9e1bcfed71e6951b953611d11dda32ea09d78",
+        "078295e5a22b84e982cf601eb639597b8b0515a88cb5ac7fa8a4aabe3c87349d",
+        "2fa5e5f18f6027a6501bec864564472a616b2e274a41211a444cbe3a99f3cc61",
+        "0e884376d0d8fd21ecb780389e941f66e45e7acce3e228ab3e2156a614fcd747",
+        "1b7201da72494f1e28717ad1a52eb469f95892f957713533de6175e5da190af2",
+        "1f8d8822725e36385200c0b201249819a6e6e1e4650808b5bebc6bface7d7636",
+        "2c5d82f66c914bafb9701589ba8cfcfb6162b0a12acf88a8d0879a0471b5f85a",
+        "14c54148a0940bb820957f5adf3fa1134ef5c4aaa113f4646458f270e0bfbfd0",
+        "190d33b12f986f961e10c0ee44d8b9af11be25588cad89d416118e4bf4ebe80c",
+        "22f98aa9ce704152ac17354914ad73ed1167ae6596af510aa5b3649325e06c92",
+        "2a7c7c9b6ce5880b9f6f228d72bf6a575a526f29c66ecceef8b753d38bba7323",
+        "2e8186e558698ec1c67af9c14d463ffc470043c9c2988b954d75dd643f36b992",
+        "0f57c5571e9a4eab49e2c8cf050dae948aef6ead647392273546249d1c1ff10f",
+        "1830ee67b5fb554ad5f63d4388800e1cfe78e310697d46e43c9ce36134f72cca",
+        "2134e76ac5d21aab186c2be1dd8f84ee880a1e46eaf712f9d371b6df22191f3e",
+        "19df90ec844ebc4ffeebd866f33859b0c051d8c958ee3aa88f8f8df3db91a5b1",
+        "18cca2a66b5c0787981e69aefd84852d74af0e93ef4912b4648c05f722efe52b",
+        "2388909415230d1b4d1304d2d54f473a628338f2efad83fadf05644549d2538d",
+        "27171fb4a97b6cc0e9e8f543b5294de866a2af2c9c8d0b1d96e673e4529ed540",
+        "2ff6650540f629fd5711a0bc74fc0d28dcb230b9392583e5f8d59696dde6ae21",
+        "120c58f143d491e95902f7f5277778a2e0ad5168f6add75669932630ce611518",
+        "1f21feb70d3f21b07bf853d5e5db03071ec495a0a565a21da2d665d279483795",
+        "24be905fa71335e14c638cc0f66a8623a826e768068a9e968bb1a1dde18a72d2",
+        "0f8666b62ed17491c50ceadead57d4cd597ef3821d65c328744c74e553dac26d",
+        "0918d46bf52d98b034413f4a1a1c41594e7a7a3f6ae08cb43d1a2a230e1959ef",
+        "1bbeb01b4c479ecde76917645e404dfa2e26f90d0afc5a65128513ad375c5ff2",
+        "2f68a1c58e257e42a17a6c61dff5551ed560b9922ab119d5ac8e184c9734ead9",
+        "1102d2f8db05e4af4842e8ad3d85ed45eb28447eb7212235a2281d5ab5d81d11",
+        "2af8c1caf560dd41f997a01ff895b21e0d1fedb786e7cad29901e12310638bdc",
+        "011d923bc14b5a13972ac7dfe6420b15b0425c98ba80edaf5e0291b4a265e0a5",
+        "224ccc25981822d4c5b6fc199fbc74828488741c7151a6159ecfaab7c2a8bac9",
+        "27e839f6f555feae824ab433e34b1c0e64ce5c75962dffc13c68571d6b4a610e",
+        "2aba203fbd04bfabc86b4d50d6abadc3c24f37efa00e700ef4d17764c2ccd57c",
+        "11eff4f60c2cdcc548c1e0770c3d64b49c01e34da4af29cfea575a19befa669c",
+        "1334fa4b552f00ef403361c935c1abcf896851003c40daa93bb0fd0a0bb9a881"
+      ],
+      "rustPath": "program-libs/hasher/src/zero_bytes/",
+      "sha256": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+        "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+        "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c",
+        "536d98837f2dd165a55d5eeae91485954472d56f246df256bf3cae19352a123c",
+        "9efde052aa15429fae05bad4d0b1d7c64da64d03d7a1854a588c2cb8430c0d30",
+        "d88ddfeed400a8755596b21942c1497e114c302e6118290f91e6772976041fa1",
+        "87eb0ddba57e35f6d286673802a4af5975e22506c7cf4c64bb6be5ee11527f2c",
+        "26846476fd5fc54a5d43385167c95144f2643f533cc85bb9d16b782f8d7db193",
+        "506d86582d252405b840018792cad2bf1259f1ef5aa5f887e13cb2f0094f51e1",
+        "ffff0ad7e659772f9534c195c815efc4014ef1e1daed4404c06385d11192e92b",
+        "6cf04127db05441cd833107a52be852868890e4317e6a02ab47683aa75964220",
+        "b7d05f875f140027ef5118a2247bbb84ce8f2f0f1123623085daf7960c329f5f",
+        "df6af5f5bbdb6be9ef8aa618e4bf8073960867171e29676f8b284dea6a08a85e",
+        "b58d900f5e182e3c50ef74969ea16c7726c549757cc23523c369587da7293784",
+        "d49a7502ffcfb0340b1d7885688500ca308161a7f96b62df9d083b71fcc8f2bb",
+        "8fe6b1689256c0d385f42f5bbe2027a22c1996e110ba97c171d3e5948de92beb",
+        "8d0d63c39ebade8509e0ae3c9c3876fb5fa112be18f905ecacfecb92057603ab",
+        "95eec8b2e541cad4e91de38385f2e046619f54496c2382cb6cacd5b98c26f5a4",
+        "f893e908917775b62bff23294dbbe3a1cd8e6cc1c35b4801887b646a6f81f17f",
+        "cddba7b592e3133393c16194fac7431abf2f5485ed711db282183c819e08ebaa",
+        "8a8d7fe3af8caa085a7639a832001457dfb9128a8061142ad0335629ff23ff9c",
+        "feb3c337d7a51a6fbf00b9e34c52e1c9195c969bd4e7a0bfd51d5c5bed9c1167",
+        "e71f0aa83cc32edfbefa9f4d3e0174ca85182eec9f3a09f6a6c0df6377a510d7",
+        "31206fa80a50bb6abe29085058f16212212a60eec8f049fecb92d8c8e0a84bc0",
+        "21352bfecbeddde993839f614c3dac0a3ee37543f9b412b16199dc158e23b544",
+        "619e312724bb6d7c3153ed9de791d764a366b389af13c58bf8a8d90481a46765",
+        "7cdd2986268250628d0c10e385c58c6191e6fbe05191bcc04f133f2cea72c1c4",
+        "848930bd7ba8cac54661072113fb278869e07bb8587f91392933374d017bcbe1",
+        "8869ff2c22b28cc10510d9853292803328be4fb0e80495e8bb8d271f5b889636",
+        "b5fe28e79f1b850f8658246ce9b6a1e7b49fc06db7143e8fe0b4f2b0c5523a5c",
+        "985e929f70af28d0bdd1a90a808f977f597c7c778c489e98d3bd8910d31ac0f7",
+        "c6f67e02e6e4e1bdefb994c6098953f34636ba2b6ca20a4721d2b26a886722ff",
+        "1c9a7e5ff1cf48b4ad1582d3f4e4a1004f3b20d8c5a2b71387a4254ad933ebc5",
+        "2f075ae229646b6f6aed19a5e372cf295081401eb893ff599b3f9acc0c0d3e7d",
+        "328921deb59612076801e8cd61592107b5c67c79b846595cc6320c395b46362c",
+        "bfb909fdb236ad2411b4e4883810a074b840464689986c3f8a8091827e17c327",
+        "55d8fb3687ba3ba49f342c77f5a1f89bec83d811446e1a467139213d640b6a74",
+        "f7210d4f8e7e1039790e7bf4efa207555a10a6db1dd4b95da313aaa88b88fe76",
+        "ad21b516cbc645ffe34ab5de1c8aef8cd4e7f8d2b51e8e1456adc7563cda206f",
+        "6bfe8d2bcc4237b74a5047058ef455339ecd7360cb63bfbb8ee5448e6430ba04"
+      ]
+    }
+  },
+  "id": "program-libs-parity",
+  "indexedArray": {
+    "defaultArray": {
+      "currentNodeIndex": 0,
+      "elements": [
+        {
+          "index": 0,
+          "nextIndex": 0,
+          "value": "0"
+        }
+      ],
+      "highestValue": "0"
+    },
+    "errorVariants": [
+      "Integer overflow",
+      "Invalid index, it exceeds the number of elements.",
+      "Could not find the low element.",
+      "Low element is greater or equal to the provided new element.",
+      "The provided new element is greater or equal to the next element.",
+      "The element already exists, but was expected to be absent.",
+      "The element does not exist, but was expected to be present.",
+      "Indexed array is full, cannot append more elements"
+    ],
+    "finalElements": [
+      {
+        "index": 0,
+        "nextIndex": 2,
+        "value": "0"
+      },
+      {
+        "index": 1,
+        "nextIndex": 5,
+        "value": "30"
+      },
+      {
+        "index": 2,
+        "nextIndex": 3,
+        "value": "10"
+      },
+      {
+        "index": 3,
+        "nextIndex": 1,
+        "value": "20"
+      },
+      {
+        "index": 4,
+        "nextIndex": 0,
+        "value": "50"
+      },
+      {
+        "index": 5,
+        "nextIndex": 4,
+        "value": "40"
+      }
+    ],
+    "findLowElementForNonexistent": {
+      "lowElementIndex": 1,
+      "lowElementValue": "30",
+      "nextValue": "40",
+      "query": "35"
+    },
+    "hashes": [
+      {
+        "index": 0,
+        "poseidon": "275543cd9fbcdee56ac8c9a937ad062f198be71714077c99e50ee6b5e2328a2c"
+      },
+      {
+        "index": 1,
+        "poseidon": "00cde45b7f367851b093afd9137f4538650c3430bd8c78e06b56e5d1298a7cb9"
+      },
+      {
+        "index": 2,
+        "poseidon": "28f221565db1a6b6ae4ebc44d155767bd3ee30793fee3523df4644fe6f1139ef"
+      },
+      {
+        "index": 3,
+        "poseidon": "0122508db033d87292d543b89f243618dbf309b51e8a75fe6ed364f6d03e6c10"
+      },
+      {
+        "index": 4,
+        "poseidon": "2f8742198cda7fbd8b921c5aa0249a6ac2fd4549c22d640ec3cc0e7a3c897910"
+      },
+      {
+        "index": 5,
+        "poseidon": "1b176847a6b6ac268ce68492a0933c3348d52f502db4cb830a37fdf46442b0e3"
+      }
+    ],
+    "highestAddressPlusOne": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+    "rejects": [
+      {
+        "error": "The element already exists, but was expected to be absent.",
+        "name": "append-duplicate"
+      },
+      {
+        "error": "Low element is greater or equal to the provided new element.",
+        "name": "low-element-too-high"
+      },
+      {
+        "error": "The provided new element is greater or equal to the next element.",
+        "name": "new-element-past-next"
+      },
+      {
+        "error": "The element already exists, but was expected to be absent.",
+        "name": "find-low-existing"
+      },
+      {
+        "error": "The element does not exist, but was expected to be present.",
+        "name": "find-low-for-absent-existent"
+      }
+    ],
+    "rustPath": "program-libs/indexed-array/src/array.rs",
+    "standaloneElementHash": {
+      "index": 3,
+      "nextIndex": 7,
+      "nextValue": "99",
+      "poseidon": "0d8af4a7d4bb4a41b8f08b1b38247602f708d8a01f14918cd21ff16fc6cc72f2",
+      "value": "42"
+    },
+    "steps": [
+      {
+        "append": "30",
+        "elements": [
+          {
+            "index": 0,
+            "nextIndex": 1,
+            "value": "0"
+          },
+          {
+            "index": 1,
+            "nextIndex": 0,
+            "value": "30"
+          }
+        ],
+        "highestElementIndex": 1,
+        "lowElementIndex": 0,
+        "newElementIndex": 1,
+        "newElementNextValue": "0",
+        "newLowElementNextIndex": 1
+      },
+      {
+        "append": "10",
+        "elements": [
+          {
+            "index": 0,
+            "nextIndex": 2,
+            "value": "0"
+          },
+          {
+            "index": 1,
+            "nextIndex": 0,
+            "value": "30"
+          },
+          {
+            "index": 2,
+            "nextIndex": 1,
+            "value": "10"
+          }
+        ],
+        "highestElementIndex": 1,
+        "lowElementIndex": 0,
+        "newElementIndex": 2,
+        "newElementNextValue": "30",
+        "newLowElementNextIndex": 2
+      },
+      {
+        "append": "20",
+        "elements": [
+          {
+            "index": 0,
+            "nextIndex": 2,
+            "value": "0"
+          },
+          {
+            "index": 1,
+            "nextIndex": 0,
+            "value": "30"
+          },
+          {
+            "index": 2,
+            "nextIndex": 3,
+            "value": "10"
+          },
+          {
+            "index": 3,
+            "nextIndex": 1,
+            "value": "20"
+          }
+        ],
+        "highestElementIndex": 1,
+        "lowElementIndex": 2,
+        "newElementIndex": 3,
+        "newElementNextValue": "30",
+        "newLowElementNextIndex": 3
+      },
+      {
+        "append": "50",
+        "elements": [
+          {
+            "index": 0,
+            "nextIndex": 2,
+            "value": "0"
+          },
+          {
+            "index": 1,
+            "nextIndex": 4,
+            "value": "30"
+          },
+          {
+            "index": 2,
+            "nextIndex": 3,
+            "value": "10"
+          },
+          {
+            "index": 3,
+            "nextIndex": 1,
+            "value": "20"
+          },
+          {
+            "index": 4,
+            "nextIndex": 0,
+            "value": "50"
+          }
+        ],
+        "highestElementIndex": 4,
+        "lowElementIndex": 1,
+        "newElementIndex": 4,
+        "newElementNextValue": "0",
+        "newLowElementNextIndex": 4
+      },
+      {
+        "append": "40",
+        "elements": [
+          {
+            "index": 0,
+            "nextIndex": 2,
+            "value": "0"
+          },
+          {
+            "index": 1,
+            "nextIndex": 5,
+            "value": "30"
+          },
+          {
+            "index": 2,
+            "nextIndex": 3,
+            "value": "10"
+          },
+          {
+            "index": 3,
+            "nextIndex": 1,
+            "value": "20"
+          },
+          {
+            "index": 4,
+            "nextIndex": 0,
+            "value": "50"
+          },
+          {
+            "index": 5,
+            "nextIndex": 4,
+            "value": "40"
+          }
+        ],
+        "highestElementIndex": 4,
+        "lowElementIndex": 1,
+        "newElementIndex": 5,
+        "newElementNextValue": "50",
+        "newLowElementNextIndex": 5
+      }
+    ]
+  },
+  "responsibility": "Rust oracle for the four program-libs crates the review queue never admitted: zolana-event instruction tags and output encodings, the non-Poseidon zolana-hasher surface, zolana-indexed-array, and zolana-user-registry-interface. Poseidon itself is owned by poseidon-parity-v1.json.",
+  "schema": "zolana-ts-fixtures-v1",
+  "userRegistry": {
+    "constants": {
+      "nullifierPubkeyLen": 32,
+      "p256PubkeyLen": 33,
+      "programId": "EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc",
+      "programIdHex": "c8ee13395b8f232188f67d9691e8b2912bc377757ffb422e522b6d481dcb3829",
+      "recordSeed": "zolana/registry/v0",
+      "recordSeedHex": "7a6f6c616e612f72656769737472792f7630",
+      "syncDelegateEntrySerializedLen": 106,
+      "userRecordDiscriminator": 1
+    },
+    "instruction": {
+      "discriminators": {
+        "register": 0,
+        "revokeSyncDelegate": 3,
+        "rotateSyncDelegateKey": 2,
+        "setMergingEnabled": 4,
+        "setSyncDelegate": 1,
+        "updateKeys": 5
+      },
+      "payloads": {
+        "register": "010a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+        "registerNoP256": "000d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+        "rotateSyncDelegateKey": "3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b",
+        "setMergingEnabledFalse": "00",
+        "setMergingEnabledTrue": "01",
+        "setSyncDelegate": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+        "updateKeys": "011a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"
+      },
+      "rustPath": "program-libs/user-registry-interface/src/instruction.rs"
+    },
+    "pdas": [
+      {
+        "bump": 254,
+        "owner": "11111111111111111111111111111111",
+        "ownerHex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "pda": "DDCR7iRAyTi5pgqyGZEcyRPB8SrZGYPjzS8xQ9gkB2C4"
+      },
+      {
+        "bump": 254,
+        "owner": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+        "ownerHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "pda": "D1HrR7iuGuBjWQFAAsj4jT6AtxYv2Kwtr4i2vHoAdY4f"
+      },
+      {
+        "bump": 255,
+        "owner": "JEKNVnkbo3jma5nREBBJCDoXFVeKkD56V3xKrvRmWxFG",
+        "ownerHex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "pda": "J59zdshaksK97XxNw18X6ihX1ixy8K2usBy37Uf4Xe2e"
+      },
+      {
+        "bump": 255,
+        "owner": "EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc",
+        "ownerHex": "c8ee13395b8f232188f67d9691e8b2912bc377757ffb422e522b6d481dcb3829",
+        "pda": "YoZ8RJtsBtfAYzVRnqeLQ935ac7SohvhKncAPQn1Ric"
+      }
+    ],
+    "rejects": {
+      "badDiscriminator": "missing user record discriminator",
+      "emptyAccount": "missing user record discriminator"
+    },
+    "rustPath": "program-libs/user-registry-interface/src/lib.rs",
+    "spaceFor": [
+      {
+        "entries": 0,
+        "space": 171
+      },
+      {
+        "entries": 1,
+        "space": 277
+      },
+      {
+        "entries": 2,
+        "space": 383
+      },
+      {
+        "entries": 3,
+        "space": 489
+      }
+    ],
+    "state": {
+      "records": [
+        {
+          "accountData": "011111111111111111111111111111111111111111111111111111111111111111fe002222222222222222222222222222222222222222222222222222222222222222333333333333333333333333333333333333333333333333333333333333333333000000000000",
+          "borshBody": "1111111111111111111111111111111111111111111111111111111111111111fe002222222222222222222222222222222222222222222222222222222222222222333333333333333333333333333333333333333333333333333333333333333333000000000000",
+          "entryCount": 0,
+          "name": "minimal",
+          "senderViewingPubkey": "333333333333333333333333333333333333333333333333333333333333333333",
+          "spaceFor": 171,
+          "value": {
+            "bump": 254,
+            "entries": [],
+            "mergingEnabled": false,
+            "nullifierPubkey": "2222222222222222222222222222222222222222222222222222222222222222",
+            "owner": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+            "ownerHex": "1111111111111111111111111111111111111111111111111111111111111111",
+            "ownerP256": null,
+            "syncDelegate": null,
+            "viewingPubkey": "333333333333333333333333333333333333333333333333333333333333333333"
+          }
+        },
+        {
+          "accountData": "014444444444444444444444444444444444444444444444444444444444444444ff01555555555555555555555555555555555555555555555555555555555555555555666666666666666666666666666666666666666666666666666666666666666677777777777777777777777777777777777777777777777777777777777777777701888888888888888888888888888888888888888888888888888888888888888802000000909090909090909090909090909090909090909090909090909090909090909091919191919191919191919191919191919191919191919191919191919191919192929292929292929292929292929292929292929292929292929292929292929200f1536500000000a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2ffffffffffffffff01",
+          "borshBody": "4444444444444444444444444444444444444444444444444444444444444444ff01555555555555555555555555555555555555555555555555555555555555555555666666666666666666666666666666666666666666666666666666666666666677777777777777777777777777777777777777777777777777777777777777777701888888888888888888888888888888888888888888888888888888888888888802000000909090909090909090909090909090909090909090909090909090909090909091919191919191919191919191919191919191919191919191919191919191919192929292929292929292929292929292929292929292929292929292929292929200f1536500000000a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2ffffffffffffffff01",
+          "entryCount": 2,
+          "name": "full",
+          "senderViewingPubkey": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+          "spaceFor": 383,
+          "value": {
+            "bump": 255,
+            "entries": [
+              {
+                "createdAt": "1700000000",
+                "delegate": "9090909090909090909090909090909090909090909090909090909090909090",
+                "syncPubkey": "919191919191919191919191919191919191919191919191919191919191919191",
+                "viewingPubkey": "929292929292929292929292929292929292929292929292929292929292929292"
+              },
+              {
+                "createdAt": "-1",
+                "delegate": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+                "syncPubkey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                "viewingPubkey": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2"
+              }
+            ],
+            "mergingEnabled": true,
+            "nullifierPubkey": "6666666666666666666666666666666666666666666666666666666666666666",
+            "owner": "5bV6jUfhDHCQVA1WfKBUnXUsboJgoKgkzkKcxr3joew5",
+            "ownerHex": "4444444444444444444444444444444444444444444444444444444444444444",
+            "ownerP256": "555555555555555555555555555555555555555555555555555555555555555555",
+            "syncDelegate": "8888888888888888888888888888888888888888888888888888888888888888",
+            "viewingPubkey": "777777777777777777777777777777777777777777777777777777777777777777"
+          }
+        },
+        {
+          "accountData": "011111111111111111111111111111111111111111111111111111111111111111fe00222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333333301bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0000000000",
+          "borshBody": "1111111111111111111111111111111111111111111111111111111111111111fe00222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333333301bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0000000000",
+          "entryCount": 0,
+          "name": "delegate-without-entries",
+          "senderViewingPubkey": "333333333333333333333333333333333333333333333333333333333333333333",
+          "spaceFor": 171,
+          "value": {
+            "bump": 254,
+            "entries": [],
+            "mergingEnabled": false,
+            "nullifierPubkey": "2222222222222222222222222222222222222222222222222222222222222222",
+            "owner": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+            "ownerHex": "1111111111111111111111111111111111111111111111111111111111111111",
+            "ownerP256": null,
+            "syncDelegate": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "viewingPubkey": "333333333333333333333333333333333333333333333333333333333333333333"
+          }
+        }
+      ],
+      "rustPath": "program-libs/user-registry-interface/src/state.rs"
+    }
+  },
+  "version": "1"
+}

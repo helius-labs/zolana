@@ -12,10 +12,13 @@ ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 base64 = { workspace = true }
 bincode = "1.3"
+borsh = { workspace = true }
 bs58 = { workspace = true }
 light-poseidon = { workspace = true }
+num-bigint = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+wincode = { workspace = true }
 groth16-solana = { workspace = true, features = ["gnark-vk", "circom-vk"] }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
@@ -27,10 +30,12 @@ solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
-zolana-hasher = { workspace = true, features = ["poseidon"] }
+zolana-event = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon", "sha256", "keccak"] }
+zolana-indexed-array = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-test-utils = { workspace = true }
-zolana-user-registry-interface = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-program-test = { workspace = true }
 swap-program = { path = "../sdk-tests/zk-program-swap/program" }
