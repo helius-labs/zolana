@@ -803,6 +803,88 @@
     ]
   },
   "externalData": {
+    "builders": {
+      "cases": [
+        {
+          "error": null,
+          "hashHex": "00cafa3b8037bbc02dbcdaa8f463ba7fe3410cbf01a8e9fc1595225d806f1504",
+          "name": "defaults",
+          "ops": []
+        },
+        {
+          "error": null,
+          "hashHex": "009c9eb1ff8101c93f05df2be2b3f7486bd25bd3a33f9e8b69bdf9cc5720068a",
+          "name": "publicSol",
+          "ops": [
+            "publicSol"
+          ]
+        },
+        {
+          "error": null,
+          "hashHex": "0058b23566f56ba49012a8db721a37d7b02e50397fbdacaaab8f4ae9457f7f7e",
+          "name": "publicSpl",
+          "ops": [
+            "publicSpl"
+          ]
+        },
+        {
+          "error": null,
+          "hashHex": "0094b9d10a1aac5e1ef0d5a9dacb51030c1580892221c50c435fb4fc2a8f83f4",
+          "name": "zoneHashes",
+          "ops": [
+            "zoneHashes"
+          ]
+        },
+        {
+          "error": null,
+          "hashHex": "00876c714711b1645d6b1c772b2a815dbe3589075f65c58248712b1745fb1b1f",
+          "name": "allThree",
+          "ops": [
+            "publicSol",
+            "publicSpl",
+            "zoneHashes"
+          ]
+        },
+        {
+          "error": "TRANSACTION_PUBLIC_SOL_ALREADY_SET",
+          "hashHex": null,
+          "name": "publicSolTwice",
+          "ops": [
+            "publicSol",
+            "publicSol"
+          ]
+        },
+        {
+          "error": "TRANSACTION_PUBLIC_SPL_ALREADY_SET",
+          "hashHex": null,
+          "name": "publicSplTwice",
+          "ops": [
+            "publicSpl",
+            "publicSpl"
+          ]
+        },
+        {
+          "error": "TRANSACTION_ZONE_HASHES_ALREADY_SET",
+          "hashHex": null,
+          "name": "zoneHashesTwice",
+          "ops": [
+            "zoneHashes",
+            "zoneHashes"
+          ]
+        }
+      ],
+      "dataHashHex": "0707070707070707070707070707070707070707070707070707070707070707",
+      "messageDataLength": 2,
+      "messages": 1,
+      "outputDataLength": 3,
+      "outputs": 2,
+      "solAccount": "3mg7sM6RFEBHiiFotFNfvteH1WdFcc9cujKuPaqZdfDz",
+      "solAmount": "500",
+      "splAmount": "-7",
+      "splToken": "3qbR1eZRqXUWroWKKYhbDmR3FfqTHfqSU8zZSxtANzYh",
+      "splTokenInterface": "3uWi9x2SRpmjztkpkr2WWeBoVq3exjXG2YfDWLvm8KsQ",
+      "zoneDataHashHex": "0808080808080808080808080808080808080808080808080808080808080808"
+    },
     "cases": [
       {
         "error": null,

@@ -2818,8 +2818,89 @@ fn external_data_section() -> Value {
         "outputDataByte": EXTERNAL_DATA_OUTPUT_BYTE,
         "messageDataByte": EXTERNAL_DATA_MESSAGE_BYTE,
         "cases": cases,
+        "builders": external_data_builder_cases(),
     })
 }
+
+const EXTERNAL_DATA_SOL_AMOUNT: i64 = 500;
+const EXTERNAL_DATA_SPL_AMOUNT: i64 = -7;
+const EXTERNAL_DATA_DATA_HASH: [u8; 32] = [7u8; 32];
+const EXTERNAL_DATA_ZONE_DATA_HASH: [u8; 32] = [8u8; 32];
+
+/// `ExternalData::new` plus the three builders. Each leg may be set once, so
+/// the sequences that set one twice are what pins the refusal, and the
+/// accepted sequences pin that the defaults `new` fills reach the preimage.
+fn external_data_builder_cases() -> Value {
+    let base = ExternalDataShape {
+        name: "builders",
+        outputs: 2,
+        messages: 1,
+        output_data_len: Some(3),
+        message_data_len: 2,
+    };
+    let sequences: [(&str, &[&str]); 8] = [
+        ("defaults", &[]),
+        ("publicSol", &["publicSol"]),
+        ("publicSpl", &["publicSpl"]),
+        ("zoneHashes", &["zoneHashes"]),
+        ("allThree", &["publicSol", "publicSpl", "zoneHashes"]),
+        ("publicSolTwice", &["publicSol", "publicSol"]),
+        ("publicSplTwice", &["publicSpl", "publicSpl"]),
+        ("zoneHashesTwice", &["zoneHashes", "zoneHashes"]),
+    ];
+    let cases = sequences
+        .into_iter()
+        .map(|(name, ops)| {
+            let built = ops.iter().try_fold(base.build(), |data, op| match *op {
+                "publicSol" => {
+                    data.with_public_sol(EXTERNAL_DATA_SOL_AMOUNT, address(EXTERNAL_SOL_BYTE))
+                }
+                "publicSpl" => data.with_public_spl(
+                    EXTERNAL_DATA_SPL_AMOUNT,
+                    address(EXTERNAL_SPL_BYTE),
+                    address(EXTERNAL_SPL_INTERFACE_BYTE),
+                ),
+                "zoneHashes" => {
+                    data.with_zone_hashes(EXTERNAL_DATA_DATA_HASH, EXTERNAL_DATA_ZONE_DATA_HASH)
+                }
+                other => panic!("unknown builder op {other}"),
+            });
+            let mut case = Map::new();
+            case.insert("name".into(), json!(name));
+            case.insert("ops".into(), json!(ops));
+            match built.and_then(|data| data.hash()) {
+                Ok(hash) => {
+                    case.insert("hashHex".into(), json!(hex(&hash)));
+                    case.insert("error".into(), Value::Null);
+                }
+                Err(error) => {
+                    case.insert("hashHex".into(), Value::Null);
+                    case.insert("error".into(), json!(ts_code(&error)));
+                }
+            }
+            Value::Object(case)
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "outputs": base.outputs,
+        "messages": base.messages,
+        "outputDataLength": base.output_data_len,
+        "messageDataLength": base.message_data_len,
+        "solAmount": EXTERNAL_DATA_SOL_AMOUNT.to_string(),
+        "splAmount": EXTERNAL_DATA_SPL_AMOUNT.to_string(),
+        "solAccount": address(EXTERNAL_SOL_BYTE).to_string(),
+        "splToken": address(EXTERNAL_SPL_BYTE).to_string(),
+        "splTokenInterface": address(EXTERNAL_SPL_INTERFACE_BYTE).to_string(),
+        "dataHashHex": hex(&EXTERNAL_DATA_DATA_HASH),
+        "zoneDataHashHex": hex(&EXTERNAL_DATA_ZONE_DATA_HASH),
+        "cases": cases,
+    })
+}
+
+const EXTERNAL_SOL_BYTE: u8 = 41;
+const EXTERNAL_SPL_BYTE: u8 = 42;
+const EXTERNAL_SPL_INTERFACE_BYTE: u8 = 43;
 
 const EXTERNAL_DATA_OUTPUT_BYTE: u8 = 0xab;
 const EXTERNAL_DATA_MESSAGE_BYTE: u8 = 0xcd;

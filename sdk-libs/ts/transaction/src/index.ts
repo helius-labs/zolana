@@ -39,6 +39,7 @@ export {
 export type {
   EncryptedTransaction,
   ExternalData,
+  ExternalDataInit,
   InputUtxo,
   InputUtxoContext,
   OutputContext,

@@ -50,6 +50,7 @@ import {
   splitBundleFromUtxos,
   slotOrdinal,
   type DataRecord,
+  type ExternalData,
   type PreparedTransfer,
   type PreparedZoneAuthority,
   type Shape,
@@ -1581,6 +1582,13 @@ describe("the Rust oracle and TypeScript agree on the encrypted rails' reader", 
   }
 });
 
+interface BuilderSequenceCase {
+  readonly name: string;
+  readonly ops: readonly string[];
+  readonly hashHex: string | null;
+  readonly error: string | null;
+}
+
 interface ExternalDataCase {
   readonly name: string;
   readonly outputs: number;
@@ -1656,6 +1664,70 @@ describe("the Rust oracle and TypeScript agree at the external-data prefix bound
       expect(hex(build())).toBe(testCase.hashHex);
     });
   }
+
+  describe("and on the constructor defaults and the three builders", () => {
+    const builders = external.builders;
+
+    const shaped = (): ExternalData =>
+      createExternalData({
+        txViewingPublicKey,
+        salt,
+        outputs: Array.from({ length: builders.outputs }, (_unused, index) => ({
+          utxoHash: indexed(index, true),
+          ownerTag: { kind: "p256SigningKey" as const },
+          data: new Uint8Array(builders.outputDataLength).fill(external.outputDataByte),
+        })),
+        resolvedOwnerTags: Array.from({ length: builders.outputs }, (_unused, index) =>
+          indexed(index, false),
+        ),
+        messages: Array.from({ length: builders.messages }, (_unused, index) => ({
+          viewTag: indexed(index, true),
+          data: new Uint8Array(builders.messageDataLength).fill(external.messageDataByte),
+        })),
+      });
+
+    const apply = (data: ExternalData, op: string): ExternalData => {
+      switch (op) {
+        case "publicSol":
+          return data.withPublicSol(BigInt(builders.solAmount), builders.solAccount as Address);
+        case "publicSpl":
+          return data.withPublicSpl(
+            BigInt(builders.splAmount),
+            builders.splToken as Address,
+            builders.splTokenInterface as Address,
+          );
+        case "zoneHashes":
+          return data.withZoneHashes(
+            bytes(builders.dataHashHex) as Bytes32,
+            bytes(builders.zoneDataHashHex) as Bytes32,
+          );
+        default:
+          throw new Error(`unknown builder op ${op}`);
+      }
+    };
+
+    for (const testCase of builders.cases as readonly BuilderSequenceCase[]) {
+      it(`applies ${testCase.name} the same way`, () => {
+        const build = (): Bytes32 =>
+          testCase.ops.reduce((data, op) => apply(data, op), shaped()).hash();
+        if (testCase.error !== null) {
+          expect(codeOf(build)).toBe(testCase.error);
+          return;
+        }
+        expect(hex(build())).toBe(testCase.hashHex);
+      });
+    }
+
+    it("leaves the value a builder derived from untouched", () => {
+      const defaults = (builders.cases as readonly BuilderSequenceCase[]).find(
+        (entry) => entry.name === "defaults",
+      );
+      const base = shaped();
+      base.withPublicSol(BigInt(builders.solAmount), builders.solAccount as Address);
+      expect(base.publicSolAmount).toBeUndefined();
+      expect(hex(base.hash())).toBe(defaults?.hashHex);
+    });
+  });
 });
 
 describe("the Rust oracle and TypeScript agree on public-input field encodings", () => {
