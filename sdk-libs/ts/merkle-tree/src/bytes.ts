@@ -31,7 +31,20 @@ export function equalBytes(left: Bytes32, right: Bytes32): boolean {
   return compareBytes(left, right) === 0;
 }
 
+const TWO_POW_256 = 1n << 256n;
+
 export function bigintToBytes(value: bigint): Bytes32 {
+  // `bigint_to_be_bytes_array::<32>` refuses anything wider than the array and
+  // takes a `BigUint`, so neither a negative nor an oversized value has a
+  // big-endian 32-byte form. Truncating silently would hand a caller a
+  // different value than it asked to encode.
+  if (value < 0n || value >= TWO_POW_256) {
+    throw new MerkleTreeError(
+      "MERKLE_TREE_INVALID_BYTES",
+      "value does not fit in 32 big-endian bytes",
+      { details: { value: value.toString() } },
+    );
+  }
   const result = new Uint8Array(32);
   let remaining = value;
   for (let index = 31; index >= 0; index -= 1) {
