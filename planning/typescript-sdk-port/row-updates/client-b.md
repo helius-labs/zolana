@@ -22,9 +22,11 @@ write the same committed-fixture, replayed-by-TypeScript artefact.
 | --- | --- | --- |
 | `sdk-libs/client/src/prover/ts_merge_oracle.rs` | `sdk-libs/ts/client/test/oracles/merge-v1.json` | `sdk-libs/ts/client/test/vectors/merge-oracle.test.ts` |
 | `sdk-libs/client/src/prover/ts_zone_oracle.rs` | `sdk-libs/ts/client/test/oracles/zone-v1.json` | `sdk-libs/ts/client/test/vectors/zone-oracle.test.ts` |
+| `sdk-libs/client/src/prover/ts_poll_oracle.rs` | `sdk-libs/ts/client/test/oracles/prover-poll-v1.json` | `sdk-libs/ts/client/test/vectors/prover-poll-oracle.test.ts` |
+| `sdk-libs/client/src/prover/ts_proof_oracle.rs` | `sdk-libs/ts/client/test/oracles/proof-canonical-v1.json` | `sdk-libs/ts/client/test/vectors/proof-canonical-oracle.test.ts` |
 
-Regenerate either with `ZOLANA_UPDATE_TS_ORACLES=1 cargo test -p zolana-client
---lib ts_merge_oracle` (or `ts_zone_oracle`).
+Regenerate any of them with `ZOLANA_UPDATE_TS_ORACLES=1 cargo test -p
+zolana-client --lib <generator>`.
 
 ## C09, prover request bodies: PARITY
 
@@ -191,6 +193,36 @@ The row's other residual, "6 of the 8 prove entry points are absent", is now 1 o
 8: the three zone rails route through `prover.prove()`, which accepts
 `ZoneProverInputs` and selects the commitment expectation per rail.
 
+### C19 reopened and closed on oracle evidence
+
+The reconciler held the row at `PARTIAL` and was right to. Its nine polling
+behaviours were TypeScript expectations someone had matched by eye to the arms of
+Rust's `poll_async`, which is the evidence class that failed the audit in
+thirty-five of thirty-six rows. The reading above is also of that class.
+
+`ts_poll_oracle.rs` replaces it. A mock HTTP server drives the real `poll_async`
+through queued-then-completed, failure, every error status, a mid-poll
+disconnect, a null proof, unparsable JSON, an unparsable proof, and a job id the
+client must refuse before it sends anything. It records the number of status
+requests each scenario cost and the arm Rust stopped in, plus the exact response
+script, so the replay serves the same bytes rather than an approximation of them.
+Rust reuses two error variants across seven outcomes, so the arm is derived from
+the message, which is the only discriminator Rust exposes.
+
+Two divergences fell out that the by-eye reading had missed, both about a
+`completed` status with nothing useful in it. Rust reads the result with
+`map_or(&value, |result| result)`, so a present-but-null `result` is handed to
+the parser as null and reported as a server error; TypeScript tested the result
+for objecthood, so a null one fell back to the whole envelope and came back as a
+parse error. And TypeScript validated the proof envelope before separating an
+absent proof from a malformed one, turning "the server sent no proof" into "the
+server sent a bad proof". Both are fixed in `prover/client.ts` and
+`prover/proof.ts`.
+
+Verdict `PARITY`. Evidence:
+`sdk-libs/ts/client/test/vectors/prover-poll-oracle.test.ts`. Commit:
+`1da410f3`.
+
 ## C21, three orderings found by re-audit: closed
 
 A read-only audit of the RPC half against Rust HEAD found three divergences the
@@ -218,6 +250,131 @@ Commit: `07ce3376`.
 
 The same audit reported `MERGE_INPUTS` still unexported; that reading was stale,
 and the constant is exported and now imported (C22 above).
+
+## C07, the forester builder: withdrawn, not completed
+
+The owner ruled that `batchUpdateNullifierTreeInstruction` leaves the public
+surface rather than gaining a TypeScript proving path. The row stayed adverse
+because nobody had carried the ruling out.
+
+The builder is gone from `@zolana/interface`. Its `compressedProof` comes from
+the `address-append` circuit, which nothing in TypeScript can prove: this SDK
+ships no forester, and producing that proof needs witness generation and gnark
+proving rather than the hashing that compiles here. Publishing the builder
+advertised the last step of a pipeline whose earlier steps are missing.
+
+`batchUpdateNullifierTreeDataCodec` stays. Reading such an instruction out of a
+transaction needs nothing unavailable, so a tool that finds one can still decode
+it, and `InstructionTag.batchUpdateNullifierTree` keeps its value.
+
+What it broke, all of it deliberate and all updated in the same commit:
+`interface/test/exports.test.ts` listed the builder as intended public surface
+and now fails if it returns; `interface/test/interface.test.ts` and
+`test/vectors/rust-oracle.test.ts` each exercised it, and the oracle row now
+asserts the absence rather than the instruction; `public-exports.md` records the
+withdrawal and its reason. This is a breaking change to `@zolana/interface`,
+which the standing pre-1.0 ruling permits. No other package imported the builder.
+
+Commit: `410f6757`.
+
+## C08, the proof rail: Rust tightened, PARITY
+
+This row inverts the direction of the rest of the port, so the case is worth
+stating rather than assuming. Nearly every divergence found here was TypeScript
+refusing input Rust accepts, and the standing answer is to relax TypeScript. The
+owner ruled the other way for C08, and the ruling holds: Rust inferred the rail
+from which fields the response carried, so an eddsa request answered with a
+commitment-bearing proof was packed as `TransactProof::P256`. That proof verifies
+against neither verifying key, so the permissiveness bought nothing and spent a
+clear parse error on an on-chain failure with no obvious cause.
+
+The defect sat entirely in `sdk-libs/client/src/prover/proof.rs`, an SDK crate,
+with no program and no circuit involved.
+
+The rail now comes from the entry point that chose the circuit and travels with
+the request through `send`, `poll_async` and `proof_from_value`, which is exactly
+where TypeScript already carried it as `#send(body, p256)`. The mapping: the
+P256, P256-zone, merge and merge-zone rails expect a commitment; the eddsa,
+zone-eddsa, zone-authority and forester rails expect none. `to_transact_proof`,
+`to_p256_proof` and `to_merge_proof` keep their signatures, so no caller outside
+the crate moved.
+
+The three sibling findings fixed at `52ca1e25` are untouched.
+
+## T23 residual, canonical coordinates: Rust tightened, PARITY
+
+`hex_to_be_32` read several spellings of one number and one spelling of a
+different one. `trim_start_matches("0x")` strips the prefix repeatedly, so
+`0x0x1` was 1. `to_bytes_be().1` discards the sign, so `-1` was 1.
+`unwrap_or_default` turned an unparsable string into zero, which is a legal
+coordinate rather than an error. A value wider than 32 bytes was truncated to its
+low half. And nothing compared the result against the BN254 base modulus, so a
+coordinate at or above it silently meant its residue.
+
+Each of those makes the encoding non-canonical, which lets two byte strings stand
+for one field element and misleads anything comparing bytes rather than values.
+Same family as signature malleability, and again Rust was the permissive side
+while TypeScript's `parseCoordinate` already refused all of it.
+
+The reader now accepts one optional `0x` or `0X` prefix followed by at least one
+hexadecimal digit, refuses anything wider than 32 bytes rather than truncating,
+refuses a value at or above the modulus, and returns `None` instead of zero when
+it cannot read the string.
+
+### Evidence for both
+
+`sdk-libs/client/src/prover/ts_proof_oracle.rs` runs the real
+`proof_from_gnark_json` over the inputs worth arguing about, which for these two
+rows are adversarial rather than typical: the modulus itself, one below, one
+above, all-ones, a doubled prefix, a negative with and without a prefix, an
+unparsable string, an empty string, a bare prefix, an oversized value, leading
+and trailing space, an underscore separator, and the well-formed spellings that
+must still be accepted. It also crosses the requested rail against the answered
+rail in all four combinations, and covers a commitment sent without its proof of
+knowledge, the reverse, and both fields explicitly empty.
+
+`sdk-libs/ts/client/test/vectors/proof-canonical-oracle.test.ts` replays all
+twenty-seven cases and they agree.
+
+One detail worth recording because it cost a round: the varying coordinate sits
+in the G2 point, not in `ar`. TypeScript curve-checks a nonzero G1 at parse time
+and Rust defers that to compression, so a coordinate in `ar` compared the curve
+check rather than the parser and six well-formed values read as rejections.
+Neither side curve-checks G2. That staging difference is real but not a
+divergence in what is accepted: both sides refuse an off-curve G1, one at parse
+and one at compression.
+
+| Control edit | Failures of 27 |
+| --- | --- |
+| Restore the old permissive `hex_to_be_32` | 14 |
+| Drop only the modulus comparison | 3 |
+| Infer the rail from field presence again | 3 |
+
+Each was applied to Rust, the fixture regenerated, and the replay observed to
+fail. Commit: `d3514b24`.
+
+### Nothing downstream depended on the permissiveness
+
+`cargo build --workspace --tests` and `cargo test --workspace --lib` are both
+green: no crate relied on a non-canonical coordinate or on the rail inference,
+and the only signatures that moved are `pub(crate)` or narrower. The client's
+`transaction_proving.rs` needs a live prover server and was not run here; it
+feeds the parser real gnark output, which is canonical by construction.
+
+## C15 and C20, phantom inventory targets: closed
+
+Both rows' substantive findings had closed, and both stayed adverse because
+`inventory.json` named TypeScript files that have never existed:
+`src/prover/field.ts`, `src/prover/merge-zone.ts`, and
+`src/prover/transact/index.ts`. The behaviour lives in `src/internal.ts`,
+`src/prover/merge.ts`, and `src/prover/index.ts`. The report described a package
+layout that is not the one on disk.
+
+The report is a pure function of the inventory tables and reads none of the
+frozen Rust sources, but its generator gated on that revision, so a factual error
+was unfixable while the gate was red for unrelated reasons. `ts-fixtures
+--reports-only` regenerates the reports without weakening the gate for the
+fixtures that do depend on it. Commit: `d867fccc`.
 
 ## Prover shape inventory, definitive
 
@@ -247,7 +404,10 @@ anything other than the seven above. `test/prover/exports.test.ts` freezes the
 
 ## Blocked on nothing outside the SDK
 
-None of the three zone rails needed a program, circuit, or prover-server change.
+None of the three zone rails needed a program, circuit, or prover-server change,
+and neither did C08 or the T23 residual. Both of those looked like they might:
+the owner had listed C08 among the rows needing a change off this branch. The
+defect turned out to be in `sdk-libs/client`, which the scope rule covers.
 Both remaining hazards, the `None` zone binding and the four-key zone-authority
 shape set, are recorded above for PKP-05 and are changes to Rust and TypeScript
 together rather than to anything outside `sdk-libs`.
@@ -269,3 +429,24 @@ committed. The oracle was byte-identical on both bases and the four gates pass o
 Worth an owner decision: this worktree is named for the wallet batch and another
 agent treats it as theirs. Two agents sharing one worktree cannot both hold a
 branch.
+
+It happened a second time. At 01:22 the same worktree was switched to
+`port/plan-rewrite` by a third agent, mid-run and without warning. The symptom
+was not a git message but a total collapse of the TypeScript suite: all 91 files
+failed to collect because the checkout replaced the workspace package links, so
+`@zolana/hasher` and its siblings stopped resolving. Anyone who sees that failure
+shape should check `git branch --show-current` before clearing caches.
+
+Nothing was lost. Every commit in this batch is guarded by
+`test "$(git branch --show-current)" = "port/client-b"` before `git commit`, so
+the two code commits landed on the right branch and the docs commit refused to
+land on the wrong one. The pending edits were saved as a patch, reverted from the
+other agent's tree, and replayed.
+
+The branch now has its own worktree at
+`/Users/tilohelius/Workspace/zolana-ts-client-b`, created with `git worktree
+add`, and the four gates were re-run there from a clean `npm install`: 1546
+tests pass. `zolana-ts-wallet-misc` is left as its current occupant had it. Two
+naming conventions collided here, one worktree per batch and one per agent, and
+until that is settled the guard on every commit is the only thing making the
+outcome safe.
