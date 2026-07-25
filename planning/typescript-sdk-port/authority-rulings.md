@@ -866,3 +866,15 @@ Whoever performs that rebase should read `row-updates/pr-158-impact.md` first. T
 This was held open on a safety question that has since been answered by execution. `row-updates/double-spend-analysis.md` establishes that nullification and public-leg settlement occur in a single instruction, in that order, with no path that applies one without the other, so a public leg can neither strand value nor spend a note twice. Containment was therefore a policy preference rather than an invariant, and it is not the preference.
 
 The narrower relaxation already in flight, admitting `amount > 0` so the check stops refusing deposits, is a subset of this ruling rather than a conflict with it. Removing the check subsumes it.
+
+### The padding-nullifier finding against PR #142
+
+| Field | Value |
+| --- | --- |
+| Conflict | Whether the port rebases onto PR #142 the way it rebases onto #158. |
+| Ruling | It does not. The padding-nullifier queue wedge is a circuit and program defect with no parity surface, so #142 lands on its own schedule and this port neither waits for it nor tracks it. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `row-updates/double-spend-analysis.md`, secondary finding |
+
+The finding stands as independent confirmation of work already underway rather than as a new obligation. Nothing in the TypeScript SDK constructs padding nullifiers, so no row changes either way and the fix arrives through the program rather than through this branch.
