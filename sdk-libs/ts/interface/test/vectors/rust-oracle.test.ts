@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import oracle from "../rust-oracle.json" with { type: "json" };
+import * as rootSurface from "../../src/index.js";
+import * as codecsSurface from "../../src/codecs/index.js";
+import * as instructionsSurface from "../../src/instructions/index.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   ADDRESS_TREE_HEIGHT,
@@ -134,10 +137,10 @@ type OracleInstruction = {
 
 function expectInstruction(built: Instruction, expected: OracleInstruction): void {
   expect({
-    programAddress: built.programAddress as string,
+    programAddress: String(built.programAddress),
     data: hex(built.data),
     accounts: built.accounts.map((meta) => ({
-      address: meta.address as string,
+      address: String(meta.address),
       isSigner: meta.isSigner,
       isWritable: meta.isWritable,
     })),
@@ -251,7 +254,10 @@ describe("pda", () => {
       oracle.pdas.zoneConfig.address,
       oracle.pdas.zoneConfig.bump,
     ]);
-    expect(zoneAuthAddress(zone)).toEqual([oracle.pdas.zoneAuth.address, oracle.pdas.zoneAuth.bump]);
+    expect(zoneAuthAddress(zone)).toEqual([
+      oracle.pdas.zoneAuth.address,
+      oracle.pdas.zoneAuth.bump,
+    ]);
     expect(associatedTokenAddress(owner, mint)).toBe(oracle.pdas.associatedToken);
   });
 });
@@ -461,9 +467,9 @@ describe("instruction data codecs", () => {
     expect(hex(transactInstructionDataCodec.encode(transactData(true)))).toBe(
       oracle.instructionData.transactP256,
     );
-    expect(
-      transactInstructionDataCodec.decode(bytes(oracle.instructionData.transactP256)),
-    ).toEqual(transactData(true));
+    expect(transactInstructionDataCodec.decode(bytes(oracle.instructionData.transactP256))).toEqual(
+      transactData(true),
+    );
   });
 
   it("encodes merge and merge-zone data to the exact Rust wincode bytes", () => {
@@ -478,8 +484,9 @@ describe("instruction data codecs", () => {
         }),
       ),
     ).toBe(oracle.instructionData.mergeZone);
-    expect(mergeTransactInstructionDataCodec.decode(bytes(oracle.instructionData.mergeTransact)))
-      .toEqual(mergeData());
+    expect(
+      mergeTransactInstructionDataCodec.decode(bytes(oracle.instructionData.mergeTransact)),
+    ).toEqual(mergeData());
   });
 });
 
@@ -556,7 +563,10 @@ describe("builders", () => {
   });
 
   it("matches SOL and SPL deposits", () => {
-    expectInstruction(depositInstruction({ tree, depositor, data: depositData }), builders.depositSol);
+    expectInstruction(
+      depositInstruction({ tree, depositor, data: depositData }),
+      builders.depositSol,
+    );
     expectInstruction(
       depositInstruction({ tree, depositor, spl, data: depositData }),
       builders.depositSpl,
@@ -585,10 +595,13 @@ describe("builders", () => {
       transactInstruction({ payer, tree, withdrawal: splWithdrawal, data }),
       builders.transactSplWithdrawal,
     );
-    const { cpiAuthority: _unused, ...withoutAuthority } = splWithdrawal as Extract<
-      TransactWithdrawal,
-      { kind: "spl" }
-    >;
+    const withoutAuthority: TransactWithdrawal = {
+      kind: "spl",
+      splTokenInterface: account(32),
+      recipient: account(33),
+      userTokenAccount: account(34),
+      tokenProgram: SPL_TOKEN_PROGRAM_ID,
+    };
     expectInstruction(
       transactInstruction({ payer, tree, withdrawal: withoutAuthority, data }),
       builders.transactSplWithdrawalNoCpiAuthority,
@@ -803,6 +816,184 @@ describe("external data hash", () => {
     expect(
       hex(mergeExternalDataHash({ instructionTag: InstructionTag.zoneMergeTransact, ...merge })),
     ).toBe(oracle.externalDataHashes.mergeZone);
+  });
+});
+
+describe("re-export ledgers", () => {
+  /**
+   * The aggregate rows own the Rust `pub use` ledgers. Each Rust name maps to
+   * the TypeScript surface that discharges it, or to `null` where the port
+   * deliberately has no counterpart, with the reason. The oracle reads the
+   * ledgers out of the crate source, so a name added to Rust fails here until
+   * it is mapped.
+   */
+  function assertLedger(
+    rustNames: readonly string[],
+    mapping: Readonly<Record<string, string | null>>,
+    surface: Readonly<Record<string, unknown>>,
+  ): void {
+    expect(Object.keys(mapping).sort()).toEqual([...rustNames].sort());
+    for (const [rustName, tsName] of Object.entries(mapping)) {
+      if (tsName === null) continue;
+      expect(surface, `${rustName} -> ${tsName}`).toHaveProperty(tsName);
+    }
+  }
+
+  it("maps every builders/mod.rs re-export", () => {
+    assertLedger(
+      oracle.ledgers.builders,
+      {
+        BatchUpdateNullifierTree: "batchUpdateNullifierTreeInstruction",
+        CreateAssetCounter: "createAssetCounterInstruction",
+        CreateAssociatedTokenAccount: "createAssociatedTokenAccountInstruction",
+        CreateProtocolConfig: "createProtocolConfigInstruction",
+        CreateSplInterface: "createSplInterfaceInstruction",
+        CreateTree: "createTreeInstruction",
+        CreateZoneConfig: "createZoneConfigInstruction",
+        Deposit: "depositInstruction",
+        MergeTransact: "mergeTransactInstruction",
+        MergeZone: "mergeZoneInstruction",
+        PauseTree: "pauseTreeInstruction",
+        Transact: "transactInstruction",
+        UpdateProtocolConfig: "updateProtocolConfigInstruction",
+        UpdateZoneConfig: "updateZoneConfigInstruction",
+        UpdateZoneConfigOwner: "updateZoneConfigOwnerInstruction",
+        ZoneAuthorityTransact: "zoneAuthorityTransactInstruction",
+        ZoneDeposit: "zoneDepositInstruction",
+        ZoneTransact: "zoneTransactInstruction",
+        // Argument types, erased into the builder input types at the TypeScript
+        // boundary: `DepositSplAccounts` and the `TransactWithdrawal` union.
+        DepositSplAccounts: null,
+        TransactSolWithdrawal: null,
+        TransactSplWithdrawal: null,
+        TransactWithdrawal: null,
+      },
+      instructionsSurface,
+    );
+  });
+
+  it("maps every instruction_data/mod.rs re-export", () => {
+    assertLedger(
+      oracle.ledgers.instructionData,
+      {
+        BatchUpdateNullifierTreeData: "batchUpdateNullifierTreeDataCodec",
+        CreateTreeData: "createTreeDataCodec",
+        CreateZoneConfigData: "createZoneConfigDataCodec",
+        DepositIxData: "depositInstructionDataCodec",
+        MergeTransactIxData: "mergeTransactInstructionDataCodec",
+        MergeZoneIxData: "mergeZoneInstructionDataCodec",
+        TransactIxData: "transactInstructionDataCodec",
+        UpdateZoneConfigData: "updateZoneConfigDataCodec",
+        UpdateZoneConfigOwnerData: "updateZoneConfigOwnerDataCodec",
+        ZoneDepositIxData: "zoneDepositInstructionDataCodec",
+        MergeExternalDataHash: "mergeExternalDataHash",
+        // Component types carried inside the codecs above rather than exported
+        // as codecs of their own.
+        CompressedProof: null,
+        InputUtxo: null,
+        MessageData: null,
+        OutputUtxo: null,
+        OwnerTag: null,
+        P256Proof: null,
+        ResolvedOutput: null,
+        TransactOutput: null,
+        TransactProof: null,
+        UtxoData: null,
+        PauseTreeData: null,
+        // Zero-copy borrowed views; a decoding TypeScript client has no
+        // borrowed-buffer equivalent and uses the owned codecs.
+        MergeTransactIxDataRef: null,
+        MergeZoneIxDataRef: null,
+        OutputDataRef: null,
+        P256ProofRef: null,
+        TransactIxDataRef: null,
+        TransactOutputRef: null,
+        // Written inline by `createProtocolConfigInstruction` / the update union
+        // rather than through an exported codec.
+        CreateProtocolConfigData: null,
+        UpdateProtocolConfigData: null,
+        // Constants and the tag resolver live on the package root.
+        MERGE_ENCRYPTED_UTXO_LEN: null,
+        MERGE_INPUT_COUNT: null,
+        fetch_tag: null,
+      },
+      codecsSurface,
+    );
+  });
+
+  it("maps every state/mod.rs re-export", () => {
+    assertLedger(
+      oracle.ledgers.state,
+      {
+        ADDRESS_TREE_HEIGHT: "ADDRESS_TREE_HEIGHT",
+        ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE: "ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE",
+        ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: "ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE",
+        ADDRESS_TREE_ROOT_HISTORY_CAPACITY: "ADDRESS_TREE_ROOT_HISTORY_CAPACITY",
+        STATE_HEIGHT: "STATE_HEIGHT",
+        ProtocolConfig: "decodeProtocolConfig",
+        SplAssetCounter: "decodeSplAssetCounter",
+        SplAssetRegistry: "decodeSplAssetRegistry",
+        ZoneConfig: "decodeZoneConfig",
+        address_tree_params: "addressTreeParams",
+        state_root_offset: "STATE_ROOT_OFFSET",
+        tree_account_size: "TREE_ACCOUNT_SIZE",
+      },
+      rootSurface,
+    );
+  });
+
+  it("maps every instruction/mod.rs re-export the package root owns", () => {
+    expect(oracle.ledgers.instruction).toContain("tag");
+    expect(oracle.ledgers.instruction).toContain("InstructionTag");
+    expect(Object.keys(InstructionTag).length).toBe(Object.keys(oracle.tags).length);
+  });
+});
+
+describe("decoder acceptance", () => {
+  const acceptance = oracle.decodeAcceptance;
+
+  it("rejects exactly what the Rust decoders reject", () => {
+    expect(acceptance.depositAcceptsTrailingByte).toBe(false);
+    expect(() =>
+      depositInstructionDataCodec.decode(bytes(acceptance.depositTrailingByteBytes)),
+    ).toThrow();
+
+    expect(acceptance.mergeAcceptsNonCanonicalBool).toBe(false);
+    expect(() =>
+      mergeTransactInstructionDataCodec.decode(bytes(acceptance.mergeNonCanonicalBoolBytes)),
+    ).toThrow();
+
+    expect(acceptance.protocolConfigAcceptsWrongDiscriminator).toBe(false);
+    expect(() =>
+      decodeProtocolConfig(bytes(acceptance.protocolConfigWrongDiscriminatorBytes)),
+    ).toThrow();
+
+    expect(acceptance.protocolConfigAcceptsShort).toBe(false);
+    expect(() => decodeProtocolConfig(bytes(acceptance.protocolConfigShortBytes))).toThrow();
+  });
+
+  /**
+   * Recorded divergence, not a target to tighten or relax silently. The Rust
+   * `MergeTransactIxData` / `MergeZoneIxData` decoders parse a merge payload
+   * whose `encrypted_utxo` does not start with the
+   * `OutputDataEncoding::VerifiablyEncrypted` byte; the shielded-pool program
+   * is what rejects it, with `InvalidMergeOutputScheme`. The TypeScript codec
+   * refuses the same bytes at decode time, so it cannot read an instruction the
+   * Rust decoder reads. No transaction is lost, because the program rejects
+   * that payload either way.
+   */
+  it("pins the merge encrypted-UTXO prefix asymmetry against Rust", () => {
+    expect(acceptance.mergeAcceptsNonCanonicalPrefix).toBe(true);
+    expect(acceptance.mergeZoneAcceptsNonCanonicalPrefix).toBe(true);
+    expect(() =>
+      mergeTransactInstructionDataCodec.decode(bytes(acceptance.mergeNonCanonicalPrefixBytes)),
+    ).toThrow(/INTERFACE_CODEC/);
+    expect(() =>
+      mergeZoneInstructionDataCodec.decode(bytes(acceptance.mergeZoneNonCanonicalPrefixBytes)),
+    ).toThrow(/INTERFACE_CODEC/);
+    expect(ShieldedPoolError.InvalidMergeOutputScheme).toBe(
+      oracle.errors.InvalidMergeOutputScheme.code,
+    );
   });
 });
 

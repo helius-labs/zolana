@@ -997,6 +997,163 @@ fn external_data_hashes() -> Value {
     })
 }
 
+/// Every identifier a `pub use` in `path` re-exports, read from the crate
+/// source at generation time. The aggregate rows need drift detection, not a
+/// hand-kept list: a builder or instruction-data type added to Rust lands here
+/// and fails the ledger assertions below.
+fn reexports(path: &str) -> Vec<String> {
+    let source = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .join(path),
+    )
+    .unwrap_or_else(|error| panic!("read {path}: {error}"));
+
+    let mut names = Vec::new();
+    let mut rest = source.as_str();
+    while let Some(start) = rest.find("pub use ") {
+        rest = &rest[start + "pub use ".len()..];
+        let Some(end) = rest.find(';') else { break };
+        let statement = &rest[..end];
+        rest = &rest[end..];
+        for token in statement.split(['{', '}', ',', '\n']) {
+            let name = token
+                .rsplit("::")
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .trim_end_matches(',');
+            if name.is_empty() || name == "self" || name.contains(' ') {
+                continue;
+            }
+            if name
+                .chars()
+                .next()
+                .is_some_and(|first| first.is_ascii_uppercase())
+                || name.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                || name.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+            {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The Rust re-export ledgers the aggregate rows (`instruction_data/mod.rs`,
+/// `builders/mod.rs`, `state/mod.rs`, `instruction/mod.rs`) own, split into what
+/// this oracle exercises and what it deliberately does not.
+fn ledgers(builder_vectors: &Map<String, Value>) -> Value {
+    let builders = reexports("program-libs/interface/src/instruction/builders/mod.rs");
+    // Re-exported from `builders/mod.rs` but not instruction builders: they are
+    // the argument types the builders take.
+    let builder_argument_types = [
+        "DepositSplAccounts",
+        "TransactSolWithdrawal",
+        "TransactSplWithdrawal",
+        "TransactWithdrawal",
+    ];
+    let builder_structs: Vec<String> = builders
+        .iter()
+        .filter(|name| !builder_argument_types.contains(&name.as_str()))
+        .cloned()
+        .collect();
+    // Every builder must appear in at least one emitted instruction vector. The
+    // vector keys are the builder name in lower camel case, except where one
+    // builder has a vector per enum variant.
+    for name in &builder_structs {
+        let prefix = match name.as_str() {
+            "UpdateProtocolConfig" => "updateProtocolAuthority".to_string(),
+            other => lower_camel(other),
+        };
+        assert!(
+            builder_vectors.keys().any(|key| key.starts_with(&prefix)),
+            "no oracle instruction vector covers the Rust builder `{name}`",
+        );
+    }
+
+    json!({
+        "builders": builders,
+        "builderStructs": builder_structs,
+        "builderArgumentTypes": builder_argument_types,
+        "instructionData": reexports(
+            "program-libs/interface/src/instruction/instruction_data/mod.rs",
+        ),
+        "instruction": reexports("program-libs/interface/src/instruction/mod.rs"),
+        "state": reexports("program-libs/interface/src/state/mod.rs"),
+    })
+}
+
+fn lower_camel(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_lowercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// What the Rust decoders accept, byte for byte. A `true` here that the
+/// TypeScript decoder answers with a throw is TypeScript refusing input Rust
+/// takes, which is a divergence to record rather than a check to tighten.
+fn decode_acceptance() -> Value {
+    use zolana_interface::instruction::{DepositIxData, MergeZoneIxData};
+
+    let merge = merge_data();
+    let mut wrong_prefix = merge
+        .serialize()
+        .expect("serializable");
+    // `encrypted_utxo` is the last length-prefixed blob before the trailing
+    // `eddsa_owner` byte, so its first byte sits 111 bytes from the end.
+    let prefix_offset = wrong_prefix.len() - 111;
+    wrong_prefix[prefix_offset] = 0;
+
+    let mut wrong_bool = merge.serialize().expect("serializable");
+    let last = wrong_bool.len() - 1;
+    wrong_bool[last] = 2;
+
+    let merge_zone = MergeZoneIxData {
+        merge_view_tag: filler::<32>(41),
+        merge: merge.clone(),
+    }
+    .serialize()
+    .expect("serializable");
+    let mut zone_wrong_prefix = merge_zone.clone();
+    let zone_prefix_offset = zone_wrong_prefix.len() - 111;
+    zone_wrong_prefix[zone_prefix_offset] = 0;
+
+    let deposit = deposit_builder(false).instruction().data[1..].to_vec();
+    let mut deposit_trailing = deposit.clone();
+    deposit_trailing.push(0);
+
+    let mut protocol = ProtocolConfig::zeroed();
+    protocol.discriminator = discriminator::PROTOCOL_CONFIG;
+    let protocol_bytes = bytemuck::bytes_of(&protocol).to_vec();
+    let mut protocol_wrong_discriminator = protocol_bytes.clone();
+    protocol_wrong_discriminator[0] = 9;
+    let mut protocol_short = protocol_bytes.clone();
+    protocol_short.pop();
+
+    json!({
+        "mergeNonCanonicalPrefixBytes": hex(&wrong_prefix),
+        "mergeAcceptsNonCanonicalPrefix": MergeTransactIxData::deserialize(&wrong_prefix).is_ok(),
+        "mergeZoneNonCanonicalPrefixBytes": hex(&zone_wrong_prefix),
+        "mergeZoneAcceptsNonCanonicalPrefix":
+            MergeZoneIxData::deserialize(&zone_wrong_prefix).is_ok(),
+        "mergeNonCanonicalBoolBytes": hex(&wrong_bool),
+        "mergeAcceptsNonCanonicalBool": MergeTransactIxData::deserialize(&wrong_bool).is_ok(),
+        "depositTrailingByteBytes": hex(&deposit_trailing),
+        "depositAcceptsTrailingByte": DepositIxData::deserialize(&deposit_trailing).is_ok(),
+        "protocolConfigWrongDiscriminatorBytes": hex(&protocol_wrong_discriminator),
+        "protocolConfigAcceptsWrongDiscriminator":
+            ProtocolConfig::from_account_bytes(&protocol_wrong_discriminator).is_ok(),
+        "protocolConfigShortBytes": hex(&protocol_short),
+        "protocolConfigAcceptsShort": ProtocolConfig::from_account_bytes(&protocol_short).is_ok(),
+    })
+}
+
 /// `fetch_tag` resolves an output owner tag against the transaction context.
 fn fetch_tags() -> Value {
     use zolana_interface::instruction::fetch_tag;
@@ -1021,6 +1178,11 @@ fn fetch_tags() -> Value {
 }
 
 fn oracle() -> Value {
+    let builder_vectors = match builders() {
+        Value::Object(map) => map,
+        _ => unreachable!("builders() returns an object"),
+    };
+    let ledgers = ledgers(&builder_vectors);
     json!({
         "note": "Generated by `cargo run -p xtask --bin ts-interface-oracle -- --write`. \
 Every value is produced by calling zolana-interface, never transcribed by hand.",
@@ -1034,8 +1196,10 @@ Every value is produced by calling zolana-interface, never transcribed by hand."
         "state": state(),
         "stateAccounts": state_accounts(),
         "instructionData": instruction_data(),
-        "builders": builders(),
+        "builders": Value::Object(builder_vectors),
+        "ledgers": ledgers,
         "externalDataHashes": external_data_hashes(),
+        "decodeAcceptance": decode_acceptance(),
         "fetchTag": fetch_tags(),
     })
 }
