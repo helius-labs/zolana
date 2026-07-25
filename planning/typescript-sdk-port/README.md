@@ -56,12 +56,13 @@ In flight:
 
 | Work | State |
 | --- | --- |
+| Quality and no-shortcuts audit of `sdk-libs/ts` | Running |
 | Fold three merged batches into the table | Running |
 | Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc`, 3 commits ahead |
 | Keypair error redaction, is the guarantee real | Running |
 | Client package, rows C01 to C22 | RPC half closed, prover half outstanding |
 | Transaction, 31 rows | 5 commits ahead, second pass queued behind the capacity limit |
-| `user_record` binding fix, own branch off `main` | Running |
+| `user_record` binding fix, own branch off `main` | Done, PR #160, 23 checks green |
 
 Merged into the integration branch:
 
@@ -75,7 +76,7 @@ Merged into the integration branch:
 Two operational lessons from 2026-07-25, both worth keeping.
 
 Five concurrent workers exhausted the account's capacity and died together at
-20:30. No work was lost, because each worker is told to commit after every
+20:30. Their work survived, because each worker is told to commit after a
 coherent step, and the two trees holding uncommitted changes were in a good
 enough state to checkpoint. Hold concurrency at three.
 
@@ -398,6 +399,23 @@ a verdict nobody can check.
 Two protocol defects surfaced during review and are tracked outside the queue,
 as rows PD-1 and PD-2, because no TypeScript change closes either. Neither
 blocks the port.
+
+PD-1, the `user_record` binding in `merge_transact`, is fixed in
+[PR #160](https://github.com/helius-labs/zolana/pull/160) off `main`, with 23
+checks green, and its tests are removed from this branch by `e16cb841`. Read
+the residual before assuming it is closed. The eddsa rail is shut: the record
+must sit at its own canonical PDA, which the registry only writes under the
+owner's signature. The P256 rail is narrowed rather than shut. A canonical PDA
+proves a record belongs to `record.owner`; it does not prove `owner_p256` is
+that owner's key, because registration still takes that key as a bare claim.
+The PR adds an exclusive first-claim-wins binding per P256 identity, which
+defeats the three attacks under test, and leaves one ordering residual: an
+impostor who claims a key before its real owner registers keeps it. Closing
+that needs a P256 signature over a registration challenge, verified in the
+registry, which is a larger change than this defect warranted and needs client
+support to produce the signature. Records already carrying an `owner_p256`
+have no claim account and need one `update_keys` call each before exclusivity
+covers them.
 
 The 26 findings in
 [production-readiness-issues.md](production-readiness-issues.md#scheduling) are
