@@ -36,6 +36,18 @@ files.
 - Generated verifying-key modules, compile-time macros, `PROGRAM_ID_PUBKEY`,
   and mutable account initialization methods are not applicable to the
   browser-safe TypeScript package.
+- Raw PDA seed constants map to the typed functions in
+  `@zolana/interface/pda`. Pubkey aliases map to the shared `Address` type.
+- SPL account byte offsets and token instruction discriminators remain Rust
+  program implementation constants. TypeScript instruction builders use the
+  canonical token program addresses and do not parse SPL account storage.
+
+## Rust defect not copied
+
+`MERGE_ENCRYPTED_UTXO_TYPE_PREFIX` documents byte `2` as mandatory, but
+`MergeTransactIxDataRef::validate_shape` checks only vector lengths. The
+TypeScript merge codecs reject another prefix. Rust should add the same check
+before accepting merge instruction data.
 
 ## Blocked authority conflicts
 
