@@ -94,7 +94,7 @@
       "packet": "P09",
       "path": "sdk-libs/client/src/prover/field.rs",
       "responsibility": "Internal implementation of right_align; right_align_slice; be; poseidon helpers; callers reach it through the package allowlist.",
-      "target": "`@zolana/client` · `src/prover/field.ts`",
+      "target": "`@zolana/client` · `src/internal.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
     {
@@ -134,7 +134,7 @@
       "packet": "P09",
       "path": "sdk-libs/client/src/prover/merge_zone.rs",
       "responsibility": "Implements MergeZoneProver; MergeZoneWitness; public only where `public-exports.md` declares it.",
-      "target": "`@zolana/client` · `src/prover/merge-zone.ts`",
+      "target": "`@zolana/client` · `src/prover/merge.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
     {
@@ -174,7 +174,7 @@
       "packet": "P09",
       "path": "sdk-libs/client/src/prover/transact/mod.rs",
       "responsibility": "Explicit export/module responsibility for transact prover pub use allowlist; only names allowlisted in `public-exports.md` are public.",
-      "target": "`@zolana/client` · `src/prover/transact/index.ts`",
+      "target": "`@zolana/client` · `src/prover/index.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
     {
