@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `8152a4865c832ea0b56c02fdd656776986d71cac`
+- Review HEAD: `14ad30017ef5b512548f65284eae0212684d8197`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `18 done / 118 total`; `53 needs_fix`; `0 needs_re_review`; `1 in_progress`
-- Exact next eligible row: `T14 sdk-libs/transaction/src/wallet/state.rs`
+- Progress: `18 done / 118 total`; `54 needs_fix`; `0 needs_re_review`; `1 in_progress`
+- Exact next eligible row: `T15 sdk-libs/transaction/src/wallet/sync.rs`
 - Active reviews: `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -232,7 +232,7 @@ Columns:
 | T11 | `sdk-libs/transaction/src/utxo.rs` | `transaction/src/utxo.ts` | needs_fix | DIVERGENT | proposed | Valid frozen UTXO, hash, and nullifier vectors match current Rust, but TypeScript omits the field-encoded proof-input public API, domain, and helpers. Both implementations accept a spec-invalid nonzero zone hash without a nonzero zone program; runtime, copy, and error boundaries differ; and malformed, property, tamper, export, and browser evidence is incomplete. First centralize strict zone-pair validation in Rust, then align the TypeScript surface, boundaries, and evidence. | 2026-07-25 review | - |
 | T12 | `sdk-libs/transaction/src/wallet/asset.rs` | `transaction/src/wallet/asset.ts` | needs_fix | DIVERGENT | proposed | Valid registry mappings match, but Rust and TypeScript accept spec-invalid asset ID `0`. TypeScript also omits public `address_for_field`, runtime mint/address and lookup-ID validation, and current-Rust rejection, property, error-detail, export, browser, and pack evidence, while exposing undeclared insertion-ordered `entries()`. First make Rust reject non-native asset IDs below `2`; then align the TypeScript API, domains, and evidence. Preserve I33 registry-codec ownership. | 2026-07-25 review | - |
 | T13 | `sdk-libs/transaction/src/wallet/authority.rs` | `transaction/src/wallet/authority.ts` | needs_fix | DIVERGENT | proposed | TypeScript omits anonymous-transfer capability and several Rust public exports or ownership dispositions. Authority APIs expose viewing/nullifier secrets; remote output and rejection contracts are insufficient; and current-Rust malformed, HSM, concurrency, browser, and export evidence is incomplete. First make Rust reject the wrong signer rail, remove the implicit zero Solana address, validate remote signatures and results, and provide coherent snapshots with least-privilege secret boundaries; then align TypeScript while preserving K11/K12 capability ownership and W06 application-authority ownership. | 2026-07-25 review | - |
-| T14 | `sdk-libs/transaction/src/wallet/state.rs` | `transaction/src/wallet/state.ts` | todo | - | none | - | - | - |
+| T14 | `sdk-libs/transaction/src/wallet/state.rs` | `transaction/src/wallet/state.ts` | needs_fix | DIVERGENT | proposed | TypeScript omits or changes core wallet state, history, balance, filter, report, viewing-key, and checkpoint APIs; uses unsafe `number` indices; exposes mutable internals and an aliased registry; and produces shallow snapshots. Fixture tests ignore much of the current-Rust oracle. First add checked Rust balance and spent-total arithmetic and stage sync mutations atomically; then align the TypeScript surface, numeric domains, encapsulation, snapshots, and current-Rust evidence. | 2026-07-25 review | - |
 | T15 | `sdk-libs/transaction/src/wallet/sync.rs` | `transaction/src/wallet/sync.ts` | todo | - | none | - | - | - |
 | T16 | `sdk-libs/transaction/src/wallet/parallel.rs` | `transaction/src/wallet/sync.ts` | todo | - | none | - | - | - |
 | T17 | `sdk-libs/transaction/src/wallet/mod.rs` | `transaction/src/wallet/index.ts` | todo | - | none | - | - | - |
@@ -1344,3 +1344,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `18/118`; package `0/31`
 - Exact next file: `T14 sdk-libs/transaction/src/wallet/state.rs`
 - Full SDK parity claim: unsupported; authority capabilities, secret boundaries, remote contracts, and evidence diverge
+
+### 2026-07-25 12:05 UTC | T14 | `sdk-libs/transaction/src/wallet/state.rs`
+
+- Baseline: HEAD `14ad30017ef5b512548f65284eae0212684d8197`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This module owns wallet state, transaction history, balances, filters, reports, viewing-key access, snapshots, checkpoints, and registry-backed state.
+- Evidence: TypeScript omits or changes core wallet state/history/balance/filter/report/viewing-key/checkpoint APIs, uses unsafe `number` indices, exposes mutable internals and an aliased registry, and produces shallow snapshots. Fixture tests ignore much of the current-Rust oracle.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: First add checked Rust balance and spent-total arithmetic and stage sync mutations atomically; then align the TypeScript surface, numeric domains, encapsulation, snapshots, and current-Rust evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `18/118`; package `0/31`
+- Exact next file: `T15 sdk-libs/transaction/src/wallet/sync.rs`
+- Full SDK parity claim: unsupported; wallet state capabilities, numeric safety, encapsulation, atomicity, and current-Rust evidence diverge
