@@ -11448,6 +11448,7 @@ name = "zolana-tree"
 version = "0.1.0"
 dependencies = [
  "pinocchio 0.11.2",
+ "thiserror 2.0.18",
  "wincode",
  "zolana-batched-merkle-tree",
  "zolana-hasher",

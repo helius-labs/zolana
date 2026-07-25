@@ -7,24 +7,11 @@ use wincode::{
 };
 use zolana_hasher::{Hasher, Poseidon};
 
+use crate::error::TreeError;
+
 pub const ROOT_OFFSET: usize = 8;
 
 pub const ROOT_HISTORY_CAPACITY: usize = 200;
-
-// TODO: move to error.rs file, use thiserror
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TreeError {
-    BufferTooSmall,
-    HeightTooLarge,
-    Deserialize,
-    AddressInit,
-    AlreadyInitialized,
-    InvalidOwner,
-    NotWritable,
-    InvalidDiscriminator,
-    Paused,
-    InvalidRootIndex,
-}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
