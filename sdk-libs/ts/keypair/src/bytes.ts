@@ -32,7 +32,18 @@ export function bytesToBigInt(bytes: Uint8Array): bigint {
   return value;
 }
 
+/**
+ * The Rust counterpart is `bigint_to_be_bytes_array`, which takes a `BigUint`
+ * and returns `HasherError::InvalidInputLength` when the value needs more bytes
+ * than the array holds. A negative value cannot be handed to it at all. Both
+ * cases were silently absorbed here: truncation dropped the high bytes and a
+ * negative value wrapped to its two's complement, either of which feeds Poseidon
+ * a field element the caller never asked for.
+ */
 export function bigIntToBytes(value: bigint, length = 32): Uint8Array {
+  if (value < 0n || value >= 1n << BigInt(length * 8)) {
+    throw invalidLength("bigIntToBytes", length, bigIntByteWidth(value));
+  }
   const bytes = new Uint8Array(length);
   let remaining = value;
   for (let index = length - 1; index >= 0; index--) {
@@ -40,6 +51,15 @@ export function bigIntToBytes(value: bigint, length = 32): Uint8Array {
     remaining >>= 8n;
   }
   return bytes;
+}
+
+/// Width in bytes of an unsigned value. A negative one has none, so it reports
+/// the `-1` that `checkedBytes` uses for an input with no readable length.
+function bigIntByteWidth(value: bigint): number {
+  if (value < 0n) return -1;
+  let width = 0;
+  for (let remaining = value; remaining > 0n; remaining >>= 8n) width += 1;
+  return width;
 }
 
 export function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
