@@ -260,6 +260,7 @@ impl ProverClient {
 
     /// Poll the async job status endpoint until the queued proof completes.
     fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
+        let job_id = checked_job_id(job_id)?;
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
         let poll_interval = self.async_poll.poll_interval_secs.max(1);
         let max_wait = self.async_poll.max_wait_secs;
@@ -330,6 +331,23 @@ impl ProverClient {
             .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
         proof_from_gnark_json(&proof_json)
             .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
+    }
+}
+
+/// The job handle comes from the prover server and is interpolated into the
+/// status URL, so anything outside `[A-Za-z0-9_-]` could rewrite the query or
+/// the path. Same charset and bound the TypeScript client enforces.
+fn checked_job_id(job_id: &str) -> Result<&str, ClientError> {
+    let valid = (1..=256).contains(&job_id.len())
+        && job_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+    if valid {
+        Ok(job_id)
+    } else {
+        Err(ClientError::ProverServer(
+            "prover returned a malformed job id".into(),
+        ))
     }
 }
 
@@ -466,6 +484,7 @@ impl AsyncProverClient {
     }
 
     async fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
+        let job_id = checked_job_id(job_id)?;
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
         let poll_interval = self.async_poll.poll_interval_secs.max(1);
         let max_wait = self.async_poll.max_wait_secs;
@@ -816,6 +835,32 @@ mod tests {
 
         assert_paths(&requests, ["/prove", "/prove/status?job_id=job-bad-json"]);
         assert!(err.to_string().contains("invalid status JSON"));
+    }
+
+    #[test]
+    fn poll_async_rejects_job_id_that_could_rewrite_the_status_url() {
+        let server = MockServer::respond_with(vec![MockResponse::json(
+            202,
+            json!({ "job_id": "job-1&job_id=other" }),
+        )]);
+        let err = queued_prover_client(server.url())
+            .send("{}".to_string())
+            .expect_err("a job id with query characters must be rejected");
+        let requests = server.requests();
+
+        assert_paths(&requests, ["/prove"]);
+        assert!(err.to_string().contains("malformed job id"));
+    }
+
+    #[test]
+    fn checked_job_id_accepts_only_url_safe_handles() {
+        assert!(checked_job_id("job-1_A").is_ok());
+        assert!(checked_job_id(&"a".repeat(256)).is_ok());
+        assert!(checked_job_id("").is_err());
+        assert!(checked_job_id(&"a".repeat(257)).is_err());
+        assert!(checked_job_id("job/1").is_err());
+        assert!(checked_job_id("job 1").is_err());
+        assert!(checked_job_id("job#1").is_err());
     }
 
     #[test]

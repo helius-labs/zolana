@@ -214,21 +214,22 @@ pub fn assemble(
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
 
-    // Signer indices for the real inputs only; dummies (zero owner) inherit the
-    // first real input's signer below. A zero owner reads as P256, so it must
-    // never reach `signature_type`.
-    let mut real_signer_indices: Vec<u8> = Vec::new();
-    for spend in proof_inputs
-        .input_utxos
-        .iter()
-        .filter(|spend| !spend.is_dummy())
-    {
+    // Signer index per padded slot: `None` marks a dummy, which inherits the
+    // first real input's signer below. A zero owner reads as P256, so a dummy
+    // must never reach `signature_type`. Slots are kept because a dummy ahead of
+    // a real input would otherwise shift every later real input's signer.
+    let mut signer_per_slot: Vec<Option<u8>> = Vec::with_capacity(proof_inputs.input_utxos.len());
+    for spend in proof_inputs.input_utxos.iter() {
+        if spend.is_dummy() {
+            signer_per_slot.push(None);
+            continue;
+        }
         let signer = if spend.utxo.owner.signature_type()? == SignatureType::P256 {
             P256_OWNED_SIGNER
         } else {
             DEFAULT_EDDSA_SIGNER_INDEX
         };
-        real_signer_indices.push(signer);
+        signer_per_slot.push(Some(signer));
     }
 
     let zolana_transaction::ExternalData {
@@ -280,9 +281,9 @@ pub fn assemble(
         });
     }
 
-    let dummy_signer = real_signer_indices
-        .first()
-        .copied()
+    let dummy_signer = signer_per_slot
+        .iter()
+        .find_map(|signer| *signer)
         .unwrap_or(DEFAULT_EDDSA_SIGNER_INDEX);
     let mut inputs = Vec::with_capacity(shape.n_inputs());
     for i in 0..shape.n_inputs() {
@@ -299,10 +300,11 @@ pub fn assemble(
                     got: root_indices.len(),
                     expected: shape.n_inputs(),
                 })?;
-        let eddsa_signer_index = match real_signer_indices.get(i) {
-            Some(&signer) => signer,
-            None => dummy_signer,
-        };
+        let eddsa_signer_index = signer_per_slot
+            .get(i)
+            .copied()
+            .flatten()
+            .unwrap_or(dummy_signer);
         inputs.push(InputUtxo {
             nullifier_hash,
             nullifier_tree_root_index,
