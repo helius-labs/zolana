@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AssetRegistry,
   ConfidentialTransfer,
+  Data,
   ProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
@@ -416,6 +417,7 @@ describe("manifest-verified transaction builders", () => {
         }),
     );
     const prepared = split.prepare();
+    expect(prepared.asset).toBe(SOL_MINT);
     const expectedOutputs = fixtureArray(expected, "outputs").map((entry) =>
       fixtureObject(entry, "split output"),
     );
@@ -523,6 +525,16 @@ describe("manifest-verified transaction builders", () => {
     expect(() => new Merge(sender.keypair, [])).toThrow(
       expect.objectContaining({ code: "TRANSACTION_NO_INPUTS" }),
     );
+    expect(new Merge(sender.keypair, real).withExpiry(123n).prepare().expiryUnixTs).toBe(123n);
+    const firstReal = real[0];
+    if (!firstReal) throw new Error("missing real merge input");
+    const mismatchedNullifier = new ProofInputUtxo({
+      utxo: firstReal.utxo,
+      nullifierKey: NullifierKey.fromSecret(new Uint8Array(31).fill(9) as Bytes31),
+    });
+    expect(() => new Merge(sender.keypair, [mismatchedNullifier])).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH" }),
+    );
     const foreignSecret = new Uint8Array(32);
     foreignSecret[31] = 12;
     const foreignSigning = SigningKey.fromBytes(foreignSecret as Bytes32);
@@ -576,6 +588,25 @@ describe("manifest-verified transaction builders", () => {
     expect(preparedZone.output.zoneDataHash).toEqual(
       hexBytes(fixtureString(zoneInputs, "outputZoneDataHashBytes")),
     );
+    expect(
+      new MergeZone(zoneSender.keypair, [zoneSpend], zone).withExpiry(456n).prepare().expiryUnixTs,
+    ).toBe(456n);
+    const zoneDataSpend = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: zoneSender.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 50n,
+        blinding: deriveBlinding(seed, 0),
+        zoneProgramId: zone,
+        data: new Data([
+          { kind: "zoneData", bytes: Uint8Array.of(1) },
+          { kind: "memo", bytes: Uint8Array.of(2) },
+        ]),
+      }),
+      nullifierKey: zoneSender.nullifier,
+      zoneDataHash: hexBytes(fixtureString(zoneInputs, "inputZoneDataHashBytes")) as Bytes32,
+    });
+    expect(() => new MergeZone(zoneSender.keypair, [zoneDataSpend], zone)).not.toThrow();
     expect(preparedZone.inputUtxoHashes()).toEqual([
       {
         index: 0,
@@ -588,11 +619,7 @@ describe("manifest-verified transaction builders", () => {
     }).toThrow(expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH" }));
     expect(
       () =>
-        new MergeZone(
-          zoneSender.keypair,
-          [fixedInput(zoneSender, 50n, SOL_MINT, seed, 0)],
-          zone,
-        ),
+        new MergeZone(zoneSender.keypair, [fixedInput(zoneSender, 50n, SOL_MINT, seed, 0)], zone),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH" }));
   });
 });

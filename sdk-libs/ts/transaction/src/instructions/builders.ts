@@ -19,6 +19,17 @@ import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
 import { SppProofInputs, createExternalData, type InputUtxoContext } from "./transact.js";
 
 const MERGE_INPUTS = 8;
+const U64_MAX = 0xffff_ffff_ffff_ffffn;
+
+function checkedU64(value: bigint, field: string): bigint {
+  if (typeof value !== "bigint" || value < 0n || value > U64_MAX) {
+    throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
+      field,
+      value: String(value),
+    });
+  }
+  return value;
+}
 
 export class PreparedMerge {
   readonly inputs: readonly ProofInputUtxo[];
@@ -26,7 +37,7 @@ export class PreparedMerge {
   readonly expiryUnixTs: bigint;
   readonly signingPublicKey: ShieldedPublicKey;
   readonly userViewingPublicKey: P256PublicKey;
-  readonly txViewingSecret: Bytes32;
+  readonly #txViewingSecret: Bytes32;
 
   constructor(
     input: Readonly<{
@@ -38,16 +49,34 @@ export class PreparedMerge {
       txViewingSecret: Bytes32;
     }>,
   ) {
+    if (input.inputs.length !== MERGE_INPUTS) {
+      throw new TransactionError("TRANSACTION_INVALID_OUTPUT_COUNT", {
+        expected: MERGE_INPUTS,
+        actual: input.inputs.length,
+      });
+    }
+    let sawDummy = false;
+    input.inputs.forEach((spend, index) => {
+      if (spend.isDummy()) {
+        sawDummy = true;
+      } else if (sawDummy) {
+        throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
+      }
+    });
     this.inputs = Object.freeze([...input.inputs]);
     this.output = input.output;
-    this.expiryUnixTs = input.expiryUnixTs;
+    this.expiryUnixTs = checkedU64(input.expiryUnixTs, "expiryUnixTs");
     this.signingPublicKey = input.signingPublicKey;
     this.userViewingPublicKey = input.userViewingPublicKey;
-    this.txViewingSecret = checked<Bytes32>(
+    this.#txViewingSecret = checked<Bytes32>(
       input.txViewingSecret,
       32,
       "transaction viewing secret",
     );
+  }
+
+  get txViewingSecret(): Bytes32 {
+    return checked<Bytes32>(this.#txViewingSecret, 32, "transaction viewing secret");
   }
 
   inputUtxoHashes(): readonly InputUtxoContext[] {
@@ -64,7 +93,7 @@ export class PreparedMerge {
 }
 
 export class Merge {
-  readonly #prepared: PreparedMerge;
+  #prepared: PreparedMerge;
 
   constructor(keypair: ShieldedKeypair, inputs: readonly ProofInputUtxo[]) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
@@ -78,7 +107,7 @@ export class Merge {
     const firstInput = inputs[0];
     if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
     const asset = firstInput.utxo.asset;
-    const nullifierPublicKey = firstInput.nullifierKey.publicKey();
+    const nullifierPublicKey = keypair.nullifierKey().publicKey();
     let amount = 0n;
     inputs.forEach((input, index) => {
       if (input.utxo.owner.signatureType() !== owner.signatureType()) {
@@ -127,22 +156,41 @@ export class Merge {
   prepare(): PreparedMerge {
     return this.#prepared;
   }
+
+  withExpiry(expiryUnixTs: bigint): this {
+    this.#prepared = new PreparedMerge({
+      inputs: this.#prepared.inputs,
+      output: this.#prepared.output,
+      expiryUnixTs: checkedU64(expiryUnixTs, "expiryUnixTs"),
+      signingPublicKey: this.#prepared.signingPublicKey,
+      userViewingPublicKey: this.#prepared.userViewingPublicKey,
+      txViewingSecret: this.#prepared.txViewingSecret,
+    });
+    return this;
+  }
 }
 
 export class PreparedMergeZone extends PreparedMerge {
   readonly zoneProgramId: Address;
 
   constructor(
-    input: ConstructorParameters<typeof PreparedMerge>[0] &
-      Readonly<{ zoneProgramId: Address }>,
+    input: ConstructorParameters<typeof PreparedMerge>[0] & Readonly<{ zoneProgramId: Address }>,
   ) {
     super(input);
     this.zoneProgramId = input.zoneProgramId;
   }
+
+  override inputUtxoHashes(): readonly InputUtxoContext[] {
+    validateMergeZoneInputs(this.inputs, this.zoneProgramId);
+    if (!this.output.isDummy() && this.output.zoneProgramId !== this.zoneProgramId) {
+      throw new TransactionError("TRANSACTION_OUTPUT_ZONE_MISMATCH", { index: 0 });
+    }
+    return super.inputUtxoHashes();
+  }
 }
 
 export class MergeZone {
-  readonly #prepared: PreparedMergeZone;
+  #prepared: PreparedMergeZone;
 
   constructor(
     keypair: ShieldedKeypair,
@@ -178,7 +226,7 @@ export class MergeZone {
       if (input.utxo.zoneProgramId !== zoneProgramId) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_ZONE_MISMATCH", { index });
       }
-      if (input.dataHash !== undefined || !input.utxo.data.isEmpty()) {
+      if (input.dataHash !== undefined || input.utxo.data.utxoData() !== undefined) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
       }
       amount += input.utxo.amount;
@@ -209,6 +257,19 @@ export class MergeZone {
 
   prepare(): PreparedMergeZone {
     return this.#prepared;
+  }
+
+  withExpiry(expiryUnixTs: bigint): this {
+    this.#prepared = new PreparedMergeZone({
+      inputs: this.#prepared.inputs,
+      output: this.#prepared.output,
+      expiryUnixTs: checkedU64(expiryUnixTs, "expiryUnixTs"),
+      signingPublicKey: this.#prepared.signingPublicKey,
+      userViewingPublicKey: this.#prepared.userViewingPublicKey,
+      txViewingSecret: this.#prepared.txViewingSecret,
+      zoneProgramId: this.#prepared.zoneProgramId,
+    });
+    return this;
   }
 }
 
@@ -257,22 +318,25 @@ export class ConfidentialSplit {
     ) {
       throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH");
     }
-    if (
-      input.input.utxo.zoneProgramId ||
-      !input.input.utxo.data.isEmpty() ||
-      input.input.dataHash ||
-      input.input.zoneDataHash
-    ) {
+    if (input.input.utxo.zoneProgramId !== undefined || input.input.zoneDataHash !== undefined) {
+      throw new TransactionError("TRANSACTION_SPLIT_INPUT_ZONE_MISMATCH");
+    }
+    if (!input.input.utxo.data.isEmpty() || input.input.dataHash !== undefined) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_HAS_DATA");
     }
-    if (input.perOutputAmount * BigInt(input.numOutputs) !== input.input.utxo.amount) {
-      throw new TransactionError("TRANSACTION_SPLIT_AMOUNT_MISMATCH");
+    const perOutputAmount = checkedU64(input.perOutputAmount, "perOutputAmount");
+    if (perOutputAmount * BigInt(input.numOutputs) !== input.input.utxo.amount) {
+      throw new TransactionError("TRANSACTION_SPLIT_AMOUNT_MISMATCH", {
+        input: input.input.utxo.amount.toString(),
+        numOutputs: input.numOutputs,
+        perOutput: perOutputAmount.toString(),
+      });
     }
     this.#owner = input.owner;
     this.#input = input.input;
     this.#asset = input.asset;
     this.#numOutputs = input.numOutputs;
-    this.#perOutputAmount = input.perOutputAmount;
+    this.#perOutputAmount = perOutputAmount;
     this.#payerHash = sha256Be(decodeAddress(input.payer));
   }
 
@@ -300,6 +364,7 @@ export class ConfidentialSplit {
 export class PreparedSplit {
   readonly owner: ShieldedAddress;
   readonly input: ProofInputUtxo;
+  readonly asset: Address;
   readonly outputs: readonly ProofOutputUtxo[];
   readonly firstNullifier: Bytes32;
   readonly numOutputs: number;
@@ -318,14 +383,47 @@ export class PreparedSplit {
       payerPublicKeyHash: Bytes32;
     }>,
   ) {
+    if (!Number.isInteger(input.numOutputs) || input.numOutputs < 2 || input.numOutputs > 8) {
+      throw new TransactionError("TRANSACTION_SPLIT_INVALID_PART_COUNT", {
+        numOutputs: input.numOutputs,
+      });
+    }
+    if (input.outputs.length !== 8) {
+      throw new TransactionError("TRANSACTION_INVALID_OUTPUT_COUNT", {
+        expected: 8,
+        actual: input.outputs.length,
+      });
+    }
+    const perOutputAmount = checkedU64(input.perOutputAmount, "perOutputAmount");
+    const blindingSeed = checked<Bytes31>(input.blindingSeed, 31, "blinding seed");
+    input.outputs.forEach((output, index) => {
+      const expectedAmount = index < input.numOutputs ? perOutputAmount : 0n;
+      if (
+        !equal(output.ownerHash(), input.owner.ownerHash()) ||
+        output.asset !== input.input.utxo.asset ||
+        output.amount !== expectedAmount ||
+        !equal(output.blinding, deriveBlinding(blindingSeed, index)) ||
+        output.zoneProgramId !== undefined ||
+        output.zoneDataHash !== undefined ||
+        output.dataHash !== undefined ||
+        !output.data.isEmpty()
+      ) {
+        throw new TransactionError("TRANSACTION_OUTPUT_DATA_MISMATCH", { index });
+      }
+    });
     this.owner = input.owner;
     this.input = input.input;
+    this.asset = input.input.utxo.asset;
     this.outputs = Object.freeze([...input.outputs]);
     this.firstNullifier = input.input.nullifier();
     this.numOutputs = input.numOutputs;
-    this.perOutputAmount = input.perOutputAmount;
-    this.blindingSeed = input.blindingSeed;
-    this.payerPublicKeyHash = input.payerPublicKeyHash;
+    this.perOutputAmount = perOutputAmount;
+    this.blindingSeed = blindingSeed;
+    this.payerPublicKeyHash = checked<Bytes32>(
+      input.payerPublicKeyHash,
+      32,
+      "payer public key hash",
+    );
   }
 
   bundlePlaintext(
