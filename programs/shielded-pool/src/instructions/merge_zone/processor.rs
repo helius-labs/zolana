@@ -74,7 +74,6 @@ pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         merge,
         derived,
         merge_view_tag,
-        clock.slot,
         Some(merge_view_tag),
     )
 }

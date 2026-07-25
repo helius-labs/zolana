@@ -1335,7 +1335,6 @@ fn create_tree_instructions_with_nullifier_params(
         CreateTree {
             authority: *authority,
             tree: *tree,
-            owner: *authority,
         }
         .instruction_with_nullifier_params(nullifier_params),
     ])

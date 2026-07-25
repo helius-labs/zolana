@@ -555,7 +555,6 @@ fn create_tree(
     let create_tree_ix = CreateTree {
         authority: tree_vault,
         tree: tree_keypair.pubkey(),
-        owner: tree_vault,
     }
     .instruction();
     let sync = execute_sync_ix(

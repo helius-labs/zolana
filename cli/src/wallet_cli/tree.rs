@@ -68,7 +68,6 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
             CreateTree {
                 authority,
                 tree: tree_pubkey,
-                owner: authority,
             }
             .instruction(),
         ];

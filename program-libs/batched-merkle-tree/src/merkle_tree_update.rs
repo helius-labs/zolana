@@ -1,11 +1,10 @@
 use zolana_hasher::hash_chain::create_hash_chain_from_array;
-use zolana_merkle_tree_metadata::{
-    errors::MerkleTreeMetadataError, events::batch::BatchAddressAppendEvent, TreeType,
-};
 
 use crate::{
-    errors::BatchedMerkleTreeError,
+    errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
+    events::BatchAddressAppendEvent,
     merkle_tree::{BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs},
+    merkle_tree_metadata::TreeType,
     verify::verify_batch_address_update,
     zero_copy::CachedTreeUpdate,
 };
@@ -41,15 +40,15 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
 
     /// Verify one address-append proof and cache the update at its zkp batch
     /// index. Returns `true` when a new update was cached, or `false` when the
-    /// update is already applied (its StartIndex is behind the account next
-    /// index) or already cached (an occupied slot at this StartIndex exists); a
-    /// replayed proof is then a no-op.
+    /// update is already applied (its zkp batch index is behind the number of
+    /// inserted zkp batches) or already cached (an occupied slot at this
+    /// StartIndex exists); a replayed proof is then a no-op.
     ///
     /// Steps:
     /// 1. Validate the zkp batch index and that its hash chain is finalized.
-    /// 2. Reconstruct the proof's StartIndex, the tree next index this zkp batch
-    ///    writes at.
-    /// 3. Return `false` if the update is already applied or already cached.
+    /// 2. Return `false` if the update is already applied, then reconstruct the
+    ///    proof's StartIndex, the tree next index this zkp batch writes at.
+    /// 3. Return `false` if the update is already cached.
     /// 4. Rebuild the public input hash and verify the proof.
     /// 5. Store the cached update, keyed by StartIndex, at its zkp batch index.
     fn verify_proof_cache_update(
@@ -74,37 +73,42 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .cached_tree_updates
             .get(pending_batch_index)
             .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
-            .data
             .len();
-        let zkp_batch_index = instruction_data.zkp_batch_index as usize;
+        let zkp_batch_index = usize::from(instruction_data.zkp_batch_index);
         if zkp_batch_index >= cached_tree_update_capacity {
             return Err(BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange);
         }
-        if (zkp_batch_index as u64) >= num_full_zkp_batches {
+        if u64::from(instruction_data.zkp_batch_index) >= num_full_zkp_batches {
             return Err(BatchedMerkleTreeError::HashChainNotReady);
         }
 
-        // 2. Reconstruct the proof's StartIndex: the tree next index this zkp
-        //    batch writes at.
-        let next_index_for_proof = (self.next_index as i128
-            + (zkp_batch_index as i128 - num_inserted_zkp_batches as i128) * zkp_batch_size as i128)
-            as u64;
+        // 2. Skip when already applied: a zkp batch index behind the number of
+        //    inserted zkp batches belongs to an update that is already in the
+        //    tree, so a replayed proof is a no-op.
+        let Some(zkp_batches_ahead) =
+            u64::from(instruction_data.zkp_batch_index).checked_sub(num_inserted_zkp_batches)
+        else {
+            return Ok(false);
+        };
+        // Reconstruct the proof's StartIndex: the tree next index this zkp
+        // batch writes at.
+        let next_index_for_proof = zkp_batches_ahead
+            .checked_mul(zkp_batch_size)
+            .and_then(|offset| self.next_index.checked_add(offset))
+            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?;
 
-        // 3. Skip when already applied (StartIndex behind the account next index)
-        //    or already cached (this zkp batch slot is occupied). The slot index
-        //    is derived from this proof's StartIndex, so an occupied slot can
-        //    only hold a proof for the same StartIndex.
-        let already_applied = next_index_for_proof < self.next_index;
+        // 3. Skip when already cached (this zkp batch slot is occupied). The
+        //    slot index is derived from this proof's StartIndex, so an occupied
+        //    slot can only hold a proof for the same StartIndex.
         let already_cached = self
             .layout
             .cached_tree_updates
             .get(pending_batch_index)
             .ok_or(BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange)?
-            .data
             .get(zkp_batch_index)
             .map(|cached_update| cached_update.is_occupied())
             .unwrap_or(false);
-        if already_applied || already_cached {
+        if already_cached {
             return Ok(false);
         }
 
@@ -136,7 +140,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .layout
             .cached_tree_updates
             .get_mut(pending_batch_index)
-            .and_then(|update_vec| update_vec.data.get_mut(zkp_batch_index))
+            .and_then(|updates| updates.get_mut(zkp_batch_index))
             .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
         *cached_update = CachedTreeUpdate {
             old_root: instruction_data.old_root,
@@ -184,7 +188,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                 .layout
                 .cached_tree_updates
                 .get(pending_batch_index)
-                .and_then(|update_vec| update_vec.data.get(zkp_batch_index))
+                .and_then(|updates| updates.get(zkp_batch_index))
             {
                 Some(cached_update) if cached_update.is_occupied() => *cached_update,
                 _ => return Ok(event),
@@ -274,7 +278,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .layout
             .cached_tree_updates
             .get_mut(pending_batch_index)
-            .and_then(|update_vec| update_vec.data.get_mut(zkp_batch_index))
+            .and_then(|updates| updates.get_mut(zkp_batch_index))
             .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
         *cached_update = CachedTreeUpdate::default();
         Ok(())

@@ -3,7 +3,6 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_account_checks::{checks::check_owner, AccountIterator};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::CreateTreeData,
     state::{address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, STATE_HEIGHT},
 };
 use zolana_tree::TreeAccount;
@@ -11,7 +10,7 @@ use zolana_tree::TreeAccount;
 use crate::instructions::protocol_config::loader::load_protocol_config;
 
 pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let (data, nullifier_params) = parse_create_tree_data(data)?;
+    let nullifier_params = parse_create_tree_data(data)?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;
@@ -41,7 +40,6 @@ pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> Program
         &mut tree_data,
         TREE_ACCOUNT_DISCRIMINATOR,
         STATE_HEIGHT as u8,
-        data.owner,
         tree_pubkey,
         nullifier_params,
     )
@@ -51,15 +49,7 @@ pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> Program
 
 fn parse_create_tree_data(
     mut data: &[u8],
-) -> Result<
-    (
-        CreateTreeData,
-        zolana_tree::InitAddressTreeAccountsInstructionData,
-    ),
-    ProgramError,
-> {
-    let create_tree = CreateTreeData::deserialize(&mut data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+) -> Result<zolana_tree::InitAddressTreeAccountsInstructionData, ProgramError> {
     let nullifier_params = if data.is_empty() {
         address_tree_params()
     } else {
@@ -70,5 +60,5 @@ fn parse_create_tree_data(
         }
         params
     };
-    Ok((create_tree, nullifier_params))
+    Ok(nullifier_params)
 }

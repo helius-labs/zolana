@@ -50,7 +50,6 @@ pub fn create_tree_instructions<R: Rpc>(
         CreateTree {
             authority: *authority,
             tree: *tree,
-            owner: *authority,
         }
         .instruction(),
     ])

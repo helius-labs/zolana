@@ -3,20 +3,15 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
 
-use crate::{
-    instruction::{tag, CreateTreeData},
-    pda, PROGRAM_ID_PUBKEY,
-};
+use crate::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
 
 /// Initialize a combined-account shielded-pool tree (state sub-tree +
 /// address sub-tree co-located). Tree creation is admin-gated: `authority` must
 /// be the signer named by the canonical protocol config, otherwise anyone could
 /// stand up a rogue tree and drain the shared vault against roots they control.
-/// `owner` becomes the access-metadata owner of the tree.
 pub struct CreateTree {
     pub authority: Pubkey,
     pub tree: Pubkey,
-    pub owner: Pubkey,
 }
 
 impl CreateTree {
@@ -39,11 +34,6 @@ impl CreateTree {
         params: Option<InitAddressTreeAccountsInstructionData>,
     ) -> Instruction {
         let mut data = vec![tag::CREATE_TREE];
-        CreateTreeData {
-            owner: self.owner.to_bytes(),
-        }
-        .serialize(&mut data)
-        .expect("shielded-pool instruction serialization is infallible");
         if let Some(params) = params {
             params
                 .serialize(&mut data)

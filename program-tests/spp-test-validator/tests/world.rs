@@ -168,7 +168,6 @@ impl LifecycleWorld {
         let create_tree_ix = zolana_interface::instruction::CreateTree {
             authority: accounts.tree_vault,
             tree: tree.pubkey(),
-            owner: accounts.tree_vault,
         }
         .instruction();
         let create_tree_sync = execute_sync_ix(

@@ -3,22 +3,12 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use solana_address::Address as Pubkey;
-use zolana_account_checks::{
-    checks::check_account_info, discriminator::Discriminator, AccountView,
-};
-use zolana_hasher::hash_to_field_size::hash_to_bn254_field_size_be;
-use zolana_merkle_tree_metadata::{
-    errors::MerkleTreeMetadataError, merkle_tree::MerkleTreeMetadata, TreeType,
-    ADDRESS_MERKLE_TREE_TYPE_V2,
-};
-
 use super::batch::Batch;
 use crate::{
     batch::BatchState,
     constants::ADDRESS_TREE_INIT_ROOT_40,
-    errors::BatchedMerkleTreeError,
-    merkle_tree_metadata::BatchedMerkleTreeMetadata,
+    errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
+    merkle_tree_metadata::{BatchedMerkleTreeMetadata, TreeType, ADDRESS_MERKLE_TREE_TYPE_V2},
     queue::insert_into_current_queue_batch,
     verify::CompressedProof,
     zero_copy::{
@@ -26,6 +16,10 @@ use crate::{
         CYCLIC_CURRENT_INDEX, CYCLIC_LENGTH,
     },
     BorshDeserialize, BorshSerialize,
+};
+use solana_address::Address as Pubkey;
+use zolana_account_checks::{
+    checks::check_account_info, discriminator::Discriminator, AccountView,
 };
 
 #[repr(C)]
@@ -162,7 +156,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     pub fn init(
         account_data: &'a mut [u8],
         pubkey: &Pubkey,
-        metadata: MerkleTreeMetadata,
         root_history_capacity: u32,
         input_queue_batch_size: u64,
         input_queue_zkp_batch_size: u64,
@@ -184,7 +177,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         Self::init_from_layout(
             layout,
             pubkey,
-            metadata,
             root_history_capacity,
             input_queue_batch_size,
             input_queue_zkp_batch_size,
@@ -208,7 +200,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     pub fn init_from_layout(
         layout: &'a mut TreeAccountLayout<RH, NUM_ITERS, BLOOM, ZKP>,
         pubkey: &Pubkey,
-        metadata: MerkleTreeMetadata,
         root_history_capacity: u32,
         input_queue_batch_size: u64,
         input_queue_zkp_batch_size: u64,
@@ -221,13 +212,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
 
         let account_metadata = &mut layout.metadata;
 
-        // Precompute Merkle tree pubkey hash for use in system program.
-        // The compressed account hash depends on the Merkle tree pubkey and leaf index.
-        // Poseidon hashes required input size < bn254 field size.
-        // To map 256bit pubkeys to < 254bit field size, we hash Pubkeys
-        // and truncate the hash to 31 bytes/248 bits.
-        account_metadata.hashed_pubkey = hash_to_bn254_field_size_be(&pubkey.to_bytes());
-        account_metadata.metadata = metadata;
         account_metadata.root_history_capacity = root_history_capacity;
         account_metadata.height = height;
         account_metadata.tree_type = tree_type as u64;
@@ -280,18 +264,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             hash_chain.header[BOUNDED_LENGTH] = 0;
             hash_chain.header[BOUNDED_CAPACITY] = ZKP as u64;
         }
-        for update_vec in layout.cached_tree_updates.iter_mut() {
-            update_vec.header[BOUNDED_LENGTH] = 0;
-            update_vec.header[BOUNDED_CAPACITY] = ZKP as u64;
-        }
         let next_index = layout.metadata.next_index;
-
-        // Bloom-filter parameters upstream stores in the queue/batch metadata so
-        // that indexers parsing our account with the upstream crate size the
-        // bloom region (`bloom_filter_capacity / 8` bytes) correctly and
-        // reconstruct the same bloom filters. Capacity is in bits.
-        let bloom_filter_capacity_bits = (BLOOM as u64) * 8;
-        layout.metadata.queue_batches.bloom_filter_capacity = bloom_filter_capacity_bits;
 
         for (i, batches) in layout.metadata.queue_batches.batches.iter_mut().enumerate() {
             *batches = Batch::new(
@@ -299,7 +272,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                 input_queue_zkp_batch_size,
                 input_queue_batch_size * (i as u64) + next_index,
             );
-            batches.set_bloom_filter_params(NUM_ITERS as u64, bloom_filter_capacity_bits);
         }
 
         Ok(BatchedMerkleTreeAccount {
@@ -311,7 +283,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     pub fn insert_address_into_queue(
         &mut self,
         address: &[u8; 32],
-        current_slot: &u64,
     ) -> Result<(), BatchedMerkleTreeError> {
         if self.tree_type != TreeType::AddressV2 as u64 {
             return Err(MerkleTreeMetadataError::InvalidTreeType.into());
@@ -336,7 +307,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                 &mut hash_chain_stores,
                 address,
                 address,
-                current_slot,
             )?;
         }
         self.increment_queue_next_index();
@@ -621,10 +591,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         Ok(())
     }
 
-    pub fn get_associated_queue(&self) -> &Pubkey {
-        &self.layout.metadata.metadata.associated_queue
-    }
-
     pub fn pubkey(&self) -> &Pubkey {
         &self.pubkey
     }
@@ -732,24 +698,14 @@ mod test {
     fn test_cached_tree_update_region_layout_and_size() {
         let update_size = core::mem::size_of::<crate::zero_copy::CachedTreeUpdate>();
         assert_eq!(update_size, 65);
-        // The vec has a [u64; 2] header, so its size is the header plus the
-        // updates rounded up to the 8-byte header alignment.
-        assert_eq!(
-            core::mem::size_of::<crate::zero_copy::CachedTreeUpdateVec<5>>(),
-            (16 + 5 * update_size).next_multiple_of(8)
-        );
 
         const RH: usize = 10;
         const NI: usize = 3;
         const BLOOM: usize = 1000;
         const ZKP: usize = 4;
         let full = get_merkle_tree_account_size::<RH, NI, BLOOM, ZKP>();
-        let cached_tree_update_bytes =
-            2 * core::mem::size_of::<crate::zero_copy::CachedTreeUpdateVec<ZKP>>();
-        assert_eq!(
-            cached_tree_update_bytes,
-            2 * (16 + ZKP * update_size).next_multiple_of(8)
-        );
+        let cached_tree_update_bytes = core::mem::size_of::<[[CachedTreeUpdate; ZKP]; 2]>();
+        assert_eq!(cached_tree_update_bytes, 2 * ZKP * update_size);
 
         let mut old_sized = vec![0u8; full - cached_tree_update_bytes];
         let account = BatchedMerkleTreeAccount::<RH, NI, BLOOM, ZKP>::from_bytes::<
@@ -759,6 +715,16 @@ mod test {
             account.unwrap_err(),
             crate::errors::BatchedMerkleTreeError::ZeroCopy(ZeroCopyError::Size)
         ));
+    }
+
+    #[test]
+    fn test_state_struct_sizes() {
+        assert_eq!(core::mem::size_of::<Batch>(), 72);
+        assert_eq!(
+            core::mem::size_of::<crate::queue_batch_metadata::QueueBatches>(),
+            192
+        );
+        assert_eq!(core::mem::size_of::<BatchedMerkleTreeMetadata>(), 232);
     }
 
     /// Re-submitting a proof for a zkp batch that has already been applied
@@ -772,7 +738,6 @@ mod test {
         let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 4>::init(
             &mut account_data,
             &pubkey,
-            MerkleTreeMetadata::default(),
             10,
             4,
             1,
@@ -815,7 +780,7 @@ mod test {
             .layout
             .cached_tree_updates
             .first()
-            .and_then(|chain| chain.data.first())
+            .and_then(|updates| updates.first())
             .unwrap();
         assert_eq!(cached_update.occupied, 0);
     }
@@ -830,7 +795,6 @@ mod test {
         let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 4>::init(
             &mut account_data,
             &pubkey,
-            MerkleTreeMetadata::default(),
             10,
             4,
             1,
@@ -860,7 +824,7 @@ mod test {
             .layout
             .cached_tree_updates
             .get_mut(0)
-            .and_then(|chain| chain.data.get_mut(0))
+            .and_then(|updates| updates.get_mut(0))
             .unwrap() = cached;
 
         // Re-submit zkp batch 0 with different roots and an invalid proof.
@@ -880,7 +844,7 @@ mod test {
             .layout
             .cached_tree_updates
             .first()
-            .and_then(|chain| chain.data.first())
+            .and_then(|updates| updates.first())
             .copied()
             .unwrap();
         assert_eq!(cached_update, cached);
@@ -902,7 +866,6 @@ mod test {
     /// 9. Batch 1 is inserted and Batch 0 is full and overlapping roots exist
     #[test]
     fn test_zero_out() {
-        let current_slot = 1;
         let mut account_data = vec![0u8; get_merkle_tree_account_size::<10, 3, 1000, 4>()];
         let batch_size = 4;
         let zkp_batch_size = 1;
@@ -912,7 +875,6 @@ mod test {
         BatchedMerkleTreeAccount::<10, 3, 1000, 4>::init(
             &mut account_data,
             &pubkey,
-            MerkleTreeMetadata::default(),
             root_history_len,
             batch_size,
             zkp_batch_size,
@@ -928,14 +890,9 @@ mod test {
         // 1. No batch is ready
         //   -> nothing should happen.
         {
-            let mut account = insert_rnd_addresses::<10, 3, 1000, 4>(
-                &mut account_data,
-                batch_size,
-                rng,
-                current_slot,
-                &pubkey,
-            )
-            .unwrap();
+            let mut account =
+                insert_rnd_addresses::<10, 3, 1000, 4>(&mut account_data, batch_size, rng, &pubkey)
+                    .unwrap();
 
             assert_eq!(
                 account.queue_batches.batches[0].get_state(),
@@ -988,14 +945,7 @@ mod test {
         {
             // Make Batch 1 almost half full
             {
-                insert_rnd_addresses::<10, 3, 1000, 4>(
-                    &mut account_data,
-                    1,
-                    rng,
-                    current_slot,
-                    &pubkey,
-                )
-                .unwrap();
+                insert_rnd_addresses::<10, 3, 1000, 4>(&mut account_data, 1, rng, &pubkey).unwrap();
             }
             let mut account_data = account_data.clone();
             let account_data_ref = account_data.clone();
@@ -1012,14 +962,7 @@ mod test {
         {
             // Make Batch 1 half full
             {
-                insert_rnd_addresses::<10, 3, 1000, 4>(
-                    &mut account_data,
-                    1,
-                    rng,
-                    current_slot,
-                    &pubkey,
-                )
-                .unwrap();
+                insert_rnd_addresses::<10, 3, 1000, 4>(&mut account_data, 1, rng, &pubkey).unwrap();
             }
             let mut account_data = account_data.clone();
             let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 4>::address_from_bytes(
@@ -1063,14 +1006,8 @@ mod test {
         }
         // Make Batch 1 full and insert
         {
-            let mut account = insert_rnd_addresses::<10, 3, 1000, 4>(
-                &mut account_data,
-                2,
-                rng,
-                current_slot,
-                &pubkey,
-            )
-            .unwrap();
+            let mut account =
+                insert_rnd_addresses::<10, 3, 1000, 4>(&mut account_data, 2, rng, &pubkey).unwrap();
 
             assert_eq!(
                 account.queue_batches.batches[1].get_state(),
@@ -1135,14 +1072,7 @@ mod test {
         {
             // Make Batch 0 quater full
             {
-                insert_rnd_addresses::<10, 3, 1000, 4>(
-                    &mut account_data,
-                    1,
-                    rng,
-                    current_slot,
-                    &pubkey,
-                )
-                .unwrap();
+                insert_rnd_addresses::<10, 3, 1000, 4>(&mut account_data, 1, rng, &pubkey).unwrap();
             }
             let mut account_data = account_data.clone();
             let account_data_ref = account_data.clone();
@@ -1160,14 +1090,7 @@ mod test {
         {
             // Make Batch 0 half full
             {
-                insert_rnd_addresses::<10, 3, 1000, 4>(
-                    &mut account_data,
-                    1,
-                    rng,
-                    current_slot,
-                    &pubkey,
-                )
-                .unwrap();
+                insert_rnd_addresses::<10, 3, 1000, 4>(&mut account_data, 1, rng, &pubkey).unwrap();
             }
             // simulate 10 other batch insertions from an output queue
             {
@@ -1224,7 +1147,6 @@ mod test {
                     &mut account_data,
                     batch_size + 2,
                     rng,
-                    current_slot,
                     &pubkey,
                 )
                 .unwrap();
@@ -1328,14 +1250,8 @@ mod test {
         {
             // fill batch 0
             {
-                insert_rnd_addresses::<10, 3, 1000, 4>(
-                    &mut account_data,
-                    batch_size,
-                    rng,
-                    current_slot,
-                    &pubkey,
-                )
-                .unwrap();
+                insert_rnd_addresses::<10, 3, 1000, 4>(&mut account_data, batch_size, rng, &pubkey)
+                    .unwrap();
             }
             println!("pre 9.2");
             // the insertion into batch 1 fails since the bloom filter of batch 0 is not zeroed out.
@@ -1345,7 +1261,7 @@ mod test {
             )
             .unwrap();
             let address = rng.gen();
-            let result = account.insert_address_into_queue(&address, &current_slot);
+            let result = account.insert_address_into_queue(&address);
             assert_eq!(
                 result.unwrap_err(),
                 BatchedMerkleTreeError::BloomFilterNotZeroed
@@ -1363,7 +1279,6 @@ mod test {
         account_data: &'a mut [u8],
         batch_size: u64,
         rng: &mut rand::prelude::StdRng,
-        current_slot: u64,
         pubkey: &Pubkey,
     ) -> Result<BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError>
     {
@@ -1376,7 +1291,7 @@ mod test {
         for i in 0..batch_size {
             println!("inserting address: {}", i);
             let address = rng.gen();
-            account.insert_address_into_queue(&address, &current_slot)?;
+            account.insert_address_into_queue(&address)?;
         }
         Ok(account)
     }
@@ -1387,14 +1302,12 @@ mod test {
         let batch_size = 200;
         let zkp_batch_size = 1;
         let root_history_len = 10;
-        let current_slot = 1;
         let height = 4;
         let tree_capacity = 2u64.pow(height);
         let pubkey = Pubkey::new_unique();
         let account = BatchedMerkleTreeAccount::<10, 3, 1000, 200>::init(
             &mut account_data,
             &pubkey,
-            MerkleTreeMetadata::default(),
             root_history_len,
             batch_size,
             zkp_batch_size,
@@ -1413,7 +1326,6 @@ mod test {
             &mut account_data,
             tree_capacity - 1,
             rng,
-            current_slot,
             &pubkey,
         )
         .unwrap();
@@ -1422,14 +1334,8 @@ mod test {
             .check_queue_next_index_reached_tree_capacity()
             .is_ok());
         // 3. tree at capacity is full
-        let account = insert_rnd_addresses::<10, 3, 1000, 200>(
-            &mut account_data,
-            1,
-            rng,
-            current_slot,
-            &pubkey,
-        )
-        .unwrap();
+        let account =
+            insert_rnd_addresses::<10, 3, 1000, 200>(&mut account_data, 1, rng, &pubkey).unwrap();
         assert_eq!(
             account
                 .check_queue_next_index_reached_tree_capacity()
@@ -1444,12 +1350,10 @@ mod test {
         let batch_size = 5;
         let zkp_batch_size = 1;
         let root_history_len = 10;
-        let mut current_slot = 1;
         let height = 40;
         let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 5>::init(
             &mut account_data,
             &Pubkey::new_unique(),
-            MerkleTreeMetadata::default(),
             root_history_len,
             batch_size,
             zkp_batch_size,
@@ -1467,14 +1371,7 @@ mod test {
         for _ in 0..batch_size {
             let address = rng.gen();
             inserted_elements.push(address);
-            account
-                .insert_address_into_queue(&address, &current_slot)
-                .unwrap();
-            assert_eq!(
-                account.queue_batches.batches[0].start_slot, 1,
-                "Slot should not change unless batch is advanced from inserted to fill."
-            );
-            current_slot += 1;
+            account.insert_address_into_queue(&address).unwrap();
         }
         // 1. Non inclusion of inserted elements should fail
         for address in inserted_elements.iter() {
@@ -1492,12 +1389,9 @@ mod test {
         }
         // fill batch 1
         for _ in 0..batch_size {
-            current_slot += 1;
             let address = rng.gen();
             inserted_elements.push(address);
-            account
-                .insert_address_into_queue(&address, &current_slot)
-                .unwrap();
+            account.insert_address_into_queue(&address).unwrap();
         }
         // 3. Non inclusion of inserted elements should fail
         for address in inserted_elements.iter() {
@@ -1541,7 +1435,6 @@ mod test {
         let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 5>::init(
             &mut account_data,
             &Pubkey::new_unique(),
-            MerkleTreeMetadata::default(),
             root_history_len,
             batch_size,
             zkp_batch_size,
@@ -1587,7 +1480,6 @@ mod test {
         let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 5>::init(
             &mut account_data,
             &pubkey,
-            MerkleTreeMetadata::default(),
             root_history_len,
             batch_size,
             zkp_batch_size,
@@ -1612,21 +1504,16 @@ mod test {
     }
 
     #[test]
-    fn test_get_pubkey_and_associated_queue() {
+    fn test_get_pubkey() {
         let mut account_data = vec![0u8; get_merkle_tree_account_size::<10, 3, 1000, 5>()];
         let batch_size = 5;
         let zkp_batch_size = 1;
         let root_history_len = 10;
         let height = 40;
         let pubkey = Pubkey::new_unique();
-        let associated_queue = Pubkey::new_unique();
         let account = BatchedMerkleTreeAccount::<10, 3, 1000, 5>::init(
             &mut account_data,
             &pubkey,
-            MerkleTreeMetadata {
-                associated_queue,
-                ..MerkleTreeMetadata::default()
-            },
             root_history_len,
             batch_size,
             zkp_batch_size,
@@ -1636,6 +1523,5 @@ mod test {
         )
         .unwrap();
         assert_eq!(*account.pubkey(), pubkey);
-        assert_eq!(*account.get_associated_queue(), associated_queue);
     }
 }
