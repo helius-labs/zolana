@@ -20,8 +20,8 @@ Update this block at the start of each session.
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `18 done / 118 total`; `51 needs_fix`; `0 needs_re_review`; `1 in_progress`
-- Exact next eligible row: `T12 sdk-libs/transaction/src/wallet/asset.rs`
+- Progress: `18 done / 118 total`; `52 needs_fix`; `0 needs_re_review`; `1 in_progress`
+- Exact next eligible row: `T13 sdk-libs/transaction/src/wallet/authority.rs`
 - Active reviews: `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -230,7 +230,7 @@ Columns:
 | T09 | `sdk-libs/transaction/src/serialization/merge.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Fixed-layout and verifiable-encryption bytes match current Rust, but TypeScript lacks a merge-specific scheme-locked conversion and sealing API, accepts invalid runtime amount and blinding values, requires raw secret bytes instead of `ViewingKey`, omits public UTXO conversion, and lacks malformed, export, browser, and proof-contribution evidence. First make Rust require exactly one compatible UTXO, validate owner, data, and zone, preserve `zone_program_id` on reconstruction, and return a structured unknown-asset error; then port and prove the surface. | 2026-07-25 review | - |
 | T10 | `sdk-libs/transaction/src/serialization/mod.rs` | `transaction/src/serialization/index.ts` | needs_fix | DIVERGENT | proposed | Valid family bytes are represented, but TypeScript omits adaptations for Rust's `DecodeCx`, `OwnerCx`, and `UtxoSerialization` capabilities, does not seal scheme-to-encoding combinations, misses several packed public capabilities, and lacks exact root/subpath declaration, runtime, tarball, browser, and consumer allowlists. Preserve T03-T09 ownership and their Rust conversion/spec prerequisites; then add the aggregate capability adaptations, sealing, exports, and allowlist evidence. | 2026-07-25 review | - |
 | T11 | `sdk-libs/transaction/src/utxo.rs` | `transaction/src/utxo.ts` | needs_fix | DIVERGENT | proposed | Valid frozen UTXO, hash, and nullifier vectors match current Rust, but TypeScript omits the field-encoded proof-input public API, domain, and helpers. Both implementations accept a spec-invalid nonzero zone hash without a nonzero zone program; runtime, copy, and error boundaries differ; and malformed, property, tamper, export, and browser evidence is incomplete. First centralize strict zone-pair validation in Rust, then align the TypeScript surface, boundaries, and evidence. | 2026-07-25 review | - |
-| T12 | `sdk-libs/transaction/src/wallet/asset.rs` | `transaction/src/wallet/asset.ts` | todo | - | none | - | - | - |
+| T12 | `sdk-libs/transaction/src/wallet/asset.rs` | `transaction/src/wallet/asset.ts` | needs_fix | DIVERGENT | proposed | Valid registry mappings match, but Rust and TypeScript accept spec-invalid asset ID `0`. TypeScript also omits public `address_for_field`, runtime mint/address and lookup-ID validation, and current-Rust rejection, property, error-detail, export, browser, and pack evidence, while exposing undeclared insertion-ordered `entries()`. First make Rust reject non-native asset IDs below `2`; then align the TypeScript API, domains, and evidence. Preserve I33 registry-codec ownership. | 2026-07-25 review | - |
 | T13 | `sdk-libs/transaction/src/wallet/authority.rs` | `transaction/src/wallet/authority.ts` | todo | - | none | - | - | - |
 | T14 | `sdk-libs/transaction/src/wallet/state.rs` | `transaction/src/wallet/state.ts` | todo | - | none | - | - | - |
 | T15 | `sdk-libs/transaction/src/wallet/sync.rs` | `transaction/src/wallet/sync.ts` | todo | - | none | - | - | - |
@@ -1318,3 +1318,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `18/118`; package `0/31`
 - Exact next file: `T12 sdk-libs/transaction/src/wallet/asset.rs`
 - Full SDK parity claim: unsupported; UTXO proof-input capabilities, zone validation, boundaries, and evidence diverge
+
+### 2026-07-25 11:57 UTC | T12 | `sdk-libs/transaction/src/wallet/asset.rs`
+
+- Baseline: HEAD `bd4ed7bd`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: The public asset registry maps mint addresses and asset IDs for wallet lookup. Valid Rust and TypeScript mappings match; I33 retains ownership of registry account codec and sync behavior.
+- Evidence: Both implementations accept spec-invalid asset ID `0`. TypeScript omits public `address_for_field`, does not validate runtime mint/address or lookup-ID domains, exposes undeclared insertion-ordered `entries()`, and lacks current-Rust rejection, property, error-detail, export, browser, and pack evidence.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: First make Rust reject non-native asset IDs below `2` precisely; then align the TypeScript API, runtime domains, undeclared export, and evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `18/118`; package `0/31`
+- Exact next file: `T13 sdk-libs/transaction/src/wallet/authority.rs`
+- Full SDK parity claim: unsupported; asset-ID domains, public capability parity, runtime validation, and evidence diverge
