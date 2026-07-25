@@ -1,10 +1,12 @@
-# Row updates from the three spec amendments
+# Row updates from the spec amendments
 
-Written by the worker who applied the 2026-07-25 spec amendments for G7-1, T23,
-and C04. It records which review-checklist rows the amendments release and which
-ones they leave held, so the checklist owner can transcribe them without
-rereading the spec diff. The evidence behind each ruling is in
-[authority-rulings.md](../authority-rulings.md), recorded at `1d6b9873`.
+Written by the worker who applied the 2026-07-25 spec amendments: G7-1, T23,
+and C04 in the first rounds, then the deposit and protocol-config amendments
+for I07, I19, I10, and I22. It records which review-checklist rows the
+amendments release and which ones they leave held, so the checklist owner can
+transcribe them without rereading the spec diff. The evidence behind the first
+three is in [authority-rulings.md](../authority-rulings.md), recorded at
+`1d6b9873`.
 
 ## What the spec now says
 
@@ -43,10 +45,42 @@ verification and will arrive as their own rulings if confirmed.
 | K14 | the K06 owner-hash conflict among several package-surface findings | Same. |
 | T02, T07 | the memo record (tag `3`) missing from the UTXO Data table | Already closed by `b9a5386f` under the earlier memo ruling. Both languages implement what the spec now defines, so the named prerequisite is met. |
 
-## Rows these amendments do not release
+## The interface amendments: I07, I19, I10, I22
 
-I07, I10, I19, and I22 stay `BLOCKED`. Their conflicts are elsewhere in the
-spec: I07 and I19 on the deposit instruction's accounts, payload, tag semantics,
-and initial viewing-key tag; I10 and I22 on which fields a protocol-config
-update rewrites. Nothing in the owner-hash encoding, the confidential owner tag,
-or the integer domain touches those, so they wait on their own rulings.
+A later round applied the deposit and protocol-config amendments, on the
+evidence in
+[interface-spec-conflicts.md](./interface-spec-conflicts.md) (`e8147c4b`). The
+spec changes landed in `b97b2a88` (deposit) and `58b2be6a` (protocol config).
+
+| Amendment | Section | Change |
+| --- | --- | --- |
+| A: deposit payload | `deposit`, `zone_deposit` | `DepositIxData` is `view_tag`, `owner` (the recipient `owner_hash`), `blinding`, one `amount`, `Option<UtxoData>`, `Option<memo>`. The `public_sol_amount` / `public_spl_amount` pair is gone; the asset comes from the settlement accounts. `ZoneDepositIxData` follows, with `zone_data_hash` and `zone_data` unconditional. Both note `deserialize_exact`. |
+| A: deposit accounts | `deposit`, `zone_deposit` | Six accounts for SOL and seven for SPL, eight for the zone form, including the trailing program account the spec's own check 7 needs for the `emit_event` self-CPI. The checks lists follow, with the signer and non-zero-amount checks the program performs. |
+| A: stray tag row | Instructions | The duplicate `zone_deposit = Tag 1` row is deleted. Tag 15 stands. |
+| B: discovery | `deposit` | New `Discovery` paragraph. The tag is still the recipient's signing pubkey, unchanged. What is new is the consequence: the program copies `view_tag` through unread, Photon indexes it, and `get_shielded_transactions_by_tags` filters on it, so a wrong derivation loses discovery with no error anywhere. |
+| C: config updates | Protocol config | New `Protocol config updates` paragraph tabulating the seven variants against the fields they write, recording the absence of cross-field validation, the atomic multi-instruction composition, and the incoming-authority co-signature required to rotate `protocol_authority`. |
+
+| Row | Held on | Now |
+| --- | --- | --- |
+| I07 | deposit payload shape and tag semantics | Released. The payload and account text match the program. |
+| I19 | deposit builder accounts and tag numbers | Released. The account tables and Tag 15 match the builder. |
+| I10 | the spec claiming a full rewrite against a single-field enum | Released. |
+| I22 | inheriting I10 | Released with it; the row had no independent finding. |
+
+Residual findings, none of them blocking:
+
+- The discovery tag itself. The spec's rule is unchanged and both SDKs still
+  write the recipient's viewing pubkey. A separate worker is changing them to
+  the signing pubkey, so the divergence is an SDK parity item, not a spec one.
+- Creation-side flag laxity. `create_protocol_config` casts raw bytes into the
+  three `u8` flags with no range check, so it can write a byte no update can
+  produce. Behavior is unaffected because the three `allows_*` accessors that
+  read the flags test non-zero. It is
+  recorded in the spec rather than the findings register, because a conforming
+  decoder has to know to treat any non-zero byte as `true`. Narrowing it would
+  be a program change.
+- Three divergences the deposit reading surfaced belong to other rows and were
+  left alone: the event's `tx_viewing_pk` and `salt` typed as `Option` against
+  fixed zeroed arrays, the output slot's tag field named `owner` in the spec
+  and `view_tag` in the event crate, and a `memo` on `ProoflessOutput` the spec
+  does not list. Whichever row owns the event crate should rule on them.
