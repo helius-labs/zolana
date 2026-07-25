@@ -67,6 +67,7 @@ import {
   encodePlaintextTransfer,
   encodeProofless,
   encodeSplitBundle,
+  mergeUtxo,
 } from "../../src/serialization/index.js";
 import oracle from "../oracles/transaction-parity-v1.json" with { type: "json" };
 
@@ -582,15 +583,16 @@ describe("the declared error codes have producers", () => {
     }
   });
 
-  // These five were declared with no caller until the `from_utxos` conversions
-  // were ported. Each is now raised by a named oracle case, so deleting the
-  // producer fails here rather than leaving a dead code behind.
+  // These six were declared with no caller until the UTXO conversions were
+  // ported. Each is now raised by a named oracle case, so deleting the producer
+  // fails here rather than leaving a dead code behind.
   it.each([
     "TRANSACTION_INVALID_OUTPUT_POSITION",
     "TRANSACTION_OUTPUT_AMOUNT_MISMATCH",
     "TRANSACTION_OUTPUT_ASSET_MISMATCH",
     "TRANSACTION_OUTPUT_BLINDING_MISMATCH",
     "TRANSACTION_OUTPUT_OWNER_MISMATCH",
+    "TRANSACTION_UNKNOWN_ASSET_FIELD",
   ])("raises %s from a replayed case", (code) => {
     expect(produced.has(code)).toBe(true);
   });
@@ -616,6 +618,16 @@ interface FromUtxosCase {
   readonly zoneProgramId: string | null;
   readonly encodedHex: string | null;
   readonly error: string | null;
+}
+
+interface MergeIntoUtxosCase {
+  readonly name: string;
+  readonly assetFieldHex: string;
+  readonly zoneBound: boolean;
+  readonly error: string | null;
+  readonly asset: string | null;
+  readonly amount: string | null;
+  readonly zoneProgramId: string | null;
 }
 
 describe("the Rust oracle and TypeScript agree on the from-UTXO conversions", () => {
@@ -708,6 +720,32 @@ describe("the Rust oracle and TypeScript agree on the from-UTXO conversions", ()
         run(family, testCase);
       });
     }
+  }
+
+  // The reverse direction for the merge rail: only the asset field has to be
+  // resolved back, and an unregistered one must be named rather than defaulted.
+  for (const testCase of fromUtxos.mergeIntoUtxos as readonly MergeIntoUtxosCase[]) {
+    it(`rebuilds the merge ${testCase.name} UTXO the same way`, () => {
+      const rebuild = (): Utxo =>
+        mergeUtxo(
+          {
+            amount: 500n,
+            assetField: bytes(testCase.assetFieldHex) as Bytes32,
+            blinding: bytes(oracle.transactTypes.blindingHex) as Bytes31,
+          },
+          ownerKey,
+          new AssetRegistry([[2n, splMint]]),
+          ...(testCase.zoneBound ? [fromUtxos.zoneProgramId as Address] : []),
+        );
+      if (testCase.error !== null) {
+        expect(codeOf(rebuild)).toBe(testCase.error);
+        return;
+      }
+      const utxo = rebuild();
+      expect(utxo.asset).toBe(testCase.asset);
+      expect(utxo.amount.toString()).toBe(testCase.amount);
+      expect(utxo.zoneProgramId ?? null).toBe(testCase.zoneProgramId);
+    });
   }
 });
 

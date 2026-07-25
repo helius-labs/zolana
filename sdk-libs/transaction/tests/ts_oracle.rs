@@ -23,6 +23,7 @@ use solana_address::Address;
 use wincode;
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
+    hash::hash_field,
     PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
 };
 use zolana_transaction::{
@@ -48,7 +49,7 @@ use zolana_transaction::{
             AnonymousSenderEncode,
         },
         confidential::ConfidentialOutputPlaintext,
-        merge::MergePlaintext,
+        merge::{Merge as MergeSerialization, MergePlaintext},
         plaintext::{PlaintextEncode, PlaintextTransfer},
         proofless::{Proofless, ProoflessEncode},
         split::{Split, SplitEncode},
@@ -413,6 +414,61 @@ fn errors_section() -> Value {
         })
         .collect::<Vec<_>>();
     json!({ "variants": variants })
+}
+
+/// `MergeSerialization::into_utxos`: the asset field is the only value the
+/// plaintext cannot carry directly, so an unregistered one must be named rather
+/// than resolved to a default mint.
+fn merge_into_utxos_cases(registry: &AssetRegistry, spl_mint: &Address, zone: &Address) -> Value {
+    let owner = owner_key(&OWNER_SECRET);
+    let cases: [(&str, Address, bool); 4] = [
+        ("solAsset", SOL_MINT, false),
+        ("splAsset", *spl_mint, false),
+        ("zoneBound", SOL_MINT, true),
+        ("unregisteredAsset", address(SPL_MINT_BYTE + 1), false),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|(name, asset, zone_bound)| {
+                let asset_field = hash_field(asset.as_array()).expect("asset field");
+                let plaintext = MergePlaintext {
+                    amount: 500,
+                    asset_field,
+                    blinding: TRANSACT_TYPES_BLINDING,
+                };
+                let cx = OwnerCx {
+                    owner,
+                    assets: registry,
+                    zone_program_id: zone_bound.then_some(*zone),
+                };
+                let outcome = MergeSerialization::into_utxos(plaintext, &cx);
+                json!({
+                    "name": name,
+                    "assetFieldHex": hex(&asset_field),
+                    "zoneBound": zone_bound,
+                    "error": outcome.as_ref().err().map(ts_code),
+                    "asset": outcome
+                        .as_ref()
+                        .ok()
+                        .and_then(|utxos| utxos.first())
+                        .map(|utxo| utxo.asset.to_string()),
+                    "amount": outcome
+                        .as_ref()
+                        .ok()
+                        .and_then(|utxos| utxos.first())
+                        .map(|utxo| utxo.amount.to_string()),
+                    "zoneProgramId": outcome
+                        .as_ref()
+                        .ok()
+                        .and_then(|utxos| utxos.first())
+                        .and_then(|utxo| utxo.zone_program_id)
+                        .map(|id| id.to_string()),
+                })
+            })
+            .collect(),
+    )
 }
 
 fn context_json(contexts: &[InputUtxoContext]) -> Value {
@@ -1483,6 +1539,7 @@ fn from_utxos_section() -> Value {
         "anonymousSender": anonymous_sender,
         "split": split,
         "proofless": proofless,
+        "mergeIntoUtxos": merge_into_utxos_cases(&registry, &spl_mint, &zone),
     })
 }
 

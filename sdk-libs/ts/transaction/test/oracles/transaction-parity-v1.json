@@ -869,6 +869,44 @@
       }
     ],
     "blindingSeedHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "mergeIntoUtxos": [
+      {
+        "amount": "500",
+        "asset": "11111111111111111111111111111111",
+        "assetFieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+        "error": null,
+        "name": "solAsset",
+        "zoneBound": false,
+        "zoneProgramId": null
+      },
+      {
+        "amount": "500",
+        "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+        "assetFieldHex": "1d9811f297197604e6e4873f61eacfdcbc56012aa519a62b153e4d4a0b5febef",
+        "error": null,
+        "name": "splAsset",
+        "zoneBound": false,
+        "zoneProgramId": null
+      },
+      {
+        "amount": "500",
+        "asset": "11111111111111111111111111111111",
+        "assetFieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+        "error": null,
+        "name": "zoneBound",
+        "zoneBound": true,
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "amount": null,
+        "asset": null,
+        "assetFieldHex": "06a1aa0d6ef4d2209671738c1c4dc1d3c7dfdbc400b2a177548bdd58998fefc0",
+        "error": "TRANSACTION_UNKNOWN_ASSET_FIELD",
+        "name": "unregisteredAsset",
+        "zoneBound": false,
+        "zoneProgramId": null
+      }
+    ],
     "otherPublicKeyHex": "0003741dd5bda817d95e4626537320e5d55179983028b2f82c99d500c5ee8624e3c4",
     "ownerPublicKeyHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
     "plaintextTransfer": [
