@@ -1,4 +1,5 @@
 import type { Address, Bytes32, RequestContext } from "@zolana/interface";
+import { mergeExternalDataHash } from "@zolana/interface/codecs";
 import type { MergeTransactInstructionData } from "@zolana/interface/instructions";
 import { NullifierKey, P256PublicKey, ShieldedPublicKey } from "@zolana/keypair";
 import { encryptVerifiable, mergePublicContribution } from "@zolana/keypair/merge";
@@ -17,7 +18,6 @@ import {
   hashField,
   p256Coordinates,
   poseidon,
-  sha256Bytes,
 } from "../internal.js";
 import type { Rpc, SpendProof } from "../rpc.js";
 import {
@@ -187,7 +187,12 @@ function assembleMergeWithProofsUnchecked(
       details: { expected: 110, actual: encryptedUtxo.length },
     });
   }
-  const externalDataHash = mergeExternalDataHash(prepared.expiryUnixTs, outputHash, encryptedUtxo);
+  const externalDataHash = mergeExternalDataHash({
+    instructionTag: MERGE_INSTRUCTION_TAG,
+    expiryUnixTs: prepared.expiryUnixTs,
+    outputUtxoHash: outputHash,
+    encryptedUtxo,
+  });
   const privateTxHash = bigintToBytes(
     poseidon([
       hashChain(inputHashes),
@@ -301,23 +306,6 @@ function validateMergeMaterial(prepared: PreparedMerge, material: MergeMaterialI
       throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
     }
   });
-}
-
-function mergeExternalDataHash(
-  expiryUnixTs: bigint,
-  outputHash: Bytes32,
-  encryptedUtxo: Uint8Array,
-): Bytes32 {
-  if (expiryUnixTs < 0n || expiryUnixTs > 0xffff_ffff_ffff_ffffn) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: "expiryUnixTs" } });
-  }
-  const expiry = bigintToBytes(expiryUnixTs, 8);
-  const length = bigintToBytes(BigInt(encryptedUtxo.length), 2);
-  const digest = sha256Bytes(
-    concat(Uint8Array.of(MERGE_INSTRUCTION_TAG), expiry, outputHash, length, encryptedUtxo),
-  );
-  digest[0] = 0;
-  return digest;
 }
 
 function copyMergeProof(

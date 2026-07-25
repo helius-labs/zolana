@@ -187,7 +187,7 @@ function arrayValue<T>(values: ArrayLike<T>, index: number): T {
   return value;
 }
 
-function sha256(input: Uint8Array): Uint8Array {
+export function sha256(input: Uint8Array): Uint8Array {
   const constants = Uint32Array.from([
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -361,6 +361,10 @@ export class Reader {
     const value = this.u8(name);
     if (value !== 0 && value !== 1) fail("INTERFACE_CODEC", { name, actual: value });
     return value === 1;
+  }
+
+  nonzeroBool(name: string): boolean {
+    return this.u8(name) !== 0;
   }
 
   u16(name: string): number {

@@ -1,9 +1,8 @@
-import { transactInstructionDataCodec } from "@zolana/interface/codecs";
 import {
   mergeTransactInstruction,
+  transactInstruction,
   type MergeTransactInstructionData,
 } from "@zolana/interface/instructions";
-import { InstructionTag, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE } from "@zolana/interface";
 import type {
   Address,
   Bytes32,
@@ -461,7 +460,12 @@ export function buildUnsignedTransaction(
     ...(input.computeUnitPriceMicroLamports === undefined
       ? []
       : [computeUnitPriceInstruction(input.computeUnitPriceMicroLamports)]),
-    transactInstruction(input),
+    transactInstruction({
+      payer: input.feePayer,
+      tree: input.tree,
+      data: input.data,
+      ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
+    }),
   ];
   return compileLegacyTransaction(input.feePayer, input.recentBlockhash, instructions);
 }
@@ -484,58 +488,6 @@ export function buildUnsignedMergeTransaction(
       data: input.data,
     }),
   ]);
-}
-
-function transactInstruction(
-  input: Readonly<{
-    feePayer: Address;
-    tree: Address;
-    withdrawal?: TransactWithdrawal;
-    data: TransactInstructionData;
-  }>,
-): Instruction {
-  const accounts = [
-    { address: input.feePayer, isSigner: true, isWritable: true },
-    { address: input.tree, isSigner: false, isWritable: true },
-  ];
-  if (input.withdrawal?.kind === "sol") {
-    accounts.push(
-      { address: SOL_INTERFACE, isSigner: false, isWritable: true },
-      { address: input.withdrawal.recipient, isSigner: false, isWritable: true },
-      {
-        address: "11111111111111111111111111111111" as Address,
-        isSigner: false,
-        isWritable: false,
-      },
-    );
-  } else if (input.withdrawal?.kind === "spl") {
-    if (input.withdrawal.cpiAuthority !== undefined) {
-      accounts.push({
-        address: input.withdrawal.cpiAuthority,
-        isSigner: false,
-        isWritable: false,
-      });
-    }
-    accounts.push(
-      { address: input.withdrawal.splTokenInterface, isSigner: false, isWritable: true },
-      { address: input.withdrawal.recipient, isSigner: false, isWritable: true },
-      { address: input.withdrawal.userTokenAccount, isSigner: false, isWritable: true },
-      { address: input.withdrawal.tokenProgram, isSigner: false, isWritable: false },
-    );
-  }
-  accounts.push({
-    address: SHIELDED_POOL_PROGRAM_ID,
-    isSigner: false,
-    isWritable: false,
-  });
-  return Object.freeze({
-    programAddress: SHIELDED_POOL_PROGRAM_ID,
-    accounts: Object.freeze(accounts),
-    data: Uint8Array.from([
-      InstructionTag.transact,
-      ...transactInstructionDataCodec.encode(input.data),
-    ]),
-  });
 }
 
 function compileLegacyTransaction(

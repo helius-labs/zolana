@@ -2,10 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  ADDRESS_TREE_HEIGHT,
+  ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+  ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+  ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
   DEFAULT_TREE_ADDRESS,
+  FIRST_ASSET_ID,
   InstructionTag,
   InterfaceError,
   SPP_SUPPORTED_SHAPES,
+  STATE_HEIGHT,
+  STATE_ROOT_OFFSET,
+  StateDiscriminator,
+  TREE_ACCOUNT_SIZE,
+  addressTreeParams,
   SHIELDED_POOL_PROGRAM_ID,
   ShieldedPoolError,
   SOL_INTERFACE,
@@ -27,7 +37,16 @@ import {
   type TransactInstructionData,
 } from "../src/index.js";
 import {
+  addressTreeParamsCodec,
+  batchUpdateNullifierTreeDataCodec,
+  createTreeDataCodec,
+  createZoneConfigDataCodec,
   depositInstructionDataCodec,
+  mergeTransactInstructionDataCodec,
+  mergeZoneInstructionDataCodec,
+  updateZoneConfigDataCodec,
+  updateZoneConfigOwnerDataCodec,
+  zoneDepositInstructionDataCodec,
   protocolConfigAccountCodec,
   splAssetCounterAccountCodec,
   splAssetRegistryAccountCodec,
@@ -67,6 +86,7 @@ import {
   type MergeTransactInstructionData,
 } from "../src/instructions/index.js";
 import { hexBytes, readDepositFixture } from "./fixture.js";
+import { CURRENT_RUST_INTERFACE_FIXTURE } from "./current-rust-fixture.js";
 
 const ZERO = "11111111111111111111111111111111" as Address;
 const b16 = (value: number): Bytes16 => new Uint8Array(16).fill(value) as Bytes16;
@@ -138,6 +158,27 @@ describe("canonical values and PDAs", () => {
       zoneDeposit: 15,
       createAssetCounter: 16,
       batchUpdateNullifierTree: 51,
+    });
+  });
+
+  it("pins current Rust state and tree authorities", () => {
+    expect(StateDiscriminator).toEqual(CURRENT_RUST_INTERFACE_FIXTURE.discriminators);
+    expect({
+      accountSize: TREE_ACCOUNT_SIZE,
+      stateRootOffset: STATE_ROOT_OFFSET,
+      stateHeight: STATE_HEIGHT,
+      addressTreeHeight: ADDRESS_TREE_HEIGHT,
+      inputQueueBatchSize: ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+      inputQueueZkpBatchSize: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+      rootHistoryCapacity: ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
+    }).toEqual(CURRENT_RUST_INTERFACE_FIXTURE.tree);
+    expect(FIRST_ASSET_ID).toBe(2n);
+    expect(addressTreeParams()).toEqual({
+      index: 0n,
+      inputQueueBatchSize: 30_000n,
+      inputQueueZkpBatchSize: 250n,
+      rootHistoryCapacity: 120,
+      height: 40,
     });
   });
 
@@ -253,6 +294,70 @@ describe("instruction data codecs", () => {
     const encoded = depositInstructionDataCodec.encode(value);
     expect(hex(encoded)).toBe(fixture.expected.dataBytes.slice(2));
     expect(depositInstructionDataCodec.decode(encoded)).toEqual(value);
+  });
+
+  it("strictly encodes fixed admin and zone payloads", () => {
+    const batch = {
+      newRoot: b32(1),
+      oldRoot: b32(2),
+      zkpBatchIndex: 0x1234,
+      compressedProof: { a: b32(3), b: b64(4), c: b32(5) },
+    };
+    const batchBytes = batchUpdateNullifierTreeDataCodec.encode(batch);
+    expect(batchBytes).toHaveLength(194);
+    expect(batchBytes.slice(64, 66)).toEqual(Uint8Array.of(0x34, 0x12));
+    expect(batchUpdateNullifierTreeDataCodec.decode(batchBytes)).toEqual(batch);
+    expect(() => batchUpdateNullifierTreeDataCodec.decode(batchBytes.slice(1))).toThrow(
+      expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }),
+    );
+
+    const createTree = { owner: ZERO };
+    expect(createTreeDataCodec.decode(createTreeDataCodec.encode(createTree))).toEqual(createTree);
+    const params = CURRENT_RUST_INTERFACE_FIXTURE.customTreeParams;
+    expect(addressTreeParamsCodec.decode(addressTreeParamsCodec.encode(params))).toEqual(params);
+
+    const createZone = {
+      programId: SHIELDED_POOL_PROGRAM_ID,
+      authority: ZERO,
+      zoneAuthorityTransactIsEnabled: true,
+    };
+    expect(createZoneConfigDataCodec.decode(createZoneConfigDataCodec.encode(createZone))).toEqual(
+      createZone,
+    );
+    expect(
+      updateZoneConfigOwnerDataCodec.decode(
+        updateZoneConfigOwnerDataCodec.encode({ newAuthority: ZERO }),
+      ),
+    ).toEqual({ newAuthority: ZERO });
+    expect(
+      updateZoneConfigDataCodec.decode(
+        updateZoneConfigDataCodec.encode({ zoneAuthorityTransactIsEnabled: false }),
+      ),
+    ).toEqual({ zoneAuthorityTransactIsEnabled: false });
+  });
+
+  it("owns nested bytes in zone and transact decoders", () => {
+    const zone = {
+      viewTag: b32(1),
+      owner: b32(2),
+      blinding: b31(3),
+      amount: 4n,
+      zoneDataHash: b32(5),
+      zoneData: Uint8Array.of(6),
+      utxoData: { dataHash: b32(7), data: Uint8Array.of(8) },
+      memo: Uint8Array.of(9),
+    };
+    const encodedZone = zoneDepositInstructionDataCodec.encode(zone);
+    const decodedZone = zoneDepositInstructionDataCodec.decode(encodedZone);
+    decodedZone.zoneData.fill(0);
+    decodedZone.utxoData?.data.fill(0);
+    expect(zoneDepositInstructionDataCodec.decode(encodedZone)).toEqual(zone);
+
+    const encodedTransact = transactInstructionDataCodec.encode(transactData());
+    const decodedTransact = transactInstructionDataCodec.decode(encodedTransact);
+    decodedTransact.outputs[0]?.data?.fill(0);
+    decodedTransact.messages[0]?.data.fill(0);
+    expect(transactInstructionDataCodec.decode(encodedTransact)).toEqual(transactData());
   });
 
   it("test-interface-codecs-const-transact-instruction-data-codec", () => {
@@ -388,6 +493,20 @@ describe("instruction builders", () => {
     eddsaOwner: false,
   };
 
+  it("strictly decodes merge and zone-merge payloads", () => {
+    const encoded = mergeTransactInstructionDataCodec.encode(merge);
+    expect(encoded).toHaveLength(668);
+    expect(mergeTransactInstructionDataCodec.decode(encoded)).toEqual(merge);
+    const zone = { mergeViewTag: b32(9), merge };
+    const encodedZone = mergeZoneInstructionDataCodec.encode(zone);
+    expect(encodedZone).toHaveLength(700);
+    expect(mergeZoneInstructionDataCodec.decode(encodedZone)).toEqual(zone);
+    encoded[232] = 7;
+    expect(() => mergeTransactInstructionDataCodec.decode(encoded)).toThrow(
+      expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }),
+    );
+  });
+
   it("test-interface-instructions-function-deposit-instruction", () => {
     const data = {
       viewTag: b32(3),
@@ -418,9 +537,7 @@ describe("instruction builders", () => {
           newRoot: b32(1),
           oldRoot: b32(2),
           zkpBatchIndex: 3,
-          compressedProofA: b32(4),
-          compressedProofB: b64(5),
-          compressedProofC: b32(6),
+          compressedProof: { a: b32(4), b: b64(5), c: b32(6) },
         }),
         51,
       ],
@@ -431,6 +548,15 @@ describe("instruction builders", () => {
           authority: ZERO,
           tree: DEFAULT_TREE_ADDRESS,
           owner: ZERO,
+        }),
+        5,
+      ],
+      [
+        createTreeInstruction({
+          authority: ZERO,
+          tree: DEFAULT_TREE_ADDRESS,
+          owner: ZERO,
+          nullifierTreeParams: CURRENT_RUST_INTERFACE_FIXTURE.customTreeParams,
         }),
         5,
       ],
@@ -577,15 +703,18 @@ describe("instruction builders", () => {
     ).toBe(13);
   });
 
-  it("rejects settlement and merge-shape mutations", () => {
-    expect(() =>
+  it("preserves malformed settlement combinations for program validation", () => {
+    expect(
       transactInstruction({
         payer: ZERO,
         tree: DEFAULT_TREE_ADDRESS,
         withdrawal: { kind: "sol", recipient: ZERO },
         data: transactData(),
-      }),
-    ).toThrow(expect.objectContaining({ code: "INTERFACE_CODEC" }));
+      }).accounts,
+    ).toHaveLength(6);
+  });
+
+  it("rejects merge-shape mutations", () => {
     expect(() =>
       mergeTransactInstruction({
         tree: DEFAULT_TREE_ADDRESS,

@@ -1,4 +1,11 @@
 import { encodeBase58 } from "./internal.js";
+import { InterfaceError } from "./errors.js";
+import {
+  ADDRESS_TREE_HEIGHT,
+  ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+  ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+  ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
+} from "./state.js";
 import {
   protocolConfigAccountCodec,
   splAssetCounterAccountCodec,
@@ -42,6 +49,22 @@ export type Bytes32 = FixedBytes<32>;
 export type Bytes33 = FixedBytes<33>;
 export type Bytes64 = FixedBytes<64>;
 export type Bytes128 = FixedBytes<128>;
+
+export const P256_PROOF_LENGTH = 192;
+export const MERGE_INPUT_COUNT = 8;
+export const MERGE_ENCRYPTED_UTXO_LENGTH = 110;
+export const MERGE_ENCRYPTED_UTXO_TYPE_PREFIX = 2;
+export {
+  ADDRESS_TREE_HEIGHT,
+  ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+  ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+  ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
+  FIRST_ASSET_ID,
+  STATE_HEIGHT,
+  STATE_ROOT_OFFSET,
+  StateDiscriminator,
+  TREE_ACCOUNT_SIZE,
+} from "./state.js";
 
 export type Transaction = Readonly<{
   messageBytes: Uint8Array;
@@ -109,8 +132,58 @@ export interface DepositInstructionData {
   readonly owner: Bytes32;
   readonly blinding: Bytes31;
   readonly amount: bigint;
-  readonly utxoData?: Readonly<{ dataHash: Bytes32; data: Uint8Array }>;
+  readonly utxoData?: UtxoData;
   readonly memo?: Uint8Array;
+}
+
+export interface UtxoData {
+  readonly dataHash: Bytes32;
+  readonly data: Uint8Array;
+}
+
+export interface ZoneDepositInstructionData extends DepositInstructionData {
+  readonly zoneDataHash: Bytes32;
+  readonly zoneData: Uint8Array;
+}
+
+export interface CompressedProof {
+  readonly a: Bytes32;
+  readonly b: Bytes64;
+  readonly c: Bytes32;
+}
+
+export interface BatchUpdateNullifierTreeData {
+  readonly newRoot: Bytes32;
+  readonly oldRoot: Bytes32;
+  readonly zkpBatchIndex: number;
+  readonly compressedProof: CompressedProof;
+}
+
+export interface CreateTreeData {
+  readonly owner: Address;
+}
+
+export interface AddressTreeParams {
+  readonly index: bigint;
+  readonly programOwner?: Address;
+  readonly forester?: Address;
+  readonly inputQueueBatchSize: bigint;
+  readonly inputQueueZkpBatchSize: bigint;
+  readonly rootHistoryCapacity: number;
+  readonly networkFee?: bigint;
+  readonly rolloverThreshold?: bigint;
+  readonly closeThreshold?: bigint;
+  readonly height: number;
+}
+
+export function addressTreeParams(): AddressTreeParams {
+  return Object.freeze({
+    index: 0n,
+    inputQueueBatchSize: ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+    inputQueueZkpBatchSize: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+    rootHistoryCapacity: ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
+    height: ADDRESS_TREE_HEIGHT,
+  });
 }
 
 export interface DepositSplAccounts {
@@ -139,6 +212,23 @@ export interface TransactOutput {
   readonly data?: Uint8Array;
 }
 
+export interface MessageData {
+  readonly viewTag: Bytes32;
+  readonly data: Uint8Array;
+}
+
+export interface OutputUtxo {
+  readonly viewTag: Bytes32;
+  readonly utxoHash: Bytes32;
+  readonly data?: Uint8Array;
+}
+
+export interface ResolvedOutput {
+  readonly utxoHash: Bytes32;
+  readonly ownerTag: Bytes32;
+  readonly data?: Uint8Array;
+}
+
 export type TransactProof =
   | Readonly<{ rail: "eddsa"; a: Bytes32; b: Bytes64; c: Bytes32 }>
   | Readonly<{
@@ -164,7 +254,7 @@ export interface TransactInstructionData {
   readonly dataHash?: Bytes32;
   readonly zoneDataHash?: Bytes32;
   readonly outputs: readonly TransactOutput[];
-  readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
+  readonly messages: readonly MessageData[];
 }
 
 export type TransactWithdrawal =
@@ -202,6 +292,58 @@ export interface ZoneConfigAccount {
   readonly programId: Address;
   readonly zoneAuthorityTransactIsEnabled: boolean;
   readonly bump: number;
+}
+
+export interface MergeTransactInstructionData {
+  readonly expiryUnixTs: bigint;
+  readonly proof: Readonly<{
+    a: Bytes32;
+    b: Bytes64;
+    c: Bytes32;
+    commitment: Bytes32;
+    commitmentPok: Bytes32;
+  }>;
+  readonly outputUtxoHash: Bytes32;
+  readonly nullifiers: readonly Bytes32[];
+  readonly utxoTreeRootIndexes: readonly number[];
+  readonly nullifierTreeRootIndexes: readonly number[];
+  readonly privateTxHash: Bytes32;
+  readonly encryptedUtxo: Uint8Array;
+  readonly eddsaOwner: boolean;
+}
+
+export interface MergeZoneInstructionData {
+  readonly mergeViewTag: Bytes32;
+  readonly merge: MergeTransactInstructionData;
+}
+
+export interface CreateZoneConfigData {
+  readonly programId: Address;
+  readonly authority: Address;
+  readonly zoneAuthorityTransactIsEnabled: boolean;
+}
+
+export interface UpdateZoneConfigOwnerData {
+  readonly newAuthority: Address;
+}
+
+export interface UpdateZoneConfigData {
+  readonly zoneAuthorityTransactIsEnabled: boolean;
+}
+
+export function fetchTag(
+  tag: OwnerTag,
+  p256SigningPkX: Bytes32 | undefined,
+  accountAddress: (index: number) => Bytes32 | undefined,
+): Bytes32 {
+  if (tag.kind === "inline") return tag.value.slice() as Bytes32;
+  const value = tag.kind === "account" ? accountAddress(tag.index) : p256SigningPkX;
+  if (value === undefined) {
+    throw new InterfaceError("INTERFACE_CODEC", {
+      reason: tag.kind === "account" ? "owner tag account missing" : "missing P256 signing key",
+    });
+  }
+  return value.slice() as Bytes32;
 }
 
 export function decodeProtocolConfig(data: Uint8Array): ProtocolConfigAccount {

@@ -5,6 +5,10 @@ import {
   SOL_INTERFACE,
   SPL_TOKEN_PROGRAM_ID,
   type Address,
+  type AddressTreeParams,
+  type BatchUpdateNullifierTreeData,
+  type MergeTransactInstructionData,
+  type ZoneDepositInstructionData,
   type Bytes31,
   type Bytes32,
   type Bytes64,
@@ -14,14 +18,7 @@ import {
   type TransactInstructionData,
   type TransactWithdrawal,
 } from "../index.js";
-import {
-  Writer,
-  addressBytes,
-  checkedAddress,
-  copyBytes,
-  fail,
-  findProgramAddress,
-} from "../internal.js";
+import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
   associatedTokenAddress,
   protocolConfigAddress,
@@ -29,11 +26,24 @@ import {
   splAssetCounterAddress,
   splAssetRegistryAddress,
   splAssetVaultAddress,
+  zoneAuthAddress,
 } from "../pda/index.js";
-import { depositInstructionDataCodec, transactInstructionDataCodec } from "../codecs/index.js";
+import {
+  addressTreeParamsCodec,
+  batchUpdateNullifierTreeDataCodec,
+  createTreeDataCodec,
+  createZoneConfigDataCodec,
+  depositInstructionDataCodec,
+  mergeTransactInstructionDataCodec,
+  mergeZoneInstructionDataCodec,
+  transactInstructionDataCodec,
+  updateZoneConfigDataCodec,
+  updateZoneConfigOwnerDataCodec,
+  zoneDepositInstructionDataCodec,
+} from "../codecs/index.js";
 
 const SYSTEM_PROGRAM = "11111111111111111111111111111111" as Address;
-const encoder = new TextEncoder();
+export type { MergeTransactInstructionData } from "../index.js";
 
 type Meta = Instruction["accounts"][number];
 
@@ -64,33 +74,15 @@ function tagged(tag: number, payload?: Uint8Array): Uint8Array {
   return data;
 }
 
-function zoneAuthorityAddress(zoneProgramId: Address): Address {
-  return findProgramAddress(
-    [encoder.encode("zone_auth")],
-    checkedAddress(zoneProgramId, "zoneProgramId"),
-  )[0];
-}
-
 export function batchUpdateNullifierTreeInstruction(
   input: Readonly<{
     authority: Address;
     tree: Address;
-    newRoot: Bytes32;
-    oldRoot: Bytes32;
-    zkpBatchIndex: number;
-    compressedProofA: Bytes32;
-    compressedProofB: Bytes64;
-    compressedProofC: Bytes32;
-  }>,
+  }> &
+    Omit<BatchUpdateNullifierTreeData, "compressedProof"> &
+    Readonly<{ compressedProof: BatchUpdateNullifierTreeData["compressedProof"] }>,
 ): Instruction {
-  const payload = new Writer()
-    .bytes(input.newRoot, 32, "newRoot")
-    .bytes(input.oldRoot, 32, "oldRoot")
-    .u16(input.zkpBatchIndex, "zkpBatchIndex")
-    .bytes(input.compressedProofA, 32, "compressedProofA")
-    .bytes(input.compressedProofB, 64, "compressedProofB")
-    .bytes(input.compressedProofC, 32, "compressedProofC")
-    .finish();
+  const payload = batchUpdateNullifierTreeDataCodec.encode(input);
   return instruction(tagged(InstructionTag.batchUpdateNullifierTree, payload), [
     meta(input.authority, true, false),
     meta(protocolConfigAddress(), false, false),
@@ -144,9 +136,22 @@ export function createSplInterfaceInstruction(
 }
 
 export function createTreeInstruction(
-  input: Readonly<{ authority: Address; tree: Address; owner: Address }>,
+  input: Readonly<{
+    authority: Address;
+    tree: Address;
+    owner: Address;
+    nullifierTreeParams?: AddressTreeParams;
+  }>,
 ): Instruction {
-  return instruction(tagged(InstructionTag.createTree, addressBytes(input.owner, "owner")), [
+  const owner = createTreeDataCodec.encode({ owner: input.owner });
+  const params =
+    input.nullifierTreeParams === undefined
+      ? undefined
+      : addressTreeParamsCodec.encode(input.nullifierTreeParams);
+  const payload = new Uint8Array(owner.length + (params?.length ?? 0));
+  payload.set(owner);
+  if (params !== undefined) payload.set(params, owner.length);
+  return instruction(tagged(InstructionTag.createTree, payload), [
     meta(input.authority, true, false),
     meta(protocolConfigAddress(), false, false),
     meta(input.tree, false, true),
@@ -195,23 +200,6 @@ export function depositInstruction(
   );
 }
 
-function validateSettlement(data: TransactInstructionData, withdrawal?: TransactWithdrawal): void {
-  const hasSol = data.publicSolAmount !== undefined;
-  const hasSpl = data.publicSplAmount !== undefined;
-  if (hasSol && hasSpl) {
-    fail("INTERFACE_CODEC", { reason: "both public amounts are set" });
-  }
-  if (!hasSol && !hasSpl && withdrawal !== undefined) {
-    fail("INTERFACE_CODEC", { reason: "settlement accounts without public amount" });
-  }
-  if ((hasSol && withdrawal?.kind !== "sol") || (hasSpl && withdrawal?.kind !== "spl")) {
-    fail("INTERFACE_CODEC", { reason: "public amount and settlement variant differ" });
-  }
-  if ((hasSol || hasSpl) && withdrawal === undefined) {
-    fail("INTERFACE_CODEC", { reason: "public amount requires settlement accounts" });
-  }
-}
-
 function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
   if (withdrawal === undefined) return [];
   if (withdrawal.kind === "sol") {
@@ -241,7 +229,6 @@ function transactAccounts(
   withdrawal?: TransactWithdrawal,
   zoneAuthority?: Readonly<{ address: Address; signer: boolean }>,
 ): Meta[] {
-  validateSettlement(data, withdrawal);
   const accounts = [meta(payer, true, true), meta(tree, false, true)];
   if (zoneAuthority !== undefined) {
     accounts.push(meta(zoneAuthority.address, zoneAuthority.signer, false));
@@ -359,12 +346,8 @@ export function createZoneConfigInstruction(
     zoneAuthorityTransactIsEnabled: boolean;
   }>,
 ): Instruction {
-  const zoneAuthority = zoneAuthorityAddress(input.programId);
-  const payload = new Writer()
-    .bytes(addressBytes(input.programId, "programId"))
-    .bytes(addressBytes(input.authority, "authority"))
-    .bool(input.zoneAuthorityTransactIsEnabled, "zoneAuthorityTransactIsEnabled")
-    .finish();
+  const zoneAuthority = zoneAuthAddress(input.programId)[0];
+  const payload = createZoneConfigDataCodec.encode(input);
   return instruction(tagged(InstructionTag.createZoneConfig, payload), [
     meta(input.payer, true, true),
     meta(protocolConfigAddress(), false, false),
@@ -381,12 +364,7 @@ export function updateZoneConfigInstruction(
   }>,
 ): Instruction {
   return instruction(
-    tagged(
-      InstructionTag.updateZoneConfig,
-      new Writer()
-        .bool(input.zoneAuthorityTransactIsEnabled, "zoneAuthorityTransactIsEnabled")
-        .finish(),
-    ),
+    tagged(InstructionTag.updateZoneConfig, updateZoneConfigDataCodec.encode(input)),
     [meta(input.authority, true, false), meta(input.zoneConfig, false, true)],
   );
 }
@@ -399,7 +377,10 @@ export function updateZoneConfigOwnerInstruction(
   }>,
 ): Instruction {
   return instruction(
-    tagged(InstructionTag.updateZoneConfigOwner, addressBytes(input.newAuthority, "newAuthority")),
+    tagged(
+      InstructionTag.updateZoneConfigOwner,
+      updateZoneConfigOwnerDataCodec.encode({ newAuthority: input.newAuthority }),
+    ),
     [
       meta(input.authority, true, false),
       meta(input.zoneConfig, false, true),
@@ -425,24 +406,10 @@ export function zoneDepositInstruction(
     cpi?: boolean;
   }>,
 ): Instruction {
-  const zoneAuthority = zoneAuthorityAddress(input.zoneProgramId);
-  const writer = new Writer()
-    .bytes(input.viewTag, 32, "viewTag")
-    .bytes(input.owner, 32, "owner")
-    .bytes(input.blinding, 31, "blinding")
-    .u64(input.amount, "amount")
-    .bytes(input.zoneDataHash, 32, "zoneDataHash")
-    .u16(input.zoneData.length, "zoneData.length")
-    .bytes(input.zoneData)
-    .option(input.utxoData, (output, data) => {
-      output
-        .bytes(data.dataHash, 32, "utxoData.dataHash")
-        .u16(data.data.length, "utxoData.data.length")
-        .bytes(data.data);
-    })
-    .option(input.memo, (output, memo) => output.u16(memo.length, "memo.length").bytes(memo));
+  const zoneAuthority = zoneAuthAddress(input.zoneProgramId)[0];
+  const data: ZoneDepositInstructionData = input;
   return instruction(
-    tagged(InstructionTag.zoneDeposit, writer.finish()),
+    tagged(InstructionTag.zoneDeposit, zoneDepositInstructionDataCodec.encode(data)),
     depositAccounts(input.tree, input.depositor, input.spl, {
       address: zoneAuthority,
       signer: input.cpi === true,
@@ -461,7 +428,7 @@ type ZoneTransactInput = Readonly<{
 }>;
 
 function buildZoneTransact(tag: number, input: ZoneTransactInput): Instruction {
-  const zoneAuthority = zoneAuthorityAddress(input.zoneProgramId);
+  const zoneAuthority = zoneAuthAddress(input.zoneProgramId)[0];
   return instruction(
     tagged(tag, transactInstructionDataCodec.encode(input.data)),
     transactAccounts(input.payer, input.tree, input.data, input.withdrawal, {
@@ -498,66 +465,6 @@ export function zoneAuthorityTransactInstruction(
   return buildZoneTransact(InstructionTag.zoneAuthorityTransact, input);
 }
 
-export interface MergeTransactInstructionData {
-  readonly expiryUnixTs: bigint;
-  readonly proof: Readonly<{
-    a: Bytes32;
-    b: Bytes64;
-    c: Bytes32;
-    commitment: Bytes32;
-    commitmentPok: Bytes32;
-  }>;
-  readonly outputUtxoHash: Bytes32;
-  readonly nullifiers: readonly Bytes32[];
-  readonly utxoTreeRootIndexes: readonly number[];
-  readonly nullifierTreeRootIndexes: readonly number[];
-  readonly privateTxHash: Bytes32;
-  readonly encryptedUtxo: Uint8Array;
-  readonly eddsaOwner: boolean;
-}
-
-function mergeData(value: MergeTransactInstructionData): Uint8Array {
-  if (
-    value.nullifiers.length !== 8 ||
-    value.utxoTreeRootIndexes.length !== 8 ||
-    value.nullifierTreeRootIndexes.length !== 8 ||
-    value.encryptedUtxo.length !== 110
-  ) {
-    fail("INTERFACE_INVALID_LENGTH", {
-      nullifiers: value.nullifiers.length,
-      utxoTreeRootIndexes: value.utxoTreeRootIndexes.length,
-      nullifierTreeRootIndexes: value.nullifierTreeRootIndexes.length,
-      encryptedUtxo: value.encryptedUtxo.length,
-    });
-  }
-  const writer = new Writer()
-    .u64(value.expiryUnixTs, "expiryUnixTs")
-    .bytes(value.proof.a, 32, "proof.a")
-    .bytes(value.proof.b, 64, "proof.b")
-    .bytes(value.proof.c, 32, "proof.c")
-    .bytes(value.proof.commitment, 32, "proof.commitment")
-    .bytes(value.proof.commitmentPok, 32, "proof.commitmentPok")
-    .bytes(value.outputUtxoHash, 32, "outputUtxoHash")
-    .u8(value.nullifiers.length, "nullifiers.length");
-  for (const nullifier of value.nullifiers) {
-    writer.bytes(nullifier, 32, "nullifier");
-  }
-  writer.u8(value.utxoTreeRootIndexes.length, "utxoTreeRootIndexes.length");
-  for (const index of value.utxoTreeRootIndexes) {
-    writer.u16(index, "utxoTreeRootIndex");
-  }
-  writer.u8(value.nullifierTreeRootIndexes.length, "nullifierTreeRootIndexes.length");
-  for (const index of value.nullifierTreeRootIndexes) {
-    writer.u16(index, "nullifierTreeRootIndex");
-  }
-  return writer
-    .bytes(value.privateTxHash, 32, "privateTxHash")
-    .u16(value.encryptedUtxo.length, "encryptedUtxo.length")
-    .bytes(copyBytes(value.encryptedUtxo))
-    .bool(value.eddsaOwner, "eddsaOwner")
-    .finish();
-}
-
 export function mergeTransactInstruction(
   input: Readonly<{
     tree: Address;
@@ -566,12 +473,15 @@ export function mergeTransactInstruction(
     data: MergeTransactInstructionData;
   }>,
 ): Instruction {
-  return instruction(tagged(InstructionTag.mergeTransact, mergeData(input.data)), [
+  return instruction(
+    tagged(InstructionTag.mergeTransact, mergeTransactInstructionDataCodec.encode(input.data)),
+    [
     meta(input.tree, false, true),
     meta(input.payer, true, true),
     meta(input.userRecord, false, false),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
-  ]);
+    ],
+  );
 }
 
 export function mergeZoneInstruction(
@@ -584,14 +494,14 @@ export function mergeZoneInstruction(
     cpi?: boolean;
   }>,
 ): Instruction {
-  const authority = zoneAuthorityAddress(input.zoneProgramId);
+  const authority = zoneAuthAddress(input.zoneProgramId)[0];
   return instruction(
     tagged(
       InstructionTag.zoneMergeTransact,
-      new Writer()
-        .bytes(input.mergeViewTag, 32, "mergeViewTag")
-        .bytes(mergeData(input.data))
-        .finish(),
+      mergeZoneInstructionDataCodec.encode({
+        mergeViewTag: input.mergeViewTag,
+        merge: input.data,
+      }),
     ),
     [
       meta(input.tree, false, true),
