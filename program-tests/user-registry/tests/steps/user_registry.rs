@@ -10,7 +10,7 @@ use solana_transaction::Transaction;
 use user_registry_tests::{
     build_register_ix, build_revoke_sync_delegate_ix, build_rotate_sync_delegate_key_ix,
     build_set_merging_enabled_ix, build_set_sync_delegate_ix, build_update_keys_ix,
-    fetch_user_record, user_registry_program_id,
+    fetch_p256_owner_claim, fetch_user_record, p256_owner_claim_pda, user_registry_program_id,
 };
 use zolana_user_registry_interface::user_record_pda;
 
@@ -184,6 +184,7 @@ fn when_register(world: &mut UserRegistryWorld, name: String) {
     world.send(&[owner_kp], ix);
 }
 
+#[given(regex = r#""(.*)" registers on-chain without an owner p256 key"#)]
 #[when(regex = r#""(.*)" registers on-chain without an owner p256 key"#)]
 fn when_register_no_p256(world: &mut UserRegistryWorld, name: String) {
     let owner = world.owners.get(&name).expect("owner").pubkey();
@@ -237,6 +238,80 @@ fn when_update_keys_no_p256(world: &mut UserRegistryWorld, name: String) {
 #[when(regex = r#""(.*)" tries to register again"#)]
 fn when_register_again(world: &mut UserRegistryWorld, name: String) {
     when_register(world, name);
+}
+
+// === p256 owner identity exclusivity ===
+
+fn register_claiming(world: &mut UserRegistryWorld, name: &str, owner_p256: [u8; 33]) {
+    let owner_kp = world.owners.get(name).expect("owner").insecure_clone();
+    let ix = build_register_ix(
+        &owner_kp.pubkey(),
+        Some(owner_p256),
+        world.nullifier_pubkey[name],
+        world.viewing_pubkey[name],
+    );
+    world.send(&[owner_kp], ix);
+}
+
+/// The owner identity of `0x02 || address` is the Solana owner identity of
+/// `address`, because the encoding drops the SEC1 parity prefix.
+fn p256_key_encoding(address: &Pubkey) -> [u8; 33] {
+    let mut key = [0u8; 33];
+    key[0] = 0x02;
+    key[1..].copy_from_slice(&address.to_bytes());
+    key
+}
+
+#[when(regex = r#"^"(.*)" tries to register with the owner p256 key of "(.*)"$"#)]
+fn when_register_with_claimed_key(
+    world: &mut UserRegistryWorld,
+    name: String,
+    claimed_from: String,
+) {
+    let claimed = world.owner_p256[&claimed_from];
+    register_claiming(world, &name, claimed);
+}
+
+#[when(
+    regex = r#"^"(.*)" tries to register with an owner p256 key encoding the address of "(.*)"$"#
+)]
+fn when_register_with_address_shaped_key(
+    world: &mut UserRegistryWorld,
+    name: String,
+    victim: String,
+) {
+    let address = world.owners.get(&victim).expect("owner").pubkey();
+    register_claiming(world, &name, p256_key_encoding(&address));
+}
+
+#[when(regex = r#"^"(.*)" tries to update registry keys to the owner p256 key of "(.*)"$"#)]
+fn when_update_keys_to_claimed_key(
+    world: &mut UserRegistryWorld,
+    name: String,
+    claimed_from: String,
+) {
+    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
+    let ix = build_update_keys_ix(
+        &owner_kp.pubkey(),
+        Some(world.owner_p256[&claimed_from]),
+        world.nullifier_pubkey[&name],
+        world.viewing_pubkey[&name],
+    );
+    world.send(&[owner_kp], ix);
+}
+
+#[when(regex = r#"^"(.*)" updates registry keys keeping the same owner p256 key$"#)]
+fn when_update_keys_same_p256(world: &mut UserRegistryWorld, name: String) {
+    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
+    let updated_viewing = test_p256_pubkey(0xF6);
+    world.viewing_pubkey.insert(name.clone(), updated_viewing);
+    let ix = build_update_keys_ix(
+        &owner_kp.pubkey(),
+        Some(world.owner_p256[&name]),
+        world.nullifier_pubkey[&name],
+        updated_viewing,
+    );
+    world.send(&[owner_kp], ix);
 }
 
 // === set_sync_delegate ===
@@ -404,6 +479,24 @@ fn then_no_sync_delegate(world: &mut UserRegistryWorld, name: String) {
     assert_eq!(record.nullifier_pubkey, world.nullifier_pubkey[&name]);
     assert_eq!(record.viewing_pubkey, world.viewing_pubkey[&name]);
     assert_eq!(record.sender_viewing_pubkey(), record.viewing_pubkey);
+}
+
+#[then(regex = r#""(.*)" holds the claim on her owner p256 identity"#)]
+fn then_holds_p256_claim(world: &mut UserRegistryWorld, name: String) {
+    assert_no_error(world);
+    let owner = world.owners.get(&name).expect("owner").pubkey();
+    let owner_p256 = world.owner_p256[&name];
+    let claim = fetch_p256_owner_claim(world.svm.as_ref().expect("rig"), &owner_p256)
+        .expect("claim missing");
+    assert_eq!(claim.owner.to_bytes(), owner.to_bytes());
+    assert_eq!(
+        claim.bump,
+        p256_owner_claim_pda(&owner_p256).1,
+        "stored bump must be canonical"
+    );
+    let record =
+        fetch_user_record(world.svm.as_ref().expect("rig"), &owner).expect("record missing");
+    assert_eq!(record.owner_p256, Some(owner_p256));
 }
 
 #[then(regex = r#""(.*)" has a user record without an owner p256 key"#)]

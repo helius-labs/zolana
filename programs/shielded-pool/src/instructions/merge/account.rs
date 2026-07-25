@@ -1,7 +1,9 @@
 use pinocchio::{address::Address, error::ProgramError, AccountView};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{error::ShieldedPoolError, merge_utils::owner_pk_field_compressed};
-use zolana_user_registry_interface::{state::UserRecord, USER_REGISTRY_PROGRAM_ID};
+use zolana_user_registry_interface::{
+    state::UserRecord, USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID,
+};
 
 use crate::instructions::hash::solana_pk_hash;
 
@@ -40,12 +42,21 @@ pub struct UserPkFields {
     pub merging_enabled: bool,
 }
 
-/// Load and validate the `user_record`: owned by the registry program with a
-/// valid `UserRecord` discriminator/body. Returns the per-user `merging_enabled`
-/// opt-in alongside the rail-selected owner identity; the processor rejects the
-/// merge when it is `false`. The owner identity is rail-selected by `eddsa_owner`:
-/// a Solana owner derives `signing_pk_field` from the registry account `owner`
-/// (ed25519), a P256 owner from `owner_p256`.
+/// Load and validate the `user_record`: owned by the registry program, carrying a
+/// valid `UserRecord` discriminator/body, and living at the canonical registry PDA
+/// of the `owner` it stores. Returns the per-user `merging_enabled` opt-in
+/// alongside the rail-selected owner identity; the processor rejects the merge when
+/// it is `false`. The owner identity is rail-selected by `eddsa_owner`: a Solana
+/// owner derives `signing_pk_field` from the registry account `owner` (ed25519), a
+/// P256 owner from `owner_p256`.
+///
+/// The merge is permissionless, so no signature ties the account to the merged
+/// owner; the PDA is what does. On the ed25519 rail that closes the binding: the
+/// address proves the record is `owner`'s, and the proof binds `signing_pk_field`
+/// (derived from that same `owner`) to the input and output UTXO owner hashes. On
+/// the P256 rail it is one half of the binding, because `owner_p256` is a claim the
+/// registry accepts without proof of possession; the registry's exclusive
+/// P256-identity binding is the other half.
 #[inline(never)]
 pub fn load_user_record(
     account: &AccountView,
@@ -60,6 +71,14 @@ pub fn load_user_record(
         .map_err(|_| ShieldedPoolError::InvalidUserRecord)?;
     let record = UserRecord::try_from_account_data(&data)
         .map_err(|_| ShieldedPoolError::InvalidUserRecord)?;
+    let expected = Address::derive_address(
+        &[USER_RECORD_SEED, record.owner.as_array().as_slice()],
+        Some(record.bump),
+        &registry_id,
+    );
+    if account.address() != &expected {
+        return Err(ShieldedPoolError::InvalidUserRecord.into());
+    }
     let merging_enabled = record.merging_enabled;
     let mut signing_view_tag = [0u8; 32];
     let signing_pk_field = if eddsa_owner {

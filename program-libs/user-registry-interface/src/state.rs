@@ -32,6 +32,47 @@ pub struct UserRecord {
     pub merging_enabled: bool,
 }
 
+/// Binds one P256 owner identity to the single record allowed to carry it.
+///
+/// Owner identity drops the SEC1 parity prefix (`owner_pk_field_compressed`), so
+/// `0x02 || x` and `0x03 || x` are the same owner and the claim is keyed by `x`
+/// alone. `owner` is the registered Solana owner whose record holds the key; the
+/// registry refuses to hand the same identity to a second record, which is what
+/// lets `merge_transact` treat the `owner_p256` in a canonical record as that
+/// record's own key.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct P256OwnerClaim {
+    pub owner: Address,
+    pub bump: u8,
+}
+
+impl P256OwnerClaim {
+    pub const DISCRIMINATOR: u8 = 2;
+    pub const DISCRIMINATOR_LEN: usize = 1;
+    pub const SPACE: usize = Self::DISCRIMINATOR_LEN + 32 + 1;
+
+    pub fn try_from_account_data(data: &[u8]) -> borsh::io::Result<Self> {
+        match data.split_first() {
+            Some((&Self::DISCRIMINATOR, body)) => Self::deserialize(&mut &*body),
+            _ => Err(invalid_user_record(
+                "missing p256 owner claim discriminator",
+            )),
+        }
+    }
+}
+
+/// The 32-byte x-coordinate of a SEC1-compressed P256 key: the owner identity the
+/// claim and the merge rail both key on.
+pub const fn owner_p256_identity(owner_p256: &[u8; P256_PUBKEY_LEN]) -> [u8; 32] {
+    let mut identity = [0u8; 32];
+    let mut i = 0;
+    while i < 32 {
+        identity[i] = owner_p256[i + 1];
+        i += 1;
+    }
+    identity
+}
+
 impl UserRecord {
     pub const DISCRIMINATOR: u8 = 1;
     pub const DISCRIMINATOR_LEN: usize = 1;

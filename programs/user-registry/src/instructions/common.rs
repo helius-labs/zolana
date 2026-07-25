@@ -84,41 +84,53 @@ pub fn create_record_account(
     space: usize,
     program_id: &Address,
 ) -> ProgramResult {
-    let required = Rent::get()?.try_minimum_balance(space)?;
     let bump_seed = [bump];
     let seeds = [
         Seed::from(USER_RECORD_SEED),
         Seed::from(owner.as_ref()),
         Seed::from(&bump_seed[..]),
     ];
-    let signer = Signer::from(&seeds[..]);
+    create_pda_account(record, payer, &seeds, space, program_id)
+}
 
-    let top_up = required.saturating_sub(record.lamports());
+/// Fund, allocate and assign `account` at the PDA its `seeds` (bump included)
+/// derive. Handles the cold path where an attacker donated lamports first.
+pub fn create_pda_account(
+    account: &AccountView,
+    payer: &AccountView,
+    seeds: &[Seed],
+    space: usize,
+    program_id: &Address,
+) -> ProgramResult {
+    let required = Rent::get()?.try_minimum_balance(space)?;
+    let signer = Signer::from(seeds);
+
+    let top_up = required.saturating_sub(account.lamports());
     if top_up > 0 {
-        system_transfer(payer, record, top_up)?;
+        system_transfer(payer, account, top_up)?;
     }
 
     let mut allocate_data = [0u8; 12];
     allocate_data[0] = 8;
     allocate_data[4..12].copy_from_slice(&(space as u64).to_le_bytes());
-    let metas = [InstructionAccount::writable_signer(record.address())];
+    let metas = [InstructionAccount::writable_signer(account.address())];
     let instruction = InstructionView {
         program_id: &SYSTEM_PROGRAM_ID,
         accounts: &metas,
         data: &allocate_data,
     };
-    invoke_signed::<1, _>(&instruction, &[record], std::slice::from_ref(&signer))?;
+    invoke_signed::<1, _>(&instruction, &[account], std::slice::from_ref(&signer))?;
 
     let mut assign_data = [0u8; 36];
     assign_data[0] = 1;
     assign_data[4..36].copy_from_slice(program_id.as_ref());
-    let metas = [InstructionAccount::writable_signer(record.address())];
+    let metas = [InstructionAccount::writable_signer(account.address())];
     let instruction = InstructionView {
         program_id: &SYSTEM_PROGRAM_ID,
         accounts: &metas,
         data: &assign_data,
     };
-    invoke_signed::<1, _>(&instruction, &[record], &[signer])
+    invoke_signed::<1, _>(&instruction, &[account], &[signer])
 }
 
 pub fn system_transfer(from: &AccountView, to: &AccountView, lamports: u64) -> ProgramResult {

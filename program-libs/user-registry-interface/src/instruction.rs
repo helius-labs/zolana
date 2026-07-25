@@ -56,7 +56,10 @@ mod builders {
         discriminator, RegisterData, RotateSyncDelegateKeyData, SetMergingEnabledData,
         SetSyncDelegateData, UpdateKeysData,
     };
-    use crate::user_registry_program_id;
+    use crate::{
+        owner_p256_identity, p256_owner_claim_pda, state::P256_PUBKEY_LEN, user_record_pda,
+        user_registry_program_id,
+    };
 
     const SYSTEM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0u8; 32]);
 
@@ -68,15 +71,34 @@ mod builders {
         data
     }
 
-    /// Accounts: `[user_record (writable), owner (writable signer), system_program]`.
+    /// The two accounts that make a P256 owner identity exclusive to one record:
+    /// the claim the registry creates for the key, and the user record of the
+    /// Solana owner whose identity the key would collide with (the key's
+    /// x-coordinate read as an address). Both are derived from the key itself, so
+    /// callers never supply them.
+    fn p256_identity_metas(owner_p256: &[u8; P256_PUBKEY_LEN]) -> Vec<AccountMeta> {
+        let identity = Pubkey::new_from_array(owner_p256_identity(owner_p256));
+        vec![
+            AccountMeta::new(p256_owner_claim_pda(owner_p256).0, false),
+            AccountMeta::new_readonly(user_record_pda(&identity).0, false),
+        ]
+    }
+
+    /// Accounts: `[user_record (writable), owner (writable signer), system_program]`,
+    /// plus `[p256_claim (writable), p256_identity_record]` when the record claims
+    /// an `owner_p256`.
     pub fn register(user_record: Pubkey, owner: Pubkey, data: RegisterData) -> Instruction {
+        let mut accounts = vec![
+            AccountMeta::new(user_record, false),
+            AccountMeta::new(owner, true),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+        ];
+        if let Some(owner_p256) = data.owner_p256.as_ref() {
+            accounts.extend(p256_identity_metas(owner_p256));
+        }
         Instruction {
             program_id: user_registry_program_id(),
-            accounts: vec![
-                AccountMeta::new(user_record, false),
-                AccountMeta::new(owner, true),
-                AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-            ],
+            accounts,
             data: encode_instruction(discriminator::REGISTER, &data),
         }
     }
@@ -145,13 +167,22 @@ mod builders {
 
     /// Accounts: `[user_record (writable), owner (signer)]`. The owner may rotate
     /// the shielded keys stored in its existing record without changing the PDA.
+    /// Rotating into an `owner_p256` claims that identity, which needs
+    /// `[system_program, p256_claim (writable), p256_identity_record]` and makes the
+    /// owner writable, since it pays the claim's rent.
     pub fn update_keys(user_record: Pubkey, owner: Pubkey, data: UpdateKeysData) -> Instruction {
+        let mut accounts = vec![AccountMeta::new(user_record, false)];
+        match data.owner_p256.as_ref() {
+            Some(owner_p256) => {
+                accounts.push(AccountMeta::new(owner, true));
+                accounts.push(AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false));
+                accounts.extend(p256_identity_metas(owner_p256));
+            }
+            None => accounts.push(AccountMeta::new_readonly(owner, true)),
+        }
         Instruction {
             program_id: user_registry_program_id(),
-            accounts: vec![
-                AccountMeta::new(user_record, false),
-                AccountMeta::new_readonly(owner, true),
-            ],
+            accounts,
             data: encode_instruction(discriminator::UPDATE_KEYS, &data),
         }
     }
