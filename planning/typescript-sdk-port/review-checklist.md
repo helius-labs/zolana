@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `90d8c1e10ba0db92527f835302d2c6fecec5008a`
+- Review HEAD: `a19c99b365e5ad5a67891d2f890c0160263298e2`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
-- Canonical Rust drift since freeze: none in the nine scoped source trees
+- Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `4 done / 118 total`; `40 needs_fix`; `0 needs_re_review`; `2 in_progress`
-- Exact next eligible row: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Progress: `4 done / 118 total`; `45 needs_fix`; `0 needs_re_review`; `2 in_progress`
+- Exact next eligible row: `K07 sdk-libs/keypair/src/hash.rs`
 - Active reviews: `K04 sdk-libs/keypair/src/viewing_key.rs`; `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `I01 in_flight`; `I02 in_flight`; `I03 in_flight`; `I04 in_flight`; `I05 in_flight`; `I06 in_flight`; `I07 proposed`; `I08 in_flight`; `I09 in_flight`; `I10 proposed`; `I11 in_flight`; `I12 in_flight`; `I13 in_flight`; `I14 in_flight`; `I15 in_flight`; `I17 in_flight`; `I18 in_flight`; `I19 proposed`; `I20 in_flight`; `I21 in_flight`; `I22 proposed`; `I23 in_flight`; `I24 in_flight`; `I25 in_flight`; `I26 in_flight`; `I27 in_flight`; `I28 in_flight`; `I29 in_flight`; `I30 in_flight`; `I31 in_flight`; `I32 in_flight`; `I33 in_flight`; `I34 in_flight`; `I35 in_flight`; `I36 in_flight`; `I37 in_flight`; `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -179,8 +179,8 @@ Columns:
 | K02 | `sdk-libs/keypair/src/signing_key.rs` | `keypair/src/signing-key.ts` | needs_fix | DIVERGENT | proposed | The tagged public-key runtime encoding is 34 bytes while its TypeScript type says `Bytes33`, and the public `isEd25519` capability is missing. RNG failure, scalar rejection, signature boundaries, and secret inspection also lack evidence. Correct the type and adaptation, add `isEd25519`, and add current-Rust generation, signing, malformed-input, and secret-exposure tests. | 2026-07-25 review | - |
 | K03 | `sdk-libs/keypair/src/nullifier_key.rs` | `keypair/src/nullifier-key.ts` | needs_fix | PARTIAL | proposed | Source behavior aligns, but malformed import, repeated derivation, capability separation, and secret-inspection vectors are incomplete. The inventory describes a leaf index instead of the blinding input, and fixture names and provenance point to the wrong responsibility. Correct the records and add exact current-Rust success, malformed-input, repeatability, capability, and inspection evidence. | 2026-07-25 review | - |
 | K04 | `sdk-libs/keypair/src/viewing_key.rs` | `keypair/src/viewing-key.ts` | in_progress | - | none | Active read-only review; recorder awaits the completed report. | - | - |
-| K05 | `sdk-libs/keypair/src/pubkey.rs` | `keypair/src/public-key.ts` | todo | - | none | - | - | - |
-| K06 | `sdk-libs/keypair/src/shielded.rs` | `keypair/src/shielded.ts` | todo | - | none | - | - | - |
+| K05 | `sdk-libs/keypair/src/pubkey.rs` | `keypair/src/public-key.ts` | needs_fix | DIVERGENT | proposed | The Rust public key is a 34-byte tagged value, while TypeScript declares the runtime value as `Bytes33`. P256 decompression, canonical equality, and structured error behavior also differ or lack proof, and the public export ledger has no adversarial or browser evidence. Correct the tagged-key type and API, align decompression, equality, and errors, then add malformed, parity, export, and browser vectors from current Rust. | 2026-07-25 review | - |
+| K06 | `sdk-libs/keypair/src/shielded.rs` | `keypair/src/shielded.ts` | needs_fix | DIVERGENT | proposed | The spec-authoritative P256 owner-hash construction conflicts with the current TypeScript path. Construction and facade APIs, compressed-address handling, ownership boundaries, and current-Rust evidence are also missing or divergent. Resolve the owner-hash conflict, align construction and ownership capabilities, expose the required facade and address behavior, and add exact fixtures plus malformed and capability-separation tests. | 2026-07-25 review | - |
 | K07 | `sdk-libs/keypair/src/hash.rs` | `keypair/src/hash.ts`, `hash/index.ts` | todo | - | none | - | - | - |
 | K08 | `sdk-libs/keypair/src/encryption.rs` | `keypair/src/encryption.ts` | todo | - | none | - | - | - |
 | K09 | `sdk-libs/keypair/src/merge.rs` | `keypair/src/merge/` | todo | - | none | - | - | - |
@@ -207,7 +207,7 @@ Columns:
 
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| S01 | `sdk-libs/smart-account-client/src/lib.rs` | `smart-account-client/src/` | todo | - | none | - | - | - |
+| S01 | `sdk-libs/smart-account-client/src/lib.rs` | `smart-account-client/src/` | needs_fix | DIVERGENT | proposed | Rust casts compiled account positions to `u8`, while TypeScript rejects indexes above 255, so the overflow policy conflicts. TypeScript also lacks equivalent enforcement and evidence for the 1232-byte transaction limit, an exact execute fixture, and the public export surface. Choose and enforce one index policy at the canonical boundary, add the size limit, and pin execute bytes and exports with current-Rust fixtures. | 2026-07-25 review | - |
 
 ### API, 1 row
 
@@ -219,7 +219,7 @@ Columns:
 
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| T01 | `sdk-libs/transaction/src/error.rs` | `transaction/src/error.ts` | todo | - | none | - | - | - |
+| T01 | `sdk-libs/transaction/src/error.rs` | `transaction/src/error.ts` | needs_fix | DIVERGENT | proposed | The Rust error enum is an open public code set, but TypeScript collapses or misclassifies variants, drops structured payloads, and blurs keypair and authority boundaries. Redaction and current-Rust fixture coverage are absent. Add stable codes and details for each represented category, preserve unknown variants and payloads, keep authority errors distinct, and add boundary, redaction, and fixture tests. | 2026-07-25 review | - |
 | T02 | `sdk-libs/transaction/src/data.rs` | `transaction/src/data.ts` | todo | - | none | - | - | - |
 | T03 | `sdk-libs/transaction/src/serialization/scheme.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
 | T04 | `sdk-libs/transaction/src/serialization/plaintext.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
@@ -245,7 +245,7 @@ Columns:
 | T24 | `sdk-libs/transaction/src/instructions/transact/split.rs` | `transaction/src/instructions/builders.ts` | todo | - | none | - | - | - |
 | T25 | `sdk-libs/transaction/src/instructions/transact/transfer.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
 | T26 | `sdk-libs/transaction/src/instructions/transact/mod.rs` | `transaction/src/transact/index.ts` | todo | - | none | - | - | - |
-| T27 | `sdk-libs/transaction/src/instructions/merge.rs` | `transaction/src/instructions/builders.ts` | todo | - | none | - | - | - |
+| T27 | `sdk-libs/transaction/src/instructions/merge.rs` | `transaction/src/instructions/builders.ts` | needs_fix | DIVERGENT | proposed | TypeScript uses the wrong nullifier authority, reports zone failures under the wrong error category, and does not reproduce `PreparedMerge` revalidation. Expiry handling, constants, public API, secret boundaries, and exact current-Rust evidence are also incomplete. Require the Rust-equivalent nullifier capability, align zone errors and revalidation, expose the canonical expiry and constants, and add exact, stale, malformed, capability, and secret-exposure fixtures. | 2026-07-25 review | - |
 | T28 | `sdk-libs/transaction/src/instructions/merge_zone.rs` | `transaction/src/instructions/builders.ts` | todo | - | none | - | - | - |
 | T29 | `sdk-libs/transaction/src/instructions/zone_authority.rs` | `transaction/src/instructions/builders.ts` | todo | - | none | - | - | - |
 | T30 | `sdk-libs/transaction/src/instructions/mod.rs` | `transaction/src/instructions/index.ts` | todo | - | none | - | - | - |
@@ -980,3 +980,68 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `4/118`; package `0/2`
 - Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
 - Full SDK parity claim: unsupported; indexed-tree public behavior diverges
+
+### 2026-07-25 11:26 UTC | K05 | `sdk-libs/keypair/src/pubkey.rs`
+
+- Baseline: HEAD `a19c99b365e5ad5a67891d2f890c0160263298e2`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module defines the tagged signing public-key type and its P256 address behavior.
+- Evidence: The runtime value is 34 bytes while TypeScript declares `Bytes33`. P256 decompression, canonical equality, structured errors, exports, adversarial inputs, and browser behavior differ or lack current-Rust proof. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Correct the type and API, align decompression, equality, and errors, then add exact malformed, parity, export, and browser vectors.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K07 sdk-libs/keypair/src/hash.rs`
+- Full SDK parity claim: unsupported; the public-key contract and evidence diverge
+
+### 2026-07-25 11:26 UTC | K06 | `sdk-libs/keypair/src/shielded.rs`
+
+- Baseline: HEAD `a19c99b365e5ad5a67891d2f890c0160263298e2`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module constructs shielded keypairs, owner hashes, and compressed addresses.
+- Evidence: The spec-authoritative P256 owner hash conflicts with TypeScript. Construction, facade, compressed-address, ownership, and exact fixture behavior are missing or divergent. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Resolve the owner-hash conflict, align construction and capability boundaries, and add exact plus malformed fixtures.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K07 sdk-libs/keypair/src/hash.rs`
+- Full SDK parity claim: unsupported; P256 owner-hash behavior conflicts with the spec
+
+### 2026-07-25 11:26 UTC | S01 | `sdk-libs/smart-account-client/src/lib.rs`
+
+- Baseline: HEAD `a19c99b365e5ad5a67891d2f890c0160263298e2`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This crate compiles and executes smart-account transactions.
+- Evidence: Rust casts compiled account positions to `u8`; TypeScript rejects indexes above 255. The 1232-byte limit, execute fixture, and export surface lack equivalent enforcement or exact evidence. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Set one canonical overflow policy, enforce the transaction-size limit, and add exact execute and export fixtures.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/1`
+- Exact next file: `K07 sdk-libs/keypair/src/hash.rs`
+- Full SDK parity claim: unsupported; account-index and transaction-size policies are not aligned
+
+### 2026-07-25 11:26 UTC | T01 | `sdk-libs/transaction/src/error.rs`
+
+- Baseline: HEAD `a19c99b365e5ad5a67891d2f890c0160263298e2`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module defines the transaction crate's public error categories and payloads.
+- Evidence: TypeScript collapses or misclassifies variants, drops payloads, and blurs keypair and authority boundaries. Redaction and current-Rust fixture coverage are absent. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Preserve stable open codes, details, category boundaries, and unknown variants, then add redaction and exact fixture tests.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/31`
+- Exact next file: `K07 sdk-libs/keypair/src/hash.rs`
+- Full SDK parity claim: unsupported; transaction error categories and payloads diverge
+
+### 2026-07-25 11:26 UTC | T27 | `sdk-libs/transaction/src/instructions/merge.rs`
+
+- Baseline: HEAD `a19c99b365e5ad5a67891d2f890c0160263298e2`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module prepares merge instructions and revalidates their authority, zone, and expiry inputs.
+- Evidence: TypeScript uses the wrong nullifier authority, classifies zone failures incorrectly, and omits `PreparedMerge` revalidation. Expiry, constants, public API, secret boundaries, and exact fixtures are incomplete. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Align authority, zone errors, revalidation, expiry, constants, and API, then add stale, malformed, capability, and secret-exposure fixtures.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/31`
+- Exact next file: `K07 sdk-libs/keypair/src/hash.rs`
+- Full SDK parity claim: unsupported; merge authority and revalidation behavior diverge
