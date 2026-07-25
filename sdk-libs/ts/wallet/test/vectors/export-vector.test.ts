@@ -153,39 +153,54 @@ describe("wallet export vectors", () => {
 });
 
 /**
- * `sdk-libs/wallet/src/wallet_authority.rs` is a single `pub use` of ten names
- * from `zolana_transaction`. The TypeScript module must be the same ten names
- * bound to the same `@zolana/transaction` declarations, not local copies. Nine
- * are types and vanish at runtime, so the name set is read from the source
- * export clause; `npm run typecheck` compiles that clause and would reject a
- * name `@zolana/transaction` does not declare.
+ * The Rust name sets below are read out of the crate source at test time rather
+ * than transcribed here. A transcribed list passes whether or not it still
+ * matches Rust, which is how a missing export can sit behind a green test; a
+ * parsed one fails when the crate adds or drops a name.
  */
-const RUST_AUTHORITY_REEXPORTS = [
-  "AnonymousRecipientSlot",
-  "ApprovalRequest",
-  "EncryptedEnvelope",
-  "EncryptedSplit",
-  "EncryptedTransfer",
-  "LocalWalletAuthority",
-  "P256Signature",
-  "SyncWalletAuthority",
-  "WalletAuthority",
-  "WalletSyncMaterial",
-];
+async function rustReExports(file: string): Promise<readonly string[]> {
+  const source = await readFile(new URL(`../../../../wallet/src/${file}`, import.meta.url), "utf8");
+  // A `#[doc(hidden)]` re-export is not part of the documented surface, so the
+  // port owes it no counterpart.
+  const documented = source.replaceAll(/#\[doc\(hidden\)\]\s*pub use [^;]*;/gu, "");
+  const grouped = [...documented.matchAll(/pub use [\w:]+::\{([^}]*)\}\s*;/gu)].flatMap((match) =>
+    (match[1] ?? "").split(",").map((entry) => entry.trim()),
+  );
+  const single = [...documented.matchAll(/pub use [\w:]+::(\w+)\s*;/gu)].map(
+    (match) => match[1] ?? "",
+  );
+  const names = [...grouped, ...single].filter((entry) => entry.length > 0);
+  if (names.length === 0) {
+    throw new Error(`no pub use names parsed from wallet/src/${file}`);
+  }
+  return names;
+}
+
+/** Names in a TypeScript export clause, with the `type` marker dropped. */
+function clauseNames(source: string, from: string): readonly string[] {
+  const pattern = new RegExp(String.raw`export\s*\{([^}]*)\}\s*from\s*"${from}"`, "gu");
+  return [...source.matchAll(pattern)].flatMap((match) =>
+    (match[1] ?? "")
+      .split(",")
+      .map((entry) => entry.replace(/\btype\b/u, "").trim())
+      .filter((entry) => entry.length > 0),
+  );
+}
 
 describe("wallet-authority re-export parity (W06)", () => {
-  it("re-exports the ten Rust names from @zolana/transaction and declares nothing", async () => {
+  it("re-exports the Rust names from @zolana/transaction and declares nothing", async () => {
     const source = await readFile(
       new URL("../../src/wallet-authority.ts", import.meta.url),
       "utf8",
     );
-    const clause = /export\s*\{([^}]*)\}\s*from\s*"@zolana\/transaction";/.exec(source);
-    expect(clause, "wallet-authority.ts must be one re-export clause").not.toBeNull();
-    const names = (clause?.[1] ?? "")
-      .split(",")
-      .map((entry) => entry.replace(/\btype\b/, "").trim())
-      .filter((entry) => entry.length > 0);
-    expect([...names].sort()).toStrictEqual([...RUST_AUTHORITY_REEXPORTS].sort());
+    const names = clauseNames(source, String.raw`@zolana/transaction`);
+    expect(
+      names,
+      "wallet-authority.ts must be one @zolana/transaction re-export clause",
+    ).not.toHaveLength(0);
+    expect([...names].sort()).toStrictEqual(
+      [...(await rustReExports("wallet_authority.rs"))].sort(),
+    );
     expect(source).not.toMatch(/\b(class|function|const|interface)\b/);
   });
 
@@ -197,49 +212,37 @@ describe("wallet-authority re-export parity (W06)", () => {
 });
 
 /**
- * Every runtime name `sdk-libs/wallet/src/lib.rs` re-exports, mapped to its
- * TypeScript name. Rust splits blocking and async into `f` / `f_async` (or
- * `f_sync` / `f`) pairs; TypeScript has one promise-returning function per
- * pair, so both Rust names collapse onto one entry here.
+ * Rust splits blocking and async into `f` / `f_async` (or `f_sync` / `f`) pairs
+ * and TypeScript has one promise-returning function per pair, so the suffix
+ * comes off before the snake-to-camel rewrite and both Rust names land on the
+ * same TypeScript name.
  */
-const RUST_ROOT_RUNTIME_EXPORTS: Readonly<Record<string, string>> = {
-  build_deposit_transaction: "buildDepositTransaction",
-  build_private_transaction: "buildPrivateTransaction",
-  build_registration_transaction: "buildRegistrationTransaction",
-  create_associated_token_account: "createAssociatedTokenAccount",
-  create_deposit: "createDeposit",
-  create_merge: "createMerge",
-  create_split: "createSplit",
-  create_transfer: "createTransfer",
-  create_withdrawal: "createWithdrawal",
-  decode_user_record_account: "decodeUserRecordAccount",
-  ensure_registered: "ensureRegistered",
-  fetch_user_record_checked: "fetchUserRecordChecked",
-  fetch_user_record_optional_checked: "fetchUserRecordOptionalChecked",
-  get_private_token_balances: "getPrivateTokenBalances",
-  get_private_transactions: "getPrivateTransactions",
-  is_wallet_registered: "isWalletRegistered",
-  recipient_confidential_view_tag: "recipientConfidentialViewTag",
-  resolve_registered_address: "resolveRegisteredAddress",
-  resolved_address_from_record: "resolvedAddressFromRecord",
-  sign_private_transaction: "signPrivateTransaction",
-  submit_merge_transaction: "submitMergeTransaction",
-  sync_wallet: "syncWallet",
-  try_resolve_registered_address: "tryResolveRegisteredAddress",
-  validate_registered_keypair: "validateRegisteredKeypair",
-  Deposit: "Deposit",
-  LocalWalletAuthority: "LocalWalletAuthority",
-  UnsignedPrivateTransaction: "UnsignedPrivateTransaction",
+function typescriptName(rustName: string): string {
+  if (/^[A-Z]/u.test(rustName)) {
+    return rustName;
+  }
+  const base = rustName.replace(/_(sync|async)$/u, "");
+  return base.replaceAll(/_(\w)/gu, (_match, letter: string) => letter.toUpperCase());
+}
+
+/**
+ * Rust root names the TypeScript root does not publish under the mechanical
+ * name, each with the reason it needs no counterpart.
+ */
+const ABSENT_RUST_ROOT_EXPORTS: Readonly<Record<string, string>> = {
+  syncWalletWithConfig:
+    "syncWallet takes the same config as an optional argument, so Rust's separate with_config entry point collapses into it",
 };
 
 /**
- * Runtime names the TypeScript root publishes that `lib.rs` does not. Each is
- * either reachable through a Rust module path or a deliberate divergence; a
- * name may not appear here without a reason recorded next to it.
+ * Names the TypeScript root publishes that `lib.rs` does not. Each is either
+ * reachable through a Rust module path or a deliberate widening; a name may not
+ * appear here without a reason recorded next to it.
  */
 const DISPOSITIONED_TS_ONLY_EXPORTS: Readonly<Record<string, string>> = {
   MergeMaterial:
     "class in TS, struct in Rust; reachable as zolana_wallet::actions::submit::MergeMaterial",
+  TransactionSigner: "the custody callback shape; Rust passes a &dyn WalletAuthority instead",
   deposit: "reachable as zolana_wallet::actions::deposit",
   registerIfAbsent: "reachable as zolana_wallet::user_registry::register_if_absent",
   fetchUserRecord:
@@ -248,18 +251,48 @@ const DISPOSITIONED_TS_ONLY_EXPORTS: Readonly<Record<string, string>> = {
     "widening: Rust keeps refresh_registry_from_chain private inside wallet_sync",
   senderViewingPublicKey:
     "free function over UserRecord; Rust has it as UserRecord::sender_viewing_pubkey",
+  DepositSplAccounts: "the SPL account bundle Rust nests inside Deposit rather than naming",
+  CounterpartyCounter: "per-counterparty tag counters; Rust keeps them inside the wallet state",
+  ViewingKeyCounters: "the same counters keyed by viewing key",
+  StrictRegistration: "the registration outcome Rust returns as a tuple",
+  SyncDelegateEntry: "a user-record field Rust reads through UserRecord",
+  UserRecord: "re-exported from the registry interface crate in Rust",
   WalletError: "TS-only error class; Rust returns ClientError from the same call sites",
+  WalletErrorCode: "the code union's member type",
   WALLET_ERROR_CODES: "the closed code union backing WalletError",
 };
 
+async function rootExportSets(): Promise<
+  Readonly<{ rust: readonly string[]; published: readonly string[] }>
+> {
+  const source = await readFile(new URL("../../src/index.ts", import.meta.url), "utf8");
+  const published = [...source.matchAll(/from\s*"\.\/([\w-]+)\.js"/gu)].flatMap((match) =>
+    clauseNames(source, String.raw`\./${match[1] ?? ""}\.js`),
+  );
+  const rust = [...new Set((await rustReExports("lib.rs")).map(typescriptName))];
+  return { rust, published: [...new Set(published)] };
+}
+
 describe("root export set (W09)", () => {
-  it("publishes every Rust root runtime name and nothing undispositioned", () => {
-    const actual = Object.keys(wallet).sort();
-    const expected = [
-      ...Object.values(RUST_ROOT_RUNTIME_EXPORTS),
-      ...Object.keys(DISPOSITIONED_TS_ONLY_EXPORTS),
-    ].sort();
-    expect(actual).toStrictEqual(expected);
+  // Both directions are exact rather than "contains", so a disposition that
+  // stops being true fails here instead of quietly covering for a real gap.
+  it("publishes every documented Rust root name except the recorded ones", async () => {
+    const { rust, published } = await rootExportSets();
+    expect(rust.length).toBeGreaterThan(50);
+    const absent = rust.filter((name) => !published.includes(name)).sort();
+    expect(absent).toStrictEqual(Object.keys(ABSENT_RUST_ROOT_EXPORTS).sort());
+  });
+
+  it("publishes nothing beyond Rust except the recorded ones", async () => {
+    const { rust, published } = await rootExportSets();
+    const extra = published.filter((name) => !rust.includes(name)).sort();
+    expect(extra).toStrictEqual(Object.keys(DISPOSITIONED_TS_ONLY_EXPORTS).sort());
+  });
+
+  it("binds every runtime root name to the module that owns it", () => {
+    for (const [rustName, typescriptSpelling] of Object.entries(names)) {
+      expect(wallet, rustName).toHaveProperty(typescriptSpelling);
+    }
   });
 
   it("keeps WALLET_ERROR_CODES closed over every code the package raises", async () => {
