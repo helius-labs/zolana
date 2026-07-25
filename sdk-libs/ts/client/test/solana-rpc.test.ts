@@ -195,6 +195,51 @@ describe("SolanaRpc", () => {
     expect(failure.details).toEqual({ signature: ZERO_SIGNATURE, attempts: 1 });
   });
 
+  // `send_and_confirm_transaction` resubmits while it waits, so a transaction
+  // the leader drops still lands. Submitting once and only polling gave up on a
+  // transaction Rust confirms.
+  it("resubmits a dropped transaction while waiting, as send_and_confirm does", async () => {
+    vi.useFakeTimers();
+    const methods: string[] = [];
+    const payloads: string[] = [];
+    let statusCalls = 0;
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      confirmationTimeoutMs: 60_000,
+      fetch: vi.fn((_url: URL | RequestInfo, init?: RequestInit) => {
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as {
+          id: number;
+          method: string;
+          params: readonly [string, unknown];
+        };
+        methods.push(body.method);
+        if (body.method === "sendTransaction") {
+          payloads.push(body.params[0]);
+          return Promise.resolve(rpcResult(body.id, ZERO_SIGNATURE));
+        }
+        statusCalls++;
+        // The first copy is dropped; only the resubmitted one confirms.
+        return Promise.resolve(
+          rpcResult(body.id, {
+            value: [statusCalls < 3 ? null : { err: null, confirmationStatus: "confirmed" }],
+          }),
+        );
+      }),
+    });
+
+    const pending = rpc.sendTransaction({
+      messageBytes: Uint8Array.of(9, 8, 7),
+      signatures: [undefined],
+    });
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toBe(ZERO_SIGNATURE);
+
+    expect(methods.filter((method) => method === "sendTransaction")).toHaveLength(3);
+    // Identical bytes every time, so the signature never changes.
+    expect(new Set(payloads).size).toBe(1);
+    vi.useRealTimers();
+  });
+
   it("airdrops and asserts executability against confirmed state", async () => {
     const responses: Record<string, unknown> = {
       requestAirdrop: ZERO_SIGNATURE,

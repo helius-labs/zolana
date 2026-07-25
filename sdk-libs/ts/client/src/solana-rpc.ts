@@ -190,15 +190,25 @@ export class SolanaRpc implements Rpc {
   /// Sends and confirms, as the Rust `Rpc::send_transaction` does: the returned
   /// signature is confirmed at the `confirmed` commitment, not merely accepted.
   async sendTransaction(transaction: Transaction, context?: RequestContext): Promise<Signature> {
-    const bytes = serializeTransaction(transaction);
-    const result = await this.#call(
-      "sendTransaction",
-      [encodeBase64(bytes), { encoding: "base64", preflightCommitment: "confirmed" }],
-      context,
-    );
-    const signature = string(result, "result") as Signature;
-    signatureBytes(signature);
-    await this.#waitForSignature(signature, context);
+    const encoded = encodeBase64(serializeTransaction(transaction));
+    const submit = async (): Promise<Signature> => {
+      const result = await this.#call(
+        "sendTransaction",
+        [encoded, { encoding: "base64", preflightCommitment: "confirmed" }],
+        context,
+      );
+      const signature = string(result, "result") as Signature;
+      signatureBytes(signature);
+      return signature;
+    };
+
+    const signature = await submit();
+    // `send_and_confirm_transaction` keeps resubmitting while it waits, so a
+    // transaction the leader drops still lands. Submitting once and only polling
+    // gave up on a transaction Rust confirms. Resubmitting is safe: the bytes
+    // are identical, so the signature is too, and the runtime rejects the
+    // duplicate once the first copy is in a block.
+    await this.#waitForSignature(signature, context, submit);
     return signature;
   }
 
@@ -329,7 +339,11 @@ export class SolanaRpc implements Rpc {
     return Promise.reject(unsupported("getInputMerkleProofs"));
   }
 
-  async #waitForSignature(signature: Signature, context?: RequestContext): Promise<void> {
+  async #waitForSignature(
+    signature: Signature,
+    context?: RequestContext,
+    resubmit?: () => Promise<Signature>,
+  ): Promise<void> {
     const started = Date.now();
     for (let attempt = 1; ; attempt++) {
       if (await this.confirmTransaction(signature, context)) return;
@@ -339,6 +353,9 @@ export class SolanaRpc implements Rpc {
         });
       }
       await sleep(BigInt(CONFIRMATION_INTERVAL_MS), context);
+      // A resubmission that fails is not fatal on its own: the first copy may
+      // still confirm, and the timeout above bounds the wait either way.
+      if (resubmit !== undefined) await resubmit().catch(() => signature);
     }
   }
 
