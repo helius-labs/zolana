@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `acc4fad0f188e27b2c73f8c48886b9fd6eac712f`
+- Review HEAD: `ef8700976c74123cb7737005ee07054adbebff28`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `4 done / 118 total`; `51 needs_fix`; `0 needs_re_review`; `2 in_progress`
-- Exact next eligible row: `K11 sdk-libs/keypair/src/traits/view_key.rs`
+- Progress: `4 done / 118 total`; `52 needs_fix`; `0 needs_re_review`; `2 in_progress`
+- Exact next eligible row: `K12 sdk-libs/keypair/src/traits/shielded_keypair.rs`
 - Active reviews: `K04 sdk-libs/keypair/src/viewing_key.rs`; `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `I01 in_flight`; `I02 in_flight`; `I03 in_flight`; `I04 in_flight`; `I05 in_flight`; `I06 in_flight`; `I07 proposed`; `I08 in_flight`; `I09 in_flight`; `I10 proposed`; `I11 in_flight`; `I12 in_flight`; `I13 in_flight`; `I14 in_flight`; `I15 in_flight`; `I17 in_flight`; `I18 in_flight`; `I19 proposed`; `I20 in_flight`; `I21 in_flight`; `I22 proposed`; `I23 in_flight`; `I24 in_flight`; `I25 in_flight`; `I26 in_flight`; `I27 in_flight`; `I28 in_flight`; `I29 in_flight`; `I30 in_flight`; `I31 in_flight`; `I32 in_flight`; `I33 in_flight`; `I34 in_flight`; `I35 in_flight`; `I36 in_flight`; `I37 in_flight`; `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -185,7 +185,7 @@ Columns:
 | K08 | `sdk-libs/keypair/src/encryption.rs` | `keypair/src/encryption.ts` | needs_fix | PARTIAL | proposed | TypeScript matches current Rust P256 ECDH, HKDF, and AES-CTR bytes, and the internal API disposition is valid. Shared-secret cleanup is not exception-safe, and current-Rust multi-block and counter, empty and boundary, malformed salt and slot, tamper, truncation, extension, defensive-copy, browser, security, and fixture-description evidence is incomplete. Make cleanup exception-safe and add exact current-Rust boundary, malformed, mutation, browser, and provenance fixtures. | 2026-07-25 review | - |
 | K09 | `sdk-libs/keypair/src/merge.rs` | `keypair/src/merge/` | needs_fix | PARTIAL | proposed | Merge encryption and its frozen vector are byte-compatible, but the public Rust `symmetric_apply` capability is missing. Malformed-secret and structured-error behavior, info and chunk boundaries, temporary cleanup, exports, and provenance lack exact evidence. Fix Rust's info-length panic risk before porting unrestricted `symmetric_apply`, then add the API with bounded inputs, cleanup, and current-Rust rejection and boundary fixtures. | 2026-07-25 review | - |
 | K10 | `sdk-libs/keypair/src/error.rs` | `keypair/src/error.ts` | needs_fix | DIVERGENT | proposed | TypeScript collapses or omits five Rust error distinctions, lacks code-indexed immutable diagnostics and exhaustive current-Rust evidence, and permits arbitrary enumerable causes or details to expose data. Define one-to-one closed codes and details, sanitize causes and redacted serialization, and add exhaustive current-Rust fixtures plus export and package tests. | 2026-07-25 review | - |
-| K11 | `sdk-libs/keypair/src/traits/view_key.rs` | `keypair/src/viewing-key.ts` | todo | - | none | - | - | - |
+| K11 | `sdk-libs/keypair/src/traits/view_key.rs` | `keypair/src/viewing-key.ts` | needs_fix | PARTIAL | proposed | All 14 concrete operations exist on TypeScript `ViewingKey`, but public `ViewingKeyLike` exposes only two unused methods. `ShieldedKeypair` cannot substitute, higher packages require concrete `ViewingKey`, and trait declaration, facade, malformed-input, secret-exposure, browser, and current-Rust evidence is missing. Add the public trait adaptation and facade, accept the least-powerful capability in higher packages, and add the missing evidence. | 2026-07-25 review | - |
 | K12 | `sdk-libs/keypair/src/traits/shielded_keypair.rs` | `keypair/src/shielded.ts` | todo | - | none | - | - | - |
 | K13 | `sdk-libs/keypair/src/traits/mod.rs` | `keypair/src/index.ts` | todo | - | none | - | - | - |
 | K14 | `sdk-libs/keypair/src/lib.rs` | `keypair/src/index.ts` | todo | - | none | - | - | - |
@@ -1123,3 +1123,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `4/118`; package `0/31`
 - Exact next file: `K11 sdk-libs/keypair/src/traits/view_key.rs`
 - Full SDK parity claim: unsupported; serialization scheme rejection and exports diverge
+
+### 2026-07-25 11:31 UTC | K11 | `sdk-libs/keypair/src/traits/view_key.rs`
+
+- Baseline: HEAD `5ffa42da9f7c06a76230e3a9cfc26005f9dcd908`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This public trait defines the viewing-key capability surface.
+- Evidence: All 14 concrete operations exist on TypeScript `ViewingKey`, but public `ViewingKeyLike` has only two unused methods. `ShieldedKeypair` cannot substitute, higher packages require concrete `ViewingKey`, and trait declaration, facade, malformed-input, secret-exposure, browser, and current-Rust evidence is missing. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Add the public trait adaptation and facade, accept the least-powerful capability in higher packages, and add the missing evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K12 sdk-libs/keypair/src/traits/shielded_keypair.rs`
+- Full SDK parity claim: unsupported; viewing-key abstraction and evidence remain incomplete
