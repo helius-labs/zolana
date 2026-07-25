@@ -19,6 +19,24 @@ function rpcResult(id: number, result: unknown): Response {
   return Response.json({ jsonrpc: "2.0", id, result });
 }
 
+/// A 1x2 `TRANSACT` instruction taken from the Rust-generated prover fixture,
+/// compiled against a message whose account key 0 is the shielded pool.
+function transactInstruction(): Readonly<{
+  programIdIndex: number;
+  accounts: readonly number[];
+  data: string;
+}> {
+  const shape = proverFixture.expected.rails[0]?.shapes.find(
+    (value) => value.shape.inputs === "1" && value.shape.outputs === "2",
+  );
+  if (!shape) throw new Error("missing RPC fixture shape");
+  return {
+    programIdIndex: 0,
+    accounts: [],
+    data: encodeBase58(Uint8Array.from([0, ...bytes(shape.transactIxData.afterProofBytes)])),
+  };
+}
+
 async function expectCode(promise: Promise<unknown>, code: string): Promise<ClientError> {
   try {
     await promise;
@@ -76,10 +94,7 @@ describe("SolanaRpc", () => {
             account: {
               owner: SHIELDED_POOL_PROGRAM_ID,
               lamports: 7,
-              data: [
-                "BQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAA",
-                "base64",
-              ],
+              data: ["BQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAA", "base64"],
             },
           },
         ]),
@@ -125,17 +140,25 @@ describe("SolanaRpc", () => {
     });
   });
 
-  it("serializes unsigned native transactions with zero signature slots", async () => {
+  it("serializes unsigned native transactions and returns only a confirmed signature", async () => {
+    const methods: string[] = [];
     const fetch = vi.fn((_url: URL | RequestInfo, init?: RequestInit) => {
       const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as {
         id: number;
+        method: string;
         params: readonly [string, unknown];
       };
-      const serialized = Uint8Array.from(globalThis.atob(body.params[0]), (character) =>
-        character.charCodeAt(0),
+      methods.push(body.method);
+      if (body.method === "sendTransaction") {
+        const serialized = Uint8Array.from(globalThis.atob(body.params[0]), (character) =>
+          character.charCodeAt(0),
+        );
+        expect(serialized).toEqual(Uint8Array.from([1, ...new Uint8Array(64), 9, 8, 7]));
+        return Promise.resolve(rpcResult(body.id, ZERO_SIGNATURE));
+      }
+      return Promise.resolve(
+        rpcResult(body.id, { value: [{ err: null, confirmationStatus: "confirmed" }] }),
       );
-      expect(serialized).toEqual(Uint8Array.from([1, ...new Uint8Array(64), 9, 8, 7]));
-      return Promise.resolve(rpcResult(body.id, ZERO_SIGNATURE));
     });
     const rpc = new SolanaRpc({ url: "https://solana.example.test", fetch });
     const transaction: Transaction = {
@@ -144,6 +167,57 @@ describe("SolanaRpc", () => {
     };
 
     await expect(rpc.sendTransaction(transaction)).resolves.toBe(ZERO_SIGNATURE);
+    expect(methods).toEqual(["sendTransaction", "getSignatureStatuses"]);
+  });
+
+  it("fails a send whose signature never confirms", async () => {
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      confirmationTimeoutMs: 0,
+      fetch: vi.fn((_url: URL | RequestInfo, init?: RequestInit) => {
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as {
+          id: number;
+          method: string;
+        };
+        return Promise.resolve(
+          rpcResult(
+            body.id,
+            body.method === "sendTransaction" ? ZERO_SIGNATURE : { value: [null] },
+          ),
+        );
+      }),
+    });
+
+    const failure = await expectCode(
+      rpc.sendTransaction({ messageBytes: Uint8Array.of(1), signatures: [undefined] }),
+      "CLIENT_CONFIRMATION_TIMEOUT",
+    );
+    expect(failure.details).toEqual({ signature: ZERO_SIGNATURE, attempts: 1 });
+  });
+
+  it("airdrops and asserts executability against confirmed state", async () => {
+    const responses: Record<string, unknown> = {
+      requestAirdrop: ZERO_SIGNATURE,
+      getSignatureStatuses: { value: [{ err: null, confirmationStatus: "finalized" }] },
+      getAccountInfo: { value: { owner: ZERO_ADDRESS, lamports: 1, executable: false } },
+    };
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      fetch: vi.fn((_url: URL | RequestInfo, init?: RequestInit) => {
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as {
+          id: number;
+          method: string;
+        };
+        return Promise.resolve(rpcResult(body.id, responses[body.method] ?? null));
+      }),
+    });
+
+    await expect(rpc.airdrop(ZERO_ADDRESS, 5n)).resolves.toBe(ZERO_SIGNATURE);
+    const failure = await expectCode(rpc.assertExecutable(ZERO_ADDRESS), "CLIENT_RPC");
+    expect(failure.details).toEqual({
+      method: "assertExecutable",
+      reason: "program is not executable",
+    });
   });
 
   it("distinguishes cancellation from timeout", async () => {
@@ -165,15 +239,7 @@ describe("SolanaRpc", () => {
   });
 
   it("extracts the frozen sorted tags from direct and inner transact instructions", async () => {
-    const shape = proverFixture.expected.rails[0]?.shapes.find(
-      (value) => value.shape.inputs === "1" && value.shape.outputs === "2",
-    );
-    if (!shape) throw new Error("missing RPC fixture shape");
-    const instruction = {
-      programIdIndex: 0,
-      accounts: [],
-      data: encodeBase58(Uint8Array.from([0, ...bytes(shape.transactIxData.afterProofBytes)])),
-    };
+    const instruction = transactInstruction();
     const variants = [
       {
         transaction: {
@@ -183,7 +249,10 @@ describe("SolanaRpc", () => {
       },
       {
         transaction: {
-          message: { accountKeys: [SHIELDED_POOL_PROGRAM_ID], instructions: [] },
+          message: {
+            accountKeys: [SHIELDED_POOL_PROGRAM_ID, ZERO_ADDRESS],
+            instructions: [{ programIdIndex: 1, accounts: [], data: encodeBase58(bytes("00")) }],
+          },
         },
         meta: { innerInstructions: [{ index: 0, instructions: [instruction] }] },
       },
@@ -204,6 +273,80 @@ describe("SolanaRpc", () => {
     expect((await rpc.transactOutputViewTags(ZERO_SIGNATURE)).map(hex)).toEqual(
       rpcFixture.expected.confirmation.innerTags,
     );
+  });
+
+  it("resolves program ids that only appear in the loaded address table", async () => {
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      fetch: vi.fn(() =>
+        Promise.resolve(
+          rpcResult(1, {
+            transaction: {
+              message: {
+                accountKeys: [ZERO_ADDRESS],
+                instructions: [{ ...transactInstruction(), programIdIndex: 1 }],
+              },
+            },
+            meta: {
+              innerInstructions: [],
+              loadedAddresses: { writable: [SHIELDED_POOL_PROGRAM_ID], readonly: [] },
+            },
+          }),
+        ),
+      ),
+    });
+
+    expect((await rpc.transactOutputViewTags(ZERO_SIGNATURE)).map(hex)).toEqual(
+      rpcFixture.expected.confirmation.directTags,
+    );
+  });
+
+  it("scans each group's inner instructions before the next group's outer instruction", async () => {
+    const corrupt = { programIdIndex: 0, accounts: [], data: encodeBase58(Uint8Array.of(0, 1, 2)) };
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      fetch: vi.fn(() =>
+        Promise.resolve(
+          rpcResult(1, {
+            transaction: {
+              message: {
+                accountKeys: [SHIELDED_POOL_PROGRAM_ID, ZERO_ADDRESS],
+                instructions: [
+                  { programIdIndex: 1, accounts: [], data: encodeBase58(Uint8Array.of(9)) },
+                  corrupt,
+                ],
+              },
+            },
+            meta: {
+              innerInstructions: [{ index: 0, instructions: [transactInstruction()] }],
+            },
+          }),
+        ),
+      ),
+    });
+
+    expect((await rpc.transactOutputViewTags(ZERO_SIGNATURE)).map(hex)).toEqual(
+      rpcFixture.expected.confirmation.directTags,
+    );
+  });
+
+  it("rejects a confirmed transaction whose metadata is absent", async () => {
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      fetch: vi.fn(() =>
+        Promise.resolve(
+          rpcResult(1, {
+            transaction: { message: { accountKeys: [ZERO_ADDRESS], instructions: [] } },
+          }),
+        ),
+      ),
+    });
+
+    const failure = await expectCode(
+      rpc.transactOutputViewTags(ZERO_SIGNATURE),
+      "CLIENT_INVALID_RPC_RESPONSE",
+    );
+    expect(failure.details).toEqual({ path: "result.meta" });
   });
 
   it("rejects a confirmed transaction without a transact instruction", async () => {

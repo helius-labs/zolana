@@ -19,6 +19,7 @@ import {
   encodeBase64,
   requestError,
   signatureBytes,
+  sleep,
 } from "./internal.js";
 import type {
   GetMerkleProofsResponse,
@@ -31,16 +32,53 @@ import type {
 
 type JsonObject = Record<string, unknown>;
 
+const TRANSACT_TAG = 0;
+const DEFAULT_CONFIRMATION_TIMEOUT_MS = 30_000;
+const CONFIRMATION_INTERVAL_MS = 250;
+
+/// One instruction with its program and account keys already resolved against
+/// the message's account keys plus the transaction's loaded addresses.
+export interface ParsedInstruction {
+  readonly programId: Address;
+  readonly accounts: readonly Address[];
+  readonly data: Uint8Array;
+  readonly stackHeight?: number;
+}
+
+/// An outer instruction and the inner instructions it invoked, in call order.
+export interface InstructionGroup {
+  readonly outer: ParsedInstruction;
+  readonly inner: readonly ParsedInstruction[];
+}
+
+export interface ConfirmedInstructionGroups {
+  readonly groups: readonly InstructionGroup[];
+}
+
 export class SolanaRpc implements Rpc {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
+  readonly #confirmationTimeoutMs: number;
   #requestId = 0;
 
-  constructor(input: Readonly<{ url: URL | string; fetch?: typeof globalThis.fetch }>) {
+  constructor(
+    input: Readonly<{
+      url: URL | string;
+      fetch?: typeof globalThis.fetch;
+      confirmationTimeoutMs?: number;
+    }>,
+  ) {
     const candidate: unknown = input;
     if (typeof candidate !== "object" || candidate === null) {
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
+    const timeout = input.confirmationTimeoutMs ?? DEFAULT_CONFIRMATION_TIMEOUT_MS;
+    if (!Number.isSafeInteger(timeout) || timeout < 0) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", {
+        details: { field: "confirmationTimeoutMs" },
+      });
+    }
+    this.#confirmationTimeoutMs = timeout;
     try {
       this.#url = new URL(input.url instanceof URL ? input.url.href : input.url);
     } catch {
@@ -149,6 +187,8 @@ export class SolanaRpc implements Rpc {
     });
   }
 
+  /// Sends and confirms, as the Rust `Rpc::send_transaction` does: the returned
+  /// signature is confirmed at the `confirmed` commitment, not merely accepted.
   async sendTransaction(transaction: Transaction, context?: RequestContext): Promise<Signature> {
     const bytes = serializeTransaction(transaction);
     const result = await this.#call(
@@ -158,7 +198,75 @@ export class SolanaRpc implements Rpc {
     );
     const signature = string(result, "result") as Signature;
     signatureBytes(signature);
+    await this.#waitForSignature(signature, context);
     return signature;
+  }
+
+  /// Requests lamports from the validator faucet and waits for confirmation.
+  async airdrop(address: Address, lamports: bigint, context?: RequestContext): Promise<Signature> {
+    addressBytes(address);
+    if (lamports < 0n || lamports > 0xffff_ffff_ffff_ffffn) {
+      throw new ClientError("CLIENT_INVALID_INTEGER", {
+        details: { field: "lamports", value: lamports.toString() },
+      });
+    }
+    const result = await this.#call(
+      "requestAirdrop",
+      [address, Number(lamports), { commitment: "confirmed" }],
+      context,
+    );
+    const signature = string(result, "result") as Signature;
+    signatureBytes(signature);
+    await this.#waitForSignature(signature, context);
+    return signature;
+  }
+
+  async assertExecutable(programAddress: Address, context?: RequestContext): Promise<void> {
+    addressBytes(programAddress);
+    const result = await this.#call(
+      "getAccountInfo",
+      [programAddress, { commitment: "confirmed", encoding: "base64" }],
+      context,
+    );
+    const value = object(result, "result")["value"];
+    if (value === null || object(value, "result.value")["executable"] !== true) {
+      throw new ClientError("CLIENT_RPC", {
+        details: { method: "assertExecutable", reason: "program is not executable" },
+      });
+    }
+  }
+
+  /// The confirmed transaction, retried until the confirmation timeout while the
+  /// RPC still reports it as unknown.
+  async getConfirmedTransaction(
+    signature: Signature,
+    context?: RequestContext,
+  ): Promise<JsonObject> {
+    signatureBytes(signature);
+    const started = Date.now();
+    for (let attempt = 1; ; attempt++) {
+      const result = await this.#call(
+        "getTransaction",
+        [
+          signature,
+          { commitment: "confirmed", encoding: "json", maxSupportedTransactionVersion: 0 },
+        ],
+        context,
+      );
+      if (result !== null) return object(result, "result");
+      if (Date.now() - started >= this.#confirmationTimeoutMs) {
+        throw new ClientError("CLIENT_RPC_TRANSACTION_NOT_FOUND", { details: { signature } });
+      }
+      void attempt;
+      await sleep(BigInt(CONFIRMATION_INTERVAL_MS), context);
+    }
+  }
+
+  async confirmedInstructionGroups(
+    signature: Signature,
+    context?: RequestContext,
+  ): Promise<ConfirmedInstructionGroups> {
+    return instructionGroups(await this.getConfirmedTransaction(signature, context));
   }
 
   async confirmTransaction(signature: Signature, context?: RequestContext): Promise<boolean> {
@@ -187,25 +295,9 @@ export class SolanaRpc implements Rpc {
     signature: Signature,
     context?: RequestContext,
   ): Promise<readonly Bytes32[]> {
-    signatureBytes(signature);
-    const result = await this.#call(
-      "getTransaction",
-      [
-        signature,
-        {
-          commitment: "confirmed",
-          encoding: "json",
-          maxSupportedTransactionVersion: 0,
-        },
-      ],
-      context,
+    return transactOutputViewTagsFromInstructionGroups(
+      await this.confirmedInstructionGroups(signature, context),
     );
-    if (result === null) {
-      throw new ClientError("CLIENT_RPC_TRANSACTION_NOT_FOUND", {
-        details: { signature },
-      });
-    }
-    return extractOutputViewTags(object(result, "result"));
   }
 
   getMerkleProofs(
@@ -235,6 +327,19 @@ export class SolanaRpc implements Rpc {
   ): Promise<readonly SpendProof[]> {
     void [_inputs, _config, _context];
     return Promise.reject(unsupported("getInputMerkleProofs"));
+  }
+
+  async #waitForSignature(signature: Signature, context?: RequestContext): Promise<void> {
+    const started = Date.now();
+    for (let attempt = 1; ; attempt++) {
+      if (await this.confirmTransaction(signature, context)) return;
+      if (Date.now() - started >= this.#confirmationTimeoutMs) {
+        throw new ClientError("CLIENT_CONFIRMATION_TIMEOUT", {
+          details: { signature, attempts: attempt },
+        });
+      }
+      await sleep(BigInt(CONFIRMATION_INTERVAL_MS), context);
+    }
   }
 
   async #call(
@@ -350,10 +455,87 @@ function serializeTransaction(transaction: Transaction): Uint8Array {
   return concat(count, ...signatures, transaction.messageBytes);
 }
 
-function extractOutputViewTags(result: JsonObject): readonly Bytes32[] {
+/// Groups a confirmed JSON-encoded transaction. Account indexes resolve against
+/// the message keys followed by the loaded address-lookup keys, writable before
+/// readonly, which is the order the runtime itself uses.
+export function instructionGroups(result: JsonObject): ConfirmedInstructionGroups {
+  const meta = object(result["meta"], "result.meta");
   const transaction = object(result["transaction"], "result.transaction");
   const message = object(transaction["message"], "result.transaction.message");
-  const accountKeys = array(message["accountKeys"], "result.transaction.message.accountKeys").map(
+  const accountKeys = [
+    ...messageAccountKeys(message),
+    ...loadedAccountKeys(meta["loadedAddresses"]),
+  ];
+  const inner = meta["innerInstructions"];
+  if (inner === null || inner === undefined) invalid("result.meta.innerInstructions");
+  const groups = array(message["instructions"], "result.transaction.message.instructions").map(
+    (raw) => ({ outer: parsedInstruction(accountKeys, raw, 1), inner: [] as ParsedInstruction[] }),
+  );
+  for (const raw of array(inner, "result.meta.innerInstructions")) {
+    const entry = object(raw, "result.meta.innerInstructions[]");
+    const index = safeNumber(entry["index"], "result.meta.innerInstructions[].index");
+    const group = groups[index];
+    if (group === undefined) {
+      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+        details: { path: `result.meta.innerInstructions[${String(index)}].index` },
+      });
+    }
+    group.inner = array(entry["instructions"], "inner instructions").map((instruction) =>
+      parsedInstruction(accountKeys, instruction),
+    );
+  }
+  return Object.freeze({
+    groups: Object.freeze(
+      groups.map((group) =>
+        Object.freeze({ outer: group.outer, inner: Object.freeze(group.inner) }),
+      ),
+    ),
+  });
+}
+
+/// The unique output `view_tag`s of the first shielded-pool `TRANSACT`
+/// instruction, which may be an outer instruction or an inner one when another
+/// program CPIs into `transact`. Groups are scanned in order and each group's
+/// outer instruction precedes its inner instructions.
+export function transactOutputViewTagsFromInstructionGroups(
+  groups: ConfirmedInstructionGroups,
+): readonly Bytes32[] {
+  for (const group of groups.groups) {
+    for (const instruction of [group.outer, ...group.inner]) {
+      const tags = transactViewTags(instruction);
+      if (tags !== undefined) return tags;
+    }
+  }
+  throw new ClientError("CLIENT_RPC_TRANSACT_NOT_FOUND");
+}
+
+/// `undefined` when the instruction is unrelated; throws when it is a `TRANSACT`
+/// call whose payload cannot be decoded or whose owner tag cannot be resolved.
+function transactViewTags(instruction: ParsedInstruction): readonly Bytes32[] | undefined {
+  if (instruction.programId !== SHIELDED_POOL_PROGRAM_ID) return undefined;
+  if (instruction.data[0] !== TRANSACT_TAG) return undefined;
+  let decoded;
+  try {
+    decoded = transactInstructionDataCodec.decode(instruction.data.subarray(1));
+  } catch (cause) {
+    throw new ClientError("CLIENT_RPC_TRANSACT_DECODE", { cause });
+  }
+  const tags = decoded.outputs.map((output) => {
+    if (output.ownerTag.kind === "inline") return new Uint8Array(output.ownerTag.value) as Bytes32;
+    if (output.ownerTag.kind === "p256SigningKey") {
+      if (!decoded.p256SigningPkX) throw new ClientError("CLIENT_RPC_OWNER_TAG");
+      return new Uint8Array(decoded.p256SigningPkX) as Bytes32;
+    }
+    const address = instruction.accounts[output.ownerTag.index];
+    if (address === undefined) throw new ClientError("CLIENT_RPC_OWNER_TAG");
+    return addressBytes(address);
+  });
+  const unique = new Map(tags.map((tag) => [encodeBase64(tag), tag]));
+  return Object.freeze([...unique.values()].sort((left, right) => compareBytes(left, right)));
+}
+
+function messageAccountKeys(message: JsonObject): Address[] {
+  return array(message["accountKeys"], "result.transaction.message.accountKeys").map(
     (entry, index) => {
       const value =
         typeof entry === "string"
@@ -366,53 +548,44 @@ function extractOutputViewTags(result: JsonObject): readonly Bytes32[] {
       return value as Address;
     },
   );
-  const instructions: unknown[] = [
-    ...array(message["instructions"], "result.transaction.message.instructions"),
-  ];
-  const meta = result["meta"];
-  if (meta !== null && meta !== undefined) {
-    for (const group of array(object(meta, "result.meta")["innerInstructions"] ?? [], "inner")) {
-      instructions.push(
-        ...array(object(group, "inner group")["instructions"], "inner instructions"),
-      );
-    }
-  }
-  for (const raw of instructions) {
-    const instruction = object(raw, "instruction");
-    const programIndex = safeNumber(instruction["programIdIndex"], "programIdIndex");
-    if (accountKeys[programIndex] !== SHIELDED_POOL_PROGRAM_ID) continue;
-    const encoded = string(instruction["data"], "instruction.data");
-    const data = decodeBase58(
-      encoded,
-      decodeBase58UnknownLength(encoded).length,
-      "instruction.data",
-    );
-    if (data[0] !== 0) continue;
-    let decoded;
-    try {
-      decoded = transactInstructionDataCodec.decode(data.subarray(1));
-    } catch (cause) {
-      throw new ClientError("CLIENT_RPC_TRANSACT_DECODE", { cause });
-    }
-    const accountIndexes = array(instruction["accounts"], "instruction.accounts").map((value) =>
-      safeNumber(value, "account index"),
-    );
-    const tags = decoded.outputs.map((output) => {
-      if (output.ownerTag.kind === "inline")
-        return new Uint8Array(output.ownerTag.value) as Bytes32;
-      if (output.ownerTag.kind === "p256SigningKey") {
-        if (!decoded.p256SigningPkX) throw new ClientError("CLIENT_RPC_OWNER_TAG");
-        return new Uint8Array(decoded.p256SigningPkX) as Bytes32;
-      }
-      const messageIndex = accountIndexes[output.ownerTag.index];
-      const address = messageIndex === undefined ? undefined : accountKeys[messageIndex];
-      if (address === undefined) throw new ClientError("CLIENT_RPC_OWNER_TAG");
-      return addressBytes(address);
-    });
-    const unique = new Map(tags.map((tag) => [encodeBase64(tag), tag]));
-    return Object.freeze([...unique.values()].sort((left, right) => compareBytes(left, right)));
-  }
-  throw new ClientError("CLIENT_RPC_TRANSACT_NOT_FOUND");
+}
+
+function loadedAccountKeys(value: unknown): Address[] {
+  if (value === null || value === undefined) return [];
+  const loaded = object(value, "result.meta.loadedAddresses");
+  return [
+    ...array(loaded["writable"], "result.meta.loadedAddresses.writable"),
+    ...array(loaded["readonly"], "result.meta.loadedAddresses.readonly"),
+  ].map((entry, index) => {
+    const address = string(entry, `result.meta.loadedAddresses[${String(index)}]`) as Address;
+    addressBytes(address);
+    return address;
+  });
+}
+
+function parsedInstruction(
+  accountKeys: readonly Address[],
+  raw: unknown,
+  stackHeight?: number,
+): ParsedInstruction {
+  const instruction = object(raw, "instruction");
+  const programId = accountKeys[safeNumber(instruction["programIdIndex"], "programIdIndex")];
+  if (programId === undefined) invalid("instruction.programIdIndex");
+  const accounts = array(instruction["accounts"], "instruction.accounts").map((value) => {
+    const address = accountKeys[safeNumber(value, "account index")];
+    if (address === undefined) invalid("instruction.accounts[]");
+    return address;
+  });
+  const encoded = string(instruction["data"], "instruction.data");
+  const height = stackHeight ?? instruction["stackHeight"];
+  return Object.freeze({
+    programId,
+    accounts: Object.freeze(accounts),
+    data: decodeBase58(encoded, decodeBase58UnknownLength(encoded).length, "instruction.data"),
+    ...(typeof height === "number"
+      ? { stackHeight: safeNumber(height, "instruction.stackHeight") }
+      : {}),
+  });
 }
 
 function decodeBase58UnknownLength(value: string): Uint8Array {
