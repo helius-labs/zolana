@@ -1,5 +1,11 @@
 import type { Address, Bytes31, Bytes32 } from "@zolana/interface";
-import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
+import {
+  NullifierKey,
+  ShieldedKeypair,
+  ShieldedPublicKey,
+  SigningKey,
+  ViewingKey,
+} from "@zolana/keypair";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +13,7 @@ import {
   Data,
   ProofInputUtxo,
   SOL_MINT,
+  TRANSACTION_ERROR_CODES,
   TransactionError,
   Utxo,
   Wallet,
@@ -14,7 +21,9 @@ import {
   deriveBlinding,
   ownerUtxoHash,
   resolveShape,
+  unknownTransactionError,
 } from "../src/index.js";
+import { encodeData } from "../src/serialization/index.js";
 
 function scalar(value: number): Bytes32 {
   const bytes = new Uint8Array(32);
@@ -56,6 +65,14 @@ describe("transaction core", () => {
           { kind: "zoneData", bytes: Uint8Array.of(2) },
         ]),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_NON_CANONICAL_DATA_ORDER" }));
+
+    expect(() => new Data([{ kind: "invalid", bytes: Uint8Array.of(1) }] as never)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_BAD_DISCRIMINATOR" }),
+    );
+    const oversized = new Data([{ kind: "memo", bytes: new Uint8Array(0x1_0000) }]);
+    expect(() => encodeData(oversized)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_SERIALIZE" }),
+    );
   });
 
   it("matches the P00 canonical shape and rejects unsupported declarations", () => {
@@ -66,6 +83,12 @@ describe("transaction core", () => {
     });
     expect(() => resolveShape(3, 1, { inputs: 2, outputs: 2 })).toThrow(
       expect.objectContaining({ code: "TRANSACTION_TOO_MANY_INPUTS" }),
+    );
+    expect(() => resolveShape(1, 3, { inputs: 2, outputs: 2 })).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE" }),
+    );
+    expect(() => resolveShape(1, 1, null as never)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_UNSUPPORTED_SHAPE" }),
     );
     expect(() => canonicalShape(99, 99)).toThrow(
       expect.objectContaining({ code: "TRANSACTION_UNSUPPORTED_SHAPE" }),
@@ -79,6 +102,7 @@ describe("transaction core", () => {
       asset: SOL_MINT,
       amount: 42n,
       blinding: new Uint8Array(31).fill(3) as Bytes31,
+      zoneProgramId: "SysvarRent111111111111111111111111111111111" as Address,
     });
     const dataHash = scalar(4);
     const zoneHash = scalar(5);
@@ -96,6 +120,18 @@ describe("transaction core", () => {
     });
     expect(proof.hash()).toEqual(base.hash(nullifier.publicKey(), dataHash, zoneHash));
     expect(ProofInputUtxo.dummy().isDummy()).toBe(true);
+    expect(
+      () =>
+        new ProofInputUtxo({
+          utxo: new Utxo({
+            owner: ShieldedPublicKey.zeroed(),
+            asset: "SysvarRent111111111111111111111111111111111" as Address,
+            amount: 0n,
+            blinding: new Uint8Array(31) as Bytes31,
+          }),
+          nullifierKey: NullifierKey.fromSecret(new Uint8Array(31) as Bytes31),
+        }),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_DUMMY_INPUT_NOT_ALLOWED" }));
   });
 
   it("derives position-specific blindings and validates their range", () => {
@@ -114,6 +150,9 @@ describe("transaction core", () => {
     expect(registry.resolve(2n)).toBe(mint);
     expect(registry.assetId(mint)).toBe(2n);
     expect(() => {
+      registry.insert(0n, mint);
+    }).toThrow(expect.objectContaining({ code: "TRANSACTION_RESERVED_ASSET_ID" }));
+    expect(() => {
       registry.insert(2n, "Vote111111111111111111111111111111111111111" as Address);
     }).toThrow(expect.objectContaining({ code: "TRANSACTION_DUPLICATE_ASSET_ID" }));
 
@@ -130,5 +169,19 @@ describe("transaction core", () => {
           blinding: new Uint8Array(31) as Bytes31,
         }),
     ).toThrow(TransactionError);
+  });
+
+  it("keeps transaction diagnostics closed and redacted", () => {
+    expect(TRANSACTION_ERROR_CODES).toContain("TRANSACTION_UNKNOWN_VARIANT");
+    const error = unknownTransactionError("FutureVariant", {
+      index: 2,
+      secretKey: "hidden",
+      payload: { value: 7, nonce: "hidden" },
+    });
+    expect(error.details).toEqual({
+      variant: "FutureVariant",
+      payload: { index: 2, payload: { value: 7 } },
+    });
+    expect(JSON.stringify(error)).not.toContain("hidden");
   });
 });

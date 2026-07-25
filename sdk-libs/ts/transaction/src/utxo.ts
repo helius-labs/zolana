@@ -51,6 +51,9 @@ function commitmentFields(
   const zoneDataHash = input.zoneDataHash
     ? checked<Bytes32>(input.zoneDataHash, 32, "zone data hash")
     : ZERO_32;
+  if (!input.zoneProgramId && !isZero(zoneDataHash)) {
+    throw new TransactionError("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
+  }
   const zoneProgramId = input.zoneProgramId
     ? hashField(decodeAddress(input.zoneProgramId))
     : ZERO_32;
@@ -189,26 +192,48 @@ export class ProofInputUtxo {
       zoneDataHash?: Bytes32;
     }>,
   ) {
-    this.utxo = input.utxo;
-    this.nullifierKey = input.nullifierKey;
+    if (!(input.utxo instanceof Utxo) || !(input.nullifierKey instanceof NullifierKey)) {
+      throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "proofInput" });
+    }
+    this.utxo = new Utxo({
+      owner: input.utxo.owner.isZero()
+        ? ShieldedPublicKey.zeroed()
+        : ShieldedPublicKey.fromBytes(input.utxo.owner.toBytes()),
+      asset: input.utxo.asset,
+      amount: input.utxo.amount,
+      blinding: input.utxo.blinding,
+      data: input.utxo.data,
+      ...(input.utxo.zoneProgramId === undefined
+        ? {}
+        : { zoneProgramId: input.utxo.zoneProgramId }),
+    });
+    this.nullifierKey = cloneNullifierKey(input.nullifierKey);
     if (input.dataHash) {
       this.dataHash = checked<Bytes32>(input.dataHash, 32, "data hash");
     }
     if (input.zoneDataHash) {
       this.zoneDataHash = checked<Bytes32>(input.zoneDataHash, 32, "zone data hash");
     }
+    if (this.isDummy() && !this.#isCanonicalDummy()) {
+      throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED");
+    }
   }
 
   static dummy(blinding = random31()): ProofInputUtxo {
-    return new ProofInputUtxo({
-      utxo: new Utxo({
-        owner: ShieldedPublicKey.zeroed(),
-        asset: "11111111111111111111111111111111" as Address,
-        amount: 0n,
-        blinding: checked<Bytes31>(blinding, 31, "dummy blinding"),
-      }),
-      nullifierKey: NullifierKey.fromSecret(new Uint8Array(31) as Bytes31),
-    });
+    const nullifierKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
+    try {
+      return new ProofInputUtxo({
+        utxo: new Utxo({
+          owner: ShieldedPublicKey.zeroed(),
+          asset: "11111111111111111111111111111111" as Address,
+          amount: 0n,
+          blinding: checked<Bytes31>(blinding, 31, "dummy blinding"),
+        }),
+        nullifierKey,
+      });
+    } finally {
+      nullifierKey.destroy();
+    }
   }
 
   isDummy(): boolean {
@@ -229,6 +254,18 @@ export class ProofInputUtxo {
 
   nullifier(): Bytes32 {
     return this.nullifierKey.nullifier(this.hash(), this.utxo.blinding);
+  }
+
+  #isCanonicalDummy(): boolean {
+    return (
+      this.utxo.asset === ("11111111111111111111111111111111" as Address) &&
+      this.utxo.amount === 0n &&
+      this.utxo.data.isEmpty() &&
+      this.utxo.zoneProgramId === undefined &&
+      this.dataHash === undefined &&
+      this.zoneDataHash === undefined &&
+      isZeroNullifierKey(this.nullifierKey)
+    );
   }
 }
 
@@ -286,4 +323,26 @@ export function createProofOutput(
       return input.ownerAddress === undefined;
     },
   });
+}
+
+function cloneNullifierKey(key: NullifierKey): NullifierKey {
+  const secret = key.secretBytes();
+  try {
+    return NullifierKey.fromSecret(secret);
+  } finally {
+    secret.fill(0);
+  }
+}
+
+function isZero(bytes: Uint8Array): boolean {
+  return bytes.every((byte) => byte === 0);
+}
+
+function isZeroNullifierKey(key: NullifierKey): boolean {
+  const secret = key.secretBytes();
+  try {
+    return isZero(secret);
+  } finally {
+    secret.fill(0);
+  }
 }

@@ -54,33 +54,41 @@ export function canonicalShape(inputs: number, outputs: number): Shape {
 }
 
 export function resolveShape(inputs: number, outputs: number, declared?: Shape): Shape {
-  if (!declared) return canonicalShape(inputs, outputs);
+  if (declared === undefined) return canonicalShape(inputs, outputs);
   checkedCount(inputs, "inputs");
   checkedCount(outputs, "outputs");
-  checkedCount(declared.inputs, "declaredInputs");
-  checkedCount(declared.outputs, "declaredOutputs");
+  const candidate: unknown = declared;
+  if (typeof candidate !== "object" || candidate === null) {
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+      declared: String(candidate),
+    });
+  }
+  const shape = candidate as Shape;
+  checkedCount(shape.inputs, "declaredInputs");
+  checkedCount(shape.outputs, "declaredOutputs");
   const supported = SPP_SUPPORTED_SHAPES.some(
-    (shape) => shape.inputs === declared.inputs && shape.outputs === declared.outputs,
+    (supportedShape) =>
+      supportedShape.inputs === shape.inputs && supportedShape.outputs === shape.outputs,
   );
   if (!supported) {
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
-      inputs: declared.inputs,
-      outputs: declared.outputs,
+      inputs: shape.inputs,
+      outputs: shape.outputs,
     });
   }
-  if (inputs > declared.inputs) {
+  if (inputs > shape.inputs) {
     throw new TransactionError("TRANSACTION_TOO_MANY_INPUTS", {
       got: inputs,
-      max: declared.inputs,
+      max: shape.inputs,
     });
   }
-  if (outputs > declared.outputs) {
-    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS", {
+  if (outputs > shape.outputs) {
+    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE", {
       got: outputs,
-      max: declared.outputs,
+      max: shape.outputs,
     });
   }
-  return validateSppShape(inputs, outputs, declared);
+  return validateSppShape(inputs, outputs, shape);
 }
 
 export interface PublicAmounts {

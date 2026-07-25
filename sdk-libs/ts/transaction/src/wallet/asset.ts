@@ -15,12 +15,13 @@ export class AssetRegistry {
   }
 
   insert(assetId: bigint, mint: Address): void {
-    if (assetId < 0n || assetId > 0xffff_ffff_ffff_ffffn) {
+    if (typeof assetId !== "bigint" || assetId < 0n || assetId > 0xffff_ffff_ffff_ffffn) {
       throw new TransactionError("TRANSACTION_INVALID_ASSET_ID", {
-        assetId: assetId.toString(),
+        assetId: String(assetId),
       });
     }
-    if (assetId === SOL_ASSET_ID) {
+    decodeAddress(mint);
+    if (assetId <= SOL_ASSET_ID) {
       throw new TransactionError("TRANSACTION_RESERVED_ASSET_ID", {
         assetId: assetId.toString(),
       });
@@ -38,6 +39,9 @@ export class AssetRegistry {
   }
 
   resolve(assetId: bigint): Address {
+    if (typeof assetId !== "bigint") {
+      throw new TransactionError("TRANSACTION_INVALID_ASSET_ID", { assetId: String(assetId) });
+    }
     const mint = this.#byId.get(assetId);
     if (!mint) {
       throw new TransactionError("TRANSACTION_UNKNOWN_ASSET", {
@@ -48,9 +52,14 @@ export class AssetRegistry {
   }
 
   assetId(mint: Address): bigint {
+    decodeAddress(mint);
     const assetId = this.#byMint.get(mint);
     if (assetId === undefined) throw new TransactionError("TRANSACTION_UNKNOWN_MINT", { mint });
     return assetId;
+  }
+
+  addressForField(field: Bytes32): Address | undefined {
+    return addressForAssetField(this, field);
   }
 
   entries(): readonly (readonly [bigint, Address])[] {

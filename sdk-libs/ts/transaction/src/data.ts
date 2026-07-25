@@ -19,7 +19,12 @@ export class Data {
   readonly #records: readonly DataRecord[];
 
   constructor(records: readonly DataRecord[] = []) {
-    this.#records = Object.freeze(records.map(copyRecord));
+    if (!Array.isArray(records)) {
+      throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "records" });
+    }
+    this.#records = Object.freeze(
+      records.map((record, index) => copyRecord(checkedRecord(record, index))),
+    );
     this.validate();
   }
 
@@ -27,13 +32,6 @@ export class Data {
     let previous = 0;
     const seen = new Set<DataRecord["kind"]>();
     for (const record of this.#records) {
-      if (!(record.bytes instanceof Uint8Array) || record.bytes.length > 0xffff) {
-        throw new TransactionError("TRANSACTION_INVALID_DATA_LENGTH", {
-          kind: record.kind,
-          maximum: 0xffff,
-          actual: record.bytes instanceof Uint8Array ? record.bytes.length : -1,
-        });
-      }
       if (seen.has(record.kind)) {
         throw new TransactionError("TRANSACTION_DUPLICATE_DATA_RECORD", { kind: record.kind });
       }
@@ -70,4 +68,25 @@ export class Data {
     const record = this.#records.find((candidate) => candidate.kind === kind);
     return record ? new Uint8Array(record.bytes) : undefined;
   }
+}
+
+function checkedRecord(value: unknown, index: number): DataRecord {
+  if (typeof value !== "object" || value === null) {
+    throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "record", index });
+  }
+  const record = value as Readonly<{ kind?: unknown; bytes?: unknown }>;
+  if (record.kind !== "zoneData" && record.kind !== "utxoData" && record.kind !== "memo") {
+    throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
+      field: "dataRecordKind",
+      index,
+      kind: String(record.kind),
+    });
+  }
+  if (!(record.bytes instanceof Uint8Array)) {
+    throw new TransactionError("TRANSACTION_DESERIALIZE", {
+      field: "dataRecordBytes",
+      index,
+    });
+  }
+  return record as DataRecord;
 }

@@ -123,7 +123,7 @@ describe("manifest-verified Rust transaction vectors", () => {
       amount: BigInt(fixtureString(value, "amount")),
       blinding,
       data: new Data([
-        { kind: "utxo", bytes: Uint8Array.of(1, 2, 3) },
+        { kind: "utxoData", bytes: Uint8Array.of(1, 2, 3) },
         { kind: "memo", bytes: new TextEncoder().encode("hello") },
       ]),
     });

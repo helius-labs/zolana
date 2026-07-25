@@ -218,12 +218,40 @@ class Reader {
 }
 
 function writeData(writer: Writer, data: Data): void {
+  if (!(data instanceof Data)) {
+    throw new TransactionError("TRANSACTION_SERIALIZE", { field: "data" });
+  }
   const records = data.records();
+  if (records.length > 0xff) {
+    throw new TransactionError("TRANSACTION_SERIALIZE", {
+      field: "dataRecords",
+      maximum: 0xff,
+      actual: records.length,
+    });
+  }
   writer.u8(records.length);
   for (const record of records) {
-    writer.u8(record.kind === "zoneData" ? 1 : record.kind === "utxoData" ? 2 : 3);
+    if (record.bytes.length > 0xffff) {
+      throw new TransactionError("TRANSACTION_SERIALIZE", {
+        field: record.kind,
+        maximum: 0xffff,
+        actual: record.bytes.length,
+      });
+    }
+    writer.u8(dataRecordTag(record.kind));
     writer.u16(record.bytes.length);
     writer.bytes(record.bytes);
+  }
+}
+
+function dataRecordTag(kind: DataRecord["kind"]): number {
+  switch (kind) {
+    case "zoneData":
+      return 1;
+    case "utxoData":
+      return 2;
+    case "memo":
+      return 3;
   }
 }
 

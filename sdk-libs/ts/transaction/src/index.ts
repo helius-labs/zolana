@@ -1,6 +1,16 @@
 export { Data } from "./data.js";
 export type { DataRecord } from "./data.js";
-export { TransactionError, type TransactionErrorCode } from "./error.js";
+export {
+  TRANSACTION_ERROR_CODES,
+  TransactionError,
+  authorityError,
+  transactionError,
+  unknownTransactionError,
+  type TransactionErrorCause,
+  type TransactionErrorCode,
+  type TransactionErrorDetails,
+  type TransactionErrorValue,
+} from "./error.js";
 export {
   MergeZone,
   PreparedMerge,
