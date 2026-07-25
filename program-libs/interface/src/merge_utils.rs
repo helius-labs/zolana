@@ -164,7 +164,7 @@ mod tests {
             );
         }
         assert!(ciphertext_hash(&[]).is_err());
-        assert!(ciphertext_hash(&vec![0; 193]).is_err());
+        assert!(ciphertext_hash(&[0; 193]).is_err());
     }
 
     #[test]
