@@ -1,6 +1,7 @@
 import { transactInstructionDataCodec } from "@zolana/interface/codecs";
 import {
   SHIELDED_POOL_PROGRAM_ID,
+  decodeShieldedPoolError,
   type Address,
   type Bytes32,
   type RequestContext,
@@ -268,6 +269,16 @@ export class SolanaRpc implements Rpc {
         throw new ClientError("CLIENT_RPC_JSON", { details: { method } });
       }
       const envelope = object(value, "$");
+      const programError = decodeProgramError(envelope["error"]);
+      if (programError !== undefined) {
+        throw new ClientError("CLIENT_RPC_PROGRAM_ERROR", {
+          details: {
+            method,
+            instructionIndex: programError.instructionIndex,
+            programError: decodeShieldedPoolError(programError.code),
+          },
+        });
+      }
       if (
         envelope["jsonrpc"] !== "2.0" ||
         envelope["id"] !== id ||
@@ -281,6 +292,38 @@ export class SolanaRpc implements Rpc {
       signal.cleanup();
     }
   }
+}
+
+function decodeProgramError(
+  value: unknown,
+): Readonly<{ instructionIndex: number; code: number }> | undefined {
+  const error = plainObject(value);
+  const data = plainObject(error?.["data"]);
+  const transactionError = plainObject(data?.["err"]);
+  const instructionError = transactionError?.["InstructionError"];
+  if (!Array.isArray(instructionError) || instructionError.length !== 2) return undefined;
+  const entries = instructionError as readonly unknown[];
+  const instructionIndex = entries[0];
+  const detail = entries[1];
+  const custom = plainObject(detail)?.["Custom"];
+  if (
+    typeof instructionIndex !== "number" ||
+    !Number.isSafeInteger(instructionIndex) ||
+    instructionIndex < 0 ||
+    typeof custom !== "number" ||
+    !Number.isSafeInteger(custom) ||
+    custom < 0 ||
+    custom > 0xffff_ffff
+  ) {
+    return undefined;
+  }
+  return { instructionIndex, code: custom };
+}
+
+function plainObject(value: unknown): JsonObject | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as JsonObject)
+    : undefined;
 }
 
 function decodeAccount(value: unknown, path: string): RpcAccount {

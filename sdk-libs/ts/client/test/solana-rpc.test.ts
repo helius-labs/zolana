@@ -94,6 +94,37 @@ describe("SolanaRpc", () => {
     expect(accounts[0]?.account.data).toHaveLength(48);
   });
 
+  it("preserves known and unknown custom program errors", async () => {
+    const responses = [7023, 7999].map((code, index) =>
+      Response.json({
+        jsonrpc: "2.0",
+        id: index + 1,
+        error: {
+          code: -32002,
+          message: "simulation failed",
+          data: { err: { InstructionError: [3, { Custom: code }] } },
+        },
+      }),
+    );
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      fetch: vi.fn(() => Promise.resolve(responses.shift() ?? rpcResult(0, null))),
+    });
+
+    const known = await expectCode(rpc.getBalance(ZERO_ADDRESS), "CLIENT_RPC_PROGRAM_ERROR");
+    expect(known.details).toEqual({
+      method: "getBalance",
+      instructionIndex: 3,
+      programError: { kind: "known", code: 7023, name: "BothPublicAmountsSet" },
+    });
+    const unknown = await expectCode(rpc.getBalance(ZERO_ADDRESS), "CLIENT_RPC_PROGRAM_ERROR");
+    expect(unknown.details).toEqual({
+      method: "getBalance",
+      instructionIndex: 3,
+      programError: { kind: "unknown", code: 7999 },
+    });
+  });
+
   it("serializes unsigned native transactions with zero signature slots", async () => {
     const fetch = vi.fn((_url: URL | RequestInfo, init?: RequestInit) => {
       const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as {

@@ -1,3 +1,4 @@
+import type { DecodedShieldedPoolError } from "@zolana/interface";
 import { KeypairError, type KeypairErrorCode } from "@zolana/keypair";
 import { TransactionError, type TransactionErrorCode } from "@zolana/transaction";
 
@@ -259,6 +260,11 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_RPC_HTTP: Readonly<{ method: string; status: number }>;
   readonly CLIENT_RPC_JSON: MethodDetails;
   readonly CLIENT_RPC_ENVELOPE: MethodDetails;
+  readonly CLIENT_RPC_PROGRAM_ERROR: Readonly<{
+    method: string;
+    instructionIndex: number;
+    programError: DecodedShieldedPoolError;
+  }>;
   readonly CLIENT_RPC_TRANSACT_DECODE: NoDetails;
   readonly CLIENT_RPC_OWNER_TAG: NoDetails;
   readonly CLIENT_RPC_TRANSACT_NOT_FOUND: NoDetails;
