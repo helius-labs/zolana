@@ -59,6 +59,7 @@ import {
   decodeConfidential,
   decodeData,
   decodeMerge,
+  decodeProofless,
   encodeAnonymousRecipient,
   encodeAnonymousSender,
   encodeConfidential,
@@ -68,6 +69,7 @@ import {
   encodeProofless,
   encodeSplitBundle,
   mergeUtxo,
+  type ProoflessOutput,
 } from "../../src/serialization/index.js";
 import oracle from "../oracles/transaction-parity-v1.json" with { type: "json" };
 
@@ -481,6 +483,21 @@ describe("the Rust oracle and TypeScript agree on UTXO commitments", () => {
   });
 });
 
+interface ProoflessLayoutCase {
+  readonly name: string;
+  readonly ownerHex: string;
+  readonly blindingHex: string;
+  readonly asset: string;
+  readonly amount: string;
+  readonly dataHashHex: string | null;
+  readonly utxoDataHex: string | null;
+  readonly zoneProgramId: string | null;
+  readonly zoneDataHashHex: string | null;
+  readonly zoneDataHex: string | null;
+  readonly memoHex: string | null;
+  readonly encodedHex: string;
+}
+
 describe("the Rust oracle and TypeScript agree on the key-free plaintext layouts", () => {
   it("encodes a confidential output the same way", () => {
     for (const entry of oracle.serialization.confidential as readonly Readonly<{
@@ -512,6 +529,42 @@ describe("the Rust oracle and TypeScript agree on the key-free plaintext layouts
       expect(parsed.zoneProgramId ?? null).toBe(entry.zoneProgramId);
     }
   });
+
+  // The proofless note has six optional fields, so the reader and the writer
+  // both have to agree with Borsh on which are present and in what order.
+  for (const entry of oracle.serialization.proofless as readonly ProoflessLayoutCase[]) {
+    it(`round-trips the ${entry.name} proofless note the same way`, () => {
+      const value: ProoflessOutput = {
+        owner: bytes(entry.ownerHex) as Bytes32,
+        blinding: bytes(entry.blindingHex) as Bytes31,
+        asset: entry.asset as Address,
+        amount: BigInt(entry.amount),
+        ...(entry.dataHashHex === null ? {} : { dataHash: bytes(entry.dataHashHex) as Bytes32 }),
+        ...(entry.utxoDataHex === null ? {} : { utxoData: bytes(entry.utxoDataHex) }),
+        ...(entry.zoneProgramId === null ? {} : { zoneProgramId: entry.zoneProgramId as Address }),
+        ...(entry.zoneDataHashHex === null
+          ? {}
+          : { zoneDataHash: bytes(entry.zoneDataHashHex) as Bytes32 }),
+        ...(entry.zoneDataHex === null ? {} : { zoneData: bytes(entry.zoneDataHex) }),
+        ...(entry.memoHex === null ? {} : { memo: bytes(entry.memoHex) }),
+      };
+      expect(hex(encodeProofless(value))).toBe(entry.encodedHex);
+
+      const parsed = decodeProofless(bytes(entry.encodedHex));
+      expect(hex(parsed.owner)).toBe(entry.ownerHex);
+      expect(hex(parsed.blinding)).toBe(entry.blindingHex);
+      expect(parsed.asset).toBe(entry.asset);
+      expect(parsed.amount.toString()).toBe(entry.amount);
+      expect(parsed.dataHash === undefined ? null : hex(parsed.dataHash)).toBe(entry.dataHashHex);
+      expect(parsed.utxoData === undefined ? null : hex(parsed.utxoData)).toBe(entry.utxoDataHex);
+      expect(parsed.zoneProgramId ?? null).toBe(entry.zoneProgramId);
+      expect(parsed.zoneDataHash === undefined ? null : hex(parsed.zoneDataHash)).toBe(
+        entry.zoneDataHashHex,
+      );
+      expect(parsed.zoneData === undefined ? null : hex(parsed.zoneData)).toBe(entry.zoneDataHex);
+      expect(parsed.memo === undefined ? null : hex(parsed.memo)).toBe(entry.memoHex);
+    });
+  }
 
   it("encodes a merge plaintext the same way", () => {
     for (const entry of oracle.serialization.merge as readonly Readonly<{

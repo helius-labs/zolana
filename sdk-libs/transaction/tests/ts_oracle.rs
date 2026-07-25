@@ -21,6 +21,7 @@ use std::{fs, path::PathBuf};
 use serde_json::{json, Map, Value};
 use solana_address::Address;
 use wincode;
+use zolana_event::ProoflessOutput;
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
     hash::hash_field,
@@ -1055,7 +1056,94 @@ fn serialization_section() -> Value {
         })
         .collect::<Vec<_>>();
 
-    json!({ "confidential": confidential, "merge": merge })
+    json!({
+        "confidential": confidential,
+        "merge": merge,
+        "proofless": proofless_layout_cases(),
+    })
+}
+
+/// The proofless note is the one plaintext with six optional fields, so the
+/// TypeScript reader has to agree with Borsh on which are present and in what
+/// order. Every case records both the bytes and the fields they decode to.
+fn proofless_layout_cases() -> Value {
+    let bare = ProoflessOutput {
+        owner: [1u8; 32],
+        blinding: TRANSACT_TYPES_BLINDING,
+        asset: SOL_MINT.to_bytes(),
+        amount: 1_000,
+        data_hash: None,
+        utxo_data: None,
+        zone_program_id: None,
+        zone_data_hash: None,
+        zone_data: None,
+        memo: None,
+    };
+    let cases = [
+        ("bare", bare.clone()),
+        (
+            "maxAmount",
+            ProoflessOutput {
+                amount: u64::MAX,
+                ..bare.clone()
+            },
+        ),
+        (
+            "zoneBound",
+            ProoflessOutput {
+                zone_program_id: Some(address(MERGE_ZONE_BYTE).to_bytes()),
+                zone_data_hash: Some(MERGE_ZONE_DATA_HASH),
+                zone_data: Some(vec![1, 2, 3]),
+                ..bare.clone()
+            },
+        ),
+        (
+            "everyOptionalField",
+            ProoflessOutput {
+                data_hash: Some(MERGE_DATA_HASH),
+                utxo_data: Some(vec![4, 5]),
+                zone_program_id: Some(address(MERGE_ZONE_BYTE).to_bytes()),
+                zone_data_hash: Some(MERGE_ZONE_DATA_HASH),
+                zone_data: Some(vec![1, 2, 3]),
+                memo: Some(vec![6]),
+                ..bare
+            },
+        ),
+        (
+            "emptyPayloads",
+            ProoflessOutput {
+                utxo_data: Some(Vec::new()),
+                zone_data: Some(Vec::new()),
+                memo: Some(Vec::new()),
+                ..bare
+            },
+        ),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|(name, output)| {
+                let bytes = Proofless::serialize(output).expect("proofless bytes");
+                json!({
+                    "name": name,
+                    "ownerHex": hex(&output.owner),
+                    "blindingHex": hex(&output.blinding),
+                    "asset": Address::new_from_array(output.asset).to_string(),
+                    "amount": output.amount.to_string(),
+                    "dataHashHex": output.data_hash.as_ref().map(|hash| hex(hash)),
+                    "utxoDataHex": output.utxo_data.as_ref().map(|data| hex(data)),
+                    "zoneProgramId": output
+                        .zone_program_id
+                        .map(|id| Address::new_from_array(id).to_string()),
+                    "zoneDataHashHex": output.zone_data_hash.as_ref().map(|hash| hex(hash)),
+                    "zoneDataHex": output.zone_data.as_ref().map(|data| hex(data)),
+                    "memoHex": output.memo.as_ref().map(|data| hex(data)),
+                    "encodedHex": hex(&bytes),
+                })
+            })
+            .collect(),
+    )
 }
 
 const OWNER_SECRET: [u8; 32] = [
