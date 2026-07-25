@@ -1,5 +1,36 @@
-use zolana_hasher::{zero_bytes::poseidon::ZERO_BYTES, Hasher, Keccak, Poseidon, Sha256};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use zolana_hasher::{
+    zero_bytes::{poseidon::ZERO_BYTES, ZeroBytes},
+    Hasher, HasherError, Keccak, Poseidon, Sha256,
+};
 use zolana_merkle_tree::MerkleTree;
+
+static FAIL_HASHING: AtomicBool = AtomicBool::new(false);
+
+struct FailingHasher;
+
+impl Hasher for FailingHasher {
+    const ID: u8 = Poseidon::ID;
+
+    fn hash(value: &[u8]) -> Result<[u8; 32], HasherError> {
+        if FAIL_HASHING.load(Ordering::Relaxed) {
+            return Err(HasherError::InvalidNumFields);
+        }
+        Poseidon::hash(value)
+    }
+
+    fn hashv(values: &[&[u8]]) -> Result<[u8; 32], HasherError> {
+        if FAIL_HASHING.load(Ordering::Relaxed) {
+            return Err(HasherError::InvalidNumFields);
+        }
+        Poseidon::hashv(values)
+    }
+
+    fn zero_bytes() -> ZeroBytes {
+        Poseidon::zero_bytes()
+    }
+}
 
 fn append<H>(canopy_depth: usize)
 where
@@ -765,4 +796,66 @@ fn test_get_proof_by_indices_for_existent_or_non_existent_leaves() {
     for p in proof.iter() {
         assert_eq!(p.len(), 4);
     }
+}
+
+#[test]
+fn failed_appends_and_updates_are_atomic() {
+    FAIL_HASHING.store(false, Ordering::Relaxed);
+    let mut tree = MerkleTree::<FailingHasher>::new(2, 0);
+    tree.append(&[1; 32]).unwrap();
+    let root = tree.root();
+    let roots = tree.roots.clone();
+    let layers = tree.layers.clone();
+    let next_index = tree.get_next_index();
+    let sequence_number = tree.sequence_number;
+    let root_updates = tree.num_root_updates;
+
+    FAIL_HASHING.store(true, Ordering::Relaxed);
+    assert_eq!(tree.append(&[2; 32]), Err(HasherError::InvalidNumFields));
+    assert!(tree.update(&[3; 32], 0).is_err());
+    FAIL_HASHING.store(false, Ordering::Relaxed);
+
+    assert_eq!(tree.root(), root);
+    assert_eq!(tree.roots, roots);
+    assert_eq!(tree.layers, layers);
+    assert_eq!(tree.get_next_index(), next_index);
+    assert_eq!(tree.sequence_number, sequence_number);
+    assert_eq!(tree.num_root_updates, root_updates);
+}
+
+#[test]
+fn capacity_errors_do_not_append_leaves() {
+    let mut tree = MerkleTree::<Poseidon>::new(1, 0);
+    tree.append(&[1; 32]).unwrap();
+    tree.append(&[2; 32]).unwrap();
+    let root = tree.root();
+    let roots = tree.roots.clone();
+
+    assert_eq!(tree.append(&[3; 32]), Err(HasherError::IntegerOverflow));
+    assert_eq!(tree.leaves(), &[[1; 32], [2; 32]]);
+    assert_eq!(tree.root(), root);
+    assert_eq!(tree.roots, roots);
+    assert_eq!(tree.get_next_index(), 2);
+    assert_eq!(tree.sequence_number, 2);
+    assert_eq!(tree.num_root_updates, 2);
+}
+
+#[test]
+fn next_index_and_v2_history_index_track_successful_root_updates() {
+    let mut tree = MerkleTree::<Poseidon>::new_with_history(3, 0, 0, 3);
+    assert_eq!(tree.get_next_index(), 0);
+    assert_eq!(tree.get_history_root_index_v2().unwrap(), 0);
+
+    for value in 1..=4 {
+        tree.append(&[value; 32]).unwrap();
+    }
+
+    assert_eq!(tree.get_next_index(), 4);
+    assert_eq!(tree.num_root_updates, 4);
+    assert_eq!(tree.get_history_root_index_v2().unwrap(), 1);
+
+    tree.update(&[9; 32], 0).unwrap();
+    assert_eq!(tree.get_next_index(), 4);
+    assert_eq!(tree.num_root_updates, 5);
+    assert_eq!(tree.get_history_root_index_v2().unwrap(), 2);
 }

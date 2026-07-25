@@ -121,24 +121,32 @@ where
         new_element_next_value: &BigUint,
     ) -> Result<(), IndexedReferenceMerkleTreeError> {
         let new_low_leaf = new_low_element.hash::<H>(&new_element.value)?;
-        self.merkle_tree.update(
+        let new_leaf = new_element.hash::<H>(new_element_next_value)?;
+        self.merkle_tree.replace_and_append(
             &new_low_leaf,
             usize::try_from(new_low_element.index).unwrap(),
+            &new_leaf,
         )?;
-        let new_leaf = new_element.hash::<H>(new_element_next_value)?;
-        self.merkle_tree.append(&new_leaf)?;
 
         Ok(())
     }
 
     // TODO: add append with new value, so that we don't need to compute the lowlevel values manually
     pub fn append(&mut self, value: &BigUint) -> Result<(), IndexedReferenceMerkleTreeError> {
+        let elements = self.indexed_array.elements.clone();
+        let current_node_index = self.indexed_array.current_node_index;
+        let highest_element_index = self.indexed_array.highest_element_index;
         let nullifier_bundle = self.indexed_array.append(value)?;
-        self.update(
+        if let Err(error) = self.update(
             &nullifier_bundle.new_low_element,
             &nullifier_bundle.new_element,
             &nullifier_bundle.new_element_next_value,
-        )?;
+        ) {
+            self.indexed_array.elements = elements;
+            self.indexed_array.current_node_index = current_node_index;
+            self.indexed_array.highest_element_index = highest_element_index;
+            return Err(error);
+        }
 
         Ok(())
     }

@@ -363,6 +363,9 @@ where
             if value <= &old_low_element.value {
                 return Err(IndexedArrayError::LowElementGreaterOrEqualToNewElement);
             }
+            if !self.highest_value.is_zero() && value >= &self.highest_value {
+                return Err(IndexedArrayError::NewElementGreaterOrEqualToNextElement);
+            }
         } else {
             // The value of `new_element` needs to be greater than the value of
             // `old_low_element` (and therefore, be the greatest).

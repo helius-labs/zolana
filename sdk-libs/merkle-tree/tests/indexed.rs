@@ -1,7 +1,11 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use num_bigint::{BigUint, ToBigUint};
 use num_traits::Num;
-use zolana_hasher::{bigint::bigint_to_be_bytes_array, Hasher, Poseidon};
-use zolana_indexed_array::HIGHEST_ADDRESS_PLUS_ONE;
+use zolana_hasher::{
+    bigint::bigint_to_be_bytes_array, zero_bytes::ZeroBytes, Hasher, HasherError, Poseidon,
+};
+use zolana_indexed_array::{errors::IndexedArrayError, HIGHEST_ADDRESS_PLUS_ONE};
 use zolana_merkle_tree::{
     indexed::{IndexedMerkleTree, IndexedReferenceMerkleTreeError},
     ReferenceMerkleTreeError,
@@ -9,6 +13,31 @@ use zolana_merkle_tree::{
 
 const MERKLE_TREE_HEIGHT: usize = 4;
 const MERKLE_TREE_CANOPY: usize = 0;
+static FAIL_HASHING: AtomicBool = AtomicBool::new(false);
+
+struct FailingHasher;
+
+impl Hasher for FailingHasher {
+    const ID: u8 = Poseidon::ID;
+
+    fn hash(value: &[u8]) -> Result<[u8; 32], HasherError> {
+        if FAIL_HASHING.load(Ordering::Relaxed) {
+            return Err(HasherError::InvalidNumFields);
+        }
+        Poseidon::hash(value)
+    }
+
+    fn hashv(values: &[&[u8]]) -> Result<[u8; 32], HasherError> {
+        if FAIL_HASHING.load(Ordering::Relaxed) {
+            return Err(HasherError::InvalidNumFields);
+        }
+        Poseidon::hashv(values)
+    }
+
+    fn zero_bytes() -> ZeroBytes {
+        Poseidon::zero_bytes()
+    }
+}
 
 #[test]
 pub fn functional_non_inclusion_test() {
@@ -123,4 +152,60 @@ fn non_inclusion_verifier_requires_the_tree_height() {
             )
         ))
     );
+}
+
+#[test]
+fn custom_highest_value_is_an_exclusive_bound() {
+    let highest_value = BigUint::from(100u32);
+    let mut tree = IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(
+        MERKLE_TREE_HEIGHT,
+        MERKLE_TREE_CANOPY,
+        highest_value.clone(),
+    )
+    .unwrap();
+    tree.append(&BigUint::from(99u32)).unwrap();
+    let root = tree.root();
+    let elements = tree.indexed_array.elements.clone();
+
+    assert_eq!(
+        tree.append(&highest_value),
+        Err(IndexedReferenceMerkleTreeError::Indexed(
+            IndexedArrayError::NewElementGreaterOrEqualToNextElement
+        ))
+    );
+    assert_eq!(
+        tree.append(&BigUint::from(101u32)),
+        Err(IndexedReferenceMerkleTreeError::Indexed(
+            IndexedArrayError::NewElementGreaterOrEqualToNextElement
+        ))
+    );
+    assert_eq!(tree.root(), root);
+    assert_eq!(tree.indexed_array.elements, elements);
+}
+
+#[test]
+fn indexed_capacity_and_hash_errors_are_atomic() {
+    FAIL_HASHING.store(false, Ordering::Relaxed);
+    let mut hash_tree = IndexedMerkleTree::<FailingHasher, usize>::new(2, 0).unwrap();
+    hash_tree.append(&BigUint::from(20u32)).unwrap();
+    let hash_root = hash_tree.root();
+    let hash_elements = hash_tree.indexed_array.elements.clone();
+    let hash_next_index = hash_tree.merkle_tree.get_next_index();
+
+    FAIL_HASHING.store(true, Ordering::Relaxed);
+    assert!(hash_tree.append(&BigUint::from(10u32)).is_err());
+    FAIL_HASHING.store(false, Ordering::Relaxed);
+    assert_eq!(hash_tree.root(), hash_root);
+    assert_eq!(hash_tree.indexed_array.elements, hash_elements);
+    assert_eq!(hash_tree.merkle_tree.get_next_index(), hash_next_index);
+
+    let mut full_tree = IndexedMerkleTree::<Poseidon, usize>::new(1, 0).unwrap();
+    full_tree.append(&BigUint::from(10u32)).unwrap();
+    let full_root = full_tree.root();
+    let full_elements = full_tree.indexed_array.elements.clone();
+
+    assert!(full_tree.append(&BigUint::from(20u32)).is_err());
+    assert_eq!(full_tree.root(), full_root);
+    assert_eq!(full_tree.indexed_array.elements, full_elements);
+    assert_eq!(full_tree.merkle_tree.get_next_index(), 2);
 }

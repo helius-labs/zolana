@@ -147,18 +147,24 @@ where
         let root = H::hashv(&[&left_child[..], &right_child[..]])?;
 
         self.roots.push(root);
+        self.num_root_updates += 1;
 
         Ok(())
     }
 
     pub fn append(&mut self, leaf: &[u8; 32]) -> Result<(), HasherError> {
-        self.layers[0].push(*leaf);
+        let mut updated = self.clone_state();
+        updated.append_in_place(leaf)?;
+        *self = updated;
+        Ok(())
+    }
 
+    fn append_in_place(&mut self, leaf: &[u8; 32]) -> Result<(), HasherError> {
         let i = self.rightmost_index;
         if self.rightmost_index == self.capacity {
-            println!("Merkle tree full");
             return Err(HasherError::IntegerOverflow);
         }
+        self.layers[0].push(*leaf);
         self.rightmost_index += 1;
 
         self.update_upper_layers(i)?;
@@ -168,13 +174,26 @@ where
     }
 
     pub fn append_batch(&mut self, leaves: &[&[u8; 32]]) -> Result<(), HasherError> {
+        let mut updated = self.clone_state();
         for leaf in leaves {
-            self.append(leaf)?;
+            updated.append_in_place(leaf)?;
         }
+        *self = updated;
         Ok(())
     }
 
     pub fn update(
+        &mut self,
+        leaf: &[u8; 32],
+        leaf_index: usize,
+    ) -> Result<(), ReferenceMerkleTreeError> {
+        let mut updated = self.clone_state();
+        updated.update_in_place(leaf, leaf_index)?;
+        *self = updated;
+        Ok(())
+    }
+
+    fn update_in_place(
         &mut self,
         leaf: &[u8; 32],
         leaf_index: usize,
@@ -186,6 +205,19 @@ where
         self.update_upper_layers(leaf_index)?;
 
         self.sequence_number += 1;
+        Ok(())
+    }
+
+    pub(crate) fn replace_and_append(
+        &mut self,
+        leaf: &[u8; 32],
+        leaf_index: usize,
+        appended_leaf: &[u8; 32],
+    ) -> Result<(), ReferenceMerkleTreeError> {
+        let mut updated = self.clone_state();
+        updated.update_in_place(leaf, leaf_index)?;
+        updated.append_in_place(appended_leaf)?;
+        *self = updated;
         Ok(())
     }
 
@@ -366,7 +398,7 @@ where
     }
 
     pub fn get_next_index(&self) -> usize {
-        self.rightmost_index + 1
+        self.rightmost_index
     }
 
     pub fn get_leaf(&self, index: usize) -> Result<[u8; 32], ReferenceMerkleTreeError> {
@@ -419,6 +451,22 @@ where
     pub fn ensure_layer_capacity(&mut self, level: usize, min_index: usize) {
         if level < self.layers.len() && self.layers[level].len() <= min_index {
             self.layers[level].resize(min_index + 1, H::zero_bytes()[level]);
+        }
+    }
+
+    fn clone_state(&self) -> Self {
+        Self {
+            height: self.height,
+            capacity: self.capacity,
+            canopy_depth: self.canopy_depth,
+            layers: self.layers.clone(),
+            roots: self.roots.clone(),
+            rightmost_index: self.rightmost_index,
+            num_root_updates: self.num_root_updates,
+            sequence_number: self.sequence_number,
+            root_history_start_offset: self.root_history_start_offset,
+            root_history_array_len: self.root_history_array_len,
+            _hasher: PhantomData,
         }
     }
 }
