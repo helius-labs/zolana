@@ -852,3 +852,17 @@ This ruling covers the shape of the surface, not its behaviour. An SDK that refu
 | Follow-up artifacts | `row-updates/pr-158-impact.md` |
 
 Whoever performs that rebase should read `row-updates/pr-158-impact.md` first. The rebase has one visible conflict, in `indexer_error` in `sdk-libs/client/src/indexer.rs`, and one invisible hazard that matters more: `error.rs` merges without complaint into a type holding both error representations, after which `should_retry` matches `IndexerUnavailable`, a variant this branch's `indexer_error` does not produce, since it returns `Indexer { method, retryable }` instead. The result compiles, passes, and leaves the confirmation path unable to retry. Three of #158's tests also call the single-argument `indexer_error` from outside the conflicted region, so resolving the marked lines leaves the build broken in three call sites the conflict does not point at.
+
+### Zone-authority withdrawals
+
+| Field | Value |
+| --- | --- |
+| Conflict | The SDK raises `ZoneAuthorityWithdrawalNotAllowed` on a public leg the program accepts. |
+| Ruling | Allow them. The SDK is over-strict and relaxes to match the program; the check goes away rather than narrowing. A zone authority may move value out through a public leg, and an SDK that refuses makes a legal operation impossible to express. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `row-updates/rejection-validation.md`, `row-updates/transaction-unblock.md` |
+
+This was held open on a safety question that has since been answered by execution. `row-updates/double-spend-analysis.md` establishes that nullification and public-leg settlement occur in a single instruction, in that order, with no path that applies one without the other, so a public leg can neither strand value nor spend a note twice. Containment was therefore a policy preference rather than an invariant, and it is not the preference.
+
+The narrower relaxation already in flight, admitting `amount > 0` so the check stops refusing deposits, is a subset of this ruling rather than a conflict with it. Removing the check subsumes it.
