@@ -82,6 +82,12 @@ export type ProverInputs =
 export interface AssembledTransfer {
   readonly instructionData: TransactInstructionData;
   readonly proverInputs: ProverInputs;
+  readonly publicInputHash: Bytes32;
+  readonly nullifiers: readonly Bytes32[];
+  readonly outputHashes: readonly Bytes32[];
+  readonly privateTxHash: Bytes32;
+  /// Per input, `[utxoTreeRootIndex, nullifierTreeRootIndex]`, in input order.
+  readonly inputRootIndexes: readonly (readonly [number, number])[];
   withProof(proof: TransactProof): TransactInstructionData;
 }
 
@@ -95,6 +101,16 @@ export interface Proof {
   }>;
 }
 
+/// The P256-rail five-tuple, shared by `transact`'s P256 variant and
+/// `merge_transact` instruction data.
+export interface P256Proof {
+  readonly a: Bytes32;
+  readonly b: Bytes64;
+  readonly c: Bytes32;
+  readonly commitment: Bytes32;
+  readonly commitmentPok: Bytes32;
+}
+
 export interface CompressedProof {
   readonly a: Bytes32;
   readonly b: Bytes64;
@@ -104,6 +120,12 @@ export interface CompressedProof {
     readonly commitmentPok: Bytes32;
   }>;
   toTransactProof(): TransactProof;
+  /// Throws when the proof carries no BSB22 commitment, which means it was
+  /// produced on the eddsa rail and cannot satisfy a P256 verifier.
+  toP256Proof(): P256Proof;
+  /// The merge circuit is the P256 BSB22 rail, so a merge proof without a
+  /// commitment is not a valid merge proof.
+  toMergeProof(): P256Proof;
 }
 
 export type { SpendProof };

@@ -69,6 +69,34 @@ describe("EdDSA prover rail", () => {
     expect(calls.map((value) => value - (calls[0] ?? value))).toEqual([0, 2_000, 4_000]);
   });
 
+  it("times out a prove that outlives the built-in request bound", async () => {
+    vi.useFakeTimers();
+    const source = buildProofInputs(proverFixture, "eddsa", { inputs: 1, outputs: 1 });
+    const assembled = assemble(source.proofInputs, source.spendProofs);
+    const fetch = vi.fn(
+      (_request: URL | RequestInfo, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        }),
+    );
+    const pending = new ProverClient({
+      url: "https://prover.example.test",
+      fetch,
+    }).prove(assembled.proverInputs);
+    const settled = expect(pending).rejects.toEqual(
+      expect.objectContaining({
+        code: "CLIENT_TIMEOUT",
+        details: { method: "prove", retryable: true },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(3 * 600_000 + 2 * 2_000);
+    await settled;
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
   it("distinguishes abort from request timeout", async () => {
     const source = buildProofInputs(proverFixture, "eddsa", { inputs: 1, outputs: 1 });
     const assembled = assemble(source.proofInputs, source.spendProofs);

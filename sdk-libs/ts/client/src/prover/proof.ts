@@ -3,7 +3,7 @@ import { bn254 } from "@noble/curves/bn254.js";
 
 import { ClientError } from "../error.js";
 import { bigintToBytes, bytesToBigInt, checkedBytes } from "../internal.js";
-import type { CompressedProof, Proof } from "./types.js";
+import type { CompressedProof, P256Proof, Proof } from "./types.js";
 
 const BN254_BASE_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_696_311_157_297_823_662_689_037_894_645_226_208_583n;
@@ -46,6 +46,20 @@ export function compressedProof(
           commitment: checkedBytes(input.commitment.commitment, 32, "proof.commitment"),
           commitmentPok: checkedBytes(input.commitment.commitmentPok, 32, "proof.commitmentPok"),
         });
+  const p256Proof = (): P256Proof => {
+    if (commitment === undefined) {
+      throw new ClientError("CLIENT_PROOF_PARSE", {
+        details: { path: "$.proof.proof_commitment" },
+      });
+    }
+    return Object.freeze({
+      a: new Uint8Array(a) as Bytes32,
+      b: new Uint8Array(b) as Bytes64,
+      c: new Uint8Array(c) as Bytes32,
+      commitment: new Uint8Array(commitment.commitment) as Bytes32,
+      commitmentPok: new Uint8Array(commitment.commitmentPok) as Bytes32,
+    });
+  };
   return Object.freeze({
     a,
     b,
@@ -60,15 +74,10 @@ export function compressedProof(
           c: new Uint8Array(c) as Bytes32,
         });
       }
-      return Object.freeze({
-        rail: "p256",
-        a: new Uint8Array(a) as Bytes32,
-        b: new Uint8Array(b) as Bytes64,
-        c: new Uint8Array(c) as Bytes32,
-        commitment: new Uint8Array(commitment.commitment) as Bytes32,
-        commitmentPok: new Uint8Array(commitment.commitmentPok) as Bytes32,
-      });
+      return Object.freeze({ rail: "p256", ...p256Proof() });
     },
+    toP256Proof: p256Proof,
+    toMergeProof: p256Proof,
   });
 }
 

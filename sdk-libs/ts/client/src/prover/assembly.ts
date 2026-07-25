@@ -1,7 +1,8 @@
 import type { Address, Bytes32, TransactInstructionData, TransactProof } from "@zolana/interface";
-import { ShieldedPublicKey } from "@zolana/keypair";
+import type { P256PublicKey, ShieldedPublicKey } from "@zolana/keypair";
 import {
   ProofInputUtxo,
+  SOL_MINT,
   SppProofInputs,
   TransactionError,
   type ProofOutputUtxo,
@@ -17,6 +18,7 @@ import {
   field,
   hashChain,
   hashField,
+  p256Coordinates,
   poseidon,
   sha256Bytes,
 } from "../internal.js";
@@ -33,7 +35,6 @@ import type {
 
 const STATE_TREE_HEIGHT = 32;
 const NULLIFIER_TREE_HEIGHT = 40;
-const SYSTEM_ADDRESS = "11111111111111111111111111111111" as Address;
 const ZERO_PROOF = Object.freeze({
   rail: "eddsa" as const,
   a: new Uint8Array(32),
@@ -87,15 +88,6 @@ function assembleUnchecked(
   }
   proofInputs.checkShape();
   const realInputs = proofInputs.inputUtxos.filter((input) => !input.isDummy());
-  if (spendProofs.length !== realInputs.length) {
-    throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
-      details: {
-        expected: realInputs.length,
-        state: spendProofs.length,
-        nullifier: spendProofs.length,
-      },
-    });
-  }
   if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
 
   const requiresP256 = realInputs.some((input) => input.utxo.owner.signatureType() === "p256");
@@ -106,13 +98,12 @@ function assembleUnchecked(
   if (!requiresP256 && signature !== undefined) {
     throw new ClientError("CLIENT_PROOF_RAIL_MISMATCH");
   }
+  const p256SigningOwner =
+    signature === undefined ? undefined : checkedP256Owner(realInputs, signature.publicKey);
   const p256SigningField =
-    signature === undefined
+    p256SigningOwner === undefined
       ? 0n
-      : bytesField(
-          ShieldedPublicKey.fromP256(signature.publicKey).ownerPublicKeyField(),
-          "p256 signing public key",
-        );
+      : bytesField(p256SigningOwner.ownerPublicKeyField(), "p256 signing public key");
 
   const transferInputs: TransferInput[] = [];
   const inputHashes: bigint[] = [];
@@ -221,15 +212,17 @@ function assembleUnchecked(
     payerPublicKeyHash: asField(payerPublicKeyHash),
     publicInputHash: asField(publicInputHash),
   });
+  const [p256PublicKeyX, p256PublicKeyY] =
+    p256SigningOwner === undefined ? [0n, 0n] : p256Coordinates(p256SigningOwner.p256().toBytes());
   const proverInputs: ProverInputs =
-    signature === undefined
+    signature === undefined || p256SigningOwner === undefined
       ? Object.freeze({ circuit: "transfer", payload: common })
       : Object.freeze({
           circuit: "transferP256",
           payload: Object.freeze({
             ...common,
-            p256PublicKeyX: asInteger(bytesToBigInt(signature.publicKey.x())),
-            p256PublicKeyY: asInteger(p256Y(signature.publicKey.toBytes())),
+            p256PublicKeyX: asInteger(p256PublicKeyX),
+            p256PublicKeyY: asInteger(p256PublicKeyY),
             p256SignatureR: asInteger(bytesToBigInt(signature.r)),
             p256SignatureS: asInteger(bytesToBigInt(signature.s)),
             p256MessageHashLow: asField(p256MessageHash & ((1n << 128n) - 1n)),
@@ -245,7 +238,9 @@ function assembleUnchecked(
     expiryUnixTs: proofInputs.externalData.expiryUnixTs,
     relayerFee: proofInputs.externalData.relayerFee,
     privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
-    ...(signature === undefined ? {} : { p256SigningPkX: signature.publicKey.x() }),
+    ...(p256SigningOwner === undefined
+      ? {}
+      : { p256SigningPkX: p256SigningOwner.confidentialViewTag() }),
     txViewingPk: proofInputs.externalData.txViewingPublicKey.toBytes(),
     salt: new Uint8Array(proofInputs.externalData.salt) as never,
     inputs: Object.freeze(
@@ -307,6 +302,11 @@ function assembleUnchecked(
   return Object.freeze({
     instructionData,
     proverInputs,
+    publicInputHash: bigintToBytes(publicInputHash) as Bytes32,
+    nullifiers: Object.freeze(nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32)),
+    outputHashes: Object.freeze(outputHashes.map((hash) => bigintToBytes(hash) as Bytes32)),
+    privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
+    inputRootIndexes: Object.freeze(rootIndexes),
     withProof(proof: TransactProof): TransactInstructionData {
       return Object.freeze({ ...instructionData, proof: copyProof(proof) });
     },
@@ -459,14 +459,41 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
   }
 }
 
+/// The shared P256 signing key is the owner of the first real P256-owned input,
+/// not the key the caller signed with: the circuit routes ownership by comparing
+/// each P256 input's owner tag against this one value. A signature made with any
+/// other key can only produce a proof that fails to verify, so reject it here.
+function checkedP256Owner(
+  realInputs: readonly ProofInputUtxo[],
+  signingKey: P256PublicKey,
+): ShieldedPublicKey {
+  const owner = realInputs.find((input) => input.utxo.owner.signatureType() === "p256")?.utxo.owner;
+  if (!owner) throw new ClientError("CLIENT_MISSING_P256_SIGNATURE");
+  if (!equal(owner.p256().toBytes(), signingKey.toBytes())) {
+    throw new ClientError("CLIENT_P256_SIGNATURE", {
+      details: { reason: "signature key is not the P256 input owner" },
+    });
+  }
+  return owner;
+}
+
 function findPublicSplAsset(proofInputs: SppProofInputs): Address {
-  for (const input of proofInputs.inputUtxos) {
-    if (!input.isDummy() && input.utxo.asset !== SYSTEM_ADDRESS) return input.utxo.asset;
+  let found: Address | undefined;
+  const assets = [
+    ...proofInputs.inputUtxos.map((input) => input.utxo.asset),
+    ...proofInputs.outputs.map((output) => output.asset),
+  ];
+  for (const asset of assets) {
+    if (asset === SOL_MINT) continue;
+    if (found !== undefined && found !== asset) {
+      throw fromClientCause(new TransactionError("TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS"));
+    }
+    found = asset;
   }
-  for (const output of proofInputs.outputs) {
-    if (!output.isDummy() && output.asset !== SYSTEM_ADDRESS) return output.asset;
+  if (found === undefined) {
+    throw fromClientCause(new TransactionError("TRANSACTION_MISSING_PUBLIC_SPL_ASSET"));
   }
-  throw fromClientCause(new TransactionError("TRANSACTION_MISSING_PUBLIC_SPL_ASSET"));
+  return found;
 }
 
 function signedField(value: bigint, name: string): bigint {
@@ -480,27 +507,6 @@ function asField(value: bigint): Field {
 
 function asInteger(value: bigint): Field {
   return value as Field;
-}
-
-function p256Y(compressed: Uint8Array): bigint {
-  const x = bytesToBigInt(compressed.subarray(1));
-  const p = 0xffff_ffff_0000_0001_0000_0000_0000_0000_0000_0000_ffff_ffff_ffff_ffff_ffff_ffffn;
-  const b = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn;
-  let y = modPow((x ** 3n - 3n * x + b + p) % p, (p + 1n) / 4n, p);
-  if ((y & 1n) !== BigInt((compressed[0] ?? 0) & 1)) y = p - y;
-  return y;
-}
-
-function modPow(base: bigint, exponent: bigint, modulus: bigint): bigint {
-  let result = 1n;
-  let value = base;
-  let power = exponent;
-  while (power > 0n) {
-    if ((power & 1n) === 1n) result = (result * value) % modulus;
-    value = (value * value) % modulus;
-    power >>= 1n;
-  }
-  return result;
 }
 
 function equal(left: Uint8Array, right: Uint8Array): boolean {

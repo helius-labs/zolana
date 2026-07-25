@@ -48,9 +48,21 @@ export interface MergeAssembly {
   readonly utxoTreeRootIndexes: readonly number[];
   readonly nullifierTreeRootIndexes: readonly number[];
   readonly privateTxHash: Bytes32;
+  readonly publicInputHash: Bytes32;
+  /// Recomputed on-chain from the instruction; surfaced so the caller need not
+  /// re-derive it.
+  readonly externalDataHash: Bytes32;
   readonly encryptedUtxo: Uint8Array;
+  /// The published merge ciphertext and the ephemeral key the owner decrypts it
+  /// with, back to the merged output's amount, asset, and blinding.
+  readonly ciphertext: Uint8Array;
+  readonly txViewingPublicKey: P256PublicKey;
   readonly eddsaOwner: boolean;
   instructionData(proof: MergeTransactInstructionData["proof"]): MergeTransactInstructionData;
+  zoneInstructionData(
+    proof: MergeTransactInstructionData["proof"],
+    mergeViewTag: Bytes32,
+  ): Readonly<{ mergeViewTag: Bytes32; merge: MergeTransactInstructionData }>;
 }
 
 export async function assembleMerge(
@@ -123,6 +135,9 @@ export function assembleMergeZoneWithProofs(
 ): MergeAssembly {
   try {
     if (!(prepared instanceof PreparedMergeZone)) throw new ClientError("CLIENT_INVALID_MERGE");
+    // The zone binding check lives on the hash accessor the proof-fetching entry
+    // point calls; run it here too so both paths reject an unbound input.
+    prepared.inputUtxoHashes();
     return assembleMergeWithProofsUnchecked(
       prepared,
       material,
@@ -200,10 +215,12 @@ function assembleMergeWithProofsUnchecked(
         },
       });
     }
+    // A P256 owner contributes the 0 sentinel: the merge circuit recomputes its
+    // pk_field from the witnessed point and ignores the per-input value.
     const ownerPublicKeyHash =
-      prepared.signingPublicKey.signatureType() === "p256"
+      input.utxo.owner.signatureType() === "p256"
         ? 0n
-        : bytesField(prepared.signingPublicKey.ownerPublicKeyField(), "merge owner public key");
+        : bytesField(input.utxo.owner.ownerPublicKeyField(), "merge owner public key");
     const converted = createRealInput(input, proof, ownerPublicKeyHash);
     inputs.push(converted);
     inputHashes.push(bytesToBigInt(input.hash()));
@@ -319,6 +336,22 @@ function assembleMergeWithProofsUnchecked(
   });
   const utxoTreeRootIndexes = Object.freeze(rootIndexes.map(([state]) => state));
   const nullifierTreeRootIndexes = Object.freeze(rootIndexes.map(([, nullifier]) => nullifier));
+  const instructionData = (
+    proof: MergeTransactInstructionData["proof"],
+  ): MergeTransactInstructionData =>
+    Object.freeze({
+      expiryUnixTs: prepared.expiryUnixTs,
+      proof: copyMergeProof(proof),
+      outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
+      nullifiers: Object.freeze(
+        nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
+      ),
+      utxoTreeRootIndexes,
+      nullifierTreeRootIndexes,
+      privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
+      encryptedUtxo: new Uint8Array(encryptedUtxo),
+      eddsaOwner,
+    });
   return Object.freeze({
     proverInputs,
     expiryUnixTs: prepared.expiryUnixTs,
@@ -327,21 +360,20 @@ function assembleMergeWithProofsUnchecked(
     utxoTreeRootIndexes,
     nullifierTreeRootIndexes,
     privateTxHash,
+    publicInputHash,
+    externalDataHash,
     encryptedUtxo,
+    ciphertext: new Uint8Array(encrypted.ciphertext),
+    txViewingPublicKey: encrypted.txViewingPublicKey,
     eddsaOwner,
-    instructionData(proof: MergeTransactInstructionData["proof"]): MergeTransactInstructionData {
+    instructionData,
+    zoneInstructionData(
+      proof: MergeTransactInstructionData["proof"],
+      mergeViewTag: Bytes32,
+    ): Readonly<{ mergeViewTag: Bytes32; merge: MergeTransactInstructionData }> {
       return Object.freeze({
-        expiryUnixTs: prepared.expiryUnixTs,
-        proof: copyMergeProof(proof),
-        outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
-        nullifiers: Object.freeze(
-          nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
-        ),
-        utxoTreeRootIndexes,
-        nullifierTreeRootIndexes,
-        privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
-        encryptedUtxo: new Uint8Array(encryptedUtxo),
-        eddsaOwner,
+        mergeViewTag: checkedBytes(mergeViewTag, 32, "merge view tag"),
+        merge: instructionData(proof),
       });
     },
   });

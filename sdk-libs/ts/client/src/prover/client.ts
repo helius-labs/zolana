@@ -16,15 +16,43 @@ import type {
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 2_000n;
-const MAX_POLL_MS = 1_200_000;
+/// Per-request bound, mirroring the Rust client's `PROVE_REQUEST_TIMEOUT_SECS`.
+/// Generous enough for a cold prove that first loads a 63MB proving key, so a
+/// clean server-side timeout still returns before it.
+const REQUEST_TIMEOUT_MS = 600_000;
+/// Floor on the status-poll interval so a misconfigured client cannot spin.
+const MIN_POLL_INTERVAL_MS = 1_000;
 const PROVE_MERGE = Symbol("proveMerge");
 const PROVE_MERGE_ZONE = Symbol("proveMergeZone");
+
+export const SERVER_ADDRESS = "http://127.0.0.1:3001";
+export const PROVE_PATH = "/prove";
+
+/// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
+/// returns a job handle instead of a proof, and the client polls
+/// `/prove/status` until it completes.
+export interface AsyncPollConfig {
+  readonly pollIntervalMs: number;
+  readonly maxWaitMs: number;
+}
+
+export const DEFAULT_ASYNC_POLL_CONFIG: AsyncPollConfig = Object.freeze({
+  pollIntervalMs: 3_000,
+  maxWaitMs: 1_200_000,
+});
 
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
+  readonly #asyncPoll: AsyncPollConfig;
 
-  constructor(input: Readonly<{ url: URL | string; fetch?: typeof globalThis.fetch }>) {
+  constructor(
+    input: Readonly<{
+      url: URL | string;
+      fetch?: typeof globalThis.fetch;
+      asyncPoll?: AsyncPollConfig;
+    }>,
+  ) {
     const candidate: unknown = input;
     if (typeof candidate !== "object" || candidate === null) {
       throw new ClientError("CLIENT_INVALID_CONFIG");
@@ -43,13 +71,22 @@ export class ProverClient {
     ) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "url" } });
     }
-    url.pathname = `${url.pathname.replace(/\/+$/u, "")}/prove`;
+    url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
     const fetchImplementation = input.fetch ?? globalThis.fetch;
     if (typeof fetchImplementation !== "function") {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
     }
     this.#url = url;
     this.#fetch = fetchImplementation;
+    this.#asyncPoll = asyncPollConfig(input.asyncPoll);
+  }
+
+  /// Client for the local prover, `ZOLANA_PROVER_URL` when the runtime exposes
+  /// it, else [`SERVER_ADDRESS`].
+  static local(
+    input?: Readonly<{ fetch?: typeof globalThis.fetch; asyncPoll?: AsyncPollConfig }>,
+  ): ProverClient {
+    return new ProverClient({ ...input, url: localProverUrl() });
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
@@ -71,53 +108,57 @@ export class ProverClient {
   async #send(body: string, p256: boolean, context?: RequestContext): Promise<Proof> {
     const signal = composeSignal(context, "prove");
     try {
-      let lastStatus: number | undefined;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         if (attempt > 1) await sleep(RETRY_DELAY_MS, { signal: signal.signal });
-        let response: Response;
+        const request = composeSignal(
+          { signal: signal.signal, timeoutMs: REQUEST_TIMEOUT_MS },
+          "prove",
+        );
         try {
-          response = await this.#fetch(this.#url, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body,
-            signal: signal.signal,
-          });
-        } catch {
-          if (signal.signal.aborted) throw requestError("prove", signal);
-          if (attempt < MAX_ATTEMPTS) continue;
-          throw new ClientError("CLIENT_PROVER_REQUEST", {
-            details: { method: "prove", attempts: attempt },
-          });
+          let response: Response;
+          try {
+            response = await this.#fetch(this.#url, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body,
+              signal: request.signal,
+            });
+          } catch {
+            if (signal.signal.aborted) throw requestError("prove", signal);
+            if (attempt < MAX_ATTEMPTS) continue;
+            if (request.timedOut()) throw requestError("prove", request);
+            throw new ClientError("CLIENT_PROVER_REQUEST", {
+              details: { method: "prove", attempts: attempt },
+            });
+          }
+          // Rust fails fast on any non-success status; only a transport failure retries.
+          if (!response.ok) {
+            throw new ClientError("CLIENT_PROVER_HTTP", {
+              details: { method: "prove", status: response.status, attempts: attempt },
+            });
+          }
+          let value: unknown;
+          try {
+            value = await decodeResponse(response);
+          } catch (error) {
+            if (signal.signal.aborted) throw requestError("prove", signal);
+            if (request.timedOut()) throw requestError("prove", request);
+            throw error;
+          }
+          if (
+            isObject(value) &&
+            typeof value["job_id"] === "string" &&
+            value["proof"] === undefined
+          ) {
+            return await this.#poll(value["job_id"], p256, signal);
+          }
+          return parseProof(value, p256);
+        } finally {
+          request.cleanup();
         }
-        lastStatus = response.status;
-        if (!response.ok) {
-          if (retryableStatus(response.status) && attempt < MAX_ATTEMPTS) continue;
-          throw new ClientError("CLIENT_PROVER_HTTP", {
-            details: { method: "prove", status: response.status, attempts: attempt },
-          });
-        }
-        let value: unknown;
-        try {
-          value = await decodeResponse(response);
-        } catch (error) {
-          if (signal.signal.aborted) throw requestError("prove", signal);
-          throw error;
-        }
-        if (
-          isObject(value) &&
-          typeof value["job_id"] === "string" &&
-          value["proof"] === undefined
-        ) {
-          return await this.#poll(value["job_id"], p256, signal);
-        }
-        return parseProof(value, p256);
       }
-      throw new ClientError("CLIENT_PROVER_HTTP", {
-        details: {
-          method: "prove",
-          ...(lastStatus === undefined ? {} : { status: lastStatus }),
-          attempts: MAX_ATTEMPTS,
-        },
+      throw new ClientError("CLIENT_PROVER_REQUEST", {
+        details: { method: "prove", attempts: MAX_ATTEMPTS },
       });
     } finally {
       signal.cleanup();
@@ -131,14 +172,16 @@ export class ProverClient {
     const url = new URL(this.#url);
     url.pathname = url.pathname.replace(/\/prove$/u, "/prove/status");
     url.searchParams.set("job_id", jobId);
+    const interval = Math.max(MIN_POLL_INTERVAL_MS, this.#asyncPoll.pollIntervalMs);
+    const maxWaitMs = this.#asyncPoll.maxWaitMs;
     const started = Date.now();
     for (;;) {
-      if (Date.now() - started >= MAX_POLL_MS) {
+      if (Date.now() - started >= maxWaitMs) {
         throw new ClientError("CLIENT_PROVER_TIMEOUT", {
-          details: { method: "proveStatus", jobId, timeoutMs: MAX_POLL_MS },
+          details: { method: "proveStatus", jobId, timeoutMs: maxWaitMs },
         });
       }
-      await sleep(3_000n, { signal: signal.signal });
+      await sleep(BigInt(interval), { signal: signal.signal });
       let response: Response;
       try {
         response = await this.#fetch(url, { signal: signal.signal });
@@ -147,7 +190,8 @@ export class ProverClient {
         continue;
       }
       if (!response.ok) {
-        if (retryableStatus(response.status)) continue;
+        // A queued job survives a server-side failure; a client error is final.
+        if (response.status >= 500) continue;
         throw new ClientError("CLIENT_PROVER_HTTP", {
           details: { method: "proveStatus", status: response.status },
         });
@@ -316,6 +360,19 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function retryableStatus(status: number): boolean {
-  return status === 408 || status === 425 || status === 429 || status >= 500;
+function asyncPollConfig(input: AsyncPollConfig | undefined): AsyncPollConfig {
+  if (input === undefined) return DEFAULT_ASYNC_POLL_CONFIG;
+  for (const field of ["pollIntervalMs", "maxWaitMs"] as const) {
+    const value = input[field];
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new ClientError("CLIENT_INVALID_POLL_CONFIG", { details: { field } });
+    }
+  }
+  return Object.freeze({ pollIntervalMs: input.pollIntervalMs, maxWaitMs: input.maxWaitMs });
+}
+
+function localProverUrl(): string {
+  const url: unknown = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+    .process?.env?.["ZOLANA_PROVER_URL"];
+  return typeof url === "string" && url.trim() !== "" ? url.trim() : SERVER_ADDRESS;
 }

@@ -1,17 +1,34 @@
+import { assemble, createDummyTransferInput, intoProver } from "./assembly.js";
 import {
-  canonicalShape as transactionCanonicalShape,
-  resolveShape as transactionResolveShape,
-} from "@zolana/transaction";
-
-import { assemble, intoProver } from "./assembly.js";
-import { ProverClient } from "./client.js";
+  DEFAULT_ASYNC_POLL_CONFIG,
+  PROVE_PATH,
+  ProverClient,
+  SERVER_ADDRESS,
+  proveMerge,
+  proveMergeZone,
+} from "./client.js";
 import { compressProof } from "./proof.js";
 
-export { assemble, compressProof, intoProver, ProverClient };
+export {
+  DEFAULT_ASYNC_POLL_CONFIG,
+  PROVE_PATH,
+  ProverClient,
+  SERVER_ADDRESS,
+  assemble,
+  compressProof,
+  createDummyTransferInput,
+  intoProver,
+  proveMerge,
+  proveMergeZone,
+};
+export { compressedProof, parseProof } from "./proof.js";
+export type { AsyncPollConfig } from "./client.js";
 export type {
   AssembledTransfer,
   CompressedProof,
   Field,
+  MergeInputs,
+  P256Proof,
   Proof,
   ProverInputs,
   Shape,
@@ -22,16 +39,9 @@ export type {
   TransferP256Inputs,
 } from "./types.js";
 
-export function canonicalShape(
-  inputs: number,
-  outputs: number,
-): Readonly<{ inputs: number; outputs: number }> {
-  return transactionCanonicalShape(inputs, outputs);
-}
-
-export function resolveShape(
-  inputs: number,
-  outputs: number,
-): Readonly<{ inputs: number; outputs: number }> {
-  return transactionResolveShape(inputs, outputs);
-}
+export {
+  SPP_SUPPORTED_SHAPES,
+  canonicalShape,
+  resolveShape,
+  ProofInputUtxo,
+} from "@zolana/transaction";
