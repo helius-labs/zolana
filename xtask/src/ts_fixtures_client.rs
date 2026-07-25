@@ -32,7 +32,7 @@ use zolana_interface::{
     pda, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
-    KeypairError, NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait, SigningKey,
+    KeypairError, NullifierKey, PublicKey, ShieldedKeypair, SigningKey,
     ViewingKey,
 };
 use zolana_transaction::{
@@ -726,10 +726,21 @@ fn field_hex(field: &ark_bn254::Fq) -> String {
 }
 
 fn parsed_proof(commitment: bool) -> Result<Proof, Box<dyn std::error::Error>> {
-    proof_response(json!({"proof": gnark_proof(commitment)}))
+    proof_response_on_rail(json!({"proof": gnark_proof(commitment)}), commitment)
 }
 
 fn proof_response(response: Value) -> Result<Proof, Box<dyn std::error::Error>> {
+    proof_response_on_rail(response, false)
+}
+
+/// The parser packs the proof for the rail the request asked for, so a
+/// commitment-bearing response has to be fetched through the P256 entry point
+/// and a vanilla one through the eddsa entry point. Serving one to the other is
+/// the combination the parser rejects.
+fn proof_response_on_rail(
+    response: Value,
+    p256: bool,
+) -> Result<Proof, Box<dyn std::error::Error>> {
     let body = serde_json::to_vec(&response)?;
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
@@ -745,19 +756,40 @@ fn proof_response(response: Value) -> Result<Proof, Box<dyn std::error::Error>> 
         stream.write_all(&body).expect("write proof response");
     });
     let client = ProverClient::new(format!("http://{address}"));
-    let dummy = zolana_client::TransferInputs {
-        inputs: vec![],
-        outputs: vec![],
-        external_data_hash: 0u8.into(),
-        private_tx_hash: 0u8.into(),
-        public_sol_amount: 0u8.into(),
-        public_spl_amount: 0u8.into(),
-        public_spl_asset_pubkey: 0u8.into(),
-        zone_program_id: 0u8.into(),
-        payer_pubkey_hash: 0u8.into(),
-        public_input_hash: 0u8.into(),
+    let proof = if p256 {
+        client.prove_transfer_p256(&zolana_client::TransferP256Inputs {
+            inputs: vec![],
+            outputs: vec![],
+            external_data_hash: 0u8.into(),
+            p256_pub_x: 0u8.into(),
+            p256_pub_y: 0u8.into(),
+            p256_sig_r: 0u8.into(),
+            p256_sig_s: 0u8.into(),
+            private_tx_hash: 0u8.into(),
+            p256_message_hash_low: 0u8.into(),
+            p256_message_hash_high: 0u8.into(),
+            public_sol_amount: 0u8.into(),
+            public_spl_amount: 0u8.into(),
+            public_spl_asset_pubkey: 0u8.into(),
+            zone_program_id: 0u8.into(),
+            payer_pubkey_hash: 0u8.into(),
+            p256_signing_pk_field: 0u8.into(),
+            public_input_hash: 0u8.into(),
+        })?
+    } else {
+        client.prove_transfer(&zolana_client::TransferInputs {
+            inputs: vec![],
+            outputs: vec![],
+            external_data_hash: 0u8.into(),
+            private_tx_hash: 0u8.into(),
+            public_sol_amount: 0u8.into(),
+            public_spl_amount: 0u8.into(),
+            public_spl_asset_pubkey: 0u8.into(),
+            zone_program_id: 0u8.into(),
+            payer_pubkey_hash: 0u8.into(),
+            public_input_hash: 0u8.into(),
+        })?
     };
-    let proof = client.prove_transfer(&dummy)?;
     server.join().map_err(|_| "proof fixture server panicked")?;
     Ok(proof)
 }
@@ -1199,7 +1231,7 @@ fn workflow_inputs(
     };
     let eddsa_input = |asset: Address, amount: u64, position: u8| {
         let (owner, nullifier_key) = if matches!(rail, WorkflowRail::Eddsa) {
-            (sender.signing_pubkey(), sender.nullifier_key())
+            (sender.signing_pubkey(), sender.nullifier_key.clone())
         } else {
             (
                 PublicKey::from_ed25519(&[76; 32]),
