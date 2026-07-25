@@ -262,6 +262,187 @@
       }
     ]
   },
+  "decrypt": {
+    "confidential": [
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef25152673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b8836213d",
+        "error": null,
+        "name": "valid",
+        "plaintext": {
+          "amount": "77",
+          "assetId": "1",
+          "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+        }
+      },
+      {
+        "bodyHex": "",
+        "error": {
+          "actual": 0,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 33
+        },
+        "name": "empty",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef2",
+        "error": {
+          "actual": 32,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 33
+        },
+        "name": "publicKeyTruncated",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef251",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_DESERIALIZE",
+          "expected": null
+        },
+        "name": "publicKeyOnly",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff52673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b8836213d",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_KEYPAIR",
+          "expected": null
+        },
+        "name": "publicKeyOffCurve",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef25152673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b883621",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_DESERIALIZE",
+          "expected": null
+        },
+        "name": "ciphertextTruncated",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef25152673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b8836213d00",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_DESERIALIZE",
+          "expected": null
+        },
+        "name": "ciphertextExtraByte",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef25152673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b8836213c",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_DESERIALIZE",
+          "expected": null
+        },
+        "name": "ciphertextBitFlipped",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef25152673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b8836213d",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_DESERIALIZE",
+          "expected": null
+        },
+        "name": "wrongSlotIndex",
+        "plaintext": null,
+        "slotIndex": 3
+      }
+    ],
+    "merge": [
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6e59d34f2046f1004099570e265100640829dd1a768386caee194ac6b14559888bc264a6833349719b2a84c0174280c2d4ce4dfcb9d1b3adc6802c6243ae1d8a02b9db2b68cc5452a",
+        "error": null,
+        "name": "valid",
+        "plaintext": {
+          "amount": "1234",
+          "assetFieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+          "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+        }
+      },
+      {
+        "bodyHex": "",
+        "error": {
+          "actual": 0,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 33
+        },
+        "name": "empty",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6",
+        "error": {
+          "actual": 32,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 33
+        },
+        "name": "publicKeyTruncated",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6e5",
+        "error": {
+          "actual": 0,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 71
+        },
+        "name": "publicKeyOnly",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff9d34f2046f1004099570e265100640829dd1a768386caee194ac6b14559888bc264a6833349719b2a84c0174280c2d4ce4dfcb9d1b3adc6802c6243ae1d8a02b9db2b68cc5452a",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_KEYPAIR",
+          "expected": null
+        },
+        "name": "publicKeyOffCurve",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6e59d34f2046f1004099570e265100640829dd1a768386caee194ac6b14559888bc264a6833349719b2a84c0174280c2d4ce4dfcb9d1b3adc6802c6243ae1d8a02b9db2b68cc545",
+        "error": {
+          "actual": 70,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 71
+        },
+        "name": "ciphertextTruncated",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6e59d34f2046f1004099570e265100640829dd1a768386caee194ac6b14559888bc264a6833349719b2a84c0174280c2d4ce4dfcb9d1b3adc6802c6243ae1d8a02b9db2b68cc5452a00",
+        "error": {
+          "actual": 72,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 71
+        },
+        "name": "ciphertextExtraByte",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6e59d34f2046f1004099570e265100640829dd1a768386caee194ac6b14559888bc264a6833349719b2a84c0174280c2d4ce4dfcb9d1b3adc6802c6243ae1d8a02b9db2b68cc5452b",
+        "error": null,
+        "name": "ciphertextBitFlipped",
+        "plaintext": {
+          "amount": "1234",
+          "assetFieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+          "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0a"
+        }
+      }
+    ],
+    "saltHex": "03030303030303030303030303030303",
+    "slotIndex": 2,
+    "txViewingSeedHex": "2525252525252525252525252525252525252525252525252525252525252525",
+    "userViewingSeedHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f"
+  },
   "errors": {
     "variants": [
       {

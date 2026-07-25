@@ -60,6 +60,8 @@ import {
   decodeData,
   decodeMerge,
   decodeProofless,
+  decryptConfidential,
+  decryptMerge,
   encodeAnonymousRecipient,
   encodeAnonymousSender,
   encodeConfidential,
@@ -1452,6 +1454,92 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
           nullifierHex: hex(context.nullifier),
         })),
       ).toEqual(testCase.inputContexts);
+    });
+  }
+});
+
+interface DecryptCase {
+  readonly name: string;
+  readonly bodyHex: string;
+  readonly slotIndex?: number;
+  readonly error: Readonly<{
+    code: string;
+    expected: number | null;
+    actual: number | null;
+  }> | null;
+  readonly plaintext: Readonly<{
+    assetId?: string;
+    amount: string;
+    assetFieldHex?: string;
+    blindingHex: string;
+  }> | null;
+}
+
+describe("the Rust oracle and TypeScript agree on the encrypted rails' reader", () => {
+  const decrypt = oracle.decrypt;
+  const user = ViewingKey.fromBytes(bytes(decrypt.userViewingSeedHex) as Bytes32);
+  const tx = ViewingKey.fromBytes(bytes(decrypt.txViewingSeedHex) as Bytes32);
+  const salt = bytes(decrypt.saltHex) as Bytes16;
+
+  /// `Reader.exact` names leftover bytes; Rust folds that rejection into the
+  /// wincode `Deserialize` category. TYPESCRIPT_ONLY_CODES already records the
+  /// finer code as deliberate, so the comparison widens it rather than
+  /// treating the same rejection as a divergence.
+  const RUST_CATEGORY: Readonly<Record<string, string>> = Object.freeze({
+    TRANSACTION_TRAILING_BYTES: "TRANSACTION_DESERIALIZE",
+  });
+
+  /// A published slot is attacker-chosen bytes, so the reader's rejection
+  /// category is part of the protocol: both languages must sort the same body
+  /// into the same category rather than merely both failing.
+  function expectSame(testCase: DecryptCase, run: () => unknown): void {
+    if (testCase.error !== null) {
+      const code = codeOf(run);
+      expect(RUST_CATEGORY[code] ?? code).toBe(testCase.error.code);
+      if (testCase.error.expected !== null) {
+        expect(details(run)).toMatchObject({
+          expected: testCase.error.expected,
+          actual: testCase.error.actual,
+        });
+      }
+      return;
+    }
+    expect(run()).toBeDefined();
+  }
+
+  for (const testCase of decrypt.merge as readonly DecryptCase[]) {
+    it(`reads the ${testCase.name} merge body the same way`, () => {
+      const read = (): unknown => decryptMerge(user, bytes(testCase.bodyHex));
+      expectSame(testCase, read);
+      if (testCase.plaintext === null) return;
+      const plaintext = decryptMerge(user, bytes(testCase.bodyHex));
+      expect({
+        amount: plaintext.amount.toString(),
+        assetFieldHex: hex(plaintext.assetField),
+        blindingHex: hex(plaintext.blinding),
+      }).toEqual(testCase.plaintext);
+    });
+  }
+
+  for (const testCase of decrypt.confidential as readonly DecryptCase[]) {
+    it(`reads the ${testCase.name} confidential body the same way`, () => {
+      const slotIndex = testCase.slotIndex ?? decrypt.slotIndex;
+      const read = (): unknown =>
+        decryptConfidential(user, tx.publicKey(), bytes(testCase.bodyHex), salt, slotIndex);
+      expectSame(testCase, read);
+      if (testCase.plaintext === null) return;
+      const plaintext = decryptConfidential(
+        user,
+        tx.publicKey(),
+        bytes(testCase.bodyHex),
+        salt,
+        slotIndex,
+      );
+      expect({
+        assetId: plaintext.assetId.toString(),
+        amount: plaintext.amount.toString(),
+        blindingHex: hex(plaintext.blinding),
+      }).toEqual(testCase.plaintext);
     });
   }
 });

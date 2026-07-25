@@ -20,7 +20,6 @@ use std::{fs, path::PathBuf};
 
 use serde_json::{json, Map, Value};
 use solana_address::Address;
-use wincode;
 use zolana_event::ProoflessOutput;
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
@@ -49,12 +48,12 @@ use zolana_transaction::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
             AnonymousSenderEncode,
         },
-        confidential::ConfidentialOutputPlaintext,
-        merge::{Merge as MergeSerialization, MergePlaintext},
+        confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+        merge::{Merge as MergeSerialization, MergeEncode, MergePlaintext},
         plaintext::{PlaintextEncode, PlaintextTransfer},
         proofless::{Proofless, ProoflessEncode},
         split::{Split, SplitEncode},
-        OwnerCx, UtxoSerialization,
+        DecodeCx, OwnerCx, UtxoSerialization,
     },
     AssetRegistry, Data, DataRecord, EncryptedScheme, ProofInputUtxo, TransactionError, Utxo,
     SOL_ASSET_ID, SOL_MINT,
@@ -2647,7 +2646,178 @@ fn oracle() -> Value {
         "fromUtxos": from_utxos_section(),
         "transactTypes": transact_types_section(),
         "zoneAuthority": zone_authority_section(),
+        "decrypt": decrypt_section(),
     })
+}
+
+const DECRYPT_USER_VIEWING_SEED: [u8; 32] = [31u8; 32];
+const DECRYPT_TX_VIEWING_SEED: [u8; 32] = [37u8; 32];
+const DECRYPT_SALT: [u8; SALT_LEN] = [3u8; SALT_LEN];
+const DECRYPT_SLOT_INDEX: u32 = 2;
+
+/// The reader half of the two encrypted rails. A published slot is bytes an
+/// attacker chose, so which category the reader rejects them under is part of
+/// the protocol: a scanner that skips a slot on one category and aborts the
+/// wallet sync on another must see the same category in both languages.
+fn decrypt_section() -> Value {
+    let user = ViewingKey::from_bytes(&DECRYPT_USER_VIEWING_SEED).expect("user viewing key");
+    let tx = ViewingKey::from_bytes(&DECRYPT_TX_VIEWING_SEED).expect("tx viewing key");
+    json!({
+        "userViewingSeedHex": hex(&DECRYPT_USER_VIEWING_SEED),
+        "txViewingSeedHex": hex(&DECRYPT_TX_VIEWING_SEED),
+        "saltHex": hex(&DECRYPT_SALT),
+        "slotIndex": DECRYPT_SLOT_INDEX,
+        "merge": merge_decrypt_cases(&user, &tx),
+        "confidential": confidential_decrypt_cases(&user, &tx),
+    })
+}
+
+/// Bodies are built by perturbing one the rail itself produced, so a case that
+/// should decrypt proves the two languages derive the same key from the same
+/// seeds rather than merely failing in the same way.
+fn merge_decrypt_cases(user: &ViewingKey, tx: &ViewingKey) -> Value {
+    let plaintext = MergePlaintext {
+        amount: 1_234,
+        asset_field: hash_field(&SOL_MINT.to_bytes()).expect("asset field"),
+        blinding: [11u8; BLINDING_LEN],
+    };
+    let bytes = MergeSerialization::serialize(&plaintext).expect("serialize merge");
+    let body = MergeSerialization::encrypt(
+        &bytes,
+        &MergeEncode {
+            tx: tx.clone(),
+            user_viewing_pk: user.pubkey(),
+        },
+    )
+    .expect("encrypt merge");
+
+    let cases = perturbations(&body)
+        .into_iter()
+        .map(|(name, body)| {
+            let cx = DecodeCx {
+                viewing_key: user,
+                tx_viewing_pk: None,
+                salt: None,
+                slot_index: 0,
+                first_nullifier: None,
+            };
+            let decoded = MergeSerialization::decode(&body, &cx).map(|plaintext| {
+                json!({
+                    "amount": plaintext.amount.to_string(),
+                    "assetFieldHex": hex(&plaintext.asset_field),
+                    "blindingHex": hex(&plaintext.blinding),
+                })
+            });
+            decrypt_case_json(name, &body, decoded)
+        })
+        .collect::<Vec<_>>();
+    Value::Array(cases)
+}
+
+fn confidential_decrypt_cases(user: &ViewingKey, tx: &ViewingKey) -> Value {
+    let plaintext = ConfidentialOutputPlaintext {
+        asset_id: SOL_ASSET_ID,
+        amount: 77,
+        blinding: [11u8; BLINDING_LEN],
+        zone_program_id: None,
+        data: Data::default(),
+    };
+    let bytes = plaintext.serialize().expect("serialize confidential");
+    let body = Confidential::encrypt(
+        &bytes,
+        &ConfidentialEncode {
+            tx: tx.clone(),
+            recipient_pubkey: user.pubkey(),
+            salt: DECRYPT_SALT,
+            slot_index: DECRYPT_SLOT_INDEX,
+        },
+    )
+    .expect("encrypt confidential");
+
+    let mut variants = perturbations(&body);
+    // The slot index and the salt are bound into the key, so a scanner that
+    // tries the wrong slot must fail the same way in both languages.
+    variants.push(("wrongSlotIndex", body.clone()));
+    let wrong_slot = variants.len() - 1;
+
+    let cases = variants
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, body))| {
+            let cx = DecodeCx {
+                viewing_key: user,
+                tx_viewing_pk: Some(tx.pubkey()),
+                salt: Some(DECRYPT_SALT),
+                slot_index: if index == wrong_slot {
+                    DECRYPT_SLOT_INDEX + 1
+                } else {
+                    DECRYPT_SLOT_INDEX
+                },
+                first_nullifier: None,
+            };
+            let decoded = Confidential::decode(&body, &cx).map(|plaintext| {
+                json!({
+                    "assetId": plaintext.asset_id.to_string(),
+                    "amount": plaintext.amount.to_string(),
+                    "blindingHex": hex(&plaintext.blinding),
+                })
+            });
+            let mut case = decrypt_case_json(name, &body, decoded);
+            if index == wrong_slot {
+                case["slotIndex"] = json!(DECRYPT_SLOT_INDEX + 1);
+            }
+            case
+        })
+        .collect::<Vec<_>>();
+    Value::Array(cases)
+}
+
+/// The malformed bodies both rails share: an embedded public key that is
+/// absent, truncated, or off the curve, and a ciphertext whose length no longer
+/// matches the plaintext the rail expects.
+fn perturbations(body: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
+    let mut off_curve = body.to_vec();
+    off_curve[..33].fill(0xff);
+    let mut flipped = body.to_vec();
+    let last = flipped.len() - 1;
+    flipped[last] ^= 0x01;
+    vec![
+        ("valid", body.to_vec()),
+        ("empty", Vec::new()),
+        ("publicKeyTruncated", body[..32].to_vec()),
+        ("publicKeyOnly", body[..33].to_vec()),
+        ("publicKeyOffCurve", off_curve),
+        ("ciphertextTruncated", body[..body.len() - 1].to_vec()),
+        ("ciphertextExtraByte", [body, &[0u8]].concat()),
+        ("ciphertextBitFlipped", flipped),
+    ]
+}
+
+fn decrypt_case_json(name: &str, body: &[u8], decoded: Result<Value, TransactionError>) -> Value {
+    let mut case = Map::new();
+    case.insert("name".into(), json!(name));
+    case.insert("bodyHex".into(), json!(hex(body)));
+    match decoded {
+        Ok(plaintext) => {
+            case.insert("plaintext".into(), plaintext);
+            case.insert("error".into(), Value::Null);
+        }
+        Err(error) => {
+            case.insert("plaintext".into(), Value::Null);
+            case.insert("error".into(), error_json(&error));
+        }
+    }
+    Value::Object(case)
+}
+
+/// The code plus the two length fields, which are the only error details these
+/// paths carry and the ones a caller reads to decide whether to retry.
+fn error_json(error: &TransactionError) -> Value {
+    let (expected, actual) = match error {
+        TransactionError::InvalidLength { expected, actual } => (json!(expected), json!(actual)),
+        _ => (Value::Null, Value::Null),
+    };
+    json!({ "code": ts_code(error), "expected": expected, "actual": actual })
 }
 
 /// `PreparedZoneAuthority`: the unsigned rail whose only containment is the
