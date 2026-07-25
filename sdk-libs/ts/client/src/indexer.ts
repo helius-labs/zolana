@@ -344,27 +344,33 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ blockTime: b
   const waitForIndexer = config?.waitForIndexer ?? false;
   if (!waitForIndexer) return request();
   const poll = validatePollConfig(config?.poll ?? DEFAULT_INDEXER_POLL_CONFIG);
+  const attempts = poll.numRetries + 1;
   const target = BigInt(Math.floor(Date.now() / 1000));
-  let latest = -(1n << 63n);
+  let latest: bigint | undefined;
+  let responses = 0;
   try {
     return await pollUntil(
       request,
       (response) => {
+        responses++;
         latest = response.context.blockTime;
         return latest >= target;
       },
       { config: poll, ...(context === undefined ? {} : { context }) },
     );
   } catch (cause) {
+    // Fewer responses than attempts means the schedule ended on a failure, so
+    // `cause` already carries the precise reason and its structured cause.
+    if (latest === undefined || responses !== attempts) throw cause;
     if (!isClientError(cause) || cause.code !== "CLIENT_POLL_TIMED_OUT") throw cause;
+    throw new ClientError("CLIENT_INDEXER_NOT_CAUGHT_UP", {
+      details: {
+        target: target.toString(),
+        latest: latest.toString(),
+        attempts,
+      },
+    });
   }
-  throw new ClientError("CLIENT_INDEXER_NOT_CAUGHT_UP", {
-    details: {
-      target: target.toString(),
-      latest: latest.toString(),
-      attempts: poll.numRetries + 1,
-    },
-  });
 }
 
 function wrapIndexer(cause: unknown, method: string): ClientError {
@@ -390,9 +396,22 @@ function wrapIndexer(cause: unknown, method: string): ClientError {
     });
   }
   return new ClientError("CLIENT_INDEXER", {
-    details: { method },
+    details: { method, retryable: apiRetryable(cause) },
     cause,
   });
+}
+
+// The API layer already classified the failure. An unrecognized shape counts as
+// fatal so a rejected request cannot consume the whole polling schedule.
+function apiRetryable(cause: unknown): boolean {
+  if (typeof cause !== "object" || cause === null || !("details" in cause)) return false;
+  const details: unknown = cause.details;
+  return (
+    typeof details === "object" &&
+    details !== null &&
+    "retryable" in details &&
+    details.retryable === true
+  );
 }
 
 function externalCode(cause: unknown): string | undefined {

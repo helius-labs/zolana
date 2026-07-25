@@ -181,6 +181,66 @@ describe("ZolanaIndexer and ZolanaClient", () => {
     expect(calls).toHaveLength(Number(rpcFixture.expected.retry.attempts));
   });
 
+  it("stops on the first attempt when the indexer rejects the request", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const api = new ZolanaApi({
+      url: "https://indexer.example.test",
+      fetch: vi.fn(() => {
+        calls++;
+        return Promise.resolve(
+          Response.json({
+            id: "test-account",
+            jsonrpc: "2.0",
+            error: { code: -32602, message: "unknown tree" },
+          }),
+        );
+      }),
+    });
+    const pending = new ZolanaIndexer(api).getMerkleProofs(TREE, [ZERO], {
+      waitForIndexer: true,
+      poll: { numRetries: 4, delayMs: 5n, maxDelayMs: 12n },
+    });
+    const rejection = expect(pending).rejects.toEqual(
+      expect.objectContaining({
+        code: "CLIENT_INDEXER",
+        details: { method: "getMerkleProofs", retryable: false },
+      }),
+    );
+    await vi.runAllTimersAsync();
+    await rejection;
+
+    expect(calls).toBe(1);
+  });
+
+  it("keeps the timeout and its cause when every attempt fails transiently", async () => {
+    vi.useFakeTimers();
+    const secret = "queue depth 42 for account alice";
+    let calls = 0;
+    const api = new ZolanaApi({
+      url: "https://indexer.example.test",
+      fetch: vi.fn(() => {
+        calls++;
+        return Promise.resolve(new Response(secret, { status: 503 }));
+      }),
+    });
+    const pending = new ZolanaIndexer(api).getMerkleProofs(TREE, [ZERO], {
+      waitForIndexer: true,
+      poll: { numRetries: 2, delayMs: 5n, maxDelayMs: 12n },
+    });
+    const rejection = expect(pending).rejects.toEqual(
+      expect.objectContaining({
+        code: "CLIENT_POLL_TIMED_OUT",
+        details: { attempts: 3, lastCause: { category: "indexer" } },
+      }),
+    );
+    await vi.runAllTimersAsync();
+    await rejection;
+
+    expect(calls).toBe(3);
+    expect(JSON.stringify(await pending.catch((cause: unknown) => cause))).not.toContain(secret);
+  });
+
   it("makes one default proof request without blocking-only count polling", async () => {
     let calls = 0;
     const api = new ZolanaApi({

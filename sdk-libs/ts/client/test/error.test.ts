@@ -58,11 +58,11 @@ describe("ClientError", () => {
     const vectors = errorVectors(fixtureJson);
     expect(manifestJson.frozenCommit).toBe("43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f");
     expect(manifestJson.canonicalSourceRevisions.client).toBe(
-      "3ba527850a7986f36c47ad2082598edff3e3e5b7",
+      "6d757791552874e1068cb527bc27875740c70362",
     );
     expect(manifestJson.files).toContainEqual({
       path: "client/errors-v1.json",
-      sha256: "03799f4ef2535af5a3ca3a6e6045cd04d6b4c976b4a50ac6ec1199b829a7ceec",
+      sha256: "b0ab2fc759fcc0fbafb9556d0b7b7b387bee234ca2fe6bc029b1bf23622c115e",
     });
     expect(vectors).toHaveLength(58);
     expect(new Set(vectors.map(({ code }) => code)).size).toBe(vectors.length);

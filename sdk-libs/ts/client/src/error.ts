@@ -156,7 +156,8 @@ export interface ClientErrorDetailsMap {
   }>;
   readonly CLIENT_MISSING_OUTPUT: NoDetails;
   readonly CLIENT_RPC: Readonly<{ method?: string; reason?: string }>;
-  readonly CLIENT_INDEXER: MethodDetails | Readonly<{ reason: string }>;
+  /** Carries no response text: an indexer body can hold caller data. */
+  readonly CLIENT_INDEXER: Readonly<{ method: string; retryable: boolean }>;
   readonly CLIENT_UNSUPPORTED_RPC_METHOD: MethodDetails;
   readonly CLIENT_INDEXER_TIMEOUT:
     | Readonly<{
@@ -447,7 +448,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_INPUT_TREE_INDEX_COUNT_MISMATCH: { expected: "number", actual: "number" },
   CLIENT_RPC: { method: "string", reason: "string" },
-  CLIENT_INDEXER: { method: "string", reason: "string" },
+  CLIENT_INDEXER: { method: "string", retryable: "boolean" },
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
   CLIENT_INDEXER_TIMEOUT: { signature: "string", expectedTags: "number", attempts: "number" },
   CLIENT_INDEXER_NOT_CAUGHT_UP: { target: "string", latest: "string", attempts: "number" },
@@ -500,7 +501,6 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_PROVER_SERVER: [],
   CLIENT_PROOF_PARSE: [],
   CLIENT_RPC: [],
-  CLIENT_INDEXER: [],
   CLIENT_FIELD_TOO_LONG: [],
   CLIENT_INDEXER_TIMEOUT: [],
   CLIENT_PROOF_PATH_LENGTH: ["got", "expected"],

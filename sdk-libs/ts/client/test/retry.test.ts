@@ -64,7 +64,7 @@ describe("retry", () => {
       () =>
         Promise.reject(
           new ClientError("CLIENT_INDEXER", {
-            details: { reason: secret },
+            details: { method: "get_merkle_proofs", retryable: true },
             cause: { code: "API_REQUEST", message: secret },
           }),
         ),

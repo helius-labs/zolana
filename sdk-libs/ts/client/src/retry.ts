@@ -131,9 +131,9 @@ export function isRetryable(cause: unknown): cause is ClientError {
   if (!isClientError(cause)) return false;
   switch (cause.code) {
     case "CLIENT_RPC":
-    case "CLIENT_INDEXER":
     case "CLIENT_INDEXER_TIMEOUT":
       return true;
+    case "CLIENT_INDEXER":
     case "CLIENT_TIMEOUT":
     case "CLIENT_REQUEST": {
       const details: unknown = cause.details;
