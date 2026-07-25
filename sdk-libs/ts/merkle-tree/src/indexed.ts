@@ -5,11 +5,23 @@ import { CoreMerkleTree, type Hasher32 } from "./merkle-tree.js";
 const HIGHEST_ADDRESS_PLUS_ONE =
   bigintToBytes(452312848583266388373324160190187140051835877600158453279131187530910662655n);
 const ZERO = bytes32(new Uint8Array(32), "zero");
+const MAX_U64 = (1n << 64n) - 1n;
 
-interface IndexedElement {
+export interface IndexedElement {
+  readonly index: bigint;
+  readonly value: Bytes32;
+  readonly nextIndex: bigint;
+}
+
+interface MutableIndexedElement {
   readonly index: bigint;
   readonly value: Bytes32;
   nextIndex: bigint;
+}
+
+export interface IndexedMerkleTreeOptions {
+  readonly canopyDepth?: number;
+  readonly highestValue?: Bytes32;
 }
 
 export interface NonInclusionProof {
@@ -42,6 +54,18 @@ function indexedBytes(value: Uint8Array): Bytes32 {
   }
 }
 
+function sentinelBytes(value: Uint8Array): Bytes32 {
+  try {
+    return bytes32(value, "highestValue");
+  } catch (cause) {
+    throw new IndexedMerkleTreeError(
+      "INDEXED_MERKLE_TREE_INVALID_SENTINEL",
+      "Highest value must contain 32 bytes",
+      { cause },
+    );
+  }
+}
+
 function proofBytes(value: Uint8Array, field: string): Bytes32 {
   try {
     return bytes32(value, field);
@@ -55,18 +79,51 @@ function proofBytes(value: Uint8Array, field: string): Bytes32 {
 }
 
 function proofIndex(value: bigint, field: string): bigint {
-  if (typeof value !== "bigint" || value < 0n) {
-    throw new IndexedMerkleTreeError(
-      "INDEXED_MERKLE_TREE_INVALID_PROOF",
-      `${field} must be a non-negative bigint`,
-      { details: { field } },
-    );
+  if (typeof value !== "bigint" || value < 0n || value > MAX_U64) {
+    throw new IndexedMerkleTreeError("INDEXED_MERKLE_TREE_INVALID_PROOF", `${field} must fit u64`, {
+      details: {
+        field,
+        value: typeof value === "bigint" ? value.toString() : value,
+      },
+    });
   }
   return value;
 }
 
-export function verifyNonInclusionProof(hasher: Hasher32, proof: NonInclusionProof): boolean {
+function treeIndex(value: bigint, field: string): bigint {
+  if (typeof value !== "bigint" || value < 0n || value > MAX_U64) {
+    throw new IndexedMerkleTreeError("INDEXED_MERKLE_TREE_INDEX", `${field} must fit u64`, {
+      details: {
+        field,
+        value: typeof value === "bigint" ? value.toString() : value,
+      },
+    });
+  }
+  return value;
+}
+
+export function verifyNonInclusionProof(
+  hasher: Hasher32,
+  proof: NonInclusionProof,
+  expectedRoot: Bytes32,
+  height: number,
+): boolean {
   const root = proofBytes(proof.root, "root");
+  const trustedRoot = proofBytes(expectedRoot, "expectedRoot");
+  if (compareBytes(root, trustedRoot) !== 0) {
+    throw new IndexedMerkleTreeError(
+      "INDEXED_MERKLE_TREE_INVALID_PROOF",
+      "Proof root does not match the trusted root",
+      { details: { field: "root" } },
+    );
+  }
+  if (!Number.isSafeInteger(height) || height < 1 || proof.merkleProof.length !== height) {
+    throw new IndexedMerkleTreeError(
+      "INDEXED_MERKLE_TREE_INVALID_PROOF",
+      "Proof length must equal tree height",
+      { details: { actual: proof.merkleProof.length, required: height } },
+    );
+  }
   const value = proofBytes(proof.value, "value");
   const lower = proofBytes(proof.leafLowerRangeValue, "leafLowerRangeValue");
   const higher = proofBytes(proof.leafHigherRangeValue, "leafHigherRangeValue");
@@ -114,6 +171,17 @@ function mapTreeError(cause: unknown): never {
       options,
     );
   }
+  if (
+    cause instanceof MerkleTreeError &&
+    (cause.code === "MERKLE_TREE_INDEX" || cause.code === "MERKLE_TREE_INDEX_WIDTH")
+  ) {
+    const options = cause.details === undefined ? { cause } : { details: cause.details, cause };
+    throw new IndexedMerkleTreeError(
+      "INDEXED_MERKLE_TREE_INDEX",
+      "Indexed tree index is invalid",
+      options,
+    );
+  }
   throw new IndexedMerkleTreeError("INDEXED_MERKLE_TREE_HASH", "Indexed tree update failed", {
     cause,
   });
@@ -122,13 +190,26 @@ function mapTreeError(cause: unknown): never {
 export class IndexedMerkleTree {
   private readonly hasher: Hasher32;
   private readonly tree: CoreMerkleTree;
-  private readonly elements: IndexedElement[];
+  private readonly elements: MutableIndexedElement[];
+  private readonly highest: Bytes32;
 
-  constructor(height: number, hasher: Hasher32) {
+  constructor(height: number, hasher: Hasher32, options: IndexedMerkleTreeOptions = {}) {
     this.hasher = hasher;
+    this.highest =
+      options.highestValue === undefined
+        ? copyBytes(HIGHEST_ADDRESS_PLUS_ONE)
+        : sentinelBytes(options.highestValue);
+    if (compareBytes(this.highest, ZERO) <= 0) {
+      throw new IndexedMerkleTreeError(
+        "INDEXED_MERKLE_TREE_INVALID_SENTINEL",
+        "Highest value must exceed zero",
+      );
+    }
     try {
-      this.tree = new CoreMerkleTree(height, hasher);
-      const firstLeaf = indexedHash(hasher, ZERO, HIGHEST_ADDRESS_PLUS_ONE);
+      const treeOptions =
+        options.canopyDepth === undefined ? {} : { canopyDepth: options.canopyDepth };
+      this.tree = new CoreMerkleTree(height, hasher, treeOptions);
+      const firstLeaf = indexedHash(hasher, ZERO, this.highest);
       this.tree.append(firstLeaf);
     } catch (cause) {
       mapTreeError(cause);
@@ -138,10 +219,7 @@ export class IndexedMerkleTree {
 
   insert(value: Bytes32): bigint {
     const ownedValue = indexedBytes(value);
-    if (
-      compareBytes(ownedValue, ZERO) <= 0 ||
-      compareBytes(ownedValue, HIGHEST_ADDRESS_PLUS_ONE) >= 0
-    ) {
+    if (compareBytes(ownedValue, ZERO) <= 0 || compareBytes(ownedValue, this.highest) >= 0) {
       throw new IndexedMerkleTreeError(
         "INDEXED_MERKLE_TREE_INVALID_VALUE",
         "Value is outside the indexed range",
@@ -170,12 +248,59 @@ export class IndexedMerkleTree {
     return this.tree.root();
   }
 
+  path(index: bigint, full = true): readonly Bytes32[] {
+    return this.tree.path(index, full);
+  }
+
+  proof(index: bigint, full = true): readonly Bytes32[] {
+    return this.tree.proof(index, full);
+  }
+
+  update(
+    newLowElement: IndexedElement,
+    newElement: IndexedElement,
+    newElementNextValue: Bytes32,
+  ): void {
+    const lowIndex = treeIndex(newLowElement.index, "newLowElement.index");
+    treeIndex(newLowElement.nextIndex, "newLowElement.nextIndex");
+    treeIndex(newElement.index, "newElement.index");
+    treeIndex(newElement.nextIndex, "newElement.nextIndex");
+    const lowValue = indexedBytes(newLowElement.value);
+    const value = indexedBytes(newElement.value);
+    const nextValue = indexedBytes(newElementNextValue);
+    const newLowLeaf = indexedHash(this.hasher, lowValue, value);
+    const newLeaf = indexedHash(this.hasher, value, nextValue);
+    try {
+      this.tree.replaceAndAppend(lowIndex, newLowLeaf, newLeaf);
+    } catch (cause) {
+      mapTreeError(cause);
+    }
+  }
+
+  verifyNonInclusionProof(proof: NonInclusionProof): boolean {
+    return verifyNonInclusionProof(this.hasher, proof, this.tree.root(), this.tree.height);
+  }
+
+  highestValue(): Bytes32 {
+    return copyBytes(this.highest);
+  }
+
+  element(index: bigint): IndexedElement {
+    const element = this.internalElement(treeIndex(index, "index"));
+    return {
+      index: element.index,
+      value: copyBytes(element.value),
+      nextIndex: element.nextIndex,
+    };
+  }
+
+  elementCount(): bigint {
+    return BigInt(this.elements.length);
+  }
+
   nonInclusionProof(value: Bytes32): NonInclusionProof {
     const ownedValue = indexedBytes(value);
-    if (
-      compareBytes(ownedValue, ZERO) <= 0 ||
-      compareBytes(ownedValue, HIGHEST_ADDRESS_PLUS_ONE) >= 0
-    ) {
+    if (compareBytes(ownedValue, ZERO) <= 0 || compareBytes(ownedValue, this.highest) >= 0) {
       throw new IndexedMerkleTreeError(
         "INDEXED_MERKLE_TREE_INVALID_VALUE",
         "Value is outside the indexed range",
@@ -195,8 +320,8 @@ export class IndexedMerkleTree {
     };
   }
 
-  private findLowElement(value: Bytes32): IndexedElement {
-    let current = this.element(0n);
+  private findLowElement(value: Bytes32): MutableIndexedElement {
+    let current = this.internalElement(0n);
     for (;;) {
       const order = compareBytes(value, current.value);
       if (order === 0) {
@@ -215,19 +340,27 @@ export class IndexedMerkleTree {
     }
   }
 
-  private highElement(low: IndexedElement): IndexedElement {
+  private highElement(low: MutableIndexedElement): MutableIndexedElement {
     if (low.nextIndex === 0n) {
-      return { index: 0n, value: HIGHEST_ADDRESS_PLUS_ONE, nextIndex: 0n };
+      return { index: 0n, value: this.highest, nextIndex: 0n };
     }
-    return this.element(low.nextIndex);
+    return this.internalElement(low.nextIndex);
   }
 
-  private element(index: bigint): IndexedElement {
+  private internalElement(index: bigint): MutableIndexedElement {
+    if (index > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new IndexedMerkleTreeError(
+        "INDEXED_MERKLE_TREE_INDEX",
+        "Indexed element index exceeds JavaScript array capacity",
+        { details: { index: index.toString() } },
+      );
+    }
     const element = this.elements[Number(index)];
     if (element === undefined) {
       throw new IndexedMerkleTreeError(
-        "INDEXED_MERKLE_TREE_INVALID_VALUE",
+        "INDEXED_MERKLE_TREE_INDEX",
         "Indexed tree invariant failed",
+        { details: { index: index.toString() } },
       );
     }
     return element;

@@ -12,6 +12,10 @@ describe("MerkleTree", () => {
       "IndexedMerkleTreeError",
       "MerkleTree",
       "MerkleTreeError",
+      "keccakHasher",
+      "poseidonHasher",
+      "sha256Hasher",
+      "verifyNonInclusionProof",
     ]);
   });
 
@@ -55,12 +59,18 @@ describe("MerkleTree", () => {
     expect(() => tree.append(new Uint8Array(31))).toThrow(
       expect.objectContaining({ code: "MERKLE_TREE_INVALID_BYTES" }),
     );
-    expect(() => tree.proof(-1n)).toThrow(expect.objectContaining({ code: "MERKLE_TREE_INDEX" }));
+    expect(() => tree.proof(-1n)).toThrow(
+      expect.objectContaining({ code: "MERKLE_TREE_INDEX_WIDTH" }),
+    );
     tree.append(leaf(1));
     tree.append(leaf(2));
+    const fullRoot = tree.root();
     expect(() => tree.append(leaf(3))).toThrow(
       expect.objectContaining({ code: "MERKLE_TREE_CAPACITY" }),
     );
+    expect(tree.root()).toEqual(fullRoot);
+    expect(tree.leafCount()).toBe(2n);
+    expect(tree.leaves()).toEqual([leaf(1), leaf(2)]);
 
     expect(
       () =>
@@ -90,7 +100,71 @@ describe("MerkleTree", () => {
       expect.objectContaining({ code: "MERKLE_TREE_HASH" }),
     );
     expect(tree.root()).toEqual(root);
-    expect(() => tree.proof(1n)).toThrow(expect.objectContaining({ code: "MERKLE_TREE_INDEX" }));
+    expect(tree.proof(1n)).toHaveLength(3);
+  });
+
+  it("exposes update, path, verification, leaves, subtrees, and batch append", () => {
+    const tree = new MerkleTree(3, modelHasher, { canopyDepth: 1 });
+    expect(tree.appendBatch([leaf(1), leaf(2)])).toEqual([0n, 1n]);
+    expect(tree.leafCount()).toBe(2n);
+    expect(tree.nextIndex()).toBe(3n);
+    expect(tree.sequenceNumber()).toBe(2n);
+    expect(tree.leaves()).toEqual([leaf(1), leaf(2)]);
+    expect(tree.leafIndex(leaf(2))).toBe(1n);
+    expect(tree.path(1n, false)).toHaveLength(2);
+    expect(tree.proof(1n, false)).toHaveLength(2);
+    expect(tree.proofs([0n, 1n])).toHaveLength(2);
+    expect(tree.canopy()).toHaveLength(Number(tree.canopySize()));
+    expect(tree.subtrees()).toHaveLength(3);
+
+    const proof = tree.proof(0n);
+    expect(tree.verify(leaf(1), proof, 0n)).toBe(true);
+    expect(tree.verify(leaf(2), proof, 0n)).toBe(false);
+    tree.update(0n, leaf(3));
+    expect(tree.getLeaf(0n)).toEqual(leaf(3));
+    expect(tree.sequenceNumber()).toBe(3n);
+  });
+
+  it("returns sparse paths and validates proof lengths and u64 indexes", () => {
+    const tree = new MerkleTree(3, modelHasher);
+    tree.append(leaf(1));
+
+    expect(tree.path(7n)).toHaveLength(3);
+    expect(tree.proof(7n)).toHaveLength(3);
+    expect(() => tree.getLeaf(7n)).toThrow(expect.objectContaining({ code: "MERKLE_TREE_INDEX" }));
+    expect(() => tree.verify(leaf(1), tree.proof(0n).slice(1), 0n)).toThrow(
+      expect.objectContaining({
+        code: "MERKLE_TREE_INVALID_PROOF_LENGTH",
+        details: { actual: 2, required: 3 },
+      }),
+    );
+    expect(() => tree.path(1n << 64n)).toThrow(
+      expect.objectContaining({ code: "MERKLE_TREE_INDEX_WIDTH" }),
+    );
+  });
+
+  it("tracks full root history and Rust-compatible history indexes", () => {
+    const tree = new MerkleTree(3, modelHasher, {
+      rootHistoryStartOffset: 1n,
+      rootHistoryArrayLength: 3,
+    });
+    tree.appendBatch([leaf(1), leaf(2), leaf(3)]);
+
+    expect(tree.history()).toHaveLength(4);
+    expect(tree.historyRootIndex()).toBe(2);
+    expect(tree.historyRootIndexV2()).toBe(0);
+    expect(tree.nextIndex()).toBe(4n);
+  });
+
+  it("reconstructs sparse nodes without narrowing bigint positions", () => {
+    const tree = new MerkleTree(4, modelHasher);
+    const position = (1n << 40n) + 7n;
+    tree.insertNode((2n << 56n) | position, leaf(9));
+    expect(tree.path(position << 2n)[2]).toEqual(leaf(9));
+    tree.insertLeaf(5n, leaf(4));
+    expect(tree.getLeaf(5n)).toEqual(leaf(4));
+    tree.ensureLayerCapacity(0, 7n);
+    expect(tree.getLeaf(7n)).toEqual(leaf(0));
   });
 });
 
@@ -98,7 +172,7 @@ describe("CoreMerkleTree", () => {
   it("applies canopy truncation and bounded root history", () => {
     const tree = new CoreMerkleTree(4, modelHasher, {
       canopyDepth: 2,
-      historyCapacity: 2,
+      rootHistoryArrayLength: 2,
     });
     tree.append(leaf(1));
     tree.append(leaf(2));
@@ -106,7 +180,7 @@ describe("CoreMerkleTree", () => {
     expect(tree.proof(0n, false)).toHaveLength(2);
     expect(tree.path(0n, false)).toHaveLength(2);
     expect(tree.canopy()).toHaveLength(6);
-    expect(tree.history()).toHaveLength(2);
+    expect(tree.history()).toHaveLength(3);
   });
 
   it("matches a model across deterministic generated sequences", () => {

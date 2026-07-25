@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import fixture from "../../fixtures/merkle-tree/paths-v1.json" with { type: "json" };
 
 import { keccakHasher, poseidonHasher, sha256Hasher } from "../src/hashers.js";
-import { verifyNonInclusionProof } from "../src/indexed.js";
 import { IndexedMerkleTree } from "../src/index.js";
 import { CoreMerkleTree, type Hasher32 } from "../src/merkle-tree.js";
 import { required } from "./helpers.js";
@@ -88,6 +87,28 @@ describe("frozen Merkle vectors", () => {
       }
       expect(tree.root()).toEqual(hexBytes(vector.rootBytes));
       expect(tree.history().slice(1)).toEqual(vector.rootHistoryBytes.map(hexBytes));
+      expect(tree.nextLeafIndex()).toBe(BigInt(vector.nextIndex));
+      expect(tree.path(9n)).toEqual(vector.sparsePathBytes.map(hexBytes));
+      expect(tree.proof(9n)).toEqual(vector.sparseProofBytes.map(hexBytes));
+      expect(vector.tamperedProofVerified).toBe(false);
+      expect(vector.usizeBits).toBe("64");
+
+      const historyTree = new CoreMerkleTree(Number(vector.height), hasher, {
+        rootHistoryStartOffset: 1n,
+        rootHistoryArrayLength: 3,
+      });
+      for (const leaf of leaves) {
+        historyTree.append(leaf);
+      }
+      expect(historyTree.history()).toHaveLength(Number(vector.historyRootLength));
+      expect(historyTree.historyRootIndex()).toBe(Number(vector.historyRootIndex));
+      expect(historyTree.historyRootIndexV2()).toBe(Number(vector.historyRootIndexV2));
+      expect(vector.failureMutation).toEqual({
+        leafLength: "5",
+        rightmostIndex: "4",
+        rootHistoryLength: "5",
+        sequenceNumber: "4",
+      });
 
       for (const proof of vector.proofs) {
         const index = BigInt(proof.index);
@@ -115,6 +136,24 @@ describe("frozen indexed Merkle vectors", () => {
       }
       expect(roots).toEqual(vector.rootHistoryBytes.slice(1).map(hexBytes));
       expect(tree.root()).toEqual(hexBytes(vector.rootBytes));
+
+      const custom = new IndexedMerkleTree(Number(fixture.inputs.height), hasher, {
+        highestValue: hexBytes(vector.customSentinel.sentinelBytes),
+      });
+      custom.insert(decimalBytes("30"));
+      const customProof = custom.nonInclusionProof(hexBytes(vector.customSentinel.valueBytes));
+      expect(customProof.root).toEqual(hexBytes(vector.customSentinel.rootBytes));
+      expect(customProof.leafHigherRangeValue).toEqual(
+        hexBytes(vector.customSentinel.higherValueBytes),
+      );
+      expect(customProof.merkleProof).toEqual(vector.customSentinel.proofBytes.map(hexBytes));
+      expect(custom.verifyNonInclusionProof(customProof)).toBe(true);
+      expect(vector.customSentinel.appendAtSentinel).toBe("Ok(())");
+      expect(vector.errors).toMatchObject({
+        shortPath: "Reference(InvalidProofLength(3, 4))",
+        wrongPath: "NonInclusionProofFailed",
+        wrongRoot: "NonInclusionProofFailed",
+      });
 
       for (const element of vector.elements) {
         expect(hasher.hash(decimalBytes(element.value), decimalBytes(element.nextValue))).toEqual(
@@ -150,7 +189,7 @@ describe("frozen indexed Merkle vectors", () => {
             proof.merkleProof,
           ),
         ).toEqual(proof.root);
-        expect(verifyNonInclusionProof(hasher, proof)).toBe(true);
+        expect(tree.verifyNonInclusionProof(proof)).toBe(true);
       }
 
       expect(vector.orderedValues.map(decimalBytes)).toEqual([

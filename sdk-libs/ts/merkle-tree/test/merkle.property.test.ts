@@ -1,7 +1,6 @@
 import fc from "fast-check";
 import { expect, it } from "vitest";
 
-import { verifyNonInclusionProof } from "../src/indexed.js";
 import { IndexedMerkleTree, MerkleTree } from "../src/index.js";
 import { leaf, modelHasher, modelRoot, verifyPath } from "./helpers.js";
 
@@ -56,7 +55,35 @@ it("returns generated indexed neighbors in sorted order", () => {
             proof.merkleProof,
           ),
         ).toEqual(tree.root());
-        expect(verifyNonInclusionProof(modelHasher, proof)).toBe(true);
+        expect(tree.verifyNonInclusionProof(proof)).toBe(true);
+      },
+    ),
+  );
+});
+
+it("keeps generated custom-sentinel proofs inside the configured range", () => {
+  fc.assert(
+    fc.property(
+      fc.integer({ min: 3, max: 250 }),
+      fc.integer({ min: 1, max: 249 }),
+      (sentinel, query) => {
+        fc.pre(query < sentinel);
+        const tree = new IndexedMerkleTree(3, modelHasher, {
+          highestValue: leaf(sentinel),
+        });
+        const proof = tree.nonInclusionProof(leaf(query));
+        expect(proof.leafLowerRangeValue).toEqual(leaf(0));
+        expect(proof.leafHigherRangeValue).toEqual(leaf(sentinel));
+        expect(tree.verifyNonInclusionProof(proof)).toBe(true);
+
+        const tampered = proof.merkleProof.map((node) => node.slice());
+        tampered[0]?.fill(255);
+        expect(() =>
+          tree.verifyNonInclusionProof({
+            ...proof,
+            merkleProof: tampered,
+          }),
+        ).toThrow(expect.objectContaining({ code: "INDEXED_MERKLE_TREE_INVALID_PROOF" }));
       },
     ),
   );

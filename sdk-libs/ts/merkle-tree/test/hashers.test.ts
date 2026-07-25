@@ -27,5 +27,5 @@ it("rejects non-canonical Poseidon values without changing tree state", () => {
     expect.objectContaining({ code: "MERKLE_TREE_HASH" }),
   );
   expect(tree.root()).toEqual(root);
-  expect(() => tree.proof(0n)).toThrow(expect.objectContaining({ code: "MERKLE_TREE_INDEX" }));
+  expect(tree.proof(0n)).toHaveLength(2);
 });

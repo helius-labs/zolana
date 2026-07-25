@@ -6,7 +6,7 @@ import { keccak_256 } from "@noble/hashes/sha3.js";
 import { bigintToBytes, bytes32, type Bytes32 } from "./bytes.js";
 import type { Hasher32 } from "./merkle-tree.js";
 
-interface HasherAdapter extends Hasher32 {
+export interface Hasher32WithBytes extends Hasher32 {
   hashBytes(value: Bytes32): Bytes32;
 }
 
@@ -43,7 +43,7 @@ function bytesToField(value: Bytes32): bigint {
   return result;
 }
 
-function createDigestAdapter(digest: typeof sha256 | typeof keccak_256): HasherAdapter {
+function createDigestAdapter(digest: typeof sha256 | typeof keccak_256): Hasher32WithBytes {
   return {
     hash(left, right) {
       const state = digest.create();
@@ -60,7 +60,7 @@ function createDigestAdapter(digest: typeof sha256 | typeof keccak_256): HasherA
 const poseidonOne = createPoseidon(1);
 const poseidonTwo = createPoseidon(2);
 
-export const poseidonHasher: HasherAdapter = {
+export const poseidonHasher: Hasher32WithBytes = {
   hash(left, right) {
     return poseidonTwo([bytes32(left, "left"), bytes32(right, "right")]);
   },
