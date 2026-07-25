@@ -1,14 +1,25 @@
-import { ClientError, type Rpc, type ZolanaIndexer } from "@zolana/client";
+import {
+  ClientError,
+  DEFAULT_INDEXER_POLL_CONFIG,
+  type IndexerPollConfig,
+  type IndexerRpcConfig,
+  type Rpc,
+  type ZolanaIndexer,
+} from "@zolana/client";
 import { SHIELDED_POOL_PROGRAM_ID, decodeSplAssetRegistry } from "@zolana/interface";
 import type { Bytes32, RequestContext } from "@zolana/interface";
+import type { P256PublicKey, ViewingKey } from "@zolana/keypair";
 import {
+  EncryptedScheme,
   decryptTransactions,
   type AssetBalance,
   type PrivateTransaction,
   type SyncReport,
   type Wallet,
+  type WalletSyncMaterial,
 } from "@zolana/transaction";
 import type { IndexedShieldedTransaction } from "@zolana/transaction/instructions";
+import { decodeOutputData } from "@zolana/transaction/serialization";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
@@ -20,7 +31,29 @@ export interface SyncWalletConfig {
   readonly pageLimit?: number;
   readonly rounds?: number;
   readonly waitForIndexer?: boolean;
+  readonly retry?: IndexerPollConfig;
 }
+
+export interface CounterpartyCounter {
+  readonly counterparty: P256PublicKey;
+  readonly count: bigint;
+}
+
+/**
+ * Per-viewing-key counters that extend the queried tag ranges past the scan
+ * window. Owned by the wallet state in `@zolana/transaction`; sync degrades to
+ * the bare window while that state is absent.
+ */
+export interface ViewingKeyCounters {
+  readonly viewingPublicKey: P256PublicKey;
+  readonly txCount: bigint;
+  readonly requestCount: bigint;
+  readonly knownSenders: readonly CounterpartyCounter[];
+  readonly knownRecipients: readonly CounterpartyCounter[];
+}
+
+type WalletWithViewingKeyHistory = Wallet &
+  Readonly<{ viewingKeyHistory?: readonly ViewingKeyCounters[] }>;
 
 export async function backfillAssetRegistry(
   wallet: Wallet,
@@ -51,13 +84,172 @@ export async function backfillAssetRegistry(
   return inserted;
 }
 
-function positiveInteger(value: number, field: string, maximum: number): number {
-  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
-    throw new WalletError("WALLET_INVALID_SYNC_CONFIG", {
-      details: { field, value, maximum },
-    });
+function atLeastOne(value: number, field: string): number {
+  if (!Number.isSafeInteger(value)) {
+    throw new WalletError("WALLET_INVALID_SYNC_CONFIG", { details: { field, value } });
   }
-  return value;
+  return Math.max(value, 1);
+}
+
+function viewingKeyCounters(wallet: Wallet, key: ViewingKey): ViewingKeyCounters | undefined {
+  const history = (wallet as WalletWithViewingKeyHistory).viewingKeyHistory;
+  if (history === undefined) return undefined;
+  const publicKey = bytesKey(key.publicKey().toBytes());
+  return history.find((entry) => bytesKey(entry.viewingPublicKey.toBytes()) === publicKey);
+}
+
+/**
+ * Every tag the wallet must ask the indexer about. Counters extend each family
+ * past the window because a counterparty may have advanced its own counter
+ * further than this wallet has scanned; the two shared families are the only
+ * way notes from a known sender or to a known recipient surface at all.
+ */
+function walletQueryTags(
+  wallet: Wallet,
+  material: WalletSyncMaterial,
+  window: bigint,
+): readonly Bytes32[] {
+  const tags = new Map<string, Bytes32>();
+  const add = (tag: Bytes32): void => {
+    tags.set(bytesKey(tag), tag);
+  };
+  add(material.identity.signingPublicKey.confidentialViewTag());
+  for (const key of material.viewingKeys) {
+    const counters = viewingKeyCounters(wallet, key);
+    add(key.recipientBootstrapViewTag());
+    for (let n = 0n; n < (counters?.txCount ?? 0n) + window; n++) add(key.senderViewTag(n));
+    for (let n = 0n; n < (counters?.requestCount ?? 0n) + window; n++) {
+      add(key.recipientRequestViewTag(n));
+    }
+    for (const sender of counters?.knownSenders ?? []) {
+      for (let n = 0n; n < sender.count + window; n++) {
+        add(key.recipientSharedViewTag(sender.counterparty, n));
+      }
+    }
+    for (const recipient of counters?.knownRecipients ?? []) {
+      for (let n = 0n; n < recipient.count + window; n++) {
+        add(key.sendSharedViewTag(recipient.counterparty, n));
+      }
+    }
+  }
+  return [...tags.values()];
+}
+
+function hasMergeCiphertext(transaction: IndexedShieldedTransaction): boolean {
+  return transaction.outputSlots.some((slot) => {
+    try {
+      return decodeOutputData(slot.payload).scheme === EncryptedScheme.merge;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function isProoflessPayload(payload: Uint8Array): boolean {
+  try {
+    return decodeOutputData(payload).scheme === EncryptedScheme.proofless;
+  } catch {
+    return false;
+  }
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function compareBySlotThenSignature(
+  left: IndexedShieldedTransaction,
+  right: IndexedShieldedTransaction,
+): number {
+  if (left.slot !== right.slot) return left.slot < right.slot ? -1 : 1;
+  return compareStrings(left.txSignature, right.txSignature);
+}
+
+/**
+ * Deposits are ordered by their leaf position first so that replaying a sync
+ * inserts them in tree order regardless of which page surfaced them.
+ */
+function compareDeposits(
+  left: IndexedShieldedTransaction,
+  right: IndexedShieldedTransaction,
+): number {
+  const leftSlot = left.outputSlots[0]?.outputContext;
+  const rightSlot = right.outputSlots[0]?.outputContext;
+  if (leftSlot === undefined || rightSlot === undefined) {
+    return Number(rightSlot !== undefined) - Number(leftSlot !== undefined);
+  }
+  const tree = compareStrings(leftSlot.tree, rightSlot.tree);
+  if (tree !== 0) return tree;
+  if (leftSlot.leafIndex !== rightSlot.leafIndex) {
+    return leftSlot.leafIndex < rightSlot.leafIndex ? -1 : 1;
+  }
+  return compareBySlotThenSignature(left, right);
+}
+
+interface CollectInput {
+  readonly indexer: ZolanaIndexer;
+  readonly chunk: readonly Bytes32[];
+  readonly pageLimit: number;
+  readonly rpcConfig: IndexerRpcConfig;
+  readonly out: Map<string, IndexedShieldedTransaction>;
+}
+
+async function collectShieldedTransactions(
+  input: CollectInput,
+  context?: RequestContext,
+): Promise<void> {
+  let cursor: Uint8Array | undefined;
+  do {
+    const response = await input.indexer.getShieldedTransactionsByTags(
+      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
+      input.rpcConfig,
+      context,
+    );
+    for (const transaction of response.transactions) {
+      // Photon can surface a proofless deposit here before flagging it. Those
+      // are collected from the encrypted-utxo endpoint instead, so taking them
+      // twice would store the same note under two keys.
+      const undecryptable =
+        (transaction.txViewingPublicKey === undefined || transaction.salt === undefined) &&
+        !hasMergeCiphertext(transaction);
+      if (transaction.proofless || undecryptable) continue;
+      const key = transaction.txSignature;
+      if (!input.out.has(key)) input.out.set(key, transaction);
+    }
+    cursor = response.nextCursor;
+  } while (cursor !== undefined);
+}
+
+async function collectProoflessDeposits(
+  input: CollectInput,
+  context?: RequestContext,
+): Promise<void> {
+  let cursor: Uint8Array | undefined;
+  do {
+    const response = await input.indexer.getEncryptedUtxosByTags(
+      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
+      input.rpcConfig,
+      context,
+    );
+    for (const match of response.matches) {
+      if (match.txViewingPk !== undefined || match.salt !== undefined) continue;
+      const key = `${match.txSignature}:${String(match.outputSlot.outputContext.leafIndex)}`;
+      if (input.out.has(key)) continue;
+      if (!isProoflessPayload(match.outputSlot.payload)) continue;
+      input.out.set(
+        key,
+        Object.freeze({
+          slot: match.slot,
+          txSignature: match.txSignature,
+          outputSlots: Object.freeze([match.outputSlot]),
+          messages: Object.freeze([]),
+          nullifiers: Object.freeze([]),
+          proofless: true,
+        }),
+      );
+    }
+    cursor = response.nextCursor;
+  } while (cursor !== undefined);
 }
 
 export async function syncWallet(
@@ -72,100 +264,66 @@ export async function syncWallet(
 ): Promise<SyncReport> {
   try {
     const tagWindow = input.config?.tagWindow ?? 64n;
-    if (tagWindow <= 0n || tagWindow > 10_000n) {
+    if (tagWindow <= 0n) {
       throw new WalletError("WALLET_INVALID_SYNC_CONFIG", {
         details: { field: "tagWindow", value: tagWindow.toString() },
       });
     }
-    const chunkSize = positiveInteger(input.config?.tagQueryChunk ?? 64, "tagQueryChunk", 1_000);
-    const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
-    const rounds = positiveInteger(input.config?.rounds ?? 6, "rounds", 100);
+    const chunkSize = atLeastOne(input.config?.tagQueryChunk ?? 64, "tagQueryChunk");
+    const pageLimit = atLeastOne(input.config?.pageLimit ?? 1_000, "pageLimit");
+    const rounds = atLeastOne(input.config?.rounds ?? 6, "rounds");
+    const poll = input.config?.retry ?? DEFAULT_INDEXER_POLL_CONFIG;
+    const rpcConfig: IndexerRpcConfig = Object.freeze({
+      waitForIndexer: input.config?.waitForIndexer ?? false,
+      poll: Object.freeze({ ...poll, numRetries: Math.max(poll.numRetries, 1) }),
+    });
     const material = await input.authority.syncMaterial();
-    const tags = new Map<string, Bytes32>();
-    const add = (tag: Bytes32): void => {
-      tags.set(bytesKey(tag), tag);
-    };
-    add(material.identity.signingPublicKey.confidentialViewTag());
-    for (const key of material.viewingKeys) {
-      add(key.recipientBootstrapViewTag());
-      for (let count = 0n; count < tagWindow; count++) {
-        add(key.senderViewTag(count));
-        add(key.recipientRequestViewTag(count));
-      }
-    }
-    const allTags = [...tags.values()];
-    const collected = new Map<string, IndexedShieldedTransaction>();
-    for (let round = 0; round < rounds; round++) {
-      const before = collected.size;
-      for (let offset = 0; offset < allTags.length; offset += chunkSize) {
-        const chunk = allTags.slice(offset, offset + chunkSize);
-        let cursor: Uint8Array | undefined;
-        do {
-          const request = {
-            tags: chunk,
-            limit: pageLimit,
-            ...(cursor === undefined ? {} : { cursor }),
-          };
-          const response = await input.indexer.getShieldedTransactionsByTags(
-            request,
-            undefined,
-            context,
-          );
-          for (const transaction of response.transactions) {
-            const key = `${transaction.txSignature}:${transaction.outputSlots
-              .map((slot) => bytesKey(slot.outputContext.hash))
-              .join(",")}`;
-            collected.set(key, transaction);
-          }
-          cursor = response.nextCursor;
-        } while (cursor !== undefined);
+    const transactions = new Map<string, IndexedShieldedTransaction>();
+    const deposits = new Map<string, IndexedShieldedTransaction>();
+    let report: SyncReport;
+    let ordered: readonly IndexedShieldedTransaction[] = [];
+    let round = 0;
 
-        cursor = undefined;
-        do {
-          const request = {
-            tags: chunk,
-            limit: pageLimit,
-            ...(cursor === undefined ? {} : { cursor }),
-          };
-          const response = await input.indexer.getEncryptedUtxosByTags(request, undefined, context);
-          for (const match of response.matches) {
-            const synthetic: IndexedShieldedTransaction = Object.freeze({
-              slot: match.slot,
-              txSignature: match.txSignature,
-              ...(match.txViewingPk === undefined ? {} : { txViewingPublicKey: match.txViewingPk }),
-              ...(match.salt === undefined ? {} : { salt: match.salt }),
-              outputSlots: Object.freeze([match.outputSlot]),
-              messages: Object.freeze([]),
-              nullifiers: Object.freeze([]),
-              proofless: true,
-            });
-            const output = synthetic.outputSlots[0];
-            if (output === undefined) {
-              throw new WalletError("WALLET_INVALID_INDEXER_RESPONSE");
-            }
-            collected.set(
-              `${synthetic.txSignature}:${bytesKey(output.outputContext.hash)}`,
-              synthetic,
-            );
-          }
-          cursor = response.nextCursor;
-        } while (cursor !== undefined);
+    do {
+      const before = [transactions.size, deposits.size] as const;
+      // Rebuilt every round: notes stored by the previous round advance the
+      // wallet's counters, which widens the tag ranges queried next.
+      const tags = walletQueryTags(input.wallet, material, tagWindow);
+      for (let offset = 0; offset < tags.length; offset += chunkSize) {
+        const chunk = tags.slice(offset, offset + chunkSize);
+        await collectShieldedTransactions(
+          { indexer: input.indexer, chunk, pageLimit, rpcConfig, out: transactions },
+          context,
+        );
+        await collectProoflessDeposits(
+          { indexer: input.indexer, chunk, pageLimit, rpcConfig, out: deposits },
+          context,
+        );
       }
-      if (collected.size === before) break;
-      if (input.config?.waitForIndexer !== true) continue;
-    }
-    const decryptInput = {
-      wallet: input.wallet,
-      authority: input.authority,
-      transactions: [...collected.values()],
-      config: { tagWindow },
-    } as const;
-    let report = await decryptTransactions(decryptInput);
+
+      ordered = [
+        ...[...transactions.values()].sort(compareBySlotThenSignature),
+        ...[...deposits.values()].sort(compareDeposits),
+      ];
+      report = await decryptTransactions({
+        wallet: input.wallet,
+        authority: input.authority,
+        transactions: ordered,
+        config: { tagWindow },
+      });
+      round++;
+      if (before[0] === transactions.size && before[1] === deposits.size) break;
+    } while (round < rounds);
     if (report.unknownAssetIds.length === 0 || input.registryRpc === undefined) return report;
 
     const inserted = await backfillAssetRegistry(input.wallet, input.registryRpc, context);
-    if (inserted > 0) report = await decryptTransactions(decryptInput);
-    return report;
+    if (inserted === 0) return report;
+    return await decryptTransactions({
+      wallet: input.wallet,
+      authority: input.authority,
+      transactions: ordered,
+      config: { tagWindow },
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_SYNC", cause);
   }

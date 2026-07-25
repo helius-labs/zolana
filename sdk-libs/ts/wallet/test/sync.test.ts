@@ -2,12 +2,13 @@ import type { ZolanaIndexer } from "@zolana/client";
 import { SHIELDED_POOL_PROGRAM_ID, type Address, type Bytes32 } from "@zolana/interface";
 import { splAssetRegistryAccountCodec } from "@zolana/interface/codecs";
 import { randomBlinding, ShieldedKeypair } from "@zolana/keypair";
-import { AssetRegistry, Data, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
+import { AssetRegistry, Data, EncryptedScheme, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
+import { encodeOutputData, encodeProofless } from "@zolana/transaction/serialization";
 import { describe, expect, it, vi } from "vitest";
 
 import { LocalWalletAuthority, WalletError, syncWallet } from "../src/index.js";
-import { backfillAssetRegistry } from "../src/sync.js";
-import { walletFixture } from "./helpers/fixtures.js";
+import { backfillAssetRegistry, type ViewingKeyCounters } from "../src/sync.js";
+import { hex, walletFixture } from "./helpers/fixtures.js";
 
 const OWNER = "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi" as Address;
 const TREE = "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR" as Address;
@@ -16,6 +17,7 @@ const bytes32 = (value: number): Bytes32 => new Uint8Array(32).fill(value) as By
 function state(): Readonly<{
   wallet: Wallet;
   authority: LocalWalletAuthority;
+  keypair: ShieldedKeypair;
 }> {
   const keypair = ShieldedKeypair.generate();
   const wallet = new Wallet({
@@ -41,6 +43,47 @@ function state(): Readonly<{
   return {
     wallet,
     authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+    keypair,
+  };
+}
+
+const DEPOSIT_AMOUNT = 21n;
+
+function depositMatch(
+  keypair: ShieldedKeypair,
+  viewTag: Bytes32,
+): Readonly<{
+  slot: bigint;
+  txSignature: string;
+  outputSlot: {
+    viewTag: Bytes32;
+    outputContext: { hash: Bytes32; tree: Address; leafIndex: bigint };
+    payload: Uint8Array;
+  };
+}> {
+  const blinding = randomBlinding();
+  const utxo = new Utxo({
+    owner: keypair.signingPublicKey(),
+    asset: SOL_MINT,
+    amount: DEPOSIT_AMOUNT,
+    blinding,
+    data: new Data(),
+  });
+  return {
+    slot: 5n,
+    txSignature: "3QnHBSdd4LEV3B9vCPgqmMKtaLQupsnEsBz3JqnHhBWQ",
+    outputSlot: {
+      viewTag,
+      outputContext: {
+        hash: utxo.hash(keypair.nullifierKey().publicKey()),
+        tree: TREE,
+        leafIndex: 7n,
+      },
+      payload: encodeOutputData(
+        EncryptedScheme.proofless,
+        encodeProofless({ owner: bytes32(0), blinding, asset: SOL_MINT, amount: DEPOSIT_AMOUNT }),
+      ),
+    },
   };
 }
 
@@ -129,27 +172,12 @@ describe("wallet sync", () => {
     const { wallet, authority } = state();
     const before = wallet.utxos();
     const timeout = new Error(fixture.expected.indexerOutcomes.timeout.code);
-    let round = 0;
+    let chunk = 0;
     const indexer = {
       getShieldedTransactionsByTags: () => {
-        round++;
-        if (round > 4) return Promise.reject(timeout);
-        return Promise.resolve({
-          context: { blockTime: 0n },
-          transactions:
-            round === 1
-              ? [
-                  {
-                    slot: 1n,
-                    txSignature: "indexed-first-round",
-                    outputSlots: [],
-                    messages: [],
-                    nullifiers: [],
-                    proofless: false,
-                  },
-                ]
-              : [],
-        });
+        chunk++;
+        if (chunk > 2) return Promise.reject(timeout);
+        return Promise.resolve({ context: { blockTime: 0n }, transactions: [] });
       },
       getEncryptedUtxosByTags: () => Promise.resolve({ context: { blockTime: 0n }, matches: [] }),
     } as unknown as ZolanaIndexer;
@@ -170,5 +198,83 @@ describe("wallet sync", () => {
       syncWallet({ wallet, authority, indexer: aborting }, { signal: controller.signal }),
     ).rejects.toBeInstanceOf(WalletError);
     expect(wallet.utxos()).toEqual(before);
+  });
+
+  it("queries both shared tag families past the counter offsets", async () => {
+    const window = 2n;
+    for (const family of ["recipientShared", "sendShared"] as const) {
+      const { wallet, authority, keypair } = state();
+      const viewingKey = keypair.viewingKey();
+      const counterparty = ShieldedKeypair.generate().viewingKey().publicKey();
+      const counters: ViewingKeyCounters = {
+        viewingPublicKey: viewingKey.publicKey(),
+        txCount: 3n,
+        requestCount: 1n,
+        knownSenders: [{ counterparty, count: 1n }],
+        knownRecipients: [{ counterparty, count: 1n }],
+      };
+      Object.assign(wallet, { viewingKeyHistory: [counters] });
+      const target =
+        family === "recipientShared"
+          ? viewingKey.recipientSharedViewTag(counterparty, 1n)
+          : viewingKey.sendSharedViewTag(counterparty, 1n);
+      const deposit = depositMatch(keypair, target);
+      const requested = new Set<string>();
+      const indexer = {
+        getShieldedTransactionsByTags: () =>
+          Promise.resolve({ context: { blockTime: 0n }, transactions: [] }),
+        getEncryptedUtxosByTags: (request: Readonly<{ tags: readonly Bytes32[] }>) => {
+          for (const tag of request.tags) requested.add(hex(tag));
+          const matched = request.tags.some((tag) => hex(tag) === hex(target));
+          return Promise.resolve({
+            context: { blockTime: 0n },
+            matches: matched ? [deposit] : [],
+          });
+        },
+      } as unknown as ZolanaIndexer;
+
+      await syncWallet({
+        wallet,
+        authority,
+        indexer,
+        config: { tagWindow: window, tagQueryChunk: 1 },
+      });
+
+      expect(requested.has(hex(target))).toBe(true);
+      // The last index each counter reaches sits beyond the bare window, so it
+      // is only queried when the counter offsets the range.
+      expect(requested.has(hex(viewingKey.senderViewTag(counters.txCount + window - 1n)))).toBe(
+        true,
+      );
+      expect(
+        requested.has(hex(viewingKey.recipientRequestViewTag(counters.requestCount + window - 1n))),
+      ).toBe(true);
+      expect(wallet.utxos()).toHaveLength(3);
+      expect(wallet.balance(SOL_MINT)?.amount).toBe(40n + DEPOSIT_AMOUNT);
+    }
+  });
+
+  it("forwards the indexer poll configuration", async () => {
+    const { wallet, authority } = state();
+    const retry = { numRetries: 3, delayMs: 5n, maxDelayMs: 9n };
+    const getShieldedTransactionsByTags = vi.fn(() =>
+      Promise.resolve({ context: { blockTime: 0n }, transactions: [] }),
+    );
+    const indexer = {
+      getShieldedTransactionsByTags,
+      getEncryptedUtxosByTags: () => Promise.resolve({ context: { blockTime: 0n }, matches: [] }),
+    } as unknown as ZolanaIndexer;
+
+    await syncWallet({
+      wallet,
+      authority,
+      indexer,
+      config: { tagWindow: 1n, waitForIndexer: true, retry },
+    });
+
+    expect(getShieldedTransactionsByTags.mock.calls[0]?.[1]).toEqual({
+      waitForIndexer: true,
+      poll: retry,
+    });
   });
 });
