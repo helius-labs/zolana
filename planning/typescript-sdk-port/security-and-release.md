@@ -91,11 +91,13 @@ custodian that exposes a signing operation alone cannot satisfy either
 interface. No non-software implementation has been built against them
 ([G6-3](production-readiness-issues.md#g6-3-the-custody-abstraction-may-be-too-narrow-for-a-hardware-signer-medium)).
 
-The release records whether a signing-only custodian is a supported
-configuration. When it is,
+Ruled: a signing-only custodian is not a supported configuration. A custodian
+holds nullifier and viewing key material, and a signer that offers a signing
+operation and nothing else is outside the seam rather than a case the seam
+should widen to admit. `shielded.ts` states the requirement at both interface
+definitions so an integrator meets it before writing an implementation.
 [PKP-04](proof-and-key-parity.md#pkp-04-enforce-capability-and-secret-boundaries)
-K9 builds the second implementation that proves the seam holds. When it is not,
-the interfaces document the key material an external custodian must hold.
+K9 keeps its conformance adapters, and each one holds that key material.
 
 Circuit private inputs sent to a configured remote prover are an explicit trust
 boundary. The threat model states exactly which witness values the prover sees.

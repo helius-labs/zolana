@@ -74,12 +74,20 @@ export interface P256Signature {
   readonly s: Bytes32;
 }
 
+/**
+ * An implementer must hold nullifier-key material. A custodian that exposes a
+ * signing operation alone is not a supported configuration.
+ */
 export interface ShieldedKeypairLike {
   shieldedAddress(): ShieldedAddress;
   sign(message: Uint8Array): Bytes64 | Promise<Bytes64>;
   nullifier(utxoHash: Bytes32, blinding: Bytes31): Bytes32 | Promise<Bytes32>;
 }
 
+/**
+ * An implementer must hold viewing-key material. A custodian that exposes a
+ * signing operation alone is not a supported configuration.
+ */
 export interface ViewingKeyLike {
   publicKey(): P256PublicKey;
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey | Promise<ViewingKey>;
