@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `c602f945a8784c5e5f9ebfcf4000c54e736bb006`
+- Review HEAD: `ab60bc541488b6c3e6972684d4d0305a9bfccb87`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `33 done / 118 total`; `53 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `T29 sdk-libs/transaction/src/instructions/zone_authority.rs`
+- Progress: `33 done / 118 total`; `54 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `T30 sdk-libs/transaction/src/instructions/mod.rs`
 - Active reviews: `none`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
@@ -247,7 +247,7 @@ Columns:
 | T26 | `sdk-libs/transaction/src/instructions/transact/mod.rs` | `transaction/src/transact/index.ts` | needs_fix | DIVERGENT | proposed | Rust exposes seven modules and 29 flattened symbols, while TypeScript offers a narrowed, orphaned surface with no transact subpath, incomplete capabilities, and no exact root, instructions, declaration, tarball, or packed-consumer aggregate evidence. The aggregate inherits T19-T25 defects without taking their ownership. | 2026-07-25 review | - |
 | T27 | `sdk-libs/transaction/src/instructions/merge.rs` | `transaction/src/instructions/builders.ts` | needs_fix | DIVERGENT | proposed | TypeScript uses the wrong nullifier authority, reports zone failures under the wrong error category, and does not reproduce `PreparedMerge` revalidation. Expiry handling, constants, public API, secret boundaries, and exact current-Rust evidence are also incomplete. Require the Rust-equivalent nullifier capability, align zone errors and revalidation, expose the canonical expiry and constants, and add exact, stale, malformed, capability, and secret-exposure fixtures. | 2026-07-25 review | - |
 | T28 | `sdk-libs/transaction/src/instructions/merge_zone.rs` | `transaction/src/instructions/builders.ts` | needs_fix | DIVERGENT | proposed | The TypeScript builder, prepared flow, and proof flow exist, but reject Rust-accepted `ZoneData` and `Memo`, omit expiry configuration, do not revalidate prepared zone consistency, and alias or defer zone-hash and address validation. Add the accepted payloads, configurable expiry, finalization revalidation, canonical validation, and boundary, property, tamper, browser, pack, and live merge-zone evidence while preserving T09 serialization and T27 merge ownership. | 2026-07-25 review | - |
-| T29 | `sdk-libs/transaction/src/instructions/zone_authority.rs` | `transaction/src/instructions/builders.ts` | todo | - | none | - | - | - |
+| T29 | `sdk-libs/transaction/src/instructions/zone_authority.rs` | `transaction/src/instructions/builders.ts` | needs_fix | DIVERGENT | proposed | TypeScript omits `ExternalData`, shape and field-encoded public asset, and proof/finalization flow; changes optional-zone and public-amount semantics; uses noncanonical merge errors; aliases mutable inputs; and lacks direct fixture, malformed, tamper, browser, declaration, pack, and E2E evidence. First make Rust enforce canonical constructor and private invariants, a required nonzero zone, shape and tail padding, derived amounts and payer hash, and spec-required rejection of zone-authority withdrawals; then align TypeScript and add the missing evidence. | 2026-07-25 review | - |
 | T30 | `sdk-libs/transaction/src/instructions/mod.rs` | `transaction/src/instructions/index.ts` | todo | - | none | - | - | - |
 | T31 | `sdk-libs/transaction/src/lib.rs` | `transaction/src/index.ts` | todo | - | none | - | - | - |
 
@@ -1552,3 +1552,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `33/118`; package `0/31`
 - Exact next file: `T29 sdk-libs/transaction/src/instructions/zone_authority.rs`
 - Full SDK parity claim: unsupported; merge-zone payload, expiry, prepared-state validation, canonical zone validation, and evidence diverge
+
+### 2026-07-25 12:58 UTC | T29 | `sdk-libs/transaction/src/instructions/zone_authority.rs`
+
+- Baseline: HEAD `ab60bc541488b6c3e6972684d4d0305a9bfccb87`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module owns zone-authority transaction construction, proof finalization, and instruction assembly.
+- Evidence: TypeScript omits `ExternalData`, shape and field-encoded public asset, and proof/finalization flow; changes optional-zone and public-amount semantics; uses noncanonical merge errors; aliases mutable inputs; and lacks direct fixture, malformed, tamper, browser, declaration, pack, and E2E evidence.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: First make Rust enforce canonical constructor and private invariants, a required nonzero zone, shape and tail padding, derived amounts and payer hash, and spec-required rejection of zone-authority withdrawals. Then align TypeScript semantics, errors, ownership, proof/finalization flow, and evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `33/118`; package `0/31`
+- Exact next file: `T30 sdk-libs/transaction/src/instructions/mod.rs`
+- Full SDK parity claim: unsupported; zone-authority construction, invariants, proof/finalization, semantics, errors, ownership, and evidence diverge
