@@ -919,5 +919,61 @@ consumer in that language. Light Protocol reached the same conclusion for the sa
 only the decode half of tree maintenance.
 
 Deferral would not have saved work, only moved it. PKP-05 already listed the zone inputs as
-deliverables, so the same code was always going to be written; the only question was whether it
+deliverables, so the same code had to be written either way; the only question was whether it
 would be written while the parity harness was warm or months later against a colder tree.
+
+### The forester instruction builder on the TypeScript public surface
+
+| Field | Value |
+| --- | --- |
+| Conflict | `interface/src/instructions/index.ts:76` exports `batchUpdateNullifierTreeInstruction`, whose `BatchUpdateNullifierTreeData` requires a `compressedProof` that no TypeScript path can produce. |
+| Ruling | Withdraw the builder from the public surface. Do not port the address-append witness. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | Row C07, `row-updates/forester-and-poseidon-rulings.md` |
+
+This closes the half of C07 that did not survive checking. The row's `NOT_APPLICABLE` disposition
+rested on there being neither a caller nor a reader for the forester types in TypeScript. The caller
+half was right and the reader half was wrong, because we publish and test the final instruction of
+the pipeline while shipping none of the steps before it.
+
+WebAssembly does not offer a third way here, and it was considered. Light Protocol compiles its Rust
+Poseidon to WebAssembly, but for hashing only; proofs still come from a Go prover server over HTTP,
+as ours do. Producing an address-append proof needs witness generation and gnark proving, which is a
+different order of work from hashing, so the choice stays between porting the witness and dropping
+the builder.
+
+Withdrawal is a breaking change to `@zolana/interface`. That is acceptable under the standing ruling
+that pre-1.0 SDK crates with no users may break. Decoding stays: a TypeScript tool should still read
+a `batch_update_nullifier_tree` instruction it finds in a transaction, because reading it needs
+nothing we cannot do.
+
+### How TypeScript gets its Poseidon
+
+| Field | Value |
+| --- | --- |
+| Conflict | Five hand-written TypeScript Poseidon implementations, one of which carried a partial-round table for widths the verifier cannot reproduce. |
+| Ruling | Compile the Rust Poseidon to WebAssembly and have the TypeScript packages call it, as Light Protocol does. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `row-updates/forester-and-poseidon-rulings.md`, the `H` rows |
+
+The deciding fact is that the duplication is a defect generator rather than untidiness, and it has
+already fired. `client/src/internal.ts:26` listed partial-round counts for widths 14 through 17 when
+the syscall accepts at most twelve arguments, so a thirteen-input call returned a digest that no
+verifier can reproduce: a wrong answer wearing the shape of a right one. It was the copy with no
+parity suite, which is why it was the copy that was wrong. Parity suites now cover the five, but
+that arrangement asks five implementations to stay correct indefinitely, and the next helper
+duplicated across packages starts the same clock again.
+
+One compiled artifact removes the class rather than the instance. The costs are real and should be
+tracked: a WebAssembly build to produce, version, and publish; larger bundles; and more friction in
+some browser and edge runtimes. The browser and packaging gates are where those costs show up, so
+they are the gates that decide whether this lands.
+
+A second question falls out and should not be answered by reflex. Light's production SDK barely
+hashes, because its prover server and indexer supply what would otherwise need local hashing; its
+WebAssembly hasher sits in test helpers apart from one hash chain in `rpc.ts`. Ours hashes across
+five packages. Some of that difference is genuine, since we carry a P256 rail and zone transactions
+Light has no counterpart for. Some may be work sitting on the wrong side of a boundary. Worth
+measuring before assuming each current call site needs to be there.
