@@ -65,7 +65,7 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker commits. Last update: 2026-07-26 01:50.
+Refreshed as each worker commits. Last update: 2026-07-26 02:00.
 
 The figures below are checked mechanically rather than by eye. Run `node
 sdk-libs/ts/config/port-health.mjs` before trusting them: it reports whether the
@@ -81,7 +81,7 @@ when something needs attention.
 | Rows still unexamined | None, and the Status column no longer holds a `todo` entry |
 | Rows carrying an adverse verdict | 45: 27 `PARTIAL`, 17 `DIVERGENT`, 1 `STALE`. No row is `BLOCKED` |
 | Rows this branch cannot close | None. See [scope-and-denominator.md](scope-and-denominator.md) |
-| Branch | 439 commits vs `main`. 1722 unit tests pass; formatting, typecheck and lint are clean |
+| Branch | 452 commits vs `main`. 1808 unit tests pass; formatting, typecheck and lint are clean |
 | Phase | 2 of 4: remediation. Phases 3 and 4 not started |
 | Entry gate to phase 3 | Criteria 1 and 3 pass. Criterion 2 fails on the 45 adverse rows, criterion 4 on CI |
 | Reconciliation debt | Seven row updates have landed since the checklist last moved, so the 45 understates progress |

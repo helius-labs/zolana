@@ -5,8 +5,8 @@ exceeded today. A Zolana shielded transfer names three accounts at any supported
 proof shape, against a runtime ceiling of 128 account locks, so the account
 arithmetic has roughly forty times the headroom it needs. What fails is the
 1232-byte size cap: at the current ciphertext format, three of the ten
-supported shapes compile to transactions that cannot be sent, and the widest of
-them reaches 2108 bytes. Versioned transactions do not fix that. A lookup table
+supported shapes compile to transfers that cannot be sent, a fourth joins them
+as a withdrawal, and the widest reaches 2108 bytes. Versioned transactions do not fix that. A lookup table
 costs a shielded transfer 5 bytes and saves an SPL withdrawal 57, because a
 transfer has exactly one address a table is allowed to compress. The change that
 recovers the headroom is the already-specified ciphertext format, which brings
