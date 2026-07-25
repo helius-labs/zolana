@@ -19,6 +19,42 @@ that was reported as complete. Read
 [`row-updates/program-lib-scope-audit.md`](row-updates/program-lib-scope-audit.md)
 for the disposition of each hunk before adding to them.
 
+## Status
+
+Refreshed as each worker returns. Last update: 2026-07-25 19:47.
+
+| | |
+| --- | --- |
+| Rows supported by evidence | 1 of 145 |
+| Rows with an adverse verdict | 107 (55 partial, 39 divergent, 13 blocked) |
+| Rows with no verdict recorded | 27, in the `event`, `hasher`, `indexed-array`, and `user-registry-interface` crates |
+| Branch | 233 commits over two days |
+| Phase | 2 of 4: remediation. Phase 1 reopened, phases 3 and 4 not started |
+
+In flight:
+
+| Work | State |
+| --- | --- |
+| Client package, rows C01 to C22 | Running |
+| Poseidon parity across four TypeScript implementations | Running |
+| Checklist reconciliation, log split, 27 new rows | Running |
+| Registry deposit-tag leak in `ResolvedAddress` | Running |
+| `program-libs` scope audit and reverts | Running |
+| `user_record` binding fix, own branch off `main` | Running |
+
+Closed today: the deposit discovery tag moved to the signing pubkey in both
+languages; double spending confirmed prevented by execution on the five
+instructions that consume UTXOs, `Transact`, `ZoneTransact`,
+`ZoneAuthorityTransact`, `MergeTransact`, and `ZoneMergeTransact`; the
+zone-authority public leg permitted in both languages; the
+end-to-end harness given a real indexer; the wallet viewing-key history made
+live; five over-strict guards relaxed to match what the program accepts.
+
+Queued, not dispatched: the 27 uncovered `program-libs` rows, the five rows
+pointing at the wrong file, the residual Rust prerequisites, the Merkle
+semantics questions, the PR #158 rebase, the WebAssembly differential oracle,
+and then PKP-00 through PKP-08.
+
 ## Current baseline
 
 Current Rust claims and inventory rows use the selected `origin/main`
