@@ -18,39 +18,88 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "browser": "./dist/index.js",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "browser": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "import": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
+      "default": "./dist/es/index.js"
     },
     "./serialization": {
-      "types": "./dist/serialization/index.d.ts",
-      "browser": "./dist/serialization/index.js",
-      "import": "./dist/serialization/index.js",
-      "default": "./dist/serialization/index.js"
+      "browser": {
+        "types": "./dist/es/serialization/index.d.ts",
+        "default": "./dist/es/serialization/index.js"
+      },
+      "import": {
+        "types": "./dist/es/serialization/index.d.ts",
+        "default": "./dist/es/serialization/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/serialization/index.d.ts",
+        "default": "./dist/cjs/serialization/index.js"
+      },
+      "default": "./dist/es/serialization/index.js"
     },
     "./instructions": {
-      "types": "./dist/instructions/index.d.ts",
-      "browser": "./dist/instructions/index.js",
-      "import": "./dist/instructions/index.js",
-      "default": "./dist/instructions/index.js"
+      "browser": {
+        "types": "./dist/es/instructions/index.d.ts",
+        "default": "./dist/es/instructions/index.js"
+      },
+      "import": {
+        "types": "./dist/es/instructions/index.d.ts",
+        "default": "./dist/es/instructions/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/instructions/index.d.ts",
+        "default": "./dist/cjs/instructions/index.js"
+      },
+      "default": "./dist/es/instructions/index.js"
     },
     "./transact": {
-      "types": "./dist/transact/index.d.ts",
-      "browser": "./dist/transact/index.js",
-      "import": "./dist/transact/index.js",
-      "default": "./dist/transact/index.js"
+      "browser": {
+        "types": "./dist/es/transact/index.d.ts",
+        "default": "./dist/es/transact/index.js"
+      },
+      "import": {
+        "types": "./dist/es/transact/index.d.ts",
+        "default": "./dist/es/transact/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/transact/index.d.ts",
+        "default": "./dist/cjs/transact/index.js"
+      },
+      "default": "./dist/es/transact/index.js"
     },
     "./wallet": {
-      "types": "./dist/wallet/index.d.ts",
-      "browser": "./dist/wallet/index.js",
-      "import": "./dist/wallet/index.js",
-      "default": "./dist/wallet/index.js"
+      "browser": {
+        "types": "./dist/es/wallet/index.d.ts",
+        "default": "./dist/es/wallet/index.js"
+      },
+      "import": {
+        "types": "./dist/es/wallet/index.d.ts",
+        "default": "./dist/es/wallet/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/wallet/index.d.ts",
+        "default": "./dist/cjs/wallet/index.js"
+      },
+      "default": "./dist/es/wallet/index.js"
     }
   },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/es/index.js",
+  "types": "./dist/es/index.d.ts",
   "dependencies": {
     "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
+    "@zolana/hasher": "0.1.0",
     "@zolana/interface": "0.1.0",
     "@zolana/keypair": "0.1.0"
   },

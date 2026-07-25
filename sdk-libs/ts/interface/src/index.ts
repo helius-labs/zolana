@@ -1,3 +1,4 @@
+export { initializePoseidon, isPoseidonInitialized } from "@zolana/hasher";
 import { encodeBase58 } from "./internal.js";
 import { InterfaceError } from "./errors.js";
 import {

@@ -1,38 +1,20 @@
 import { bn254_Fr } from "@noble/curves/bn254.js";
-import { grainGenConstants, poseidon } from "@noble/curves/abstract/poseidon.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { poseidon } from "@zolana/hasher";
 
-import { bigintToBytes, bytes32, type Bytes32 } from "./bytes.js";
+import { bytes32, type Bytes32 } from "./bytes.js";
 import type { Hasher32 } from "./merkle-tree.js";
 
 export interface Hasher32WithBytes extends Hasher32 {
   hashBytes(value: Bytes32): Bytes32;
 }
 
-function createPoseidon(inputCount: 1 | 2): (inputs: readonly Bytes32[]) => Bytes32 {
-  const width = inputCount + 1;
-  const options = {
-    Fp: bn254_Fr,
-    t: width,
-    roundsFull: 8,
-    roundsPartial: inputCount === 1 ? 56 : 57,
-    sboxPower: 5,
-  };
-  const permutation = poseidon({ ...options, ...grainGenConstants(options) });
-
-  return function hash(inputs: readonly Bytes32[]): Bytes32 {
-    const values = inputs.map(bytesToField);
-    const output = permutation([0n, ...values])[0];
-    if (output === undefined) {
-      throw new Error("Poseidon permutation returned no output");
-    }
-    return bigintToBytes(output);
-  };
-}
-
-function bytesToField(value: Bytes32): bigint {
-  const checked = bytes32(value, "hashInput");
+// The tree checks the field bound itself rather than reading it off the
+// rejection: a leaf at or above the modulus is a caller error worth naming,
+// and the message is part of this package's surface.
+function checkedField(value: Bytes32, name: string): Bytes32 {
+  const checked = bytes32(value, name);
   let result = 0n;
   for (const byte of checked) {
     result = (result << 8n) | BigInt(byte);
@@ -40,7 +22,7 @@ function bytesToField(value: Bytes32): bigint {
   if (result >= bn254_Fr.ORDER) {
     throw new Error("Poseidon input exceeds the BN254 scalar field");
   }
-  return result;
+  return checked;
 }
 
 function createDigestAdapter(digest: typeof sha256 | typeof keccak_256): Hasher32WithBytes {
@@ -57,15 +39,12 @@ function createDigestAdapter(digest: typeof sha256 | typeof keccak_256): Hasher3
   };
 }
 
-const poseidonOne = createPoseidon(1);
-const poseidonTwo = createPoseidon(2);
-
 export const poseidonHasher: Hasher32WithBytes = {
   hash(left, right) {
-    return poseidonTwo([bytes32(left, "left"), bytes32(right, "right")]);
+    return poseidon([checkedField(left, "left"), checkedField(right, "right")]) as Bytes32;
   },
   hashBytes(value) {
-    return poseidonOne([bytes32(value, "value")]);
+    return poseidon([checkedField(value, "value")]) as Bytes32;
   },
 };
 

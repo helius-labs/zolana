@@ -152,6 +152,9 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   backoff: "IndexerPollConfig::backoff as a free function",
   compressProof: "ProofCompressed::try_from as a free function, since TypeScript has no TryFrom",
   createIndexerPollConfig: "validated IndexerPollConfig construction",
+  initializePoseidon:
+    "loads the compiled Poseidon, which Rust links rather than instantiates at runtime",
+  isPoseidonInitialized: "reports whether the compiled Poseidon has been loaded",
   createIndexerRpcConfig: "validated IndexerRpcConfig construction",
   isRetryable: "ClientError::retry_cause().is_some() as a predicate",
   pollUntil: "the retry loop Rust inlines into each caller",

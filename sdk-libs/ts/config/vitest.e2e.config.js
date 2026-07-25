@@ -1,5 +1,7 @@
 import { defineConfig } from "vitest/config";
 
+import { poseidonSetupFile } from "./setup-files.js";
+
 const DEFAULT_TIMEOUT_MS = 300_000;
 
 function timeoutFromEnvironment(name) {
@@ -23,6 +25,7 @@ export function defineE2eConfig(include) {
       hookTimeout: timeoutFromEnvironment("ZOLANA_E2E_HOOK_TIMEOUT_MS"),
       include: [include],
       pool: "forks",
+      setupFiles: [poseidonSetupFile],
       testTimeout: timeoutFromEnvironment("ZOLANA_E2E_TEST_TIMEOUT_MS"),
     },
   });

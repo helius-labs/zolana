@@ -1,9 +1,22 @@
+// Emits each package twice: `dist/es` from `tsc`, and `dist/cjs` transpiled
+// from it.
+//
+// The CommonJS half is not a second `tsc` invocation. `tsc` takes a file's
+// module format from the nearest `package.json`, which says `"type": "module"`
+// for the sources, so a CommonJS emit would mean either a second manifest
+// beside the sources or turning off `verbatimModuleSyntax`. Transpiling the
+// already-checked ESM output leaves the type checking arrangement untouched and
+// cannot disagree with it. The declarations are the same text in both trees; it
+// is the `package.json` written into each that tells TypeScript how to read
+// them.
 import { execFileSync } from "node:child_process";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { packageNames } from "./packages.mjs";
+import { build as esbuild } from "esbuild";
+
+import { packageNames, productionPackageNames } from "./packages.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const typescript = path.resolve(root, "../../node_modules/typescript/bin/tsc");
@@ -22,43 +35,99 @@ function outputStem(exportPath) {
   return exportPath === "." ? "index" : `${exportPath.slice(2)}/index`;
 }
 
-async function writeEmptyEntry(packageDirectory, exportPath) {
+async function writeFormatManifest(distDirectory, format) {
+  await mkdir(path.join(distDirectory, format), { recursive: true });
+  await writeFile(
+    path.join(distDirectory, format, "package.json"),
+    `${JSON.stringify({ type: format === "cjs" ? "commonjs" : "module" }, undefined, 2)}\n`,
+  );
+}
+
+async function writeEmptyEntry(distDirectory, format, exportPath) {
   const stem = outputStem(exportPath);
-  const destination = path.join(packageDirectory, "dist", stem);
+  const destination = path.join(distDirectory, format, stem);
+  const base = path.basename(stem);
   await mkdir(path.dirname(destination), { recursive: true });
   await writeFile(
     `${destination}.js`,
-    `export {};\n//# sourceMappingURL=${path.basename(stem)}.js.map\n`,
+    format === "cjs" ? '"use strict";\n' : `export {};\n//# sourceMappingURL=${base}.js.map\n`,
   );
-  await writeFile(
-    `${destination}.js.map`,
-    `${JSON.stringify({ version: 3, file: `${path.basename(stem)}.js`, sources: [], names: [], mappings: "" })}\n`,
-  );
+  if (format === "es") {
+    await writeFile(
+      `${destination}.js.map`,
+      `${JSON.stringify({ version: 3, file: `${base}.js`, sources: [], names: [], mappings: "" })}\n`,
+    );
+  }
   await writeFile(
     `${destination}.d.ts`,
-    `export {};\n//# sourceMappingURL=${path.basename(stem)}.d.ts.map\n`,
+    `export {};\n//# sourceMappingURL=${base}.d.ts.map\n`,
   );
   await writeFile(
     `${destination}.d.ts.map`,
-    `${JSON.stringify({ version: 3, file: `${path.basename(stem)}.d.ts`, sources: [], names: [], mappings: "" })}\n`,
+    `${JSON.stringify({ version: 3, file: `${base}.d.ts`, sources: [], names: [], mappings: "" })}\n`,
   );
+}
+
+async function transpileToCommonJs(distDirectory) {
+  const esDirectory = path.join(distDirectory, "es");
+  const cjsDirectory = path.join(distDirectory, "cjs");
+  const entries = await readdir(esDirectory, { recursive: true });
+
+  const modules = entries.filter((entry) => entry.endsWith(".js"));
+  if (modules.length > 0) {
+    await esbuild({
+      entryPoints: modules.map((entry) => path.join(esDirectory, entry)),
+      outdir: cjsDirectory,
+      // Each module is transpiled in place. Bundling would inline the workspace
+      // dependencies and give a consumer several copies of the artifact.
+      bundle: false,
+      format: "cjs",
+      platform: "neutral",
+      target: "es2022",
+      sourcemap: true,
+      logLevel: "warning",
+    });
+  }
+
+  // The same declarations, read as CommonJS because of the manifest beside
+  // them. Both trees sit two directories below the package root, so the source
+  // paths in the declaration maps stay correct.
+  for (const entry of entries.filter((name) => name.endsWith(".d.ts") || name.endsWith(".d.ts.map"))) {
+    const destination = path.join(cjsDirectory, entry);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await copyFile(path.join(esDirectory, entry), destination);
+  }
 }
 
 const selectedPackages = process.argv[2] ? [process.argv[2]] : packageNames;
 for (const packageName of selectedPackages) {
   if (!packageNames.includes(packageName)) throw new Error(`unknown package: ${packageName}`);
   const packageDirectory = path.join(root, packageName);
+  const distDirectory = path.join(packageDirectory, "dist");
   const manifest = JSON.parse(await readFile(path.join(packageDirectory, "package.json"), "utf8"));
-  await rm(path.join(packageDirectory, "dist"), { recursive: true, force: true });
+  // `test-kit` reads `import.meta.url` to find the workspace and is never
+  // published, so it stays ESM only.
+  const dual = productionPackageNames.includes(packageName);
+  await rm(distDirectory, { recursive: true, force: true });
+
   if (await hasTypeScriptSource(path.join(packageDirectory, "src"))) {
     execFileSync(
       process.execPath,
       [typescript, "--project", path.join(packageDirectory, "tsconfig.json")],
       { stdio: "inherit" },
     );
+    await writeFormatManifest(distDirectory, "es");
+    if (dual) {
+      await transpileToCommonJs(distDirectory);
+      await writeFormatManifest(distDirectory, "cjs");
+    }
     continue;
   }
+
+  await writeFormatManifest(distDirectory, "es");
+  if (dual) await writeFormatManifest(distDirectory, "cjs");
   for (const exportPath of Object.keys(manifest.exports)) {
-    await writeEmptyEntry(packageDirectory, exportPath);
+    await writeEmptyEntry(distDirectory, "es", exportPath);
+    if (dual) await writeEmptyEntry(distDirectory, "cjs", exportPath);
   }
 }

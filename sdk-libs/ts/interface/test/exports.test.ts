@@ -41,6 +41,8 @@ describe("public exports", () => {
       "decodeZoneConfig",
       "externalDataHash",
       "fetchTag",
+      "initializePoseidon",
+      "isPoseidonInitialized",
       "ownerPkFieldCompressed",
       "pack33",
       "pkFieldCompressed",

@@ -1,6 +1,5 @@
-import { Field } from "@noble/curves/abstract/modular.js";
-import { grainGenConstants, poseidon as createPoseidon } from "@noble/curves/abstract/poseidon.js";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { MAX_POSEIDON_INPUTS, poseidon as hash } from "@zolana/hasher";
 
 import type {
   Address,
@@ -23,13 +22,6 @@ const P256_MODULUS =
   0xffff_ffff_0000_0001_0000_0000_0000_0000_0000_0000_ffff_ffff_ffff_ffff_ffff_ffffn;
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-// Circom x5 partial-round counts for widths 2 through 13. The table stops at
-// twelve inputs because that is where the Rust hasher stops: `light_poseidon`
-// caps the width at 13, and the `sol_poseidon` syscall takes at most twelve
-// inputs. A wider input set would produce a digest no on-chain verifier accepts.
-const PARTIAL_ROUNDS = [56, 57, 56, 60, 60, 63, 64, 63, 60, 66, 60, 65] as const;
-const FIELD = Field(BN254_MODULUS);
-const permutations = new Map<number, ReturnType<typeof createPoseidon>>();
 
 export function checkedBytes<Length extends 16 | 31 | 32 | 33 | 64 | 128>(
   value: unknown,
@@ -97,30 +89,12 @@ export function bytesField(bytes: Uint8Array, name: string): bigint {
   return field(bytesToBigInt(bytes), name);
 }
 
-function permutation(inputCount: number): ReturnType<typeof createPoseidon> {
-  const cached = permutations.get(inputCount);
-  if (cached) return cached;
-  const roundsPartial = PARTIAL_ROUNDS[inputCount - 1];
-  if (roundsPartial === undefined) {
+export function poseidon(inputs: readonly bigint[]): bigint {
+  if (inputs.length < 1 || inputs.length > MAX_POSEIDON_INPUTS) {
     throw hasherError("InvalidNumFields");
   }
-  const options = {
-    Fp: FIELD,
-    t: inputCount + 1,
-    roundsFull: 8,
-    roundsPartial,
-    sboxPower: 5,
-  } as const;
-  const created = createPoseidon({ ...options, ...grainGenConstants(options) });
-  permutations.set(inputCount, created);
-  return created;
-}
-
-export function poseidon(inputs: readonly bigint[]): bigint {
   inputs.forEach((value, index) => field(value, `poseidon[${String(index)}]`));
-  const result = permutation(inputs.length)([0n, ...inputs])[0];
-  if (result === undefined) throw hasherError("Poseidon");
-  return result;
+  return bytesToBigInt(hash(inputs.map((value) => bigintToBytes(value))));
 }
 
 export function hashChain(values: readonly bigint[]): bigint {

@@ -26,7 +26,7 @@ import { hex, oracle, outcomeOf, parseOutcome } from "./oracle.js";
 // `createProofOutput` has no public export. Reaching into the built output
 // rather than the source keeps every type in this file resolving through the
 // same package build, so `ProofOutputUtxo` has one identity here.
-import { createProofOutput } from "../../../sdk-libs/ts/transaction/dist/utxo.js";
+import { createProofOutput } from "../../../sdk-libs/ts/transaction/dist/es/utxo.js";
 
 /**
  * Every length from 0 to 64. `hash_field` and its neighbours take `&[u8; 32]` or
