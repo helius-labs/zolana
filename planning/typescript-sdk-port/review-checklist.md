@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `506d8b9fb1e8e46496f1e7556e09e0c50115be91`
+- Review HEAD: `4e271aac6aac7ab5751a0a437b4fda4983ff0059`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `31 done / 118 total`; `43 needs_fix`; `0 needs_re_review`; `1 in_progress`
-- Exact next eligible row: `T17 sdk-libs/transaction/src/wallet/mod.rs`
+- Progress: `31 done / 118 total`; `44 needs_fix`; `0 needs_re_review`; `1 in_progress`
+- Exact next eligible row: `T18 sdk-libs/transaction/src/instructions/types.rs`
 - Active reviews: `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -235,7 +235,7 @@ Columns:
 | T14 | `sdk-libs/transaction/src/wallet/state.rs` | `transaction/src/wallet/state.ts` | needs_fix | DIVERGENT | proposed | TypeScript omits or changes core wallet state, history, balance, filter, report, viewing-key, and checkpoint APIs; uses unsafe `number` indices; exposes mutable internals and an aliased registry; and produces shallow snapshots. Fixture tests ignore much of the current-Rust oracle. First add checked Rust balance and spent-total arithmetic and stage sync mutations atomically; then align the TypeScript surface, numeric domains, encapsulation, snapshots, and current-Rust evidence. | 2026-07-25 review | - |
 | T15 | `sdk-libs/transaction/src/wallet/sync.rs` | `transaction/src/wallet/sync.ts` | needs_fix | DIVERGENT | proposed | TypeScript lacks Rust/spec tag-driven windows, counters, viewing epochs, and public wallet sync and balance helpers; it changes scheme history, report ordering, and checkpoint behavior, with only narrow proofless evidence. First make Rust resume counters correctly, reject a zero window, stage sync atomically, supply zone and data contexts, and scan merge tags; then align TypeScript while preserving T16 parallel-scanning and W08 wallet-backfill ownership. | 2026-07-25 review | - |
 | T16 | `sdk-libs/transaction/src/wallet/parallel.rs` | `transaction/src/wallet/sync.ts` | needs_fix | DIVERGENT | proposed | The TypeScript worker-equivalent is only a serial alias: it lacks Rust's feature-gated parallel capability and worker adaptation, deterministic merge, cancellation, error, and secret-transfer behavior, plus worker evidence. First make Rust's parallel path record confidential sends, sort keys and merge deterministically, run feature tests in normal gates, and assert exact serial-parallel state; then implement and prove the TypeScript adaptation while preserving T15 ownership. | 2026-07-25 review | - |
-| T17 | `sdk-libs/transaction/src/wallet/mod.rs` | `transaction/src/wallet/index.ts` | todo | - | none | - | - | - |
+| T17 | `sdk-libs/transaction/src/wallet/mod.rs` | `transaction/src/wallet/index.ts` | needs_fix | DIVERGENT | proposed | TypeScript root and wallet entry points omit much of Rust's aggregate public API, expose an undeclared serial worker alias plus mutable internals and registry entries, and lack exact runtime, declaration, tarball, browser, named-consumer, and aggregate-fixture allowlists. Add the missing aggregate surface, remove or document excess exports, and prove exact entry-point contracts while preserving T12-T16 ownership and their Rust prerequisites. | 2026-07-25 review | - |
 | T18 | `sdk-libs/transaction/src/instructions/types.rs` | `transaction/src/instructions/index.ts`, `utxo.ts` | todo | - | none | - | - | - |
 | T19 | `sdk-libs/transaction/src/instructions/transact/types.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
 | T20 | `sdk-libs/transaction/src/instructions/transact/shape.rs` | `transaction/src/transact/index.ts` | todo | - | none | - | - | - |
@@ -1396,3 +1396,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `31/118`; package `0/31`
 - Exact next file: `T17 sdk-libs/transaction/src/wallet/mod.rs`
 - Full SDK parity claim: unsupported; parallel capability, worker adaptation, deterministic merge, cancellation, errors, secret transfer, and worker evidence diverge
+
+### 2026-07-25 12:21 UTC | T17 | `sdk-libs/transaction/src/wallet/mod.rs`
+
+- Baseline: HEAD `4e271aac6aac7ab5751a0a437b4fda4983ff0059`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This module owns the aggregate public wallet surface and its root and wallet entry-point contract. T12-T16 retain asset, authority, state, sync, and parallel ownership and their Rust prerequisites.
+- Evidence: TypeScript root and wallet entry points omit much of Rust's aggregate public API, expose an undeclared serial worker alias plus mutable internals and registry entries, and lack exact runtime, declaration, tarball, browser, named-consumer, and aggregate-fixture allowlists.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Add the missing aggregate surface, remove or document excess exports, and prove exact entry-point contracts without taking T12-T16 ownership or bypassing their Rust prerequisites.
+- Row transition: `todo -> needs_fix`
+- Progress: `31/118`; package `0/31`
+- Exact next file: `T18 sdk-libs/transaction/src/instructions/types.rs`
+- Full SDK parity claim: unsupported; aggregate wallet API coverage, excess exports, mutability boundaries, and entry-point evidence diverge
