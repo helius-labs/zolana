@@ -9,6 +9,7 @@ export {
   IndexerSchemaError,
   MIN_PAGE_LIMIT,
   PAGE_LIMIT,
+  base64Bytes,
   base64String,
   hash,
   hashBytes,
