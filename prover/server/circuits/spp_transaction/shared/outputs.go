@@ -36,14 +36,21 @@ func AssertOutputOwnerTags(
 	outputs []UtxoCircuitFields,
 	ownerPkHashes []frontend.Variable,
 	nullifierPks []frontend.Variable,
-) {
+) error {
+	if err := validateLength("output owner pk hash", len(ownerPkHashes), len(outputs)); err != nil {
+		return err
+	}
+	if err := validateLength("output nullifier pk", len(nullifierPks), len(outputs)); err != nil {
+		return err
+	}
 	for i, utxo := range outputs {
-		ownerHash := abstractor.Call(api, OwnerHashGadget{
+		ownerHash := abstractor.Call(api, ownerHashGadget{
 			OwnerKeyHash: ownerPkHashes[i],
 			NullifierPk:  nullifierPks[i],
 		})
-		assertWhen(api, utxo.IsUtxo(api), api.IsZero(api.Sub(ownerHash, utxo.Owner)))
+		assertWhen(api, utxo.isUtxo(api), api.IsZero(api.Sub(ownerHash, utxo.Owner)))
 	}
+	return nil
 }
 
 // constrainOutput classifies the slot, pins dummies, requires ownerSigned for
@@ -51,7 +58,7 @@ func AssertOutputOwnerTags(
 // included — the public hash is the blinded dummy hash). Returns
 // Select(isUtxo, utxoHash, 0) for the private-tx-hash chain.
 func constrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned frontend.Variable) frontend.Variable {
-	isUtxo := utxo.IsUtxo(api)
+	isUtxo := utxo.isUtxo(api)
 	api.AssertIsEqual(api.Add(isUtxo, utxo.isDummy(api)), 1)
 
 	assertWhen(api, utxo.isDummy(api), utxo.checkDummy(api))

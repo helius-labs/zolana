@@ -37,9 +37,9 @@ func mustP256PkField(t testing.TB, priv *ecdsa.PrivateKey) *big.Int {
 	return pkField
 }
 
-// The P256 default-zone rail exposes the P256 input owner: input_owner_pk_hashes
-// carries the real pk_field, equal to the shared p256_signing_pk_field, and the
-// ownership path is selected by that equality.
+// The P256 default-zone rail exposes the P256 input owner: the input tags itself
+// with the 0 sentinel and routes to the shared key, which this rail publishes as
+// p256_signing_pk_field and the circuit binds to its witnessed P256 pk_field.
 func TestDefaultZoneP256ExposesInputOwner(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
@@ -47,9 +47,7 @@ func TestDefaultZoneP256ExposesInputOwner(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
-	pkField := mustP256PkField(t, priv)
-	assignment.Inputs[0].OwnerPkHash = pkField
-	makeDefaultZone(t, assignment, pkField)
+	makeDefaultZone(t, assignment, mustP256PkField(t, priv))
 
 	assert.SolvingSucceeded(circuit, asDefaultZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
@@ -63,9 +61,7 @@ func TestDefaultZoneP256Solves(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
-	pkField := mustP256PkField(t, priv)
-	assignment.Inputs[0].OwnerPkHash = pkField
-	makeDefaultZone(t, assignment, pkField)
+	makeDefaultZone(t, assignment, mustP256PkField(t, priv))
 
 	assert.SolvingSucceeded(circuit, asDefaultZoneP256(assignment), test.WithCurves(ecc.BN254))
 	assert.ProverSucceeded(
@@ -77,8 +73,8 @@ func TestDefaultZoneP256Solves(t *testing.T) {
 	)
 }
 
-// p256_signing_pk_field must equal the witnessed P256 key: a mismatch routes the
-// input off the P256 path and fails the shared-key assertion.
+// p256_signing_pk_field must equal the witnessed P256 key: a mismatch fails the
+// shared-key assertion.
 func TestDefaultZoneP256RejectsWrongSigningPkField(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
@@ -86,8 +82,6 @@ func TestDefaultZoneP256RejectsWrongSigningPkField(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
-	pkField := mustP256PkField(t, priv)
-	assignment.Inputs[0].OwnerPkHash = pkField
 	makeDefaultZone(t, assignment, spptest.Fe(424242))
 
 	assert.SolvingFailed(circuit, asDefaultZoneP256(assignment), test.WithCurves(ecc.BN254))

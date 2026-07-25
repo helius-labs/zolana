@@ -9,11 +9,9 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/math/emulated"
 	"github.com/consensys/gnark/test"
 
 	merge "zolana/prover/circuits/spp_merge"
-	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/poseidon"
 	"zolana/prover/prover-test/spp/protocol"
 )
@@ -120,11 +118,9 @@ func buildValidWitness(t *testing.T) *merge.Circuit {
 	return buildWitness(t, false)
 }
 
-// buildWitness assembles a solved 2-real-input merge witness. With eddsa set the
-// owner is a Solana (ed25519) signer: ownerKeyHash is a SolanaPkField, the
-// circuit's P256 witness is a discarded dummy point, and OwnerPkHash drives
-// the rail select. With eddsa false the owner is a P256 signer (OwnerPkHash
-// stays 0).
+// buildWitness assembles a solved 2-real-input merge witness. OwnerPkHash carries
+// the owner's pk_field directly: SolanaPkField for an ed25519 owner and
+// OwnerPkField for a P256 owner.
 func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	t.Helper()
 	curve := elliptic.P256()
@@ -132,7 +128,6 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	// Owner identity: signing key (P256 or Solana) + shared nullifier secret.
 	ownerSk := big.NewInt(11)
 	ownerX, ownerY := curve.ScalarBaseMult(leftPad32(ownerSk))
-	ownerPkHash := big.NewInt(0)
 	var ownerKeyHash *big.Int
 	var err error
 	if eddsa {
@@ -142,7 +137,6 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ownerPkHash = ownerKeyHash
 	} else {
 		ownerComp := elliptic.MarshalCompressed(curve, ownerX, ownerY)
 		ownerKeyHash, err = protocol.OwnerPkField(ownerComp)
@@ -321,11 +315,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 
 	// Assemble the witness assignment.
 	assignment := merge.NewMergeCircuit()
-	assignment.P256Pub = transaction.P256PublicKey{
-		X: emulated.ValueOf[emulated.P256Fp](ownerX),
-		Y: emulated.ValueOf[emulated.P256Fp](ownerY),
-	}
-	assignment.OwnerPkHash = ownerPkHash
+	assignment.OwnerPkHash = ownerKeyHash
 	assignment.UserNullifierPk = userNullifierPk
 	assignment.UserNullifierSecret = nullifierSecret
 	assignment.TxViewingSk = txViewingSk
@@ -334,11 +324,20 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	}
 	assignment.ExternalDataHash = externalDataHash
 	assignment.PrivateTxHash = privateTxHash
+	assignment.OutputHash = outHash
+	assignment.UserSigningPkHash = ownerKeyHash
+	assignment.UserViewingPkHash = viewKeyHash
+	assignment.TxViewingPkLo = pkLo
+	assignment.TxViewingPkHi = pkHi
+	assignment.CtHash = ctHash
 	assignment.PublicInputHash = publicInputHash
 	assignment.Asset = asset
 
 	for i := 0; i < merge.MergeInputs; i++ {
 		in := &assignment.Inputs[i]
+		assignment.Nullifiers[i] = pubNullifiers[i]
+		assignment.UtxoTreeRoots[i] = pubUtxoRoots[i]
+		assignment.NullifierTreeRoots[i] = pubNfRoots[i]
 		if i < numReal {
 			in.Domain = big.NewInt(protocol.UtxoDomain)
 			in.Amount = amounts[i]
@@ -350,8 +349,6 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			in.NullifierNextValue = nfWitnesses[i].NextValue
 			fillPath(in.NullifierLowPathElements, nfWitnesses[i].PathElements)
 			in.NullifierLowPathIndex = big.NewInt(int64(nfWitnesses[i].LowIndex))
-			in.UtxoTreeRoot = stateRoot
-			in.NullifierTreeRoot = nfRoot
 		} else {
 			in.Domain = big.NewInt(protocol.DummyDomain)
 			in.Amount = big.NewInt(0)
@@ -363,8 +360,6 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			in.NullifierNextValue = big.NewInt(0)
 			zeroPath(in.NullifierLowPathElements)
 			in.NullifierLowPathIndex = big.NewInt(0)
-			in.UtxoTreeRoot = pubUtxoRoots[i]
-			in.NullifierTreeRoot = pubNfRoots[i]
 		}
 	}
 	assignment.Output = merge.Output{Blinding: outBlinding, ZoneDataHash: big.NewInt(0)}

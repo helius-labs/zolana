@@ -22,39 +22,22 @@ type (
 	P256Signature = gnarkecdsa.Signature[emulated.P256Fr]
 )
 
-// P256PkFieldGadget folds a P256 public key (parity bit and the two 128-bit
+// p256PkFieldGadget folds a P256 public key (parity bit and the two 128-bit
 // halves of the x-coordinate) into a single field element.
-type P256PkFieldGadget struct {
+type p256PkFieldGadget struct {
 	YIsOdd   frontend.Variable
 	XLow128  frontend.Variable
 	XHigh128 frontend.Variable
 }
 
-func (gadget P256PkFieldGadget) DefineGadget(api frontend.API) interface{} {
+func (gadget p256PkFieldGadget) DefineGadget(api frontend.API) interface{} {
 	xHash := gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.XLow128, gadget.XHigh128})
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.YIsOdd, xHash})
 }
 
-func P256PkFieldFromPubkeyCircuit(
-	api frontend.API,
-	pub P256PublicKey,
-) (frontend.Variable, error) {
-	curve, err := sw_emulated.New[emulated.P256Fp, emulated.P256Fr](
-		api,
-		sw_emulated.GetCurveParams[emulated.P256Fp](),
-	)
-	if err != nil {
-		return nil, err
-	}
-	point := sw_emulated.AffinePoint[emulated.P256Fp](pub)
-	curve.AssertIsOnCurve(&point)
-	return P256PkFieldFromPointCircuit(api, point)
-}
-
 // P256PkFieldFromPointCircuit folds an already-parsed P256 point into pk_field.
 // It does not assert the point is on the curve; callers that need that guarantee
-// (e.g. P256PkFieldFromPubkeyCircuit, or after p256.PointOnCurve) ensure it
-// separately.
+// (e.g. after p256.PointOnCurve) ensure it separately.
 func P256PkFieldFromPointCircuit(
 	api frontend.API,
 	point sw_emulated.AffinePoint[emulated.P256Fp],
@@ -63,35 +46,44 @@ func P256PkFieldFromPointCircuit(
 	if err != nil {
 		return nil, err
 	}
-	yBits := fp.ToBitsCanonical(&point.Y)
-	xBits := fp.ToBitsCanonical(&point.X)
-	xLow128 := gnarkbits.FromBinary(api, xBits[:p256LimbBits])
-	xHigh128 := gnarkbits.FromBinary(api, xBits[p256LimbBits:])
-	return abstractor.Call(api, P256PkFieldGadget{
-		YIsOdd:   yBits[0],
+	xLow128, xHigh128 := p256XLimbs(api, fp, point)
+	return abstractor.Call(api, p256PkFieldGadget{
+		YIsOdd:   fp.ToBitsCanonical(&point.Y)[0],
 		XLow128:  xLow128,
 		XHigh128: xHigh128,
 	}), nil
 }
 
-// OwnerPkFieldGadget folds a P256 OWNER public key into pk_field using only the
+// p256XLimbs splits a point's x-coordinate into its two canonical big-endian
+// 128-bit halves, the form both pk_field encodings hash.
+func p256XLimbs(
+	api frontend.API,
+	fp *emulated.Field[emulated.P256Fp],
+	point sw_emulated.AffinePoint[emulated.P256Fp],
+) (frontend.Variable, frontend.Variable) {
+	xBits := fp.ToBitsCanonical(&point.X)
+	return gnarkbits.FromBinary(api, xBits[:p256LimbBits]),
+		gnarkbits.FromBinary(api, xBits[p256LimbBits:])
+}
+
+// ownerPkFieldGadget folds a P256 OWNER public key into pk_field using only the
 // x-coordinate: Poseidon(x_low128, x_high128). The y-parity is intentionally
 // excluded (it is carried in the encrypted data, not the owner identity), so a
 // P256 owner pk_field has the same shape as an ed25519 owner pk_field
 // (hash_field over the two 128-bit halves). The VIEWING key keeps the
-// parity-folding P256PkFieldGadget.
-type OwnerPkFieldGadget struct {
+// parity-folding p256PkFieldGadget.
+type ownerPkFieldGadget struct {
 	XLow128  frontend.Variable
 	XHigh128 frontend.Variable
 }
 
-func (gadget OwnerPkFieldGadget) DefineGadget(api frontend.API) interface{} {
+func (gadget ownerPkFieldGadget) DefineGadget(api frontend.API) interface{} {
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.XLow128, gadget.XHigh128})
 }
 
-// OwnerPkFieldFromPubkeyCircuit derives the parity-free owner pk_field from a
+// ownerPkFieldFromPubkeyCircuit derives the parity-free owner pk_field from a
 // P256 public key (asserting it is on the curve).
-func OwnerPkFieldFromPubkeyCircuit(
+func ownerPkFieldFromPubkeyCircuit(
 	api frontend.API,
 	pub P256PublicKey,
 ) (frontend.Variable, error) {
@@ -108,10 +100,8 @@ func OwnerPkFieldFromPubkeyCircuit(
 	if err != nil {
 		return nil, err
 	}
-	xBits := fp.ToBitsCanonical(&point.X)
-	xLow128 := gnarkbits.FromBinary(api, xBits[:p256LimbBits])
-	xHigh128 := gnarkbits.FromBinary(api, xBits[p256LimbBits:])
-	return abstractor.Call(api, OwnerPkFieldGadget{
+	xLow128, xHigh128 := p256XLimbs(api, fp, point)
+	return abstractor.Call(api, ownerPkFieldGadget{
 		XLow128:  xLow128,
 		XHigh128: xHigh128,
 	}), nil

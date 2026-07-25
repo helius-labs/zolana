@@ -31,8 +31,8 @@ func (u UtxoCircuitFields) DefineGadget(api frontend.API) interface{} {
 	})
 }
 
-// IsUtxo: the slot carries a spendable or created utxo.
-func (u UtxoCircuitFields) IsUtxo(api frontend.API) frontend.Variable {
+// isUtxo: the slot carries a spendable or created utxo.
+func (u UtxoCircuitFields) isUtxo(api frontend.API) frontend.Variable {
 	return api.IsZero(api.Sub(u.Domain, UtxoDomain))
 }
 
@@ -53,7 +53,7 @@ func (u UtxoCircuitFields) isUtxoOrAddress(api frontend.API) frontend.Variable {
 
 // assertInDefaultZone asserts the utxo is not a member of a zone.
 func (u UtxoCircuitFields) assertInDefaultZone(api frontend.API) {
-	api.AssertIsEqual(u.ZoneDataHash, u.ZoneProgramID)
+	api.AssertIsEqual(u.ZoneProgramID, 0)
 	api.AssertIsEqual(u.ZoneDataHash, 0)
 }
 
@@ -75,13 +75,13 @@ func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
 	return abstractor.Call(api, u)
 }
 
-// OwnerHashGadget binds an owner key hash to a nullifier public key — the owner
+// ownerHashGadget binds an owner key hash to a nullifier public key — the owner
 // commitment verified in step 3.3.
-type OwnerHashGadget struct {
+type ownerHashGadget struct {
 	OwnerKeyHash frontend.Variable
 	NullifierPk  frontend.Variable
 }
 
-func (gadget OwnerHashGadget) DefineGadget(api frontend.API) interface{} {
+func (gadget ownerHashGadget) DefineGadget(api frontend.API) interface{} {
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.OwnerKeyHash, gadget.NullifierPk})
 }

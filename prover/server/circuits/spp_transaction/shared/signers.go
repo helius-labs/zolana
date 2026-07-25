@@ -59,10 +59,6 @@ func EddsaOnlySigners(api frontend.API, inputs []Input, ownerPkHashes []frontend
 type P256Signer struct {
 	PkField  frontend.Variable
 	SigValid frontend.Variable
-	// Sentinel is the owner tag value that routes a slot to this key. The default
-	// zone uses the public P256SigningPkField, so P256 input owners are public;
-	// the custom zone variants route anonymously on the 0 sentinel.
-	Sentinel frontend.Variable
 }
 
 // NewP256Signer verifies the shared signature over the P256 message digest
@@ -71,9 +67,9 @@ func NewP256Signer(
 	api frontend.API,
 	pub P256PublicKey,
 	sig P256Signature,
-	msgLow, msgHigh, sentinel frontend.Variable,
+	msgLow, msgHigh frontend.Variable,
 ) (P256Signer, error) {
-	pkField, err := OwnerPkFieldFromPubkeyCircuit(api, pub)
+	pkField, err := ownerPkFieldFromPubkeyCircuit(api, pub)
 	if err != nil {
 		return P256Signer{}, err
 	}
@@ -89,22 +85,22 @@ func NewP256Signer(
 			message,
 			&sig,
 		),
-		Sentinel: sentinel,
 	}, nil
 }
 
 // P256Signers builds the signer array for the P256 rails: a slot whose owner tag
-// equals the rail's sentinel is signed by the one witnessed P256 key, which
-// needs its shared signature over the P256 message to be valid; every other slot
-// is signed by the ed25519 signer the program published.
+// is the 0 sentinel is signed by the one witnessed P256 key, which needs its
+// shared signature over the P256 message to be valid; every other slot is signed
+// by the ed25519 signer the program published. The default zone still publishes
+// the key itself as its own public input, so routing on 0 hides nothing there.
 func P256Signers(api frontend.API, inputs []Input, ownerPkHashes []frontend.Variable, p256 P256Signer) Signers {
 	signers := make(Signers, len(inputs))
 	for i, in := range inputs {
-		carriesContent := in.isUtxoOrAddress(api)
+		isUtxoOrAddress := in.isUtxoOrAddress(api)
 		pkHash := ownerPkHashes[i]
-		isP256 := api.IsZero(api.Sub(pkHash, p256.Sentinel))
-		assertWhen(api, api.Mul(carriesContent, isP256), p256.SigValid)
-		signers[i] = api.Mul(carriesContent, api.Select(isP256, p256.PkField, pkHash))
+		isP256 := api.IsZero(pkHash)
+		assertWhen(api, api.Mul(isUtxoOrAddress, isP256), p256.SigValid)
+		signers[i] = api.Mul(isUtxoOrAddress, api.Select(isP256, p256.PkField, pkHash))
 	}
 	return signers
 }

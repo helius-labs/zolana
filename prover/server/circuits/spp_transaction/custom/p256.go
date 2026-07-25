@@ -112,7 +112,6 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 		c.Private.P256Sig,
 		c.Public.P256MessageHashLow,
 		c.Public.P256MessageHashHigh,
-		frontend.Variable(0),
 	)
 	if err != nil {
 		return err

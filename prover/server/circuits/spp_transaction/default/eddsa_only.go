@@ -108,7 +108,14 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 
 	shared.AssertDefaultZone(api, tx.Inputs, tx.Outputs)
 	api.AssertIsEqual(c.Public.ZoneProgramID, 0)
-	shared.AssertOutputOwnerTags(api, tx.Outputs, c.Public.OutputOwnerPkHashes, c.Private.OutputNullifierPks)
+	if err := shared.AssertOutputOwnerTags(
+		api,
+		tx.Outputs,
+		c.Public.OutputOwnerPkHashes,
+		c.Private.OutputNullifierPks,
+	); err != nil {
+		return err
+	}
 
 	signers := shared.EddsaOnlySigners(api, tx.Inputs, c.Public.InputOwnerPkHashes)
 	return tx.Constrain(api, signers, signers.ContainsEach(api, c.Public.OutputOwnerPkHashes))

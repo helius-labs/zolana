@@ -2,6 +2,7 @@ package merge_test
 
 import (
 	"crypto/elliptic"
+	"encoding/hex"
 	"math/big"
 	"testing"
 
@@ -40,6 +41,38 @@ func TestPrintMergeVector(t *testing.T) {
 	ctHash, err := poseidon.Hash(packBytesBE(ct, 16))
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	fixtures := []struct {
+		name string
+		got  []byte
+		want string
+	}{
+		{
+			name: "tx viewing public key",
+			got:  txPkComp[:],
+			want: "02fb50388f29498d0a93ad25ec4c34037b9d3cc3cca4787eb6fedabe2b3003eac8",
+		},
+		{
+			name: "shared secret",
+			got:  leftPad32(shared),
+			want: "0ffef3a9547f8b4112f81b60595410996a6a4844372204d43be44f06a13cc4ca",
+		},
+		{
+			name: "ciphertext",
+			got:  ct,
+			want: "d52cccc7053c653d83c840fcb12c3a1dd6ac2263a9f4c705d784dfd894234b6b5271590160bddbb7191a0eeb96646aa5397e0acb27b605aec6f1ceadcd2726cab1a675d511f202",
+		},
+		{
+			name: "ciphertext hash",
+			got:  leftPad32(ctHash),
+			want: "2418c4f8d103a80bcc365a28f6172e7cd9cbfe71a301c19f775a64187ed2f453",
+		},
+	}
+	for _, fixture := range fixtures {
+		if got := hex.EncodeToString(fixture.got); got != fixture.want {
+			t.Errorf("%s mismatch:\n got %s\nwant %s", fixture.name, got, fixture.want)
+		}
 	}
 
 	t.Logf("tx_viewing_pk_comp = %x", txPkComp)

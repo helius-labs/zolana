@@ -11,6 +11,7 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"
 	"github.com/consensys/gnark/std/math/emulated"
 	"github.com/consensys/gnark/test"
 )
@@ -64,19 +65,29 @@ func TestCircuitRejectsP256PubkeyOwnerMismatch(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-// p256PkFieldUnitCircuit wraps P256PkFieldFromPubkeyCircuit alone. The gnark
-// ECDSA gadget assumes a valid public key and never checks it lies on the
-// curve, so the AssertIsOnCurve here is the sole constraint rejecting an
-// off-curve point. It cannot be exercised through the full circuit: the
-// signature gadget's prover-side scalar-mul hint calls crypto/elliptic, which
-// panics on an invalid point before solving reaches any constraint.
+// p256PkFieldUnitCircuit folds a pubkey into the parity-carrying pk_field behind
+// an on-curve assertion. The gnark ECDSA gadget assumes a valid public key and
+// never checks it lies on the curve, so the AssertIsOnCurve here is the sole
+// constraint rejecting an off-curve point. It cannot be exercised through the
+// full circuit: the signature gadget's prover-side scalar-mul hint calls
+// crypto/elliptic, which panics on an invalid point before solving reaches any
+// constraint.
 type p256PkFieldUnitCircuit struct {
 	Pub     P256PublicKey
 	PkField frontend.Variable `gnark:",public"`
 }
 
 func (c *p256PkFieldUnitCircuit) Define(api frontend.API) error {
-	pkField, err := P256PkFieldFromPubkeyCircuit(api, c.Pub)
+	curve, err := sw_emulated.New[emulated.P256Fp, emulated.P256Fr](
+		api,
+		sw_emulated.GetCurveParams[emulated.P256Fp](),
+	)
+	if err != nil {
+		return err
+	}
+	point := sw_emulated.AffinePoint[emulated.P256Fp](c.Pub)
+	curve.AssertIsOnCurve(&point)
+	pkField, err := P256PkFieldFromPointCircuit(api, point)
 	if err != nil {
 		return err
 	}

@@ -6,11 +6,9 @@ import (
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/std/math/emulated"
 	"github.com/consensys/gnark/test"
 
 	merge "zolana/prover/circuits/spp_merge"
-	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
 )
 
@@ -57,6 +55,10 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 	viewSk := big.NewInt(7)
 	viewX, viewY := curve.ScalarBaseMult(leftPad32(viewSk))
 	userViewingUncompressed := elliptic.Marshal(curve, viewX, viewY)
+	viewKeyHash, err := protocol.P256PkField(elliptic.MarshalCompressed(curve, viewX, viewY))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	txViewingSk := big.NewInt(123456789)
 
@@ -198,11 +200,7 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 	})
 
 	assignment := merge.NewMergeZoneCircuit()
-	assignment.P256Pub = transaction.P256PublicKey{
-		X: emulated.ValueOf[emulated.P256Fp](ownerX),
-		Y: emulated.ValueOf[emulated.P256Fp](ownerY),
-	}
-	assignment.OwnerPkHash = big.NewInt(0)
+	assignment.OwnerPkHash = ownerKeyHash
 	assignment.UserNullifierPk = userNullifierPk
 	assignment.UserNullifierSecret = nullifierSecret
 	assignment.TxViewingSk = txViewingSk
@@ -211,12 +209,21 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 	}
 	assignment.ExternalDataHash = externalDataHash
 	assignment.PrivateTxHash = privateTxHash
+	assignment.OutputHash = outHash
+	assignment.UserSigningPkHash = ownerKeyHash
+	assignment.UserViewingPkHash = viewKeyHash
+	assignment.TxViewingPkLo = pkLo
+	assignment.TxViewingPkHi = pkHi
+	assignment.CtHash = ctHash
 	assignment.ZoneProgramID = zoneProgramID
 	assignment.PublicInputHash = publicInputHash
 	assignment.Asset = asset
 
 	for i := 0; i < merge.MergeInputs; i++ {
 		in := &assignment.Inputs[i]
+		assignment.Nullifiers[i] = pubNullifiers[i]
+		assignment.UtxoTreeRoots[i] = pubUtxoRoots[i]
+		assignment.NullifierTreeRoots[i] = pubNfRoots[i]
 		if i < numReal {
 			in.Domain = big.NewInt(protocol.UtxoDomain)
 			in.Amount = amounts[i]
@@ -228,8 +235,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 			in.NullifierNextValue = nfWitnesses[i].NextValue
 			fillPath(in.NullifierLowPathElements, nfWitnesses[i].PathElements)
 			in.NullifierLowPathIndex = big.NewInt(int64(nfWitnesses[i].LowIndex))
-			in.UtxoTreeRoot = stateRoot
-			in.NullifierTreeRoot = nfRoot
 		} else {
 			in.Domain = big.NewInt(protocol.DummyDomain)
 			in.Amount = big.NewInt(0)
@@ -241,8 +246,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 			in.NullifierNextValue = big.NewInt(0)
 			zeroPath(in.NullifierLowPathElements)
 			in.NullifierLowPathIndex = big.NewInt(0)
-			in.UtxoTreeRoot = pubUtxoRoots[i]
-			in.NullifierTreeRoot = pubNfRoots[i]
 		}
 	}
 	assignment.Output = merge.Output{Blinding: big.NewInt(0x3333), ZoneDataHash: big.NewInt(0xD2)}

@@ -118,7 +118,14 @@ func (c *DefaultZoneP256Circuit) Define(api frontend.API) error {
 
 	shared.AssertDefaultZone(api, tx.Inputs, tx.Outputs)
 	api.AssertIsEqual(c.Public.ZoneProgramID, 0)
-	shared.AssertOutputOwnerTags(api, tx.Outputs, c.Public.OutputOwnerPkHashes, c.Private.OutputNullifierPks)
+	if err := shared.AssertOutputOwnerTags(
+		api,
+		tx.Outputs,
+		c.Public.OutputOwnerPkHashes,
+		c.Private.OutputNullifierPks,
+	); err != nil {
+		return err
+	}
 
 	p256, err := shared.NewP256Signer(
 		api,
@@ -126,7 +133,6 @@ func (c *DefaultZoneP256Circuit) Define(api frontend.API) error {
 		c.Private.P256Sig,
 		c.Public.P256MessageHashLow,
 		c.Public.P256MessageHashHigh,
-		c.Public.P256SigningPkField,
 	)
 	if err != nil {
 		return err

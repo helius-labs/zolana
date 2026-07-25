@@ -87,20 +87,17 @@ func assertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) 
 // content only needs its owner hash to recompute from that pk and the witnessed
 // nullifier secret.
 func constrainInput(api frontend.API, in Input, signals inputSignals) (frontend.Variable, frontend.Variable) {
-	nullifierPk := abstractor.Call(api, NullifierPkGadget{
+	nullifierPk := abstractor.Call(api, nullifierPkGadget{
 		NullifierSecret: in.NullifierSecret,
 	})
-	ownerHash := abstractor.Call(api, OwnerHashGadget{
+	ownerHash := abstractor.Call(api, ownerHashGadget{
 		OwnerKeyHash: signals.SignerPk,
 		NullifierPk:  nullifierPk,
 	})
 	ownerBinds := api.IsZero(api.Sub(ownerHash, in.Utxo.Owner))
 	assertWhen(api, in.isUtxoOrAddress(api), ownerBinds)
-	return constrainInputShared(api, in, signals)
-}
 
-func constrainInputShared(api frontend.API, in Input, signals inputSignals) (frontend.Variable, frontend.Variable) {
-	isUtxo := in.IsUtxo(api)
+	isUtxo := in.isUtxo(api)
 	isAddress := in.isAddress(api)
 	api.AssertIsEqual(api.Add(isUtxo, isAddress, in.isDummy(api)), 1)
 
@@ -116,9 +113,9 @@ func constrainInputShared(api frontend.API, in Input, signals inputSignals) (fro
 	return inputHash, addressHash
 }
 
-// IsUtxo: the slot spends an existing utxo.
-func (in Input) IsUtxo(api frontend.API) frontend.Variable {
-	return in.Utxo.IsUtxo(api)
+// isUtxo: the slot spends an existing utxo.
+func (in Input) isUtxo(api frontend.API) frontend.Variable {
+	return in.Utxo.isUtxo(api)
 }
 
 // isAddress: the slot creates an address, owner signed.
@@ -204,12 +201,12 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 	assertStrictlyOrdered(api, in.NullifierLowValue, signals.Nullifier, in.NullifierNextValue)
 }
 
-// NullifierPkGadget derives the public nullifier key from the secret (step 3.1).
-type NullifierPkGadget struct {
+// nullifierPkGadget derives the public nullifier key from the secret (step 3.1).
+type nullifierPkGadget struct {
 	NullifierSecret frontend.Variable
 }
 
-func (gadget NullifierPkGadget) DefineGadget(api frontend.API) interface{} {
+func (gadget nullifierPkGadget) DefineGadget(api frontend.API) interface{} {
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.NullifierSecret})
 }
 

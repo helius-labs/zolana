@@ -104,18 +104,15 @@ pub struct TransferP256ProofResult {
 impl TransferP256Prover {
     pub fn build(self) -> Result<TransferP256ProofResult, ClientError> {
         resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
-        // The shared P256 signing key's pk_field: the value every P256-owned input
-        // exposes as its owner tag and that the circuit asserts equals its in-circuit
-        // P256 pk_field. Folded into the confidential public-input hash. The raw
-        // x-coordinate is the pre-hash value the instruction carries so the program
-        // reproduces `pk_field` on-chain.
+        // The shared P256 signing key's pk_field: its own element of the confidential
+        // public-input hash, which the circuit asserts equals its in-circuit P256
+        // pk_field. P256-owned inputs tag themselves with the 0 sentinel and route to
+        // it. The raw x-coordinate is the pre-hash value the instruction carries so
+        // the program reproduces `pk_field` on-chain.
         let signing_pubkey = PublicKey::from_p256(&self.p256_owner.pubkey);
         let p256_signing_pk_x = signing_pubkey.confidential_view_tag()?;
         let p256_signing_pk_field = signing_pubkey.owner_pk_field()?;
-        let assembled_inputs = assemble_inputs(
-            &self.inputs,
-            &OwnerMode::ConfidentialP256(p256_signing_pk_field),
-        )?;
+        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialP256)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let private_tx = PrivateTxHash::new(
@@ -241,9 +238,10 @@ pub(crate) struct AssembledOutputs {
 /// public-input chain. A P256-owned input is treated differently per mode; an
 /// ed25519-owned input always uses its own `owner_pk_field()`.
 pub(crate) enum OwnerMode {
-    /// Confidential P256 rail: a P256 owner exposes the shared signing `pk_field`
-    /// (so the circuit routes ownership by equality); ed25519 uses its `pk_field`.
-    ConfidentialP256([u8; 32]),
+    /// Confidential P256 rail: a P256 owner contributes the `0` sentinel that routes
+    /// to the transaction's shared signing key, which the rail publishes as its own
+    /// public input; ed25519 uses its `pk_field`.
+    ConfidentialP256,
     /// Confidential Solana-only rail: P256-owned inputs are rejected (the rail has
     /// no P256 gadget); ed25519 uses its `pk_field`.
     ConfidentialEddsa,
@@ -325,9 +323,7 @@ pub(crate) fn assemble_inputs(
         // depends on the mode (see OwnerMode); an ed25519 owner always uses
         // its own pk_field.
         let owner_pk_hash = match (owner_mode, is_p256) {
-            (OwnerMode::ConfidentialP256(signing_pk_field), true) => *signing_pk_field,
-            (OwnerMode::Merge, true) => [0u8; 32],
-            (OwnerMode::Zone, true) => [0u8; 32],
+            (OwnerMode::ConfidentialP256 | OwnerMode::Merge | OwnerMode::Zone, true) => [0u8; 32],
             (OwnerMode::ConfidentialEddsa, true) => {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index })
             }

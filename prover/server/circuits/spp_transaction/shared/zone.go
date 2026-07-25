@@ -42,10 +42,10 @@ func forEachRealUtxo(
 	check func(UtxoCircuitFields) frontend.Variable,
 ) {
 	for _, in := range inputs {
-		assertWhen(api, in.IsUtxo(api), check(in.Utxo))
+		assertWhen(api, in.isUtxo(api), check(in.Utxo))
 	}
 	for _, utxo := range outputs {
-		assertWhen(api, utxo.IsUtxo(api), check(utxo))
+		assertWhen(api, utxo.isUtxo(api), check(utxo))
 	}
 }
 

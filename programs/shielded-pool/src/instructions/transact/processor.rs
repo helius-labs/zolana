@@ -91,14 +91,14 @@ pub(crate) fn prepare_proof_inputs<const IS_ZONE: bool, const IS_AUTHORITY: bool
 ) -> Result<TransactProofInputs, ProgramError> {
     let mut proof_inputs = TransactProofInputs::default();
     // Hash the raw P256 signing key x-coordinate into its field element once (one
-    // Poseidon syscall), before `check_input_signers` folds it for P256-owned
-    // inputs. Absent on the eddsa rail (folded as the `0` sentinel).
+    // Poseidon syscall). The confidential variants publish it; it is absent on the
+    // eddsa rail (`0`).
     proof_inputs.p256_signing_pk_field = match ix.p256_signing_pk_x {
         Some(x) => verifier::hash_field(&x, ShieldedPoolError::TransactProofVerificationFailed)?,
         None => [0u8; 32],
     };
     if !IS_AUTHORITY {
-        check_input_signers::<IS_ZONE>(accounts, ix, &mut proof_inputs)?;
+        check_input_signers(accounts, ix, &mut proof_inputs)?;
     }
     if !IS_ZONE {
         fill_output_owner_pk_hashes(resolved_outputs, &mut proof_inputs)?;
@@ -246,23 +246,18 @@ fn tree_error(e: TreeError) -> ProgramError {
 // Either assign p256 pubkey or check signer and assign eddsa pubkey.
 // The circuit checks the p256 signature.
 #[profile]
-fn check_input_signers<const IS_ZONE: bool>(
+fn check_input_signers(
     accounts: &[AccountView],
     ix: &TransactIxDataRef<'_>,
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<(), ProgramError> {
-    let p256_signing_pk_field = proof_inputs.p256_signing_pk_field;
     for (i, input) in ix.inputs.iter().enumerate() {
         let pk_hash = if input.eddsa_signer_index == P256_OWNED_SIGNER {
-            // TODO: can we simplify if we say for p256 this value is always 0
-            // 1, p256.to_bytes()
-            // 2, eddsa.to_bytes()
-            // p256 signer check is in circuit.
-            if IS_ZONE {
-                [0u8; 32] // Zones are anonymous
-            } else {
-                p256_signing_pk_field
-            }
+            // A P256-owned input routes to the transaction's shared P256 key on this
+            // sentinel; the circuit checks that key's signature. The confidential
+            // variants publish the key itself as `p256_signing_pk_field`, so the
+            // sentinel hides nothing there.
+            [0u8; 32]
         } else {
             // Eddsa signer check. The circuit relies on the program to check the signer.
             let account = accounts
