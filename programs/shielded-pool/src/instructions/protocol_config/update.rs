@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{address::address_eq, AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{error::ShieldedPoolError, instruction::UpdateProtocolConfigData};
 
@@ -14,7 +14,7 @@ pub fn process_update_protocol_config(accounts: &mut [AccountView], data: &[u8])
 
     if let UpdateProtocolConfigData::ProtocolAuthority(a) = &data {
         let new_authority = iter.next_signer("new_authority")?;
-        if new_authority.address().to_bytes() != a.to_bytes() {
+        if !address_eq(new_authority.address(), a) {
             return Err(ShieldedPoolError::InvalidInstructionData.into());
         }
     }

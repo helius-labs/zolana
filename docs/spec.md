@@ -1651,6 +1651,13 @@ struct MergeTransactIxData {
     proof: SPPProof,
     /// One output UTXO hash; appended to the UTXO tree.
     output_utxo_hash: [u8; 32],
+    /// Selects the owner rail for the `pk_field(user_signing_pk)` public input:
+    /// false derives it from `user_record.owner_p256` (P256), true from the
+    /// registry account `owner` (ed25519 signing key).
+    eddsa_owner: bool,
+    /// Public input to the merge proof; defined under
+    /// [Merge Proof](#merge-proof---merge-zk-proof).
+    private_tx_hash: [u8; 32],
     /// Input nullifiers, length N. Inserted into the nullifier queue and part of
     /// the public input hash.
     nullifiers: Vec<[u8; 32]>,
@@ -1658,17 +1665,10 @@ struct MergeTransactIxData {
     utxo_tree_root_index: Vec<u16>,
     /// Refs into the nullifier-tree root cache, one per input. Length N.
     nullifier_tree_root_index: Vec<u16>,
-    /// Public input to the merge proof; defined under
-    /// [Merge Proof](#merge-proof---merge-zk-proof).
-    private_tx_hash: [u8; 32],
     /// Single ciphertext bundle for the merged output. Layout per
     /// [Output UTXO Serialization § Merge](#merge). SPP recomputes `ciphertext_hash`
     /// from it for the public input hash.
     encrypted_utxo: Vec<u8>,
-    /// Selects the owner rail for the `pk_field(user_signing_pk)` public input:
-    /// false derives it from `user_record.owner_p256` (P256), true from the
-    /// registry account `owner` (ed25519 signing key).
-    eddsa_owner: bool,
 }
 ```
 

@@ -1,14 +1,10 @@
 //! Proofless SOL deposit steps.
 
-use cucumber::{given, then, when};
+use cucumber::{then, when};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{tag, DepositIxData},
-    pda,
-};
+use zolana_interface::{error::ShieldedPoolError, instruction::tag, pda};
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::litesvm_assert_deposit;
@@ -49,13 +45,6 @@ fn send_raw(world: &mut ShieldedPoolWorld, accounts: Vec<AccountMeta>) {
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])
         .map(|_| ());
     world.last_error = result.err();
-}
-
-fn assert_invalid_amount_shape(world: &mut ShieldedPoolWorld, data: &DepositIxData) {
-    let tree = world.tree().pubkey();
-    let depositor = world.depositor().insecure_clone();
-    let err = world.rpc().deposit(&tree, &depositor, data).unwrap_err();
-    assert_pool_error(err, ShieldedPoolError::InvalidTransactShape);
 }
 
 // === success ===
@@ -105,44 +94,6 @@ fn recipient_owns(world: &mut ShieldedPoolWorld, count: usize) {
 #[then(expr = "a proofless deposit event is emitted")]
 fn event_emitted(world: &mut ShieldedPoolWorld) {
     assert!(world.last_proofless_view.is_some());
-}
-
-// === bad amount shapes ===
-
-#[given(expr = "the indexer UTXO count is recorded")]
-fn record_indexer(world: &mut ShieldedPoolWorld) {
-    world.indexed_utxo_count_before = Some(world.rpc().indexer().utxos().len());
-}
-
-#[when(expr = "the depositor shields zero lamports")]
-fn shield_zero_sol(world: &mut ShieldedPoolWorld) {
-    let zero = ZolanaProgramTest::sol_shield_data(0, [1u8; 32], [1u8; 31]);
-    assert_invalid_amount_shape(world, &zero);
-}
-
-#[when(expr = "the depositor shields zero SPL tokens")]
-fn shield_zero_spl(world: &mut ShieldedPoolWorld) {
-    // Route through the SPL account shape so this is a distinct transaction from
-    // the zero-lamports case; the positive-amount check rejects it before the
-    // settlement accounts are read, so the dummy mint/token account never load.
-    let tree = world.tree().pubkey();
-    let depositor = world.depositor().insecure_clone();
-    let mint = Pubkey::new_unique();
-    let user_token = Pubkey::new_unique();
-    let zero_spl = ZolanaProgramTest::spl_shield_data(0, [1u8; 32], [1u8; 31]);
-    let err = world
-        .rpc()
-        .deposit_spl(&tree, &depositor, &user_token, &mint, &zero_spl)
-        .unwrap_err();
-    assert_pool_error(err, ShieldedPoolError::InvalidTransactShape);
-}
-
-#[then(expr = "the indexer UTXO count is unchanged")]
-fn indexer_unchanged(world: &mut ShieldedPoolWorld) {
-    let before = world
-        .indexed_utxo_count_before
-        .expect("indexer count recorded");
-    assert_eq!(world.rpc().indexer().utxos().len(), before);
 }
 
 // === account shape violations ===

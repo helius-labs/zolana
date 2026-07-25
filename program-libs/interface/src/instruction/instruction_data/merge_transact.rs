@@ -24,18 +24,18 @@ pub struct MergeTransactIxData {
     /// five-tuple; the layout is shared with `transact`'s P256 rail.
     pub proof: P256Proof,
     pub output_utxo_hash: [u8; 32],
+    /// When true the owner identity (`pk_field(user_signing_pk)`) is derived from
+    /// the registry account's ed25519 `owner` instead of its P256 `owner_p256`.
+    pub eddsa_owner: bool,
+    pub private_tx_hash: [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
     #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
     pub utxo_tree_root_index: Vec<u16>,
     #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
     pub nullifier_tree_root_index: Vec<u16>,
-    pub private_tx_hash: [u8; 32],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
     pub encrypted_utxo: Vec<u8>,
-    /// When true the owner identity (`pk_field(user_signing_pk)`) is derived from
-    /// the registry account's ed25519 `owner` instead of its P256 `owner_p256`.
-    pub eddsa_owner: bool,
 }
 
 impl MergeTransactIxData {
@@ -66,15 +66,15 @@ pub struct MergeTransactIxDataRef<'a> {
     pub expiry_unix_ts: u64,
     pub proof: P256ProofRef<'a>,
     pub output_utxo_hash: &'a [u8; 32],
+    pub eddsa_owner: bool,
+    pub private_tx_hash: &'a [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
     #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
     pub utxo_tree_root_index: Vec<u16>,
     #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
     pub nullifier_tree_root_index: Vec<u16>,
-    pub private_tx_hash: &'a [u8; 32],
     pub encrypted_utxo: &'a [u8],
-    pub eddsa_owner: bool,
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {

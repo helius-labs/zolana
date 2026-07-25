@@ -37,7 +37,7 @@ impl<'a> TransactAccounts<'a> {
         payer: &'a AccountView,
         tree: &'a mut AccountView,
     ) -> Result<Self, ProgramError> {
-        let mut spl_mint = None;
+        let mut spl_mint = None; // TODO: check why is spl mint not part of Settlement::Spl enum ?
         let settlement = if ix.is_deposit_or_withdrawal() {
             if ix.is_spl() {
                 let cpi_authority = if ix.is_deposit() {

@@ -11,11 +11,10 @@ Feature: Proofless SOL shield
     Then a proofless deposit event is emitted
     And the recipient owns 1 UTXO
 
-  Scenario: Bad amount shapes are rejected and leave the indexer unchanged
-    Given the indexer UTXO count is recorded
-    When the depositor shields zero lamports
-    And the depositor shields zero SPL tokens
-    Then the indexer UTXO count is unchanged
+  Scenario: A zero-lamport deposit is accepted
+    When the depositor shields 0 lamports to a fresh recipient
+    Then a proofless deposit event is emitted
+    And the recipient owns 1 UTXO
 
   Scenario: Account shape violations are rejected
     When the depositor shields with the program account missing

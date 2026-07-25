@@ -17,6 +17,7 @@ pub fn load_protocol_config<'a>(
     if !account.owned_by(&crate::ID) {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
     }
+    // TODO: use from_account_bytes
     let data = account
         .try_borrow()
         .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;

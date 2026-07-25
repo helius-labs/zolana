@@ -29,7 +29,6 @@ pub struct ShieldedPoolWorld {
     last_proofless_view: Option<DepositOutput>,
     last_error: Option<ProgramTestError>,
     sol_deposit: Option<SolDepositObservation>,
-    indexed_utxo_count_before: Option<usize>,
     state_roots: Vec<[u8; 32]>,
 }
 

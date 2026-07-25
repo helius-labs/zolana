@@ -59,7 +59,7 @@ pub(crate) fn resolve_outputs<'a>(
     accounts: &[AccountView],
     ix: &TransactIxDataRef<'a>,
 ) -> Result<ArrayVec<ResolvedOutput<'a>, MAX_OUTPUTS>, ProgramError> {
-    let mut outputs = ArrayVec::new();
+    let mut outputs = ArrayVec::new(); // TODO: check whether we really need this allocation.
     for output in &ix.outputs {
         let resolved = output.into_resolved(ix.p256_signing_pk_x.as_ref(), |i| {
             accounts.get(usize::from(i)).map(|a| a.address().to_bytes())
@@ -161,7 +161,7 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
     proof_inputs.spl_mint = transact_accounts.spl_mint;
-
+    // TODO: add prop test with full event assert.
     let event = build_transact_event(ix, proof_inputs, tree_write, resolved_outputs);
     TransactProof::new(ix, proof_inputs).verify::<IS_ZONE, IS_AUTHORITY>()?;
 
@@ -192,7 +192,7 @@ fn settlement_accounts(accounts: &TransactAccounts) -> ([u8; 32], [u8; 32], [u8;
             spl.user_token_account.address().to_bytes(),
             spl.vault.address().to_bytes(),
         ),
-        None => ([0u8; 32], [0u8; 32], [0u8; 32]),
+        None => ([0u8; 32], [0u8; 32], [0u8; 32]), // TODO: return proper type
     }
 }
 
@@ -269,6 +269,7 @@ fn check_input_signers<const IS_ZONE: bool>(
                 .get(usize::from(input.eddsa_signer_index))
                 .ok_or(ProgramError::NotEnoughAccountKeys)?;
             check_signer(account)?;
+            // TODO: use a hash cache.
             solana_pk_hash(account.address().as_array())?
         };
         *proof_inputs
@@ -290,7 +291,8 @@ fn fill_output_owner_pk_hashes(
         .iter_mut()
         .zip(resolved_outputs.iter())
     {
-        *slot = verifier::hash_field(&output.owner_tag, error)?;
+        // TODO: use a hash cache.
+        *slot = verifier::hash_field(&output.owner_tag, error)?; // TODO: check whether we can compute hashes offchain
     }
     Ok(())
 }
