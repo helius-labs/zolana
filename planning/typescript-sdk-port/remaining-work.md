@@ -77,18 +77,29 @@ node sdk-libs/ts/config/pkp-entry-gate.mjs        # the four entry criteria
 node sdk-libs/ts/config/review-checklist-check.mjs # rows, verdicts, attribution
 ```
 
-As of 2026-07-26, branch `ts-sdk-port` at 410 commits ahead of `main`:
+As of 2026-07-26 01:40, branch `ts-sdk-port` at 420 commits ahead of `main`:
 
 | Criterion | State |
 | --- | --- |
 | 1. Each of the 145 rows reviewed | pass |
 | 2. No adverse row remains | fail: 45 adverse, 27 `PARTIAL`, 17 `DIVERGENT`, 1 `STALE` |
 | 3. No specification-authority blocker | pass: no row is `BLOCKED` |
-| 4. Continuous integration green | fail: 4 jobs failing, 15 pending |
+| 4. Continuous integration green | fail: 3 jobs failing, 14 pending |
 
 90 of the 145 rows are `done` on demonstrated parity and 6 more are closed on a
 confirmed `NOT_APPLICABLE` disposition, which the gate counts separately. Both
 figures are right; 96 rows are closed and 90 is the number the gate reports.
+
+**The 45 is behind the code, and knowing by how much saves you rework.** Batches
+write their row transitions into `row-updates/<batch>.md` and a reconciler moves
+them into the table, so a row can carry a committed fix with oracle evidence and
+still read adverse. Six of the 45 are in that state today: `C07`, `C08`, `C15`,
+`C19`, `C20`, and the `T23` residual landed with client batch B at `d3514b24`,
+`410f6757`, `1da410f3`, `d867fccc`, and `2e981b7f`, and are recorded in
+[`row-updates/client-b.md`](row-updates/client-b.md) rather than in the table.
+Read the batch file for a package before you start on one of its rows. Criterion
+2 does not move until the reconciler folds those in, which makes the fold-in
+part of the remaining work rather than bookkeeping after it.
 
 ## The sequence
 
@@ -99,8 +110,8 @@ figures are right; 96 rows are closed and 90 is the number the gate reports.
 | 2 | `I08` `I09` `I20` `I21`, on one sentence from the owner | now |
 | 3 | Wallet, `W02` and `W04` | now |
 | 4 | Interface, `I07` `I19` `I26` `I37` | steps 1 and 3 |
-| 5 | Transaction, 15 rows | now |
-| 6 | Client, 13 rows | now |
+| 5 | Transaction, 15 rows, one of them already fixed | now |
+| 6 | Client, 13 rows, five of them already fixed | now |
 | 7 | Keypair and merkle-tree, `K11` to `K14` and `M02` | now |
 | 8 | Indexer API and smart-account client, `X01` and `S01` | now |
 | 9 | The package and full SDK gate sets | steps 1 to 8 |
@@ -110,6 +121,10 @@ Steps 5, 6, 7, and 8 touch disjoint packages and can run at the same time. Hold
 concurrency at three: five workers exhausted the account's capacity on
 2026-07-25 and died together. Step 4 waits on step 3 for a reason given in the
 step. Step 2 needs a decision rather than work and can be asked for today.
+
+Read the branch column of the worktree table in [`README.md`](README.md#worktree-topology)
+before taking a step. Four directory names no longer describe what their tree
+holds, and three collisions have come from trusting the name.
 
 ## Step A. Decide about address lookup tables and versioned transactions
 
@@ -132,9 +147,10 @@ legitimately as a decision to build a v0 compiler would.
 leads with whether the wall is real and how far away, and carries a
 recommendation the owner has accepted or rejected.
 
-An agent on branch `port/versioned-tx` is writing that document now. If it has
-not appeared in your tree, it is in flight rather than missing; do not answer
-the question yourself and do not wait for it before starting a numbered step.
+An agent on branch `port/versioned-tx`, in the `zolana-ts-interface-a` tree, is
+writing that document now. If it has not appeared in your tree, it is in flight
+rather than missing; do not answer the question yourself and do not wait for it
+before starting a numbered step.
 
 This is out of scope for the parity work and it is not part of the cryptographic
 phase, which is why it carries a letter rather than a number. It is here because
@@ -149,22 +165,30 @@ records the same finding with the paths behind each claim, and
 
 ## Step 1. Get the pull request's checks green
 
-**Now.** `gh pr checks 159` reports 4 failing jobs and 15 pending. The failing
-set at the time of writing is `typescript / static`, `typescript / fixtures`,
-`tests / sdk-libs`, and `tests / client integration`. The set moves between
-runs, so read it rather than trusting this list.
+**Now.** `gh pr checks 159` reports 3 failing jobs and 14 pending: `tests /
+sdk-libs`, `tests / client integration`, and `typescript / fixtures`. The set
+moves between runs, so read it rather than trusting this list. `typescript /
+static` failed on three unformatted config scripts and is closed at `5a83d7f4`.
+An agent on `port/ci-green`, in the `zolana-ts-ci` tree, owns this step.
 
-One failure is a decision rather than a defect, and it needs unpicking before
-this step can close. `typescript / fixtures` runs `npm run check:fixtures`,
-which is default-mode `fixtures:check`, which fails on baseline drift from
-`43fde8e4` across 13 `sdk-libs/transaction` paths joined by
+The Rust jobs are one cause rather than several. `main` deleted a dead field,
+`CreateTree.owner`, that this branch still carries, so `cargo check (workspace)`
+does not compile and the Rust test jobs inherit that failure rather than failing
+on their own account. Fix the field and re-read the set before triaging further.
+
+`typescript / fixtures` is the one that needs a decision rather than a fix, and
+it is the one to be careful with. It runs `npm run check:fixtures`, which is
+default-mode `fixtures:check`, which fails on baseline drift from `43fde8e4`
+across 13 `sdk-libs/transaction` paths joined by
 `sdk-libs/keypair/src/signing_key.rs`. That is
 [G8-1](production-readiness-issues.md#g8-1-the-manifest-pins-multiple-source-revisions-high),
-deferred by decision until the Rust source settles. A deferred failure still
-holds criterion 4 red, so either the manifest gets its per-revision
-compatibility rule or the job stops running the check that the decision
-defers. Pick one and record which; the deferral as it stands cannot coexist with
-the gate.
+deferred until the Rust source settles. Two things follow. A deferred failure
+still holds criterion 4 red, so the deferral as it stands cannot coexist with the
+gate: either the manifest gets the per-revision compatibility rule G8-1 asks for,
+or the job stops running the check the decision defers. And regenerating the
+fixtures to quiet the job would destroy the evidence the parity claims rest on,
+since the gate is correctly reporting a divergence. A stale provenance baseline
+has already explained this failure twice.
 
 **Done when** `gh pr checks 159` shows no failing and no pending job.
 
@@ -190,6 +214,9 @@ belongs to the owner.
 
 No valid transaction is lost either way. What TypeScript cannot do is decode
 such an instruction while indexing or debugging a failed transaction.
+
+An agent on `port/merge-prefix`, in the `zolana-ts-programlibs` tree, holds the
+strictness question. Coordinate with it rather than editing the codec.
 
 **Done when** the owner names a side. Both fixes are in scope: drop the guard
 from `sdk-libs/ts/interface`, or add the matching guard to
@@ -287,12 +314,14 @@ against the intuition, each in a different direction:
   holds, `0xffff` outputs accepted and hashed against `0x10000` refused.
   Removing the TypeScript guard alone would restore quiet truncation in one
   language, which is the state the ruling exists to end.
-- `T23` is fixed on the Rust side. `transaction/src/internal.ts:117` refuses a
-  field input at or above the BN254 modulus while `spp_proof_inputs.rs`
-  range-checks nothing and hands the prover a value the circuit reduces.
-  TypeScript is the safer side. Add the range check to `spp_proof_inputs.rs`,
-  then pin the boundary in both languages, `modulus - 1` accepted against
-  `modulus` refused.
+- `T23` was fixed on the Rust side and is waiting to be recorded. Rust's
+  `hex_to_be_32` read several spellings of one number and one spelling of a
+  different one: a repeated `0x` prefix, a discarded minus sign, an unparsable
+  string turned into zero, an oversized value truncated to its low 32 bytes, and
+  no comparison against the BN254 base modulus. TypeScript's `parseCoordinate`
+  refused each of those already. `d3514b24` narrows Rust and pins both languages
+  against `ts_proof_oracle.rs` over 27 adversarial cases, with three control
+  edits observed to fail 14, 3, and 3 of them.
 - `T28` cannot be fixed from TypeScript. It asks for canonical zone-hash
   and zone-address validation at construction, which neither language performs,
   so closing it means adding the rule to Rust first and porting it second.
@@ -321,7 +350,8 @@ carries a live defect from the quality audit: the codecs use a local
 have no consumer, so a wire-format change has to be made in three places and two
 of them are silent.
 
-**Done when** each of the fifteen reaches `done` with `PARITY`.
+**Done when** each of the fifteen reaches `done` with `PARITY`. Fourteen need
+work; `T23` needs its evidence recorded in the table.
 
 **Check.** The transaction package gate block has no adverse row, and each
 verdict rests on a Rust-generated oracle replayed by a TypeScript test rather
@@ -335,48 +365,53 @@ which is where the over-strict guards were caught against the circuit.
 
 ## Step 6. Client, thirteen rows
 
-`C01` through `C08`, `C15`, and `C19` through `C22`.
+`C01` through `C08`, `C15`, and `C19` through `C22`. Five of the thirteen have
+landed and are waiting on the reconciler; eight need work.
 
-Three of these need something other than TypeScript, and identifying which is
-most of the work:
+**Landed at `d3514b24`, `410f6757`, `1da410f3`, `d867fccc`, and recorded in
+[`row-updates/client-b.md`](row-updates/client-b.md).** Read that file before
+touching a `C` row, because the table does not yet show any of this.
 
-- `C08` is a Rust defect and the fix is inside this branch. Rust infers the
-  proof rail from which fields are present, so an Ed25519 request answered with
-  a commitment-bearing proof builds a `TransactProof::P256` that cannot verify,
-  where TypeScript refuses it. The owner ruled that TypeScript is correct. This
-  inverts the usual direction: the standing instruction has been to relax
-  TypeScript, and here the strictness is right, because refusing a proof whose
-  commitment does not match the requested rail turns a confusing verification
-  failure into a clear parse error. Make `proof_from_gnark_json` take the
-  requested rail and refuse a mismatch, then pin it in both languages.
-- `C07` needs a removal, not an addition. The owner ruled that
-  `interface/src/instructions/index.ts:76` should stop exporting
-  `batchUpdateNullifierTreeInstruction`, whose `BatchUpdateNullifierTreeData`
-  requires a `compressedProof` no TypeScript path can produce, and that the
-  address-append witness is not ported. Withdraw the builder, record the removal
-  in `public-exports.md`, and keep the decoder if an indexer needs to read the
-  instruction. That is where Light landed for the same reason.
-- `C02` cannot be fixed inside `error.ts`. `CLIENT_SOLANA_TRANSACTION_SIGNING`
-  has no producer, and giving it one means wrapping the `signNativeTransaction`
-  rejection in `sdk-libs/ts/wallet/`, which the client batch does not own.
-  Splitting the `NO_TYPESCRIPT_PRODUCER` set, so a code with a live Rust
-  producer is recorded apart from the two only tests construct, closes the row
-  instead and stays inside the package.
+- `C08` inverted the usual direction and is worth understanding once. Rust
+  inferred the proof rail from which fields the response carried, so an Ed25519
+  request answered with a commitment-bearing proof was packed as
+  `TransactProof::P256`, which verifies against neither key. The owner ruled that
+  TypeScript is correct and Rust moves. The rail now travels with the request
+  through `send`, `poll_async`, and `proof_from_value`.
+- `C07` closed by removal rather than addition.
+  `batchUpdateNullifierTreeInstruction` left the public surface of
+  `@zolana/interface`, because its `compressedProof` comes from the
+  `address-append` circuit no TypeScript path can prove.
+  `batchUpdateNullifierTreeDataCodec` stays, so a tool that finds such an
+  instruction can still read it. That is Light's rule and a breaking change the
+  pre-1.0 ruling permits.
+- `C19` reopened and then closed on generated evidence. Its nine polling
+  behaviours had been matched to Rust's `poll_async` by eye, and driving the real
+  Rust through a mock server instead turned up two divergences that reading had
+  missed, both about a `completed` status carrying nothing useful.
+- `C15` and `C20` were held by one factual error in a generated report:
+  `sdk-libs/ts/reports/inventory.json` named `src/prover/field.ts`,
+  `src/prover/merge-zone.ts`, and `src/prover/transact/index.ts`, none of which
+  the package ships. `ts-fixtures --reports-only` regenerates the reports without
+  weakening the fixture gate.
 
-`C15`, `C20`, and `C06` share one cause: `sdk-libs/ts/reports/inventory.json`
-names files the package does not ship, among them `src/prover/field.ts`,
-`src/prover/transact/index.ts`, and `src/prover/merge-zone.ts`. The file is
-generated by `xtask` and needs its owner, so three rows are held by one
-generator nobody has been assigned.
+**Still open.** `C06` shares the inventory-target complaint that `C15` and `C20`
+just closed, so check whether the regenerated report already settles it.
+
+`C02` cannot be fixed inside `error.ts`. `CLIENT_SOLANA_TRANSACTION_SIGNING` has
+no producer, and giving it one means wrapping the `signNativeTransaction`
+rejection in `sdk-libs/ts/wallet/`, which the client batch does not own.
+Splitting the `NO_TYPESCRIPT_PRODUCER` set, so a code with a live Rust producer
+is recorded apart from the two only tests construct, closes the row instead and
+stays inside the package.
 
 `C03` and `C04` interact with open pull request 158, which renames a type this
 port already uses and rewrites `indexer_error` in the opposite direction from
 `6d757791`. Read
 [`row-updates/pr-158-impact.md`](row-updates/pr-158-impact.md) before
-restructuring either file. `C01`, `C05`, `C19`, `C21`, and `C22` are each one
-step short: a recorded ledger line, an absent Rust oracle, or a set of
-behaviours pinned by TypeScript expectations that a reader matched to the arms
-of the Rust function rather than by an executed comparison.
+restructuring either file. `C01`, `C05`, `C21`, and `C22` are each one step
+short: a recorded ledger line, an absent Rust oracle, or a behaviour pinned by a
+TypeScript expectation rather than by an executed comparison.
 
 **Done when** each of the thirteen reaches `done` with `PARITY`.
 
@@ -556,9 +591,18 @@ of the paths it names, so read `git diff <path>` immediately before committing
 and say in the message what you carried that is not yours.
 
 **One tree, one branch, one agent.** A second agent's `git checkout` silently
-moves the first agent's `HEAD`, and the damage surfaces at commit time. Do not
-reassign a worktree while its previous agent can still be resumed, and rename a
-tree when you repurpose it.
+moves the first agent's `HEAD`, and the damage surfaces at commit time. This has
+happened three times in one evening. Do not reassign a worktree while its
+previous agent can still be resumed, and prefer creating a tree over reusing
+one: a tree costs a copy of `node_modules` and a collision costs an hour.
+
+**When 91 test files fail to collect at once, check the branch before the
+cache.** That is what a checkout under your feet looks like from inside, and it
+impersonates the stale `node_modules/.vite` problem below. Run `git branch
+--show-current` first. If it is not your branch, clearing caches will not help
+and rebuilding will write your work onto someone else's branch. Guard each
+commit with a branch check; that guard is what made the third collision an
+interruption rather than a loss.
 
 **After a merge, run `npm run build` and `rm -rf node_modules/.vite` before
 believing a failure.** Packages resolve each other through their `exports` map,
