@@ -58,11 +58,13 @@ import {
   type WithdrawalTarget,
 } from "../../src/index.js";
 import {
+  decodeAnonymousRecipient,
   decodeConfidential,
   decodeData,
   decodeMerge,
   decodeProofless,
   decodeSplitEncrypted,
+  decryptAnonymous,
   decryptConfidential,
   decryptMerge,
   encodeAnonymousRecipient,
@@ -1579,6 +1581,59 @@ describe("the Rust oracle and TypeScript agree on the encrypted rails' reader", 
       }).toEqual(testCase.plaintext);
     });
   }
+});
+
+interface ProgressionStep {
+  readonly index: number;
+  readonly tagHex: string;
+  readonly saltHex: string;
+  readonly slotIndex: number;
+  readonly amount: string;
+  readonly blindingHex: string;
+  readonly plaintextHex: string;
+  readonly bodyHex: string;
+}
+
+/**
+ * A sender and a recipient exchanging four anonymous transfers in sequence.
+ * The shared view tag advances by an index the two sides derive independently,
+ * which is how the recipient finds its slot without a per-transfer channel, and
+ * each step carries the transfer that tag addresses, so the tag stream and the
+ * payload are checked in step rather than only in isolation.
+ */
+describe("the Rust oracle and TypeScript agree on the anonymous tag progression", () => {
+  const progression = oracle.anonymousProgression;
+  const sender = ViewingKey.fromBytes(bytes(progression.senderViewingSeedHex) as Bytes32);
+  const recipient = ViewingKey.fromBytes(bytes(progression.recipientViewingSeedHex) as Bytes32);
+  const tx = ViewingKey.fromBytes(bytes(progression.txViewingSeedHex) as Bytes32);
+  const steps = progression.steps as readonly ProgressionStep[];
+
+  for (const step of steps) {
+    it(`derives the tag and the transfer at index ${String(step.index)} the same way`, () => {
+      const index = BigInt(step.index);
+      expect(hex(sender.sendSharedViewTag(recipient.publicKey(), index))).toBe(step.tagHex);
+      expect(hex(recipient.recipientSharedViewTag(sender.publicKey(), index))).toBe(step.tagHex);
+
+      const plaintext = decryptAnonymous(
+        recipient,
+        tx.publicKey(),
+        bytes(step.bodyHex),
+        bytes(step.saltHex) as Bytes16,
+        step.slotIndex,
+      );
+      expect(hex(plaintext)).toBe(step.plaintextHex);
+
+      const decoded = decodeAnonymousRecipient(plaintext);
+      expect(decoded.amount).toBe(BigInt(step.amount));
+      expect(hex(decoded.blinding)).toBe(step.blindingHex);
+      expect(hex(decoded.senderPublicKey.toBytes())).toBe(hex(sender.publicKey().toBytes()));
+      expect(hex(decoded.ownerPublicKey.toBytes())).toBe(progression.ownerPublicKeyHex);
+    });
+  }
+
+  it("advances the tag at every step", () => {
+    expect(new Set(steps.map((step) => step.tagHex)).size).toBe(steps.length);
+  });
 });
 
 interface BuilderSequenceCase {

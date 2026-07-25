@@ -47,7 +47,7 @@ use zolana_transaction::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
-            AnonymousSenderEncode,
+            AnonymousSenderEncode, AnonymousTransferRecipientPlaintext,
         },
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         merge::{Merge as MergeSerialization, MergeEncode, MergePlaintext},
@@ -2716,6 +2716,7 @@ fn oracle() -> Value {
         "zoneAuthority": zone_authority_section(),
         "decrypt": decrypt_section(),
         "externalData": external_data_section(),
+        "anonymousProgression": anonymous_progression_section(),
     })
 }
 
@@ -2987,6 +2988,84 @@ const DECRYPT_SLOT_INDEX: u32 = 2;
 /// attacker chose, so which category the reader rejects them under is part of
 /// the protocol: a scanner that skips a slot on one category and aborts the
 /// wallet sync on another must see the same category in both languages.
+const ANON_SENDER_VIEWING_SEED: [u8; 32] = [41u8; 32];
+const ANON_RECIPIENT_VIEWING_SEED: [u8; 32] = [43u8; 32];
+const ANON_TX_VIEWING_SEED: [u8; 32] = [47u8; 32];
+const ANON_OWNER_SIGNING_SECRET: [u8; 32] = [53u8; 32];
+const ANON_STEPS: u64 = 4;
+
+/// A sender and a recipient exchanging four anonymous transfers in sequence.
+/// The shared view tag is what lets the recipient find the slot without a
+/// per-transfer channel, and it advances by an index the two derive
+/// independently: the sender from its own key toward the recipient, the
+/// recipient the other way round. Each step also carries the transfer it
+/// addresses, so the case pins that the tag stream and the payload stay in
+/// step rather than only that the tags agree in isolation.
+fn anonymous_progression_section() -> Value {
+    let sender = ViewingKey::from_bytes(&ANON_SENDER_VIEWING_SEED).expect("sender viewing key");
+    let recipient =
+        ViewingKey::from_bytes(&ANON_RECIPIENT_VIEWING_SEED).expect("recipient viewing key");
+    let tx = ViewingKey::from_bytes(&ANON_TX_VIEWING_SEED).expect("tx viewing key");
+    let owner =
+        shielded_keypair(&ANON_OWNER_SIGNING_SECRET, &ANON_SENDER_VIEWING_SEED).signing_pubkey();
+
+    let steps = (0..ANON_STEPS)
+        .map(|index| {
+            let sent = sender
+                .get_send_shared_view_tag(&recipient.pubkey(), index)
+                .expect("send shared view tag");
+            let received = recipient
+                .get_recipient_shared_view_tag(&sender.pubkey(), index)
+                .expect("recipient shared view tag");
+            assert_eq!(sent, received, "the two sides derive one tag per index");
+
+            let salt = [index as u8 + 1; SALT_LEN];
+            let slot_index = index as u32;
+            let plaintext = AnonymousTransferRecipientPlaintext {
+                owner_pubkey: owner,
+                sender_pubkey: sender.pubkey(),
+                asset_id: SOL_ASSET_ID,
+                amount: 100 + index,
+                blinding: [index as u8 + 7; BLINDING_LEN],
+                data: Data::default(),
+            };
+            let bytes = plaintext
+                .serialize()
+                .expect("serialize anonymous recipient");
+            let body = AnonymousRecipient::encrypt(
+                &bytes,
+                &AnonymousRecipientEncode {
+                    tx: tx.clone(),
+                    recipient_pubkey: recipient.pubkey(),
+                    sender_pubkey: sender.pubkey(),
+                    salt,
+                    slot_index,
+                },
+            )
+            .expect("encrypt anonymous recipient");
+
+            json!({
+                "index": index,
+                "tagHex": hex(&sent),
+                "saltHex": hex(&salt),
+                "slotIndex": slot_index,
+                "amount": plaintext.amount.to_string(),
+                "blindingHex": hex(&plaintext.blinding),
+                "plaintextHex": hex(&bytes),
+                "bodyHex": hex(&body),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "senderViewingSeedHex": hex(&ANON_SENDER_VIEWING_SEED),
+        "recipientViewingSeedHex": hex(&ANON_RECIPIENT_VIEWING_SEED),
+        "txViewingSeedHex": hex(&ANON_TX_VIEWING_SEED),
+        "ownerPublicKeyHex": hex(owner.as_bytes()),
+        "steps": steps,
+    })
+}
+
 fn decrypt_section() -> Value {
     let user = ViewingKey::from_bytes(&DECRYPT_USER_VIEWING_SEED).expect("user viewing key");
     let tx = ViewingKey::from_bytes(&DECRYPT_TX_VIEWING_SEED).expect("tx viewing key");
