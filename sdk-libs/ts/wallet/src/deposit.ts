@@ -7,6 +7,7 @@ import {
   type DepositInstructionData,
   type Instruction,
   type RequestContext,
+  type Signature,
   type Transaction,
 } from "@zolana/interface";
 import { splAssetRegistryAddress, splAssetVaultAddress } from "@zolana/interface/pda";
@@ -16,6 +17,7 @@ import { SOL_MINT, ownerUtxoHash } from "@zolana/transaction";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { compileTransaction } from "./internal.js";
+import type { TransactionSigner } from "./submit.js";
 
 export interface DepositSplAccounts {
   readonly userToken: Address;
@@ -74,7 +76,7 @@ export class Deposit {
 
 export function createDeposit(params: DepositParams): Deposit {
   try {
-    if (params.amount <= 0n || params.amount > 0xffff_ffff_ffff_ffffn) {
+    if (params.amount < 0n || params.amount > 0xffff_ffff_ffff_ffffn) {
       throw new WalletError("WALLET_INVALID_AMOUNT", {
         details: { amount: params.amount.toString() },
       });
@@ -88,12 +90,10 @@ export function createDeposit(params: DepositParams): Deposit {
       amount: params.amount,
       ...(params.memo === undefined ? {} : { memo: new Uint8Array(params.memo) }),
     };
+    // A SOL deposit needs no token accounts, so one supplied alongside it is
+    // ignored rather than rejected.
     let spl: DepositSplAccounts | undefined;
-    if (params.asset === SOL_MINT) {
-      if (params.splTokenAccount !== undefined) {
-        throw new WalletError("WALLET_UNEXPECTED_SPL_TOKEN_ACCOUNT");
-      }
-    } else {
+    if (params.asset !== SOL_MINT) {
       if (params.splTokenAccount === undefined) {
         throw new WalletError("WALLET_MISSING_SPL_TOKEN_ACCOUNT", {
           details: { mint: params.asset },
@@ -119,6 +119,42 @@ export function createDeposit(params: DepositParams): Deposit {
     });
   } catch (cause) {
     throw wrapWalletError("WALLET_CREATE_DEPOSIT", cause);
+  }
+}
+
+/**
+ * Build, sign, and send a deposit. The depositor signs alongside the payer only
+ * when they are different accounts; the funding account must authorize the
+ * lamport or token transfer either way.
+ */
+export async function deposit(
+  input: Readonly<{
+    rpc: Rpc;
+    payer: TransactionSigner;
+    tree: Address;
+    depositor: TransactionSigner;
+    deposit: Deposit;
+  }>,
+  context?: RequestContext,
+): Promise<Signature> {
+  try {
+    const unsigned = await buildDepositTransaction(
+      {
+        rpc: input.rpc,
+        payer: input.payer.address,
+        tree: input.tree,
+        depositor: input.depositor.address,
+        deposit: input.deposit,
+      },
+      context,
+    );
+    let signed = await input.payer.signNativeTransaction(unsigned);
+    if (input.depositor.address !== input.payer.address) {
+      signed = await input.depositor.signNativeTransaction(signed);
+    }
+    return await input.rpc.sendTransaction(signed, context);
+  } catch (cause) {
+    throw wrapWalletError("WALLET_DEPOSIT", cause);
   }
 }
 

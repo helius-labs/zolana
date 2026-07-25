@@ -2,10 +2,11 @@ import { readFileSync } from "node:fs";
 
 import type { Rpc } from "@zolana/client";
 import { type Address, type Bytes31, type Bytes32 } from "@zolana/interface";
-import { SOL_MINT } from "@zolana/transaction";
+import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
+import { SOL_MINT, ownerUtxoHash } from "@zolana/transaction";
 import { describe, expect, it } from "vitest";
 
-import { Deposit, buildDepositTransaction } from "../../src/index.js";
+import { Deposit, buildDepositTransaction, createDeposit } from "../../src/index.js";
 import { base58, hexBytes, walletFixture } from "../helpers/fixtures.js";
 
 interface Fixture {
@@ -75,6 +76,50 @@ describe("wallet deposit vector", () => {
         isWritable: account.writable,
       })),
     );
+  });
+
+  it("derives the recipient owner hash and view tag through createDeposit", async () => {
+    const fixture = await walletFixture<{
+      inputs: {
+        amount: string;
+        recipientSigningSecretBytes: string;
+        recipientViewingSeedBytes: string;
+      };
+      expected: { sol: { ownerBytes: string; viewTagBytes: string } };
+    }>("deposit");
+    const signing = SigningKey.fromBytes(
+      hexBytes(fixture.inputs.recipientSigningSecretBytes) as Bytes32,
+    );
+    const recipient = ShieldedKeypair.fromKeys(
+      signing,
+      NullifierKey.fromSigningKey(signing),
+      ViewingKey.fromSeed(hexBytes(fixture.inputs.recipientViewingSeedBytes) as Bytes32, 0),
+    ).shieldedAddress();
+
+    const deposit = createDeposit({
+      recipient,
+      asset: SOL_MINT,
+      amount: BigInt(fixture.inputs.amount),
+      // A SOL deposit ignores a supplied token account rather than rejecting it.
+      splTokenAccount: "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD" as Address,
+    });
+
+    expect(hex(deposit.data.owner)).toBe(fixture.expected.sol.ownerBytes);
+    expect(hex(deposit.viewTag())).toBe(fixture.expected.sol.viewTagBytes);
+    expect(deposit.spl).toBeUndefined();
+    // The blinding is fresh per deposit, so the commitment is pinned to the
+    // hash the recipient will spend rather than to a recorded value.
+    expect(hex(deposit.utxoHash)).toBe(
+      hex(
+        ownerUtxoHash({
+          owner: deposit.data.owner,
+          asset: SOL_MINT,
+          amount: BigInt(fixture.inputs.amount),
+          blinding: deposit.data.blinding,
+        }),
+      ),
+    );
+    expect(createDeposit({ recipient, asset: SOL_MINT, amount: 0n }).data.amount).toBe(0n);
   });
 
   it("matches the wallet deposit instruction and unsigned message oracle", async () => {
