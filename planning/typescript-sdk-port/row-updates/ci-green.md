@@ -142,6 +142,33 @@ pass on a re-run. They are called out here because they are the two jobs most
 likely to be misattributed to the `default-run` fix that legitimately explains
 the other five.
 
+## `check:packaging` could not run from a clean checkout
+
+Inherited from `ts-sdk-port` rather than caused here. The same failure is in
+that branch's own run `30177411202`, at the same path.
+
+```
+Error: ENOENT: no such file or directory, access
+'.../sdk-libs/ts/interface/dist/index.d.ts'
+```
+
+`test:browser` and `pack:check` each begin with `npm run build`, but
+`test:exports`, `test:dependencies`, and `api:check` read `dist/` without
+building, and `check:packaging` runs those three first. Developers never saw it
+because they build before checking; the CI job runs `npm ci` and then
+`check:packaging` on a tree with no `dist` at all, and there is no `prepare`
+script to fill one in.
+
+Fixed by starting `check:packaging` with `npm run build`. This is worth more
+than unblocking the job: it also removes the stale-artifact hazard that made the
+local reproduction of the original `globalThis.process` failure disagree with
+CI. The gate previously could pass locally against a `dist` built from source
+that no longer existed. It now always inspects freshly built output, and it
+still checks the same six things afterwards.
+
+The one-line `scripts.check` string that `gate-scope` asserts against is
+untouched, so that job keeps its meaning.
+
 ## Why PR #162 reported no checks at all
 
 Worth knowing for the next person, because it looks exactly like a broken
