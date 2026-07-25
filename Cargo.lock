@@ -11306,11 +11306,13 @@ dependencies = [
  "zolana-client",
  "zolana-hasher",
  "zolana-interface",
+ "zolana-keypair",
  "zolana-merkle-tree",
  "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-user-registry-interface",
+ "zolana-wallet",
 ]
 
 [[package]]

@@ -31,8 +31,10 @@ solana-transaction = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-transaction = { workspace = true }
+zolana-wallet = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
 zolana-program-test = { workspace = true }
