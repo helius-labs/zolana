@@ -353,10 +353,7 @@ fn spending_twice_in_one_transaction_is_rejected() {
 
     let err = env
         .rpc
-        .create_and_send_default_payer_transaction(
-            &[build(ix_data.clone()), build(ix_data)],
-            &[],
-        )
+        .create_and_send_default_payer_transaction(&[build(ix_data.clone()), build(ix_data)], &[])
         .expect_err("two identical spends in one transaction must be rejected");
     assert_eq!(
         custom_code(&err),
@@ -436,9 +433,12 @@ fn zero_is_already_a_nullifier_tree_leaf() {
         10,
     )
     .unwrap();
-    let mut tree =
-        IndexedMerkleTree::<zolana_hasher::Poseidon, usize>::new_with_next_value(40, 0, modulus - 1u32)
-            .unwrap();
+    let mut tree = IndexedMerkleTree::<zolana_hasher::Poseidon, usize>::new_with_next_value(
+        40,
+        0,
+        modulus - 1u32,
+    )
+    .unwrap();
 
     assert_eq!(
         tree.indexed_array.get(0).map(|e| e.value.clone()),
