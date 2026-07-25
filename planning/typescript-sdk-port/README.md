@@ -1,8 +1,23 @@
 # TypeScript SDK port plan
 
 This directory defines the implementation contract for a TypeScript port of the
-Rust SDK. It does not authorize changes to `docs/spec.md` or the Rust
-implementation.
+Rust SDK.
+
+## Scope, which is narrower than it looks
+
+The port changes SDK crates. It does not change `programs/`, `program-libs/`,
+`prover/`, or the circuits, and an agent who believes a fix belongs in one of
+those should stop and report rather than make it. Two exceptions exist, both
+granted case by case rather than standing: the protocol owner has approved
+specific `docs/spec.md` amendments where the specification described behaviour
+the deployed program does not have, and a confirmed program defect may move to
+its own branch and pull request off `main` rather than land here.
+
+This rule has been broken. As of 2026-07-25 the branch carries 171 net inserted
+lines across six files under `program-libs/`, one of which survived a revert
+that was reported as complete. Read
+[`row-updates/program-lib-scope-audit.md`](row-updates/program-lib-scope-audit.md)
+for the disposition of each hunk before adding to them.
 
 ## Current baseline
 
@@ -136,7 +151,7 @@ Read the package in this order:
 - [Implementation work packets](work-packets.md): defines prerequisites,
   disjoint file ownership, required evidence, and completion criteria.
 - [Proof and key-handling parity certification](proof-and-key-parity.md):
-  certifies cryptographic behavior after the 118-row review and SDK gates
+  certifies cryptographic behavior after the row review and SDK gates
   pass. It supplements the checklist instead of duplicating its inventory.
 - [Production-readiness issues](production-readiness-issues.md): records the
   cross-cutting findings in nine groups, with the evidence behind each one, and
@@ -185,9 +200,12 @@ Use sources in this order. A lower source cannot override a higher source:
 
 Use these phases in order:
 
-1. Review the 118 rows in
-   [review-checklist.md](review-checklist.md). Closed on 2026-07-25: each row
-   carries a current-Rust verdict.
+1. Review the rows in [review-checklist.md](review-checklist.md). This phase
+   was declared closed on 2026-07-25 and reopened the same day: a coverage
+   audit found the queue needs 145 rows rather than 118, with 27 files in
+   `program-libs` crates that the SDK depends on carrying no row, and five
+   further rows pointing at files that do not hold the behaviour they claim to
+   review.
 2. Implement actionable adverse findings and independently re-review each
    fix. Resolve specification-authority blockers before treating disputed
    behavior as canonical. This is the active phase.
@@ -199,8 +217,21 @@ Use these phases in order:
 The final phase is a cryptographic certification overlay. The checklist remains
 the authority for row status and verdicts; its [mutable
 baseline](review-checklist.md#mutable-baseline) holds the live counts and the
-next eligible row. At the close of phase 1, 31 rows were `done` and 87 carried
-an adverse verdict, so a full SDK parity claim has no support yet.
+next eligible row.
+
+Do not trust a row that says `PARITY` without reading its evidence. An audit on
+2026-07-25 examined the 36 rows then claiming it and found one supported by an
+independent entry naming a reviewer, a commit, and a committed oracle. The rest
+recorded a verdict after someone read two files and found them similar. Those
+rows were reopened, a CI check now refuses a `done` row whose most recent
+verdict-bearing log entry is adverse, and the defensible figure is 1 row of 145.
+A row reaches parity when a test, a fixture, or an executed comparison
+demonstrates it, and recording that you could not close a row is worth more than
+a verdict nobody can check.
+
+Two protocol defects surfaced during review and are tracked outside the queue,
+as rows PD-1 and PD-2, because no TypeScript change closes either. Neither
+blocks the port.
 
 The 26 findings in
 [production-readiness-issues.md](production-readiness-issues.md#scheduling) are
