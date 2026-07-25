@@ -33,7 +33,7 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker returns. Last update: 2026-07-25 20:08.
+Refreshed as each worker returns. Last update: 2026-07-25 20:14.
 
 | | |
 | --- | --- |
@@ -47,7 +47,7 @@ In flight:
 
 | Work | State |
 | --- | --- |
-| Client package, rows C01 to C22 | Running, integration tree |
+| Client package, rows C01 to C22 | RPC half closed, prover half running |
 | Interface, 36 rows | Running, `port/interface-a` |
 | Transaction, 31 rows | Running, `port/transaction` |
 | Keypair, 14 rows | Running, `port/keypair` |
@@ -119,6 +119,14 @@ works because the npm workspace symlinks are relative and therefore resolve
 inside whichever tree holds them. The batch trees share
 `CARGO_TARGET_DIR=/Users/tilohelius/Workspace/zolana-ts-sdk-port/target`, so a
 concurrent cargo run blocks rather than triggering a cold rebuild per tree.
+
+**End-to-end tests do not run while the batches do.** `startLocalStack` offsets
+the validator's RPC port but leaves the faucet on its default, so the validator
+still opens port 9900 and exits when a second clone or a sibling batch tree
+already holds it. Unit, vector,
+cross-language, typecheck, build, and export gates are unaffected and remain the
+verification standard during a parallel push. The fix belongs to
+`test-kit/src/node/index.ts`, which the wallet batch owns.
 
 Batches keep to their own package to make the merge trivial. Where a batch finds
 a defect in another batch's package it records the required change instead of
