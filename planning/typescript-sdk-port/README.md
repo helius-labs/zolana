@@ -33,29 +33,46 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker returns. Last update: 2026-07-25 20:31.
+Refreshed as each worker returns. Last update: 2026-07-25 20:34.
 
 | | |
 | --- | --- |
-| Rows supported by evidence | 1 of 145 in the checklist; 18 more land when `port/program-libs` merges |
-| Rows with an adverse verdict | 107 (55 partial, 39 divergent, 13 blocked) |
-| Rows with no verdict recorded | 27, in the `event`, `hasher`, `indexed-array`, and `user-registry-interface` crates |
-| Branch | 246 commits over two days |
+| Rows supported by evidence | 1 in the checklist. 51 more are evidenced on the branch and awaiting the fold-in described below |
+| Rows with an adverse verdict | 107 (55 partial, 39 divergent, 13 blocked), before the fold-in |
+| Rows with no verdict recorded | 0. The 27 uncovered rows are reviewed and merged |
+| Branch | 252 commits over two days. `npm run test:unit` 964 passing, typecheck and lint clean |
 | Phase | 2 of 4: remediation. Phase 1 reopened, phases 3 and 4 not started |
+
+A verdict earned in a batch worktree does not reach the table by itself.
+Batches record rows in `row-updates/<batch>.md` because they must not edit
+`review-checklist.md`, so the two merged batches are 51 rows of evidence the
+table still shows as open. Read the gap as bookkeeping, not as work outstanding.
 
 In flight:
 
 | Work | State |
 | --- | --- |
 | Client package, rows C01 to C22 | RPC half closed, prover half running |
-| Interface, 36 rows | Running, `port/interface-a` |
 | Transaction, 31 rows | 3 closed, 8 advanced, second pass running |
 | Keypair, 14 rows | Running, `port/keypair` |
 | Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc` |
-| The 27 uncovered rows | Done: 17 parity, 1 fixed, 9 not applicable |
-| Checklist reconciliation, log split, 27 new rows | Done, gate green at 145 rows |
-
+| Fold the two merged batches into the table | Running |
 | `user_record` binding fix, own branch off `main` | Running |
+
+Merged into the integration branch:
+
+| Batch | Result |
+| --- | --- |
+| The 27 uncovered rows, `port/program-libs` | 17 parity, 1 fixed, 9 not applicable |
+| Interface, 36 rows, `port/interface-a` | 33 parity, 1 divergence pinned, 3 partial. No `src/**` file changed |
+| Checklist reconciliation and log split | Gate green at 145 rows |
+
+The interface batch is the pattern worth copying: it generated a JSON oracle
+from the real `zolana-interface` crate and compared TypeScript against that,
+rather than reading the two languages side by side. It closed 33 rows without
+changing a source file, which says those rows were open for want of evidence
+rather than want of correctness, and it caught a real asymmetry in the merge
+codecs that side-by-side reading had twice recorded as parity.
 
 Closed today: the deposit discovery tag moved to the signing pubkey in both
 languages; double spending confirmed prevented by execution on the five
