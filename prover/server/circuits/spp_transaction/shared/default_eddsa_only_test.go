@@ -69,7 +69,18 @@ func emptyOutputUtxo() protocol.Utxo {
 
 func buildDefaultZoneEddsaOnlyAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
 	t.Helper()
-	assignment := buildCircuitAssignment(t, shape)
+	inputs, outputs := defaultBalancedUtxos(t, shape)
+	return buildDefaultZoneEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+}
+
+func buildDefaultZoneEddsaOnlyAssignmentFromUtxos(
+	t testing.TB,
+	shape protocol.Shape,
+	inputUtxos []protocol.Utxo,
+	outputUtxos []protocol.Utxo,
+) *testAssignment {
+	t.Helper()
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputUtxos, outputUtxos)
 	assignment.P256MessageHashLow = spptest.Fe(0)
 	assignment.P256MessageHashHigh = spptest.Fe(0)
 	makeDefaultZone(t, assignment, nil)
@@ -104,6 +115,62 @@ func TestDefaultZoneEddsaOnlyRejectsMistaggedOutput(t *testing.T) {
 	assignment.Outputs[0].OwnerPkHash = spptest.Fe(424242)
 	refreshDefaultZonePublicInputHash(t, assignment)
 
+	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
+// A data-carrying output whose public owner tag is one of the signers solves:
+// the signer array holds the input owner tags, and output 0 carries the same one.
+func TestDefaultZoneEddsaOnlyAcceptsDataHashOnSignerOwnedOutput(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+
+	inputs, outputs := defaultBalancedUtxos(t, shape)
+	outputs[0].DataHash = spptest.Fe(0x99)
+	assignment := buildDefaultZoneEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+
+	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
+// The data check is on the signing key, not on the full owner identity: a
+// data-carrying output owned by the signer under a different nullifier pubkey
+// (a different derived identity of the same signer) solves.
+func TestDefaultZoneEddsaOnlyAcceptsDataHashOnSignerOwnedOutputWithOtherNullifierPk(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+
+	pkField := testSolanaPkField(t)
+	otherNullifierPk := spptest.MustNullifierPk(t, spptest.Fe(1234))
+
+	inputs, outputs := defaultBalancedUtxos(t, shape)
+	outputs[0].DataHash = spptest.Fe(0x99)
+	outputs[0].Owner = spptest.MustOwnerHash(t, pkField, otherNullifierPk)
+	assignment := buildDefaultZoneEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+	assignment.Outputs[0].NullifierPk = otherNullifierPk
+	refreshDefaultZonePublicInputHash(t, assignment)
+
+	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
+// A data-carrying output owned by a key that did not sign must not solve, even
+// though its public owner tag correctly recomputes the output owner_hash: the
+// tag is not in the signer array.
+func TestDefaultZoneEddsaOnlyRejectsDataHashOnNonSignerOwnedOutput(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+
+	otherPkField := testSolanaPkFieldSeed(t, 0x43)
+	_, nullifierPk := defaultOutputOwnerTag(t)
+
+	inputs, outputs := defaultBalancedUtxos(t, shape)
+	outputs[0].DataHash = spptest.Fe(0x99)
+	outputs[0].Owner = spptest.MustOwnerHash(t, otherPkField, nullifierPk)
+	assignment := buildDefaultZoneEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+	assignment.Outputs[0].OwnerPkHash = otherPkField
+	refreshDefaultZonePublicInputHash(t, assignment)
+
+	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
 	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 

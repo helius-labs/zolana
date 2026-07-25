@@ -27,13 +27,13 @@ type Input struct {
 }
 
 // InputSignals carries one input slot's hoisted signals: the derived
-// nullifier, the claimed tree roots, and the owner tag the ownership check
-// binds to.
+// nullifier, the claimed tree roots, and the signer pk hash the ownership check
+// binds the owner to.
 type InputSignals struct {
 	Nullifier         frontend.Variable
 	UtxoTreeRoot      frontend.Variable
 	NullifierTreeRoot frontend.Variable
-	OwnerPkHash       frontend.Variable
+	SignerPk          frontend.Variable
 }
 
 // NewInputs allocates n input slots with tree-height path slices.
@@ -82,29 +82,20 @@ func AssertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) 
 	}
 }
 
-// SpendEnv holds the per-proof values shared by every input-spend check: the
-// one witnessed P256 key and the one signature over private_tx_hash that
-// authorize all P256-owned inputs.
-type SpendEnv struct {
-	P256PkField  frontend.Variable
-	P256SigValid frontend.Variable
-	// P256Sentinel marks a P256-owned entry: an OwnerPkHash equal to it routes
-	// ownership to the shared P256 key. The default zone uses the public
-	// P256SigningPkField, so P256 input owners are public; the custom zone
-	// variants route anonymously on the 0 sentinel.
-	P256Sentinel frontend.Variable
-}
-
-// ConstrainP256Input — P256 rail: a P256-owned entry needs the valid shared
-// signature.
-func ConstrainP256Input(api frontend.API, in Input, signals InputSignals, env SpendEnv) (frontend.Variable, frontend.Variable) {
-	AssertWhen(api, in.isUtxoOrAddress(api), in.checkOwnershipP256(api, signals.OwnerPkHash, env))
-	return constrainInputShared(api, in, signals)
-}
-
-// ConstrainEddsaOnlyInput — Solana-only rail: P256-owned entries are rejected.
-func ConstrainEddsaOnlyInput(api frontend.API, in Input, signals InputSignals, env SpendEnv) (frontend.Variable, frontend.Variable) {
-	AssertWhen(api, in.isUtxoOrAddress(api), in.checkOwnershipEddsaOnly(api, signals.OwnerPkHash, env))
+// ConstrainInput binds one input slot to its signer. The rail's Signers array
+// already resolved which pk hash signs for this slot, so a slot that carries
+// content only needs its owner hash to recompute from that pk and the witnessed
+// nullifier secret.
+func ConstrainInput(api frontend.API, in Input, signals InputSignals) (frontend.Variable, frontend.Variable) {
+	nullifierPk := abstractor.Call(api, NullifierPkGadget{
+		NullifierSecret: in.NullifierSecret,
+	})
+	ownerHash := abstractor.Call(api, OwnerHashGadget{
+		OwnerKeyHash: signals.SignerPk,
+		NullifierPk:  nullifierPk,
+	})
+	ownerBinds := api.IsZero(api.Sub(ownerHash, in.Utxo.Owner))
+	AssertWhen(api, in.isUtxoOrAddress(api), ownerBinds)
 	return constrainInputShared(api, in, signals)
 }
 
@@ -163,7 +154,7 @@ func (in Input) isUtxoOrAddress(api frontend.API) frontend.Variable {
 }
 
 // checkInclusion — spendable utxo: returns 1 iff the utxo is a leaf of the
-// state tree at utxoTreeRoot. Ownership is checked via checkOwnership and the
+// state tree at utxoTreeRoot. Ownership is checked in ConstrainInput and the
 // zone fields via the zone wrappers; asset and amount are constrained by
 // balance conservation; blinding and data hash carry no additional checks.
 func (in Input) checkInclusion(api frontend.API, utxoHash, utxoTreeRoot frontend.Variable) frontend.Variable {
@@ -199,38 +190,6 @@ func allZero(api frontend.API, values ...frontend.Variable) frontend.Variable {
 		zero = api.Mul(zero, api.IsZero(v))
 	}
 	return zero
-}
-
-// checkOwnership returns 1 iff the owner binds to the witnessed keys, plus the
-// isP256 bit for the caller's rail rule: an ownerPkHash equal to the P256
-// sentinel routes to the shared P256 key (substituted via Select), any other
-// entry is the owner key itself.
-func (in Input) checkOwnership(api frontend.API, ownerPkHash frontend.Variable, env SpendEnv) (frontend.Variable, frontend.Variable) {
-	isP256 := api.IsZero(api.Sub(ownerPkHash, env.P256Sentinel))
-	ownerKeyHash := api.Select(isP256, env.P256PkField, ownerPkHash)
-	nullifierPk := abstractor.Call(api, NullifierPkGadget{
-		NullifierSecret: in.NullifierSecret,
-	})
-	ownerHash := abstractor.Call(api, OwnerHashGadget{
-		OwnerKeyHash: ownerKeyHash,
-		NullifierPk:  nullifierPk,
-	})
-	ok := api.IsZero(api.Sub(ownerHash, in.Utxo.Owner))
-	return ok, isP256
-}
-
-// checkOwnershipP256 — P256 rail: a P256-owned entry additionally needs the
-// valid shared signature.
-func (in Input) checkOwnershipP256(api frontend.API, ownerPkHash frontend.Variable, env SpendEnv) frontend.Variable {
-	ok, isP256 := in.checkOwnership(api, ownerPkHash, env)
-	// TODO: check whether we shouldnt always abort if p256 sig is invalid.
-	return api.Mul(ok, api.Select(isP256, env.P256SigValid, frontend.Variable(1)))
-}
-
-// checkOwnershipEddsaOnly — Solana-only rail: P256-owned entries are rejected.
-func (in Input) checkOwnershipEddsaOnly(api frontend.API, ownerPkHash frontend.Variable, env SpendEnv) frontend.Variable {
-	ok, isP256 := in.checkOwnership(api, ownerPkHash, env)
-	return api.Mul(ok, api.Sub(1, isP256))
 }
 
 //  1. derived nullifier equals the public nullifier.

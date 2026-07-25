@@ -97,7 +97,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		return err
 	}
 
-	env := shared.EddsaOnlySpendEnv()
+	signers := shared.EddsaOnlySigners(api, c.Private.Inputs, c.Public.InputOwnerPkHashes)
 
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
 	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
@@ -107,13 +107,12 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 			Nullifier:         c.Public.Nullifiers[i],
 			UtxoTreeRoot:      c.Public.UtxoTreeRoots[i],
 			NullifierTreeRoot: c.Public.NullifierTreeRoots[i],
-			OwnerPkHash:       c.Public.InputOwnerPkHashes[i],
+			SignerPk:          signers[i],
 		}
-		inputHashes[i], addressHashes[i] = shared.ConstrainEddsaOnlyInput(api, in, signals, env)
+		inputHashes[i], addressHashes[i] = shared.ConstrainInput(api, in, signals)
 	}
 	shared.AssertDistinctNullifiers(api, c.Public.Nullifiers)
 
-	signers := shared.SignerOwners(api, c.Private.Inputs)
 	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i, utxo := range c.Private.Outputs {
 		outputHashes[i] = shared.ConstrainDefaultZoneOutput(

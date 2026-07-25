@@ -94,17 +94,19 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 		return err
 	}
 
-	env, err := shared.P256SpendEnv(
+	p256, err := shared.NewP256Signer(
 		api,
 		c.Private.P256Pub,
 		c.Private.P256Sig,
 		c.Public.P256MessageHashLow,
 		c.Public.P256MessageHashHigh,
+		frontend.Variable(0),
 	)
 	if err != nil {
 		return err
 	}
-	env.P256Sentinel = frontend.Variable(0)
+
+	signers := shared.P256Signers(api, c.Private.Inputs, c.Public.InputOwnerPkHashes, p256)
 
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
 	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
@@ -114,17 +116,17 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 			Nullifier:         c.Public.Nullifiers[i],
 			UtxoTreeRoot:      c.Public.UtxoTreeRoots[i],
 			NullifierTreeRoot: c.Public.NullifierTreeRoots[i],
-			OwnerPkHash:       c.Public.InputOwnerPkHashes[i],
+			SignerPk:          signers[i],
 		}
-		inputHashes[i], addressHashes[i] = shared.ConstrainP256Input(api, in, signals, env)
+		inputHashes[i], addressHashes[i] = shared.ConstrainInput(api, in, signals)
 	}
 	shared.AssertDistinctNullifiers(api, c.Public.Nullifiers)
 
-	signers := shared.SignerOwners(api, c.Private.Inputs)
+	signerOwners := shared.SignerOwners(api, c.Private.Inputs)
 	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i, utxo := range c.Private.Outputs {
 		shared.AssertWhen(api, utxo.IsUtxo(api), shared.CheckZoneMemberOrFree(api, utxo, c.Public.ZoneProgramID))
-		outputHashes[i] = shared.ConstrainOutputShared(api, utxo, c.Public.OutputHashes[i], signers)
+		outputHashes[i] = shared.ConstrainCustomZoneOutput(api, utxo, c.Public.OutputHashes[i], signerOwners)
 	}
 
 	shared.AssertBalanceConservation(

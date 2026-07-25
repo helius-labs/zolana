@@ -15,8 +15,8 @@ import (
 // and defines the proof in this order:
 //
 //  1. validate layout                          (per-variant validateLayout)
-//  2. build the spend env                      (P256SpendEnv / EddsaOnlySpendEnv,
-//     spend_env.go)
+//  2. build the signer array                   (signers.go; the P256 rails first
+//     verify their shared P256 signature)
 //  3. inputs (inputs.go):
 //     3.1. create nullifier pubkeys
 //     3.2. create utxo hashes
