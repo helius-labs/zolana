@@ -16,11 +16,11 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `405e3ea6dd94d01a49199c43fcd024be2b7897c4`
+- Review HEAD: `42875823b9e5f1376b48f37ec4dbc2b36670bd42`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `4 done / 118 total`; `46 needs_fix`; `0 needs_re_review`; `2 in_progress`
+- Progress: `4 done / 118 total`; `48 needs_fix`; `0 needs_re_review`; `2 in_progress`
 - Exact next eligible row: `K08 sdk-libs/keypair/src/encryption.rs`
 - Active reviews: `K04 sdk-libs/keypair/src/viewing_key.rs`; `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `I01 in_flight`; `I02 in_flight`; `I03 in_flight`; `I04 in_flight`; `I05 in_flight`; `I06 in_flight`; `I07 proposed`; `I08 in_flight`; `I09 in_flight`; `I10 proposed`; `I11 in_flight`; `I12 in_flight`; `I13 in_flight`; `I14 in_flight`; `I15 in_flight`; `I17 in_flight`; `I18 in_flight`; `I19 proposed`; `I20 in_flight`; `I21 in_flight`; `I22 proposed`; `I23 in_flight`; `I24 in_flight`; `I25 in_flight`; `I26 in_flight`; `I27 in_flight`; `I28 in_flight`; `I29 in_flight`; `I30 in_flight`; `I31 in_flight`; `I32 in_flight`; `I33 in_flight`; `I34 in_flight`; `I35 in_flight`; `I36 in_flight`; `I37 in_flight`; `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
@@ -183,7 +183,7 @@ Columns:
 | K06 | `sdk-libs/keypair/src/shielded.rs` | `keypair/src/shielded.ts` | needs_fix | DIVERGENT | proposed | The spec-authoritative P256 owner-hash construction conflicts with the current TypeScript path. Construction and facade APIs, compressed-address handling, ownership boundaries, and current-Rust evidence are also missing or divergent. Resolve the owner-hash conflict, align construction and ownership capabilities, expose the required facade and address behavior, and add exact fixtures plus malformed and capability-separation tests. | 2026-07-25 review | - |
 | K07 | `sdk-libs/keypair/src/hash.rs` | `keypair/src/hash.ts`, `hash/index.ts` | needs_fix | DIVERGENT | proposed | Covered valid vectors match current Rust, but TypeScript omits the public Poseidon API, accepts malformed field widths and arities outside Rust's `1..=12`, and exposes extra unsafe hash helpers. Boundary, browser, and property evidence is incomplete, and owner hashing inherits the K06 spec conflict. Add the public Poseidon surface, enforce Rust widths and arities, remove or internalize unsafe helpers, resolve K06, and add exact rejection, boundary, browser, and property vectors. | 2026-07-25 review | - |
 | K08 | `sdk-libs/keypair/src/encryption.rs` | `keypair/src/encryption.ts` | todo | - | none | - | - | - |
-| K09 | `sdk-libs/keypair/src/merge.rs` | `keypair/src/merge/` | todo | - | none | - | - | - |
+| K09 | `sdk-libs/keypair/src/merge.rs` | `keypair/src/merge/` | needs_fix | PARTIAL | proposed | Merge encryption and its frozen vector are byte-compatible, but the public Rust `symmetric_apply` capability is missing. Malformed-secret and structured-error behavior, info and chunk boundaries, temporary cleanup, exports, and provenance lack exact evidence. Fix Rust's info-length panic risk before porting unrestricted `symmetric_apply`, then add the API with bounded inputs, cleanup, and current-Rust rejection and boundary fixtures. | 2026-07-25 review | - |
 | K10 | `sdk-libs/keypair/src/error.rs` | `keypair/src/error.ts` | todo | - | none | - | - | - |
 | K11 | `sdk-libs/keypair/src/traits/view_key.rs` | `keypair/src/viewing-key.ts` | todo | - | none | - | - | - |
 | K12 | `sdk-libs/keypair/src/traits/shielded_keypair.rs` | `keypair/src/shielded.ts` | todo | - | none | - | - | - |
@@ -220,7 +220,7 @@ Columns:
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | T01 | `sdk-libs/transaction/src/error.rs` | `transaction/src/error.ts` | needs_fix | DIVERGENT | proposed | The Rust error enum is an open public code set, but TypeScript collapses or misclassifies variants, drops structured payloads, and blurs keypair and authority boundaries. Redaction and current-Rust fixture coverage are absent. Add stable codes and details for each represented category, preserve unknown variants and payloads, keep authority errors distinct, and add boundary, redaction, and fixture tests. | 2026-07-25 review | - |
-| T02 | `sdk-libs/transaction/src/data.rs` | `transaction/src/data.ts` | todo | - | none | - | - | - |
+| T02 | `sdk-libs/transaction/src/data.rs` | `transaction/src/data.ts` | needs_fix | DIVERGENT | proposed | Normal deterministic models and current-Rust bytes match, but malformed runtime kinds and byte values are coerced or silently encoded. The constructor moves Rust's serialization-time length boundary, the direct codec capability is not packed, and adversarial, boundary, error-detail, and fixture-provenance evidence is incomplete. Reject malformed runtime values, restore the canonical length boundary, expose the packed codec capability, and add exact current-Rust rejection and provenance fixtures. | 2026-07-25 review | - |
 | T03 | `sdk-libs/transaction/src/serialization/scheme.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
 | T04 | `sdk-libs/transaction/src/serialization/plaintext.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
 | T05 | `sdk-libs/transaction/src/serialization/confidential.rs` | `transaction/src/serialization/codecs.ts` | todo | - | none | - | - | - |
@@ -1058,3 +1058,29 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `4/118`; package `0/14`
 - Exact next file: `K08 sdk-libs/keypair/src/encryption.rs`
 - Full SDK parity claim: unsupported; hash validation, exports, and owner-hash behavior diverge
+
+### 2026-07-25 11:28 UTC | T02 | `sdk-libs/transaction/src/data.rs`
+
+- Baseline: HEAD `42875823b9e5f1376b48f37ec4dbc2b36670bd42`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module defines the transaction data model and its encoded representation.
+- Evidence: Valid deterministic bytes match current Rust. Malformed runtime kinds and byte values are coerced or silently encoded, the constructor changes the serialization-time length boundary, the direct codec is not packed, and adversarial, boundary, error-detail, and provenance evidence is incomplete. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Reject malformed values, restore the Rust length boundary, expose the packed codec capability, and add exact rejection, boundary, error, and provenance fixtures.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/31`
+- Exact next file: `K08 sdk-libs/keypair/src/encryption.rs`
+- Full SDK parity claim: unsupported; malformed values and serialization boundaries diverge
+
+### 2026-07-25 11:28 UTC | K09 | `sdk-libs/keypair/src/merge.rs`
+
+- Baseline: HEAD `42875823b9e5f1376b48f37ec4dbc2b36670bd42`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module provides merge encryption and the public symmetric transform.
+- Evidence: Merge encryption and its frozen vector are byte-compatible. TypeScript omits public `symmetric_apply`; malformed-secret, error, info, chunk, cleanup, export, and provenance evidence is incomplete. Rust can panic on unrestricted info lengths. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Fix the Rust info-length panic risk before porting unrestricted `symmetric_apply`, then add bounded inputs, temporary cleanup, exact exports, and rejection and boundary fixtures.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K08 sdk-libs/keypair/src/encryption.rs`
+- Full SDK parity claim: unsupported; a public merge capability and boundary evidence are missing
