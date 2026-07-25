@@ -212,3 +212,19 @@ Rust: `cargo test -p zolana-client --lib --features client`, 45 passed.
 The two oracle tests double as staleness checks: they compare their committed
 JSON against a fresh render and fail if the Rust side moves.
 Regenerate with `ZOLANA_WRITE_ORACLES=1`.
+
+### `test:e2e:actions` could not be run, and why
+
+It fails in `startLocalStack` before reaching any client code, so it says
+nothing about these changes either way. The cause is an isolation gap, not this
+branch: `startLocalStack` spawns `solana-test-validator` with `--rpc-port`
+derived from `ZOLANA_PORT_OFFSET` but passes no `--faucet-port`, so the faucet
+always binds `0.0.0.0:9900`. Another clone on this machine holds that port
+(`lsof -nP -iTCP:9900` shows a `solana-test-validator` that is not ours), the
+validator exits with `Unable to bind faucet to 0.0.0.0:9900`, and
+`waitUntilReady` reports `TEST_KIT_PROCESS`.
+
+Reproduced directly: the same validator command in a scratch ledger fails with
+that message, and succeeds against nothing else. The fix is one argument in
+`sdk-libs/ts/test-kit/src/node/index.ts`, which another worker holds; the
+per-clone port note in `CLAUDE.md` should mention the faucet too.
