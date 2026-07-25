@@ -16,13 +16,14 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `e39561f675f30aff5f7f958b16fac18045dc6d4f`
+- Review HEAD: `90d8c1e10ba0db92527f835302d2c6fecec5008a`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: none in the nine scoped source trees
 - Primary rows: `118`
-- Progress: `3 done / 118 total`; `5 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `I06 program-libs/interface/src/instruction/instruction_data/create_tree.rs`
-- Active fixes: `I01 proposed`; `I02 proposed`; `I03 proposed`; `I04 proposed`; `I05 proposed`
+- Progress: `4 done / 118 total`; `40 needs_fix`; `0 needs_re_review`; `2 in_progress`
+- Exact next eligible row: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Active reviews: `K04 sdk-libs/keypair/src/viewing_key.rs`; `M02 sdk-libs/merkle-tree/src/lib.rs`
+- Active fixes: `I01 in_flight`; `I02 in_flight`; `I03 in_flight`; `I04 in_flight`; `I05 in_flight`; `I06 in_flight`; `I07 proposed`; `I08 in_flight`; `I09 in_flight`; `I10 proposed`; `I11 in_flight`; `I12 in_flight`; `I13 in_flight`; `I14 in_flight`; `I15 in_flight`; `I17 in_flight`; `I18 in_flight`; `I19 proposed`; `I20 in_flight`; `I21 in_flight`; `I22 proposed`; `I23 in_flight`; `I24 in_flight`; `I25 in_flight`; `I26 in_flight`; `I27 in_flight`; `I28 in_flight`; `I29 in_flight`; `I30 in_flight`; `I31 in_flight`; `I32 in_flight`; `I33 in_flight`; `I34 in_flight`; `I35 in_flight`; `I36 in_flight`; `I37 in_flight`; `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
 
 Refresh the HEAD, fixture commit, drift result, progress, active fixes, and exact
@@ -137,47 +138,47 @@ Columns:
 | I03 | `program-libs/interface/src/merge_utils.rs` | `interface/src/internal.ts` | needs_fix | PARTIAL | proposed | `@zolana/interface` omits the public Rust module's `pk_field_compressed`, `owner_pk_field_compressed`, `pack33`, and `ciphertext_hash`. `@zolana/keypair` contains the valid-flow math, but under another package and with different raw-input behavior: its public `pack33` silently pads or truncates non-33-byte values, while its P256 object path rejects off-curve encodings that Rust accepts after fixed-length and prefix checks. Its frozen fixtures name keypair sources rather than `merge_utils` and do not cover parity pairs, ciphertext chunk boundaries, or Poseidon input limits. Add browser-safe interface exports with exact byte, prefix, parity, packing, chunking, and error behavior; make keypair reuse the canonical implementation; and add current-Rust success and rejection vectors for malformed lengths and prefixes, even and odd parity, empty input, chunk boundaries, and maximum cardinality. | 2026-07-24 review | - |
 | I04 | `program-libs/interface/src/pda.rs` | `interface/src/pda/index.ts` | needs_fix | PARTIAL | proposed | `@zolana/interface/pda` covers the protocol config, SOL interface, CPI authority, asset counter, mint-keyed registry and vault, SPP zone-config, and associated-token derivations, but omits public Rust `zone_auth`; instruction builders duplicate it as private `zoneAuthorityAddress`. Existing tests use one zero address per parameterized flow and hard-coded TypeScript outputs, with no current-Rust PDA fixture, nonzero mint/owner/zone vectors, bump boundaries, or malformed checks for each address position. Export one canonical `zoneAuthAddress(zoneProgram)` that returns the canonical address and bump, reuse it in builders, keep user-supplied bump reconstruction out of creation APIs, and add current-Rust vectors for the nine address flows, exact bytes, canonical bumps, nonzero inputs, and rejection paths. | 2026-07-25 review | - |
 | I05 | `program-libs/interface/src/instruction/instruction_data/batch_update_nullifier_tree.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | proposed | The mapped codec file is absent. `batchUpdateNullifierTreeInstruction` encodes the fields, proof order, and little-endian `u16` correctly and checks lengths and range, but the package exports no named data or proof types and no decoder. Tests assert only tag 51, so plausible offset, endianness, proof-order, length, boundary, and malformed-decoding errors would pass. Add public data and proof representations, an exact 194-byte encode/decode codec reused by the builder, a current-Rust fixture with exact and rejection tests, and an ergonomic disposition for the zero proof default and `to_array` order. | 2026-07-25 review | - |
-| I06 | `program-libs/interface/src/instruction/instruction_data/create_tree.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I07 | `program-libs/interface/src/instruction/instruction_data/deposit.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I08 | `program-libs/interface/src/instruction/instruction_data/merge_transact.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I09 | `program-libs/interface/src/instruction/instruction_data/merge_zone.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I10 | `program-libs/interface/src/instruction/instruction_data/protocol_config.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I11 | `program-libs/interface/src/instruction/instruction_data/transact.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I12 | `program-libs/interface/src/instruction/instruction_data/zone_config.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I13 | `program-libs/interface/src/instruction/instruction_data/mod.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I14 | `program-libs/interface/src/instruction/builders/batch_update_nullifier_tree.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I15 | `program-libs/interface/src/instruction/builders/create_asset_counter.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I16 | `program-libs/interface/src/instruction/builders/create_associated_token_account.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I17 | `program-libs/interface/src/instruction/builders/create_spl_interface.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I18 | `program-libs/interface/src/instruction/builders/create_tree.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I19 | `program-libs/interface/src/instruction/builders/deposit.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I20 | `program-libs/interface/src/instruction/builders/merge_transact.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I21 | `program-libs/interface/src/instruction/builders/merge_zone.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I22 | `program-libs/interface/src/instruction/builders/protocol_config/mod.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I23 | `program-libs/interface/src/instruction/builders/transact.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I24 | `program-libs/interface/src/instruction/builders/zone_authority_transact.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I25 | `program-libs/interface/src/instruction/builders/zone_config/mod.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I26 | `program-libs/interface/src/instruction/builders/zone_deposit.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I27 | `program-libs/interface/src/instruction/builders/zone_transact.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I28 | `program-libs/interface/src/instruction/builders/mod.rs` | `interface/src/instructions/index.ts` | todo | - | none | - | - | - |
-| I29 | `program-libs/interface/src/instruction/mod.rs` | `interface/src/index.ts` | todo | - | none | - | - | - |
-| I30 | `program-libs/interface/src/state/discriminator.rs` | `interface/src/internal.ts` | todo | - | none | - | - | - |
-| I31 | `program-libs/interface/src/state/protocol_config.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I32 | `program-libs/interface/src/state/spl_asset_counter.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I33 | `program-libs/interface/src/state/spl_asset_registry.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I34 | `program-libs/interface/src/state/tree.rs` | `interface/src/index.ts` | todo | - | none | - | - | - |
-| I35 | `program-libs/interface/src/state/zone_config.rs` | `interface/src/codecs/index.ts` | todo | - | none | - | - | - |
-| I36 | `program-libs/interface/src/state/mod.rs` | `interface/src/index.ts` | todo | - | none | - | - | - |
-| I37 | `program-libs/interface/src/lib.rs` | `interface/src/index.ts` | todo | - | none | - | - | - |
+| I06 | `program-libs/interface/src/instruction/instruction_data/create_tree.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | proposed | `CreateTreeData` is public Rust API with one 32-byte owner. The TypeScript builder produces the correct 33-byte default instruction but duplicates the encoding inline, exports no data type or standalone codec, and tests only the tag. Add a public data type and exact 32-byte codec reused by the builder, then add current-Rust vectors for owner bytes, exact length, truncation, extension, invalid-address details, defensive ownership, and browser behavior. Review optional builder parameters under I18 and canonical tree constants under I34. | 2026-07-25 review | - |
+| I07 | `program-libs/interface/src/instruction/instruction_data/deposit.rs` | `interface/src/codecs/index.ts`, `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | The plain deposit codec matches current Rust layout and builder reuse, but `UtxoData` lacks a named export, `ZoneDepositIxData` has no public TypeScript type or codec, and the zone builder duplicates encoding. Tests omit UTXO and zone payloads, maximum `u16` lengths, malformed options, and exact-length rejection. The spec's deposit layouts and signing-tag wording conflict with current Rust and locked behavior, so authority must be resolved before a parity fix. If current Rust is selected, export `UtxoData` and `ZoneDepositInstructionData`, add and reuse the zone codec, and add current-Rust success and rejection vectors. | 2026-07-25 review | - |
+| I08 | `program-libs/interface/src/instruction/instruction_data/merge_transact.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | proposed | The TypeScript encoder matches the 668-byte payload and 669-byte tagged instruction, including the eight-input P256 BSB22 proof structure. The package has no public codec or decoder, omits `MERGE_INPUT_COUNT`, `MERGE_ENCRYPTED_UTXO_LEN`, and canonical `MergeExternalDataHash`, and the client duplicates the hash. Tests do not assert an exact frozen instruction fixture, distinguish malformed from trailing bytes, or prove the output scheme prefix. Add the canonical codec, constants, and hash reuse with exact and rejection tests. | 2026-07-25 review | - |
+| I09 | `program-libs/interface/src/instruction/instruction_data/merge_zone.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | proposed | The TypeScript encoder matches the exact 700-byte payload and 701-byte tagged instruction, including the 32-byte `merge_view_tag` and account-derived zone identity, but the package has no public codec, decoder, or exact fixture. More critically, the default client prove and assembly path accepts `PreparedMergeZone` and silently uses the default merge circuit, tag 12, zero `zoneProgramId`, and default instruction. Add the codec and evidence, implement dedicated zone assembly, prover, and submission paths, and reject the wrong path until they exist. | 2026-07-25 review | - |
+| I10 | `program-libs/interface/src/instruction/instruction_data/protocol_config.rs` | `interface/src/codecs/index.ts` | needs_fix | DIVERGENT | proposed | TypeScript matches the current Rust create, update, and pause byte builders, but `docs/spec.md` says an update rewrites each authority and flag while Rust and TypeScript update one selected field. Resolve this authority conflict first. The package also lacks public types, codecs, decoders, and current-Rust exact and rejection fixtures for each variant. After the spec decision, add canonical codecs and reuse them from the builders. | 2026-07-25 review | - |
+| I11 | `program-libs/interface/src/instruction/instruction_data/transact.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | proposed | The core TypeScript codec matches the current Rust layout and ownership rails, with strong shape and workflow byte evidence. The public interface omits `fetch_tag`, `ResolvedOutput`, `ExternalDataHash::hash`, P256 proof `LEN`, and named `MessageData` and `OutputUtxo` exports. Transaction and client code duplicate hashing and tag resolution, and nested bytes are not defensively copied. Add canonical helpers and types, reuse them, copy nested bytes, and add focused owner-tag, message, prefix, mutation, and adversarial vectors. I01 and I02 remain dependencies. | 2026-07-25 review | - |
+| I12 | `program-libs/interface/src/instruction/instruction_data/zone_config.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | proposed | TypeScript builders match current Rust bytes and account metas for create, owner update, and enabled update, but public types, strict codecs, decoders, current-Rust exact fixtures, and rejection fixtures are absent, and encoding is duplicated. `test-kit::createZoneConfig` returns the wrong `spp_zone_config` PDA instead of the created `zone_auth` PDA; reuse the I04 fix. The spec omits this contract, and the review found no direct conflict. | 2026-07-25 review | - |
+| I13 | `program-libs/interface/src/instruction/instruction_data/mod.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | proposed | Rust exports 33 public names. Eight have suitable TypeScript adaptations, six borrowed views need explicit JavaScript `NOT_APPLICABLE` dispositions backed by strict owned decoders, and 19 public equivalents are missing. Coordinate child codecs, types, constants, hash helpers, and tag helpers; remove duplicates; and add an exact export ledger with evidence. Resolve the I07 and I10 authority conflicts first. | 2026-07-25 review | - |
+| I14 | `program-libs/interface/src/instruction/builders/batch_update_nullifier_tree.rs` | `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | The public TypeScript builder matches current Rust for tag 51, the 194-byte payload and 195-byte instruction, canonical program IDs, and account order and flags: readonly signer authority, readonly protocol config, writable tree, and readonly SPP program. It duplicates the I05 encoding, and its tests assert only the tag. The claimed named fixture is absent, with no exact bytes, metas, `u16` boundaries, malformed input, or defensive-copy evidence. Reuse the I05 codec and add a current-Rust fixture with exact instruction, account-meta, rejection, and copy tests. | 2026-07-25 review | - |
+| I15 | `program-libs/interface/src/instruction/builders/create_asset_counter.rs` | `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | The public TypeScript builder matches tag 16, the canonical program ID, and the four current-Rust accounts: writable signer authority, readonly protocol config, writable counter, and readonly system program. It accepts no bump or defaults; the processor derives the canonical PDA. The claimed fixture and test do not exist, and the only test asserts the tag. Add a current-Rust fixture and an exact program, data, and account-meta test. | 2026-07-25 review | - |
+| I16 | `program-libs/interface/src/instruction/builders/create_associated_token_account.rs` | `interface/src/instructions/index.ts` | done | PARITY | none | The TypeScript builder preserves the legacy SPL associated-token derivation, canonical program IDs, six accounts and flags, and the one-byte idempotent discriminator. A current-Rust workflow fixture plus exact transaction and live repeated-call coverage supports parity. The planning fixture name has bookkeeping drift only. | 2026-07-25 review | - |
+| I17 | `program-libs/interface/src/instruction/builders/create_spl_interface.rs` | `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | The TypeScript builder matches source tag 4, eight account metas, canonical PDAs, and the legacy token program, but evidence consists only of a tag test and the named fixture is absent. Add a current-Rust nonzero-mint fixture covering the exact program, data, metas, rejection behavior, and defensive copies. | 2026-07-25 review | - |
+| I18 | `program-libs/interface/src/instruction/builders/create_tree.rs` | `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | The default TypeScript path matches tag 5, owner encoding, and three account metas. It omits the public custom nullifier-parameter path and Borsh encoder, with no exact default or custom fixtures or rejection evidence. Coordinate the fix with I04, I06, and I34. | 2026-07-25 review | - |
+| I19 | `program-libs/interface/src/instruction/builders/deposit.rs` | `interface/src/instructions/index.ts` | needs_fix | DIVERGENT | proposed | Current Rust and TypeScript match exactly for SOL, and the SPL source shape matches, but no exact SPL fixture exists. `docs/spec.md` conflicts with current Rust and TypeScript on deposit accounts, payload, tag semantics, and the initial viewing-key tag. Resolve the spec first. If Rust is retained, add an exact SPL fixture plus rejection and defensive-copy tests. | 2026-07-25 review | - |
+| I20 | `program-libs/interface/src/instruction/builders/merge_transact.rs` | `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | Program ID, tag, four account metas, and the frozen instruction match. The builder duplicates the I08 merge encoder, and no test asserts the frozen builder output directly. Reuse the I08 codec and add an exact fixture test. I01 owns error behavior. | 2026-07-25 review | - |
+| I21 | `program-libs/interface/src/instruction/builders/merge_zone.rs` | `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | Outer instruction and CPI behavior match, including tag 13, 701 bytes, and four account metas. The builder duplicates the I04 `zone_auth` PDA and I09 codec, and no exact fixture covers both modes. Reuse both authorities and add exact fixtures for each mode. The client's default-merge substitution is a separate I09 and client gap. | 2026-07-25 review | - |
+| I22 | `program-libs/interface/src/instruction/builders/protocol_config/mod.rs` | `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | Current Rust and TypeScript create, update, and pause structures and authority semantics match, but this row inherits the I10 spec conflict and duplicates its codecs. No exact current-Rust fixtures cover bytes, metas, authority rotation, or rejection behavior. Resolve I10, reuse its codecs, and add those tests. | 2026-07-25 review | - |
+| I23 | `program-libs/interface/src/instruction/builders/transact.rs` | `interface/src/instructions/index.ts` | needs_fix | DIVERGENT | proposed | Valid instruction layouts and fixtures match current Rust. TypeScript `validateSettlement` rejects malformed settlement combinations before construction, while the Rust builder constructs them for the Solana program to return `InvalidSettlementAccounts` code 7023. Remove the TypeScript-only semantic validation or change the canonical Rust boundary. The client also duplicates this builder; reuse the interface implementation. | 2026-07-25 review | - |
+| I24 | `program-libs/interface/src/instruction/builders/zone_authority_transact.rs` | `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | Valid outer, CPI, SOL, and SPL account metas match current Rust, but no exact current-Rust fixture covers this builder. Resolve the shared early settlement rejection boundary under I23, reuse I04's canonical `zone_auth` derivation instead of the private duplicate, and add exact outer and CPI evidence. | 2026-07-25 review | - |
+| I25 | `program-libs/interface/src/instruction/builders/zone_config/mod.rs` | `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | The create, owner-update, and enabled-update builders statically match current Rust bytes, account metas, and authority semantics. No exact fixture proves any builder, and no evidence covers CPI creation routing. Add current-Rust fixtures and routing tests after reusing the I04 PDA and I12 codecs. | 2026-07-25 review | - |
+| I26 | `program-libs/interface/src/instruction/builders/zone_deposit.rs` | `interface/src/instructions/index.ts` | needs_fix | PARTIAL | proposed | TypeScript matches current Rust modes, tag, PDA derivation, and SOL and SPL accounts. No exact outer or CPI fixture and no focused tests cover this builder. Reuse the I04 PDA and I07 zone-deposit codec, add exact mode evidence, and retain the inherited I07 deposit-spec conflict until authority is resolved. | 2026-07-25 review | - |
+| I27 | `program-libs/interface/src/instruction/builders/zone_transact.rs` | `interface/src/instructions/index.ts` | needs_fix | DIVERGENT | proposed | Valid outer and CPI instructions match current Rust, but TypeScript applies the same early settlement rejection as I23 and changes the Rust program-error boundary. Remove that validation or change canonical Rust. Add exact vectors for both modes, withdrawals, and owner-index account selection. | 2026-07-25 review | - |
+| I28 | `program-libs/interface/src/instruction/builders/mod.rs` | `interface/src/instructions/index.ts` | needs_fix | DIVERGENT | in_flight | The aggregate builder root has ergonomic TypeScript counterparts for each public builder name, but it inherits child divergences, omits custom tree parameters, duplicates codec and PDA authorities, lacks exact builder evidence, and has no exact runtime or declaration export allowlist. Complete the non-conflicting child fixes, reuse canonical authorities, and pin the builder export surface and exact vectors. | 2026-07-25 review | - |
+| I29 | `program-libs/interface/src/instruction/mod.rs` | `interface/src/index.ts` | needs_fix | DIVERGENT | in_flight | TypeScript preserves the exact 18 instruction tags and has ergonomic builder adaptations, but 19 public instruction-data equivalents are missing. The root also inherits child, spec, and settlement-boundary conflicts and lacks feature/helper dispositions plus exact export evidence. Add the non-conflicting data and helper exports, record valid JavaScript dispositions, and pin the root and subpath allowlists without masking the unresolved conflicts. | 2026-07-25 review | - |
+| I30 | `program-libs/interface/src/state/discriminator.rs` | `interface/src/internal.ts` | needs_fix | PARTIAL | proposed | Exact discriminator values 1, 3, 4, 5, and 6 are embedded across four codecs, while the tree discriminator is omitted. TypeScript exports no canonical table and has no full drift fixture. Export and reuse one table, record value 2 as reserved history, and test the complete current-Rust set. | 2026-07-25 review | - |
+| I31 | `program-libs/interface/src/state/protocol_config.rs` | `interface/src/codecs/index.ts` | needs_fix | DIVERGENT | proposed | The exact 132-byte state layout matches, but TypeScript `Reader.bool` rejects bytes 2 through 255 while Rust treats any nonzero byte as true. Decode the field as `u8 != 0`, add an exact fixture and boundary vectors, and record the `SIZE` disposition. Preserve the I10 and I22 protocol-config spec conflict. | 2026-07-25 review | - |
+| I32 | `program-libs/interface/src/state/spl_asset_counter.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | proposed | The 16-byte codec matches current Rust exactly, but `FIRST_ASSET_ID` has no TypeScript disposition. Evidence lacks a current-Rust exact vector, `u64` boundaries, reserved-byte behavior, initialization, allocation, overflow, and two-registration sequencing. Export or document the constant and add the missing behavioral evidence. | 2026-07-25 review | - |
+| I33 | `program-libs/interface/src/state/spl_asset_registry.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | proposed | The 48-byte codec matches current Rust, but current tests round-trip TypeScript values without an independent oracle. Add exact boundary and browser vectors. Cross-package wallet sync creates `unknownAssetIds` without recording or fetching registry accounts and omits the Rust retry behavior; implement that workflow and test it against current Rust. | 2026-07-25 review | - |
+| I34 | `program-libs/interface/src/state/tree.rs` | `interface/src/index.ts` | needs_fix | MISSING | in_flight | TypeScript omits the public tree constants, nullifier-tree parameters, account size `1_186_136`, and root offset `16`. Add one browser-safe exact authority and current-Rust vectors, coordinated with I06 and I18. | 2026-07-25 review | - |
+| I35 | `program-libs/interface/src/state/zone_config.rs` | `interface/src/codecs/index.ts` | needs_fix | PARTIAL | in_flight | The valid 67-byte zone-config layout matches current Rust, but TypeScript's policy for enabled bytes outside `0` and `1` differs from or leaves ambiguous the Rust boundary, and exact vectors are absent. Preserve the proven Rust behavior and add exact canonical and noncanonical-byte vectors. | 2026-07-25 review | - |
+| I36 | `program-libs/interface/src/state/mod.rs` | `interface/src/index.ts` | needs_fix | PARTIAL | in_flight | The TypeScript state root omits the discriminator table, `FIRST_ASSET_ID`, and the full tree export set. It also inherits child behavior and evidence gaps. Export and reuse the canonical state authorities and pin the exact root allowlist and child behavior. | 2026-07-25 review | - |
+| I37 | `program-libs/interface/src/lib.rs` | `interface/src/index.ts` | needs_fix | PARTIAL | in_flight | The TypeScript root exposes program addresses and package subpaths, but it inherits 35 adverse child rows and omits constants, event capability dispositions, a complete inventory, and an exact export ledger. Generated Rust verifying keys are a justified JavaScript omission. Complete the non-conflicting root exports and evidence while preserving the unresolved child conflicts. | 2026-07-25 review | - |
 
 ### Keypair, 14 rows
 
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| K01 | `sdk-libs/keypair/src/constants.rs` | `keypair/src/constants.ts` | todo | - | none | - | - | - |
-| K02 | `sdk-libs/keypair/src/signing_key.rs` | `keypair/src/signing-key.ts` | todo | - | none | - | - | - |
-| K03 | `sdk-libs/keypair/src/nullifier_key.rs` | `keypair/src/nullifier-key.ts` | todo | - | none | - | - | - |
-| K04 | `sdk-libs/keypair/src/viewing_key.rs` | `keypair/src/viewing-key.ts` | todo | - | none | - | - | - |
+| K01 | `sdk-libs/keypair/src/constants.rs` | `keypair/src/constants.ts` | needs_fix | PARTIAL | proposed | Seven Rust-public constants are hidden, the inventory incorrectly classifies them as internal, and direct constant evidence is incomplete. Export or record an exact JavaScript disposition for each public constant, correct the inventory, and add current-Rust evidence. | 2026-07-25 review | - |
+| K02 | `sdk-libs/keypair/src/signing_key.rs` | `keypair/src/signing-key.ts` | needs_fix | DIVERGENT | proposed | The tagged public-key runtime encoding is 34 bytes while its TypeScript type says `Bytes33`, and the public `isEd25519` capability is missing. RNG failure, scalar rejection, signature boundaries, and secret inspection also lack evidence. Correct the type and adaptation, add `isEd25519`, and add current-Rust generation, signing, malformed-input, and secret-exposure tests. | 2026-07-25 review | - |
+| K03 | `sdk-libs/keypair/src/nullifier_key.rs` | `keypair/src/nullifier-key.ts` | needs_fix | PARTIAL | proposed | Source behavior aligns, but malformed import, repeated derivation, capability separation, and secret-inspection vectors are incomplete. The inventory describes a leaf index instead of the blinding input, and fixture names and provenance point to the wrong responsibility. Correct the records and add exact current-Rust success, malformed-input, repeatability, capability, and inspection evidence. | 2026-07-25 review | - |
+| K04 | `sdk-libs/keypair/src/viewing_key.rs` | `keypair/src/viewing-key.ts` | in_progress | - | none | Active read-only review; recorder awaits the completed report. | - | - |
 | K05 | `sdk-libs/keypair/src/pubkey.rs` | `keypair/src/public-key.ts` | todo | - | none | - | - | - |
 | K06 | `sdk-libs/keypair/src/shielded.rs` | `keypair/src/shielded.ts` | todo | - | none | - | - | - |
 | K07 | `sdk-libs/keypair/src/hash.rs` | `keypair/src/hash.ts`, `hash/index.ts` | todo | - | none | - | - | - |
@@ -193,8 +194,8 @@ Columns:
 
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| M01 | `sdk-libs/merkle-tree/src/indexed.rs` | `merkle-tree/src/indexed.ts` | todo | - | none | - | - | - |
-| M02 | `sdk-libs/merkle-tree/src/lib.rs` | `merkle-tree/src/merkle-tree.ts`, `index.ts` | todo | - | none | - | - | - |
+| M01 | `sdk-libs/merkle-tree/src/indexed.rs` | `merkle-tree/src/indexed.ts` | needs_fix | DIVERGENT | proposed | Default vectors pass, but TypeScript lacks custom highest-sentinel behavior and public path, proof, and update APIs. Verification trusts the supplied root and path length, and numeric, error, sentinel, and mutation behavior diverges or lacks evidence. Add the missing public operations, validate roots and path lengths, align boundaries and errors, and add custom-sentinel and mutation vectors. | 2026-07-25 review | - |
+| M02 | `sdk-libs/merkle-tree/src/lib.rs` | `merkle-tree/src/merkle-tree.ts`, `index.ts` | in_progress | - | none | Active read-only review; recorder awaits the completed report. | - | - |
 
 ### Indexer API, 1 row
 
@@ -511,3 +512,471 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `3/118`; package `0/37`
 - Exact next file: `I06 program-libs/interface/src/instruction/instruction_data/create_tree.rs`
 - Full SDK parity claim: unsupported; I01 through I05 have adverse interface verdicts, eight package row sets remain incomplete, and the cross-package gates have not passed
+
+### 2026-07-24 23:49 UTC | I06 | `program-libs/interface/src/instruction/instruction_data/create_tree.rs`
+
+- Baseline: HEAD `d420822d0b1581d1295a84ded78e3c3d9b9c0145`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed parallel review agent; implementation commit `none`
+- Explanation: This public instruction-data module defines `CreateTreeData` as one 32-byte owner. The Rust default builder prepends tag 5 and produces exactly 33 bytes. The TypeScript `createTreeInstruction` produces those default bytes correctly but duplicates the encoding inline and exports no public data type or standalone codec. Optional builder parameters belong primarily to I18, while canonical tree constants belong to I34. This row adds no signing, viewing, or nullifier capability.
+- Evidence: The reviewer found no source drift from fixture commit `43fde8e4`. Existing TypeScript tests assert only tag 5. No current-Rust fixture proves owner bytes, exact length, truncation or extension rejection, invalid-address details, defensive byte ownership, or browser behavior. The reviewer completed source and evidence checks without reporting a test run.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: `sdk-libs/ts/interface/src/codecs/index.ts` is absent, and `sdk-libs/ts/interface/src/instructions/index.ts::createTreeInstruction` encodes the owner inline. Add a public data type and exact 32-byte codec reused by the builder, then add current-Rust exact and rejection vectors for the named boundaries.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I07 program-libs/interface/src/instruction/instruction_data/deposit.rs`
+- Full SDK parity claim: unsupported; I01 through I06 have adverse interface verdicts, eight package row sets remain incomplete, and the cross-package gates have not passed
+
+### 2026-07-24 23:49 UTC | I07 | `program-libs/interface/src/instruction/instruction_data/deposit.rs`
+
+- Baseline: HEAD `e39561f675f30aff5f7f958b16fac18045dc6d4f`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed parallel review agent; implementation commit `none`
+- Explanation: This public instruction-data module defines the plain and zone deposit payloads. Declaration order is exact; integers use little-endian `u64` and `u16`, options use one byte, and byte vectors use a `u16` length. The plain minimum is 105 bytes. The zone minimum is 139 bytes plus `zone_data`. SOL and SPL use the same payload. Deposit discovery uses the viewing-key x-coordinate tag, not the confidential-transfer signing tag. The plain TypeScript codec matches current Rust and is reused by the builder. `UtxoData` lacks a named export, while the public zone type and codec are absent and the zone builder duplicates encoding.
+- Evidence: The reviewer found no source drift from fixture commit `43fde8e4`. Tests and fixtures do not cover UTXO data, zone data, maximum `u16` lengths, malformed options, truncation, or extension; the zone test checks only tag 15. The reviewer ran no tests. `docs/spec.md` conflicts with current Rust and locked behavior on deposit layouts and signing-tag wording. The authority order makes this conflict a blocker that requires resolution; this review does not assume Rust wins.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: `sdk-libs/ts/interface/src/index.ts` does not export `UtxoData` or a zone deposit data type, and `sdk-libs/ts/interface/src/instructions/index.ts` duplicates zone encoding without a codec. Resolve the spec conflict first. If current Rust becomes authoritative, export `UtxoData` and `ZoneDepositInstructionData`, add and reuse the zone codec, and add current-Rust success and rejection vectors for the named boundaries.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I08 program-libs/interface/src/instruction/instruction_data/merge_transact.rs`
+- Full SDK parity claim: unsupported; I01 through I07 have adverse interface verdicts, the I07 authority conflict is unresolved, eight package row sets remain incomplete, and the cross-package gates have not passed
+
+### 2026-07-25 00:18 UTC | I08 | `program-libs/interface/src/instruction/instruction_data/merge_transact.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed parallel review agent; implementation commit `none`
+- Explanation: This public instruction-data module defines default merge transaction bytes. The TypeScript encoder matches the 668-byte payload and 669-byte tagged instruction, including the eight-input P256 BSB22 proof structure. The package does not expose the corresponding codec, decoder, constants, or external-data hash authority.
+- Evidence: The reviewer found no relevant canonical drift from the frozen commit. Existing evidence does not assert an exact frozen instruction fixture, distinguish malformed from trailing bytes, or prove the output scheme prefix. The reviewer reported no test run.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Add a public codec and decoder, `MERGE_INPUT_COUNT`, `MERGE_ENCRYPTED_UTXO_LEN`, and canonical `MergeExternalDataHash`; reuse the hash in the client and add exact and rejection tests for the named gaps.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I09 program-libs/interface/src/instruction/instruction_data/merge_zone.rs`
+- Full SDK parity claim: unsupported; I01 through I08 have adverse interface verdicts, the I07 authority conflict is unresolved, and package and cross-package gates have not passed
+
+### 2026-07-25 00:18 UTC | I09 | `program-libs/interface/src/instruction/instruction_data/merge_zone.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed parallel review agent; implementation commit `none`
+- Explanation: This public instruction-data module defines zone merge bytes. The TypeScript encoder matches the exact 700-byte payload and 701-byte tagged instruction, including the 32-byte `merge_view_tag` and account-derived zone identity. The default client prove and assembly path also accepts `PreparedMergeZone`.
+- Evidence: The reviewer found no relevant canonical drift from the frozen commit. The package has no public codec, decoder, or exact fixture. The accepted client path silently selects the default merge circuit, tag 12, zero `zoneProgramId`, and default instruction. The reviewer reported no test run.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Add the public codec and exact evidence. Implement dedicated zone assembly, prover, and submission paths, and reject `PreparedMergeZone` from the default path until those paths exist.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I10 program-libs/interface/src/instruction/instruction_data/protocol_config.rs`
+- Full SDK parity claim: unsupported; I01 through I09 have adverse interface verdicts, the I07 authority conflict is unresolved, and package and cross-package gates have not passed
+
+### 2026-07-25 00:18 UTC | I10 | `program-libs/interface/src/instruction/instruction_data/protocol_config.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed parallel review agent; implementation commit `none`
+- Explanation: This public instruction-data module defines protocol-config create, update, and pause bytes. TypeScript matches the current Rust builders. `docs/spec.md` says update rewrites each authority and flag, while Rust and TypeScript update one selected field.
+- Evidence: The reviewer found no relevant canonical drift from the frozen commit. Public types, codecs, decoders, and current-Rust exact and rejection fixtures for the variants are absent. The reviewer reported no test run.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Resolve the spec and implementation authority conflict first. Then add canonical public codecs for the selected contract, reuse them from the builders, and add exact and rejection fixtures for each variant.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I11 program-libs/interface/src/instruction/instruction_data/transact.rs`
+- Full SDK parity claim: unsupported; I07 and I10 have unresolved authority conflicts, the interface row set is incomplete, and package and cross-package gates have not passed
+
+### 2026-07-25 00:18 UTC | I11 | `program-libs/interface/src/instruction/instruction_data/transact.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed parallel review agent; implementation commit `none`
+- Explanation: This public instruction-data module defines transaction payload types, hashing, tag resolution, output handling, and ownership-rail proof layouts. The core TypeScript codec matches current Rust and has strong shape and workflow byte evidence. The public surface and canonical helper reuse remain incomplete.
+- Evidence: The reviewer found no relevant canonical drift from the frozen commit. The interface omits `fetch_tag`, `ResolvedOutput`, `ExternalDataHash::hash`, P256 proof `LEN`, and named `MessageData` and `OutputUtxo` exports. Transaction and client duplicate hashing and tag resolution, nested bytes are not defensively copied, and focused owner-tag, message, prefix, mutation, and adversarial vectors are absent. The reviewer reported no test run.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Add the canonical helpers and types, reuse them across transaction and client, copy nested bytes, and add the named focused vectors. I01 and I02 remain dependencies.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I12 program-libs/interface/src/instruction/instruction_data/zone_config.rs`
+- Full SDK parity claim: unsupported; I07 and I10 have unresolved authority conflicts, I01 and I02 remain dependencies, and package and cross-package gates have not passed
+
+### 2026-07-25 00:18 UTC | I12 | `program-libs/interface/src/instruction/instruction_data/zone_config.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed parallel review agent; implementation commit `none`
+- Explanation: This public instruction-data module defines zone-config create, owner-update, and enabled-update bytes. The TypeScript builders match current Rust bytes and account metas, but they duplicate encoding and do not expose strict public codecs or decoders.
+- Evidence: The reviewer found no relevant canonical drift from the frozen commit and no direct spec conflict because the spec omits this contract. Public types, strict codecs, decoders, current-Rust exact fixtures, and rejection fixtures are absent. `test-kit::createZoneConfig` returns the `spp_zone_config` PDA instead of the created `zone_auth` PDA. The reviewer reported no test run.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Add public types, strict codecs and decoders, reuse them from the builders, and add current-Rust exact and rejection fixtures. Correct the test-kit return value by reusing the I04 `zone_auth` PDA fix.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I13 program-libs/interface/src/instruction/instruction_data/mod.rs`
+- Full SDK parity claim: unsupported; 12 rows need fixes, I07 and I10 have unresolved authority conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 00:39 UTC | I14 | `program-libs/interface/src/instruction/builders/batch_update_nullifier_tree.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This public builder creates the nullifier-tree batch-update instruction. TypeScript matches current Rust tag 51, the 194-byte payload and 195-byte instruction, canonical IDs, and the authority, protocol-config, tree, and SPP-program account order and flags. It duplicates the I05 encoding.
+- Evidence: The TypeScript test asserts only tag 51. The claimed named fixture is absent, and no current-Rust evidence checks exact bytes, account metas, `u16` boundaries, malformed inputs, or defensive copies. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Reuse the I05 codec in `sdk-libs/ts/interface/src/instructions/index.ts::batchUpdateNullifierTreeInstruction`, then add a current-Rust fixture with exact instruction, account-meta, rejection, and copy tests.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I13 program-libs/interface/src/instruction/instruction_data/mod.rs`
+- Full SDK parity claim: unsupported; 13 rows need fixes, I07 and I10 have unresolved authority conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 00:39 UTC | I15 | `program-libs/interface/src/instruction/builders/create_asset_counter.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This public builder creates the asset-counter instruction. TypeScript matches current Rust tag 16, the canonical program ID, and the authority, protocol-config, counter, and system-program account order and flags. The builder accepts no bump or defaults, and the processor derives the canonical PDA.
+- Evidence: The claimed fixture and test do not exist. The only TypeScript test asserts tag 16, so it does not prove the exact program ID, data, or account metas. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Add a current-Rust fixture for `sdk-libs/ts/interface/src/instructions/index.ts::createAssetCounterInstruction` and test the exact program ID, data, and account metas.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I13 program-libs/interface/src/instruction/instruction_data/mod.rs`
+- Full SDK parity claim: unsupported; 14 rows need fixes, I07 and I10 have unresolved authority conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 01:45 UTC | I13 | `program-libs/interface/src/instruction/instruction_data/mod.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This module is the public instruction-data export root. Rust exports 33 names. Eight have suitable TypeScript adaptations, six borrowed views need explicit JavaScript dispositions, and 19 public equivalents are missing.
+- Evidence: The six borrowed views can be `NOT_APPLICABLE` only when strict owned decoders preserve their observable behavior. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Coordinate the child codecs, types, constants, hash helpers, and tag helpers; remove duplicate authorities; and record an exact export ledger with evidence. Resolve the I07 deposit and I10 protocol-config authority conflicts first.
+- Row transition: `todo -> needs_fix`
+- Progress: `3/118`; package `0/37`
+- Exact next file: `I16 program-libs/interface/src/instruction/builders/create_associated_token_account.rs`
+- Full SDK parity claim: unsupported; 15 rows need fixes, I07 and I10 have unresolved authority conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 01:45 UTC | I16 | `program-libs/interface/src/instruction/builders/create_associated_token_account.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This builder derives the legacy SPL associated-token address and creates the idempotent instruction. TypeScript preserves the canonical program IDs, six accounts and flags, and one-byte discriminator `1`.
+- Evidence: A current-Rust workflow fixture checks the derivation and exact transaction. Live coverage repeats the instruction and confirms idempotent behavior. The fixture-name difference in planning is bookkeeping drift, not an implementation or evidence gap. No tests ran for this recorder update.
+- Verdict: `PARITY`
+- Gap and smallest fix: none
+- Row transition: `todo -> done`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I17 program-libs/interface/src/instruction/builders/create_spl_interface.rs`
+- Full SDK parity claim: unsupported; 15 interface rows need fixes, eight package row sets remain incomplete, and cross-package gates have not passed
+
+### 2026-07-25 01:45 UTC | I17 | `program-libs/interface/src/instruction/builders/create_spl_interface.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This builder creates the SPL interface instruction. TypeScript matches source tag 4, eight account metas, canonical PDAs, and the legacy token program.
+- Evidence: Existing TypeScript evidence asserts only the tag, and the named fixture is absent. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Add a current-Rust fixture with a nonzero mint and assert the exact program, data, account metas, rejection behavior, and defensive copies.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I18 program-libs/interface/src/instruction/builders/create_tree.rs`
+- Full SDK parity claim: unsupported; 16 interface rows need fixes, including the I07 and I10 authority conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 01:45 UTC | I18 | `program-libs/interface/src/instruction/builders/create_tree.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This builder creates a tree with an owner and three account metas. The TypeScript default path matches tag 5, owner encoding, and those metas.
+- Evidence: TypeScript omits the public custom nullifier-parameter path and Borsh encoder. No exact fixture covers the default or custom path, and rejection evidence is absent. No relevant source changed from the frozen commit. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Add the custom nullifier-parameter path and Borsh encoder with exact default and custom fixtures plus rejection tests. Coordinate I04 PDA derivation, I06 data encoding, and I34 tree constants.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I19 program-libs/interface/src/instruction/builders/deposit.rs`
+- Full SDK parity claim: unsupported; 17 interface rows need fixes, including the I07 and I10 authority conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 01:45 UTC | I19 | `program-libs/interface/src/instruction/builders/deposit.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: Current Rust and TypeScript produce the same SOL instruction, and the SPL source shape matches. The spec defines different deposit accounts, payload, tag semantics, and the initial viewing-key tag.
+- Evidence: No exact SPL fixture exists. No relevant source changed from frozen commit `43fde8e4`. The spec conflict prevents a current parity finding. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Resolve the spec conflict first. If current Rust is retained, add an exact SPL fixture plus rejection and defensive-copy tests.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I20 program-libs/interface/src/instruction/builders/merge_transact.rs`
+- Full SDK parity claim: unsupported; I07, I10, and I19 retain authority conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 01:45 UTC | I20 | `program-libs/interface/src/instruction/builders/merge_transact.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This builder creates the default merge instruction. The TypeScript program ID, tag, four account metas, and frozen instruction match current Rust.
+- Evidence: The builder duplicates the I08 merge encoder, and no direct test asserts the frozen builder output. No relevant source changed from the frozen commit. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Reuse the I08 codec and add an exact fixture assertion for the builder. I01 owns error behavior.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I21 program-libs/interface/src/instruction/builders/merge_zone.rs`
+- Full SDK parity claim: unsupported; 19 interface rows need fixes, including three authority conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 01:45 UTC | I21 | `program-libs/interface/src/instruction/builders/merge_zone.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: The TypeScript outer instruction and CPI behavior match current Rust, including tag 13, 701 instruction bytes, and four account metas.
+- Evidence: The builder duplicates the I04 `zone_auth` PDA and I09 codec. No exact fixture covers both modes. The client's default-merge substitution remains a separate I09 and client gap. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Reuse the I04 PDA and I09 codec, then add an exact fixture for each mode.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I22 program-libs/interface/src/instruction/builders/protocol_config/mod.rs`
+- Full SDK parity claim: unsupported; 20 interface rows need fixes, including three authority conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 01:45 UTC | I22 | `program-libs/interface/src/instruction/builders/protocol_config/mod.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: Current Rust and TypeScript create, update, and pause structures and authority semantics match.
+- Evidence: This row inherits the I10 spec conflict and duplicates its codecs. No exact current-Rust fixtures cover bytes, account metas, authority rotation, or rejection behavior. No relevant source changed from the frozen commit. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Resolve I10, reuse its codecs, and add exact current-Rust bytes, account-meta, authority-rotation, and rejection fixtures.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I23 program-libs/interface/src/instruction/builders/transact.rs`
+- Full SDK parity claim: unsupported; 21 interface rows need fixes, I07, I10, and I19 retain authority conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 02:46 UTC | I23 | `program-libs/interface/src/instruction/builders/transact.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This public builder creates the default transaction instruction. Valid TypeScript layouts and fixtures match current Rust. The client has a second copy of the builder.
+- Evidence: TypeScript `validateSettlement` rejects malformed settlement combinations before it builds an instruction. Rust builds those combinations so the Solana program can return code 7023. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Remove the TypeScript-only semantic validation or change the canonical Rust boundary, then make the client reuse the interface builder.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I24 program-libs/interface/src/instruction/builders/zone_authority_transact.rs`
+- Full SDK parity claim: unsupported; 22 interface rows need fixes, including the I23 error-boundary divergence, and package and cross-package gates have not passed
+
+### 2026-07-25 02:46 UTC | I24 | `program-libs/interface/src/instruction/builders/zone_authority_transact.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This public builder supports outer and CPI zone-authority transactions for SOL and SPL assets. Valid account metas match current Rust.
+- Evidence: No exact current-Rust fixture covers this builder. It shares I23's early settlement rejection boundary and privately duplicates I04's `zone_auth` derivation. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Resolve I23, reuse the I04 PDA helper, and add exact current-Rust outer and CPI fixtures for both assets.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I25 program-libs/interface/src/instruction/builders/zone_config/mod.rs`
+- Full SDK parity claim: unsupported; 23 interface rows need fixes, including the shared settlement boundary, and package and cross-package gates have not passed
+
+### 2026-07-25 02:46 UTC | I25 | `program-libs/interface/src/instruction/builders/zone_config/mod.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This module exports the create, owner-update, and enabled-update zone-config builders. Their TypeScript bytes, account metas, and authority semantics statically match current Rust.
+- Evidence: No exact current-Rust fixture covers the three builders, and no evidence covers CPI creation routing. I04 and I12 own the shared PDA and codec work. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Reuse I04 and I12, then add exact fixtures for the three builders and evidence for CPI creation routing.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I26 program-libs/interface/src/instruction/builders/zone_deposit.rs`
+- Full SDK parity claim: unsupported; 24 interface rows need fixes, and package and cross-package gates have not passed
+
+### 2026-07-25 02:46 UTC | I26 | `program-libs/interface/src/instruction/builders/zone_deposit.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This public builder supports outer and CPI zone deposits for SOL and SPL assets. TypeScript matches current Rust modes, tag, PDA derivation, and account metas.
+- Evidence: No exact outer or CPI fixture and no focused tests cover this builder. I04 and I07 own its duplicated PDA and codec, and the I07 deposit-spec conflict remains unresolved. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Reuse I04 and I07, retain the deposit authority conflict, and add exact mode and asset fixtures.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I27 program-libs/interface/src/instruction/builders/zone_transact.rs`
+- Full SDK parity claim: unsupported; 25 interface rows need fixes, including the deposit-spec conflict, and package and cross-package gates have not passed
+
+### 2026-07-25 02:46 UTC | I27 | `program-libs/interface/src/instruction/builders/zone_transact.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This public builder creates outer and CPI zone transactions. Valid TypeScript instructions match current Rust.
+- Evidence: TypeScript applies I23's early settlement rejection and changes the Rust program-error boundary. No exact vectors cover both modes, withdrawals, or owner-index account selection. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Resolve the settlement boundary with I23, then add exact vectors for both modes, withdrawals, and owner-index selection.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I28 program-libs/interface/src/instruction/builders/mod.rs`
+- Full SDK parity claim: unsupported; 26 interface rows need fixes, including two settlement-boundary divergences, and package and cross-package gates have not passed
+
+### 2026-07-25 02:46 UTC | I30 | `program-libs/interface/src/state/discriminator.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This public state module defines account discriminator values. TypeScript embeds values 1, 3, 4, 5, and 6 across four codecs but omits the tree value.
+- Evidence: TypeScript has no canonical exported table or fixture for the complete current-Rust set. Value 2 is reserved by protocol history. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Export and reuse one discriminator table, record value 2 as reserved history, include the tree discriminator, and add a complete drift fixture.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I28 program-libs/interface/src/instruction/builders/mod.rs`
+- Full SDK parity claim: unsupported; 27 interface rows need fixes, I28 remains the lowest unrecorded row, and package and cross-package gates have not passed
+
+### 2026-07-25 02:46 UTC | I31 | `program-libs/interface/src/state/protocol_config.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This public state type has an exact 132-byte layout. TypeScript matches the fields and offsets.
+- Evidence: TypeScript `Reader.bool` rejects bytes 2 through 255, while Rust treats each nonzero byte as true. Exact, boundary, and `SIZE` evidence is absent. The I10 and I22 spec conflict remains. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Decode the flag as `u8 != 0`, add exact and boundary fixtures, record the `SIZE` disposition, and preserve the I10 and I22 conflict.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I28 program-libs/interface/src/instruction/builders/mod.rs`
+- Full SDK parity claim: unsupported; 28 interface rows need fixes, including protocol-config behavior and spec conflicts, and package and cross-package gates have not passed
+
+### 2026-07-25 02:46 UTC | I32 | `program-libs/interface/src/state/spl_asset_counter.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This public state type stores the next SPL asset ID in an exact 16-byte layout. The TypeScript codec matches its bytes.
+- Evidence: `FIRST_ASSET_ID` has no TypeScript disposition. Evidence does not cover a current-Rust exact vector, `u64` boundaries, reserved bytes, initialization, allocation, overflow, or two registrations. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Export or document `FIRST_ASSET_ID` and add exact state plus allocation boundary evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I28 program-libs/interface/src/instruction/builders/mod.rs`
+- Full SDK parity claim: unsupported; 29 interface rows need fixes, I28 remains the lowest unrecorded row, and package and cross-package gates have not passed
+
+### 2026-07-25 02:46 UTC | I33 | `program-libs/interface/src/state/spl_asset_registry.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This public state type maps an SPL mint to its asset ID in an exact 48-byte layout. The TypeScript codec matches the layout.
+- Evidence: Current tests round-trip TypeScript values without an independent oracle; exact boundary and browser vectors are absent. Wallet sync creates `unknownAssetIds` without recording or fetching registry accounts and omits the Rust retry behavior. No relevant source changed from frozen commit `43fde8e4`. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Add exact boundary and browser vectors, then make wallet sync record, fetch, and retry unknown asset registry accounts as Rust does.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `I28 program-libs/interface/src/instruction/builders/mod.rs`
+- Full SDK parity claim: unsupported; 30 interface rows need fixes, I28 remains the lowest unrecorded row, and package and cross-package gates have not passed
+
+### 2026-07-25 05:21 UTC | I28 | `program-libs/interface/src/instruction/builders/mod.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`; the active interface worker owns the non-conflicting fixes
+- Explanation: This module is the public builder export root. TypeScript represents each builder name with a JavaScript-appropriate API, but the aggregate inherits child divergences and duplicate authorities.
+- Evidence: Custom tree parameters, canonical codec and PDA reuse, exact builder vectors, and runtime and declaration export allowlists remain incomplete. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Complete the non-conflicting child fixes, add the custom tree path, reuse canonical authorities, and pin exact builder exports and vectors.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Full SDK parity claim: unsupported; the interface package retains adverse rows and package and cross-package gates have not passed
+
+### 2026-07-25 05:21 UTC | I29 | `program-libs/interface/src/instruction/mod.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`; the active interface worker owns the non-conflicting fixes
+- Explanation: This module is the public instruction root. TypeScript preserves the 18 tags and provides ergonomic builder adaptations.
+- Evidence: Nineteen public instruction-data equivalents are missing. Child, spec, and settlement conflicts remain, and feature, helper, and export dispositions lack exact evidence. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Add the non-conflicting data and helper exports, record valid JavaScript dispositions, and pin root and subpath allowlists without hiding the unresolved conflicts.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Full SDK parity claim: unsupported; instruction-root and child conflicts remain unresolved
+
+### 2026-07-25 05:21 UTC | I34 | `program-libs/interface/src/state/tree.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`; the active interface worker owns the fix
+- Explanation: This public state module defines the tree constants, nullifier-tree parameters, account size `1_186_136`, and root offset `16`.
+- Evidence: TypeScript exposes none of these values. Exact browser-safe vectors are absent. No tests ran for this recorder update.
+- Verdict: `MISSING`
+- Gap and smallest fix: Add one exact browser-safe tree authority and current-Rust vectors, coordinated with I06 and I18.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Full SDK parity claim: unsupported; a public interface state authority is missing
+
+### 2026-07-25 05:21 UTC | I35 | `program-libs/interface/src/state/zone_config.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`; the active interface worker owns the fix
+- Explanation: This public state type has a 67-byte layout. TypeScript decodes valid values into the same fields.
+- Evidence: The policy for enabled bytes outside `0` and `1` differs from or leaves ambiguous the current Rust boundary, and exact canonical and noncanonical vectors are absent. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Preserve the proven current Rust byte policy and add exact canonical and noncanonical enabled-byte vectors.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Full SDK parity claim: unsupported; zone-config decoding lacks exact boundary parity
+
+### 2026-07-25 05:21 UTC | I36 | `program-libs/interface/src/state/mod.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`; the active interface worker owns the fix
+- Explanation: This module is the public state export root.
+- Evidence: TypeScript omits the discriminator table, `FIRST_ASSET_ID`, and the full tree export set, and it inherits child behavior and evidence gaps. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Export and reuse the canonical state authorities, then pin the exact root allowlist and inherited behavior.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Full SDK parity claim: unsupported; the interface state export set is incomplete
+
+### 2026-07-25 05:21 UTC | I37 | `program-libs/interface/src/lib.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`; the active interface worker owns the non-conflicting fixes
+- Explanation: This crate root exposes program addresses, modules, features, constants, and public capabilities. TypeScript exposes the program addresses and package subpaths.
+- Evidence: The root inherits 35 adverse child reports and omits constants, event capability dispositions, a complete inventory, and an exact export ledger. Generated verifying keys are a justified JavaScript omission. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Complete the non-conflicting root exports and evidence, document event and generated-key dispositions, and retain the unresolved child conflicts.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `1/37`
+- Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Full SDK parity claim: unsupported; the interface root and 35 child reports remain adverse
+
+### 2026-07-25 05:21 UTC | K01 | `sdk-libs/keypair/src/constants.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This module defines keypair constants that are public through the Rust crate.
+- Evidence: Seven Rust-public constants are hidden, the inventory incorrectly calls them internal, and direct constant evidence is incomplete. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Export or record an exact JavaScript disposition for each public constant, correct the inventory, and add current-Rust evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Full SDK parity claim: unsupported; the keypair public constant set is incomplete
+
+### 2026-07-25 05:21 UTC | K02 | `sdk-libs/keypair/src/signing_key.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This module owns signing-key generation, import, public-key derivation, and signatures.
+- Evidence: The tagged public-key runtime value is 34 bytes but its TypeScript type is `Bytes33`, and `isEd25519` is missing. RNG, scalar, signature, and secret-inspection evidence is incomplete. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Correct the tagged-key type and `isEd25519` adaptation, then add generation, malformed-input, signing-boundary, and secret-exposure tests.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Full SDK parity claim: unsupported; the keypair signing API has a public type conflict
+
+### 2026-07-25 05:21 UTC | K03 | `sdk-libs/keypair/src/nullifier_key.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This module derives the nullifier secret, public value, and per-output nullifier. Source behavior aligns in TypeScript.
+- Evidence: Malformed import, repeatability, capability separation, and secret-inspection vectors are incomplete. The inventory says leaf index where the input is a blinding, and fixture names and provenance point to the wrong responsibility. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Correct the inventory and fixture provenance, then add exact success, malformed-input, repeatability, capability, and inspection evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Full SDK parity claim: unsupported; keypair evidence and inventory remain incomplete
+
+### 2026-07-25 05:21 UTC | M01 | `sdk-libs/merkle-tree/src/indexed.rs`
+
+- Baseline: HEAD `90d8c1e10ba0db92527f835302d2c6fecec5008a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `none`
+- Worker: completed review report; implementation commit `none`
+- Explanation: This module provides indexed-tree insertion and low/high-neighbor non-inclusion proofs.
+- Evidence: Default vectors pass. TypeScript lacks custom highest-sentinel behavior and public path, proof, and update APIs; verification trusts the supplied root and path length; numeric, error, sentinel, and mutation behavior diverges or lacks evidence. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Add the missing public operations, validate roots and path lengths, align numeric and sentinel boundaries and errors, and add custom-sentinel and mutation vectors.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/2`
+- Exact next file: `K05 sdk-libs/keypair/src/pubkey.rs`
+- Full SDK parity claim: unsupported; indexed-tree public behavior diverges
