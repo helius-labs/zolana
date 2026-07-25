@@ -33,7 +33,7 @@ divergence from the program would do the most damage.
 | F7 | Light ships one-call actions over the composable layer. Zolana ships only the composable layer. | Cheap now |
 | F8 | Zolana's branded byte types are applied by cast, so the compiler proves nothing. Light's `BN254` is a bare alias and proves less still. | Cheap now |
 | F9 | Light executes its browser claim in Chromium. Zolana proves a stronger property statically and never runs the bundle. | Cheap now |
-| F10 | Twelve packages against Light's three. Two of Zolana's are the transport and the schema for the same server. | Cheap now, for one merge |
+| F10 | Ten publishable packages against Light's three. Two of Zolana's are the transport and the schema for the same server. Most of the rest earn their boundary. | Cheap now, for one merge |
 | F11 | Zolana's prover client has retries, timeouts, job polling, and a response cap. Light's has none of them. The only difference in Light's favour is circuit coverage, which Light cannot help with. | Permanent, stop treating as a gap |
 
 ---
