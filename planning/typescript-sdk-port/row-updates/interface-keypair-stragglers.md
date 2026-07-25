@@ -5,19 +5,26 @@ verdict, on branch `port/interface-b` from `87b434ac`. One section per row:
 what was found, what changed, and which test pins it.
 
 Scope held: every code change is under `sdk-libs/**`. Nothing in `programs/`,
-`program-libs/`, `prover/`, `xtask/`, or `docs/spec.md` was touched. Two rows
-needed a change I could not make inside that boundary and say so below.
+`program-libs/`, `prover/`, `xtask/`, or `docs/spec.md` was touched. Four things
+needed a change I could not make inside that boundary: the `BASELINE_SHA` re-pin
+in [Open question 2](#open-question-2-the-frozen-source-gate-against-rust-side-fixes),
+the fallible builder signature and the 1232-byte guard in
+[S01](#s01-the-smart-account-client-index-boundary), and the spec-against-Photon
+conflict that is the whole of [X01](#x01-the-indexer-api-scalars).
 
-One fix is recorded against Rust rather than TypeScript, per the standing
-instruction that the Rust SDK is as fixable as the port. It is
-[K12](#k12-shieldedkeypairtrait-handed-out-the-nullifier-secret), and the
-consequence it has for the frozen-source gate is
-[Open question 2](#open-question-2-the-frozen-source-gate-against-rust-side-fixes).
+Two fixes are recorded against Rust rather than TypeScript, per the standing
+instruction that the Rust SDK is as fixable as the port:
+[K12](#k12-shieldedkeypairtrait-handed-out-the-nullifier-secret), whose
+consequence for the frozen-source gate is
+[Open question 2](#open-question-2-the-frozen-source-gate-against-rust-side-fixes),
+and the Rust half of [S01](#s01-the-smart-account-client-index-boundary), where
+the truncation was the more serious of the two defects.
 
 ## Contents
 
 - [Open question 1: the merge encrypted-UTXO prefix (I08, I09, I20, I21)](#open-question-1-the-merge-encrypted-utxo-prefix-i08-i09-i20-i21)
 - [Open question 2: the frozen-source gate against Rust-side fixes](#open-question-2-the-frozen-source-gate-against-rust-side-fixes)
+- [Note: this branch moved worktrees mid-session](#note-this-branch-moved-worktrees-mid-session)
 - [I07, I19, I26: the deposit-tag residue](#i07-i19-i26-the-deposit-tag-residue)
 - [I37: the interface root](#i37-the-interface-root)
 - [K11: least-powerful capability at the call sites](#k11-least-powerful-capability-at-the-call-sites)
@@ -25,6 +32,8 @@ consequence it has for the frozen-source gate is
 - [K13: the traits subpath](#k13-the-traits-subpath)
 - [K14: the keypair root](#k14-the-keypair-root)
 - [M02: the merkle-tree crate root](#m02-the-merkle-tree-crate-root)
+- [S01: the smart-account-client index boundary](#s01-the-smart-account-client-index-boundary)
+- [X01: the indexer-api scalars](#x01-the-indexer-api-scalars)
 - [Correction to the checklist's known-failing block](#correction-to-the-checklists-known-failing-block)
 
 ## Open question 1: the merge encrypted-UTXO prefix (I08, I09, I20, I21)
@@ -57,6 +66,20 @@ Recommendation, if it helps: **relax decode, keep encode.** That restores
 TypeScript's ability to read anything Rust reads, which is the reported harm, and
 keeps the guard where it prevents a loss. It is not the symmetric answer, which
 is why it needs a ruling rather than a reviewer.
+
+### Someone else is answering this, differently
+
+Mid-session the owner added a standing instruction (`README.md`, `515a2fb4`):
+do not stop at an open question, copy Light Protocol's answer if it has one, and
+otherwise take the recommended path and record it.
+
+By then a second worker had taken this row. `port/merge-prefix` exists and its
+working tree removes **both** guards, decode and encode, which is the symmetric
+answer rather than the one recommended above. I have not touched it, and I am
+not reopening it; whoever reconciles should know only that the two halves were
+argued separately here and were closed together there. If the encode guard is
+wanted back it is one call to `checkMergeOutputScheme`, which is why the refactor
+below was worth doing either way.
 
 ### What changed
 
@@ -133,6 +156,18 @@ Options:
 Recommendation: **option 3**, with option 2 in the interim. The gate exists to
 catch Rust drifting away from captured fixtures, and it currently fires on source
 edits that cannot change a captured value.
+
+Light Protocol was checked, as the standing instruction requires. It has no
+answer to copy because it has no such gate: `BASELINE_SHA`, `frozen_sources`,
+and `assert_frozen` return nothing across that repository. Light does export
+test data from Rust, through `xtask/src/export_photon_test_data.rs`, and pins
+nothing about the source files that produced it. So the mature lineage's answer
+to this class of drift is not a source hash, which is evidence for option 3
+rather than for scheduling around the gate.
+
+Recorded rather than done, because the one-line fix is `BASELINE_SHA` in
+`xtask/src/bin/ts-fixtures.rs` and the standing instruction is explicit that it
+does not outrank the scope rule.
 
 Whichever is chosen, the checklist's known-failing block needs correcting; see
 the last section.
@@ -297,6 +332,116 @@ the error taxonomy, and it is smaller than it looks, because the row's
 behavioural half compares outcomes rather than error names.
 
 Commit `c96ff2e4`.
+
+## S01: the smart-account-client index boundary
+
+**Closed, by fixing both languages.** The row records an overflow-policy
+conflict, and it is a conflict in which neither side was right.
+
+The compiled payload names accounts by u8 index. The list therefore holds 256
+entries, and the 257th is the first that cannot be named. Neither side had that
+number.
+
+Rust allocated index 256 and let `idx as u8` truncate it to 0. The result is the
+bad kind of wrong: the payload deserializes cleanly and the CPI runs against the
+first account in the list instead of the intended one. TypeScript refused one
+slot early, at 256 entries rather than 257, because the guard compared the list
+length before the push against the maximum index. So the port rejected a payload
+Rust compiles correctly, which is the stricter-than-Rust regression this project
+has already reverted once.
+
+The boundary is unreachable in practice, since 256 accounts is 8192 bytes of
+keys against a 1232-byte transaction. That makes it the same shape as the T21
+ruling, which chose the loud refusal over the quiet truncation at a boundary no
+caller reaches, so I followed T21 rather than re-deciding it.
+
+Rust refuses through `checked_u8` on every narrowing in the builder, not just
+the index. It panics rather than returning an error, which deserves the
+objection it invites. `execute_sync_ix` returns `Instruction` and already panics
+on a failed serialize, so the panic matches the contract the function already
+has; making it fallible is the better fix and moves `xtask`, `forester`, and
+four `sdk-tests` crates with it, which is outside this branch. Recorded here
+rather than half-done.
+
+Pinned by `compiles_the_full_u8_index_range` and
+`refuses_an_account_index_past_u8` in the Rust crate, which had no tests at all
+before, and by the reworked 256-and-257 case in `boundaries.test.ts`. All three
+were checked red first. The Rust pair needed both narrowings reverted to fail,
+which is worth knowing: reverting only one leaves the other catching the
+overflow a step later.
+
+The row's other two residues are in different states. The export surface is now
+pinned by `smart-account-client/test/exports.test.ts`, which maps every `pub
+const` and `pub fn` to its ported name so a Rust addition fails here until the
+port answers it; the declaration ledger it joins catches a removal but not an
+addition. The exact execute fixture already exists, in `vectors.test.ts`.
+
+The 1232-byte limit is **not closed and cannot be closed here**. TypeScript
+enforces it, Rust does not, and neither direction fits inside the boundary:
+relaxing TypeScript would have it hand back an instruction that can never land,
+and adding the guard to Rust needs a fallible signature and the same caller
+migration described above. Unlike the index boundary, this one is reachable by
+an ordinary caller, so a panic is not an acceptable stand-in.
+
+Commits `1d84539b` and `09012b2f`.
+
+## X01: the indexer-api scalars
+
+**Partly closed.** The row's headline, that `docs/spec.md` defines different
+context, UTXO, transaction, and output schemas from the ones Rust and Photon
+implement, is out of reach from here in every direction: the spec is
+uneditable by instruction, Photon is outside `sdk-libs/**`, and changing Rust
+alone would align the port with neither. It needs the owner to say which of the
+three is authoritative before any code moves.
+
+Two residues were real, and both were the port dropping a capability rather than
+disagreeing about a value.
+
+Rust's `Base64String` holds `Vec<u8>` and encodes only at the serde boundary, so
+`From<Base64String> for Vec<u8>` is a field read. The port brands the wire string
+instead, which is reasonable for a JSON client, but it shipped no way back to the
+bytes. A caller had to reach for `atob` or `Buffer`, neither of which enforces
+the canonical form this package requires on the way in. `base64Bytes` is the
+inverse of the existing `base64String` and shares its decoder, so both
+directions agree on what canonical means.
+
+`ParseHashError` names two failures, `WrongSize` and `Invalid`, and the port
+reported both as `INDEXER_SCHEMA_INVALID_HASH`, so a caller could not tell a
+truncated hash from a corrupted one. Rust reaches `WrongSize` two ways, an
+over-long string and a decode that is not 32 bytes, and both map to the one code
+here. The accept and reject sets do not move, so this is a naming fix and not a
+tightening.
+
+Pinned by `indexer-api/test/scalar-parity.test.ts`, which reads the enum and the
+struct out of `lib.rs` so a change on the Rust side fails here. Checked red
+first. Two existing assertions expected the collapsed code for inputs that are
+wrong-size, and now say so.
+
+Still open on this row, beyond the spec conflict: the promised Rust fixture,
+which needs a generator in `xtask`, and the live-Photon evidence, which needs a
+running indexer. Neither is reachable from `sdk-libs/**`.
+
+Commit `ee650188`.
+
+## Note: this branch moved worktrees mid-session
+
+`port/interface-b` was started in `zolana-ts-programlibs` as instructed. Partway
+through, that tree was checked out onto `port/merge-prefix` at `515a2fb4` by
+another worker, with the merge-guard edit described above uncommitted in it.
+
+No work was lost and nothing of theirs was disturbed. All seven commits made to
+that point were already on `port/interface-b`; I copied my uncommitted
+indexer-api work out, returned their two files to the exact bytes I found them
+at, and moved to a new worktree, `zolana-ts-interface-b`, for the rest.
+
+Worth flagging for two reasons beyond the near miss. The one-tree-one-branch rule
+held only because the commits were frequent, which is the argument for committing
+incrementally rather than at the end. And a gate run immediately after the switch
+reported two unrelated interface failures and a missing `@zolana/hasher`, which
+looked like the stale-cache phantom the brief warns about and was not: the tree
+was simply on a newer branch that has a package my branch predates. Anyone who
+sees that pair of symptoms should check `git branch --show-current` before
+clearing caches.
 
 ## Correction to the checklist's known-failing block
 
