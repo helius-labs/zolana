@@ -20,6 +20,7 @@ const (
 	UtxoDomain        = mergeshared.UtxoDomain
 	DummyDomain       = mergeshared.DummyDomain
 	MergePlaintextLen = mergeshared.MergePlaintextLen
+	MergeKDFInfo      = mergeshared.MergeKDFInfo
 )
 
 // Circuit is the default-zone merge rail. It publishes the owner's signing and

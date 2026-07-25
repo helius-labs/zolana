@@ -6,8 +6,28 @@ import (
 	"math/big"
 	"testing"
 
+	merge "zolana/prover/circuits/spp_merge"
 	"zolana/prover/prover-test/poseidon"
+	"zolana/prover/prover-test/spp/protocol"
 )
+
+// TestMergePlaintextVector pins the protocol serialization independently of the
+// circuit implementation: amount (8 bytes) || asset (32 bytes) || blinding
+// (31 bytes), all big-endian. The solving tests then cross-check this host
+// serializer against the in-circuit serializer.
+func TestMergePlaintextVector(t *testing.T) {
+	out := protocol.Utxo{
+		Amount:   mustBigIntHex(t, "0102030405060708"),
+		Asset:    mustBigIntHex(t, "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"),
+		Blinding: mustBigIntHex(t, "303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e"),
+	}
+	const want = "0102030405060708" +
+		"101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f" +
+		"303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e"
+	if got := hex.EncodeToString(mergePlaintext(out)); got != want {
+		t.Fatalf("merge plaintext mismatch:\n got %s\nwant %s", got, want)
+	}
+}
 
 // TestPrintMergeVector emits a fixed cross-language fixture for the Rust host
 // (sdk-libs/keypair merge tests). The host helpers below are the same ones the
@@ -31,7 +51,7 @@ func TestPrintMergeVector(t *testing.T) {
 	dhX.FillBytes(dh[:])
 
 	shared := deriveSharedSecret(t, dh, txPkComp, rpkComp)
-	key, nonce := keySchedule(t, shared, mergeInfo)
+	key, nonce := keySchedule(t, shared, []byte(merge.MergeKDFInfo))
 
 	pt := make([]byte, 71)
 	for i := range pt {
@@ -79,4 +99,13 @@ func TestPrintMergeVector(t *testing.T) {
 	t.Logf("shared_secret      = %x", shared.Bytes())
 	t.Logf("ciphertext         = %x", ct)
 	t.Logf("ciphertext_hash    = %x", ctHash.Bytes())
+}
+
+func mustBigIntHex(t *testing.T, value string) *big.Int {
+	t.Helper()
+	n, ok := new(big.Int).SetString(value, 16)
+	if !ok {
+		t.Fatalf("invalid hexadecimal integer %q", value)
+	}
+	return n
 }

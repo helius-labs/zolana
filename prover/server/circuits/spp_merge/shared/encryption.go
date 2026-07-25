@@ -9,9 +9,9 @@ import (
 	"zolana/prover/circuits/verifiable-encryption/p256"
 )
 
-// mergeInfo is the HPKE-style key-schedule info string bound into the KDF
-// (spec Merge Proof Verifiable encryption: info = "TSPP/merge").
-var mergeInfo = []byte("TSPP/merge")
+// MergeKDFInfo is the protocol info string bound into the merge proof's
+// HPKE-style key schedule.
+const MergeKDFInfo = "TSPP/merge"
 
 // MergePlaintextLen is the AES-CTR plaintext: amount (u64, 8 BE bytes) || asset
 // (32 BE bytes from the UTXO) || blinding (31 BE bytes). The owner is bound
@@ -38,7 +38,7 @@ func constrainEncryption(api frontend.API, g *aes.AESGadget, txViewingSk fronten
 	rpkComp := p256.CompressPubkey(api, userViewingPubkey)
 	sharedSecret := ve.DeriveSharedSecret(api, dh, txViewingPkComp, rpkComp)
 
-	key, nonce := ve.KeySchedule(api, sharedSecret, mergeInfoBytes(), len(mergeInfo))
+	key, nonce := ve.KeySchedule(api, sharedSecret, mergeKDFInfoBytes(), len(MergeKDFInfo))
 
 	plaintext := mergePlaintextBytes(api, amount, asset, blinding)
 	ciphertext := aes.CTREncrypt(api, g, key, nonce, plaintext[:])
@@ -48,10 +48,10 @@ func constrainEncryption(api frontend.API, g *aes.AESGadget, txViewingSk fronten
 	return ctHash, txViewingPkLo, txViewingPkHi
 }
 
-func mergeInfoBytes() []frontend.Variable {
-	out := make([]frontend.Variable, len(mergeInfo))
-	for i, b := range mergeInfo {
-		out[i] = frontend.Variable(b)
+func mergeKDFInfoBytes() []frontend.Variable {
+	out := make([]frontend.Variable, len(MergeKDFInfo))
+	for i := range MergeKDFInfo {
+		out[i] = frontend.Variable(MergeKDFInfo[i])
 	}
 	return out
 }

@@ -7,11 +7,10 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/test"
 
 	merge "zolana/prover/circuits/spp_merge"
+	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	"zolana/prover/prover-test/poseidon"
 	"zolana/prover/prover-test/spp/protocol"
 )
@@ -25,180 +24,67 @@ var (
 	domSepNonce        = big.NewInt(0x544d534e) // "TMSN"
 )
 
-var mergeInfo = []byte("TSPP/merge")
-
-// TestMergeCircuitProves checks the valid witness satisfies every constraint via
-// the gnark test engine. The off-circuit encryption host below mirrors
-// circuits/verifiable-encryption byte-for-byte, so a passing run proves the
-// in-circuit and host KDF/AES-CTR agree.
-func TestMergeCircuitProves(t *testing.T) {
-	assignment := buildValidWitness(t)
-	if err := test.IsSolved(merge.NewMergeCircuit(), assignment, ecc.BN254.ScalarField()); err != nil {
-		t.Fatalf("merge witness not solved: %v", err)
-	}
-}
-
-// TestMergeCircuitProvesEddsaOwner checks a Solana-owned merge: the owner
-// identity comes from a SolanaPkField witnessed in OwnerPkHash, and the
-// P256 point is a discarded dummy. The rail select must accept it.
-func TestMergeCircuitProvesEddsaOwner(t *testing.T) {
-	assignment := buildWitness(t, true)
-	if err := test.IsSolved(merge.NewMergeCircuit(), assignment, ecc.BN254.ScalarField()); err != nil {
-		t.Fatalf("eddsa merge witness not solved: %v", err)
-	}
-}
-
-// TestMergeCircuitRejectsEddsaOwnerMismatch keeps the Solana-owned inputs but
-// flips OwnerPkHash so the recomputed user_owner_hash no longer matches the
-// input owners; ownership uniformity must fail.
-func TestMergeCircuitRejectsEddsaOwnerMismatch(t *testing.T) {
-	a := buildWitness(t, true)
-	a.OwnerPkHash = big.NewInt(0xBADBAD)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("expected eddsa ownership-uniformity failure, got solved")
-	}
-}
-
-// TestMergeCircuitRejectsBadValueConservation tampers an input amount. The output
-// amount is assembled from the input sum, so a changed input both alters that
-// input's leaf hash (breaking state inclusion) and shifts the assembled output
-// hash out of the pinned private-transaction hash. The witness no longer solves.
-func TestMergeCircuitRejectsBadValueConservation(t *testing.T) {
-	a := buildValidWitness(t)
-	a.Inputs[0].Amount = big.NewInt(999)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("expected value-conservation failure, got solved")
-	}
-}
-
-// TestMergeCircuitRejectsTamperedCiphertext flips a public-input-hash input
-// (external data hash) without re-deriving PublicInputHash; the final check fails.
-func TestMergeCircuitRejectsTamperedPublicInput(t *testing.T) {
-	a := buildValidWitness(t)
-	a.ExternalDataHash = big.NewInt(0xDEAD)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("expected public-input-hash failure, got solved")
-	}
-}
-
-// TestMergeCircuitRejectsWrongAsset breaks asset uniformity: the circuit builds
-// every input leaf from the shared Asset, so a mismatched Asset reconstructs
-// leaves that are absent from the state tree and inclusion fails.
-func TestMergeCircuitRejectsWrongAsset(t *testing.T) {
-	a := buildValidWitness(t)
-	a.Asset = big.NewInt(0xBADBAD)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("expected asset-uniformity failure, got solved")
-	}
-}
-
-// TestMergeCircuitRejectsWrongOwner breaks ownership uniformity: a mismatched
-// owner pk_hash reconstructs input leaves that are absent from the state tree.
-func TestMergeCircuitRejectsWrongOwner(t *testing.T) {
-	a := buildValidWitness(t)
-	a.OwnerPkHash = big.NewInt(0xBADBAD)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("expected ownership-uniformity failure, got solved")
-	}
-}
-
-// TestMergeCircuitRejectsInvalidDomain locks the domain-driven slot partition: a
-// slot whose domain is neither UtxoDomain nor DummyDomain fails the
-// isUtxo+isDummy==1 assert. Here a real input's domain is set to AddressDomain.
-func TestMergeCircuitRejectsInvalidDomain(t *testing.T) {
-	a := buildValidWitness(t)
-	a.Inputs[0].Domain = big.NewInt(protocol.AddressDomain)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("expected domain-partition failure, got solved")
-	}
-}
-
-// TestMergeCircuitRejectsNonzeroDefaultZoneData builds internally consistent
-// leaves, Merkle roots, nullifiers, transaction hashes, and encryption for the
-// nonzero zone data. Only the default wrapper's zero-zone assertion rejects it.
-func TestMergeCircuitRejectsNonzeroDefaultZoneData(t *testing.T) {
-	tests := []struct {
-		name    string
-		options defaultWitnessOptions
-	}{
-		{
-			name: "real input",
-			options: defaultWitnessOptions{
-				inputZoneData: []*big.Int{big.NewInt(1), big.NewInt(0)},
-			},
-		},
-		{
-			name: "output",
-			options: defaultWitnessOptions{
-				outputZoneData: big.NewInt(1),
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			a := buildDefaultWitness(t, tc.options)
-			if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-				t.Fatal("expected default-zone data assertion to fail, got solved")
-			}
-		})
-	}
-}
-
-// TestMergeCircuitRejectsWrongPublishedOwnerHashes recomputes the public-input
-// hash around each incorrect published value. The witness therefore fails only
-// the default wrapper's binding to the owner identities derived in-circuit.
-func TestMergeCircuitRejectsWrongPublishedOwnerHashes(t *testing.T) {
-	tests := []struct {
-		name    string
-		options defaultWitnessOptions
-	}{
-		{
-			name: "signing key hash",
-			options: defaultWitnessOptions{
-				userSigningPkHash: big.NewInt(0xBADBAD),
-			},
-		},
-		{
-			name: "viewing key hash",
-			options: defaultWitnessOptions{
-				userViewingPkHash: big.NewInt(0xBADBAD),
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			a := buildDefaultWitness(t, tc.options)
-			if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-				t.Fatal("expected published owner-hash binding to fail, got solved")
-			}
-		})
-	}
-}
-
 func buildValidWitness(t *testing.T) *merge.Circuit {
 	t.Helper()
 	return buildWitness(t, false)
 }
 
-// buildWitness assembles a solved 2-real-input merge witness. OwnerPkHash carries
-// the owner's pk_field directly: SolanaPkField for an ed25519 owner and
-// OwnerPkField for a P256 owner.
 func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	t.Helper()
-	return buildDefaultWitness(t, defaultWitnessOptions{eddsa: eddsa})
+	return buildDefaultWitness(t, mergeFixtureOptions{eddsa: eddsa})
 }
 
-type defaultWitnessOptions struct {
+type mergeFixtureRail uint8
+
+const (
+	defaultFixtureRail mergeFixtureRail = iota
+	zoneFixtureRail
+)
+
+type mergeFixtureOptions struct {
+	rail              mergeFixtureRail
 	eddsa             bool
+	zoneProgramID     *big.Int
 	inputZoneData     []*big.Int
 	outputZoneData    *big.Int
 	userSigningPkHash *big.Int
 	userViewingPkHash *big.Int
 }
 
-func buildDefaultWitness(t *testing.T, options defaultWitnessOptions) *merge.Circuit {
+type mergeWitnessFixture struct {
+	inputs []merge.Input
+	output merge.Output
+
+	asset               *big.Int
+	ownerPkHash         *big.Int
+	userNullifierPk     *big.Int
+	userNullifierSecret *big.Int
+	txViewingSk         *big.Int
+	userViewingPubkey   [65]frontend.Variable
+	public              mergeshared.CommonPublicInputs
+	userSigningPkHash   *big.Int
+	userViewingPkHash   *big.Int
+	zoneProgramID       *big.Int
+	publicInputHash     *big.Int
+}
+
+func buildDefaultWitness(t *testing.T, options mergeFixtureOptions) *merge.Circuit {
+	t.Helper()
+	options.rail = defaultFixtureRail
+	return buildMergeFixture(t, options).defaultCircuit()
+}
+
+func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
+	t.Helper()
+	return buildMergeFixture(t, mergeFixtureOptions{
+		rail:           zoneFixtureRail,
+		zoneProgramID:  zoneProgramID,
+		inputZoneData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)},
+		outputZoneData: big.NewInt(0xD2),
+	}).zoneCircuit()
+}
+
+func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessFixture {
 	t.Helper()
 	curve := elliptic.P256()
 
@@ -258,6 +144,13 @@ func buildDefaultWitness(t *testing.T, options defaultWitnessOptions) *merge.Cir
 	if options.outputZoneData != nil {
 		outputZoneData = options.outputZoneData
 	}
+	zoneProgramID := big.NewInt(0)
+	if options.rail == zoneFixtureRail {
+		if options.zoneProgramID == nil {
+			t.Fatal("zone fixture requires a zone program ID")
+		}
+		zoneProgramID = options.zoneProgramID
+	}
 
 	// Real input UTXOs and their state-tree leaves.
 	inUtxos := make([]protocol.Utxo, numReal)
@@ -272,7 +165,7 @@ func buildDefaultWitness(t *testing.T, options defaultWitnessOptions) *merge.Cir
 			Blinding:      blindings[i],
 			DataHash:      big.NewInt(0),
 			ZoneDataHash:  zoneData[i],
-			ZoneProgramID: big.NewInt(0),
+			ZoneProgramID: zoneProgramID,
 		}
 		h, err := protocol.UtxoHash(inUtxos[i])
 		if err != nil {
@@ -318,7 +211,7 @@ func buildDefaultWitness(t *testing.T, options defaultWitnessOptions) *merge.Cir
 		Blinding:      outBlinding,
 		DataHash:      big.NewInt(0),
 		ZoneDataHash:  outputZoneData,
-		ZoneProgramID: big.NewInt(0),
+		ZoneProgramID: zoneProgramID,
 	}
 	outHash, err := protocol.UtxoHash(outUtxo)
 	if err != nil {
@@ -396,44 +289,55 @@ func buildDefaultWitness(t *testing.T, options defaultWitnessOptions) *merge.Cir
 		}
 	}
 
-	publicInputHash := hashChain(t, []*big.Int{
+	publicInputPreimage := []*big.Int{
 		hashChain(t, pubNullifiers),
 		outHash,
 		hashChain(t, pubUtxoRoots),
 		hashChain(t, pubNfRoots),
 		privateTxHash,
 		externalDataHash,
-		userSigningPkHash,
-		userViewingPkHash,
-		pkLo, pkHi,
-		ctHash,
-	})
-
-	// Assemble the witness assignment.
-	assignment := merge.NewMergeCircuit()
-	assignment.OwnerPkHash = ownerKeyHash
-	assignment.UserNullifierPk = userNullifierPk
-	assignment.UserNullifierSecret = nullifierSecret
-	assignment.TxViewingSk = txViewingSk
-	for i := 0; i < 65; i++ {
-		assignment.UserViewingPubkey[i] = big.NewInt(int64(userViewingUncompressed[i]))
 	}
-	assignment.ExternalDataHash = externalDataHash
-	assignment.PrivateTxHash = privateTxHash
-	assignment.OutputHash = outHash
-	assignment.UserSigningPkHash = userSigningPkHash
-	assignment.UserViewingPkHash = userViewingPkHash
-	assignment.TxViewingPkLo = pkLo
-	assignment.TxViewingPkHi = pkHi
-	assignment.CtHash = ctHash
-	assignment.PublicInputHash = publicInputHash
-	assignment.Asset = asset
+	switch options.rail {
+	case defaultFixtureRail:
+		publicInputPreimage = append(
+			publicInputPreimage,
+			userSigningPkHash,
+			userViewingPkHash,
+			pkLo,
+			pkHi,
+			ctHash,
+		)
+	case zoneFixtureRail:
+		publicInputPreimage = append(
+			publicInputPreimage,
+			pkLo,
+			pkHi,
+			ctHash,
+			zoneProgramID,
+		)
+	default:
+		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
+	}
+	publicInputHash := hashChain(t, publicInputPreimage)
+
+	inputs := mergeshared.NewInputs()
+	public := mergeshared.NewCommonPublicInputs()
+	var userViewingPubkey [65]frontend.Variable
+	for i := 0; i < 65; i++ {
+		userViewingPubkey[i] = big.NewInt(int64(userViewingUncompressed[i]))
+	}
+	public.ExternalDataHash = externalDataHash
+	public.PrivateTxHash = privateTxHash
+	public.OutputHash = outHash
+	public.TxViewingPkLo = pkLo
+	public.TxViewingPkHi = pkHi
+	public.CtHash = ctHash
 
 	for i := 0; i < merge.MergeInputs; i++ {
-		in := &assignment.Inputs[i]
-		assignment.Nullifiers[i] = pubNullifiers[i]
-		assignment.UtxoTreeRoots[i] = pubUtxoRoots[i]
-		assignment.NullifierTreeRoots[i] = pubNfRoots[i]
+		in := &inputs[i]
+		public.Nullifiers[i] = pubNullifiers[i]
+		public.UtxoTreeRoots[i] = pubUtxoRoots[i]
+		public.NullifierTreeRoots[i] = pubNfRoots[i]
 		if i < numReal {
 			in.Domain = big.NewInt(protocol.UtxoDomain)
 			in.Amount = amounts[i]
@@ -458,8 +362,54 @@ func buildDefaultWitness(t *testing.T, options defaultWitnessOptions) *merge.Cir
 			in.NullifierLowPathIndex = big.NewInt(0)
 		}
 	}
-	assignment.Output = merge.Output{Blinding: outBlinding, ZoneDataHash: outputZoneData}
 
+	return &mergeWitnessFixture{
+		inputs:              inputs,
+		output:              merge.Output{Blinding: outBlinding, ZoneDataHash: outputZoneData},
+		asset:               asset,
+		ownerPkHash:         ownerKeyHash,
+		userNullifierPk:     userNullifierPk,
+		userNullifierSecret: nullifierSecret,
+		txViewingSk:         txViewingSk,
+		userViewingPubkey:   userViewingPubkey,
+		public:              public,
+		userSigningPkHash:   userSigningPkHash,
+		userViewingPkHash:   userViewingPkHash,
+		zoneProgramID:       zoneProgramID,
+		publicInputHash:     publicInputHash,
+	}
+}
+
+func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
+	assignment := merge.NewMergeCircuit()
+	assignment.Inputs = f.inputs
+	assignment.Output = f.output
+	assignment.Asset = f.asset
+	assignment.OwnerPkHash = f.ownerPkHash
+	assignment.UserNullifierPk = f.userNullifierPk
+	assignment.UserNullifierSecret = f.userNullifierSecret
+	assignment.TxViewingSk = f.txViewingSk
+	assignment.UserViewingPubkey = f.userViewingPubkey
+	assignment.CommonPublicInputs = f.public
+	assignment.UserSigningPkHash = f.userSigningPkHash
+	assignment.UserViewingPkHash = f.userViewingPkHash
+	assignment.PublicInputHash = f.publicInputHash
+	return assignment
+}
+
+func (f *mergeWitnessFixture) zoneCircuit() *merge.ZoneCircuit {
+	assignment := merge.NewMergeZoneCircuit()
+	assignment.Inputs = f.inputs
+	assignment.Output = f.output
+	assignment.Asset = f.asset
+	assignment.OwnerPkHash = f.ownerPkHash
+	assignment.UserNullifierPk = f.userNullifierPk
+	assignment.UserNullifierSecret = f.userNullifierSecret
+	assignment.TxViewingSk = f.txViewingSk
+	assignment.UserViewingPubkey = f.userViewingPubkey
+	assignment.CommonPublicInputs = f.public
+	assignment.ZoneProgramID = f.zoneProgramID
+	assignment.PublicInputHash = f.publicInputHash
 	return assignment
 }
 
@@ -483,7 +433,7 @@ func encryptMerge(t *testing.T, curve elliptic.Curve, txViewingSk, viewX, viewY 
 	copy(rpkComp[:], elliptic.MarshalCompressed(curve, viewX, viewY))
 
 	sharedSecret := deriveSharedSecret(t, dh, txViewingPkComp, rpkComp)
-	key, nonce := keySchedule(t, sharedSecret, mergeInfo)
+	key, nonce := keySchedule(t, sharedSecret, []byte(merge.MergeKDFInfo))
 
 	plaintext := mergePlaintext(out)
 	ciphertext := ctrEncrypt(t, key, nonce, plaintext)
