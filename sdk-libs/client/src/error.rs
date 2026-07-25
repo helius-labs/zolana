@@ -185,8 +185,12 @@ pub enum ClientError {
     #[error("rpc error: {0}")]
     Rpc(String),
 
-    #[error("indexer error: {0}")]
-    Indexer(String),
+    /// Carries no response text: an indexer body can hold caller data.
+    #[error("indexer request `{method}` failed")]
+    Indexer {
+        method: &'static str,
+        retryable: bool,
+    },
 
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
@@ -224,7 +228,7 @@ impl ClientError {
     pub fn retry_cause(&self) -> Option<RetryErrorCause> {
         match self {
             Self::Rpc(_) => Some(RetryErrorCause::Rpc),
-            Self::Indexer(_) => Some(RetryErrorCause::Indexer),
+            Self::Indexer { retryable, .. } if *retryable => Some(RetryErrorCause::Indexer),
             Self::IndexerTimeout => Some(RetryErrorCause::IndexerTimeout),
             _ => None,
         }

@@ -817,7 +817,7 @@ fn submit_instructions(
 /// Resolve the spend proof (state inclusion + nullifier non-inclusion) for each
 /// input commitment on `tree`, in commitment order. Batches both indexer lookups
 /// so a multi-input spend costs two round trips, not two per input.
-fn fetch_spend_proofs(
+pub(crate) fn fetch_spend_proofs(
     indexer: &ZolanaIndexer,
     tree: Address,
     commitments: &[InputUtxoContext],

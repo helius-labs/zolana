@@ -53,6 +53,37 @@ impl IndexerPollConfig {
         self.poll_until_with_sleep(request, accept, sleep)
     }
 
+    /// Async twin of [`IndexerPollConfig::poll_until`] with the same
+    /// classification and attempt count.
+    pub async fn poll_until_async<T, F, Fut>(
+        &self,
+        request: F,
+        mut accept: impl FnMut(&T) -> bool,
+    ) -> Result<T, ClientError>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<T, ClientError>>,
+    {
+        let mut last_cause = None;
+        for delay in std::iter::once(Duration::ZERO).chain(self.backoff()) {
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            match request().await {
+                Ok(response) if accept(&response) => return Ok(response),
+                Ok(_) => {}
+                Err(error) => match error.retry_cause() {
+                    Some(cause) => last_cause = Some(cause),
+                    None => return Err(error),
+                },
+            }
+        }
+        Err(ClientError::PollTimedOut {
+            attempts: self.attempts(),
+            last_cause,
+        })
+    }
+
     fn poll_until_with_sleep<T>(
         &self,
         mut request: impl FnMut() -> Result<T, ClientError>,
@@ -148,7 +179,12 @@ mod tests {
         let sleeps = RefCell::new(Vec::new());
         let error = config
             .poll_until_with_sleep(
-                || Err::<(), _>(ClientError::Indexer("private response".into())),
+                || {
+                    Err::<(), _>(ClientError::Indexer {
+                        method: "get_merkle_proofs",
+                        retryable: true,
+                    })
+                },
                 |_| false,
                 |delay| sleeps.borrow_mut().push(delay),
             )
@@ -162,7 +198,7 @@ mod tests {
                 last_cause: Some(RetryErrorCause::Indexer)
             }
         ));
-        assert!(!error.to_string().contains("private response"));
+        assert!(!error.to_string().contains("get_merkle_proofs"));
     }
 
     #[test]

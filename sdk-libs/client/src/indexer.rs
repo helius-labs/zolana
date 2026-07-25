@@ -18,8 +18,9 @@ use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 use zolana_transaction::instructions::transact::SppProofInputs;
 
 use crate::{
+    client::fetch_spend_proofs,
     error::ClientError,
-    prover::{transact::SpendProof, ProverClient},
+    prover::ProverClient,
     retry::IndexerRpcConfig,
     rpc::{
         AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
@@ -39,6 +40,50 @@ fn now_unix_seconds() -> i64 {
         .unwrap_or(i64::MAX)
 }
 
+/// Separates an indexer that answered but lagged from one that never answered.
+/// The retry helper collects a structured cause for transient failures, and
+/// discarding it in favour of a lag report the caller never observed would
+/// mislabel an unreachable indexer as a slow one.
+struct Lag {
+    target: i64,
+    attempts: u64,
+    responses: u64,
+    latest: Option<i64>,
+}
+
+impl Lag {
+    fn new(target: i64, attempts: u64) -> Self {
+        Self {
+            target,
+            attempts,
+            responses: 0,
+            latest: None,
+        }
+    }
+
+    fn accept(&mut self, block_time: i64) -> bool {
+        self.responses += 1;
+        self.latest = Some(block_time);
+        block_time >= self.target
+    }
+
+    /// A response count below the attempt count means the schedule ended on a
+    /// failure, so `outcome` already carries the precise reason.
+    fn resolve<T>(&self, outcome: Result<T, ClientError>) -> Result<T, ClientError> {
+        match (outcome, self.latest) {
+            (Ok(response), _) => Ok(response),
+            (Err(_), Some(latest)) if self.responses == self.attempts => {
+                Err(ClientError::IndexerNotCaughtUp {
+                    target: self.target,
+                    latest,
+                    attempts: self.attempts,
+                })
+            }
+            (Err(error), _) => Err(error),
+        }
+    }
+}
+
 fn wait_for_indexer<T>(
     config: Option<IndexerRpcConfig>,
     block_time: impl Fn(&T) -> i64,
@@ -47,23 +92,11 @@ fn wait_for_indexer<T>(
     let Some(config) = config.filter(|config| config.wait_for_indexer) else {
         return request();
     };
-    let target = now_unix_seconds();
-    let mut latest = i64::MIN;
-    for delay in std::iter::once(Duration::ZERO).chain(config.poll.backoff()) {
-        if !delay.is_zero() {
-            sleep(delay);
-        }
-        let response = request()?;
-        latest = block_time(&response);
-        if latest >= target {
-            return Ok(response);
-        }
-    }
-    Err(ClientError::IndexerNotCaughtUp {
-        target,
-        latest,
-        attempts: config.poll.attempts(),
-    })
+    let mut lag = Lag::new(now_unix_seconds(), config.poll.attempts());
+    let outcome = config
+        .poll
+        .poll_until(request, |response| lag.accept(block_time(response)));
+    lag.resolve(outcome)
 }
 
 async fn wait_for_indexer_async<T, F, Fut>(
@@ -78,23 +111,12 @@ where
     let Some(config) = config.filter(|config| config.wait_for_indexer) else {
         return request().await;
     };
-    let target = now_unix_seconds();
-    let mut latest = i64::MIN;
-    for delay in std::iter::once(Duration::ZERO).chain(config.poll.backoff()) {
-        if !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
-        let response = request().await?;
-        latest = block_time(&response);
-        if latest >= target {
-            return Ok(response);
-        }
-    }
-    Err(ClientError::IndexerNotCaughtUp {
-        target,
-        latest,
-        attempts: config.poll.attempts(),
-    })
+    let mut lag = Lag::new(now_unix_seconds(), config.poll.attempts());
+    let outcome = config
+        .poll
+        .poll_until_async(&request, |response| lag.accept(block_time(response)))
+        .await;
+    lag.resolve(outcome)
 }
 
 #[derive(Clone, Debug)]
@@ -132,35 +154,9 @@ impl ZolanaIndexer {
         tree: Address,
         proof_inputs: SppProofInputs,
     ) -> Result<TransactIxData, ClientError> {
-        let spend_proofs = self.spend_proofs(tree, &proof_inputs)?;
+        let commitments = proof_inputs.input_utxo_hashes()?;
+        let spend_proofs = fetch_spend_proofs(self, tree, &commitments, None)?;
         ProverClient::local().prove_transact(proof_inputs, &spend_proofs)
-    }
-
-    fn spend_proofs(
-        &self,
-        tree: Address,
-        proof_inputs: &SppProofInputs,
-    ) -> Result<Vec<SpendProof>, ClientError> {
-        let inputs = proof_inputs.input_utxo_hashes()?;
-        let state_proofs = self
-            .get_merkle_proofs(tree, inputs.iter().map(|c| c.utxo_hash).collect(), None)?
-            .proofs;
-        let nullifier_proofs = self
-            .get_non_inclusion_proofs(tree, inputs.iter().map(|c| c.nullifier).collect(), None)?
-            .proofs;
-        if state_proofs.len() != inputs.len() || nullifier_proofs.len() != inputs.len() {
-            return Err(ClientError::Rpc(format!(
-                "indexer returned {} state and {} nullifier proofs for {} inputs",
-                state_proofs.len(),
-                nullifier_proofs.len(),
-                inputs.len()
-            )));
-        }
-        Ok(state_proofs
-            .into_iter()
-            .zip(nullifier_proofs)
-            .map(|(state, nullifier)| SpendProof { state, nullifier })
-            .collect())
     }
 }
 
@@ -204,7 +200,7 @@ impl Rpc for ZolanaIndexer {
                         encode_cursor(cursor.clone()),
                         limit.map(u64::from),
                     )
-                    .map_err(indexer_error)?;
+                    .map_err(|error| indexer_error("get_encrypted_utxos_by_tags", error))?;
 
                 Ok(GetEncryptedUtxosByTagsResponse {
                     context: convert_context(response.context),
@@ -238,7 +234,7 @@ impl Rpc for ZolanaIndexer {
                         encode_cursor(cursor.clone()),
                         limit.map(u64::from),
                     )
-                    .map_err(indexer_error)?;
+                    .map_err(|error| indexer_error("get_shielded_transactions_by_tags", error))?;
 
                 Ok(GetShieldedTransactionsByTagsResponse {
                     context: convert_context(response.context),
@@ -266,7 +262,7 @@ impl Rpc for ZolanaIndexer {
                     encode_pubkey(tree_account),
                     leaves.iter().copied().map(encode_hash).collect(),
                 )
-                .map_err(indexer_error)
+                .map_err(|error| indexer_error("get_merkle_proofs", error))
                 .map(|response| GetMerkleProofsResponse {
                     context: convert_context(response.context),
                     proofs: response
@@ -321,7 +317,7 @@ impl Rpc for ZolanaIndexer {
                         encode_pubkey(tree_account),
                         leaves.iter().copied().map(encode_hash).collect(),
                     )
-                    .map_err(indexer_error)?;
+                    .map_err(|error| indexer_error("get_non_inclusion_proofs", error))?;
 
                 Ok(GetNonInclusionProofsResponse {
                     context: convert_context(response.context),
@@ -357,7 +353,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                         limit.map(u64::from),
                     )
                     .await
-                    .map_err(indexer_error)?;
+                    .map_err(|error| indexer_error("get_encrypted_utxos_by_tags", error))?;
 
                 Ok(GetEncryptedUtxosByTagsResponse {
                     context: convert_context(response.context),
@@ -393,7 +389,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                         limit.map(u64::from),
                     )
                     .await
-                    .map_err(indexer_error)?;
+                    .map_err(|error| indexer_error("get_shielded_transactions_by_tags", error))?;
 
                 Ok(GetShieldedTransactionsByTagsResponse {
                     context: convert_context(response.context),
@@ -427,7 +423,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                         leaves.iter().copied().map(encode_hash).collect(),
                     )
                     .await
-                    .map_err(indexer_error)?;
+                    .map_err(|error| indexer_error("get_merkle_proofs", error))?;
 
                 Ok(GetMerkleProofsResponse {
                     context: convert_context(response.context),
@@ -459,7 +455,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                         leaves.iter().copied().map(encode_hash).collect(),
                     )
                     .await
-                    .map_err(indexer_error)?;
+                    .map_err(|error| indexer_error("get_non_inclusion_proofs", error))?;
 
                 Ok(GetNonInclusionProofsResponse {
                     context: convert_context(response.context),
@@ -475,8 +471,23 @@ impl AsyncRpc for AsyncZolanaIndexer {
     }
 }
 
-fn indexer_error(error: zolana_api::ApiError) -> ClientError {
-    ClientError::Indexer(error.to_string())
+/// Drops the API message: an HTTP body or JSON-RPC message can echo caller data.
+/// Only the transport classification survives, and an unrecognized failure is
+/// fatal so a rejected request cannot consume the whole polling schedule.
+fn indexer_error(method: &'static str, error: zolana_api::ApiError) -> ClientError {
+    let retryable = match error {
+        // A body that fails to decode is a malformed response, not a transport hiccup.
+        zolana_api::ApiError::Request(error) => !error.is_decode() && !error.is_builder(),
+        zolana_api::ApiError::Response { status, .. } => retryable_status(status.as_u16()),
+        zolana_api::ApiError::JsonRpc { .. }
+        | zolana_api::ApiError::InvalidRequest { .. }
+        | zolana_api::ApiError::MissingResult(_) => false,
+    };
+    ClientError::Indexer { method, retryable }
+}
+
+fn retryable_status(status: u16) -> bool {
+    matches!(status, 408 | 425 | 429) || status >= 500
 }
 
 fn convert_context(context: zolana_api::Context) -> Context {
@@ -646,6 +657,7 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
+    use crate::retry::IndexerPollConfig;
 
     #[test]
     fn decodes_compressed_p256_pubkey() {
@@ -921,7 +933,7 @@ mod tests {
     }
 
     #[test]
-    fn wraps_json_rpc_errors() {
+    fn wraps_json_rpc_errors_as_fatal_without_the_response_message() {
         let response = json!({
             "id": "test-account",
             "jsonrpc": "2.0",
@@ -938,8 +950,102 @@ mod tests {
             .expect_err("JSON-RPC errors must surface");
         let _ = server.request();
 
-        assert!(matches!(&err, ClientError::Indexer(_)));
-        assert!(err.to_string().contains("bad tag"));
+        assert!(matches!(
+            &err,
+            ClientError::Indexer {
+                method: "get_encrypted_utxos_by_tags",
+                retryable: false
+            }
+        ));
+        assert_eq!(err.retry_cause(), None);
+        assert!(!err.to_string().contains("bad tag"));
+    }
+
+    #[test]
+    fn classifies_http_statuses_the_way_the_api_layer_does() {
+        assert!(retryable_status(408));
+        assert!(retryable_status(425));
+        assert!(retryable_status(429));
+        assert!(retryable_status(503));
+        assert!(!retryable_status(400));
+        assert!(!retryable_status(404));
+    }
+
+    #[test]
+    fn a_fatal_indexer_failure_stops_on_the_first_attempt() {
+        let mut requests = 0;
+        let error = wait_for_indexer(
+            Some(IndexerRpcConfig {
+                wait_for_indexer: true,
+                poll: IndexerPollConfig::new(4, 0, 0),
+            }),
+            |response: &i64| *response,
+            || {
+                requests += 1;
+                Err(ClientError::Indexer {
+                    method: "get_merkle_proofs",
+                    retryable: false,
+                })
+            },
+        )
+        .expect_err("a rejected request must not be retried");
+
+        assert_eq!(requests, 1);
+        assert!(matches!(
+            error,
+            ClientError::Indexer {
+                retryable: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn an_exhausted_transient_failure_keeps_its_cause() {
+        let error = wait_for_indexer(
+            Some(IndexerRpcConfig {
+                wait_for_indexer: true,
+                poll: IndexerPollConfig::new(2, 0, 0),
+            }),
+            |response: &i64| *response,
+            || {
+                Err(ClientError::Indexer {
+                    method: "get_merkle_proofs",
+                    retryable: true,
+                })
+            },
+        )
+        .expect_err("an unanswered request must not report lag");
+
+        assert!(matches!(
+            error,
+            ClientError::PollTimedOut {
+                attempts: 3,
+                last_cause: Some(crate::error::RetryErrorCause::Indexer)
+            }
+        ));
+    }
+
+    #[test]
+    fn a_lagging_response_reports_the_observed_block_time() {
+        let error = wait_for_indexer(
+            Some(IndexerRpcConfig {
+                wait_for_indexer: true,
+                poll: IndexerPollConfig::new(1, 0, 0),
+            }),
+            |response: &i64| *response,
+            || Ok(0),
+        )
+        .expect_err("a lagging indexer must report lag");
+
+        assert!(matches!(
+            error,
+            ClientError::IndexerNotCaughtUp {
+                latest: 0,
+                attempts: 2,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -974,9 +1080,14 @@ mod tests {
             .expect_err("short output hash must fail");
         let _ = server.request();
 
-        let message = err.to_string();
-        assert!(message.contains("wrong size"));
-        assert!(message.contains("result.transactions[0].output_slots[0].output_context.hash"));
+        assert!(matches!(
+            &err,
+            ClientError::Indexer {
+                method: "get_shielded_transactions_by_tags",
+                retryable: false
+            }
+        ));
+        assert!(!err.to_string().contains("wrong size"));
     }
 
     fn assert_json_rpc_request(body: &Value, method: &str) {
