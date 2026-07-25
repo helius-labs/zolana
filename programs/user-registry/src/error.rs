@@ -42,8 +42,6 @@ impl From<UserRegistryError> for ProgramError {
     }
 }
 
-/// Log the error name (so clients can match on it in transaction logs) and
-/// convert to a `ProgramError`.
 pub fn fail(error: UserRegistryError) -> ProgramError {
     solana_msg::sol_log(error.name());
     error.into()
