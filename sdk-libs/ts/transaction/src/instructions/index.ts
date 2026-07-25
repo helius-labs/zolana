@@ -17,20 +17,27 @@ export {
   SppProofInputs,
   assetField,
   canonicalShape,
+  createEncryptedTransaction,
   createExternalData,
+  createInputUtxo,
   encodeConfidentialSlots,
+  privateTxHash,
   resolveShape,
   signedToField,
   slotOrdinal,
 } from "./transact.js";
 export type {
+  EncryptedTransaction,
   ExternalData,
   IndexedShieldedTransaction,
+  InputUtxo,
   InputUtxoContext,
   OutputContext,
   PreparedTransfer,
+  PrivateTxHashInput,
   PublicAmounts,
   Shape,
   WithdrawalTarget,
 } from "./transact.js";
-export { ProofInputUtxo } from "../utxo.js";
+export { ProofInputUtxo, createProofOutput } from "../utxo.js";
+export type { ProofOutputInit, ProofOutputUtxo } from "../utxo.js";

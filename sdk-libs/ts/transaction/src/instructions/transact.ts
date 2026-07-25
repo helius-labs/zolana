@@ -40,6 +40,7 @@ import {
 import { EncryptedScheme, encodeOutputData, encryptConfidential } from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
+  Utxo,
   createProofOutput,
   deriveBlinding,
   type ProofOutputUtxo,
@@ -282,6 +283,106 @@ export function createExternalData(input: Omit<ExternalData, "hash">): ExternalD
   return Object.freeze({ ...snapshot, hash: (): Bytes32 => externalDataHash(snapshot) });
 }
 
+/**
+ * A spent UTXO carrying the nullifier public key rather than the secret, for
+ * callers that hash a transaction they cannot sign.
+ */
+export interface InputUtxo {
+  readonly utxo: Utxo;
+  readonly nullifierPublicKey: Bytes32;
+  readonly zoneDataHash?: Bytes32;
+  readonly dataHash?: Bytes32;
+  hash(): Bytes32;
+  isDummy(): boolean;
+}
+
+export function createInputUtxo(
+  input: Readonly<{
+    utxo: Utxo;
+    nullifierPublicKey: Bytes32;
+    zoneDataHash?: Bytes32;
+    dataHash?: Bytes32;
+  }>,
+): InputUtxo {
+  const nullifierPublicKey = checked<Bytes32>(
+    input.nullifierPublicKey,
+    32,
+    "nullifier public key",
+  );
+  const utxo = new Utxo(input.utxo);
+  return Object.freeze({
+    ...input,
+    utxo,
+    nullifierPublicKey,
+    hash(): Bytes32 {
+      return utxo.hash(nullifierPublicKey, input.dataHash, input.zoneDataHash);
+    },
+    isDummy(): boolean {
+      return utxo.owner.isZero();
+    },
+  });
+}
+
+export interface PrivateTxHashInput {
+  readonly inputHashes: readonly Bytes32[];
+  readonly outputHashes: readonly Bytes32[];
+  /** One per input slot; omitted means a chain of zeros of the same length. */
+  readonly addressHashes?: readonly Bytes32[];
+  readonly externalDataHash: Bytes32;
+}
+
+/**
+ * The circuit reads one address hash per input slot, so a set of a different
+ * length would silently shift the address chain rather than fail.
+ */
+export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
+  if (input.addressHashes !== undefined && input.addressHashes.length !== input.inputHashes.length) {
+    throw new TransactionError("TRANSACTION_ADDRESS_HASH_COUNT_MISMATCH", {
+      expected: input.inputHashes.length,
+      actual: input.addressHashes.length,
+    });
+  }
+  const addressHashes = input.addressHashes ?? input.inputHashes.map(() => copy(ZERO_32));
+  return poseidon([
+    hashChain(input.inputHashes),
+    hashChain(input.outputHashes),
+    hashChain(addressHashes),
+    input.externalDataHash,
+  ]);
+}
+
+export interface EncryptedTransaction {
+  readonly inputs: readonly InputUtxo[];
+  readonly outputs: readonly ProofOutputUtxo[];
+  readonly externalData: ExternalData;
+  hash(): Bytes32;
+}
+
+export function createEncryptedTransaction(
+  input: Readonly<{
+    inputs: readonly InputUtxo[];
+    outputs: readonly ProofOutputUtxo[];
+    externalData: ExternalData;
+  }>,
+): EncryptedTransaction {
+  const inputs = Object.freeze([...input.inputs]);
+  const outputs = Object.freeze([...input.outputs]);
+  return Object.freeze({
+    ...input,
+    inputs,
+    outputs,
+    // An unused slot contributes a zero hash, matching the circuit and
+    // `SppProofInputs.messageHash`.
+    hash(): Bytes32 {
+      return privateTxHash({
+        inputHashes: inputs.map((entry) => (entry.isDummy() ? copy(ZERO_32) : entry.hash())),
+        outputHashes: outputs.map((entry) => (entry.isDummy() ? copy(ZERO_32) : entry.hash())),
+        externalDataHash: input.externalData.hash(),
+      });
+    },
+  });
+}
+
 export class SppProofInputs {
   readonly payerPublicKeyHash: Bytes32;
   readonly inputUtxos: readonly ProofInputUtxo[];
@@ -355,13 +456,13 @@ export class SppProofInputs {
     const outputHashes = this.outputs.map((output) =>
       output.isDummy() ? copy(ZERO_32) : output.hash(),
     );
-    const privateHash = poseidon([
-      hashChain(inputHashes),
-      hashChain(outputHashes),
-      hashChain(inputHashes.map(() => copy(ZERO_32))),
-      this.externalData.hash(),
-    ]);
-    return sha256Bytes(privateHash);
+    return sha256Bytes(
+      privateTxHash({
+        inputHashes,
+        outputHashes,
+        externalDataHash: this.externalData.hash(),
+      }),
+    );
   }
 
   applyP256Signature(signature: P256Signature): void {

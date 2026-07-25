@@ -35,7 +35,8 @@ use zolana_transaction::{
             shape::resolve_shape,
             slot_ordinal,
             spp_proof_inputs::{asset_field, signed_to_field, BN254_MODULUS_DEC},
-            ConfidentialSplit, ConfidentialTransfer, Shape, WithdrawalTarget, SENDER_SLOT_COUNT,
+            ConfidentialSplit, ConfidentialTransfer, EncryptedTransaction, ExternalData, InputUtxo,
+            PrivateTxHash, Shape, SppProofOutputUtxo, WithdrawalTarget, SENDER_SLOT_COUNT,
         },
         types::SppProofInputUtxo,
     },
@@ -130,11 +131,15 @@ fn ts_code(error: &TransactionError) -> &'static str {
         TransactionError::TooManyInputs { .. } => "TRANSACTION_TOO_MANY_INPUTS",
         TransactionError::TooManyOutputsForShape { .. } => "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
         TransactionError::MergeInputRailMismatch { .. } => "TRANSACTION_MERGE_INPUT_RAIL_MISMATCH",
-        TransactionError::MergeInputOwnerMismatch { .. } => "TRANSACTION_MERGE_INPUT_OWNER_MISMATCH",
+        TransactionError::MergeInputOwnerMismatch { .. } => {
+            "TRANSACTION_MERGE_INPUT_OWNER_MISMATCH"
+        }
         TransactionError::MergeInputNullifierKeyMismatch { .. } => {
             "TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH"
         }
-        TransactionError::MergeInputAssetMismatch { .. } => "TRANSACTION_MERGE_INPUT_ASSET_MISMATCH",
+        TransactionError::MergeInputAssetMismatch { .. } => {
+            "TRANSACTION_MERGE_INPUT_ASSET_MISMATCH"
+        }
         TransactionError::MergeInputZoneMismatch { .. } => "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
         TransactionError::SelectedBalanceOverflow => "TRANSACTION_SELECTED_BALANCE_OVERFLOW",
         TransactionError::WalletBalanceOverflow => "TRANSACTION_WALLET_BALANCE_OVERFLOW",
@@ -185,7 +190,10 @@ fn samples() -> Vec<(&'static str, TransactionError)> {
             "NonCanonicalDataOrder",
             TransactionError::NonCanonicalDataOrder,
         ),
-        ("MissingZoneProgramId", TransactionError::MissingZoneProgramId),
+        (
+            "MissingZoneProgramId",
+            TransactionError::MissingZoneProgramId,
+        ),
         (
             "UnsupportedOutputData",
             TransactionError::UnsupportedOutputData,
@@ -280,7 +288,10 @@ fn samples() -> Vec<(&'static str, TransactionError)> {
         ),
         ("PublicSolAlreadySet", TransactionError::PublicSolAlreadySet),
         ("PublicSplAlreadySet", TransactionError::PublicSplAlreadySet),
-        ("ZoneHashesAlreadySet", TransactionError::ZoneHashesAlreadySet),
+        (
+            "ZoneHashesAlreadySet",
+            TransactionError::ZoneHashesAlreadySet,
+        ),
         (
             "MultiplePublicSplAssets",
             TransactionError::MultiplePublicSplAssets,
@@ -403,6 +414,14 @@ fn errors_section() -> Value {
     json!({ "variants": variants })
 }
 
+fn record_json(record: &DataRecord) -> Value {
+    match record {
+        DataRecord::ZoneData(bytes) => json!({ "kind": "zoneData", "bytesHex": hex(bytes) }),
+        DataRecord::UtxoData(bytes) => json!({ "kind": "utxoData", "bytesHex": hex(bytes) }),
+        DataRecord::Memo(bytes) => json!({ "kind": "memo", "bytesHex": hex(bytes) }),
+    }
+}
+
 fn record(kind: &str, bytes: &[u8]) -> (DataRecord, Value) {
     let record = match kind {
         "zoneData" => DataRecord::ZoneData(bytes.to_vec()),
@@ -456,10 +475,7 @@ fn data_section() -> Value {
             ],
         ),
         data_case("memoLongerThanAByte", &[("memo", vec![7; 300])]),
-        data_case(
-            "duplicateMemo",
-            &[("memo", vec![1]), ("memo", vec![2])],
-        ),
+        data_case("duplicateMemo", &[("memo", vec![1]), ("memo", vec![2])]),
         data_case(
             "duplicateZone",
             &[("zoneData", vec![1]), ("zoneData", vec![2])],
@@ -468,14 +484,8 @@ fn data_section() -> Value {
             "utxoBeforeZone",
             &[("utxoData", vec![1]), ("zoneData", vec![2])],
         ),
-        data_case(
-            "zoneAfterMemo",
-            &[("memo", vec![0]), ("zoneData", vec![1])],
-        ),
-        data_case(
-            "utxoAfterMemo",
-            &[("memo", vec![0]), ("utxoData", vec![1])],
-        ),
+        data_case("zoneAfterMemo", &[("memo", vec![0]), ("zoneData", vec![1])]),
+        data_case("utxoAfterMemo", &[("memo", vec![0]), ("utxoData", vec![1])]),
         data_case("emptyRecordBytes", &[("utxoData", Vec::new())]),
     ];
     json!({ "cases": cases })
@@ -517,10 +527,7 @@ fn shape_json(shape: Shape) -> Value {
 
 fn shape_case(declared: Option<Shape>, n_in: usize, n_out: usize) -> Value {
     let mut case = Map::new();
-    case.insert(
-        "declared".into(),
-        declared.map_or(Value::Null, shape_json),
-    );
+    case.insert("declared".into(), declared.map_or(Value::Null, shape_json));
     case.insert("inputs".into(), json!(n_in));
     case.insert("outputs".into(), json!(n_out));
     match resolve_shape(declared, n_in, n_out) {
@@ -699,7 +706,10 @@ fn utxo_case(case: UtxoCase) -> Value {
     let built = ProofInputUtxo::new(case.owner_hash, &case.asset, case.amount, &case.blinding)
         .map(|input| input.with_data_hash(case.data_hash.unwrap_or_default()))
         .and_then(|input| {
-            input.with_zone(case.zone_data_hash.unwrap_or_default(), &case.zone_program_id)
+            input.with_zone(
+                case.zone_data_hash.unwrap_or_default(),
+                &case.zone_program_id,
+            )
         })
         .and_then(|input| input.hash());
     match built {
@@ -832,7 +842,64 @@ fn utxo_section() -> Value {
         "proofInputHashes": cases,
         "ownerUtxoHashes": owner_hashes,
         "deriveBlinding": blindings,
+        "canonicalDummy": canonical_dummy_cases(),
     })
+}
+
+/// A zero-owner input stands for an unused slot, so every other field must be
+/// zero too. The checks run in a fixed order, and each case names the field the
+/// rejection must report; the multi-field cases pin that order.
+fn canonical_dummy_cases() -> Value {
+    let perturbations: [(&str, &[&str]); 10] = [
+        ("canonical", &[]),
+        ("asset", &["asset"]),
+        ("amount", &["amount"]),
+        ("data", &["data"]),
+        ("zoneProgramId", &["zone_program_id"]),
+        ("dataHash", &["data_hash"]),
+        ("zoneDataHash", &["zone_data_hash"]),
+        ("nullifierKey", &["nullifier_key"]),
+        ("assetBeatsAmount", &["amount", "asset"]),
+        ("dataBeatsZoneProgramId", &["zone_program_id", "data"]),
+    ];
+
+    Value::Array(
+        perturbations
+            .iter()
+            .map(|(name, fields)| {
+                let mut input = SppProofInputUtxo::new_dummy();
+                for field in *fields {
+                    match *field {
+                        "asset" => input.utxo.asset = address(SPL_MINT_BYTE),
+                        "amount" => input.utxo.amount = 7,
+                        "data" => input.utxo.data = merge_data(&["memo"]),
+                        "zone_program_id" => {
+                            input.utxo.zone_program_id = Some(address(MERGE_ZONE_BYTE));
+                        }
+                        "data_hash" => input.data_hash = Some(MERGE_DATA_HASH),
+                        "zone_data_hash" => input.zone_data_hash = Some(MERGE_ZONE_DATA_HASH),
+                        "nullifier_key" => {
+                            input.nullifier_key =
+                                shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED)
+                                    .nullifier_key
+                                    .clone();
+                        }
+                        other => panic!("unknown dummy field {other}"),
+                    }
+                }
+                let outcome = input.check_canonical_dummy();
+                json!({
+                    "name": name,
+                    "fields": fields,
+                    "error": outcome.as_ref().err().map(ts_code),
+                    "field": match outcome {
+                        Err(TransactionError::NoncanonicalDummyInput { field }) => json!(field),
+                        _ => Value::Null,
+                    },
+                })
+            })
+            .collect(),
+    )
 }
 
 /// The two plaintext layouts that carry no key material, so both languages can
@@ -886,11 +953,7 @@ fn serialization_section() -> Value {
                 .data
                 .records
                 .iter()
-                .map(|record| match record {
-                    DataRecord::ZoneData(bytes) => json!({ "kind": "zoneData", "bytesHex": hex(bytes) }),
-                    DataRecord::UtxoData(bytes) => json!({ "kind": "utxoData", "bytesHex": hex(bytes) }),
-                    DataRecord::Memo(bytes) => json!({ "kind": "memo", "bytesHex": hex(bytes) }),
-                })
+                .map(record_json)
                 .collect::<Vec<_>>(),
             "encodedHex": hex(&bytes),
         })
@@ -1423,7 +1486,10 @@ fn shielded_keypair(secret: &[u8; 32], viewing_seed: &[u8; 32]) -> ShieldedKeypa
 /// order, so a guard that fires on one side and not the other shows up as a
 /// different recorded outcome rather than as a shape difference later.
 enum TransferOp {
-    Send { asset: Address, amount: u64 },
+    Send {
+        asset: Address,
+        amount: u64,
+    },
     Withdraw {
         asset: Address,
         amount: u64,
@@ -1839,7 +1905,11 @@ fn merge_data(records: &[&'static str]) -> Data {
     )
 }
 
-fn merge_input(spec: &MergeInputSpec, owner: &ShieldedKeypair, other: &ShieldedKeypair) -> SppProofInputUtxo {
+fn merge_input(
+    spec: &MergeInputSpec,
+    owner: &ShieldedKeypair,
+    other: &ShieldedKeypair,
+) -> SppProofInputUtxo {
     let utxo = Utxo {
         owner: if spec.owner == "owner" {
             owner.signing_pubkey()
@@ -1852,7 +1922,11 @@ fn merge_input(spec: &MergeInputSpec, owner: &ShieldedKeypair, other: &ShieldedK
         zone_program_id: spec.zone,
         data: merge_data(&spec.records),
     };
-    let source = if spec.nullifier == "owner" { owner } else { other };
+    let source = if spec.nullifier == "owner" {
+        owner
+    } else {
+        other
+    };
     let mut input = SppProofInputUtxo::new(utxo, source);
     if spec.data_hash {
         input = input.with_data_hash(MERGE_DATA_HASH);
@@ -2006,10 +2080,7 @@ fn merge_section() -> Value {
         merge_case(MergeCase {
             name: "overflow",
             rail: "plain",
-            inputs: vec![
-                MergeInputSpec::new(u64::MAX, 0),
-                MergeInputSpec::new(1, 1),
-            ],
+            inputs: vec![MergeInputSpec::new(u64::MAX, 0), MergeInputSpec::new(1, 1)],
         }),
         merge_case(MergeCase {
             name: "foreignOwner",
@@ -2249,9 +2320,12 @@ fn split_section() -> Value {
         perturbed(SplitCase::plain("foreignOwner", 100, 2, 50), &|case| {
             case.input.owner = "other";
         }),
-        perturbed(SplitCase::plain("foreignNullifierKey", 100, 2, 50), &|case| {
-            case.input.nullifier = "other";
-        }),
+        perturbed(
+            SplitCase::plain("foreignNullifierKey", 100, 2, 50),
+            &|case| {
+                case.input.nullifier = "other";
+            },
+        ),
         perturbed(SplitCase::plain("assetMismatch", 100, 2, 50), &|case| {
             case.asset = spl_mint;
         }),
@@ -2424,7 +2498,299 @@ fn oracle() -> Value {
         "split": split_section(),
         "serialization": serialization_section(),
         "fromUtxos": from_utxos_section(),
+        "transactTypes": transact_types_section(),
     })
+}
+
+const TRANSACT_TYPES_BLINDING: [u8; BLINDING_LEN] = [23; BLINDING_LEN];
+const TRANSACT_TYPES_EXTERNAL_HASH: [u8; 32] = [5; 32];
+
+/// `InputUtxo`, `SppProofOutputUtxo`, `PrivateTxHash`, and `EncryptedTransaction`:
+/// the four transaction types whose behaviour is not reachable through a builder.
+fn transact_types_section() -> Value {
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let nullifier_pk = owner.nullifier_key.pubkey().expect("nullifier public key");
+    let external_data = ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new());
+
+    json!({
+        "blindingHex": hex(&TRANSACT_TYPES_BLINDING),
+        "externalDataHashHex": hex(&TRANSACT_TYPES_EXTERNAL_HASH),
+        "nullifierPublicKeyHex": hex(&nullifier_pk),
+        "privateTxHashes": private_tx_hash_cases(),
+        "inputUtxos": input_utxo_cases(&owner, &nullifier_pk),
+        "outputBuilders": output_builder_cases(&owner),
+        "encryptedTransaction": encrypted_transaction_cases(&owner, &nullifier_pk, &external_data),
+        "emptyExternalData": json!({
+            "instructionDiscriminator": external_data.instruction_discriminator,
+            "expiryUnixTs": external_data.expiry_unix_ts.to_string(),
+            "relayerFee": external_data.relayer_fee,
+            "hashHex": hex(&external_data.hash().expect("external data hash")),
+        }),
+    })
+}
+
+fn private_tx_hash_cases() -> Value {
+    struct Case {
+        name: &'static str,
+        inputs: usize,
+        outputs: usize,
+        /// Address-hash count and the byte every one of them is filled with.
+        addresses: Option<(usize, u8)>,
+    }
+    let case = |name, inputs, outputs, addresses| Case {
+        name,
+        inputs,
+        outputs,
+        addresses,
+    };
+    // The last case's address hash exceeds the BN254 modulus, which pins the
+    // error category Poseidon failures report.
+    let cases = [
+        case("empty", 0, 0, None),
+        case("oneInputOneOutput", 1, 1, None),
+        case("twoInputsThreeOutputs", 2, 3, None),
+        case("addressHashesPaired", 2, 1, Some((2, 8))),
+        case("addressHashesShort", 2, 1, Some((1, 8))),
+        case("addressHashesLong", 1, 1, Some((2, 8))),
+        case("addressHashOutOfField", 1, 1, Some((1, 0xf0))),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|case| {
+                let name = case.name;
+                let input_hashes = filled_hashes(case.inputs, 1);
+                let output_hashes = filled_hashes(case.outputs, 40);
+                let address_hashes = case
+                    .addresses
+                    .map(|(count, first_byte)| filled_hashes(count, first_byte));
+                let mut private_tx = PrivateTxHash::new(
+                    &input_hashes,
+                    &output_hashes,
+                    &TRANSACT_TYPES_EXTERNAL_HASH,
+                );
+                private_tx.address_hashes = address_hashes.as_deref();
+                let outcome = private_tx.hash();
+                json!({
+                    "name": name,
+                    "inputHashesHex": hex_all(&input_hashes),
+                    "outputHashesHex": hex_all(&output_hashes),
+                    "addressHashesHex": address_hashes.as_ref().map(|hashes| hex_all(hashes)),
+                    "hashHex": outcome.as_ref().ok().map(|hash| hex(hash)),
+                    "error": outcome.as_ref().err().map(ts_code),
+                    "expected": match &outcome {
+                        Err(TransactionError::AddressHashCountMismatch { expected, .. }) => {
+                            json!(expected)
+                        }
+                        _ => Value::Null,
+                    },
+                    "actual": match &outcome {
+                        Err(TransactionError::AddressHashCountMismatch { actual, .. }) => {
+                            json!(actual)
+                        }
+                        _ => Value::Null,
+                    },
+                })
+            })
+            .collect(),
+    )
+}
+
+fn filled_hashes(count: usize, first_byte: u8) -> Vec<[u8; 32]> {
+    (0..count)
+        .map(|index| [first_byte + index as u8; 32])
+        .collect()
+}
+
+fn hex_all(hashes: &[[u8; 32]]) -> Vec<String> {
+    hashes.iter().map(|hash| hex(hash)).collect()
+}
+
+fn transact_types_input(
+    owner: &ShieldedKeypair,
+    nullifier_pk: &[u8; 32],
+    zone: bool,
+    data_hash: bool,
+    zone_data_hash: bool,
+) -> InputUtxo {
+    InputUtxo {
+        utxo: Utxo {
+            owner: owner.signing_key.pubkey(),
+            asset: SOL_MINT,
+            amount: 100,
+            blinding: TRANSACT_TYPES_BLINDING,
+            zone_program_id: zone.then(|| address(MERGE_ZONE_BYTE)),
+            data: Data::default(),
+        },
+        nullifier_pk: *nullifier_pk,
+        zone_data_hash: zone_data_hash.then_some(MERGE_ZONE_DATA_HASH),
+        data_hash: data_hash.then_some(MERGE_DATA_HASH),
+    }
+}
+
+fn input_utxo_cases(owner: &ShieldedKeypair, nullifier_pk: &[u8; 32]) -> Value {
+    let cases: [(&str, bool, bool, bool); 4] = [
+        ("bare", false, false, false),
+        ("dataHash", false, true, false),
+        ("zoneBound", true, false, true),
+        ("bothHashes", true, true, true),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|(name, zone, data_hash, zone_data_hash)| {
+                let input =
+                    transact_types_input(owner, nullifier_pk, *zone, *data_hash, *zone_data_hash);
+                json!({
+                    "name": name,
+                    "zone": zone.then(|| address(MERGE_ZONE_BYTE).to_string()),
+                    "dataHash": data_hash,
+                    "zoneDataHash": zone_data_hash,
+                    "isDummy": input.is_dummy(),
+                    "hashHex": hex(&input.hash().expect("input utxo hash")),
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Payloads the output builders attach; the second of each kind must replace the
+/// first rather than add a duplicate record.
+fn output_builder_payload(op: &str) -> Vec<u8> {
+    match op {
+        "memoA" => vec![6],
+        "memoB" => vec![9, 9],
+        "utxoDataA" => vec![4, 5],
+        "utxoDataB" => vec![7],
+        "zoneDataA" => vec![1, 2, 3],
+        other => panic!("unknown output builder op {other}"),
+    }
+}
+
+fn output_builder_cases(owner: &ShieldedKeypair) -> Value {
+    let sequences: [(&str, &[&str]); 9] = [
+        ("bare", &[]),
+        ("memo", &["memoA"]),
+        ("memoReplaced", &["memoA", "memoB"]),
+        ("utxoDataReplaced", &["utxoDataA", "utxoDataB"]),
+        ("memoThenUtxoData", &["memoA", "utxoDataA"]),
+        ("memoThenZoneData", &["memoA", "zoneDataA"]),
+        ("allThreeOutOfOrder", &["memoA", "zoneDataA", "utxoDataA"]),
+        ("zoneProgramIdOnly", &["zoneProgramId"]),
+        ("zoneDataHashOnly", &["zoneDataHash"]),
+    ];
+    let address = owner.shielded_address().expect("shielded address");
+    let zone = self::address(MERGE_ZONE_BYTE);
+
+    Value::Array(
+        sequences
+            .iter()
+            .map(|(name, ops)| {
+                let mut output = SppProofOutputUtxo {
+                    asset: SOL_MINT,
+                    amount: 100,
+                    blinding: TRANSACT_TYPES_BLINDING,
+                    owner_address: Some(address),
+                    ..Default::default()
+                };
+                for op in *ops {
+                    output = match *op {
+                        "memoA" | "memoB" => output.with_memo(output_builder_payload(op)),
+                        "utxoDataA" | "utxoDataB" => {
+                            output.with_utxo_data(output_builder_payload(op), MERGE_DATA_HASH)
+                        }
+                        "zoneDataA" => output.with_zone_data(
+                            zone,
+                            output_builder_payload(op),
+                            MERGE_ZONE_DATA_HASH,
+                        ),
+                        "zoneProgramId" => output.with_zone_program_id(zone),
+                        "zoneDataHash" => output.with_zone_data_hash(zone, MERGE_ZONE_DATA_HASH),
+                        other => panic!("unknown output builder op {other}"),
+                    };
+                }
+                json!({
+                    "name": name,
+                    "ops": ops,
+                    "records": output
+                        .data
+                        .records
+                        .iter()
+                        .map(record_json)
+                        .collect::<Vec<_>>(),
+                    "dataHashHex": output.data_hash.as_ref().map(|hash| hex(hash)),
+                    "zoneDataHashHex": output.zone_data_hash.as_ref().map(|hash| hex(hash)),
+                    "zoneProgramId": output.zone_program_id.map(|id| id.to_string()),
+                    "isDummy": output.is_dummy(),
+                    "ownerHashHex": hex(&output.owner_hash().expect("owner hash")),
+                    "hashHex": hex(&output.hash().expect("output hash")),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn encrypted_transaction_cases(
+    owner: &ShieldedKeypair,
+    nullifier_pk: &[u8; 32],
+    external_data: &ExternalData,
+) -> Value {
+    let real_output = SppProofOutputUtxo {
+        asset: SOL_MINT,
+        amount: 100,
+        blinding: TRANSACT_TYPES_BLINDING,
+        owner_address: Some(owner.shielded_address().expect("shielded address")),
+        ..Default::default()
+    };
+    let cases: [(&str, bool, bool); 4] = [
+        ("bothDummy", false, false),
+        ("realInputDummyOutput", true, false),
+        ("dummyInputRealOutput", false, true),
+        ("bothReal", true, true),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|(name, real_input, real_output_slot)| {
+                let input = if *real_input {
+                    transact_types_input(owner, nullifier_pk, false, false, false)
+                } else {
+                    InputUtxo {
+                        utxo: Utxo {
+                            owner: PublicKey::zeroed(),
+                            asset: Address::default(),
+                            amount: 0,
+                            blinding: TRANSACT_TYPES_BLINDING,
+                            zone_program_id: None,
+                            data: Data::default(),
+                        },
+                        nullifier_pk: [0u8; 32],
+                        zone_data_hash: None,
+                        data_hash: None,
+                    }
+                };
+                let output = if *real_output_slot {
+                    real_output.clone()
+                } else {
+                    SppProofOutputUtxo::default()
+                };
+                let transaction = EncryptedTransaction {
+                    inputs: vec![input],
+                    outputs: vec![output],
+                    external_data: external_data.clone(),
+                };
+                json!({
+                    "name": name,
+                    "realInput": real_input,
+                    "realOutput": real_output_slot,
+                    "hashHex": hex(&transaction.hash().expect("transaction hash")),
+                })
+            })
+            .collect(),
+    )
 }
 
 fn oracle_path() -> PathBuf {

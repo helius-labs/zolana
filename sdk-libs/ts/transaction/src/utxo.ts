@@ -1,7 +1,7 @@
 import type { Address, Bytes31, Bytes32 } from "@zolana/interface";
 import { NullifierKey, ShieldedPublicKey, type ShieldedAddress } from "@zolana/keypair";
 
-import { Data } from "./data.js";
+import { Data, type DataRecord } from "./data.js";
 import { TransactionError } from "./error.js";
 import {
   ZERO_32,
@@ -299,30 +299,59 @@ export interface ProofOutputUtxo {
   ownerHash(): Bytes32;
   hash(): Bytes32;
   isDummy(): boolean;
+  withZoneProgramId(zoneProgramId: Address): ProofOutputUtxo;
+  withZoneData(zoneProgramId: Address, zoneData: Uint8Array, zoneDataHash: Bytes32): ProofOutputUtxo;
+  /**
+   * Bind an output to policy-zone state when only its commitment hash belongs in
+   * the witness; the zone owes the owner the preimage under its own policy.
+   */
+  withZoneDataHash(zoneProgramId: Address, zoneDataHash: Bytes32): ProofOutputUtxo;
+  withUtxoData(utxoData: Uint8Array, dataHash: Bytes32): ProofOutputUtxo;
+  /**
+   * A memo rides in the recipient's note but no commitment covers it, so unlike
+   * the two data setters above it leaves `dataHash` alone.
+   */
+  withMemo(memo: Uint8Array): ProofOutputUtxo;
 }
 
-export function createProofOutput(
-  input: Readonly<{
-    ownerAddress?: ShieldedAddress;
-    asset: Address;
-    amount: bigint;
-    blinding?: Bytes31;
-    zoneProgramId?: Address;
-    zoneDataHash?: Bytes32;
-    dataHash?: Bytes32;
-    ownerTag?: Bytes32;
-    data?: Data;
-  }>,
-): ProofOutputUtxo {
-  const blinding = input.blinding ?? random31();
+export interface ProofOutputInit {
+  readonly ownerAddress?: ShieldedAddress;
+  readonly asset: Address;
+  readonly amount: bigint;
+  readonly blinding?: Bytes31;
+  readonly zoneProgramId?: Address;
+  readonly zoneDataHash?: Bytes32;
+  readonly dataHash?: Bytes32;
+  readonly ownerTag?: Bytes32;
+  readonly data?: Data;
+}
+
+const DATA_RECORD_ORDER: Readonly<Record<DataRecord["kind"], number>> = Object.freeze({
+  zoneData: 0,
+  utxoData: 1,
+  memo: 2,
+});
+
+/** One record per kind, kept in the canonical order `Data.validate` requires. */
+function withDataRecord(data: Data, record: DataRecord): Data {
+  return new Data(
+    [...data.records().filter((existing) => existing.kind !== record.kind), record].sort(
+      (left, right) => DATA_RECORD_ORDER[left.kind] - DATA_RECORD_ORDER[right.kind],
+    ),
+  );
+}
+
+export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
+  const blinding = checked<Bytes31>(input.blinding ?? random31(), 31, "output blinding");
   const amount = checkU64(input.amount, "output amount");
   const data = new Data((input.data ?? new Data()).records());
+  const init: ProofOutputInit = { ...input, amount, blinding, data };
   const ownerHash = (): Bytes32 =>
     input.ownerAddress ? input.ownerAddress.ownerHash() : copy(ZERO_32);
   return Object.freeze({
-    ...input,
+    ...init,
     amount,
-    blinding: checked<Bytes31>(blinding, 31, "output blinding"),
+    blinding,
     data,
     ownerHash,
     hash(): Bytes32 {
@@ -338,6 +367,37 @@ export function createProofOutput(
     },
     isDummy(): boolean {
       return input.ownerAddress === undefined;
+    },
+    withZoneProgramId(zoneProgramId: Address): ProofOutputUtxo {
+      return createProofOutput({ ...init, zoneProgramId });
+    },
+    withZoneData(
+      zoneProgramId: Address,
+      zoneData: Uint8Array,
+      zoneDataHash: Bytes32,
+    ): ProofOutputUtxo {
+      return createProofOutput({
+        ...init,
+        zoneProgramId,
+        zoneDataHash,
+        data: withDataRecord(data, { kind: "zoneData", bytes: zoneData }),
+      });
+    },
+    withZoneDataHash(zoneProgramId: Address, zoneDataHash: Bytes32): ProofOutputUtxo {
+      return createProofOutput({ ...init, zoneProgramId, zoneDataHash });
+    },
+    withUtxoData(utxoData: Uint8Array, dataHash: Bytes32): ProofOutputUtxo {
+      return createProofOutput({
+        ...init,
+        dataHash,
+        data: withDataRecord(data, { kind: "utxoData", bytes: utxoData }),
+      });
+    },
+    withMemo(memo: Uint8Array): ProofOutputUtxo {
+      return createProofOutput({
+        ...init,
+        data: withDataRecord(data, { kind: "memo", bytes: memo }),
+      });
     },
   });
 }

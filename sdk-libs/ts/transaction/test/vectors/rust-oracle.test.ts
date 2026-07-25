@@ -1,5 +1,11 @@
-import type { Address, Bytes31, Bytes32 } from "@zolana/interface";
-import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
+import type { Address, Bytes16, Bytes31, Bytes32 } from "@zolana/interface";
+import {
+  NullifierKey,
+  ShieldedKeypair,
+  ShieldedPublicKey,
+  SigningKey,
+  ViewingKey,
+} from "@zolana/keypair";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -26,8 +32,13 @@ import {
   anonymousSenderFromUtxos,
   assetField,
   canonicalShape,
+  createEncryptedTransaction,
+  createExternalData,
+  createInputUtxo,
+  createProofOutput,
   deriveBlinding,
   encryptedSchemeFromByte,
+  privateTxHash,
   encryptedSchemeToByte,
   ownerUtxoHash,
   plaintextTransferFromUtxos,
@@ -83,6 +94,27 @@ function codeOf(run: () => unknown): string {
     return `non-transaction error: ${String(error)}`;
   }
   return "no error";
+}
+
+function rejection(run: () => unknown): Readonly<{ code: string; field: unknown }> {
+  try {
+    run();
+  } catch (error) {
+    if (error instanceof TransactionError) {
+      return { code: error.code, field: error.details?.field ?? null };
+    }
+    return { code: `non-transaction error: ${String(error)}`, field: null };
+  }
+  return { code: "no error", field: null };
+}
+
+function details(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    if (error instanceof TransactionError) return error.details;
+  }
+  return undefined;
 }
 
 /**
@@ -147,6 +179,44 @@ interface UtxoCase {
   readonly zoneProgramId: string | null;
   readonly hashHex: string | null;
   readonly error: string | null;
+}
+
+interface CanonicalDummyCase {
+  readonly name: string;
+  readonly fields: readonly string[];
+  readonly error: string | null;
+  readonly field: string | null;
+}
+
+const DUMMY_ASSET = "11111111111111111111111111111111" as Address;
+
+/** A dummy input with the named fields set to the same nonzero values Rust uses. */
+function noncanonicalDummy(fields: readonly string[]): ProofInputUtxo {
+  const set = new Set(fields);
+  const nullifierKey = set.has("nullifier_key")
+    ? shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex).nullifierKey()
+    : NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
+  try {
+    return new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: ShieldedPublicKey.zeroed(),
+        asset: set.has("asset") ? (oracle.fromUtxos.splMint as Address) : DUMMY_ASSET,
+        amount: set.has("amount") ? 7n : 0n,
+        blinding: new Uint8Array(31) as Bytes31,
+        ...(set.has("data")
+          ? { data: new Data([{ kind: "memo", bytes: Uint8Array.from(BUILDER_RECORD_BYTES.memo) }]) }
+          : {}),
+        ...(set.has("zone_program_id") ? { zoneProgramId: oracle.merge.zone as Address } : {}),
+      }),
+      nullifierKey,
+      ...(set.has("data_hash") ? { dataHash: bytes(oracle.merge.dataHashHex) as Bytes32 } : {}),
+      ...(set.has("zone_data_hash")
+        ? { zoneDataHash: bytes(oracle.merge.zoneDataHashHex) as Bytes32 }
+        : {}),
+    });
+  } finally {
+    nullifierKey.destroy();
+  }
 }
 
 describe("the Rust oracle and TypeScript agree on the error code set", () => {
@@ -379,6 +449,21 @@ describe("the Rust oracle and TypeScript agree on UTXO commitments", () => {
       ).toBe(entry.hashHex);
     }
   });
+
+  // A dummy carrying a nonzero field is rejected by naming that field, and the
+  // checks run in a fixed order, so the multi-field cases pin which name wins.
+  for (const testCase of oracle.utxo.canonicalDummy as readonly CanonicalDummyCase[]) {
+    it(`rules on the ${testCase.name} dummy the same way`, () => {
+      if (testCase.error === null) {
+        expect(noncanonicalDummy(testCase.fields).isDummy()).toBe(true);
+        return;
+      }
+      expect(rejection(() => noncanonicalDummy(testCase.fields))).toEqual({
+        code: testCase.error,
+        field: testCase.field,
+      });
+    });
+  }
 
   it("derives the same blinding for every position", () => {
     for (const entry of oracle.utxo.deriveBlinding as readonly Readonly<{
@@ -978,6 +1063,216 @@ describe("the Rust oracle and TypeScript agree on the split builder", () => {
       expect(hex(prepared.firstNullifier)).toBe(testCase.firstNullifierHex);
       expect(hex(prepared.ownerViewTag())).toBe(testCase.ownerViewTagHex);
       expect(hex(prepared.payerPublicKeyHash)).toBe(testCase.payerPublicKeyHashHex);
+    });
+  }
+});
+
+interface PrivateTxHashCase {
+  readonly name: string;
+  readonly inputHashesHex: readonly string[];
+  readonly outputHashesHex: readonly string[];
+  readonly addressHashesHex: readonly string[] | null;
+  readonly hashHex: string | null;
+  readonly error: string | null;
+  readonly expected: number | null;
+  readonly actual: number | null;
+}
+
+interface InputUtxoCase {
+  readonly name: string;
+  readonly zone: string | null;
+  readonly dataHash: boolean;
+  readonly zoneDataHash: boolean;
+  readonly isDummy: boolean;
+  readonly hashHex: string;
+}
+
+interface OutputBuilderCase {
+  readonly name: string;
+  readonly ops: readonly string[];
+  readonly records: readonly Readonly<{ kind: string; bytesHex: string }>[];
+  readonly dataHashHex: string | null;
+  readonly zoneDataHashHex: string | null;
+  readonly zoneProgramId: string | null;
+  readonly isDummy: boolean;
+  readonly ownerHashHex: string;
+  readonly hashHex: string;
+}
+
+interface EncryptedTransactionCase {
+  readonly name: string;
+  readonly realInput: boolean;
+  readonly realOutput: boolean;
+  readonly hashHex: string;
+}
+
+describe("the Rust oracle and TypeScript agree on the transaction types", () => {
+  const types = oracle.transactTypes;
+  const owner = shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex);
+  const blinding = bytes(types.blindingHex) as Bytes31;
+  const nullifierPublicKey = bytes(types.nullifierPublicKeyHex) as Bytes32;
+  const dataHash = bytes(oracle.merge.dataHashHex) as Bytes32;
+  const zoneDataHash = bytes(oracle.merge.zoneDataHashHex) as Bytes32;
+  const zone = oracle.merge.zone as Address;
+  const zeroAddress = "11111111111111111111111111111111" as Address;
+
+  function inputUtxo(spec: Readonly<{ zone: boolean; dataHash: boolean; zoneDataHash: boolean }>) {
+    return createInputUtxo({
+      utxo: new Utxo({
+        owner: owner.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 100n,
+        blinding,
+        ...(spec.zone ? { zoneProgramId: zone } : {}),
+      }),
+      nullifierPublicKey,
+      ...(spec.dataHash ? { dataHash } : {}),
+      ...(spec.zoneDataHash ? { zoneDataHash } : {}),
+    });
+  }
+
+  function emptyExternalData() {
+    return createExternalData({
+      instructionDiscriminator: types.emptyExternalData.instructionDiscriminator,
+      expiryUnixTs: BigInt(types.emptyExternalData.expiryUnixTs),
+      relayerFee: types.emptyExternalData.relayerFee,
+      userSolAccount: zeroAddress,
+      userSplToken: zeroAddress,
+      splTokenInterface: zeroAddress,
+      // Not covered by `externalDataHash` on either side; only the type needs it.
+      txViewingPublicKey: owner.viewingPublicKey(),
+      salt: new Uint8Array(16) as Bytes16,
+      outputs: [],
+      resolvedOwnerTags: [],
+      messages: [],
+    });
+  }
+
+  it("hashes the same empty external data", () => {
+    expect(hex(emptyExternalData().hash())).toBe(types.emptyExternalData.hashHex);
+  });
+
+  for (const testCase of types.privateTxHashes as readonly PrivateTxHashCase[]) {
+    it(`chains ${testCase.name} the same way`, () => {
+      const input = {
+        inputHashes: testCase.inputHashesHex.map((value) => bytes(value) as Bytes32),
+        outputHashes: testCase.outputHashesHex.map((value) => bytes(value) as Bytes32),
+        ...(testCase.addressHashesHex === null
+          ? {}
+          : { addressHashes: testCase.addressHashesHex.map((value) => bytes(value) as Bytes32) }),
+        externalDataHash: bytes(types.externalDataHashHex) as Bytes32,
+      };
+      if (testCase.error !== null) {
+        expect(codeOf(() => privateTxHash(input))).toBe(testCase.error);
+        if (testCase.expected !== null) {
+          expect(details(() => privateTxHash(input))).toEqual({
+            expected: testCase.expected,
+            actual: testCase.actual,
+          });
+        }
+        return;
+      }
+      expect(hex(privateTxHash(input))).toBe(testCase.hashHex);
+    });
+  }
+
+  for (const testCase of types.inputUtxos as readonly InputUtxoCase[]) {
+    it(`hashes the ${testCase.name} input the same way`, () => {
+      const input = inputUtxo({
+        zone: testCase.zone !== null,
+        dataHash: testCase.dataHash,
+        zoneDataHash: testCase.zoneDataHash,
+      });
+      expect(input.isDummy()).toBe(testCase.isDummy);
+      expect(hex(input.hash())).toBe(testCase.hashHex);
+    });
+  }
+
+  for (const testCase of types.outputBuilders as readonly OutputBuilderCase[]) {
+    it(`builds the ${testCase.name} output the same way`, () => {
+      const payloads: Readonly<Record<string, number[]>> = {
+        memoA: [6],
+        memoB: [9, 9],
+        utxoDataA: [4, 5],
+        utxoDataB: [7],
+        zoneDataA: [1, 2, 3],
+      };
+      let output = createProofOutput({
+        ownerAddress: owner.shieldedAddress(),
+        asset: SOL_MINT,
+        amount: 100n,
+        blinding,
+      });
+      for (const op of testCase.ops) {
+        switch (op) {
+          case "memoA":
+          case "memoB":
+            output = output.withMemo(Uint8Array.from(payloads[op] ?? []));
+            break;
+          case "utxoDataA":
+          case "utxoDataB":
+            output = output.withUtxoData(Uint8Array.from(payloads[op] ?? []), dataHash);
+            break;
+          case "zoneDataA":
+            output = output.withZoneData(zone, Uint8Array.from(payloads[op] ?? []), zoneDataHash);
+            break;
+          case "zoneProgramId":
+            output = output.withZoneProgramId(zone);
+            break;
+          case "zoneDataHash":
+            output = output.withZoneDataHash(zone, zoneDataHash);
+            break;
+          default:
+            throw new Error(`unknown output builder op ${op}`);
+        }
+      }
+      expect(
+        output.data.records().map((record) => ({ kind: record.kind, bytesHex: hex(record.bytes) })),
+      ).toEqual(testCase.records);
+      expect(output.dataHash === undefined ? null : hex(output.dataHash)).toBe(
+        testCase.dataHashHex,
+      );
+      expect(output.zoneDataHash === undefined ? null : hex(output.zoneDataHash)).toBe(
+        testCase.zoneDataHashHex,
+      );
+      expect(output.zoneProgramId ?? null).toBe(testCase.zoneProgramId);
+      expect(output.isDummy()).toBe(testCase.isDummy);
+      expect(hex(output.ownerHash())).toBe(testCase.ownerHashHex);
+      expect(hex(output.hash())).toBe(testCase.hashHex);
+    });
+  }
+
+  for (const testCase of types.encryptedTransaction as readonly EncryptedTransactionCase[]) {
+    it(`hashes the ${testCase.name} transaction the same way`, () => {
+      const input = testCase.realInput
+        ? inputUtxo({ zone: false, dataHash: false, zoneDataHash: false })
+        : createInputUtxo({
+            utxo: new Utxo({
+              owner: ShieldedPublicKey.zeroed(),
+              asset: zeroAddress,
+              amount: 0n,
+              blinding,
+            }),
+            nullifierPublicKey: new Uint8Array(32) as Bytes32,
+          });
+      const output = testCase.realOutput
+        ? createProofOutput({
+            ownerAddress: owner.shieldedAddress(),
+            asset: SOL_MINT,
+            amount: 100n,
+            blinding,
+          })
+        : createProofOutput({
+            asset: zeroAddress,
+            amount: 0n,
+            blinding: new Uint8Array(31) as Bytes31,
+          });
+      const transaction = createEncryptedTransaction({
+        inputs: [input],
+        outputs: [output],
+        externalData: emptyExternalData(),
+      });
+      expect(hex(transaction.hash())).toBe(testCase.hashHex);
     });
   }
 });

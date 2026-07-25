@@ -5305,6 +5305,357 @@
     ],
     "payer": "21nS9Wz9sUTQ6MkcYUtnN8aSfPA26xJJP7zqshfzCzqc"
   },
+  "transactTypes": {
+    "blindingHex": "17171717171717171717171717171717171717171717171717171717171717",
+    "emptyExternalData": {
+      "expiryUnixTs": "18446744073709551615",
+      "hashHex": "0056a4ba4862e582dd9c49e9aa5e81dc45595e7599226b6cd8de3356c122f24f",
+      "instructionDiscriminator": 0,
+      "relayerFee": 0
+    },
+    "encryptedTransaction": [
+      {
+        "hashHex": "1248fdab7a1aa40cff7e0b3c226f44003f7208c7e7575c0b37d5dbb2931cc70b",
+        "name": "bothDummy",
+        "realInput": false,
+        "realOutput": false
+      },
+      {
+        "hashHex": "0fb3045b5fbd44297d3a37c1bbe0d72c773d1e811aadb5fd3af7ab67cae25f8d",
+        "name": "realInputDummyOutput",
+        "realInput": true,
+        "realOutput": false
+      },
+      {
+        "hashHex": "27388618f09533df50a409a3bdf00219478a993cdf7803e4334c39703d688ab7",
+        "name": "dummyInputRealOutput",
+        "realInput": false,
+        "realOutput": true
+      },
+      {
+        "hashHex": "019d910ef9a2d29134b577ae02f3a46eac98b5d6192ddd84b0b04bc41fba5e66",
+        "name": "bothReal",
+        "realInput": true,
+        "realOutput": true
+      }
+    ],
+    "externalDataHashHex": "0505050505050505050505050505050505050505050505050505050505050505",
+    "inputUtxos": [
+      {
+        "dataHash": false,
+        "hashHex": "0d6d3d46b44da6663b175c71f05fdd1943ab0029a39d111b8ef454aedebb4502",
+        "isDummy": false,
+        "name": "bare",
+        "zone": null,
+        "zoneDataHash": false
+      },
+      {
+        "dataHash": true,
+        "hashHex": "20a0b3a80931bbd11bd60baa45ab390e9f0aee1e53644df5ce6b7dcc7c2741cb",
+        "isDummy": false,
+        "name": "dataHash",
+        "zone": null,
+        "zoneDataHash": false
+      },
+      {
+        "dataHash": false,
+        "hashHex": "2276cd18fa778eef09165896262d360c44359fdcab106143498deeae0785aa97",
+        "isDummy": false,
+        "name": "zoneBound",
+        "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+        "zoneDataHash": true
+      },
+      {
+        "dataHash": true,
+        "hashHex": "2b65f50c00b2a3a5989d8caab3271149996a6fb10c71740b67e57f6b05c67720",
+        "isDummy": false,
+        "name": "bothHashes",
+        "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+        "zoneDataHash": true
+      }
+    ],
+    "nullifierPublicKeyHex": "1e818d7473d005432d41e569956da29e419ce8cbd3b7110d510847eb8d7d600e",
+    "outputBuilders": [
+      {
+        "dataHashHex": null,
+        "hashHex": "0d6d3d46b44da6663b175c71f05fdd1943ab0029a39d111b8ef454aedebb4502",
+        "isDummy": false,
+        "name": "bare",
+        "ops": [],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [],
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "dataHashHex": null,
+        "hashHex": "0d6d3d46b44da6663b175c71f05fdd1943ab0029a39d111b8ef454aedebb4502",
+        "isDummy": false,
+        "name": "memo",
+        "ops": [
+          "memoA"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "06",
+            "kind": "memo"
+          }
+        ],
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "dataHashHex": null,
+        "hashHex": "0d6d3d46b44da6663b175c71f05fdd1943ab0029a39d111b8ef454aedebb4502",
+        "isDummy": false,
+        "name": "memoReplaced",
+        "ops": [
+          "memoA",
+          "memoB"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "0909",
+            "kind": "memo"
+          }
+        ],
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "dataHashHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+        "hashHex": "20a0b3a80931bbd11bd60baa45ab390e9f0aee1e53644df5ce6b7dcc7c2741cb",
+        "isDummy": false,
+        "name": "utxoDataReplaced",
+        "ops": [
+          "utxoDataA",
+          "utxoDataB"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "07",
+            "kind": "utxoData"
+          }
+        ],
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "dataHashHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+        "hashHex": "20a0b3a80931bbd11bd60baa45ab390e9f0aee1e53644df5ce6b7dcc7c2741cb",
+        "isDummy": false,
+        "name": "memoThenUtxoData",
+        "ops": [
+          "memoA",
+          "utxoDataA"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "0405",
+            "kind": "utxoData"
+          },
+          {
+            "bytesHex": "06",
+            "kind": "memo"
+          }
+        ],
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "dataHashHex": null,
+        "hashHex": "2276cd18fa778eef09165896262d360c44359fdcab106143498deeae0785aa97",
+        "isDummy": false,
+        "name": "memoThenZoneData",
+        "ops": [
+          "memoA",
+          "zoneDataA"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "010203",
+            "kind": "zoneData"
+          },
+          {
+            "bytesHex": "06",
+            "kind": "memo"
+          }
+        ],
+        "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020",
+        "zoneProgramId": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD"
+      },
+      {
+        "dataHashHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+        "hashHex": "2b65f50c00b2a3a5989d8caab3271149996a6fb10c71740b67e57f6b05c67720",
+        "isDummy": false,
+        "name": "allThreeOutOfOrder",
+        "ops": [
+          "memoA",
+          "zoneDataA",
+          "utxoDataA"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "010203",
+            "kind": "zoneData"
+          },
+          {
+            "bytesHex": "0405",
+            "kind": "utxoData"
+          },
+          {
+            "bytesHex": "06",
+            "kind": "memo"
+          }
+        ],
+        "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020",
+        "zoneProgramId": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD"
+      },
+      {
+        "dataHashHex": null,
+        "hashHex": "0bc86eaf548bfe206f861ea5f3cbe61785fe9474cc0b0ef1bf8dc8fd9c074173",
+        "isDummy": false,
+        "name": "zoneProgramIdOnly",
+        "ops": [
+          "zoneProgramId"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [],
+        "zoneDataHashHex": null,
+        "zoneProgramId": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD"
+      },
+      {
+        "dataHashHex": null,
+        "hashHex": "2276cd18fa778eef09165896262d360c44359fdcab106143498deeae0785aa97",
+        "isDummy": false,
+        "name": "zoneDataHashOnly",
+        "ops": [
+          "zoneDataHash"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [],
+        "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020",
+        "zoneProgramId": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD"
+      }
+    ],
+    "privateTxHashes": [
+      {
+        "actual": null,
+        "addressHashesHex": null,
+        "error": null,
+        "expected": null,
+        "hashHex": "21975d5585dfa00728fa96b469586899abfbe7a3e4be3fdb087ea828331e37e2",
+        "inputHashesHex": [],
+        "name": "empty",
+        "outputHashesHex": []
+      },
+      {
+        "actual": null,
+        "addressHashesHex": null,
+        "error": null,
+        "expected": null,
+        "hashHex": "1bcb33102c5d477849db97be21ec243f9bf4b575e97ee7b22937dba542633142",
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "name": "oneInputOneOutput",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
+      },
+      {
+        "actual": null,
+        "addressHashesHex": null,
+        "error": null,
+        "expected": null,
+        "hashHex": "023f9d9549d4d8c24de8c5aa35dec895e78759ab3458417080e1d836f20e3e18",
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202"
+        ],
+        "name": "twoInputsThreeOutputs",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828",
+          "2929292929292929292929292929292929292929292929292929292929292929",
+          "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a"
+        ]
+      },
+      {
+        "actual": null,
+        "addressHashesHex": [
+          "0808080808080808080808080808080808080808080808080808080808080808",
+          "0909090909090909090909090909090909090909090909090909090909090909"
+        ],
+        "error": null,
+        "expected": null,
+        "hashHex": "234a5f3c7e6c4cb98a35254a6888784363e2c4e8ed29d95810e3e45a5ac4df28",
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202"
+        ],
+        "name": "addressHashesPaired",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
+      },
+      {
+        "actual": 1,
+        "addressHashesHex": [
+          "0808080808080808080808080808080808080808080808080808080808080808"
+        ],
+        "error": "TRANSACTION_ADDRESS_HASH_COUNT_MISMATCH",
+        "expected": 2,
+        "hashHex": null,
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202"
+        ],
+        "name": "addressHashesShort",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
+      },
+      {
+        "actual": 2,
+        "addressHashesHex": [
+          "0808080808080808080808080808080808080808080808080808080808080808",
+          "0909090909090909090909090909090909090909090909090909090909090909"
+        ],
+        "error": "TRANSACTION_ADDRESS_HASH_COUNT_MISMATCH",
+        "expected": 1,
+        "hashHex": null,
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "name": "addressHashesLong",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
+      },
+      {
+        "actual": null,
+        "addressHashesHex": [
+          "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0"
+        ],
+        "error": "TRANSACTION_KEYPAIR",
+        "expected": null,
+        "hashHex": null,
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "name": "addressHashOutOfField",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
+      }
+    ]
+  },
   "transfer": {
     "cases": [
       {
@@ -5815,6 +6166,88 @@
     }
   },
   "utxo": {
+    "canonicalDummy": [
+      {
+        "error": null,
+        "field": null,
+        "fields": [],
+        "name": "canonical"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "asset",
+        "fields": [
+          "asset"
+        ],
+        "name": "asset"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "amount",
+        "fields": [
+          "amount"
+        ],
+        "name": "amount"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "data",
+        "fields": [
+          "data"
+        ],
+        "name": "data"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "zone_program_id",
+        "fields": [
+          "zone_program_id"
+        ],
+        "name": "zoneProgramId"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "data_hash",
+        "fields": [
+          "data_hash"
+        ],
+        "name": "dataHash"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "zone_data_hash",
+        "fields": [
+          "zone_data_hash"
+        ],
+        "name": "zoneDataHash"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "nullifier_key",
+        "fields": [
+          "nullifier_key"
+        ],
+        "name": "nullifierKey"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "asset",
+        "fields": [
+          "amount",
+          "asset"
+        ],
+        "name": "assetBeatsAmount"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "data",
+        "fields": [
+          "zone_program_id",
+          "data"
+        ],
+        "name": "dataBeatsZoneProgramId"
+      }
+    ],
     "deriveBlinding": [
       {
         "blindingHex": "e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d0",

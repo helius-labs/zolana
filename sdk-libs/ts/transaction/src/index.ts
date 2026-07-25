@@ -26,25 +26,31 @@ export {
   ConfidentialTransfer,
   assetField,
   canonicalShape,
+  createEncryptedTransaction,
   createExternalData,
+  createInputUtxo,
   encodeConfidentialSlots,
   prepareZoneAuthority,
+  privateTxHash,
   resolveShape,
   signedToField,
   slotOrdinal,
 } from "./instructions/index.js";
 export type {
+  EncryptedTransaction,
   ExternalData,
+  InputUtxo,
   InputUtxoContext,
   OutputContext,
   PreparedTransfer,
   PreparedZoneAuthority,
+  PrivateTxHashInput,
   PublicAmounts,
   Shape,
   WithdrawalTarget,
 } from "./instructions/index.js";
-export { ProofInputUtxo, Utxo, deriveBlinding, ownerUtxoHash } from "./utxo.js";
-export type { Blinding, ProofOutputUtxo, UtxoInit } from "./utxo.js";
+export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash } from "./utxo.js";
+export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
 export {
   AssetRegistry,
   LocalWalletAuthority,
