@@ -226,6 +226,27 @@ missing is a separate decision, and it has not been made deliberately. Either
 port the witness or withdraw the builder from the public surface, and record
 which under C07.
 
+Light Protocol, the upstream lineage for this design, faced the same question
+and answered it consistently. Its forester is Rust only, and its TypeScript
+SDK ports the decode side of tree maintenance without the build side:
+`js/stateless.js/src/programs/system/layout.ts` defines
+`AppendLeavesInputLayout`, `InsertNullifierInputLayout`, and
+`InsertAddressInputLayout`, and exports
+`deserializeAppendNullifyCreateAddressInputsIndexer`, whose name states who it
+is for. There is no TypeScript builder for an append or a nullify anywhere in
+`js/`. The rule that produces is worth adopting outright:
+
+> Decode the instructions the program can emit. Build the instructions whose
+> inputs the SDK can itself produce, and no others.
+
+Read against that rule, this port has the asymmetry backwards in two places.
+It publishes `batchUpdateNullifierTreeInstruction`, a builder whose proof it
+cannot generate, which Light deliberately does not ship. And by F5 it refuses
+to *decode* a merge ciphertext whose prefix byte is not `2`, which the Rust
+codec parses and hands back, so a TypeScript tool cannot inspect an instruction
+the Rust tool reads. Both move toward the rule rather than away from it: drop or
+complete the builder, and let the decoder read what the chain can carry.
+
 Two further things are easy to miss. `inventory-client.md:61` still
 dispositions the zone-authority prover as `port` and promises
 `src/prover/zone-authority.ts` and `fixtures/client/zone_authority.json`,
