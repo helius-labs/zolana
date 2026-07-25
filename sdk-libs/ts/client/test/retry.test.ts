@@ -4,10 +4,13 @@ import {
   ClientError,
   DEFAULT_INDEXER_POLL_CONFIG,
   DEFAULT_INDEXER_RPC_CONFIG,
+  attempts,
   backoff,
   createIndexerPollConfig,
   createIndexerRpcConfig,
+  isRetryable,
   pollUntil,
+  retryCause,
   waitForIndexer,
 } from "../src/index.js";
 import * as retrySubpath from "../src/retry/index.js";
@@ -34,14 +37,97 @@ describe("retry", () => {
     expect(Object.keys(retrySubpath).sort()).toEqual([
       "DEFAULT_INDEXER_POLL_CONFIG",
       "DEFAULT_INDEXER_RPC_CONFIG",
+      "attempts",
       "backoff",
       "createIndexerPollConfig",
       "createIndexerRpcConfig",
       "isRetryable",
       "pollUntil",
+      "retryCause",
       "validatePollConfig",
       "waitForIndexer",
     ]);
+  });
+
+  it("counts attempts exactly at the u32 boundary", () => {
+    expect(attempts(DEFAULT_INDEXER_POLL_CONFIG)).toBe(11);
+    expect(attempts(createIndexerPollConfig(0xffff_ffff, 0n, 0n))).toBe(0x1_0000_0000);
+    expect(() => attempts({ numRetries: -1, delayMs: 0n, maxDelayMs: 0n })).toThrow(
+      expect.objectContaining({ code: "CLIENT_INVALID_POLL_CONFIG" }),
+    );
+  });
+
+  it("names the three Rust retry causes and refuses every other failure", () => {
+    const causes: readonly (readonly [ClientError, string | undefined])[] = [
+      [new ClientError("CLIENT_RPC", { details: {} }), "rpc"],
+      [new ClientError("CLIENT_RPC_HTTP", { details: { method: "getSlot", status: 503 } }), "rpc"],
+      [new ClientError("CLIENT_RPC_JSON", { details: { method: "getSlot" } }), "rpc"],
+      [new ClientError("CLIENT_RPC_ENVELOPE", { details: { method: "getSlot" } }), "rpc"],
+      [new ClientError("CLIENT_INDEXER_TIMEOUT"), "indexerTimeout"],
+      [
+        new ClientError("CLIENT_INDEXER", {
+          details: { method: "getMerkleProofs", retryable: true },
+        }),
+        "indexer",
+      ],
+      [
+        new ClientError("CLIENT_INDEXER", {
+          details: { method: "getMerkleProofs", retryable: false },
+        }),
+        undefined,
+      ],
+      [
+        new ClientError("CLIENT_TIMEOUT", {
+          details: { method: "getMerkleProofs", retryable: true },
+          cause: { code: "API_TIMEOUT" },
+        }),
+        "indexer",
+      ],
+      [
+        new ClientError("CLIENT_REQUEST", { details: { method: "getSlot", retryable: true } }),
+        "rpc",
+      ],
+      [
+        new ClientError("CLIENT_REQUEST", { details: { method: "getSlot", retryable: false } }),
+        undefined,
+      ],
+      [new ClientError("CLIENT_ABORTED"), undefined],
+      [new ClientError("CLIENT_MISSING_OUTPUT"), undefined],
+      [
+        new ClientError("CLIENT_INDEXER_NOT_CAUGHT_UP", {
+          details: { target: "100", latest: "99", attempts: 5 },
+        }),
+        undefined,
+      ],
+    ];
+
+    for (const [error, category] of causes) {
+      expect([error.code, retryCause(error)]).toEqual([
+        error.code,
+        category === undefined ? undefined : { category },
+      ]);
+      expect(isRetryable(error)).toBe(category !== undefined);
+    }
+    expect(retryCause(new Error("not a client error"))).toBeUndefined();
+    expect(isRetryable(undefined)).toBe(false);
+  });
+
+  it("records a last cause the Rust variant can hold", async () => {
+    const rejection = new ClientError("CLIENT_RPC_HTTP", {
+      details: { method: "getSlot", status: 503 },
+    });
+    await expect(
+      pollUntil(
+        () => Promise.reject(rejection),
+        () => false,
+        {
+          config: createIndexerPollConfig(1, 0n, 0n),
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "CLIENT_POLL_TIMED_OUT",
+      details: { attempts: 2, lastCause: { category: "rpc" } },
+    });
   });
 
   it("accepts zero delay without scheduling timers", async () => {
@@ -123,8 +209,16 @@ describe("retry", () => {
     let right = 0;
     await expect(
       Promise.all([
-        pollUntil(() => Promise.resolve(++left), (value) => value === 2, { config }),
-        pollUntil(() => Promise.resolve(++right), (value) => value === 1, { config }),
+        pollUntil(
+          () => Promise.resolve(++left),
+          (value) => value === 2,
+          { config },
+        ),
+        pollUntil(
+          () => Promise.resolve(++right),
+          (value) => value === 1,
+          { config },
+        ),
       ]),
     ).resolves.toEqual([2, 1]);
     expect([left, right]).toEqual([2, 1]);

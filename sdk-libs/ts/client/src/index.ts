@@ -13,17 +13,45 @@ export type {
   ClientErrorDetails,
   ClientErrorDetailsMap,
   HasherErrorCode,
+  RetryErrorCause,
 } from "./error.js";
 export { ZolanaIndexer } from "./indexer.js";
 export { SolanaRpc } from "./solana-rpc.js";
+// The Rust crate root re-exports the prover block, so `@zolana/client` carries
+// it alongside the `@zolana/client/prover` subpath. `SpendProof` is rooted in
+// `./rpc.js`, which both entry points share.
+export {
+  assemble,
+  canonicalShape,
+  compressProof,
+  intoProver,
+  ProverClient,
+  resolveShape,
+  SPP_SUPPORTED_SHAPES,
+} from "./prover/index.js";
+export type {
+  AssembledTransfer,
+  AsyncPollConfig,
+  CompressedProof,
+  Field,
+  Proof,
+  ProverInputs,
+  Shape,
+  TransferInput,
+  TransferInputs,
+  TransferOutput,
+  TransferP256Inputs,
+} from "./prover/index.js";
 export {
   DEFAULT_INDEXER_POLL_CONFIG,
   DEFAULT_INDEXER_RPC_CONFIG,
+  attempts,
   backoff,
   createIndexerPollConfig,
   createIndexerRpcConfig,
   isRetryable,
   pollUntil,
+  retryCause,
   validatePollConfig,
   waitForIndexer,
 } from "./retry.js";

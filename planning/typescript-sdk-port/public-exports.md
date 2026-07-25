@@ -987,10 +987,37 @@ Source: [`sdk-libs/client/src/lib.rs`](https://github.com/helius-labs/zolana/blo
 [`retry.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/client/src/retry.rs).
 
 ```ts
-export class ClientError extends Error {
-  readonly code: `CLIENT_${string}`;
-  readonly details?: Readonly<Record<string, unknown>>;
-  readonly cause?: unknown;
+export const CANONICAL_CLIENT_ERROR_CODES: readonly CanonicalClientErrorCode[];
+export type CanonicalClientErrorCode =
+  (typeof CANONICAL_CLIENT_ERROR_CODES)[number];
+export type ClientErrorCode = keyof ClientErrorDetailsMap;
+export interface ClientErrorDetailsMap {
+  readonly CLIENT_POLL_TIMED_OUT: Readonly<{
+    attempts: number;
+    lastCause?: RetryErrorCause;
+  }>;
+  readonly CLIENT_INDEXER: Readonly<{ method: string; retryable: boolean }>;
+}
+export type ClientErrorDetails<Code extends ClientErrorCode = ClientErrorCode> =
+  ClientErrorDetailsMap[Code];
+export type HasherErrorCode =
+  | "HASHER_INTEGER_OVERFLOW" | "HASHER_POSEIDON" | "HASHER_UNKNOWN"
+  | "HASHER_EMPTY_INPUT" | "HASHER_INVALID_INPUT_LENGTH"
+  | "HASHER_INVALID_NUM_INPUTS" | "HASHER_BORSH";
+export type RetryErrorCause = Readonly<{
+  category: "rpc" | "indexer" | "indexerTimeout";
+}>;
+export type ClientErrorCause =
+  | Readonly<{ category: "client"; code: ClientErrorCode }>
+  | Readonly<{ category: "keypair"; code: KeypairErrorCode; details?: Readonly<Record<string, unknown>> }>
+  | Readonly<{ category: "transaction"; code: TransactionErrorCode; details?: Readonly<Record<string, unknown>> }>
+  | Readonly<{ category: "hasher"; code: HasherErrorCode }>
+  | RetryErrorCause
+  | Readonly<{ category: "external"; code?: string }>;
+export class ClientError<Code extends ClientErrorCode = ClientErrorCode> extends Error {
+  readonly code: Code;
+  readonly details?: ClientErrorDetails<Code>;
+  readonly cause?: ClientErrorCause;
 }
 export interface IndexerPollConfig {
   readonly numRetries: number;
@@ -1000,6 +1027,34 @@ export interface IndexerPollConfig {
 export interface IndexerRpcConfig {
   readonly waitForIndexer: boolean;
   readonly poll: IndexerPollConfig;
+}
+export const DEFAULT_INDEXER_POLL_CONFIG: IndexerPollConfig;
+export const DEFAULT_INDEXER_RPC_CONFIG: IndexerRpcConfig;
+export function createIndexerPollConfig(
+  numRetries: number, delayMs: bigint, maxDelayMs: bigint,
+): IndexerPollConfig;
+export function createIndexerRpcConfig(
+  waitForIndexer?: boolean, poll?: IndexerPollConfig,
+): IndexerRpcConfig;
+export function waitForIndexer(poll?: IndexerPollConfig): IndexerRpcConfig;
+export function validatePollConfig(config: IndexerPollConfig): IndexerPollConfig;
+export function attempts(config: IndexerPollConfig): number;
+export function backoff(config: IndexerPollConfig): IterableIterator<bigint>;
+export function retryCause(error: unknown): RetryErrorCause | undefined;
+export function isRetryable(cause: unknown): cause is ClientError;
+export interface PollUntilOptions {
+  readonly config?: IndexerPollConfig;
+  readonly context?: RequestContext;
+}
+export function pollUntil<T>(
+  request: () => Promise<T>,
+  accept: (response: T) => boolean,
+  options?: PollUntilOptions,
+): Promise<T>;
+export interface RpcAccount {
+  readonly owner: Address;
+  readonly data: Uint8Array;
+  readonly lamports: bigint;
 }
 export interface RpcContext {
   readonly blockTime: bigint;
@@ -1123,6 +1178,9 @@ export interface ProvedMerge {
   readonly data: MergeTransactInstructionData;
   readonly outputHash: Bytes32;
 }
+export interface ProvedMergeZone extends ProvedMerge {
+  readonly zoneProgramId: Address;
+}
 export class ZolanaClient {
   constructor(input: Readonly<{
     rpc: Rpc; indexer: ZolanaIndexer; prover: ProverClient; tree: Address;
@@ -1172,6 +1230,26 @@ while `ZolanaClient` delegates them to its indexer. This keeps
 dependency on the concrete indexer adapter.
 No wallet action, authority, registry, balance, history, or sync export is
 permitted here.
+
+The root also carries the prover block, so `import { ProverClient } from
+"@zolana/client"` resolves the same declaration as the `@zolana/client/prover`
+subpath: `assemble`, `intoProver`, `compressProof`, `canonicalShape`,
+`resolveShape`, `SPP_SUPPORTED_SHAPES`, `ProverClient`, and the
+`AssembledTransfer`, `AsyncPollConfig`, `CompressedProof`, `Field`, `Proof`,
+`ProverInputs`, `Shape`, `TransferInput`, `TransferInputs`, `TransferOutput`,
+and `TransferP256Inputs` types. The retry surface above is additionally
+published from `@zolana/client/retry`.
+
+Every crate-root name of `zolana-client` is either carried here or
+dispositioned. `fixtures/client/lib.json` records the crate-root modules and
+re-exports generated from `lib.rs`, and
+`client/test/vectors/crate-root-exports.test.ts` fails when a name enters or
+leaves either side without a disposition. The names Rust re-exports from
+`zolana_transaction` reach a caller through `@zolana/transaction`, which
+`@zolana/client` depends on, rather than through a duplicate export.
+`ZoneTransferProver`, `ZoneTransferP256Prover`, `ZoneAuthorityProver`, and
+their result and witness types are deferred to PKP-05 by review-checklist rows
+C13, C14, and C18.
 
 The client proof interfaces are semantic byte-valued types owned by
 `@zolana/client`; they are not aliases or re-exports of

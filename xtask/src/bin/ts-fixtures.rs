@@ -29,7 +29,7 @@ const INTERFACE_SHA: &str = "14ad30017ef5b512548f65284eae0212684d8197";
 const MERKLE_SHA: &str = "975783aa38b65734585f7749e347201fd67a2b71";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
-const EXPECTED_FIXTURE_COUNT: usize = 57;
+const EXPECTED_FIXTURE_COUNT: usize = 58;
 const BASELINE_SOURCE_PATHS: [&str; 12] = [
     "program-libs/hasher/src",
     "program-tests/test-utils/src/smart_account.rs",
@@ -142,12 +142,12 @@ fn generate_current_client_fixtures(root: &Path, check: bool) -> Result<()> {
         &["log", "-1", "--format=%H", "--", "sdk-libs/client/src"],
     )?;
     let vectors = production_client_vectors(root)?;
-    let fixtures = client_fixtures(&vectors)?
+    let fixtures = client_fixtures(root, &vectors)?
         .into_iter()
         .filter(|(path, _)| {
             matches!(
                 *path,
-                "client/errors-v1.json" | "client/rpc-indexer-v1.json"
+                "client/errors-v1.json" | "client/lib.json" | "client/rpc-indexer-v1.json"
             )
         })
         .map(|(path, mut fixture)| {
@@ -791,7 +791,7 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     fixtures.extend(keypair_fixtures(&keypair_vectors)?);
     fixtures.extend(transaction_fixtures(&transaction_vectors)?);
     fixtures.push(api_fixture(&api_vectors)?);
-    fixtures.extend(client_fixtures(&client_vectors)?);
+    fixtures.extend(client_fixtures(root, &client_vectors)?);
     fixtures.extend(instruction_workflow_fixtures(&client_vectors)?);
     fixtures.extend(wallet_fixtures(&wallet_vectors)?);
     fixtures.extend(workflow_fixtures(&wallet_vectors)?);
@@ -1902,7 +1902,7 @@ fn verify_client_vectors(vectors: &Value) -> Result<()> {
     Ok(())
 }
 
-fn client_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
+fn client_fixtures(root: &Path, vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
     let domains = [
         (
             "errors",
@@ -1937,7 +1937,7 @@ fn client_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
             "legacy unsigned messages, owned indexer response values, confirmation tags, retries, and errors",
         ),
     ];
-    domains
+    let mut fixtures = domains
         .into_iter()
         .map(|(section, path, id, rust_path, symbol, responsibility)| {
             let value = &vectors[section];
@@ -1958,6 +1958,95 @@ fn client_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
                 ),
             ))
         })
+        .collect::<Result<Vec<_>>>()?;
+    fixtures.push(("client/lib.json", client_lib_fixture(root)?));
+    Ok(fixtures)
+}
+
+/// Crate-root surface of `zolana-client`, so `@zolana/client` can prove it carries or dispositions
+/// every name a Rust caller reaches through `use zolana_client::..`.
+fn client_lib_fixture(root: &Path) -> Result<Value> {
+    let source = fs::read_to_string(root.join("sdk-libs/client/src/lib.rs"))
+        .context("read sdk-libs/client/src/lib.rs")?;
+    let mut modules = Vec::new();
+    let mut names = Vec::new();
+    for statement in strip_line_comments(&source).split(';') {
+        if let Some(item) = statement.split("pub mod ").nth(1) {
+            modules.push(item.trim().to_string());
+        } else if let Some(item) = statement.split("pub use ").nth(1) {
+            push_use_tree_leaves(item, &mut names);
+        }
+    }
+    modules.sort_unstable();
+    modules.dedup();
+    names.sort_unstable();
+    names.dedup();
+    if names.is_empty() {
+        bail!("sdk-libs/client/src/lib.rs yielded no re-exports");
+    }
+    Ok(fixture_base!(
+        "fx-p09-client-lib-v1",
+        "sdk-libs/client/src/lib.rs",
+        "pub mod; pub use",
+        "P09 fixture follow-up recorded in sdk-libs/ts/reports/packets/P09.json",
+        "P00",
+        "the crate-root modules and re-exported names the TypeScript client must carry or disposition",
+        json!({ "source": "sdk-libs/client/src/lib.rs" }),
+        json!({ "modules": modules, "names": names }),
+    ))
+}
+
+fn strip_line_comments(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| match line.find("//") {
+            Some(start) => &line[..start],
+            None => line,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A `pub use` item is a tree: `a::{b, c::{d, e}}` re-exports the leaf names `b`, `d`, and `e`.
+fn push_use_tree_leaves(item: &str, out: &mut Vec<String>) {
+    let item = item.trim();
+    match (item.find('{'), item.rfind('}')) {
+        (Some(open), Some(close)) if open < close => {
+            for branch in split_use_tree_branches(&item[open + 1..close]) {
+                push_use_tree_leaves(&branch, out);
+            }
+        }
+        _ => {
+            let leaf = item.rsplit("::").next().unwrap_or(item).trim();
+            if !leaf.is_empty() && leaf != "self" {
+                out.push(leaf.to_string());
+            }
+        }
+    }
+}
+
+fn split_use_tree_branches(group: &str) -> Vec<String> {
+    let mut branches = Vec::new();
+    let mut depth = 0usize;
+    let mut branch = String::new();
+    for character in group.chars() {
+        match character {
+            '{' => {
+                depth += 1;
+                branch.push(character);
+            }
+            '}' => {
+                depth = depth.saturating_sub(1);
+                branch.push(character);
+            }
+            ',' if depth == 0 => branches.push(core::mem::take(&mut branch)),
+            _ => branch.push(character),
+        }
+    }
+    branches.push(branch);
+    branches
+        .into_iter()
+        .filter(|branch| !branch.trim().is_empty())
         .collect()
 }
 

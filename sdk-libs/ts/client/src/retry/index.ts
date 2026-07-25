@@ -1,11 +1,13 @@
 export {
   DEFAULT_INDEXER_POLL_CONFIG,
   DEFAULT_INDEXER_RPC_CONFIG,
+  attempts,
   backoff,
   createIndexerPollConfig,
   createIndexerRpcConfig,
   isRetryable,
   pollUntil,
+  retryCause,
   validatePollConfig,
   waitForIndexer,
 } from "../retry.js";
@@ -13,4 +15,5 @@ export type {
   IndexerPollConfig,
   IndexerRpcConfig,
   PollUntilOptions,
+  RetryErrorCause,
 } from "../retry.js";

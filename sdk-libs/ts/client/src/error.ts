@@ -173,7 +173,7 @@ export interface ClientErrorDetailsMap {
   }>;
   readonly CLIENT_POLL_TIMED_OUT: Readonly<{
     attempts: number;
-    lastCause?: ClientErrorCause;
+    lastCause?: RetryErrorCause;
   }>;
   readonly CLIENT_PROOF_PATH_LENGTH: Readonly<{
     got: number;
@@ -331,6 +331,9 @@ const CLIENT_ERROR_CODE_SET: ReadonlySet<string> = new Set([
   ...TYPESCRIPT_CLIENT_ERROR_CODES,
 ]);
 
+/** The three transient causes Rust's `RetryErrorCause` can hold. */
+export type RetryErrorCause = Readonly<{ category: "rpc" | "indexer" | "indexerTimeout" }>;
+
 export type ClientErrorCause =
   | Readonly<{ category: "client"; code: ClientErrorCode }>
   | Readonly<{
@@ -344,7 +347,7 @@ export type ClientErrorCause =
       details?: Readonly<Record<string, unknown>>;
     }>
   | Readonly<{ category: "hasher"; code: HasherErrorCode }>
-  | Readonly<{ category: "rpc" | "indexer" | "indexerTimeout" }>
+  | RetryErrorCause
   | Readonly<{ category: "external"; code?: string }>;
 
 type ClientErrorOptions<Code extends ClientErrorCode> = Readonly<{
@@ -362,7 +365,7 @@ type ClientErrorArguments<Code extends ClientErrorCode> =
         }>,
       ];
 
-type FieldKind = "boolean" | "cause" | "number" | "object" | "string";
+type FieldKind = "boolean" | "number" | "object" | "retryCause" | "string";
 type DetailShape = Readonly<Record<string, FieldKind>>;
 
 const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
@@ -452,7 +455,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
   CLIENT_INDEXER_TIMEOUT: { signature: "string", expectedTags: "number", attempts: "number" },
   CLIENT_INDEXER_NOT_CAUGHT_UP: { target: "string", latest: "string", attempts: "number" },
-  CLIENT_POLL_TIMED_OUT: { attempts: "number", lastCause: "cause" },
+  CLIENT_POLL_TIMED_OUT: { attempts: "number", lastCause: "retryCause" },
   CLIENT_PROOF_PATH_LENGTH: { got: "number", expected: "number", index: "number", kind: "string" },
   CLIENT_PROOF_INPUT_COUNT_MISMATCH: { got: "number", expected: "number" },
   CLIENT_ACCOUNT_NOT_FOUND: { address: "string" },
@@ -638,32 +641,20 @@ function validateClientError(code: unknown, details: unknown): asserts code is C
 function matchesFieldKind(value: unknown, kind: FieldKind, field: string): boolean {
   if (field === "status" && value === "failed") return true;
   if (kind === "number") return typeof value === "number" && Number.isSafeInteger(value);
-  if (kind === "cause") return isSafeCause(value);
+  if (kind === "retryCause") return isRetryErrorCause(value);
   if (kind === "object") return isPlainObject(value);
   return typeof value === kind;
 }
 
-function isSafeCause(value: unknown): value is ClientErrorCause {
-  if (!isPlainObject(value) || typeof value["category"] !== "string") return false;
-  switch (value["category"]) {
-    case "client":
-      return typeof value["code"] === "string" && CLIENT_ERROR_CODE_SET.has(value["code"]);
-    case "keypair":
-    case "transaction":
-    case "hasher":
-      return typeof value["code"] === "string";
-    case "external":
-      return value["code"] === undefined || typeof value["code"] === "string";
-    case "rpc":
-    case "indexer":
-    case "indexerTimeout":
-      return Object.keys(value).length === 1;
-    default:
-      return false;
-  }
+function isRetryErrorCause(value: unknown): value is RetryErrorCause {
+  if (!isPlainObject(value) || Object.keys(value).length !== 1) return false;
+  const category = value["category"];
+  return category === "rpc" || category === "indexer" || category === "indexerTimeout";
 }
 
-function copyAndFreeze(value: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+function copyAndFreeze(
+  value: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
   const copy: Record<string, unknown> = {};
   for (const [key, item] of ownDataEntries(value)) {
     copy[key] = cloneSafeValue(item);

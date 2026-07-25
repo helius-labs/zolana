@@ -1,10 +1,16 @@
 import type { RequestContext } from "@zolana/interface";
 
-import { ClientError, isClientError, type ClientErrorCause } from "./error.js";
+import { ClientError, isClientError, type RetryErrorCause } from "./error.js";
+
+export type { RetryErrorCause } from "./error.js";
 
 const MAX_U32 = 0xffff_ffff;
 const MAX_U64 = 0xffff_ffff_ffff_ffffn;
 const MAX_TIMER_DELAY_MS = 0x7fff_ffffn;
+
+const RPC_CAUSE: RetryErrorCause = Object.freeze({ category: "rpc" });
+const INDEXER_CAUSE: RetryErrorCause = Object.freeze({ category: "indexer" });
+const INDEXER_TIMEOUT_CAUSE: RetryErrorCause = Object.freeze({ category: "indexerTimeout" });
 
 export interface IndexerPollConfig {
   readonly numRetries: number;
@@ -78,6 +84,10 @@ export function validatePollConfig(config: IndexerPollConfig): IndexerPollConfig
   return Object.freeze({ numRetries, delayMs, maxDelayMs });
 }
 
+export function attempts(config: IndexerPollConfig): number {
+  return validatePollConfig(config).numRetries + 1;
+}
+
 export function* backoff(config: IndexerPollConfig): IterableIterator<bigint> {
   const poll = validatePollConfig(config);
   let delay = poll.delayMs < poll.maxDelayMs ? poll.delayMs : poll.maxDelayMs;
@@ -100,23 +110,22 @@ export async function pollUntil<T>(
   if (typeof request !== "function") throw invalidPollConfig("request");
   if (typeof accept !== "function") throw invalidPollConfig("accept");
   const poll = validatePollConfig(options.config ?? DEFAULT_INDEXER_POLL_CONFIG);
-  let lastCause: ClientErrorCause | undefined;
-  let attempt = 0;
+  let lastCause: RetryErrorCause | undefined;
   for (const delay of pollSchedule(poll)) {
-    attempt++;
     if (delay !== 0n) await sleep(delay, options.context);
     try {
       const response = await request();
       if (accept(response)) return response;
     } catch (cause) {
-      if (!isRetryable(cause)) throw cause;
-      lastCause = retryErrorCause(cause);
+      const transient = retryCause(cause);
+      if (transient === undefined) throw cause;
+      lastCause = transient;
     }
   }
 
   throw new ClientError("CLIENT_POLL_TIMED_OUT", {
     details: {
-      attempts: attempt,
+      attempts: attempts(poll),
       ...(lastCause === undefined ? {} : { lastCause }),
     },
   });
@@ -127,39 +136,49 @@ function* pollSchedule(config: IndexerPollConfig): IterableIterator<bigint> {
   yield* backoff(config);
 }
 
-export function isRetryable(cause: unknown): cause is ClientError {
-  if (!isClientError(cause)) return false;
-  switch (cause.code) {
+export function retryCause(error: unknown): RetryErrorCause | undefined {
+  if (!isClientError(error)) return undefined;
+  switch (error.code) {
+    // `CLIENT_RPC_HTTP`, `CLIENT_RPC_JSON`, and `CLIENT_RPC_ENVELOPE` are the
+    // codes `SolanaRpc` raises where Rust reports `ClientError::Rpc`.
     case "CLIENT_RPC":
+    case "CLIENT_RPC_HTTP":
+    case "CLIENT_RPC_JSON":
+    case "CLIENT_RPC_ENVELOPE":
+      return RPC_CAUSE;
     case "CLIENT_INDEXER_TIMEOUT":
-      return true;
+      return INDEXER_TIMEOUT_CAUSE;
     case "CLIENT_INDEXER":
+      return retryableDetail(error) ? INDEXER_CAUSE : undefined;
     case "CLIENT_TIMEOUT":
-    case "CLIENT_REQUEST": {
-      const details: unknown = cause.details;
-      return (
-        typeof details === "object" &&
-        details !== null &&
-        "retryable" in details &&
-        details.retryable === true
-      );
-    }
+    case "CLIENT_REQUEST":
+      return retryableDetail(error) ? transportCause(error) : undefined;
     default:
-      return false;
+      return undefined;
   }
 }
 
-function retryErrorCause(error: ClientError): ClientErrorCause {
-  switch (error.code) {
-    case "CLIENT_RPC":
-      return Object.freeze({ category: "rpc" });
-    case "CLIENT_INDEXER":
-      return Object.freeze({ category: "indexer" });
-    case "CLIENT_INDEXER_TIMEOUT":
-      return Object.freeze({ category: "indexerTimeout" });
-    default:
-      return error.cause ?? Object.freeze({ category: "client", code: error.code });
-  }
+export function isRetryable(cause: unknown): cause is ClientError {
+  return retryCause(cause) !== undefined;
+}
+
+function retryableDetail(error: ClientError): boolean {
+  const details: unknown = error.details;
+  return (
+    typeof details === "object" &&
+    details !== null &&
+    "retryable" in details &&
+    details.retryable === true
+  );
+}
+
+// Both adapters raise the shared transport codes, but only `ZolanaIndexer`
+// attaches an `@zolana/api` cause, and Rust folds indexer transport failures
+// into `ClientError::Indexer` rather than `ClientError::Rpc`.
+function transportCause(error: ClientError): RetryErrorCause {
+  const cause = error.cause;
+  if (cause === undefined || cause.category !== "external") return RPC_CAUSE;
+  return cause.code?.startsWith("API_") === true ? INDEXER_CAUSE : RPC_CAUSE;
 }
 
 async function sleep(delayMs: bigint, context?: RequestContext): Promise<void> {
