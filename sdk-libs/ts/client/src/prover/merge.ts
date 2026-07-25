@@ -355,14 +355,19 @@ function assembleMergeWithProofsUnchecked(
   return Object.freeze({
     proverInputs,
     expiryUnixTs: prepared.expiryUnixTs,
-    outputHash,
-    nullifiers: Object.freeze(nullifiers),
+    // `Object.freeze` seals the assembly and the nullifier array but not the
+    // buffers inside them, and those are the buffers `instructionData` copies
+    // from on every call. Hand out copies of everything the closure reads so a
+    // frozen assembly cannot be steered into emitting different instruction
+    // data than the one it was proved with.
+    outputHash: new Uint8Array(outputHash) as Bytes32,
+    nullifiers: Object.freeze(nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32)),
     utxoTreeRootIndexes,
     nullifierTreeRootIndexes,
-    privateTxHash,
+    privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
     publicInputHash,
     externalDataHash,
-    encryptedUtxo,
+    encryptedUtxo: new Uint8Array(encryptedUtxo),
     ciphertext: new Uint8Array(encrypted.ciphertext),
     txViewingPublicKey: encrypted.txViewingPublicKey,
     eddsaOwner,

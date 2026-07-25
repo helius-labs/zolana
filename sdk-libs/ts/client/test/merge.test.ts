@@ -1,12 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { ZolanaApi } from "@zolana/api";
-import {
-  SHIELDED_POOL_PROGRAM_ID,
-  type Address,
-  type Bytes31,
-  type Bytes32,
-  type Instruction,
-} from "@zolana/interface";
+import { type Address, type Bytes31, type Bytes32, type Instruction } from "@zolana/interface";
 import {
   mergeTransactInstruction,
   mergeZoneInstruction,
@@ -30,6 +24,7 @@ import messageOrderOracle from "./oracles/merge-message-order-v1.json" with { ty
 import { ClientError, type Rpc, ZolanaClient, ZolanaIndexer } from "../src/index.js";
 import { addressBytes, decodeBase58, encodeBase58, sha256Bytes } from "../src/internal.js";
 import { ProverClient } from "../src/prover/index.js";
+import { assembleMergeWithProofs } from "../src/prover/merge.js";
 import type { SpendProof } from "../src/rpc.js";
 import { createProofOutput } from "../../transaction/src/utxo.js";
 import { bytes, hex } from "./helpers/prover-vectors.js";
@@ -38,7 +33,6 @@ const TREE = "4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm" as Address;
 const PAYER = "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4" as Address;
 const USER_RECORD = encodeBase58(new Uint8Array(32).fill(17)) as Address;
 const ZONE_PROGRAM = encodeBase58(new Uint8Array(32).fill(3)) as Address;
-const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111" as Address;
 const BLOCKHASH = encodeBase58(new Uint8Array(32).fill(53));
 
 function fakeRpc(overrides: Partial<Rpc> = {}): Rpc {
@@ -146,18 +140,12 @@ function zoneSource(): ReturnType<typeof source> & Readonly<{ prepared: Prepared
         }),
     );
   const prepared = new PreparedMergeZone({
-    inputs: [
-      ...real,
-      ...base.prepared.inputs.filter((input) => input.isDummy()),
-    ],
+    inputs: [...real, ...base.prepared.inputs.filter((input) => input.isDummy())],
     output: createProofOutput({
       ownerAddress: keypair.shieldedAddress(),
       asset: SOL_MINT,
       amount: 30n,
-      blinding: deriveBlinding(
-        fixtureBytes(mergeFixture.inputs.blindingSeedBytes) as Bytes31,
-        2,
-      ),
+      blinding: deriveBlinding(fixtureBytes(mergeFixture.inputs.blindingSeedBytes) as Bytes31, 2),
       zoneProgramId: ZONE_PROGRAM,
     }),
     expiryUnixTs: base.prepared.expiryUnixTs,
@@ -292,6 +280,43 @@ describe("merge proving and unsigned submission", () => {
     expect(proved.data.encryptedUtxo.slice(0, 6)).toEqual(Uint8Array.of(2, 105, 0, 0, 0, 6));
     expect(proved.data.eddsaOwner).toBe(false);
     expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  /// The assembly is frozen, but freezing seals the object and the nullifier
+  /// array without sealing the buffers inside them, and those are the buffers
+  /// `instructionData` reads on every call. A frozen value that can still be
+  /// steered into emitting different instruction data than it was proved with
+  /// is worse than a mutable one, so every buffer the closure reads is copied
+  /// out.
+  it("does not let a caller reach the instruction through the assembly buffers", () => {
+    const value = source();
+    const assembly = assembleMergeWithProofs(value.prepared, value.material, value.proofs, TREE);
+    const emit = (): string => {
+      const data = assembly.instructionData(fixedInstructionData().proof);
+      return JSON.stringify([
+        hex(data.outputUtxoHash),
+        data.nullifiers.map((nullifier) => hex(nullifier)),
+        hex(data.privateTxHash),
+        hex(data.encryptedUtxo as Bytes32),
+      ]);
+    };
+    const before = emit();
+
+    for (const nullifier of assembly.nullifiers) nullifier.fill(0xff);
+    assembly.outputHash.fill(0xff);
+    assembly.privateTxHash.fill(0xff);
+    assembly.encryptedUtxo.fill(0xff);
+
+    expect(emit()).toBe(before);
+
+    // Two emissions are two `MergeTransactIxData` values in Rust, so neither
+    // may reach the other either.
+    const first = assembly.instructionData(fixedInstructionData().proof);
+    first.outputUtxoHash.fill(0xff);
+    first.privateTxHash.fill(0xff);
+    first.encryptedUtxo.fill(0xff);
+    for (const nullifier of first.nullifiers) nullifier.fill(0xff);
+    expect(emit()).toBe(before);
   });
 
   it("uses the dedicated merge-zone circuit, assembly, and instruction", async () => {

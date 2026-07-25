@@ -70,7 +70,10 @@ describe("prover proof conversion", () => {
       () => parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x1"] }, false),
       "CLIENT_PROOF_POINT",
     );
-    expectCode(() => parseProof({ ...ZERO_PROOF, ar: ["0xzz", "0x0"] }, false), "CLIENT_PROOF_PARSE");
+    expectCode(
+      () => parseProof({ ...ZERO_PROOF, ar: ["0xzz", "0x0"] }, false),
+      "CLIENT_PROOF_PARSE",
+    );
     expectCode(() => parseProof({ ...ZERO_PROOF, ar: ["", "0x0"] }, false), "CLIENT_PROOF_PARSE");
   });
 

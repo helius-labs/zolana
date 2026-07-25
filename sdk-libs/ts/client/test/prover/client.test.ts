@@ -120,11 +120,7 @@ describe("queued prover status polling", () => {
 
     const proof = await run(prove());
 
-    expect(paths).toEqual([
-      "/prove",
-      "/prove/status?job_id=job-1",
-      "/prove/status?job_id=job-1",
-    ]);
+    expect(paths).toEqual(["/prove", "/prove/status?job_id=job-1", "/prove/status?job_id=job-1"]);
     expect(proof).toMatchObject({ a: new Uint8Array(64) });
     expect((proof as { commitment?: unknown }).commitment).toBeUndefined();
   });
