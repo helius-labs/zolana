@@ -4,8 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import fixtureJson from "../../fixtures/client/errors-v1.json" with { type: "json" };
 import manifestJson from "../../fixtures/manifest.json" with { type: "json" };
-import { CANONICAL_CLIENT_ERROR_CODES, ClientError, type ClientErrorCode } from "../src/index.js";
-import { fromClientCause } from "../src/error.js";
+import {
+  CANONICAL_CLIENT_ERROR_CODES,
+  ClientError,
+  type ClientErrorCode,
+} from "../src/index.js";
+import { fromClientCause, hasherError } from "../src/error.js";
 import { poseidon } from "../src/internal.js";
 import { assemble } from "../src/prover/index.js";
 
@@ -53,9 +57,12 @@ describe("ClientError", () => {
   it("matches every Rust ClientError variant and structured field", () => {
     const vectors = errorVectors(fixtureJson);
     expect(manifestJson.frozenCommit).toBe("43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f");
+    expect(manifestJson.canonicalSourceRevisions.client).toBe(
+      "3ba527850a7986f36c47ad2082598edff3e3e5b7",
+    );
     expect(manifestJson.files).toContainEqual({
       path: "client/errors-v1.json",
-      sha256: "49acb09fb6205e33efa8209263e6f83698a48ec72ca59bf5d5ef784156874d1d",
+      sha256: "03799f4ef2535af5a3ca3a6e6045cd04d6b4c976b4a50ac6ec1199b829a7ceec",
     });
     expect(vectors).toHaveLength(58);
     expect(new Set(vectors.map(({ code }) => code)).size).toBe(vectors.length);
@@ -73,8 +80,17 @@ describe("ClientError", () => {
     });
     expect(vectors.find(({ code }) => code === "CLIENT_POLL_TIMED_OUT")?.details).toEqual({
       attempts: 3,
-      lastError: "transient",
+      lastCause: { category: "indexer" },
     });
+    expect(vectors.map(({ code }) => code)).toContain("CLIENT_PROOF_INPUT_COUNT_MISMATCH");
+
+    for (const vector of vectors) {
+      expect(
+        new ClientError(vector.code, {
+          ...(vector.details === null ? {} : { details: vector.details }),
+        }),
+      ).toBeInstanceOf(ClientError);
+    }
   });
 
   it("preserves wrapped categories and non-secret structured fields", () => {
@@ -173,21 +189,91 @@ describe("ClientError", () => {
         details: { code: "InvalidNumFields" },
       }),
     );
+    expect(hasherError("Poseidon", new Error("private preimage")).cause).toEqual({
+      category: "hasher",
+      code: "Poseidon",
+    });
   });
 
-  it("copies and freezes details and sanitizes external causes", () => {
-    const details = { index: 3 };
-    const error = new ClientError("CLIENT_UNSIGNED_INPUT_UNAVAILABLE", {
+  it("deeply copies and freezes details and recursively sanitizes causes", () => {
+    const details = {
+      attempts: 3,
+      lastCause: {
+        category: "external" as const,
+        code: "REMOTE_FAILURE",
+      },
+    };
+    const externalDetails = {
+      public: { nested: ["kept"] },
+      private: { nested: ["must not escape"] },
+      nested: { seed: "must not escape", value: 4 },
+    };
+    const error = new ClientError("CLIENT_POLL_TIMED_OUT", {
       details,
       cause: { code: "REMOTE_FAILURE", message: "sensitive response body" },
     });
-    details.index = 4;
+    const wrapped = fromClientCause(
+      new KeypairError("KEYPAIR_INVALID_SECRET_KEY", externalDetails),
+    );
+    details.lastCause.code = "CHANGED";
+    externalDetails.public.nested[0] = "changed";
 
-    expect(error.details).toEqual({ index: 3 });
+    expect(error.details).toEqual({
+      attempts: 3,
+      lastCause: { category: "external", code: "REMOTE_FAILURE" },
+    });
     expect(Object.isFrozen(error.details)).toBe(true);
+    expect(Object.isFrozen(error.details?.lastCause)).toBe(true);
     expect(error.cause).toEqual({ category: "external", code: "REMOTE_FAILURE" });
     expect(Object.isFrozen(error.cause)).toBe(true);
+    expect(wrapped.cause).toMatchObject({
+      details: { public: { nested: ["kept"] }, nested: { value: 4 } },
+    });
+    expect(Object.isFrozen((wrapped.cause as { details?: object }).details)).toBe(true);
     expect(JSON.stringify(error)).not.toContain("sensitive response body");
+    expect(JSON.stringify(wrapped)).not.toContain("must not escape");
+  });
+
+  it("rejects unknown codes and malformed code-specific details at runtime", () => {
+    expect(
+      () => new ClientError("CLIENT_NOT_REAL" as ClientErrorCode),
+    ).toThrow(TypeError);
+    expect(
+      () =>
+        new ClientError("CLIENT_UNSIGNED_INPUT_UNAVAILABLE", {
+          details: { index: "3" as unknown as number },
+        }),
+    ).toThrow(TypeError);
+    expect(
+      () =>
+        new ClientError("CLIENT_NO_INPUTS", {
+          details: { unexpected: true },
+        } as never),
+    ).toThrow(TypeError);
+    expect(
+      () =>
+        new ClientError("CLIENT_POLL_TIMED_OUT", {
+          details: {
+            attempts: 1,
+            lastCause: { category: "external", code: 4 } as never,
+          },
+        }),
+    ).toThrow(TypeError);
+    let getterCalls = 0;
+    const accessor = Object.defineProperty({}, "index", {
+      enumerable: true,
+      get() {
+        getterCalls++;
+        return 1;
+      },
+    });
+    expect(
+      () =>
+        new ClientError("CLIENT_UNSIGNED_INPUT_UNAVAILABLE", {
+          details: accessor as { index: number },
+        }),
+    ).toThrow(TypeError);
+    expect(getterCalls).toBe(0);
   });
 
   it("rejects an open canonical client code at compile time", () => {
@@ -197,5 +283,83 @@ describe("ClientError", () => {
     // @ts-expect-error Canonical client codes are a closed union.
     const invalid: ClientErrorCode = "CLIENT_NOT_A_RUST_VARIANT";
     expect(invalid).toBe("CLIENT_NOT_A_RUST_VARIANT");
+  });
+
+  it("records a producer disposition for every canonical code", () => {
+    const direct = new Set<ClientErrorCode>([
+      "CLIENT_KEYPAIR",
+      "CLIENT_TRANSACTION",
+      "CLIENT_HASHER",
+      "CLIENT_FEE_PAYER_MISMATCH",
+      "CLIENT_TREE_MISMATCH",
+      "CLIENT_NO_INPUTS",
+      "CLIENT_MISSING_P256_SIGNATURE",
+      "CLIENT_MERGE_SIGNING_KEY_MISMATCH",
+      "CLIENT_MERGE_NULLIFIER_KEY_MISMATCH",
+      "CLIENT_MERGE_TREE_MISMATCH",
+      "CLIENT_FIELD_TOO_LONG",
+      "CLIENT_PROVER_SERVER",
+      "CLIENT_PROOF_PARSE",
+      "CLIENT_MISSING_INPUT_MERKLE_PROOF",
+      "CLIENT_INCOMPLETE_INPUT_PROOFS",
+      "CLIENT_STATE_PROOF_LEAF_MISMATCH",
+      "CLIENT_STATE_PROOF_TREE_MISMATCH",
+      "CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH",
+      "CLIENT_NULLIFIER_PROOF_TREE_MISMATCH",
+      "CLIENT_MISSING_OUTPUT",
+      "CLIENT_INDEXER",
+      "CLIENT_UNSUPPORTED_RPC_METHOD",
+      "CLIENT_INDEXER_TIMEOUT",
+      "CLIENT_INDEXER_NOT_CAUGHT_UP",
+      "CLIENT_POLL_TIMED_OUT",
+      "CLIENT_PROOF_PATH_LENGTH",
+      "CLIENT_PROOF_INPUT_COUNT_MISMATCH",
+    ]);
+    const lowerLevelWrapped = new Set<ClientErrorCode>([
+      "CLIENT_UNSUPPORTED_SHAPE",
+      "CLIENT_TOO_MANY_INPUTS",
+      "CLIENT_TOO_MANY_OUTPUTS",
+      "CLIENT_INSUFFICIENT_BALANCE",
+      "CLIENT_SELECTED_BALANCE_OVERFLOW",
+      "CLIENT_UNSIGNED_INPUT_UNAVAILABLE",
+      "CLIENT_AMBIGUOUS_TREE",
+      "CLIENT_MISSING_SPL_TOKEN_ACCOUNT",
+      "CLIENT_ADDRESS_RESOLUTION",
+      "CLIENT_USER_REGISTRY_RECORD_NOT_FOUND",
+      "CLIENT_MULTIPLE_PUBLIC_SPL_ASSETS",
+      "CLIENT_WITHDRAWAL_ALREADY_SET",
+      "CLIENT_EDDSA_INPUT_NOT_SOLANA_OWNED",
+      "CLIENT_MERGE_INPUT_RAIL_MISMATCH",
+      "CLIENT_MERGE_INPUT_ASSET_MISMATCH",
+      "CLIENT_MERGE_DISABLED",
+      "CLIENT_NOTHING_TO_MERGE",
+      "CLIENT_DUPLICATE_INPUT_UTXO",
+      "CLIENT_MERGE_VIEWING_KEY_MISMATCH",
+      "CLIENT_SPLIT_NOT_DIVISIBLE",
+      "CLIENT_INPUT_UTXO_UNAVAILABLE",
+      "CLIENT_INPUT_UTXO_TREE_MISMATCH",
+      "CLIENT_SPLIT_INPUT_HAS_DATA",
+      "CLIENT_SPLIT_INPUT_ZONE_MISMATCH",
+      "CLIENT_P256_SIGNATURE",
+      "CLIENT_PROVER",
+      "CLIENT_INPUT_TREE_INDEX_COUNT_MISMATCH",
+    ]);
+    const structuredTransport = new Set<ClientErrorCode>([
+      "CLIENT_SOLANA_TRANSACTION_SIGNING",
+      "CLIENT_RPC",
+    ]);
+    const rustWorkflowBoundary = new Set<ClientErrorCode>([
+      "CLIENT_ACCOUNT_NOT_FOUND",
+      "CLIENT_DEPOSIT_SENDER_NOT_SIGNER",
+    ]);
+    const dispositions = [
+      ...direct,
+      ...lowerLevelWrapped,
+      ...structuredTransport,
+      ...rustWorkflowBoundary,
+    ];
+
+    expect(new Set(dispositions).size).toBe(dispositions.length);
+    expect(dispositions.sort()).toEqual([...CANONICAL_CLIENT_ERROR_CODES].sort());
   });
 });

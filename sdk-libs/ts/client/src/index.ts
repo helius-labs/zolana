@@ -16,6 +16,18 @@ export type {
 } from "./error.js";
 export { ZolanaIndexer } from "./indexer.js";
 export { SolanaRpc } from "./solana-rpc.js";
+export {
+  DEFAULT_INDEXER_POLL_CONFIG,
+  DEFAULT_INDEXER_RPC_CONFIG,
+  backoff,
+  createIndexerPollConfig,
+  createIndexerRpcConfig,
+  isRetryable,
+  pollUntil,
+  validatePollConfig,
+  waitForIndexer,
+} from "./retry.js";
+export type { PollUntilOptions } from "./retry.js";
 export type {
   EncryptedUtxoMatch,
   GetByTagsRequest,

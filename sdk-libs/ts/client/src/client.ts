@@ -22,22 +22,21 @@ import {
   type InputUtxoContext,
 } from "@zolana/transaction";
 
-import { ClientError, fromClientCause } from "./error.js";
-import { addressBytes, decodeBase58, sha256Bytes, signatureBytes, sleep } from "./internal.js";
+import { ClientError, fromClientCause, isClientError } from "./error.js";
+import { addressBytes, decodeBase58, sha256Bytes, signatureBytes } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import { assemble } from "./prover/assembly.js";
 import { ProverClient, proveMerge, proveMergeZone } from "./prover/client.js";
 import { assembleMerge, assembleMergeZone } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
+import { DEFAULT_INDEXER_POLL_CONFIG, pollUntil } from "./retry.js";
 import {
-  DEFAULT_INDEXER_POLL,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
   type IndexerRpcConfig,
   type Rpc,
   type RpcAccount,
   type SpendProof,
-  validatePollConfig,
 } from "./rpc.js";
 
 const DEFAULT_TRANSACT_CU_LIMIT = 300_000;
@@ -471,59 +470,55 @@ export class ZolanaClient implements Rpc {
 
   async confirmPrivateTransaction(signature: Signature, context?: RequestContext): Promise<void> {
     signatureBytes(signature);
-    const poll = validatePollConfig(DEFAULT_INDEXER_POLL);
-    let delay = poll.delayMs;
-    let confirmed = false;
-    for (let attempt = 0; attempt <= poll.numRetries; attempt++) {
-      if (attempt > 0) {
-        await sleep(delay, context);
-        delay = delay * 2n < poll.maxDelayMs ? delay * 2n : poll.maxDelayMs;
-      }
-      try {
-        if (await this.rpc.confirmTransaction(signature, context)) {
-          confirmed = true;
-          break;
-        }
-      } catch {
-        continue;
-      }
-    }
-    if (!confirmed) {
+    try {
+      await pollUntil(
+        () => this.rpc.confirmTransaction(signature, context),
+        (confirmed) => confirmed,
+        {
+          config: DEFAULT_INDEXER_POLL_CONFIG,
+          ...(context === undefined ? {} : { context }),
+        },
+      );
+    } catch (cause) {
+      if (!isClientError(cause) || cause.code !== "CLIENT_POLL_TIMED_OUT") throw cause;
       throw new ClientError("CLIENT_CONFIRMATION_TIMEOUT", {
-        details: { signature, attempts: poll.numRetries + 1 },
+        details: { signature, attempts: DEFAULT_INDEXER_POLL_CONFIG.numRetries + 1 },
+        cause,
       });
     }
     const tags = await this.rpc.transactOutputViewTags(signature, context);
     if (tags.length === 0) throw new ClientError("CLIENT_MISSING_OUTPUT");
-    delay = poll.delayMs;
-    for (let attempt = 0; attempt <= poll.numRetries; attempt++) {
-      if (attempt > 0) {
-        await sleep(delay, context);
-        delay = delay * 2n < poll.maxDelayMs ? delay * 2n : poll.maxDelayMs;
-      }
-      try {
-        const response = await this.indexer.getShieldedTransactionsByTags(
-          { tags },
-          undefined,
-          context,
-        );
-        const matched = response.transactions.find(
-          (transaction) => transaction.txSignature === signature,
-        );
-        if (matched) {
+    try {
+      await pollUntil(
+        () => this.indexer.getShieldedTransactionsByTags({ tags }, undefined, context),
+        (response) => {
+          const matched = response.transactions.find(
+            (transaction) => transaction.txSignature === signature,
+          );
+          if (matched === undefined) return false;
           const indexed = [
             ...matched.outputSlots.map((slot) => slot.viewTag),
             ...matched.messages.map((message) => message.viewTag),
           ];
-          if (tags.every((tag) => indexed.some((item) => equal(item, tag)))) return;
-        }
-      } catch {
-        continue;
-      }
+          return tags.every((tag) => indexed.some((item) => equal(item, tag)));
+        },
+        {
+          config: DEFAULT_INDEXER_POLL_CONFIG,
+          ...(context === undefined ? {} : { context }),
+        },
+      );
+      return;
+    } catch (cause) {
+      if (!isClientError(cause) || cause.code !== "CLIENT_POLL_TIMED_OUT") throw cause;
+      throw new ClientError("CLIENT_INDEXER_TIMEOUT", {
+        details: {
+          signature,
+          expectedTags: tags.length,
+          attempts: DEFAULT_INDEXER_POLL_CONFIG.numRetries + 1,
+        },
+        cause,
+      });
     }
-    throw new ClientError("CLIENT_INDEXER_TIMEOUT", {
-      details: { signature, expectedTags: tags.length, attempts: poll.numRetries + 1 },
-    });
   }
 }
 

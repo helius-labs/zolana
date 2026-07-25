@@ -46,7 +46,7 @@ export const packageConfigurations = {
     browser: true,
   },
   client: {
-    entryPoints: [".", "./prover"],
+    entryPoints: [".", "./prover", "./retry"],
     dependencies: [
       "@zolana/api",
       "@zolana/indexer-api",

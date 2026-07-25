@@ -125,7 +125,7 @@ function assembleUnchecked(
   for (let index = 0; index < proofInputs.inputUtxos.length; index++) {
     const input = proofInputs.inputUtxos[index];
     if (!input) {
-      throw new ClientError("CLIENT_WITNESS_INPUT_COUNT_MISMATCH", {
+      throw new ClientError("CLIENT_PROOF_INPUT_COUNT_MISMATCH", {
         details: { got: index, expected: proofInputs.inputUtxos.length },
       });
     }
@@ -253,7 +253,7 @@ function assembleUnchecked(
         const roots = rootIndexes[index];
         const nullifier = nullifiers[index];
         if (!roots || !nullifier) {
-          throw new ClientError("CLIENT_WITNESS_INPUT_COUNT_MISMATCH", {
+          throw new ClientError("CLIENT_PROOF_INPUT_COUNT_MISMATCH", {
             details: {
               got: Math.min(rootIndexes.length, nullifiers.length),
               expected: proofInputs.inputUtxos.length,

@@ -78,7 +78,7 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_INDEXER_NOT_CAUGHT_UP",
   "CLIENT_POLL_TIMED_OUT",
   "CLIENT_PROOF_PATH_LENGTH",
-  "CLIENT_WITNESS_INPUT_COUNT_MISMATCH",
+  "CLIENT_PROOF_INPUT_COUNT_MISMATCH",
   "CLIENT_ACCOUNT_NOT_FOUND",
   "CLIENT_DEPOSIT_SENDER_NOT_SIGNER",
 ] as const);
@@ -172,7 +172,7 @@ export interface ClientErrorDetailsMap {
   }>;
   readonly CLIENT_POLL_TIMED_OUT: Readonly<{
     attempts: number;
-    lastError?: string;
+    lastCause?: ClientErrorCause;
   }>;
   readonly CLIENT_PROOF_PATH_LENGTH: Readonly<{
     got: number;
@@ -180,7 +180,7 @@ export interface ClientErrorDetailsMap {
     index?: number;
     kind?: "state" | "nullifier";
   }>;
-  readonly CLIENT_WITNESS_INPUT_COUNT_MISMATCH: CountDetails;
+  readonly CLIENT_PROOF_INPUT_COUNT_MISMATCH: CountDetails;
   readonly CLIENT_ACCOUNT_NOT_FOUND: Readonly<{ address: string }>;
   readonly CLIENT_DEPOSIT_SENDER_NOT_SIGNER: Readonly<{ sender: string }>;
 
@@ -221,7 +221,7 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_INVALID_BASE64: Readonly<{ field: string }>;
   readonly CLIENT_INVALID_P256_KEY: NoDetails;
   readonly CLIENT_INVALID_CONTEXT: Readonly<{ field: string; method: string }>;
-  readonly CLIENT_ABORTED: Readonly<{ method?: string }> | undefined;
+  readonly CLIENT_ABORTED: Readonly<{ method?: string; retryable?: boolean }> | undefined;
   readonly CLIENT_TIMEOUT: Readonly<{ method: string; retryable: boolean }>;
   readonly CLIENT_REQUEST: Readonly<{ method: string; retryable: boolean }>;
   readonly CLIENT_INVALID_POLL_CONFIG: Readonly<{ field: string; value?: string }>;
@@ -274,6 +274,62 @@ export type ClientErrorCode = keyof ClientErrorDetailsMap;
 export type ClientErrorDetails<Code extends ClientErrorCode = ClientErrorCode> =
   ClientErrorDetailsMap[Code];
 
+export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
+  "CLIENT_INVALID_CONFIG",
+  "CLIENT_UNEXPECTED",
+  "CLIENT_INVALID_INTEGER",
+  "CLIENT_INVALID_INPUT_CONTEXT",
+  "CLIENT_INVALID_PROOF_INPUTS",
+  "CLIENT_INVALID_MERGE",
+  "CLIENT_MERGE_PROOF_COMMITMENT",
+  "CLIENT_MERGE_OUTPUT_MISMATCH",
+  "CLIENT_INVALID_TRANSACTION",
+  "CLIENT_CONFIRMATION_TIMEOUT",
+  "CLIENT_TOO_MANY_ACCOUNTS",
+  "CLIENT_TRANSACTION_ASSEMBLY",
+  "CLIENT_INVALID_LENGTH",
+  "CLIENT_INVALID_FIELD",
+  "CLIENT_INVALID_BASE58",
+  "CLIENT_INVALID_BASE64",
+  "CLIENT_INVALID_P256_KEY",
+  "CLIENT_INVALID_CONTEXT",
+  "CLIENT_ABORTED",
+  "CLIENT_TIMEOUT",
+  "CLIENT_REQUEST",
+  "CLIENT_INVALID_POLL_CONFIG",
+  "CLIENT_INVALID_INDEXER",
+  "CLIENT_PROOF_RAIL_MISMATCH",
+  "CLIENT_PROOF_POINT",
+  "CLIENT_PROOF_TREE_MISMATCH",
+  "CLIENT_INVALID_MERGE_OUTPUT",
+  "CLIENT_INVALID_MERGE_CIPHERTEXT",
+  "CLIENT_INVALID_MERGE_MATERIAL",
+  "CLIENT_MERGE_MATERIAL_VIEWING_KEY_MISMATCH",
+  "CLIENT_INVALID_MERGE_SHAPE",
+  "CLIENT_PROVER_INPUT",
+  "CLIENT_PROVER_REQUEST",
+  "CLIENT_PROVER_HTTP",
+  "CLIENT_PROVER_JOB",
+  "CLIENT_PROVER_TIMEOUT",
+  "CLIENT_PROVER_RESPONSE_TOO_LARGE",
+  "CLIENT_PROVER_TEXT",
+  "CLIENT_PROVER_JSON",
+  "CLIENT_INVALID_RPC_RESPONSE",
+  "CLIENT_RPC_TRANSACTION_NOT_FOUND",
+  "CLIENT_RPC_HTTP",
+  "CLIENT_RPC_JSON",
+  "CLIENT_RPC_ENVELOPE",
+  "CLIENT_RPC_PROGRAM_ERROR",
+  "CLIENT_RPC_TRANSACT_DECODE",
+  "CLIENT_RPC_OWNER_TAG",
+  "CLIENT_RPC_TRANSACT_NOT_FOUND",
+] as const satisfies readonly ClientErrorCode[]);
+
+const CLIENT_ERROR_CODE_SET: ReadonlySet<string> = new Set([
+  ...CANONICAL_CLIENT_ERROR_CODES,
+  ...TYPESCRIPT_CLIENT_ERROR_CODES,
+]);
+
 export type ClientErrorCause =
   | Readonly<{ category: "client"; code: ClientErrorCode }>
   | Readonly<{
@@ -286,6 +342,8 @@ export type ClientErrorCause =
       code: TransactionErrorCode;
       details?: Readonly<Record<string, unknown>>;
     }>
+  | Readonly<{ category: "hasher"; code: HasherErrorCode }>
+  | Readonly<{ category: "rpc" | "indexer" | "indexerTimeout" }>
   | Readonly<{ category: "external"; code?: string }>;
 
 type ClientErrorOptions<Code extends ClientErrorCode> = Readonly<{
@@ -303,12 +361,168 @@ type ClientErrorArguments<Code extends ClientErrorCode> =
         }>,
       ];
 
+type FieldKind = "boolean" | "cause" | "number" | "object" | "string";
+type DetailShape = Readonly<Record<string, FieldKind>>;
+
+const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
+  "CLIENT_SELECTED_BALANCE_OVERFLOW",
+  "CLIENT_FEE_PAYER_MISMATCH",
+  "CLIENT_MULTIPLE_PUBLIC_SPL_ASSETS",
+  "CLIENT_WITHDRAWAL_ALREADY_SET",
+  "CLIENT_NO_INPUTS",
+  "CLIENT_MISSING_P256_SIGNATURE",
+  "CLIENT_MERGE_SIGNING_KEY_MISMATCH",
+  "CLIENT_MERGE_NULLIFIER_KEY_MISMATCH",
+  "CLIENT_MISSING_OUTPUT",
+  "CLIENT_INVALID_PROOF_INPUTS",
+  "CLIENT_INVALID_MERGE",
+  "CLIENT_MERGE_PROOF_COMMITMENT",
+  "CLIENT_MERGE_OUTPUT_MISMATCH",
+  "CLIENT_INVALID_TRANSACTION",
+  "CLIENT_TOO_MANY_ACCOUNTS",
+  "CLIENT_TRANSACTION_ASSEMBLY",
+  "CLIENT_INVALID_P256_KEY",
+  "CLIENT_INVALID_MERGE_OUTPUT",
+  "CLIENT_INVALID_MERGE_MATERIAL",
+  "CLIENT_MERGE_MATERIAL_VIEWING_KEY_MISMATCH",
+  "CLIENT_PROVER_INPUT",
+  "CLIENT_PROVER_RESPONSE_TOO_LARGE",
+  "CLIENT_PROVER_TEXT",
+  "CLIENT_PROVER_JSON",
+  "CLIENT_RPC_TRANSACT_DECODE",
+  "CLIENT_RPC_OWNER_TAG",
+  "CLIENT_RPC_TRANSACT_NOT_FOUND",
+  "CLIENT_UNEXPECTED",
+]);
+
+const OPTIONAL_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
+  "CLIENT_FIELD_TOO_LONG",
+  "CLIENT_INDEXER_TIMEOUT",
+  "CLIENT_INVALID_CONFIG",
+  "CLIENT_INVALID_INTEGER",
+  "CLIENT_INVALID_INPUT_CONTEXT",
+  "CLIENT_INVALID_BASE58",
+  "CLIENT_ABORTED",
+  "CLIENT_PROOF_RAIL_MISMATCH",
+]);
+
+const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
+  CLIENT_KEYPAIR: { code: "string" },
+  CLIENT_TRANSACTION: { code: "string" },
+  CLIENT_HASHER: { code: "string" },
+  CLIENT_UNSUPPORTED_SHAPE: { nIn: "number", nOut: "number" },
+  CLIENT_TOO_MANY_INPUTS: { got: "number", max: "number" },
+  CLIENT_TOO_MANY_OUTPUTS: { got: "number", max: "number" },
+  CLIENT_INSUFFICIENT_BALANCE: { requested: "string", available: "string" },
+  CLIENT_UNSIGNED_INPUT_UNAVAILABLE: { index: "number" },
+  CLIENT_SOLANA_TRANSACTION_SIGNING: { reason: "string" },
+  CLIENT_AMBIGUOUS_TREE: { asset: "string", treeCount: "number" },
+  CLIENT_TREE_MISMATCH: { transactionTree: "string", clientTree: "string" },
+  CLIENT_MISSING_SPL_TOKEN_ACCOUNT: { mint: "string" },
+  CLIENT_ADDRESS_RESOLUTION: { reason: "string" },
+  CLIENT_USER_REGISTRY_RECORD_NOT_FOUND: { owner: "string", record: "string" },
+  CLIENT_EDDSA_INPUT_NOT_SOLANA_OWNED: { index: "number" },
+  CLIENT_MERGE_INPUT_RAIL_MISMATCH: { index: "number" },
+  CLIENT_MERGE_INPUT_ASSET_MISMATCH: { index: "number" },
+  CLIENT_MERGE_DISABLED: { owner: "string" },
+  CLIENT_NOTHING_TO_MERGE: { asset: "string" },
+  CLIENT_DUPLICATE_INPUT_UTXO: { hash: "string" },
+  CLIENT_MERGE_VIEWING_KEY_MISMATCH: { owner: "string" },
+  CLIENT_MERGE_TREE_MISMATCH: { proofTree: "string", submitTree: "string" },
+  CLIENT_SPLIT_NOT_DIVISIBLE: { amount: "string", parts: "number" },
+  CLIENT_INPUT_UTXO_UNAVAILABLE: { hash: "string" },
+  CLIENT_INPUT_UTXO_TREE_MISMATCH: { hash: "string", utxoTree: "string", spendTree: "string" },
+  CLIENT_SPLIT_INPUT_HAS_DATA: { hash: "string" },
+  CLIENT_SPLIT_INPUT_ZONE_MISMATCH: { hash: "string" },
+  CLIENT_P256_SIGNATURE: { reason: "string" },
+  CLIENT_FIELD_TOO_LONG: { field: "string", actual: "number", maximum: "number" },
+  CLIENT_PROVER_SERVER: { method: "string", status: "number", reason: "string" },
+  CLIENT_PROOF_PARSE: { path: "string", reason: "string" },
+  CLIENT_PROVER: { reason: "string" },
+  CLIENT_MISSING_INPUT_MERKLE_PROOF: { index: "number" },
+  CLIENT_INCOMPLETE_INPUT_PROOFS: { expected: "number", state: "number", nullifier: "number" },
+  CLIENT_STATE_PROOF_LEAF_MISMATCH: { index: "number" },
+  CLIENT_STATE_PROOF_TREE_MISMATCH: { index: "number" },
+  CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH: { index: "number" },
+  CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: { index: "number" },
+  CLIENT_INPUT_TREE_INDEX_COUNT_MISMATCH: { expected: "number", actual: "number" },
+  CLIENT_RPC: { method: "string", reason: "string" },
+  CLIENT_INDEXER: { method: "string", reason: "string" },
+  CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
+  CLIENT_INDEXER_TIMEOUT: { signature: "string", expectedTags: "number", attempts: "number" },
+  CLIENT_INDEXER_NOT_CAUGHT_UP: { target: "string", latest: "string", attempts: "number" },
+  CLIENT_POLL_TIMED_OUT: { attempts: "number", lastCause: "cause" },
+  CLIENT_PROOF_PATH_LENGTH: { got: "number", expected: "number", index: "number", kind: "string" },
+  CLIENT_PROOF_INPUT_COUNT_MISMATCH: { got: "number", expected: "number" },
+  CLIENT_ACCOUNT_NOT_FOUND: { address: "string" },
+  CLIENT_DEPOSIT_SENDER_NOT_SIGNER: { sender: "string" },
+  CLIENT_INVALID_CONFIG: { field: "string" },
+  CLIENT_INVALID_INTEGER: { field: "string", value: "string", length: "number" },
+  CLIENT_INVALID_INPUT_CONTEXT: { index: "number" },
+  CLIENT_CONFIRMATION_TIMEOUT: { signature: "string", attempts: "number" },
+  CLIENT_INVALID_LENGTH: { field: "string", expected: "number", actual: "number" },
+  CLIENT_INVALID_FIELD: { field: "string", value: "string" },
+  CLIENT_INVALID_BASE58: { field: "string", expectedLength: "number", actualLength: "number" },
+  CLIENT_INVALID_BASE64: { field: "string" },
+  CLIENT_INVALID_CONTEXT: { field: "string", method: "string" },
+  CLIENT_ABORTED: { method: "string", retryable: "boolean" },
+  CLIENT_TIMEOUT: { method: "string", retryable: "boolean" },
+  CLIENT_REQUEST: { method: "string", retryable: "boolean" },
+  CLIENT_INVALID_POLL_CONFIG: { field: "string", value: "string" },
+  CLIENT_INVALID_INDEXER: { field: "string" },
+  CLIENT_PROOF_RAIL_MISMATCH: { expected: "string" },
+  CLIENT_PROOF_POINT: { field: "string" },
+  CLIENT_PROOF_TREE_MISMATCH: { index: "number" },
+  CLIENT_INVALID_MERGE_CIPHERTEXT: { expected: "number", actual: "number" },
+  CLIENT_INVALID_MERGE_SHAPE: { expected: "number", actual: "number" },
+  CLIENT_PROVER_REQUEST: { method: "string", attempts: "number" },
+  CLIENT_PROVER_HTTP: { method: "string", status: "number", attempts: "number" },
+  CLIENT_PROVER_JOB: { method: "string" },
+  CLIENT_PROVER_TIMEOUT: { method: "string", jobId: "string", timeoutMs: "number" },
+  CLIENT_INVALID_RPC_RESPONSE: {
+    path: "string",
+    method: "string",
+    expected: "number",
+    actual: "number",
+  },
+  CLIENT_RPC_TRANSACTION_NOT_FOUND: { signature: "string" },
+  CLIENT_RPC_HTTP: { method: "string", status: "number" },
+  CLIENT_RPC_JSON: { method: "string" },
+  CLIENT_RPC_ENVELOPE: { method: "string" },
+  CLIENT_RPC_PROGRAM_ERROR: {
+    method: "string",
+    instructionIndex: "number",
+    programError: "object",
+  },
+};
+
+const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly string[]>>> = {
+  CLIENT_PROVER_SERVER: [],
+  CLIENT_PROOF_PARSE: [],
+  CLIENT_RPC: [],
+  CLIENT_INDEXER: [],
+  CLIENT_FIELD_TOO_LONG: [],
+  CLIENT_INDEXER_TIMEOUT: [],
+  CLIENT_PROOF_PATH_LENGTH: ["got", "expected"],
+  CLIENT_POLL_TIMED_OUT: ["attempts"],
+  CLIENT_INVALID_CONFIG: [],
+  CLIENT_INVALID_INTEGER: [],
+  CLIENT_INVALID_INPUT_CONTEXT: [],
+  CLIENT_INVALID_BASE58: [],
+  CLIENT_ABORTED: [],
+  CLIENT_INVALID_POLL_CONFIG: ["field"],
+  CLIENT_PROOF_RAIL_MISMATCH: [],
+  CLIENT_PROVER_HTTP: ["method"],
+  CLIENT_INVALID_RPC_RESPONSE: [],
+};
+
 export class ClientError<Code extends ClientErrorCode = ClientErrorCode> extends Error {
   readonly code: Code;
   readonly details: ClientErrorDetails<Code> | undefined;
   override readonly cause: ClientErrorCause | undefined;
 
   constructor(code: Code, ...[options = {}]: ClientErrorArguments<Code>) {
+    validateClientError(code, options.details);
     const cause = safeCause(options.cause);
     super(code, cause === undefined ? undefined : { cause });
     this.name = "ClientError";
@@ -316,7 +530,7 @@ export class ClientError<Code extends ClientErrorCode = ClientErrorCode> extends
     this.details =
       options.details === undefined
         ? undefined
-        : (Object.freeze({ ...options.details }) as unknown as ClientErrorDetails<Code>);
+        : (copyAndFreeze(options.details) as ClientErrorDetails<Code>);
     this.cause = cause;
   }
 }
@@ -339,7 +553,10 @@ export function fromClientCause(cause: unknown): ClientError {
 }
 
 export function hasherError(code: HasherErrorCode, cause?: unknown): ClientError {
-  return new ClientError("CLIENT_HASHER", { details: { code }, cause });
+  return new ClientError("CLIENT_HASHER", {
+    details: { code },
+    cause: { category: "hasher", code, cause },
+  });
 }
 
 function safeCause(cause: unknown): ClientErrorCause | undefined {
@@ -363,6 +580,16 @@ function safeCause(cause: unknown): ClientErrorCause | undefined {
   if (
     typeof cause === "object" &&
     cause !== null &&
+    "category" in cause &&
+    cause.category === "hasher" &&
+    "code" in cause &&
+    isHasherErrorCode(cause.code)
+  ) {
+    return Object.freeze({ category: "hasher", code: cause.code });
+  }
+  if (
+    typeof cause === "object" &&
+    cause !== null &&
     "code" in cause &&
     typeof cause.code === "string"
   ) {
@@ -379,16 +606,149 @@ function safeDetails(
   details: Readonly<Record<string, unknown>> | undefined,
 ): Readonly<{ details?: Readonly<Record<string, unknown>> }> {
   if (details === undefined) return Object.freeze({});
-  const safe = Object.fromEntries(
-    Object.entries(details).filter(
-      ([key, value]) =>
-        !/(secret|private|seed|blinding|nonce|scalar)/iu.test(key) &&
-        (typeof value === "string" ||
-          typeof value === "number" ||
-          typeof value === "bigint" ||
-          typeof value === "boolean" ||
-          value === null),
-    ),
+  return Object.freeze({ details: sanitizeDetails(details) });
+}
+
+function validateClientError(code: unknown, details: unknown): asserts code is ClientErrorCode {
+  if (typeof code !== "string" || !CLIENT_ERROR_CODE_SET.has(code)) {
+    throw new TypeError("invalid ClientError code");
+  }
+  const typedCode = code as ClientErrorCode;
+  const noDetails = NO_DETAIL_CODES.has(typedCode);
+  const shape = DETAIL_SHAPES[typedCode];
+  if (details === undefined) {
+    if (noDetails || OPTIONAL_DETAIL_CODES.has(typedCode)) return;
+    throw new TypeError(`missing details for ${code}`);
+  }
+  if (noDetails || shape === undefined || !isPlainObject(details)) {
+    throw new TypeError(`invalid details for ${code}`);
+  }
+  const required = REQUIRED_DETAIL_FIELDS[typedCode] ?? Object.keys(shape);
+  for (const field of required) {
+    if (!Object.hasOwn(details, field)) throw new TypeError(`missing ${code}.${field}`);
+  }
+  for (const [field, value] of ownDataEntries(details)) {
+    const kind = shape[field];
+    if (kind === undefined || !matchesFieldKind(value, kind, field)) {
+      throw new TypeError(`invalid ${code}.${field}`);
+    }
+  }
+}
+
+function matchesFieldKind(value: unknown, kind: FieldKind, field: string): boolean {
+  if (field === "status" && value === "failed") return true;
+  if (kind === "number") return typeof value === "number" && Number.isSafeInteger(value);
+  if (kind === "cause") return isSafeCause(value);
+  if (kind === "object") return isPlainObject(value);
+  return typeof value === kind;
+}
+
+function isSafeCause(value: unknown): value is ClientErrorCause {
+  if (!isPlainObject(value) || typeof value["category"] !== "string") return false;
+  switch (value["category"]) {
+    case "client":
+      return typeof value["code"] === "string" && CLIENT_ERROR_CODE_SET.has(value["code"]);
+    case "keypair":
+    case "transaction":
+    case "hasher":
+      return typeof value["code"] === "string";
+    case "external":
+      return value["code"] === undefined || typeof value["code"] === "string";
+    case "rpc":
+    case "indexer":
+    case "indexerTimeout":
+      return Object.keys(value).length === 1;
+    default:
+      return false;
+  }
+}
+
+function copyAndFreeze(value: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const copy: Record<string, unknown> = {};
+  for (const [key, item] of ownDataEntries(value)) {
+    copy[key] = cloneSafeValue(item);
+  }
+  return Object.freeze(copy);
+}
+
+function cloneSafeValue(value: unknown): unknown {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) return Object.freeze(value.map(cloneSafeValue));
+  if (isPlainObject(value)) return copyAndFreeze(value);
+  throw new TypeError("ClientError details must contain safe data");
+}
+
+function sanitizeDetails(
+  details: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const seen = new WeakSet();
+  const sanitize = (value: unknown): unknown => {
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "bigint" ||
+      typeof value === "boolean"
+    ) {
+      return value;
+    }
+    if (typeof value !== "object" || seen.has(value)) return undefined;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      return Object.freeze(value.map(sanitize).filter((item) => item !== undefined));
+    }
+    if (!isPlainObject(value)) return undefined;
+    const safe: Record<string, unknown> = {};
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+      if (!descriptor.enumerable || !("value" in descriptor)) continue;
+      if (/(secret|private|seed|blinding|nonce|scalar)/iu.test(key)) continue;
+      const sanitized = sanitize(descriptor.value);
+      if (sanitized !== undefined) safe[key] = sanitized;
+    }
+    return Object.freeze(safe);
+  };
+  return sanitize(details) as Readonly<Record<string, unknown>>;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  return prototype === Object.prototype || prototype === null;
+}
+
+function ownDataEntries(value: Record<string, unknown>): readonly (readonly [string, unknown])[] {
+  return Object.entries(Object.getOwnPropertyDescriptors(value))
+    .filter(([, descriptor]) => descriptor.enumerable)
+    .map(([key, descriptor]) => {
+      if (!("value" in descriptor)) throw new TypeError("ClientError details cannot use accessors");
+      return [key, descriptor.value] as const;
+    });
+}
+
+function isHasherErrorCode(value: unknown): value is HasherErrorCode {
+  return (
+    typeof value === "string" &&
+    [
+      "IntegerOverflow",
+      "Poseidon",
+      "PoseidonSyscall",
+      "UnknownSolanaSyscall",
+      "InvalidInputLength",
+      "InvalidNumFields",
+      "EmptyInput",
+      "BorshError",
+      "OptionHashToFieldSizeZero",
+      "PoseidonFeatureNotEnabled",
+      "Sha256FeatureNotEnabled",
+      "KeccakFeatureNotEnabled",
+    ].includes(value)
   );
-  return Object.freeze({ details: Object.freeze(safe) });
 }

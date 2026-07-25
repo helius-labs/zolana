@@ -10,18 +10,13 @@ import type { P256PublicKey } from "@zolana/keypair";
 import type { InputUtxoContext } from "@zolana/transaction";
 import type { IndexedShieldedTransaction } from "@zolana/transaction/instructions";
 
-import { ClientError } from "./error.js";
+import type { IndexerRpcConfig } from "./retry.js";
 
-export interface IndexerPollConfig {
-  readonly numRetries: number;
-  readonly delayMs: bigint;
-  readonly maxDelayMs: bigint;
-}
-
-export interface IndexerRpcConfig {
-  readonly waitForIndexer: boolean;
-  readonly poll: IndexerPollConfig;
-}
+export {
+  DEFAULT_INDEXER_POLL_CONFIG as DEFAULT_INDEXER_POLL,
+  validatePollConfig,
+} from "./retry.js";
+export type { IndexerPollConfig, IndexerRpcConfig } from "./retry.js";
 
 export interface RpcContext {
   readonly blockTime: bigint;
@@ -139,47 +134,4 @@ export interface Rpc {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<readonly SpendProof[]>;
-}
-
-export const DEFAULT_INDEXER_POLL: IndexerPollConfig = Object.freeze({
-  numRetries: 10,
-  delayMs: 400n,
-  maxDelayMs: 8_000n,
-});
-
-export function validatePollConfig(config: IndexerPollConfig): IndexerPollConfig {
-  const candidate: unknown = config;
-  if (typeof candidate !== "object" || candidate === null) {
-    throw new ClientError("CLIENT_INVALID_POLL_CONFIG", {
-      details: { field: "poll" },
-    });
-  }
-  const value = candidate as Record<string, unknown>;
-  const numRetries = value["numRetries"];
-  const delayMs = value["delayMs"];
-  const maxDelayMs = value["maxDelayMs"];
-  if (
-    typeof numRetries !== "number" ||
-    !Number.isSafeInteger(numRetries) ||
-    numRetries < 0 ||
-    numRetries > 0xffff_ffff
-  ) {
-    throw new ClientError("CLIENT_INVALID_POLL_CONFIG", {
-      details: { field: "numRetries" },
-    });
-  }
-  if (
-    typeof delayMs !== "bigint" ||
-    typeof maxDelayMs !== "bigint" ||
-    delayMs < 0n ||
-    maxDelayMs < 0n ||
-    delayMs > 0xffff_ffff_ffff_ffffn ||
-    maxDelayMs > 0xffff_ffff_ffff_ffffn ||
-    delayMs > maxDelayMs
-  ) {
-    throw new ClientError("CLIENT_INVALID_POLL_CONFIG", {
-      details: { field: "delayMs" },
-    });
-  }
-  return Object.freeze({ numRetries, delayMs, maxDelayMs });
 }

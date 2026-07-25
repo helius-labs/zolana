@@ -22,6 +22,12 @@
       "browser": "./dist/prover/index.js",
       "import": "./dist/prover/index.js",
       "default": "./dist/prover/index.js"
+    },
+    "./retry": {
+      "types": "./dist/retry/index.d.ts",
+      "browser": "./dist/retry/index.js",
+      "import": "./dist/retry/index.js",
+      "default": "./dist/retry/index.js"
     }
   },
   "dependencies": {

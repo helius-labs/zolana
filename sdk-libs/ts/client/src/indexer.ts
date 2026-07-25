@@ -14,19 +14,22 @@ import { P256PublicKey } from "@zolana/keypair";
 import type { IndexedShieldedTransaction } from "@zolana/transaction/instructions";
 
 import { ClientError, isClientError } from "./error.js";
-import { decodeBase64, sleep } from "./internal.js";
+import { decodeBase64 } from "./internal.js";
 import {
-  DEFAULT_INDEXER_POLL,
+  DEFAULT_INDEXER_POLL_CONFIG,
+  pollUntil,
+  validatePollConfig,
+  type IndexerRpcConfig,
+} from "./retry.js";
+import {
   type EncryptedUtxoMatch,
   type GetByTagsRequest,
   type GetEncryptedUtxosByTagsResponse,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
   type GetShieldedTransactionsByTagsResponse,
-  type IndexerRpcConfig,
   type MerkleProof,
   type NonInclusionProof,
-  validatePollConfig,
 } from "./rpc.js";
 
 export class ZolanaIndexer {
@@ -340,18 +343,20 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ blockTime: b
   }
   const waitForIndexer = config?.waitForIndexer ?? false;
   if (!waitForIndexer) return request();
-  const poll = validatePollConfig(config?.poll ?? DEFAULT_INDEXER_POLL);
+  const poll = validatePollConfig(config?.poll ?? DEFAULT_INDEXER_POLL_CONFIG);
   const target = BigInt(Math.floor(Date.now() / 1000));
   let latest = -(1n << 63n);
-  let delay = poll.delayMs;
-  for (let attempt = 0; attempt <= poll.numRetries; attempt++) {
-    if (attempt > 0) {
-      await sleep(delay, context);
-      delay = delay * 2n < poll.maxDelayMs ? delay * 2n : poll.maxDelayMs;
-    }
-    const response = await request();
-    latest = response.context.blockTime;
-    if (latest >= target) return response;
+  try {
+    return await pollUntil(
+      request,
+      (response) => {
+        latest = response.context.blockTime;
+        return latest >= target;
+      },
+      { config: poll, ...(context === undefined ? {} : { context }) },
+    );
+  } catch (cause) {
+    if (!isClientError(cause) || cause.code !== "CLIENT_POLL_TIMED_OUT") throw cause;
   }
   throw new ClientError("CLIENT_INDEXER_NOT_CAUGHT_UP", {
     details: {
