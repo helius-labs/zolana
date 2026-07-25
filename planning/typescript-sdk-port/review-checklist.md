@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `4e271aac6aac7ab5751a0a437b4fda4983ff0059`
+- Review HEAD: `ee8adef485f654d1eacd20dd6c73efd709d240d0`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `31 done / 118 total`; `44 needs_fix`; `0 needs_re_review`; `1 in_progress`
-- Exact next eligible row: `T18 sdk-libs/transaction/src/instructions/types.rs`
+- Progress: `31 done / 118 total`; `45 needs_fix`; `0 needs_re_review`; `1 in_progress`
+- Exact next eligible row: `T19 sdk-libs/transaction/src/instructions/transact/types.rs`
 - Active reviews: `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -236,7 +236,7 @@ Columns:
 | T15 | `sdk-libs/transaction/src/wallet/sync.rs` | `transaction/src/wallet/sync.ts` | needs_fix | DIVERGENT | proposed | TypeScript lacks Rust/spec tag-driven windows, counters, viewing epochs, and public wallet sync and balance helpers; it changes scheme history, report ordering, and checkpoint behavior, with only narrow proofless evidence. First make Rust resume counters correctly, reject a zero window, stage sync atomically, supply zone and data contexts, and scan merge tags; then align TypeScript while preserving T16 parallel-scanning and W08 wallet-backfill ownership. | 2026-07-25 review | - |
 | T16 | `sdk-libs/transaction/src/wallet/parallel.rs` | `transaction/src/wallet/sync.ts` | needs_fix | DIVERGENT | proposed | The TypeScript worker-equivalent is only a serial alias: it lacks Rust's feature-gated parallel capability and worker adaptation, deterministic merge, cancellation, error, and secret-transfer behavior, plus worker evidence. First make Rust's parallel path record confidential sends, sort keys and merge deterministically, run feature tests in normal gates, and assert exact serial-parallel state; then implement and prove the TypeScript adaptation while preserving T15 ownership. | 2026-07-25 review | - |
 | T17 | `sdk-libs/transaction/src/wallet/mod.rs` | `transaction/src/wallet/index.ts` | needs_fix | DIVERGENT | proposed | TypeScript root and wallet entry points omit much of Rust's aggregate public API, expose an undeclared serial worker alias plus mutable internals and registry entries, and lack exact runtime, declaration, tarball, browser, named-consumer, and aggregate-fixture allowlists. Add the missing aggregate surface, remove or document excess exports, and prove exact entry-point contracts while preserving T12-T16 ownership and their Rust prerequisites. | 2026-07-25 review | - |
-| T18 | `sdk-libs/transaction/src/instructions/types.rs` | `transaction/src/instructions/index.ts`, `utxo.ts` | todo | - | none | - | - | - |
+| T18 | `sdk-libs/transaction/src/instructions/types.rs` | `transaction/src/instructions/index.ts`, `utxo.ts` | needs_fix | DIVERGENT | proposed | A TypeScript proof-input wrapper exists, but custom zero-owner inputs hash different fields, construction retains mutable UTXO and nullifier-key references instead of Rust ownership and clone semantics, the instructions subpath omits the mapped class, and inventory and evidence are stale. First make Rust reject noncanonical zero-owner dummies; meanwhile require TypeScript to match current-Rust hashing, then align ownership, exports, inventory, and evidence. | 2026-07-25 review | - |
 | T19 | `sdk-libs/transaction/src/instructions/transact/types.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
 | T20 | `sdk-libs/transaction/src/instructions/transact/shape.rs` | `transaction/src/transact/index.ts` | todo | - | none | - | - | - |
 | T21 | `sdk-libs/transaction/src/instructions/transact/external_data.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
@@ -1409,3 +1409,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `31/118`; package `0/31`
 - Exact next file: `T18 sdk-libs/transaction/src/instructions/types.rs`
 - Full SDK parity claim: unsupported; aggregate wallet API coverage, excess exports, mutability boundaries, and entry-point evidence diverge
+
+### 2026-07-25 12:24 UTC | T18 | `sdk-libs/transaction/src/instructions/types.rs`
+
+- Baseline: HEAD `ee8adef485f654d1eacd20dd6c73efd709d240d0`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module owns `SppProofInputUtxo` construction, dummy handling, proof-input hashing and nullifiers, and `InputUtxoContext`. T11 retains canonical UTXO and proof-input field encoding ownership.
+- Evidence: The TypeScript `ProofInputUtxo` wrapper exists, but custom zero-owner inputs discard supplied amount, data, and zone fields when hashing instead of matching current Rust. Construction retains mutable UTXO and nullifier-key references instead of Rust move and clone semantics; the instructions subpath omits the mapped class; and the inventory still names `SpendUtxo` and `InputCommitment`, maps a nonexistent `types.ts`, and promises stale fixture evidence. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: First make Rust reject noncanonical zero-owner dummies so dummy detection cannot silently accept malformed custom inputs. Until that robustness prerequisite lands, TypeScript must preserve current-Rust hash behavior; then align defensive ownership and clone boundaries, export the mapped class from the instructions subpath, and refresh inventory and evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `31/118`; package `0/31`
+- Exact next file: `T19 sdk-libs/transaction/src/instructions/transact/types.rs`
+- Full SDK parity claim: unsupported; dummy hashing, ownership boundaries, instructions exports, inventory, and evidence diverge
