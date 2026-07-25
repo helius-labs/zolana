@@ -867,6 +867,8 @@ This was held open on a safety question that has since been answered by executio
 
 The narrower relaxation already in flight, admitting `amount > 0` so the check stops refusing deposits, is a subset of this ruling rather than a conflict with it. Removing the check subsumes it.
 
+**Do not close row T29 by restoring the guard.** Its row text still describes a withdrawal guard rejecting the public leg on the zone-authority rail, and an exhaustive Rust-to-TypeScript error map confirms no such variant exists in either language now. Both permit the leg deliberately, under this ruling. Restoring it would also resurrect a second defect that the removal exposed: `PublicAmounts::default()` was correct only while the guard existed, so with a leg permitted, a hardcoded default proves zero public amounts over a nonzero leg. That is a valid proof of the wrong statement. T29 needs its text rewritten to describe the current, correct behaviour, not a fix.
+
 ### The padding-nullifier finding against PR #142
 
 | Field | Value |

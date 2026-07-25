@@ -33,7 +33,7 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker returns. Last update: 2026-07-25 20:23.
+Refreshed as each worker returns. Last update: 2026-07-25 20:27.
 
 | | |
 | --- | --- |
@@ -49,7 +49,7 @@ In flight:
 | --- | --- |
 | Client package, rows C01 to C22 | RPC half closed, prover half running |
 | Interface, 36 rows | Running, `port/interface-a` |
-| Transaction, 31 rows | Running, `port/transaction` |
+| Transaction, 31 rows | 3 closed, 8 advanced, second pass running |
 | Keypair, 14 rows | Running, `port/keypair` |
 | Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc` |
 | The 27 uncovered rows | Done: 17 parity, 1 fixed, 9 not applicable |
