@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `c08d91a70b47f0eb43e29e984967f71a04ec3bfe`
+- Review HEAD: `975783aa38b65734585f7749e347201fd67a2b71`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `18 done / 118 total`; `49 needs_fix`; `0 needs_re_review`; `1 in_progress`
-- Exact next eligible row: `T10 sdk-libs/transaction/src/serialization/mod.rs`
+- Progress: `18 done / 118 total`; `50 needs_fix`; `0 needs_re_review`; `1 in_progress`
+- Exact next eligible row: `T11 sdk-libs/transaction/src/utxo.rs`
 - Active reviews: `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -228,7 +228,7 @@ Columns:
 | T07 | `sdk-libs/transaction/src/serialization/proofless.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Valid simple bytes match, but public conversion and scheme-lock capabilities are absent, owner-hash tampering is ignored in wallet sync, TypeScript follows Rust's spec-conflicting memo field, and optional, boundary, export, browser, and tamper evidence is incomplete. First remove memo per spec and fix Rust's exact-one UTXO, owner, context, integrity, and `Serialize`-category prerequisites; then align TypeScript capabilities and evidence. | 2026-07-25 review | - |
 | T08 | `sdk-libs/transaction/src/serialization/split.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Exact frozen bytes match current Rust, but TypeScript lacks zone-context parity and the public `SplitEncryptedUtxos` and scheme-locked conversion surface, accepts wrong split discriminators and cross-scheme envelopes, has runtime count and error-boundary gaps, and lacks adversarial, browser, and export evidence. Rust's lossy `Split::from_utxos` must first validate the UTXO set, owner, and context; then align the TypeScript surface, validation, and evidence. | 2026-07-25 review | - |
 | T09 | `sdk-libs/transaction/src/serialization/merge.rs` | `transaction/src/serialization/codecs.ts` | needs_fix | DIVERGENT | proposed | Fixed-layout and verifiable-encryption bytes match current Rust, but TypeScript lacks a merge-specific scheme-locked conversion and sealing API, accepts invalid runtime amount and blinding values, requires raw secret bytes instead of `ViewingKey`, omits public UTXO conversion, and lacks malformed, export, browser, and proof-contribution evidence. First make Rust require exactly one compatible UTXO, validate owner, data, and zone, preserve `zone_program_id` on reconstruction, and return a structured unknown-asset error; then port and prove the surface. | 2026-07-25 review | - |
-| T10 | `sdk-libs/transaction/src/serialization/mod.rs` | `transaction/src/serialization/index.ts` | todo | - | none | - | - | - |
+| T10 | `sdk-libs/transaction/src/serialization/mod.rs` | `transaction/src/serialization/index.ts` | needs_fix | DIVERGENT | proposed | Valid family bytes are represented, but TypeScript omits adaptations for Rust's `DecodeCx`, `OwnerCx`, and `UtxoSerialization` capabilities, does not seal scheme-to-encoding combinations, misses several packed public capabilities, and lacks exact root/subpath declaration, runtime, tarball, browser, and consumer allowlists. Preserve T03-T09 ownership and their Rust conversion/spec prerequisites; then add the aggregate capability adaptations, sealing, exports, and allowlist evidence. | 2026-07-25 review | - |
 | T11 | `sdk-libs/transaction/src/utxo.rs` | `transaction/src/utxo.ts` | todo | - | none | - | - | - |
 | T12 | `sdk-libs/transaction/src/wallet/asset.rs` | `transaction/src/wallet/asset.ts` | todo | - | none | - | - | - |
 | T13 | `sdk-libs/transaction/src/wallet/authority.rs` | `transaction/src/wallet/authority.ts` | todo | - | none | - | - | - |
@@ -1292,3 +1292,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `18/118`; package `0/31`
 - Exact next file: `T10 sdk-libs/transaction/src/serialization/mod.rs`
 - Full SDK parity claim: unsupported; merge conversion, validation, key capability, and evidence diverge
+
+### 2026-07-25 11:47 UTC | T10 | `sdk-libs/transaction/src/serialization/mod.rs`
+
+- Baseline: HEAD `975783aa38b65734585f7749e347201fd67a2b71`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This public aggregate module supplies serialization contexts, the scheme-locked `UtxoSerialization` capability pipeline, encoding selection, and selected family re-exports.
+- Evidence: Valid family bytes are represented, but TypeScript omits Rust context and `UtxoSerialization` capability adaptations, does not seal scheme-to-encoding combinations, misses several packed public capabilities, and lacks exact root/subpath declaration, runtime, tarball, browser, and consumer allowlists. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Preserve T03-T09 ownership and their Rust conversion/spec prerequisites; after those are resolved, add the aggregate context and capability adaptations, seal scheme-to-encoding combinations, pack the missing public capabilities, and pin root, subpath, runtime, tarball, browser, and consumer allowlists.
+- Row transition: `todo -> needs_fix`
+- Progress: `18/118`; package `0/31`
+- Exact next file: `T11 sdk-libs/transaction/src/utxo.rs`
+- Full SDK parity claim: unsupported; aggregate serialization capabilities, sealing, exports, and consumer evidence diverge
