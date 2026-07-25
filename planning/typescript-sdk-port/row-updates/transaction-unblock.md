@@ -1,5 +1,7 @@
 # Unblocking W06, W08, W09 and relaxing two over-strict guards
 
+Landed in `d2ff553b`.
+
 Four wallet rows were `BLOCKED` or carrying a strictness regression on state and
 types that `@zolana/transaction` did not have. All of it now exists, and the
 wallet sync code that read it is no longer inert.
@@ -88,6 +90,10 @@ Against `sdk-libs/transaction/src/authority.rs:48-62` and
    nothing about value moving in. It now refuses only a negative amount;
    `transaction/test/transfer.test.ts` asserts a positive one builds. The
    withdrawal half is untouched, pending the owner ruling that document asks for.
+   `double-spend-analysis.md` since showed by execution that double-spend
+   protection holds on the withdrawal path too, so the direction left refused is
+   a policy choice rather than a safety boundary, and relaxing the deposit
+   direction risks no invariant.
 3. `LocalWalletAuthority.requestUserApproval` rejected a request naming another
    Solana address with `WALLET_APPROVAL_IDENTITY_MISMATCH`. Rust takes the trait
    default, which approves without inspecting the request, so the error code is
@@ -118,8 +124,11 @@ the one over its test now say so.
   `input_commitments_include_data_and_zone_hashes`
   (`sdk-libs/wallet/tests/transaction.rs:769`, `MissingZoneProgramId`), which
   fails on the committed tree with no Rust file modified here.
-- `npm run test:unit` 451 passed / 1 skipped, `test:vectors`, `test:cross`,
-  `typecheck`, `build`, `test:exports`, and `test:e2e:actions` 9 passed.
+- `npm run test:unit` 453 passed / 1 skipped, `test:vectors`, `test:cross`,
+  `typecheck`, `build`, `test:exports`, and `test:e2e:actions` 9 passed. Run
+  after the deposit tag moved to the recipient signing pubkey (`1ff51a4c`,
+  `114a5140`); nothing here derives that tag, and the wallet vector suite that
+  pins it passes.
 - Note for anyone reading a red run: the TypeScript packages resolve each other
   through `dist`, so a stale build after someone else's commit reports failures
   that a rebuild clears. Two deposit-vector failures seen mid-session were
