@@ -219,12 +219,7 @@ export class IndexedMerkleTree {
 
   insert(value: Bytes32): bigint {
     const ownedValue = indexedBytes(value);
-    if (compareBytes(ownedValue, ZERO) <= 0 || compareBytes(ownedValue, this.highest) >= 0) {
-      throw new IndexedMerkleTreeError(
-        "INDEXED_MERKLE_TREE_INVALID_VALUE",
-        "Value is outside the indexed range",
-      );
-    }
+    this.checkBelowHighestValue(ownedValue);
 
     const low = this.findLowElement(ownedValue);
     const high = this.highElement(low);
@@ -300,12 +295,7 @@ export class IndexedMerkleTree {
 
   nonInclusionProof(value: Bytes32): NonInclusionProof {
     const ownedValue = indexedBytes(value);
-    if (compareBytes(ownedValue, ZERO) <= 0 || compareBytes(ownedValue, this.highest) >= 0) {
-      throw new IndexedMerkleTreeError(
-        "INDEXED_MERKLE_TREE_INVALID_VALUE",
-        "Value is outside the indexed range",
-      );
-    }
+    this.checkBelowHighestValue(ownedValue);
 
     const low = this.findLowElement(ownedValue);
     const high = this.highElement(low);
@@ -318,6 +308,20 @@ export class IndexedMerkleTree {
       nextIndex: low.nextIndex,
       merkleProof: this.tree.proof(low.index),
     };
+  }
+
+  // The exclusion ranges tile `(0, highestValue)`, so a value at or above the
+  // sentinel would claim an empty range and no range could contain the sentinel
+  // itself. The low end needs no guard here: zero is the tree's first element,
+  // so `findLowElement` already reports it as a duplicate, which is what the
+  // Rust indexed array does.
+  private checkBelowHighestValue(value: Bytes32): void {
+    if (compareBytes(value, this.highest) >= 0) {
+      throw new IndexedMerkleTreeError(
+        "INDEXED_MERKLE_TREE_INVALID_VALUE",
+        "Value is outside the indexed range",
+      );
+    }
   }
 
   private findLowElement(value: Bytes32): MutableIndexedElement {

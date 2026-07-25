@@ -14,6 +14,8 @@ base64 = { workspace = true }
 bincode = "1.3"
 bs58 = { workspace = true }
 light-poseidon = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 groth16-solana = { workspace = true, features = ["gnark-vk", "circom-vk"] }
@@ -29,6 +31,7 @@ solana-transaction = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-interface = { workspace = true }
+zolana-merkle-tree = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
