@@ -39,6 +39,7 @@ describe("public exports", () => {
       "decodeSplAssetCounter",
       "decodeSplAssetRegistry",
       "decodeZoneConfig",
+      "externalDataHash",
       "fetchTag",
       "ownerPkFieldCompressed",
       "pack33",

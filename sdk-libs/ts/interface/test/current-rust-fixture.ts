@@ -36,6 +36,14 @@ export const CURRENT_RUST_INTERFACE_FIXTURE = Object.freeze({
       hash: "124ffdcec1053549916312dbbc0229a7491737092e5a7d0da8be17c8376b340a",
     }),
   ]),
+  externalDataHash: Object.freeze({
+    instructionDiscriminator: 2,
+    expiryUnixTs: 42n,
+    relayerFee: 7,
+    publicSolAmount: -9n,
+    publicSplAmount: 11n,
+    expected: "000ad6170619653104627eee83a63d4c374e10ae1bf2c5f8345984ea0f5be282",
+  }),
   discriminators: Object.freeze({
     treeAccount: 1,
     protocolConfig: 3,

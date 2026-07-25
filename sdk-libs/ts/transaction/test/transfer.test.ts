@@ -156,6 +156,44 @@ function withRandom<T>(bytes: Bytes31, action: () => T): T {
 }
 
 describe("manifest-verified transaction builders", () => {
+  it("copies external-data output tags and nested bytes", () => {
+    const ownerTag = new Uint8Array(32).fill(1) as Bytes32;
+    const outputData = Uint8Array.of(2);
+    const messageData = Uint8Array.of(3);
+    const external = createExternalData({
+      instructionDiscriminator: 0,
+      expiryUnixTs: 0n,
+      relayerFee: 0,
+      userSolAccount: SOL_MINT,
+      userSplToken: SOL_MINT,
+      splTokenInterface: SOL_MINT,
+      txViewingPublicKey: ViewingKey.fromSeed(new Uint8Array(32).fill(4) as Bytes32, 0).publicKey(),
+      salt: new Uint8Array(16) as Bytes16,
+      outputs: [
+        {
+          utxoHash: new Uint8Array(32).fill(5) as Bytes32,
+          ownerTag: { kind: "inline", value: ownerTag },
+          data: outputData,
+        },
+      ],
+      resolvedOwnerTags: [ownerTag],
+      messages: [{ viewTag: new Uint8Array(32).fill(6) as Bytes32, data: messageData }],
+    });
+    const hash = external.hash();
+
+    ownerTag.fill(0xff);
+    outputData.fill(0xff);
+    messageData.fill(0xff);
+
+    expect(external.hash()).toEqual(hash);
+    expect(external.outputs[0]?.ownerTag).toEqual({
+      kind: "inline",
+      value: new Uint8Array(32).fill(1),
+    });
+    expect(external.outputs[0]?.data).toEqual(Uint8Array.of(2));
+    expect(external.messages[0]?.data).toEqual(Uint8Array.of(3));
+  });
+
   it("accepts a P256 signature for mixed inputs without changing transaction fields", () => {
     const p256 = SigningKey.fromBytes(new Uint8Array(32).fill(1) as Bytes32);
     const ed25519 = SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32);

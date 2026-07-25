@@ -22,6 +22,7 @@ import {
   SPL_TOKEN_PROGRAM_ID,
   ciphertextHash,
   decodeShieldedPoolError,
+  externalDataHash,
   ownerPkFieldCompressed,
   pack33,
   pkFieldCompressed,
@@ -283,6 +284,48 @@ describe("merge utilities", () => {
     expect(() => ciphertextHash(new Uint8Array(193))).toThrow(
       expect.objectContaining({ code: "INTERFACE_HASH" }),
     );
+  });
+});
+
+describe("external data hash", () => {
+  it("matches the exact current Rust preimage and binds nested bytes", () => {
+    const fixture = CURRENT_RUST_INTERFACE_FIXTURE.externalDataHash;
+    const outputData = Uint8Array.of(8, 9);
+    const messageData = Uint8Array.of(11, 12, 13);
+    const input = {
+      instructionDiscriminator: fixture.instructionDiscriminator,
+      expiryUnixTs: fixture.expiryUnixTs,
+      relayerFee: fixture.relayerFee,
+      publicSolAmount: fixture.publicSolAmount,
+      publicSplAmount: fixture.publicSplAmount,
+      userSolAccount: "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi" as Address,
+      userSplTokenAccount: "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR" as Address,
+      splTokenInterface: "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8" as Address,
+      dataHash: b32(4),
+      zoneDataHash: b32(5),
+      outputs: [{ utxoHash: b32(6), ownerTag: b32(7), data: outputData }],
+      messages: [{ viewTag: b32(10), data: messageData }],
+    };
+    expect(hex(externalDataHash(input))).toBe(fixture.expected);
+    const expected = externalDataHash(input);
+    outputData.fill(0xff);
+    messageData.fill(0xff);
+    expect(externalDataHash(input)).not.toEqual(expected);
+  });
+
+  it("rejects malformed nested lengths and positions", () => {
+    expect(() =>
+      externalDataHash({
+        instructionDiscriminator: 0,
+        expiryUnixTs: 0n,
+        relayerFee: 0,
+        userSolAccount: ZERO,
+        userSplTokenAccount: ZERO,
+        splTokenInterface: ZERO,
+        outputs: [{ utxoHash: b32(1), ownerTag: new Uint8Array(31) as Bytes32 }],
+        messages: [],
+      }),
+    ).toThrow(expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }));
   });
 });
 

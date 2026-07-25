@@ -1,5 +1,6 @@
 import {
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
+  externalDataHash as interfaceExternalDataHash,
   selectSppShape,
   validateSppShape,
   type Address,
@@ -16,7 +17,6 @@ import {
   ZERO_32,
   checkU64,
   checked,
-  concat,
   copy,
   decodeAddress,
   equal,
@@ -126,12 +126,11 @@ function externalDataHash(data: Omit<ExternalData, "hash">): Bytes32 {
   if (data.outputs.length > 0xffff || data.messages.length > 0xffff) {
     throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
   }
-  const integer = (value: bigint, byteLength: number, signed = false): Uint8Array => {
-    const bits = BigInt(byteLength * 8);
-    const encoded = signed ? BigInt.asUintN(Number(bits), value) : value;
+  const checkedInteger = (value: bigint, byteLength: number, signed = false): void => {
+    const bits = byteLength * 8;
     if (
-      (!signed && (value < 0n || value >= 1n << bits)) ||
-      (signed && BigInt.asIntN(Number(bits), value) !== value)
+      (!signed && (value < 0n || value >= 1n << BigInt(bits))) ||
+      (signed && BigInt.asIntN(bits, value) !== value)
     ) {
       throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
         value: value.toString(),
@@ -139,51 +138,46 @@ function externalDataHash(data: Omit<ExternalData, "hash">): Bytes32 {
         signed,
       });
     }
-    const bytes = new Uint8Array(byteLength);
-    let remaining = encoded;
-    for (let index = byteLength - 1; index >= 0; index--) {
-      bytes[index] = Number(remaining & 0xffn);
-      remaining >>= 8n;
-    }
-    return bytes;
   };
-  const checkedLength = (bytes: Uint8Array): Uint8Array => {
+  const checkedLength = (bytes: Uint8Array): void => {
     if (bytes.length > 0xffff) {
       throw new TransactionError("TRANSACTION_INVALID_DATA_LENGTH", {
         maximum: 0xffff,
         actual: bytes.length,
       });
     }
-    return integer(BigInt(bytes.length), 2);
   };
-  const parts: Uint8Array[] = [
-    Uint8Array.of(data.instructionDiscriminator),
-    integer(data.expiryUnixTs, 8),
-    integer(BigInt(data.relayerFee), 2),
-    integer(data.publicSolAmount ?? 0n, 8, true),
-    integer(data.publicSplAmount ?? 0n, 8, true),
-    decodeAddress(data.userSolAccount),
-    decodeAddress(data.userSplToken),
-    decodeAddress(data.splTokenInterface),
-    data.dataHash ?? ZERO_32,
-    data.zoneDataHash ?? ZERO_32,
-    integer(BigInt(data.outputs.length), 2),
-  ];
+  checkedInteger(data.expiryUnixTs, 8);
+  checkedInteger(BigInt(data.relayerFee), 2);
+  checkedInteger(data.publicSolAmount ?? 0n, 8, true);
+  checkedInteger(data.publicSplAmount ?? 0n, 8, true);
   data.outputs.forEach((output, index) => {
-    const ownerTag = data.resolvedOwnerTags[index];
-    if (!ownerTag) throw new TransactionError("TRANSACTION_OUTPUT_TAG_MISMATCH");
-    parts.push(output.utxoHash, ownerTag);
-    if (output.data === undefined) {
-      parts.push(Uint8Array.of(0));
-    } else {
-      parts.push(Uint8Array.of(1), checkedLength(output.data), output.data);
+    if (data.resolvedOwnerTags[index] === undefined) {
+      throw new TransactionError("TRANSACTION_OUTPUT_TAG_MISMATCH");
     }
+    if (output.data !== undefined) checkedLength(output.data);
   });
-  parts.push(integer(BigInt(data.messages.length), 2));
   data.messages.forEach((message) => {
-    parts.push(message.viewTag, checkedLength(message.data), message.data);
+    checkedLength(message.data);
   });
-  return sha256Be(concat(...parts));
+  return interfaceExternalDataHash({
+    instructionDiscriminator: data.instructionDiscriminator,
+    expiryUnixTs: data.expiryUnixTs,
+    relayerFee: data.relayerFee,
+    ...(data.publicSolAmount === undefined ? {} : { publicSolAmount: data.publicSolAmount }),
+    ...(data.publicSplAmount === undefined ? {} : { publicSplAmount: data.publicSplAmount }),
+    userSolAccount: data.userSolAccount,
+    userSplTokenAccount: data.userSplToken,
+    splTokenInterface: data.splTokenInterface,
+    ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
+    ...(data.zoneDataHash === undefined ? {} : { zoneDataHash: data.zoneDataHash }),
+    outputs: data.outputs.map((output, index) => ({
+      utxoHash: output.utxoHash,
+      ownerTag: data.resolvedOwnerTags[index] as Bytes32,
+      ...(output.data === undefined ? {} : { data: output.data }),
+    })),
+    messages: data.messages,
+  });
 }
 
 export function createExternalData(input: Omit<ExternalData, "hash">): ExternalData {
@@ -194,6 +188,13 @@ export function createExternalData(input: Omit<ExternalData, "hash">): ExternalD
       Object.freeze({
         ...output,
         utxoHash: checked<Bytes32>(output.utxoHash, 32, "output hash"),
+        ownerTag:
+          output.ownerTag.kind === "inline"
+            ? Object.freeze({
+                kind: "inline" as const,
+                value: checked<Bytes32>(output.ownerTag.value, 32, "output owner tag"),
+              })
+            : Object.freeze({ ...output.ownerTag }),
         ...(output.data === undefined ? {} : { data: new Uint8Array(output.data) }),
       }),
     ),
