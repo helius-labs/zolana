@@ -25,19 +25,18 @@ recorded `NOT_APPLICABLE` disposition rather than an absence.
 The uncovered files are not peripheral. They hold the Poseidon parameters, the
 instruction tag table, the output-data encoding tags, the proofless output
 layout, and the `UserRecord` account layout. The TypeScript port reimplements
-every one of them, in several cases more than once, and no row has ever checked
-those reimplementations against their Rust definitions.
+each of those five, in several cases more than once, and no row compares those
+reimplementations against their Rust definitions.
 
-The nine packages that the queue does cover are covered exactly. Every one of
-the 118 rows names a Rust path that still exists, and each package's row count
-equals its Rust source-file count with no file missed and none counted twice.
-The gap is entirely at the `program-libs` boundary, where the scope rule was
-applied to `interface` and to nothing else.
+The nine packages that the queue does cover are covered exactly. No row names a
+deleted Rust path, and each package's row count equals its Rust source-file
+count with no file missed and none counted twice. The gap sits at the
+`program-libs` boundary, where the scope rule reached `interface` and stopped.
 
 ## The scope rule, as actually applied
 
 The queue's stated unit is one row per production Rust source file. Measured
-against the tree, that rule holds inside every crate it reaches:
+against the tree, that rule holds inside the nine crates it reaches:
 
 | Package | Rust `src/*.rs` files | Rows | Match |
 | --- | ---: | ---: | --- |
@@ -55,7 +54,7 @@ The 47 `verifying_keys/` files are excluded by a recorded decision in the Scope
 reconciliation section, which names them as annex evidence. That exclusion is
 sound and is written down.
 
-The rule that was never stated is which `program-libs` crates come into scope.
+The queue does not say which `program-libs` crates come into scope.
 `interface` is in scope because the SDK depends on it. Four other `program-libs`
 crates are also direct dependencies of SDK crates, and the same reasoning admits
 them:
@@ -84,7 +83,7 @@ in code no row points at. Neither is a parity gap, and neither is the port's
 problem to fix, but both are evidence for the same conclusion: the areas outside
 the queue's reach are the areas nobody has read closely.
 
-## Uncovered Rust files, with a scope verdict for each
+## Rust files that no row covers
 
 ### `program-libs/event`, 6 files, 6 rows needed
 
@@ -112,13 +111,13 @@ reimplements them in **four** independent places:
 - `sdk-libs/ts/transaction/src/internal.ts`, a 16-entry `PARTIAL_ROUNDS` table
 - `sdk-libs/ts/merkle-tree/src/hashers.ts`, arity-1 and arity-2 constants inline
 
-Three of those four files carry no row at all (`keypair/src/poseidon.ts`,
+Three of those four files carry no row (`keypair/src/poseidon.ts`,
 `transaction/src/internal.ts`, `merkle-tree/src/hashers.ts`). The fourth,
 `interface/src/merge-utils.ts`, is reached only through row `I03`, whose Rust
 source is `program-libs/interface/src/merge_utils.rs` and not the hasher. No row
 in the queue compares any of these tables against `hasher/src/poseidon.rs`.
-Poseidon output feeds every UTXO hash, nullifier, and proof input, so a
-divergence here is silent and total.
+Poseidon output feeds the UTXO hashes, the nullifiers, and the proof inputs, so
+a divergence here is silent and total.
 
 | File | Verdict | Reason |
 | --- | --- | --- |
@@ -127,7 +126,7 @@ divergence here is silent and total.
 | `src/keccak.rs` | needs a row | `merkle-tree/src/hashers.ts` |
 | `src/bigint.rs` | needs a row | `merkle-tree/src/bytes.ts`, `keypair/src/bytes.ts` |
 | `src/hash_chain.rs` | needs a row | `client/src/internal.ts`, `transaction/src/internal.ts` |
-| `src/errors.rs` | needs a row | `merkle-tree/src/errors.ts`, `client/src/error.rs` maps `HasherError` |
+| `src/errors.rs` | needs a row | `merkle-tree/src/errors.ts`; `HasherError` is also mapped into `TransactionError` and the client error enum on the Rust side |
 | `src/lib.rs` | needs a row | the `Hasher` trait, mirrored as `Hasher32` |
 | `src/hash_to_field_size.rs` | `NOT_APPLICABLE` | no SDK caller |
 | `src/syscalls/mod.rs` | `NOT_APPLICABLE` | Solana BPF syscalls, no browser or Node analogue |
@@ -161,14 +160,15 @@ the Rust wrapper; nothing covers the definitions underneath it.
 `sdk-libs/wallet/src/user_registry.rs` (row `W07`) and
 `sdk-libs/wallet/src/actions/submit.rs` (row `W03`) both import this crate for
 `UserRecord`, `SyncDelegateEntry`, `user_record_pda`, and the instruction
-discriminators. `sdk-libs/ts/wallet/src/registry.ts` reimplements all of it: the
-program id `EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc`, the seed
+discriminators. `sdk-libs/ts/wallet/src/registry.ts` reimplements the same four:
+the program id `EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc`, the seed
 `zolana/registry/v0`, the borsh field order, and the `mergingEnabled` flag. The
 Rust definitions have no row.
 
 This matters more than it did yesterday.
 [registry-merge-verification.md](registry-merge-verification.md) found that
-`merge_transact` does not bind its `user_record` to the owner being merged. That
+`merge_transact` accepts a `user_record` account without checking that its
+`owner` field matches the owner whose UTXOs are being merged. That
 finding sits in exactly this crate's account layout, and the queue has no row
 that would have looked at it.
 
@@ -195,13 +195,14 @@ denominator becomes 156.
 ## The `program-libs/event` question, resolved
 
 The hypothesis in the brief was that the crate is out of scope because Photon
-parses on-chain events and TypeScript consumes its JSON. That is right about
-half the crate and wrong about the other half.
+decodes the borsh payload of the `emit_event` self-CPI and TypeScript reads the
+JSON Photon returns. That is right about half the crate and wrong about the
+other half.
 
 **Verified by reading, the event-emission layer is not ported.** `GeneralEvent`,
 `Input`, `DepositWithdraw`, `EventKind`, `encode_event_instruction`,
 `encode_event_instruction_with`, and `encode_event_payload` live in
-`program-libs/event/src/lib.rs`. A search across all of `sdk-libs/ts` for
+`program-libs/event/src/lib.rs`. A search over `sdk-libs/ts` for
 `GeneralEvent`, `EventKind`, `EMIT_EVENT`, `emitEvent`, and
 `first_output_leaf_index` returns two files: `interface/src/index.ts`, where the
 only hit is the `emitEvent: 14` entry in the `InstructionTag` table, and
@@ -212,16 +213,16 @@ shapes with no decoder, and `test-kit/src/indexer.ts` only stores and copies
 them. The wallet reads parsed slots through `indexer-api`. So the hypothesis
 holds for `lib.rs` and for the feature-gated `program_test.rs`.
 
-**But four of the crate's six files are not about events at all, and all four
-are already ported.** `program-libs/interface/src/lib.rs` opens with
+**But four of the crate's six files are not about events, and those four are
+already ported.** `program-libs/interface/src/lib.rs` opens with
 `pub use zolana_event as event;`, and
 `program-libs/interface/src/instruction/mod.rs` re-exports
 `zolana_event::{tag, tag::InstructionTag}` and, through `instruction_data`,
 `MessageData` and `OutputUtxo`. The event crate is part of the interface crate's
 public API. Concretely:
 
-- `tag.rs` defines every first-byte instruction tag. `interface/src/index.ts`
-  mirrors the whole table as `InstructionTag`. The queue's own rows `I29` and
+- `tag.rs` defines the eighteen first-byte instruction tags.
+  `interface/src/index.ts` mirrors the table as `InstructionTag`. Rows `I29` and
   `I37` point at that TypeScript file, so a reviewer walking them would meet the
   tags without ever being told where their definition lives.
 - `output_data.rs` defines `MessageData` with a `FixIntLen<u16>` length prefix on
@@ -235,7 +236,7 @@ public API. Concretely:
   tag constants, plus `encode_output_data` and `encode_verifiably_encrypted`.
   TypeScript has `ProoflessOutput`, `OutputDataEncoding`,
   `encodeProofless`/`decodeProofless`, `encodeOutputData`/`decodeOutputData`, and
-  `outputDataEncoding` in `transaction/src/serialization/codecs.ts`, all exported
+  `outputDataEncoding` in `transaction/src/serialization/codecs.ts`, exported
   from `transaction/src/serialization/index.ts`. Rust callers include
   `wallet/src/wallet_sync.rs`, `transaction/src/serialization/proofless.rs`, and
   `client/src/prover/merge.rs`.
@@ -289,7 +290,7 @@ named by no row.
 | `transaction/src/internal.ts` | A fourth Poseidon plus `hashChain`, from `hasher/src/{poseidon,hash_chain}.rs`. Genuine hole. |
 | `wallet/src/internal.ts` | Base58 and byte helpers with no single Rust counterpart. Language-specific, defensible, but undocumented. |
 | `wallet/src/error.ts` | `WalletError` and its codes. `sdk-libs/wallet` has no `error.rs`; the Rust crate returns errors inline. A legitimate language-specific addition that no row records. |
-| `wallet/src/registry/index.ts`, `wallet/src/authority/index.ts`, `wallet/src/sync/index.ts` | Re-export barrels over `registry.ts`, `wallet-authority.ts`, and `sync.ts`, all of which do have rows. Covered in substance. |
+| `wallet/src/registry/index.ts`, `wallet/src/authority/index.ts`, `wallet/src/sync/index.ts` | Re-export barrels over `registry.ts`, `wallet-authority.ts`, and `sync.ts`, which carry rows `W07`, `W06`, and `W08`. Covered in substance. |
 
 Nine of the eleven trace back to the same four uncovered Rust crates. That is
 the cross-check: the Rust-side gap and the TypeScript-side gap are the same gap
@@ -301,7 +302,7 @@ recorded annex decision and are not counted as uncovered.
 
 ## Rows whose paths have gone stale
 
-All 118 Rust paths resolve against the working tree, checked by script. All 118
+The 118 Rust paths resolve against the working tree, checked by script. The
 TypeScript owners resolve too, once the comma-separated second entries are read
 as package-relative (`hash/index.ts` for `keypair/src/hash/index.ts`, and so
 on). No row points at a deleted file.
@@ -324,7 +325,7 @@ in the same way the wallet row named `actions.ts` for code in `submit.ts`.
 
 `I34` is the mildest of the five: the constants are re-exported through
 `index.ts`, so a reviewer following the row would find them. `T21` is the most
-consequential, because it sends a reviewer to the wrong package entirely and
+consequential, because it sends a reviewer to a different package and
 leaves `interface/src/external-data-hash.ts` looking like TypeScript with no
 Rust counterpart when it has one.
 
@@ -362,9 +363,9 @@ Verified by reading the files:
 
 - The 118 row identifiers and their Rust and TypeScript paths, extracted from
   the checklist tables and each path tested for existence by script.
-- Every `.rs` file under `sdk-libs/` (excluding `ts/`) and `program-libs/`,
+- The `.rs` files under `sdk-libs/` (excluding `ts/`) and `program-libs/`,
   enumerated and counted per crate.
-- Every `.ts` file under `sdk-libs/ts/` excluding `node_modules`, `dist`, and
+- The `.ts` files under `sdk-libs/ts/` excluding `node_modules`, `dist`, and
   `.d.ts`, enumerated and matched against the row TypeScript owners.
 - Each SDK crate's `Cargo.toml` dependency block, and the `use zolana_event`,
   `use zolana_hasher`, `use zolana_indexed_array`, and
