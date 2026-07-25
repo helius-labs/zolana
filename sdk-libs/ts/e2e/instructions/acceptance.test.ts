@@ -139,9 +139,10 @@ function withdrawalFor(value: RailCase): TransactWithdrawal | undefined {
   }
   if (settlement.publicSplAmount !== null) {
     const accounts = value.wire.instruction.accounts;
+    const cpiAuthority = accounts[2]?.address;
     return {
       kind: "spl",
-      cpiAuthority: accounts[2]?.address,
+      ...(cpiAuthority === undefined ? {} : { cpiAuthority }),
       splTokenInterface: settlement.splTokenInterface,
       recipient: accounts[4]?.address ?? settlement.userSplTokenAccount,
       userTokenAccount: settlement.userSplTokenAccount,
@@ -153,11 +154,12 @@ function withdrawalFor(value: RailCase): TransactWithdrawal | undefined {
 
 function instructionFor(value: RailCase): Instruction {
   const data = transactInstructionDataCodec.decode(hexBytes(value.wire.transactDataBytes));
+  const withdrawal = withdrawalFor(value);
   return transactInstruction({
     payer: value.logicalInputs.payer,
     tree: value.logicalInputs.tree,
     data,
-    ...(withdrawalFor(value) === undefined ? {} : { withdrawal: withdrawalFor(value) }),
+    ...(withdrawal === undefined ? {} : { withdrawal }),
   });
 }
 

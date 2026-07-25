@@ -1,4 +1,4 @@
-import { type Rpc, ZolanaClient, ZolanaIndexer } from "@zolana/client";
+import { ZolanaClient } from "@zolana/client";
 import { ProverClient, type SpendProof } from "@zolana/client/prover";
 import type { Address, Bytes31, Bytes32, Signature, Transaction } from "@zolana/interface";
 import { ShieldedKeypair, SigningKey, NullifierKey, ViewingKey } from "@zolana/keypair";
@@ -42,6 +42,14 @@ import {
   walletDepositData,
 } from "@zolana/test-kit/node";
 import { describe, expect, it, vi } from "vitest";
+
+import {
+  clientDouble,
+  depositSignature,
+  fixtureIndexer,
+  indexerDouble,
+  rpcDouble,
+} from "../support/doubles.js";
 
 const TREE = "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3" as Address;
 const REGISTRY_PROGRAM = "EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc" as Address;
@@ -180,10 +188,6 @@ function base58(value: Uint8Array): string {
   );
 }
 
-function base64(value: Uint8Array): string {
-  return Buffer.from(value).toString("base64");
-}
-
 function seededKeypair(signingSecret: string, viewingSeed: string): ShieldedKeypair {
   const signing = SigningKey.fromBytes(hexBytes(signingSecret) as Bytes32);
   return ShieldedKeypair.fromKeys(
@@ -197,35 +201,10 @@ function fixtureSigner(seed: string): TransactionSigner {
   return createTestNativeSigner(hexBytes(seed) as Bytes32);
 }
 
-function fixtureIndexer(indexer: TestIndexer): ZolanaIndexer {
-  return {
-    getShieldedTransactionsByTags: () =>
-      Promise.resolve({
-        context: { blockTime: 1n },
-        transactions: indexer.outputs().map((output, index) => ({
-          slot: BigInt(index + 1),
-          txSignature: SIGNATURE,
-          outputSlots: [
-            {
-              viewTag: base58(output.viewTag),
-              outputContext: {
-                hash: base58(output.utxoHash),
-                tree: output.tree,
-                leafIndex: output.leafIndex,
-              },
-              payload: base64(output.data),
-            },
-          ],
-          messages: [],
-          nullifiers: [],
-          proofless: true,
-        })),
-      }),
-    getEncryptedUtxosByTags: () => Promise.resolve({ context: { blockTime: 1n }, matches: [] }),
-  } as unknown as ZolanaIndexer;
-}
-
-function spendProof(input: import("@zolana/transaction").ProofInputUtxo, index: number): SpendProof {
+function spendProof(
+  input: import("@zolana/transaction").ProofInputUtxo,
+  index: number,
+): SpendProof {
   return {
     state: {
       leaf: input.hash(),
@@ -299,7 +278,7 @@ async function walletFromDeposits(
       blinding: data.blinding,
     });
     indexer.record({
-      signature: `${SIGNATURE.slice(0, -1)}${String(position + 1)}` as Signature,
+      signature: depositSignature(BigInt(position)),
       outputs: [
         {
           viewTag: data.viewTag,
@@ -481,10 +460,10 @@ describe("P12 action workflows", () => {
       ),
       signatures: [undefined],
     };
-    const client = {
+    const client = clientDouble({
       rpc: new TestRpc(),
       finishSubmissionUnsigned: () => Promise.resolve(native),
-    } as unknown as ZolanaClient;
+    });
     const unsigned = await buildPrivateTransaction({
       transaction: sol.transaction,
       wallet,
@@ -580,20 +559,20 @@ describe("P12 action workflows", () => {
       data: hexBytes(fixture.inputs.enabledRecord.accountDataBytes),
       lamports: 1n,
     });
-    const indexer = {
+    const indexer = rpcDouble({
       getInputMerkleProofs: () =>
         Promise.resolve(
           created.prepared.inputs
             .filter((input) => !input.isDummy())
             .map((input, index) => spendProof(input, index)),
         ),
-    } as unknown as Rpc;
+    });
     const proverFetch = vi.fn(() =>
       Promise.resolve(proofResponse(proofFixture.expected.bsb22.uncompressed)),
     );
     const mergeClient = new ZolanaClient({
       rpc,
-      indexer: Object.create(ZolanaIndexer.prototype) as ZolanaIndexer,
+      indexer: fixtureIndexer(new TestIndexer()),
       prover: new ProverClient({ url: "https://prover.example.test", fetch: proverFetch }),
       tree: TREE,
     });
@@ -633,14 +612,11 @@ describe("P12 action workflows", () => {
   it("submits the exact idempotent ATA message twice and nests RPC errors", async () => {
     const fixture = await fixtureJson<AtaFixture>("workflows/action-ata-idempotent-v1");
     const rpc = new TestRpc();
-    (
-      rpc as unknown as {
-        blockhash: { blockhash: string; lastValidBlockHeight: bigint };
-      }
-    ).blockhash = {
-      blockhash: base58(hexBytes(fixture.inputs.blockhashBytes)),
-      lastValidBlockHeight: 1n,
-    };
+    // `TestRpc` pins its default blockhash as a string literal type.
+    const blockhash = base58(
+      hexBytes(fixture.inputs.blockhashBytes),
+    ) as typeof rpc.blockhash.blockhash;
+    rpc.blockhash = { blockhash, lastValidBlockHeight: 1n };
     const signer = fixtureSigner(fixture.inputs.payerSecretBytes);
     const first = await createAssociatedTokenAccount({
       rpc,
@@ -780,17 +756,17 @@ describe("P12 action workflows", () => {
 
     const beforeUtxos = state.wallet.utxos().length;
     const beforeHistory = state.wallet.privateTransactions().length;
-    const emptyIndexer = {
+    const emptyIndexer = indexerDouble({
       getShieldedTransactionsByTags: () =>
         Promise.resolve({ context: { blockTime: 2n }, transactions: [] }),
       getEncryptedUtxosByTags: () => Promise.resolve({ context: { blockTime: 2n }, matches: [] }),
-    } as unknown as ZolanaIndexer;
+    });
     await syncWallet({ wallet: state.wallet, authority: state.authority, indexer: emptyIndexer });
     expect(state.wallet.utxos()).toHaveLength(beforeUtxos);
     expect(state.wallet.privateTransactions()).toHaveLength(beforeHistory);
 
     let attempts = 0;
-    const retryingIndexer = {
+    const retryingIndexer = indexerDouble({
       getShieldedTransactionsByTags: () => {
         attempts++;
         if (attempts === 1) {
@@ -799,7 +775,7 @@ describe("P12 action workflows", () => {
         return Promise.resolve({ context: { blockTime: 3n }, transactions: [] });
       },
       getEncryptedUtxosByTags: () => Promise.resolve({ context: { blockTime: 3n }, matches: [] }),
-    } as unknown as ZolanaIndexer;
+    });
     await expect(
       syncWallet({ wallet: state.wallet, authority: state.authority, indexer: retryingIndexer }),
     ).rejects.toMatchObject({ code: "WALLET_SYNC", cause: expect.any(Error) });
@@ -812,16 +788,13 @@ describe("P12 action workflows", () => {
 
     const controller = new AbortController();
     controller.abort();
-    const abortingIndexer = {
-      getShieldedTransactionsByTags: (
-        _request: unknown,
-        context?: Readonly<{ signal?: AbortSignal }>,
-      ) =>
-        context?.signal?.aborted
+    const abortingIndexer = indexerDouble({
+      getShieldedTransactionsByTags: (_request, _config, context) =>
+        context?.signal?.aborted === true
           ? Promise.reject(new Error(syncFixture.expected.indexerOutcomes.abort.code))
           : Promise.resolve({ context: { blockTime: 4n }, transactions: [] }),
       getEncryptedUtxosByTags: () => Promise.resolve({ context: { blockTime: 4n }, matches: [] }),
-    } as unknown as ZolanaIndexer;
+    });
     const aborted = syncWallet(
       { wallet: state.wallet, authority: state.authority, indexer: abortingIndexer },
       { signal: controller.signal },
