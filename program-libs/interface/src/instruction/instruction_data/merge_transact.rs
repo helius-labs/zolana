@@ -94,11 +94,6 @@ impl<'a> MergeTransactIxDataRef<'a> {
         {
             return Err(wincode::ReadError::Custom("invalid merge shape"));
         }
-        if self.encrypted_utxo.first() != Some(&MERGE_ENCRYPTED_UTXO_TYPE_PREFIX) {
-            return Err(wincode::ReadError::Custom(
-                "invalid merge encrypted UTXO type prefix",
-            ));
-        }
         Ok(())
     }
 
@@ -147,10 +142,6 @@ mod tests {
     use super::*;
 
     fn data() -> MergeTransactIxData {
-        let mut encrypted_utxo: Vec<u8> = (0..MERGE_ENCRYPTED_UTXO_LEN as u16)
-            .map(|i| i as u8)
-            .collect();
-        encrypted_utxo[0] = MERGE_ENCRYPTED_UTXO_TYPE_PREFIX;
         MergeTransactIxData {
             expiry_unix_ts: 42,
             proof: P256Proof {
@@ -165,7 +156,9 @@ mod tests {
             utxo_tree_root_index: (0..MERGE_INPUT_COUNT as u16).collect(),
             nullifier_tree_root_index: (10..10 + MERGE_INPUT_COUNT as u16).collect(),
             private_tx_hash: [3u8; 32],
-            encrypted_utxo,
+            encrypted_utxo: (0..MERGE_ENCRYPTED_UTXO_LEN as u16)
+                .map(|i| i as u8)
+                .collect(),
             eddsa_owner: false,
         }
     }
@@ -223,16 +216,6 @@ mod tests {
         owned.encrypted_utxo.pop();
         let bytes = owned.serialize().unwrap();
         assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_err());
-    }
-
-    #[test]
-    fn rejects_wrong_encrypted_utxo_type_prefix() {
-        for prefix in [0, 1, 3, u8::MAX] {
-            let mut owned = data();
-            owned.encrypted_utxo[0] = prefix;
-            let bytes = owned.serialize().unwrap();
-            assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_err());
-        }
     }
 
     fn hash_of(expiry: u64, output: &[u8; 32], blob: &[u8]) -> [u8; 32] {
