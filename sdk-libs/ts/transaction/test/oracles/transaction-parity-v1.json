@@ -1281,6 +1281,837 @@
     "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
   },
   "generator": "ZOLANA_WRITE_TS_ORACLES=1 cargo test -p zolana-transaction --test ts_oracle",
+  "merge": {
+    "cases": [
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "2d8f2b39e00aa10532ede81c95a9a5bc5634f0f7d9cfd13e94ff0fc39520040f",
+            "utxoHashHex": "10e7cd3954ca81e0362eaee78b83119733e62c484c7cf2350fd5a4fd2a83d32e"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "single",
+        "outputAmount": "100",
+        "paddedInputs": 8,
+        "rail": "plain"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "02ca8c49ca3c2318b69aabc04f5c8e7be49844548e205132dfdef2dd107072dd",
+            "utxoHashHex": "2bb191606a2a31fe7d5b1dad0f10dec2d4e3da41707dfcc195a4cfa89cb9264e"
+          },
+          {
+            "index": 1,
+            "nullifierHex": "0824c7e3c943ce1cffe2ff1ae6eaed103b386f66f1ceb27ef4ece48891f26b67",
+            "utxoHashHex": "2ad5e4cde73e3901f3afafaafaa694cd20c73161bd4b887fa9d313fa7fb89f6e"
+          },
+          {
+            "index": 2,
+            "nullifierHex": "29b027681ba7d1c231e0867597ab4d642e99d30cc86799bca5f47ef7d854dad1",
+            "utxoHashHex": "24fd25fdad4124d8408de0723a07dfef48c4c396597c9993f13b71a6d2ac4775"
+          },
+          {
+            "index": 3,
+            "nullifierHex": "0c611c538f8eaab375a60d4d4099ce3b21ef69f795063b507d295e1b00e49c20",
+            "utxoHashHex": "12b22462f05abd3441cefc1ea2a84cbc5583450c43de777c2138b1b866ea6f55"
+          },
+          {
+            "index": 4,
+            "nullifierHex": "1b6e0cffb256465345442df786bfa361d83cefb707a5736889831525fe62c3c9",
+            "utxoHashHex": "0f813386f66edc6626bd762ec33bbc9c4d573272e15a6beff431b0216de8a71b"
+          },
+          {
+            "index": 5,
+            "nullifierHex": "1b0b9c92cd96bebf3d43178f5f8af1f488b43150273f3ead749e82e5e25191e7",
+            "utxoHashHex": "2bf9dd327f09343fc20ce131a04028ed53ffffe7cc977e6581028663816e2ae4"
+          },
+          {
+            "index": 6,
+            "nullifierHex": "028838ef433644f54e844741a5961d62b93eb052a7644ec1626756232d31deba",
+            "utxoHashHex": "233441124019e61509997ebef8a2be6f8556bfad39a1a0dc5f899770a323b006"
+          },
+          {
+            "index": 7,
+            "nullifierHex": "0a4d32c651af0a6884248d81a7c7b8aded6c4ae38de8faf1d80fc549644c2876",
+            "utxoHashHex": "02020b4d4bdd6385bae89a2ea7ea145963af82004525e6da10a2e2c429c2a072"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "2",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "3",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 2,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "4",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 3,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 4,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "6",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 5,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 6,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "8",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 7,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "eightInputs",
+        "outputAmount": "36",
+        "paddedInputs": 8,
+        "rail": "plain"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "1ddc566dd887ecd3be3c775355f7863e5983b887c2a5df288c6f32da31085bff",
+            "utxoHashHex": "1bc3a745845a428b128c1e3f9e3a9dd632cc084ab0d6c85e6c7bd22538f52952"
+          },
+          {
+            "index": 1,
+            "nullifierHex": "12840ba57c0b9f6853fdfde15ced8f52d72f32f7ecb9959683bb94b71db9601b",
+            "utxoHashHex": "22b4c39f4861815b57bb79c08e7cf3d0db7187dd22b21a1fd158789cd055e031"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "0",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "0",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zeroAmounts",
+        "outputAmount": "0",
+        "paddedInputs": 8,
+        "rail": "plain"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "2f31822b02ff4daf1ac8901b9e9def5a78d3d0fb1db9cb3159cb219792b8f72f",
+            "utxoHashHex": "02c62137929578add3ce9f56ea08694abe28115d28155c4c22aa879c6867326e"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "18446744073709551615",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "maxAmount",
+        "outputAmount": "18446744073709551615",
+        "paddedInputs": 8,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_NO_INPUTS",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [],
+        "name": "empty",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 2,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 3,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 4,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 5,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 6,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 7,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 8,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "nineInputs",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_SELECTED_BALANCE_OVERFLOW",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "18446744073709551615",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "overflow",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_OWNER_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "other",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "foreignOwner",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "other",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "foreignNullifierKey",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_ASSET_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "100",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "assetMismatch",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneBoundInput",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              "utxoData"
+            ],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "inlineUtxoData",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": true,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "externalDataHash",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": true
+          }
+        ],
+        "name": "externalZoneDataHash",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "17ceb4462393b05ee582aa0886d8846f45c8d18640e4399d2b4528954db4389d",
+            "utxoHashHex": "2ab21c4892cb398baaec6eb0f49823383dbabfdf75223e3c8220ec8624954078"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneSingle",
+        "outputAmount": "100",
+        "paddedInputs": 8,
+        "rail": "zone"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "1135d0154946b09ddfc99a3475f4b8b06bb57b2b1b3986bfcfb7925cb14a7290",
+            "utxoHashHex": "03e031ec80e5963d32ba7e2c19e4acc80e6c814714a9290d637205d3e5c2e3c9"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              "zoneData"
+            ],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": true
+          }
+        ],
+        "name": "zoneWithZoneData",
+        "outputAmount": "100",
+        "paddedInputs": 8,
+        "rail": "zone"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "17ceb4462393b05ee582aa0886d8846f45c8d18640e4399d2b4528954db4389d",
+            "utxoHashHex": "2ab21c4892cb398baaec6eb0f49823383dbabfdf75223e3c8220ec8624954078"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              "memo"
+            ],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneWithMemo",
+        "outputAmount": "100",
+        "paddedInputs": 8,
+        "rail": "zone"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              "utxoData"
+            ],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneWithUtxoData",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "zone"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": true,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneWithDataHash",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "zone"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneMissingOnInput",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "zone"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": "2xea9jWJ9eca3dFiefTeSPP85c6qXqunCqL2h2JNffMW",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneWrongOnInput",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "zone"
+      }
+    ],
+    "dataHashHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+    "foreignZone": "2xea9jWJ9eca3dFiefTeSPP85c6qXqunCqL2h2JNffMW",
+    "mergeInputs": 8,
+    "preparedContexts": [
+      {
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "inputContexts": null,
+        "name": "plainDataHash",
+        "perturbation": "dataHash",
+        "rail": "plain"
+      },
+      {
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "inputContexts": null,
+        "name": "plainZoneDataHash",
+        "perturbation": "zoneDataHash",
+        "rail": "plain"
+      },
+      {
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "inputContexts": null,
+        "name": "plainInlineUtxoData",
+        "perturbation": "utxoData",
+        "rail": "plain"
+      },
+      {
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "inputContexts": null,
+        "name": "zoneDataHash",
+        "perturbation": "dataHash",
+        "rail": "zone"
+      },
+      {
+        "error": null,
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "1135d0154946b09ddfc99a3475f4b8b06bb57b2b1b3986bfcfb7925cb14a7290",
+            "utxoHashHex": "03e031ec80e5963d32ba7e2c19e4acc80e6c814714a9290d637205d3e5c2e3c9"
+          }
+        ],
+        "name": "zoneZoneDataHash",
+        "perturbation": "zoneDataHash",
+        "rail": "zone"
+      },
+      {
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "inputContexts": null,
+        "name": "zoneInlineUtxoData",
+        "perturbation": "utxoData",
+        "rail": "zone"
+      },
+      {
+        "error": null,
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "14bd453b368254924288151fd9248ce984c9766862ff2377184dd59312d62d14",
+            "utxoHashHex": "1691a4f5bd102376cfa515460ea0fa2dcc1536a5194aeac5ab5766d3ee971f2d"
+          }
+        ],
+        "name": "zoneForeignZone",
+        "perturbation": "foreignZone",
+        "rail": "zone"
+      }
+    ],
+    "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+    "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020"
+  },
   "schema": "zolana-transaction-parity-oracle-v1",
   "scheme": {
     "invalid": [

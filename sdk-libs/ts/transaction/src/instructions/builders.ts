@@ -81,16 +81,49 @@ export class PreparedMerge {
   }
 
   inputUtxoHashes(): readonly InputUtxoContext[] {
-    return this.inputs
-      .filter((input) => !input.isDummy())
-      .map((input, index) =>
-        Object.freeze({
-          index,
-          utxoHash: input.hash(),
-          nullifier: input.nullifier(),
-        }),
-      );
+    return realInputContexts(this.inputs, hasData);
   }
+}
+
+/** An input carrying program or zone data, which the plain merge rail never consolidates. */
+function hasData(input: ProofInputUtxo): boolean {
+  return (
+    input.dataHash !== undefined ||
+    input.zoneDataHash !== undefined ||
+    !input.utxo.data.isEmpty()
+  );
+}
+
+/**
+ * An input carrying program-controlled UTXO data. A policy zone authorizes its own
+ * data's transition before the merge, so `zoneDataHash` stays consumable there
+ * while `utxoData` never is.
+ */
+function hasUtxoData(input: ProofInputUtxo): boolean {
+  return input.dataHash !== undefined || input.utxo.data.utxoData() !== undefined;
+}
+
+/**
+ * Commitments for the real inputs only. The rail's data policy is re-checked here
+ * because the prepared value is publicly constructible, so the builder's check is
+ * not the only way in.
+ */
+function realInputContexts(
+  inputs: readonly ProofInputUtxo[],
+  disqualifying: (input: ProofInputUtxo) => boolean,
+): readonly InputUtxoContext[] {
+  return inputs
+    .filter((input) => !input.isDummy())
+    .map((input, index) => {
+      if (disqualifying(input)) {
+        throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
+      }
+      return Object.freeze({
+        index,
+        utxoHash: input.hash(),
+        nullifier: input.nullifier(),
+      });
+    });
 }
 
 export class Merge {
@@ -179,12 +212,10 @@ export class PreparedMergeZone extends PreparedMerge {
     this.zoneProgramId = input.zoneProgramId;
   }
 
+  // Rust re-checks only the data policy here; the zone binding is the builder's
+  // rule, and `validateMergeZoneInputs` stays available for callers that want it.
   override inputUtxoHashes(): readonly InputUtxoContext[] {
-    validateMergeZoneInputs(this.inputs, this.zoneProgramId);
-    if (!this.output.isDummy() && this.output.zoneProgramId !== this.zoneProgramId) {
-      throw new TransactionError("TRANSACTION_OUTPUT_ZONE_MISMATCH", { index: 0 });
-    }
-    return super.inputUtxoHashes();
+    return realInputContexts(this.inputs, hasUtxoData);
   }
 }
 

@@ -8,6 +8,11 @@ import {
   ConfidentialTransfer,
   Data,
   EncryptedScheme,
+  MERGE_INPUTS,
+  Merge,
+  MergeZone,
+  PreparedMerge,
+  PreparedMergeZone,
   ProofInputUtxo,
   SENDER_SLOT_COUNT,
   SOL_ASSET_ID,
@@ -456,12 +461,54 @@ describe("the Rust oracle and TypeScript agree on ciphertext slot ordinals", () 
   });
 });
 
-describe("the recorded TypeScript-only codes still have producers", () => {
+/**
+ * Every `error` the oracle records is replayed against TypeScript somewhere in
+ * this file, so a code appearing here is a code both languages raise on the same
+ * input. Codes absent from this set are declared but unexercised.
+ */
+function oracleProducedCodes(): ReadonlySet<string> {
+  const codes = new Set<string>();
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child);
+      return;
+    }
+    if (typeof node !== "object" || node === null) return;
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "error" && typeof value === "string") codes.add(value);
+      else walk(value);
+    }
+  };
+  walk(oracle);
+  return codes;
+}
+
+describe("the declared error codes have producers", () => {
+  const produced = oracleProducedCodes();
+
   it("keeps every allowlisted code in the declared set", () => {
     const declared = new Set<TransactionErrorCode>(TRANSACTION_ERROR_CODES);
     for (const code of Object.keys(TYPESCRIPT_ONLY_CODES)) {
       expect(declared.has(code as TransactionErrorCode)).toBe(true);
     }
+  });
+
+  // These five were declared with no caller until the `from_utxos` conversions
+  // were ported. Each is now raised by a named oracle case, so deleting the
+  // producer fails here rather than leaving a dead code behind.
+  it.each([
+    "TRANSACTION_INVALID_OUTPUT_POSITION",
+    "TRANSACTION_OUTPUT_AMOUNT_MISMATCH",
+    "TRANSACTION_OUTPUT_ASSET_MISMATCH",
+    "TRANSACTION_OUTPUT_BLINDING_MISMATCH",
+    "TRANSACTION_OUTPUT_OWNER_MISMATCH",
+  ])("raises %s from a replayed case", (code) => {
+    expect(produced.has(code)).toBe(true);
+  });
+
+  it("only expects codes TypeScript declares", () => {
+    const declared = new Set<string>(TRANSACTION_ERROR_CODES);
+    expect([...produced].filter((code) => !declared.has(code))).toEqual([]);
   });
 });
 
@@ -691,6 +738,199 @@ describe("the Rust oracle and TypeScript agree on the transfer builder", () => {
       expect(prepared.publicSplAmount?.toString() ?? null).toBe(testCase.publicSpl);
       expect(prepared.userSolAccount).toBe(testCase.userSolAccount);
       expect(prepared.userSplToken).toBe(testCase.userSplToken);
+    });
+  }
+});
+
+interface MergeInputSpec {
+  readonly owner: "owner" | "other";
+  readonly nullifier: "owner" | "other";
+  readonly asset: string;
+  readonly amount: string;
+  readonly position: number;
+  readonly zone: string | null;
+  readonly records: readonly DataRecord["kind"][];
+  readonly dataHash: boolean;
+  readonly zoneDataHash: boolean;
+}
+
+interface ContextJson {
+  readonly index: number;
+  readonly utxoHashHex: string;
+  readonly nullifierHex: string;
+}
+
+interface MergeCase {
+  readonly name: string;
+  readonly rail: "plain" | "zone";
+  readonly inputs: readonly MergeInputSpec[];
+  readonly error: string | null;
+  readonly asset: string | null;
+  readonly outputAmount: string | null;
+  readonly paddedInputs: number | null;
+  readonly expiryUnixTs: string | null;
+  readonly inputContexts: readonly ContextJson[] | null;
+}
+
+interface PreparedContextCase {
+  readonly name: string;
+  readonly rail: "plain" | "zone";
+  readonly perturbation: "dataHash" | "zoneDataHash" | "utxoData" | "foreignZone";
+  readonly error: string | null;
+  readonly inputContexts: readonly ContextJson[] | null;
+}
+
+describe("the Rust oracle and TypeScript agree on the merge builders", () => {
+  const merge = oracle.merge;
+  const zone = merge.zone as Address;
+  const dataHash = bytes(merge.dataHashHex) as Bytes32;
+  const zoneDataHash = bytes(merge.zoneDataHashHex) as Bytes32;
+  const blindingSeed = new Uint8Array(31).fill(11) as Bytes31;
+
+  function keypair(secretByte: number, viewingSeed: string): ShieldedKeypair {
+    const secret = new Uint8Array(32);
+    secret[31] = secretByte;
+    const signing = SigningKey.fromBytes(secret as Bytes32);
+    return ShieldedKeypair.fromKeys(
+      signing,
+      NullifierKey.fromSigningKey(signing),
+      ViewingKey.fromBytes(bytes(viewingSeed) as Bytes32),
+    );
+  }
+
+  const sender = keypair(7, oracle.transfer.ownerViewingSeedHex);
+  const other = keypair(12, oracle.transfer.recipientViewingSeedHex);
+
+  const recordBytes: Readonly<Record<DataRecord["kind"], number[]>> = {
+    zoneData: [1, 2, 3],
+    utxoData: [4, 5],
+    memo: [6],
+  };
+
+  function buildInput(spec: MergeInputSpec): ProofInputUtxo {
+    const source = spec.owner === "owner" ? sender : other;
+    const nullifierSource = spec.nullifier === "owner" ? sender : other;
+    return new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: source.signingPublicKey(),
+        asset: spec.asset as Address,
+        amount: BigInt(spec.amount),
+        blinding: deriveBlinding(blindingSeed, spec.position),
+        data: new Data(
+          spec.records.map((kind) => ({ kind, bytes: Uint8Array.from(recordBytes[kind]) })),
+        ),
+        ...(spec.zone === null ? {} : { zoneProgramId: spec.zone as Address }),
+      }),
+      nullifierKey: nullifierSource.nullifierKey(),
+      ...(spec.dataHash ? { dataHash } : {}),
+      ...(spec.zoneDataHash ? { zoneDataHash } : {}),
+    });
+  }
+
+  function prepare(rail: "plain" | "zone", inputs: readonly ProofInputUtxo[]): PreparedMerge {
+    return rail === "zone"
+      ? new MergeZone(sender, inputs, zone).prepare()
+      : new Merge(sender, inputs).prepare();
+  }
+
+  function contexts(prepared: PreparedMerge): readonly ContextJson[] {
+    return prepared.inputUtxoHashes().map((context) => ({
+      index: context.index,
+      utxoHashHex: hex(context.utxoHash),
+      nullifierHex: hex(context.nullifier),
+    }));
+  }
+
+  it("pads to the same input count", () => {
+    expect(MERGE_INPUTS).toBe(merge.mergeInputs);
+  });
+
+  for (const testCase of merge.cases as readonly MergeCase[]) {
+    it(`decides ${testCase.rail} ${testCase.name} the same way`, () => {
+      const inputs = testCase.inputs.map(buildInput);
+      if (testCase.error !== null) {
+        expect(codeOf(() => prepare(testCase.rail, inputs))).toBe(testCase.error);
+        return;
+      }
+      const prepared = prepare(testCase.rail, inputs);
+      expect(prepared.output.asset).toBe(testCase.asset);
+      expect(prepared.output.amount.toString()).toBe(testCase.outputAmount);
+      expect(prepared.inputs).toHaveLength(testCase.paddedInputs ?? -1);
+      expect(prepared.expiryUnixTs.toString()).toBe(testCase.expiryUnixTs);
+      expect(contexts(prepared)).toEqual(testCase.inputContexts);
+    });
+  }
+
+  // The prepared values are publicly constructible, so their context accessor
+  // re-checks the rail's data policy instead of trusting the builder.
+  for (const testCase of merge.preparedContexts as readonly PreparedContextCase[]) {
+    it(`re-checks ${testCase.name} the same way`, () => {
+      const zoneRail = testCase.rail === "zone";
+      const base = prepare(zoneRail ? "zone" : "plain", [
+        buildInput({
+          owner: "owner",
+          nullifier: "owner",
+          asset: SOL_MINT,
+          amount: "100",
+          position: 0,
+          zone: zoneRail ? zone : null,
+          records: [],
+          dataHash: false,
+          zoneDataHash: false,
+        }),
+      ]);
+      const first = base.inputs[0];
+      if (!first) throw new Error("prepared input missing");
+      const perturbed = new ProofInputUtxo({
+        utxo:
+          testCase.perturbation === "utxoData"
+            ? new Utxo({
+                owner: first.utxo.owner,
+                asset: first.utxo.asset,
+                amount: first.utxo.amount,
+                blinding: first.utxo.blinding,
+                data: new Data([{ kind: "utxoData", bytes: Uint8Array.from([4, 5]) }]),
+                ...(first.utxo.zoneProgramId === undefined
+                  ? {}
+                  : { zoneProgramId: first.utxo.zoneProgramId }),
+              })
+            : testCase.perturbation === "foreignZone"
+              ? new Utxo({
+                  owner: first.utxo.owner,
+                  asset: first.utxo.asset,
+                  amount: first.utxo.amount,
+                  blinding: first.utxo.blinding,
+                  zoneProgramId: oracle.merge.foreignZone as Address,
+                })
+              : first.utxo,
+        nullifierKey: first.nullifierKey,
+        ...(testCase.perturbation === "dataHash" ? { dataHash } : {}),
+        ...(testCase.perturbation === "zoneDataHash" ? { zoneDataHash } : {}),
+      });
+      const inputs = [perturbed, ...base.inputs.slice(1)];
+      const prepared = zoneRail
+        ? new PreparedMergeZone({
+            inputs,
+            output: base.output,
+            expiryUnixTs: base.expiryUnixTs,
+            signingPublicKey: base.signingPublicKey,
+            userViewingPublicKey: base.userViewingPublicKey,
+            txViewingSecret: base.txViewingSecret,
+            zoneProgramId: zone,
+          })
+        : new PreparedMerge({
+            inputs,
+            output: base.output,
+            expiryUnixTs: base.expiryUnixTs,
+            signingPublicKey: base.signingPublicKey,
+            userViewingPublicKey: base.userViewingPublicKey,
+            txViewingSecret: base.txViewingSecret,
+          });
+      if (testCase.error !== null) {
+        expect(codeOf(() => prepared.inputUtxoHashes())).toBe(testCase.error);
+        return;
+      }
+      expect(contexts(prepared)).toEqual(testCase.inputContexts);
     });
   }
 });

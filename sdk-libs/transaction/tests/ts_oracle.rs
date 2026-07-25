@@ -28,6 +28,8 @@ use zolana_keypair::{
 use zolana_transaction::{
     derive_blinding,
     instructions::{
+        merge::{Merge, MERGE_INPUTS},
+        merge_zone::MergeZone,
         transact::{
             canonical_shape,
             shape::resolve_shape,
@@ -1774,6 +1776,428 @@ fn transfer_section() -> Value {
     })
 }
 
+/// One merge input. Defaults describe an input the plain merge rail accepts;
+/// each case perturbs exactly one field so the rejection it triggers is
+/// unambiguous.
+#[derive(Clone)]
+struct MergeInputSpec {
+    owner: &'static str,
+    nullifier: &'static str,
+    asset: Address,
+    amount: u64,
+    position: u8,
+    zone: Option<Address>,
+    records: Vec<&'static str>,
+    data_hash: bool,
+    zone_data_hash: bool,
+}
+
+impl MergeInputSpec {
+    fn new(amount: u64, position: u8) -> Self {
+        Self {
+            owner: "owner",
+            nullifier: "owner",
+            asset: SOL_MINT,
+            amount,
+            position,
+            zone: None,
+            records: Vec::new(),
+            data_hash: false,
+            zone_data_hash: false,
+        }
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "owner": self.owner,
+            "nullifier": self.nullifier,
+            "asset": self.asset.to_string(),
+            "amount": self.amount.to_string(),
+            "position": self.position,
+            "zone": self.zone.map_or(Value::Null, |zone| json!(zone.to_string())),
+            "records": self.records,
+            "dataHash": self.data_hash,
+            "zoneDataHash": self.zone_data_hash,
+        })
+    }
+}
+
+const MERGE_DATA_HASH: [u8; 32] = [31; 32];
+const MERGE_ZONE_DATA_HASH: [u8; 32] = [32; 32];
+
+fn merge_data(records: &[&'static str]) -> Data {
+    Data::new(
+        records
+            .iter()
+            .map(|kind| match *kind {
+                "zoneData" => DataRecord::ZoneData(vec![1, 2, 3]),
+                "utxoData" => DataRecord::UtxoData(vec![4, 5]),
+                "memo" => DataRecord::Memo(vec![6]),
+                other => panic!("unknown merge data record {other}"),
+            })
+            .collect(),
+    )
+}
+
+fn merge_input(spec: &MergeInputSpec, owner: &ShieldedKeypair, other: &ShieldedKeypair) -> SppProofInputUtxo {
+    let utxo = Utxo {
+        owner: if spec.owner == "owner" {
+            owner.signing_pubkey()
+        } else {
+            other.signing_pubkey()
+        },
+        asset: spec.asset,
+        amount: spec.amount,
+        blinding: derive_blinding(&BLINDING_SEED, spec.position),
+        zone_program_id: spec.zone,
+        data: merge_data(&spec.records),
+    };
+    let source = if spec.nullifier == "owner" { owner } else { other };
+    let mut input = SppProofInputUtxo::new(utxo, source);
+    if spec.data_hash {
+        input = input.with_data_hash(MERGE_DATA_HASH);
+    }
+    if spec.zone_data_hash {
+        input = input.with_zone_data_hash(MERGE_ZONE_DATA_HASH);
+    }
+    input
+}
+
+struct MergeCase {
+    name: &'static str,
+    rail: &'static str,
+    inputs: Vec<MergeInputSpec>,
+}
+
+fn merge_case(case: MergeCase) -> Value {
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let other = shielded_keypair(&OTHER_SECRET, &RECIPIENT_VIEWING_SEED);
+    let zone = address(MERGE_ZONE_BYTE);
+    let inputs = case
+        .inputs
+        .iter()
+        .map(|spec| merge_input(spec, &owner, &other))
+        .collect::<Vec<_>>();
+
+    let prepared = if case.rail == "zone" {
+        MergeZone::new(&owner, inputs, zone, None).map(|builder| {
+            let prepared = builder.prepare();
+            (
+                prepared.output.asset,
+                prepared.output.amount,
+                prepared.inputs.len(),
+                prepared.expiry_unix_ts,
+                prepared.input_utxo_hashes(),
+            )
+        })
+    } else {
+        Merge::new(&owner, inputs).map(|builder| {
+            let prepared = builder.prepare();
+            (
+                prepared.output.asset,
+                prepared.output.amount,
+                prepared.inputs.len(),
+                prepared.expiry_unix_ts,
+                prepared.input_utxo_hashes(),
+            )
+        })
+    };
+
+    let mut json_case = Map::new();
+    json_case.insert("name".into(), json!(case.name));
+    json_case.insert("rail".into(), json!(case.rail));
+    json_case.insert(
+        "inputs".into(),
+        Value::Array(case.inputs.iter().map(MergeInputSpec::json).collect()),
+    );
+    match prepared {
+        Ok((asset, amount, padded, expiry, contexts)) => {
+            let contexts = contexts.expect("merge input contexts");
+            json_case.insert("error".into(), Value::Null);
+            json_case.insert("asset".into(), json!(asset.to_string()));
+            json_case.insert("outputAmount".into(), json!(amount.to_string()));
+            json_case.insert("paddedInputs".into(), json!(padded));
+            json_case.insert("expiryUnixTs".into(), json!(expiry.to_string()));
+            json_case.insert(
+                "inputContexts".into(),
+                Value::Array(
+                    contexts
+                        .iter()
+                        .map(|context| {
+                            json!({
+                                "index": context.index,
+                                "utxoHashHex": hex(&context.utxo_hash),
+                                "nullifierHex": hex(&context.nullifier),
+                            })
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        Err(error) => {
+            json_case.insert("error".into(), json!(ts_code(&error)));
+            for field in [
+                "asset",
+                "outputAmount",
+                "paddedInputs",
+                "expiryUnixTs",
+                "inputContexts",
+            ] {
+                json_case.insert(field.into(), Value::Null);
+            }
+        }
+    }
+    Value::Object(json_case)
+}
+
+const MERGE_ZONE_BYTE: u8 = 30;
+
+/// The two merge rails' accept and reject sets. Output blindings are random, so
+/// this pins what the builders decide and the deterministic part of what they
+/// produce: the merged asset and amount, the padded input list, and the real
+/// inputs' hashes and nullifiers.
+fn merge_section() -> Value {
+    let spl_mint = address(SPL_MINT_BYTE);
+    let zone = address(MERGE_ZONE_BYTE);
+    let zoned = |mut spec: MergeInputSpec| {
+        spec.zone = Some(zone);
+        spec
+    };
+    let perturbed = |mut spec: MergeInputSpec, apply: &dyn Fn(&mut MergeInputSpec)| {
+        apply(&mut spec);
+        spec
+    };
+
+    let mut cases = vec![
+        merge_case(MergeCase {
+            name: "single",
+            rail: "plain",
+            inputs: vec![MergeInputSpec::new(100, 0)],
+        }),
+        merge_case(MergeCase {
+            name: "eightInputs",
+            rail: "plain",
+            inputs: (0..8u8)
+                .map(|position| MergeInputSpec::new(u64::from(position) + 1, position))
+                .collect(),
+        }),
+        merge_case(MergeCase {
+            name: "zeroAmounts",
+            rail: "plain",
+            inputs: vec![MergeInputSpec::new(0, 0), MergeInputSpec::new(0, 1)],
+        }),
+        merge_case(MergeCase {
+            name: "maxAmount",
+            rail: "plain",
+            inputs: vec![MergeInputSpec::new(u64::MAX, 0)],
+        }),
+        merge_case(MergeCase {
+            name: "empty",
+            rail: "plain",
+            inputs: Vec::new(),
+        }),
+        merge_case(MergeCase {
+            name: "nineInputs",
+            rail: "plain",
+            inputs: (0..9u8)
+                .map(|position| MergeInputSpec::new(1, position))
+                .collect(),
+        }),
+        merge_case(MergeCase {
+            name: "overflow",
+            rail: "plain",
+            inputs: vec![
+                MergeInputSpec::new(u64::MAX, 0),
+                MergeInputSpec::new(1, 1),
+            ],
+        }),
+        merge_case(MergeCase {
+            name: "foreignOwner",
+            rail: "plain",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.owner = "other";
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "foreignNullifierKey",
+            rail: "plain",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.nullifier = "other";
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "assetMismatch",
+            rail: "plain",
+            inputs: vec![
+                MergeInputSpec::new(100, 0),
+                perturbed(MergeInputSpec::new(100, 1), &|spec| spec.asset = spl_mint),
+            ],
+        }),
+        merge_case(MergeCase {
+            name: "zoneBoundInput",
+            rail: "plain",
+            inputs: vec![zoned(MergeInputSpec::new(100, 0))],
+        }),
+        merge_case(MergeCase {
+            name: "inlineUtxoData",
+            rail: "plain",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.records = vec!["utxoData"];
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "externalDataHash",
+            rail: "plain",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.data_hash = true;
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "externalZoneDataHash",
+            rail: "plain",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.zone_data_hash = true;
+            })],
+        }),
+    ];
+
+    // The zone rail differs from the plain rail on exactly two rules: every input
+    // must carry the pinned zone, and zone data is consumable where owner data is
+    // not. These cases sit on both sides of each.
+    cases.extend([
+        merge_case(MergeCase {
+            name: "zoneSingle",
+            rail: "zone",
+            inputs: vec![zoned(MergeInputSpec::new(100, 0))],
+        }),
+        merge_case(MergeCase {
+            name: "zoneWithZoneData",
+            rail: "zone",
+            inputs: vec![perturbed(zoned(MergeInputSpec::new(100, 0)), &|spec| {
+                spec.records = vec!["zoneData"];
+                spec.zone_data_hash = true;
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "zoneWithMemo",
+            rail: "zone",
+            inputs: vec![perturbed(zoned(MergeInputSpec::new(100, 0)), &|spec| {
+                spec.records = vec!["memo"];
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "zoneWithUtxoData",
+            rail: "zone",
+            inputs: vec![perturbed(zoned(MergeInputSpec::new(100, 0)), &|spec| {
+                spec.records = vec!["utxoData"];
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "zoneWithDataHash",
+            rail: "zone",
+            inputs: vec![perturbed(zoned(MergeInputSpec::new(100, 0)), &|spec| {
+                spec.data_hash = true;
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "zoneMissingOnInput",
+            rail: "zone",
+            inputs: vec![MergeInputSpec::new(100, 0)],
+        }),
+        merge_case(MergeCase {
+            name: "zoneWrongOnInput",
+            rail: "zone",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.zone = Some(address(29));
+            })],
+        }),
+    ]);
+
+    json!({
+        "mergeInputs": MERGE_INPUTS,
+        "zone": zone.to_string(),
+        "foreignZone": address(29).to_string(),
+        "dataHashHex": hex(&MERGE_DATA_HASH),
+        "zoneDataHashHex": hex(&MERGE_ZONE_DATA_HASH),
+        "cases": cases,
+        "preparedContexts": prepared_context_cases(),
+    })
+}
+
+/// `PreparedMerge` and `PreparedMergeZone` are publicly constructible, so their
+/// `input_utxo_hashes` re-checks the rail's data policy rather than trusting the
+/// builder. Each case takes a builder-produced value and perturbs one input.
+fn prepared_context_cases() -> Value {
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let zone = address(MERGE_ZONE_BYTE);
+    let other = shielded_keypair(&OTHER_SECRET, &RECIPIENT_VIEWING_SEED);
+    let clean = |zone_bound: bool| {
+        let mut spec = MergeInputSpec::new(100, 0);
+        if zone_bound {
+            spec.zone = Some(zone);
+        }
+        merge_input(&spec, &owner, &other)
+    };
+
+    let cases = [
+        ("plainDataHash", "plain", "dataHash"),
+        ("plainZoneDataHash", "plain", "zoneDataHash"),
+        ("plainInlineUtxoData", "plain", "utxoData"),
+        ("zoneDataHash", "zone", "dataHash"),
+        ("zoneZoneDataHash", "zone", "zoneDataHash"),
+        ("zoneInlineUtxoData", "zone", "utxoData"),
+        ("zoneForeignZone", "zone", "foreignZone"),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|(name, rail, perturbation)| {
+                let perturb = |input: &mut SppProofInputUtxo| match *perturbation {
+                    "dataHash" => input.data_hash = Some(MERGE_DATA_HASH),
+                    "zoneDataHash" => input.zone_data_hash = Some(MERGE_ZONE_DATA_HASH),
+                    "utxoData" => input.utxo.data = merge_data(&["utxoData"]),
+                    "foreignZone" => input.utxo.zone_program_id = Some(address(29)),
+                    other => panic!("unknown perturbation {other}"),
+                };
+                let contexts = if *rail == "zone" {
+                    let mut prepared = MergeZone::new(&owner, vec![clean(true)], zone, None)
+                        .expect("merge zone")
+                        .prepare();
+                    perturb(prepared.inputs.first_mut().expect("prepared input"));
+                    prepared.input_utxo_hashes()
+                } else {
+                    let mut prepared = Merge::new(&owner, vec![clean(false)])
+                        .expect("merge")
+                        .prepare();
+                    perturb(prepared.inputs.first_mut().expect("prepared input"));
+                    prepared.input_utxo_hashes()
+                };
+                json!({
+                    "name": name,
+                    "rail": rail,
+                    "perturbation": perturbation,
+                    "error": contexts.as_ref().err().map(ts_code),
+                    "inputContexts": contexts.map_or(Value::Null, |contexts| {
+                        Value::Array(
+                            contexts
+                                .iter()
+                                .map(|context| {
+                                    json!({
+                                        "index": context.index,
+                                        "utxoHashHex": hex(&context.utxo_hash),
+                                        "nullifierHex": hex(&context.nullifier),
+                                    })
+                                })
+                                .collect(),
+                        )
+                    }),
+                })
+            })
+            .collect(),
+    )
+}
+
 /// The field encodings a proof's public inputs carry. `signed_to_field` wraps a
 /// negative amount around the BN254 modulus, which is the only place the SDK
 /// depends on the modulus value itself.
@@ -1856,6 +2280,7 @@ fn oracle() -> Value {
         "fields": fields_section(),
         "slots": slots_section(),
         "transfer": transfer_section(),
+        "merge": merge_section(),
         "serialization": serialization_section(),
         "fromUtxos": from_utxos_section(),
     })
