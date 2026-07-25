@@ -14,7 +14,7 @@ use zolana_tree::TreeAccount;
 
 use super::{
     account::DepositAccounts,
-    event::{emit_deposit_event, proofless_output_utxo, DepositEvent, ProoflessOutputCtx},
+    event::{emit_deposit_event, proofless_output_slot, DepositEvent, ProoflessOutputCtx},
 };
 use crate::instructions::{
     hash::{field_from_u64, solana_pk_hash, UTXO_DOMAIN_FIELD},
@@ -133,7 +133,7 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
             }
         }
 
-        outputs.push(proofless_output_utxo(
+        outputs.push(proofless_output_slot(
             entry,
             zone.take(),
             ProoflessOutputCtx {
@@ -190,8 +190,8 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
     }
 
     emit_deposit_event(DepositEvent {
-        outputs,
-        deposit_withdraws,
+        outputs: &outputs,
+        deposit_withdraws: &deposit_withdraws,
         first_output_leaf_index,
         output_tree,
     })

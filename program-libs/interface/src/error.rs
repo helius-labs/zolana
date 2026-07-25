@@ -90,6 +90,8 @@ pub enum ShieldedPoolError {
     UnreferencedDepositAsset = 7030,
     #[error("deposit batch exceeds the maximum number of assets")]
     TooManyDepositAssets = 7031,
+    #[error("event encoding exceeds the maximum representable length")]
+    EventEncodingOverflow = 7032,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -159,6 +161,7 @@ mod tests {
             (DepositAmountOverflow as u32, 7029),
             (UnreferencedDepositAsset as u32, 7030),
             (TooManyDepositAssets as u32, 7031),
+            (EventEncodingOverflow as u32, 7032),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

@@ -29,12 +29,39 @@ impl OutputDataEncoding {
     pub const VERIFIABLY_ENCRYPTED_TAG: u8 = 2;
 }
 
+/// Enum tag byte.
+const PLAINTEXT_TAG_LEN: usize = 1;
+/// Enum tag plus the `u32` body length prefix; the body starts here.
+const PLAINTEXT_BODY_OFFSET: usize = PLAINTEXT_TAG_LEN + 4;
+/// Bytes an [`OutputDataEncoding::Plaintext`] payload needs before the variable
+/// `utxo_data` / `zone_data` / `memo` contents: the enum tag, the body length
+/// prefix, the scheme byte, and every fixed [`ProoflessOutput`] field with its
+/// options present. Pinned by `plaintext_fixed_len_covers_every_option`.
+pub const PLAINTEXT_OUTPUT_FIXED_LEN: usize = 223;
+
+/// Serializes to the same bytes as `borsh(OutputDataEncoding::Plaintext(blob))`
+/// where `blob` is the scheme byte followed by `borsh(ProoflessOutput)`, but
+/// writes the body once into one buffer instead of serializing it into a `Vec`
+/// and copying that `Vec` into the enum's length-prefixed payload.
 pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
-    let mut blob = vec![0u8];
-    data.serialize(&mut blob)
+    let variable_len = data.utxo_data.as_ref().map_or(0, Vec::len)
+        + data.zone_data.as_ref().map_or(0, Vec::len)
+        + data.memo.as_ref().map_or(0, Vec::len);
+    let mut out = Vec::with_capacity(PLAINTEXT_OUTPUT_FIXED_LEN + variable_len);
+    out.push(OutputDataEncoding::PLAINTEXT_TAG);
+    // Body length, patched in below once the body is written.
+    out.extend_from_slice(&0u32.to_le_bytes());
+    // Plaintext scheme byte, the first byte of the enum's payload.
+    out.push(0);
+    data.serialize(&mut out)
         .expect("shielded-pool output data serialization is infallible");
-    borsh::to_vec(&OutputDataEncoding::Plaintext(blob))
-        .expect("shielded-pool output data serialization is infallible")
+
+    let body_len = u32::try_from(out.len() - PLAINTEXT_BODY_OFFSET)
+        .expect("shielded-pool output data length fits in u32");
+    out.get_mut(PLAINTEXT_TAG_LEN..PLAINTEXT_BODY_OFFSET)
+        .expect("length placeholder written above")
+        .copy_from_slice(&body_len.to_le_bytes());
+    out
 }
 
 pub fn encode_verifiably_encrypted(blob: Vec<u8>) -> Vec<u8> {
