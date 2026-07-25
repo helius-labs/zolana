@@ -2,11 +2,19 @@
   "apiDiff": {
     "added": [
       "@zolana/merkle-tree|root|interface|Hasher32",
+      "@zolana/merkle-tree|root|interface|Hasher32WithBytes",
+      "@zolana/merkle-tree|root|variable|poseidonHasher",
+      "@zolana/merkle-tree|root|variable|sha256Hasher",
+      "@zolana/merkle-tree|root|variable|keccakHasher",
       "@zolana/merkle-tree|root|class|MerkleTreeError",
       "@zolana/merkle-tree|root|class|IndexedMerkleTreeError",
+      "@zolana/merkle-tree|root|interface|MerkleTreeOptions",
       "@zolana/merkle-tree|root|class|MerkleTree",
       "@zolana/merkle-tree|root|interface|NonInclusionProof",
-      "@zolana/merkle-tree|root|class|IndexedMerkleTree"
+      "@zolana/merkle-tree|root|interface|IndexedElement",
+      "@zolana/merkle-tree|root|interface|IndexedMerkleTreeOptions",
+      "@zolana/merkle-tree|root|class|IndexedMerkleTree",
+      "@zolana/merkle-tree|root|function|verifyNonInclusionProof"
     ],
     "changed": [],
     "removed": []
@@ -36,17 +44,17 @@
     {
       "command": "npm run test:unit --workspace @zolana/merkle-tree",
       "exitStatus": "0",
-      "responsibility": "26 unit, model, proof mutation, ownership, error, capacity, canopy, history, and atomicity tests"
+      "responsibility": "33 unit, model, sparse-path, history, mutation, proof, index-width, and public API tests"
     },
     {
       "command": "npm run test:vectors --workspace @zolana/merkle-tree",
       "exitStatus": "0",
-      "responsibility": "six frozen Poseidon, SHA-256, Keccak, Merkle, indexed ordering, and non-inclusion vector cases"
+      "responsibility": "six current-Rust Poseidon, SHA-256, Keccak, sparse-path, history, custom-sentinel, and tamper vector cases"
     },
     {
       "command": "npm run test:property --workspace @zolana/merkle-tree",
       "exitStatus": "0",
-      "responsibility": "two deterministic fast-check Merkle path and indexed range-proof properties"
+      "responsibility": "three fast-check Merkle path, indexed range-proof, and custom-sentinel tamper properties"
     },
     {
       "command": "npm run test:browser --workspace @zolana/merkle-tree",
@@ -71,10 +79,11 @@
     {
       "command": "npm run fixtures:check",
       "exitStatus": "0",
-      "responsibility": "24 frozen fixtures and 182 inventory rows regenerated cleanly"
+      "responsibility": "57 fixtures and 182 inventory rows regenerated cleanly"
     }
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "currentMerkleCommit": "fdb477903070dd0a394680dee835dba9ab7bdc80",
   "frozenSources": [
     "sdk-libs/merkle-tree/src/lib.rs",
     "sdk-libs/merkle-tree/src/indexed.rs",
@@ -88,23 +97,26 @@
     "sdk-libs/merkle-tree/tests/tests.rs"
   ],
   "implemented": [
-    "exact six-declaration root allowlist with shared @zolana/interface Bytes32",
-    "internal synchronous Poseidon, SHA-256, and Keccak adapters using admitted audited dependencies",
+    "expanded root allowlist with shared @zolana/interface Bytes32 and structured Merkle errors",
+    "public synchronous Poseidon, SHA-256, and Keccak adapters using browser-safe Noble entry points",
     "canonical BN254 Poseidon input rejection and exact Circom width-two and width-three parameters",
-    "checked and copied 32-byte inputs, hasher inputs, roots, paths, and proof values",
-    "append-only Merkle roots, full and canopy paths, capacity and index errors",
-    "internal canopy truncation and bounded root history behavior",
+    "checked and copied 32-byte inputs, roots, sparse paths, proof values, leaves, and subtree snapshots",
+    "ordinary append, batch append, update, verification, canopy, history, leaf, and sparse reconstruction operations",
+    "u64 bigint indexes without Number narrowing and exact proof-length checks",
     "ordered indexed insertion with Rust-compatible H(value,nextValue) leaves",
-    "exact seven-field reference-tree non-inclusion proofs with root, query value, range values, indexes, and Merkle proof",
-    "bound and Merkle-path verification with precise proof errors",
-    "atomic state on hasher, capacity, duplicate, range, length, and non-canonical-field failures"
+    "indexed path, proof, low-level update, element snapshots, and custom highest-value operations",
+    "non-inclusion verification against a caller-supplied trusted root or the tree's current root",
+    "atomic TypeScript state on hasher, capacity, duplicate, range, length, and non-canonical-field failures"
   ],
   "fixtureAssessment": {
-    "correctionRequired": false,
-    "result": "paths-v1.json already carries valueBytes, lowerValueBytes, higherValueBytes, leafIndex, nextIndex, proofBytes, and rootBytes; P06 maps those source fields to the corrected public proof without changing P00"
+    "correctionRequired": true,
+    "result": "paths-v1.json now identifies fdb477903070dd0a394680dee835dba9ab7bdc80 and records trusted-root rejection, exact proof lengths, custom sentinels, sparse paths, history indexes, next index, usize width, and Rust failure mutation"
   },
   "ownedChangedPaths": [
-    "sdk-libs/ts/merkle-tree/src/bytes.ts",
+    "planning/typescript-sdk-port/inventory-support.md",
+    "planning/typescript-sdk-port/public-exports.md",
+    "sdk-libs/ts/fixtures/manifest.json",
+    "sdk-libs/ts/fixtures/merkle-tree/paths-v1.json",
     "sdk-libs/ts/merkle-tree/src/errors.ts",
     "sdk-libs/ts/merkle-tree/src/hashers.ts",
     "sdk-libs/ts/merkle-tree/src/index.ts",
@@ -116,19 +128,20 @@
     "sdk-libs/ts/merkle-tree/test/merkle.property.test.ts",
     "sdk-libs/ts/merkle-tree/test/tests.test.ts",
     "sdk-libs/ts/merkle-tree/test/vectors.test.ts",
-    "sdk-libs/ts/reports/packets/P06.json"
+    "sdk-libs/ts/reports/inventory.json",
+    "sdk-libs/ts/reports/packets/P06.json",
+    "xtask/src/bin/ts-fixtures.rs",
+    "xtask/src/ts_fixtures_merkle.rs"
   ],
   "packet": "P06",
   "qualityPass": {
     "commentCorrections": [],
     "edits": [
-      "kept concrete hash adapters internal so the six-name package root remains exact",
-      "centralized checked byte copying and invariant lookups",
-      "made compound indexed updates transactional",
-      "replaced the Photon-style neighbor object with the frozen reference-tree proof",
-      "kept proof verification internal so the six-name package root remains exact",
-      "replaced test non-null assertions with explicit invariant checks",
-      "removed deprecated assertions and narration comments"
+      "exported concrete browser-safe hashers and the ordinary and indexed operations present in current Rust",
+      "kept compound updates transactional and returned owned byte snapshots",
+      "required trusted roots, exact tree-height proofs, open sentinel bounds, and u64 bigint indexes",
+      "kept sparse storage keyed by bigint instead of narrowing indexes to JavaScript numbers",
+      "recorded current Rust behavior where the specification is silent"
     ],
     "skills": ["code-simplifier", "code-quality", "zolana-comments"]
   },
@@ -144,6 +157,20 @@
     {
       "checkpoint": "f3a1759f",
       "result": "implemented the corrected seven-field reference-tree NonInclusionProof without Photon or client neighbor fields"
+    }
+  ],
+  "rustSemanticBlockers": [
+    {
+      "row": "M01",
+      "behavior": "Current Rust accepts insertion at a custom highest value even though the resulting non-inclusion interval cannot verify at that boundary.",
+      "typescriptDisposition": "TypeScript enforces the open interval zero < value < highestValue.",
+      "requiredDecision": "Define the sentinel boundary in the specification or fix the Rust indexed array before claiming exact boundary parity."
+    },
+    {
+      "row": "M02",
+      "behavior": "A failed Rust append pushes a leaf before returning capacity overflow; get_next_index returns rightmost_index + 1; get_history_root_index_v2 remains zero because num_root_updates is not updated.",
+      "typescriptDisposition": "TypeScript keeps failed mutations atomic and reproduces the observable next-index and v2 history-index results.",
+      "requiredDecision": "Confirm the intended Rust mutation, next-index, and v2 history semantics before changing either implementation."
     }
   ],
   "schema": "zolana-ts-packet-evidence-v1",

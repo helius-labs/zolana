@@ -25,10 +25,11 @@ use zolana_transaction::{
 };
 
 const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
+const MERKLE_SHA: &str = "fdb477903070dd0a394680dee835dba9ab7bdc80";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
 const EXPECTED_FIXTURE_COUNT: usize = 57;
-const FROZEN_SOURCE_PATHS: [&str; 15] = [
+const FROZEN_SOURCE_PATHS: [&str; 14] = [
     "program-libs/hasher/src",
     "program-libs/indexed-array/src",
     "program-libs/interface/src/instruction",
@@ -37,7 +38,6 @@ const FROZEN_SOURCE_PATHS: [&str; 15] = [
     "sdk-libs/client/src/rpc.rs",
     "sdk-libs/indexer-api/src",
     "sdk-libs/keypair/src",
-    "sdk-libs/merkle-tree/src",
     "sdk-libs/program-test/src/indexer.rs",
     "sdk-libs/transaction/src",
     "sdk-libs/transaction/tests",
@@ -149,6 +149,19 @@ fn assert_frozen_sources(root: &Path) -> Result<()> {
         .status()?;
     if !unchanged.success() {
         bail!("fixture source paths differ from frozen revision {FROZEN_SHA}");
+    }
+    let merkle_unchanged = Command::new("git")
+        .current_dir(root)
+        .args([
+            "diff",
+            "--quiet",
+            MERKLE_SHA,
+            "--",
+            "sdk-libs/merkle-tree/src",
+        ])
+        .status()?;
+    if !merkle_unchanged.success() {
+        bail!("Merkle fixture sources differ from revision {MERKLE_SHA}");
     }
     Ok(())
 }
@@ -672,6 +685,12 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
             ),
         ),
     ];
+    let merkle_fixture = fixtures
+        .iter_mut()
+        .find(|(path, _)| *path == "merkle-tree/paths-v1.json")
+        .map(|(_, fixture)| fixture)
+        .ok_or_else(|| anyhow::anyhow!("Merkle fixture is missing"))?;
+    merkle_fixture["sourceRevision"] = Value::String(MERKLE_SHA.to_string());
     fixtures.extend(keypair_fixtures(&keypair_vectors)?);
     fixtures.extend(transaction_fixtures(&transaction_vectors)?);
     fixtures.push(api_fixture(&api_vectors)?);

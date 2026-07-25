@@ -1530,18 +1530,50 @@ wire base58 strings and bytes. These corrections require no product decision.
 
 ## `@zolana/merkle-tree`
 
-Source: [`sdk-libs/merkle-tree/src/lib.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/merkle-tree/src/lib.rs)
-and [`indexed.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/merkle-tree/src/indexed.rs).
+Source: [`sdk-libs/merkle-tree/src/lib.rs`](https://github.com/helius-labs/zolana/blob/fdb477903070dd0a394680dee835dba9ab7bdc80/sdk-libs/merkle-tree/src/lib.rs)
+and [`indexed.rs`](https://github.com/helius-labs/zolana/blob/fdb477903070dd0a394680dee835dba9ab7bdc80/sdk-libs/merkle-tree/src/indexed.rs).
 
 ```ts
 export interface Hasher32 { hash(left: Bytes32, right: Bytes32): Bytes32 }
+export interface Hasher32WithBytes extends Hasher32 {
+  hashBytes(value: Bytes32): Bytes32;
+}
+export const poseidonHasher: Hasher32WithBytes;
+export const sha256Hasher: Hasher32WithBytes;
+export const keccakHasher: Hasher32WithBytes;
 export class MerkleTreeError extends Error { readonly code: `MERKLE_TREE_${string}` }
 export class IndexedMerkleTreeError extends Error { readonly code: `INDEXED_MERKLE_TREE_${string}` }
+export interface MerkleTreeOptions {
+  readonly canopyDepth?: number;
+  readonly rootHistoryStartOffset?: bigint;
+  readonly rootHistoryArrayLength?: number;
+}
 export class MerkleTree {
-  constructor(height: number, hasher: Hasher32);
+  constructor(height: number, hasher: Hasher32, options?: MerkleTreeOptions);
   append(leaf: Bytes32): bigint;
+  appendBatch(leaves: readonly Bytes32[]): readonly bigint[];
+  update(index: bigint, leaf: Bytes32): void;
   root(): Bytes32;
-  proof(index: bigint): readonly Bytes32[];
+  path(index: bigint, full?: boolean): readonly Bytes32[];
+  proof(index: bigint, full?: boolean): readonly Bytes32[];
+  proofs(indices: readonly bigint[]): readonly (readonly Bytes32[])[];
+  verify(leaf: Bytes32, proof: readonly Bytes32[], index: bigint): boolean;
+  canopy(): readonly Bytes32[];
+  canopySize(): bigint;
+  history(): readonly Bytes32[];
+  historyRootIndex(): number;
+  historyRootIndexV2(): number;
+  leaf(index: bigint): Bytes32;
+  getLeaf(index: bigint): Bytes32;
+  leafIndex(leaf: Bytes32): bigint | undefined;
+  leaves(): readonly Bytes32[];
+  subtrees(): readonly Bytes32[];
+  leafCount(): bigint;
+  nextIndex(): bigint;
+  sequenceNumber(): bigint;
+  insertNode(nodeIndex: bigint, hash: Bytes32): void;
+  insertLeaf(index: bigint, hash: Bytes32): void;
+  ensureLayerCapacity(level: number, minimumIndex: bigint): void;
 }
 export interface NonInclusionProof {
   readonly root: Bytes32;
@@ -1552,21 +1584,47 @@ export interface NonInclusionProof {
   readonly nextIndex: bigint;
   readonly merkleProof: readonly Bytes32[];
 }
+export interface IndexedElement {
+  readonly index: bigint;
+  readonly value: Bytes32;
+  readonly nextIndex: bigint;
+}
+export interface IndexedMerkleTreeOptions {
+  readonly canopyDepth?: number;
+  readonly highestValue?: Bytes32;
+}
 export class IndexedMerkleTree {
-  constructor(height: number, hasher: Hasher32);
+  constructor(height: number, hasher: Hasher32, options?: IndexedMerkleTreeOptions);
   insert(value: Bytes32): bigint;
   root(): Bytes32;
+  path(index: bigint, full?: boolean): readonly Bytes32[];
+  proof(index: bigint, full?: boolean): readonly Bytes32[];
+  update(
+    newLowElement: IndexedElement,
+    newElement: IndexedElement,
+    newElementNextValue: Bytes32,
+  ): void;
+  verifyNonInclusionProof(proof: NonInclusionProof): boolean;
+  highestValue(): Bytes32;
+  element(index: bigint): IndexedElement;
+  elementCount(): bigint;
   nonInclusionProof(value: Bytes32): NonInclusionProof;
 }
+export function verifyNonInclusionProof(
+  hasher: Hasher32,
+  proof: NonInclusionProof,
+  expectedRoot: Bytes32,
+  height: number,
+): boolean;
 ```
 
-All operations are synchronous, validate heights, capacity, indexes, ordering,
-and byte lengths, return owned bytes, and throw the corresponding package
-error. Concrete hashers are constructor dependencies until frozen vectors
-justify named exports.
+All operations are synchronous. They validate configuration, capacity, u64
+indexes, ordering, proof length, trusted roots, and byte lengths. Returned
+bytes are owned. The concrete Poseidon, SHA-256, and Keccak hashers use
+browser-safe Noble entry points and match the current Rust vectors.
 
-This `NonInclusionProof` is the reference indexed-tree result from frozen
-[`indexed.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/merkle-tree/src/indexed.rs).
+This `NonInclusionProof` is the reference indexed-tree result from current
+[`indexed.rs`](https://github.com/helius-labs/zolana/blob/fdb477903070dd0a394680dee835dba9ab7bdc80/sdk-libs/merkle-tree/src/indexed.rs).
 It reconstructs the indexed leaf from `leafLowerRangeValue`, `nextIndex`, and
 `leafHigherRangeValue`; it is not the Photon wire proof or the client
 `SpendProof.nullifier` type. `@zolana/merkle-tree` has no client or indexer

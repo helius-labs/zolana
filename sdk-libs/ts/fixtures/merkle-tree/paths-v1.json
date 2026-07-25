@@ -12,9 +12,18 @@
           "missingHistory": "RootHistoryArrayLenNotSet",
           "missingLeaf": "LeafDoesNotExist(9)"
         },
+        "failureMutation": {
+          "leafLength": "5",
+          "rightmostIndex": "4",
+          "rootHistoryLength": "5",
+          "sequenceNumber": "4"
+        },
         "hasher": "poseidon",
         "hasherId": "0",
         "height": "4",
+        "historyRootIndex": "0",
+        "historyRootIndexV2": "0",
+        "historyRootLength": "5",
         "id": "merkle-poseidon",
         "leafHashBytes": [
           "05bface581ee6177cc19c6c56363a68882f11e8407ac639db991e0d27f1b75e6",
@@ -28,6 +37,7 @@
           "0303030303030303030303030303030303030303030303030303030303030303",
           "0404040404040404040404040404040404040404040404040404040404040404"
         ],
+        "nextIndex": "5",
         "pairHashBytes": "0d54e1938f8a8c1c7deb5e0355f26319207b84fe9ca2ce1b26e735c829821990",
         "pairHashInputBytes": [
           "0101010101010101010101010101010101010101010101010101010101010101",
@@ -129,7 +139,21 @@
           "034fcd8599b8983d69d69736571371ee8a0d841652cc30a297831e93ec2f7ef8",
           "135a050909d68adc9daa1c2bec080f214ec559ddd89b17bbfa5b2563aa4c8cef",
           "15178ae0ada974cc3a0a65feebf806f88081439e7d977dfcfcab01d4ab3be85f"
-        ]
+        ],
+        "sparsePathBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+          "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+          "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+        ],
+        "sparseProofBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+          "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+          "1507b65332739450baa2d22e7e6c05f1c9b10be217f94e868fa774660a68604f"
+        ],
+        "tamperedProofVerified": false,
+        "usizeBits": "64"
       },
       {
         "canopyDepth": "1",
@@ -141,9 +165,18 @@
           "missingHistory": "RootHistoryArrayLenNotSet",
           "missingLeaf": "LeafDoesNotExist(9)"
         },
+        "failureMutation": {
+          "leafLength": "5",
+          "rightmostIndex": "4",
+          "rootHistoryLength": "5",
+          "sequenceNumber": "4"
+        },
         "hasher": "sha256",
         "hasherId": "1",
         "height": "4",
+        "historyRootIndex": "0",
+        "historyRootIndexV2": "0",
+        "historyRootLength": "5",
         "id": "merkle-sha256",
         "leafHashBytes": [
           "72cd6e8422c407fb6d098690f1130b7ded7ec2f7f5e1d30bd9d521f015363793",
@@ -157,6 +190,7 @@
           "0303030303030303030303030303030303030303030303030303030303030303",
           "0404040404040404040404040404040404040404040404040404040404040404"
         ],
+        "nextIndex": "5",
         "pairHashBytes": "f818afd37a6dc3bc92fb44731011277006db4efa6e9023cd7468c02335d22a4d",
         "pairHashInputBytes": [
           "0101010101010101010101010101010101010101010101010101010101010101",
@@ -258,7 +292,21 @@
           "093cb2ccc70678918d978133c8284a5ee14c0645094a0e5f3bc8659aeaea10b9",
           "489ce2c9703b48404e0bd65f84aee6b7e9053f7ba771789dcf9b10aa69993565",
           "562f04a24b5713b2e062c5b11a0a04a3b1ddfd71f60b7a63a0e45c7a2725a278"
-        ]
+        ],
+        "sparsePathBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+          "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+          "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+        ],
+        "sparseProofBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+          "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+          "bb221271e183661b286b26585535ad467357744852c611882a6bee6931f45646"
+        ],
+        "tamperedProofVerified": false,
+        "usizeBits": "64"
       },
       {
         "canopyDepth": "1",
@@ -270,9 +318,18 @@
           "missingHistory": "RootHistoryArrayLenNotSet",
           "missingLeaf": "LeafDoesNotExist(9)"
         },
+        "failureMutation": {
+          "leafLength": "5",
+          "rightmostIndex": "4",
+          "rootHistoryLength": "5",
+          "sequenceNumber": "4"
+        },
         "hasher": "keccak",
         "hasherId": "2",
         "height": "4",
+        "historyRootIndex": "0",
+        "historyRootIndexV2": "0",
+        "historyRootLength": "5",
         "id": "merkle-keccak",
         "leafHashBytes": [
           "cebc8882fecbec7fb80d2cf4b312bec018884c2d66667c67a90508214bd8bafc",
@@ -286,6 +343,7 @@
           "0303030303030303030303030303030303030303030303030303030303030303",
           "0404040404040404040404040404040404040404040404040404040404040404"
         ],
+        "nextIndex": "5",
         "pairHashBytes": "346d8c96a2454213fcc0daff3c96ad0398148181b9fa6488f7ae2c0af5b20aa0",
         "pairHashInputBytes": [
           "0101010101010101010101010101010101010101010101010101010101010101",
@@ -387,11 +445,38 @@
           "ad0e2f62f26c86f8243bd6fe05fcf92727ad71f5c1ae519b319fba71a0400bb2",
           "2ad7f8736791bbc6c43c90a93ab3ff203cb66682095961269c44407cc10c9641",
           "8d30390fe77c77bea697e31239722eb2dce3eb9a364af040197fa36dbfda1883"
-        ]
+        ],
+        "sparsePathBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "ad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5",
+          "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+          "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+        ],
+        "sparseProofBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "ad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5",
+          "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+          "1b8a4e3cedb8629c254d1baaa239d1179486921a8887d4f5e053c2138f1ca849"
+        ],
+        "tamperedProofVerified": false,
+        "usizeBits": "64"
       }
     ],
     "indexed": [
       {
+        "customSentinel": {
+          "appendAtSentinel": "Ok(())",
+          "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "proofBytes": [
+            "2b52b90ca9a713e093c3278ea9e3518e5c383a256f790ca473e9fe8dfbe228c2",
+            "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+            "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+            "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+          ],
+          "rootBytes": "2b9b41dd5f60edee5e62ef2cba595e8a921121bcf8ab1270bbdd5de8d0f8f05f",
+          "sentinelBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "valueBytes": "0000000000000000000000000000000000000000000000000000000000000023"
+        },
         "elements": [
           {
             "index": "0",
@@ -425,7 +510,10 @@
         "errors": {
           "existingValue": "Indexed(ElementAlreadyExists)",
           "higherBound": "NonInclusionProofFailedHigherBoundViolated",
-          "lowerBound": "NonInclusionProofFailedLowerBoundViolated"
+          "lowerBound": "NonInclusionProofFailedLowerBoundViolated",
+          "shortPath": "Reference(InvalidProofLength(3, 4))",
+          "wrongPath": "NonInclusionProofFailed",
+          "wrongRoot": "NonInclusionProofFailed"
         },
         "hasher": "poseidon",
         "id": "indexed-poseidon",
@@ -521,6 +609,19 @@
         ]
       },
       {
+        "customSentinel": {
+          "appendAtSentinel": "Ok(())",
+          "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "proofBytes": [
+            "9ebbcf3e7b9e01f8705586896d6cbb48280c6402e2e0a69e98228dd61130c1e8",
+            "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+            "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+            "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+          ],
+          "rootBytes": "ac1b4b05d6165effa6d9b9dfc36e381111ffedd8fc967ff13fe6ee21f307a943",
+          "sentinelBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "valueBytes": "0000000000000000000000000000000000000000000000000000000000000023"
+        },
         "elements": [
           {
             "index": "0",
@@ -554,7 +655,10 @@
         "errors": {
           "existingValue": "Indexed(ElementAlreadyExists)",
           "higherBound": "NonInclusionProofFailedHigherBoundViolated",
-          "lowerBound": "NonInclusionProofFailedLowerBoundViolated"
+          "lowerBound": "NonInclusionProofFailedLowerBoundViolated",
+          "shortPath": "Reference(InvalidProofLength(3, 4))",
+          "wrongPath": "NonInclusionProofFailed",
+          "wrongRoot": "NonInclusionProofFailed"
         },
         "hasher": "sha256",
         "id": "indexed-sha256",
@@ -650,6 +754,19 @@
         ]
       },
       {
+        "customSentinel": {
+          "appendAtSentinel": "Ok(())",
+          "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "proofBytes": [
+            "65ce8396b736f5da9d881cc6fbcb11ef9721292dc41ec8c40879fd9edea5744d",
+            "ad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5",
+            "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+            "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+          ],
+          "rootBytes": "932e8442f984942da612b64a9404a89a0c0184886e4f57c87f2970af6a41751f",
+          "sentinelBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "valueBytes": "0000000000000000000000000000000000000000000000000000000000000023"
+        },
         "elements": [
           {
             "index": "0",
@@ -683,7 +800,10 @@
         "errors": {
           "existingValue": "Indexed(ElementAlreadyExists)",
           "higherBound": "NonInclusionProofFailedHigherBoundViolated",
-          "lowerBound": "NonInclusionProofFailedLowerBoundViolated"
+          "lowerBound": "NonInclusionProofFailedLowerBoundViolated",
+          "shortPath": "Reference(InvalidProofLength(3, 4))",
+          "wrongPath": "NonInclusionProofFailed",
+          "wrongRoot": "NonInclusionProofFailed"
         },
         "hasher": "keccak",
         "id": "indexed-keccak",
@@ -821,5 +941,6 @@
   "rustPath": "sdk-libs/merkle-tree/src/lib.rs; sdk-libs/merkle-tree/src/indexed.rs; program-libs/hasher/src",
   "rustSymbol": "MerkleTree; IndexedMerkleTree; Poseidon; Sha256; Keccak",
   "schema": "zolana-ts-fixtures-v1",
+  "sourceRevision": "fdb477903070dd0a394680dee835dba9ab7bdc80",
   "version": "1"
 }

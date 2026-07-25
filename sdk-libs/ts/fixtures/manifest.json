@@ -94,7 +94,7 @@
     },
     {
       "path": "merkle-tree/paths-v1.json",
-      "sha256": "58065def205d20fc6b77386fcba7b982f635c8463fc8a5eb2a0b37d93612ab15"
+      "sha256": "b825b4d2a29c0f5b7bc3b050c5c2a63db2ae9017ebe97d5f469eb8e6501346f8"
     },
     {
       "path": "smart-account-client/standard-create-v1.json",

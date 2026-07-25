@@ -889,23 +889,23 @@
     },
     {
       "disposition": "port",
-      "fixtureResponsibility": "Rust-generated `fixtures/merkle-tree/indexed.json` with logical input, exact bytes/value, and error mutations.",
+      "fixtureResponsibility": "Current-Rust `fixtures/merkle-tree/paths-v1.json` with custom-sentinel, root, path-length, and tamper evidence.",
       "marker": "active",
       "packet": "P06",
       "path": "sdk-libs/merkle-tree/src/indexed.rs",
-      "responsibility": "Implements IndexedMerkleTree; NonInclusionProof; IndexedMerkleTreeError; public only where `public-exports.md` declares it.",
+      "responsibility": "Implements the indexed tree, low-level update, path and proof access, custom highest values, and non-inclusion verification.",
       "target": "`@zolana/merkle-tree` · `src/indexed.ts`",
-      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+      "testResponsibility": "Unit and property tests cover ordering, custom sentinels, mutation failures, exact proof lengths, trusted roots, and u64 indexes."
     },
     {
       "disposition": "port",
-      "fixtureResponsibility": "Rust-generated `fixtures/merkle-tree/lib.json` with logical input, exact bytes/value, and error mutations.",
+      "fixtureResponsibility": "Current-Rust `fixtures/merkle-tree/paths-v1.json` with roots, sparse paths, history indexes, next index, and failure-mutation evidence.",
       "marker": "active",
       "packet": "P06",
       "path": "sdk-libs/merkle-tree/src/lib.rs",
-      "responsibility": "Explicit export/module responsibility for MerkleTree; MerkleTreeError; only names allowlisted in `public-exports.md` are public.",
-      "target": "`@zolana/merkle-tree` · `src/index.ts`",
-      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+      "responsibility": "Exposes append, update, roots, paths, proofs, canopy, history, subtree, leaf, verification, and sparse reconstruction operations.",
+      "target": "`@zolana/merkle-tree` · `src/merkle-tree.ts`, `src/index.ts`",
+      "testResponsibility": "Unit, vector, and property tests cover public operations, sparse reconstruction, histories, atomic failures, u64 indexes, Poseidon, SHA-256, and Keccak."
     },
     {
       "disposition": "port",

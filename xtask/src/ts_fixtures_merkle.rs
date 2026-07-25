@@ -65,11 +65,39 @@ fn hasher_vector<H: Hasher>(name: &str) -> String {
     let missing_history = tree
         .get_history_root_index()
         .expect_err("history is not configured");
+    let sparse_path = tree.get_path_of_leaf(9, true).expect("sparse Merkle path");
+    let sparse_proof = tree
+        .get_proof_of_leaf(9, true)
+        .expect("sparse Merkle proof");
+    let mut tampered_proof = tree.get_proof_of_leaf(0, true).expect("tamper proof");
+    tampered_proof[0][0] ^= 1;
+    let tampered_verified = tree
+        .verify(&leaves[0], &tampered_proof, 0)
+        .expect("tampered proof result");
+
+    let mut history_tree = MerkleTree::<H>::new_with_history(HEIGHT, 0, 1, 3);
+    for leaf in leaves {
+        history_tree.append(&leaf).expect("history append");
+    }
+    let history_root_index = history_tree
+        .get_history_root_index()
+        .expect("history root index");
+    let history_root_index_v2 = history_tree
+        .get_history_root_index_v2()
+        .expect("v2 history root index");
+
     let mut full = MerkleTree::<H>::new(2, 0);
     for leaf in leaves {
         full.append(&leaf).expect("fill tree");
     }
     let capacity = full.append(&[9; 32]).expect_err("tree capacity");
+    let failure_mutation = format!(
+        "{{\"leafLength\":\"{}\",\"rightmostIndex\":\"{}\",\"rootHistoryLength\":\"{}\",\"sequenceNumber\":\"{}\"}}",
+        full.leaves().len(),
+        full.rightmost_index,
+        full.roots.len(),
+        full.sequence_number
+    );
 
     format!(
         concat!(
@@ -89,27 +117,45 @@ fn hasher_vector<H: Hasher>(name: &str) -> String {
             "\"emptyRootBytes\":\"{}\",",
             "\"leafInputBytes\":{},",
             "\"leafHashBytes\":{},",
+            "\"failureMutation\":{},",
+            "\"historyRootIndex\":\"{history_root_index}\",",
+            "\"historyRootIndexV2\":\"{history_root_index_v2}\",",
+            "\"historyRootLength\":\"{}\",",
+            "\"nextIndex\":\"{}\",",
             "\"pairHashInputBytes\":{},",
             "\"pairHashBytes\":\"{}\",",
             "\"proofs\":[{}],",
             "\"rootBytes\":\"{}\",",
-            "\"rootHistoryBytes\":{}",
+            "\"rootHistoryBytes\":{},",
+            "\"sparsePathBytes\":{},",
+            "\"sparseProofBytes\":{},",
+            "\"tamperedProofVerified\":{tampered_verified},",
+            "\"usizeBits\":\"{}\"",
             "}}"
         ),
         H::ID,
         hex(&empty_root),
         hex_array(&raw_inputs),
         hex_array(&leaves),
+        failure_mutation,
+        history_tree.roots.len(),
+        tree.get_next_index(),
         hex_array(&raw_inputs[..2]),
         hex(&pair_hash),
         proofs.join(","),
         hex(&tree.root()),
         hex_array(&root_history),
+        hex_array(&sparse_path),
+        hex_array(&sparse_proof),
+        usize::BITS,
         capacity = capacity,
         invalid_index = invalid_index,
         invalid_length = invalid_length,
         missing_history = missing_history,
         missing_leaf = missing_leaf,
+        history_root_index = history_root_index,
+        history_root_index_v2 = history_root_index_v2,
+        tampered_verified = tampered_verified,
         name = name,
         HEIGHT = HEIGHT,
         CANOPY_DEPTH = CANOPY_DEPTH
@@ -209,14 +255,61 @@ fn indexed_vector<H: Hasher>(name: &str) -> String {
     let higher_error = tree
         .verify_non_inclusion_proof(&higher)
         .expect_err("higher-bound violation");
+    let mut wrong_root = tree
+        .get_non_inclusion_proof(&BigUint::from(15u32))
+        .expect("wrong-root fixture");
+    wrong_root.root[0] ^= 1;
+    let wrong_root_error = tree
+        .verify_non_inclusion_proof(&wrong_root)
+        .expect_err("wrong-root violation");
+    let mut wrong_path = tree
+        .get_non_inclusion_proof(&BigUint::from(15u32))
+        .expect("wrong-path fixture");
+    wrong_path.merkle_proof[0][0] ^= 1;
+    let wrong_path_error = tree
+        .verify_non_inclusion_proof(&wrong_path)
+        .expect_err("wrong-path violation");
+    let mut short_path = tree
+        .get_non_inclusion_proof(&BigUint::from(15u32))
+        .expect("short-path fixture");
+    short_path.merkle_proof.pop();
+    let short_path_error = tree
+        .verify_non_inclusion_proof(&short_path)
+        .expect_err("short-path violation");
+
+    let custom_sentinel = BigUint::from(100u32);
+    let mut custom_tree =
+        IndexedMerkleTree::<H, usize>::new_with_next_value(HEIGHT, 0, custom_sentinel.clone())
+            .expect("create custom-sentinel tree");
+    custom_tree
+        .append(&BigUint::from(30u32))
+        .expect("append below custom sentinel");
+    let custom_proof = custom_tree
+        .get_non_inclusion_proof(&BigUint::from(35u32))
+        .expect("custom-sentinel proof");
+    custom_tree
+        .verify_non_inclusion_proof(&custom_proof)
+        .expect("verify custom-sentinel proof");
+    let append_at_sentinel = custom_tree.append(&custom_sentinel);
 
     format!(
         concat!(
             "{{",
+            "\"customSentinel\":{{",
+            "\"appendAtSentinel\":\"{append_at_sentinel:?}\",",
+            "\"higherValueBytes\":\"{}\",",
+            "\"proofBytes\":{},",
+            "\"rootBytes\":\"{}\",",
+            "\"sentinelBytes\":\"{}\",",
+            "\"valueBytes\":\"{}\"",
+            "}},",
             "\"errors\":{{",
             "\"existingValue\":\"{existing:?}\",",
             "\"higherBound\":\"{higher_error:?}\",",
-            "\"lowerBound\":\"{lower_error:?}\"",
+            "\"lowerBound\":\"{lower_error:?}\",",
+            "\"shortPath\":\"{short_path_error:?}\",",
+            "\"wrongPath\":\"{wrong_path_error:?}\",",
+            "\"wrongRoot\":\"{wrong_root_error:?}\"",
             "}},",
             "\"elements\":[{}],",
             "\"hasher\":\"{name}\",",
@@ -229,6 +322,11 @@ fn indexed_vector<H: Hasher>(name: &str) -> String {
             "\"rootHistoryBytes\":{}",
             "}}"
         ),
+        hex(&custom_proof.leaf_higher_range_value),
+        hex_array(&custom_proof.merkle_proof),
+        hex(&custom_proof.root),
+        hex(&bigint_bytes(&custom_sentinel)),
+        hex(&custom_proof.value),
         elements.join(","),
         queries.join(","),
         ordered_indices.join(","),
@@ -238,8 +336,19 @@ fn indexed_vector<H: Hasher>(name: &str) -> String {
         existing = existing,
         higher_error = higher_error,
         lower_error = lower_error,
+        short_path_error = short_path_error,
+        wrong_path_error = wrong_path_error,
+        wrong_root_error = wrong_root_error,
+        append_at_sentinel = append_at_sentinel,
         name = name
     )
+}
+
+fn bigint_bytes(value: &BigUint) -> [u8; 32] {
+    let bytes = value.to_bytes_be();
+    let mut output = [0u8; 32];
+    output[32 - bytes.len()..].copy_from_slice(&bytes);
+    output
 }
 
 fn hex_array(values: &[[u8; 32]]) -> String {
