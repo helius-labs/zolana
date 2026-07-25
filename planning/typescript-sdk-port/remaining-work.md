@@ -245,7 +245,8 @@ moves the four rows to `done`.
 **Check.** The four rows leave `pinned_divergence` and reach `done`.
 
 **Read.** [`row-updates/merge-prefix.md`](row-updates/merge-prefix.md) for what
-was decided and why. Note it corrects a number this document carried: the error
+was decided and why; the link resolves once that branch merges. Note it corrects
+a number this document carried: the error
 is 7020, not 7014. Then
 [`scope-and-denominator.md`](scope-and-denominator.md#the-four-pinned-rows-since-one-sentence-clears-them),
 whose framing of these four as awaiting a ruling is now behind the code.

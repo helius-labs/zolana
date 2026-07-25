@@ -60,9 +60,11 @@ Severity describes consequence if shipped, not implementation cost.
 ## Scheduling
 
 The delivery sequence in
-[`review-checklist.md`](review-checklist.md#deterministic-selection) has five phases: review the 118
+[`review-checklist.md`](review-checklist.md#deterministic-selection) has five phases: review the 145
 primary rows, remediate and independently re-review, resolve specification-authority blockers, pass
-the package and full SDK gates, then run PKP-00 through PKP-08.
+the package and full SDK gates, then run PKP-00 through PKP-08. The row count was 118 until the
+coverage audit of 2026-07-25 raised it. [`remaining-work.md`](remaining-work.md) states where the
+sequence stands and what is left in each phase.
 
 No finding lands in phase 1, which is read-only row review, and none lands in phase 4, which
 evaluates gates rather than producing changes. Four findings (G8-1, G9-1, G9-2, G9-4) are
@@ -70,11 +72,15 @@ remediated in phase 2 and proven by gate lines added to the phase-4 gate sets.
 
 ### Phase 2: remediation and independent re-review
 
-G9-1 and G9-2 are listed first because they are ordered first. Phases 3, 4, and 5 each rest on a
-claim that a gate passed. While no workflow runs the TypeScript scripts and the aggregate `check`
-script skips the cross-language and prover suites, that claim rests on one contributor's local
-shell, which a reviewer cannot reproduce. Fixing the two of them turns the later gate rows into
-evidence.
+G9-1 and G9-2 were listed first because they are ordered first: phases 3, 4, and 5 each rest on a
+claim that a gate passed, and while no workflow ran the TypeScript scripts that claim rested on one
+contributor's local shell, which a reviewer cannot reproduce.
+
+**Both have since been built and need verifying rather than scheduling.**
+`.github/workflows/typescript.yml` runs one job per sub-script of `npm run check` behind a `merge
+gate` job, and a `gate scope` job fails if `check` and the workflow drift apart. The gate lines for
+G9-1 and G9-2 in the full SDK block of [`review-checklist.md`](review-checklist.md#full-sdk-completion-gates)
+are still unticked and can be ticked against that workflow.
 
 | Issue | Severity | Owner artifact | Now | Closed when | Proven by |
 | ----- | -------- | -------------- | --- | ----------- | --------- |

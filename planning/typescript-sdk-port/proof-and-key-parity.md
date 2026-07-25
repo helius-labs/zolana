@@ -20,18 +20,15 @@ Audit snapshot:
 - TypeScript implementation: `sdk-libs/ts/keypair`, `sdk-libs/ts/transaction`, `sdk-libs/ts/client`,
   and `sdk-libs/ts/wallet`.
 
-The review loop is active and the 118-row checklist is incomplete. Its
-[mutable baseline](review-checklist.md#mutable-baseline) holds the current counts and next row. M01
-and M02 have `PARITY` verdicts after the Merkle implementation and provenance repair. The interface
-merge-zone codec and builder rows also have `PARITY` verdicts; the TypeScript transaction and client
-contain merge-zone prepare, prove, assemble, and submit paths, but T28 still has an adverse verdict
-for behavior and evidence gaps. The fixture baseline remains `43fde8e4`, and the interface package
-still records legacy `sourceCommit` bookkeeping for the fixture-gate worker. These facts do not
-upgrade another row.
+The review loop is active and its checklist holds 145 rows, a denominator raised from 118 on
+2026-07-25 by the coverage audit. Do not take a row status from this document: run
+`node sdk-libs/ts/config/pkp-entry-gate.mjs` and read
+[`review-checklist.md`](review-checklist.md), which is the authority for feature status. The
+fixture baseline remains `43fde8e4`. [`remaining-work.md`](remaining-work.md) holds the sequence
+that leads here.
 
 The branch is moving. Before implementing a work packet below, refresh the HEAD, fixture revisions,
-proving-key lock hash, affected rows in [`review-checklist.md`](review-checklist.md), and current
-Rust drift. Treat that checklist as the authority for feature status. Evidence from different
+proving-key lock hash, and affected rows, and check current Rust drift. Evidence from different
 revisions must not be combined into one parity claim without an explicit compatibility review.
 
 ## Entry criteria and scope
