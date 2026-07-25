@@ -135,6 +135,34 @@ export function hashChain(values: readonly bigint[]): bigint {
   return result;
 }
 
+/// Rust `create_two_inputs_hash_chain`. Pairs the two slices elementwise:
+/// `H(i) = Poseidon(H(i-1), first[i], second[i])`, seeded by
+/// `Poseidon(first[0], second[0])`. The single-pair case stops at that seed, so
+/// it is a two-input hash and not a three-input one.
+///
+/// No production Rust caller reaches this today, so it is not on the proof path;
+/// it is ported because `sdk-libs/ts/vectors/program-libs-parity-v1.json`
+/// already pins its vectors, and a chain with committed vectors and no
+/// implementation is a gap that only looks closed.
+export function twoInputsHashChain(first: readonly bigint[], second: readonly bigint[]): bigint {
+  if (first.length !== second.length) {
+    throw new ClientError("CLIENT_INVALID_LENGTH", {
+      details: { field: "two inputs hash chain", expected: first.length, actual: second.length },
+    });
+  }
+  const seedFirst = first[0];
+  const seedSecond = second[0];
+  if (seedFirst === undefined || seedSecond === undefined) return 0n;
+  let result = poseidon([seedFirst, seedSecond]);
+  for (let index = 1; index < first.length; index++) {
+    const left = first[index];
+    const right = second[index];
+    if (left === undefined || right === undefined) throw hasherError("EmptyInput");
+    result = poseidon([result, left, right]);
+  }
+  return result;
+}
+
 export function hashField(bytes: Uint8Array): bigint {
   if (bytes.length !== 32) {
     throw new ClientError("CLIENT_INVALID_LENGTH", {
