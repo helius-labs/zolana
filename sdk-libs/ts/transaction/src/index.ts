@@ -13,6 +13,7 @@ export {
 } from "./error.js";
 export {
   ConfidentialSplit,
+  MERGE_INPUTS,
   Merge,
   MergeZone,
   PreparedMerge,

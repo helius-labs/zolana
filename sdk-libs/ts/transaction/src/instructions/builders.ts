@@ -18,7 +18,8 @@ import {
 import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
 import { SppProofInputs, createExternalData, type InputUtxoContext } from "./transact.js";
 
-const MERGE_INPUTS = 8;
+/** Padded input count of both merge rails, the counterpart of Rust `MERGE_INPUTS`. */
+export const MERGE_INPUTS = 8;
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 function checkedU64(value: bigint, field: string): bigint {

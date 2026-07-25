@@ -914,7 +914,7 @@ export function mergeUtxo(
 ): Utxo {
   const asset = assets.addressForField(checked<Bytes32>(value.assetField, 32, "asset field"));
   if (asset === undefined) {
-    throw new TransactionError("TRANSACTION_UNKNOWN_ASSET", {
+    throw new TransactionError("TRANSACTION_UNKNOWN_ASSET_FIELD", {
       assetField: [...value.assetField],
     });
   }
