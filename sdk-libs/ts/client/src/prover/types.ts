@@ -79,6 +79,36 @@ export type ProverInputs =
   | Readonly<{ circuit: "transfer"; payload: TransferInputs }>
   | Readonly<{ circuit: "transferP256"; payload: TransferP256Inputs }>;
 
+export type ZoneProverInputs =
+  | Readonly<{ circuit: "transferZone"; payload: TransferInputs }>
+  | Readonly<{ circuit: "transferP256Zone"; payload: TransferP256Inputs }>
+  | Readonly<{ circuit: "transferZoneAuthority"; payload: TransferInputs }>;
+
+/// Mirrors Rust `ZoneTransferProofResult` and `ZoneAuthorityProofResult`. Unlike
+/// the confidential rail this carries no `TransactInstructionData`: the Rust zone
+/// provers build none either, and the transaction package already assembles zone
+/// instruction data from the values here.
+export interface AssembledZone {
+  readonly proverInputs: ZoneProverInputs;
+  readonly publicInputHash: Bytes32;
+  readonly nullifiers: readonly Bytes32[];
+  readonly outputHashes: readonly Bytes32[];
+  readonly privateTxHash: Bytes32;
+  /// Per input, `[utxoTreeRootIndex, nullifierTreeRootIndex]`, in input order.
+  readonly inputRootIndexes: readonly (readonly [number, number])[];
+}
+
+/// Mirrors Rust `ZoneTransferP256ProofResult`.
+export interface AssembledZoneP256 extends AssembledZone {
+  /// The shared P256 owner `pk_field`, carried in the witness so the circuit can
+  /// route ownership by equality. Deliberately absent from the zone public-input
+  /// hash, and never sent as instruction data.
+  readonly p256SigningPublicKeyField: Field;
+  /// The raw x-coordinate of the shared P256 signing key, carried in the
+  /// `Transact` instruction so the program reproduces `pk_field` on-chain.
+  readonly p256SigningPublicKeyX: Bytes32;
+}
+
 export interface AssembledTransfer {
   readonly instructionData: TransactInstructionData;
   readonly proverInputs: ProverInputs;

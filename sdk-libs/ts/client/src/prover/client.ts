@@ -10,6 +10,8 @@ import type {
   Proof,
   ProverInputs,
   TransferInput,
+  TransferP256Inputs,
+  ZoneProverInputs,
   TransferOutput,
 } from "./types.js";
 
@@ -89,12 +91,8 @@ export class ProverClient {
     return new ProverClient({ ...input, url: localProverUrl() });
   }
 
-  async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(
-      JSON.stringify(proverRequest(inputs)),
-      inputs.circuit === "transferP256",
-      context,
-    );
+  async prove(inputs: ProverInputs | ZoneProverInputs, context?: RequestContext): Promise<Proof> {
+    return this.#send(JSON.stringify(proverRequest(inputs)), committed(inputs), context);
   }
 
   async [PROVE_MERGE](inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
@@ -283,34 +281,70 @@ export function mergeProverRequest(
   });
 }
 
-export function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {
+/// The prover server's `circuitType` per rail. Rust reaches the same five
+/// strings through `to_json`, `to_json_p256`, `to_json_zone`, `to_json_p256_zone`
+/// and `to_json_zone_authority`, all of which share one request shape and differ
+/// only here and in the embedded `publicInputHash`.
+const CIRCUIT_TYPES = Object.freeze({
+  transfer: "transfer-confidential",
+  transferP256: "transfer-p256-confidential",
+  transferZone: "transfer-zone",
+  transferP256Zone: "transfer-p256-zone",
+  transferZoneAuthority: "transfer-zone-authority",
+} as const);
+
+/// The P256 rails carry a BSB22 commitment; the ed25519 rails, including the
+/// zone authority, are standard Groth16 with A, B, and C only.
+function committed(inputs: ProverInputs | ZoneProverInputs): inputs is Readonly<{
+  circuit: "transferP256" | "transferP256Zone";
+  payload: TransferP256Inputs;
+}> {
+  return inputs.circuit === "transferP256" || inputs.circuit === "transferP256Zone";
+}
+
+export function proverRequest(
+  inputs: ProverInputs | ZoneProverInputs,
+): Readonly<Record<string, unknown>> {
   const payload = inputs.payload;
-  const common = {
-    circuitType:
-      inputs.circuit === "transferP256" ? "transfer-p256-confidential" : "transfer-confidential",
+  const head = {
+    circuitType: CIRCUIT_TYPES[inputs.circuit],
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map(inputJson),
     outputs: payload.outputs.map(outputJson),
     externalDataHash: hex(payload.externalDataHash),
-    privateTxHash: hex(payload.privateTxHash),
+  };
+  const tail = {
     publicSolAmount: hex(payload.publicSolAmount),
     publicSplAmount: hex(payload.publicSplAmount),
     publicSplAssetPubkey: hex(payload.publicSplAssetPublicKey),
     zoneProgramId: hex(payload.zoneProgramId),
     payerPubkeyHash: hex(payload.payerPublicKeyHash),
-    publicInputHash: hex(payload.publicInputHash),
   };
-  if (inputs.circuit === "transfer") return Object.freeze(common);
+  // The key order follows the Rust request structs so the two serializers
+  // produce the same bytes, not merely the same object. On the P256 rails the
+  // signature fields sit between `externalDataHash` and `privateTxHash`, and
+  // `p256SigningPkField` between `payerPubkeyHash` and `publicInputHash`.
+  if (!committed(inputs)) {
+    return Object.freeze({
+      ...head,
+      privateTxHash: hex(payload.privateTxHash),
+      ...tail,
+      publicInputHash: hex(payload.publicInputHash),
+    });
+  }
   return Object.freeze({
-    ...common,
+    ...head,
     p256PubX: hex(inputs.payload.p256PublicKeyX),
     p256PubY: hex(inputs.payload.p256PublicKeyY),
     p256SigR: hex(inputs.payload.p256SignatureR),
     p256SigS: hex(inputs.payload.p256SignatureS),
+    privateTxHash: hex(payload.privateTxHash),
     p256MessageHashLow: hex(inputs.payload.p256MessageHashLow),
     p256MessageHashHigh: hex(inputs.payload.p256MessageHashHigh),
+    ...tail,
     p256SigningPkField: hex(inputs.payload.p256SigningPublicKeyField),
+    publicInputHash: hex(payload.publicInputHash),
   });
 }
 

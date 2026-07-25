@@ -8,6 +8,7 @@ import {
   proveMergeZone,
 } from "./client.js";
 import { compressProof } from "./proof.js";
+import { assembleZone, assembleZoneAuthority, assembleZoneP256 } from "./zone.js";
 
 export {
   DEFAULT_ASYNC_POLL_CONFIG,
@@ -15,6 +16,9 @@ export {
   ProverClient,
   SERVER_ADDRESS,
   assemble,
+  assembleZone,
+  assembleZoneAuthority,
+  assembleZoneP256,
   compressProof,
   createDummyTransferInput,
   intoProver,
@@ -25,6 +29,8 @@ export { compressedProof, parseProof } from "./proof.js";
 export type { AsyncPollConfig } from "./client.js";
 export type {
   AssembledTransfer,
+  AssembledZone,
+  AssembledZoneP256,
   CompressedProof,
   Field,
   MergeInputs,
@@ -37,6 +43,7 @@ export type {
   TransferInputs,
   TransferOutput,
   TransferP256Inputs,
+  ZoneProverInputs,
 } from "./types.js";
 
 export {
