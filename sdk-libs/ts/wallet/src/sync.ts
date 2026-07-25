@@ -11,6 +11,7 @@ import type { Bytes32, RequestContext } from "@zolana/interface";
 import type { ViewingKey } from "@zolana/keypair";
 import {
   EncryptedScheme,
+  TransactionError,
   decryptTransactions,
   type AssetBalance,
   type PrivateTransaction,
@@ -39,7 +40,10 @@ export interface SyncWalletConfig {
  * Per-viewing-key counters that extend the queried tag ranges past the scan
  * window. Owned by the wallet state in `@zolana/transaction`.
  */
-export type { CounterpartyCounter, ViewingKeyEntry as ViewingKeyCounters } from "@zolana/transaction";
+export type {
+  CounterpartyCounter,
+  ViewingKeyEntry as ViewingKeyCounters,
+} from "@zolana/transaction";
 
 export async function backfillAssetRegistry(
   wallet: Wallet,
@@ -77,6 +81,18 @@ function atLeastOne(value: number, field: string): number {
   return Math.max(value, 1);
 }
 
+/** Rust compares the whole `ShieldedAddress`, which is these three keys. */
+function sameIdentity(material: WalletSyncMaterial, wallet: Wallet): boolean {
+  return (
+    bytesKey(material.identity.signingPublicKey.toBytes()) ===
+      bytesKey(wallet.identity.signingPublicKey.toBytes()) &&
+    bytesKey(material.identity.nullifierPublicKey) ===
+      bytesKey(wallet.identity.nullifierPublicKey) &&
+    bytesKey(material.identity.viewingPublicKey.toBytes()) ===
+      bytesKey(wallet.identity.viewingPublicKey.toBytes())
+  );
+}
+
 function viewingKeyCounters(wallet: Wallet, key: ViewingKey): ViewingKeyEntry | undefined {
   const publicKey = bytesKey(key.publicKey().toBytes());
   return wallet.viewingKeyHistory.find(
@@ -89,12 +105,24 @@ function viewingKeyCounters(wallet: Wallet, key: ViewingKey): ViewingKeyEntry | 
  * past the window because a counterparty may have advanced its own counter
  * further than this wallet has scanned; the two shared families are the only
  * way notes from a known sender or to a known recipient surface at all.
+ *
+ * Material that does not belong to this wallet is refused here rather than by
+ * the decrypt pass further down, because a tag is a query the indexer sees: a
+ * wallet handed the wrong keys would otherwise publish a full window of them
+ * before anything noticed.
  */
 function walletQueryTags(
   wallet: Wallet,
   material: WalletSyncMaterial,
   window: bigint,
 ): readonly Bytes32[] {
+  if (!sameIdentity(material, wallet)) {
+    throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
+  }
+  const current = bytesKey(wallet.identity.viewingPublicKey.toBytes());
+  if (!material.viewingKeys.some((key) => bytesKey(key.publicKey().toBytes()) === current)) {
+    throw new TransactionError("TRANSACTION_MISSING_CURRENT_VIEWING_KEY");
+  }
   const tags = new Map<string, Bytes32>();
   const add = (tag: Bytes32): void => {
     tags.set(bytesKey(tag), tag);
@@ -250,7 +278,11 @@ export async function syncWallet(
 ): Promise<SyncReport> {
   try {
     const tagWindow = input.config?.tagWindow ?? 64n;
-    if (tagWindow <= 0n) {
+    // Rust carries the window in a `u64`, so only a value outside that range is
+    // a config error here. A zero window is rejected one layer down, by the same
+    // `syncWithMaterial` guard Rust reaches, and keeping it there is what makes
+    // both languages raise the same error for it.
+    if (tagWindow < 0n || tagWindow > 0xffff_ffff_ffff_ffffn) {
       throw new WalletError("WALLET_INVALID_SYNC_CONFIG", {
         details: { field: "tagWindow", value: tagWindow.toString() },
       });
