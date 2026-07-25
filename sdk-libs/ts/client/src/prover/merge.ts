@@ -3,7 +3,7 @@ import { mergeExternalDataHash } from "@zolana/interface/codecs";
 import type { MergeTransactInstructionData } from "@zolana/interface/instructions";
 import { NullifierKey, P256PublicKey, ShieldedPublicKey } from "@zolana/keypair";
 import { encryptVerifiable, mergePublicContribution } from "@zolana/keypair/merge";
-import { PreparedMerge } from "@zolana/transaction";
+import { PreparedMerge, PreparedMergeZone } from "@zolana/transaction";
 import { EncryptedScheme, encodeMerge, encodeOutputData } from "@zolana/transaction/serialization";
 
 import { ClientError, fromClientCause } from "../error.js";
@@ -30,6 +30,7 @@ import type { Field, MergeInputs, TransferInput } from "./types.js";
 
 const MERGE_INPUTS = 8;
 const MERGE_INSTRUCTION_TAG = 12;
+const MERGE_ZONE_INSTRUCTION_TAG = 13;
 const P256_GENERATOR_X = 0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296n;
 const P256_GENERATOR_Y = 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5n;
 
@@ -60,13 +61,14 @@ export async function assembleMerge(
   context?: RequestContext,
 ): Promise<MergeAssembly> {
   try {
+    if (prepared instanceof PreparedMergeZone) throw new ClientError("CLIENT_INVALID_MERGE");
     validateMergeMaterial(prepared, material);
     const proofs = await indexer.getInputMerkleProofs(
       prepared.inputUtxoHashes(),
       undefined,
       context,
     );
-    return assembleMergeWithProofs(prepared, material, proofs, tree);
+    return assembleMergeWithProofsUnchecked(prepared, material, proofs, tree);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -79,7 +81,55 @@ export function assembleMergeWithProofs(
   tree: Address,
 ): MergeAssembly {
   try {
+    if (prepared instanceof PreparedMergeZone) throw new ClientError("CLIENT_INVALID_MERGE");
     return assembleMergeWithProofsUnchecked(prepared, material, proofs, tree);
+  } catch (cause) {
+    throw fromClientCause(cause);
+  }
+}
+
+export async function assembleMergeZone(
+  prepared: PreparedMergeZone,
+  material: MergeMaterialInput,
+  indexer: Pick<Rpc, "getInputMerkleProofs">,
+  tree: Address,
+  context?: RequestContext,
+): Promise<MergeAssembly> {
+  try {
+    if (!(prepared instanceof PreparedMergeZone)) throw new ClientError("CLIENT_INVALID_MERGE");
+    validateMergeMaterial(prepared, material);
+    const proofs = await indexer.getInputMerkleProofs(
+      prepared.inputUtxoHashes(),
+      undefined,
+      context,
+    );
+    return assembleMergeWithProofsUnchecked(
+      prepared,
+      material,
+      proofs,
+      tree,
+      prepared.zoneProgramId,
+    );
+  } catch (cause) {
+    throw fromClientCause(cause);
+  }
+}
+
+export function assembleMergeZoneWithProofs(
+  prepared: PreparedMergeZone,
+  material: MergeMaterialInput,
+  proofs: readonly SpendProof[],
+  tree: Address,
+): MergeAssembly {
+  try {
+    if (!(prepared instanceof PreparedMergeZone)) throw new ClientError("CLIENT_INVALID_MERGE");
+    return assembleMergeWithProofsUnchecked(
+      prepared,
+      material,
+      proofs,
+      tree,
+      prepared.zoneProgramId,
+    );
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -90,6 +140,7 @@ function assembleMergeWithProofsUnchecked(
   material: MergeMaterialInput,
   proofs: readonly SpendProof[],
   tree: Address,
+  zoneProgramId?: Address,
 ): MergeAssembly {
   validateMergeMaterial(prepared, material);
   const realInputs = prepared.inputs.filter((input) => !input.isDummy());
@@ -188,7 +239,8 @@ function assembleMergeWithProofsUnchecked(
     });
   }
   const externalDataHash = mergeExternalDataHash({
-    instructionTag: MERGE_INSTRUCTION_TAG,
+    instructionTag:
+      zoneProgramId === undefined ? MERGE_INSTRUCTION_TAG : MERGE_ZONE_INSTRUCTION_TAG,
     expiryUnixTs: prepared.expiryUnixTs,
     outputUtxoHash: outputHash,
     encryptedUtxo,
@@ -214,20 +266,35 @@ function assembleMergeWithProofsUnchecked(
   const ownerPublicKeyHash = eddsaOwner
     ? bytesField(prepared.signingPublicKey.ownerPublicKeyField(), "merge owner public key")
     : 0n;
+  const commonPublicInputs = [
+    hashChain(nullifiers.map(bytesToBigInt)),
+    bytesToBigInt(outputHash),
+    hashChain(utxoRoots),
+    hashChain(nullifierRoots),
+    bytesToBigInt(privateTxHash),
+    bytesToBigInt(externalDataHash),
+  ];
+  const zoneProgramField =
+    zoneProgramId === undefined ? 0n : hashField(addressBytes(zoneProgramId));
   const publicInputHash = bigintToBytes(
-    hashChain([
-      hashChain(nullifiers.map(bytesToBigInt)),
-      bytesToBigInt(outputHash),
-      hashChain(utxoRoots),
-      hashChain(nullifierRoots),
-      bytesToBigInt(privateTxHash),
-      bytesToBigInt(externalDataHash),
-      bytesToBigInt(prepared.signingPublicKey.ownerPublicKeyField()),
-      bytesToBigInt(ShieldedPublicKey.fromP256(prepared.userViewingPublicKey).hash()),
-      bytesToBigInt(contribution.txViewingPublicKeyLow),
-      bytesToBigInt(contribution.txViewingPublicKeyHigh),
-      bytesToBigInt(contribution.ciphertextHash),
-    ]),
+    hashChain(
+      zoneProgramId === undefined
+        ? [
+            ...commonPublicInputs,
+            bytesToBigInt(prepared.signingPublicKey.ownerPublicKeyField()),
+            bytesToBigInt(ShieldedPublicKey.fromP256(prepared.userViewingPublicKey).hash()),
+            bytesToBigInt(contribution.txViewingPublicKeyLow),
+            bytesToBigInt(contribution.txViewingPublicKeyHigh),
+            bytesToBigInt(contribution.ciphertextHash),
+          ]
+        : [
+            ...commonPublicInputs,
+            bytesToBigInt(contribution.txViewingPublicKeyLow),
+            bytesToBigInt(contribution.txViewingPublicKeyHigh),
+            bytesToBigInt(contribution.ciphertextHash),
+            zoneProgramField,
+          ],
+    ),
   ) as Bytes32;
   const proverInputs: MergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
@@ -248,7 +315,7 @@ function assembleMergeWithProofsUnchecked(
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
     publicInputHash: asField(bytesToBigInt(publicInputHash)),
-    zoneProgramId: asField(0n),
+    zoneProgramId: asField(zoneProgramField),
   });
   const utxoTreeRootIndexes = Object.freeze(rootIndexes.map(([state]) => state));
   const nullifierTreeRootIndexes = Object.freeze(rootIndexes.map(([, nullifier]) => nullifier));

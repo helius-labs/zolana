@@ -9,10 +9,19 @@ import {
 } from "@zolana/interface";
 import {
   mergeTransactInstruction,
+  mergeZoneInstruction,
   type MergeTransactInstructionData,
 } from "@zolana/interface/instructions";
+import { zoneAuthAddress } from "@zolana/interface/pda";
 import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
-import { PreparedMerge, ProofInputUtxo, SOL_MINT, Utxo, deriveBlinding } from "@zolana/transaction";
+import {
+  PreparedMerge,
+  PreparedMergeZone,
+  ProofInputUtxo,
+  SOL_MINT,
+  Utxo,
+  deriveBlinding,
+} from "@zolana/transaction";
 import { describe, expect, it, vi } from "vitest";
 
 import mergeFixture from "../../fixtures/transaction/merge-v1.json" with { type: "json" };
@@ -27,6 +36,7 @@ import { bytes, hex } from "./helpers/prover-vectors.js";
 const TREE = "4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm" as Address;
 const PAYER = "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4" as Address;
 const USER_RECORD = encodeBase58(new Uint8Array(32).fill(17)) as Address;
+const ZONE_PROGRAM = encodeBase58(new Uint8Array(32).fill(3)) as Address;
 const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111" as Address;
 const BLOCKHASH = encodeBase58(new Uint8Array(32).fill(53));
 
@@ -109,6 +119,56 @@ function source(): Readonly<{
       nullifierKey,
     },
     proofs,
+  };
+}
+
+function zoneSource(): ReturnType<typeof source> & Readonly<{ prepared: PreparedMergeZone }> {
+  const base = source();
+  const keypair = ShieldedKeypair.fromKeys(
+    SigningKey.fromBytes(fixtureBytes(mergeFixture.inputs.signingSecretBytes) as Bytes32),
+    base.material.nullifierKey,
+    ViewingKey.fromSeed(fixtureBytes(mergeFixture.inputs.viewingSeedBytes) as Bytes32, 0),
+  );
+  const real = base.prepared.inputs
+    .filter((input) => !input.isDummy())
+    .map(
+      (input) =>
+        new ProofInputUtxo({
+          utxo: new Utxo({
+            owner: input.utxo.owner,
+            asset: input.utxo.asset,
+            amount: input.utxo.amount,
+            blinding: input.utxo.blinding,
+            zoneProgramId: ZONE_PROGRAM,
+          }),
+          nullifierKey: input.nullifierKey,
+        }),
+    );
+  const prepared = new PreparedMergeZone({
+    inputs: [
+      ...real,
+      ...base.prepared.inputs.filter((input) => input.isDummy()),
+    ],
+    output: createProofOutput({
+      ownerAddress: keypair.shieldedAddress(),
+      asset: SOL_MINT,
+      amount: 30n,
+      blinding: deriveBlinding(
+        fixtureBytes(mergeFixture.inputs.blindingSeedBytes) as Bytes31,
+        2,
+      ),
+      zoneProgramId: ZONE_PROGRAM,
+    }),
+    expiryUnixTs: base.prepared.expiryUnixTs,
+    signingPublicKey: base.material.signingPublicKey,
+    userViewingPublicKey: base.material.viewingPublicKey,
+    txViewingSecret: base.prepared.txViewingSecret,
+    zoneProgramId: ZONE_PROGRAM,
+  });
+  return {
+    ...base,
+    prepared,
+    proofs: real.map((input, index) => spendProof(input, index)),
   };
 }
 
@@ -230,6 +290,50 @@ describe("merge proving and unsigned submission", () => {
     expect(proved.data.encryptedUtxo).toHaveLength(110);
     expect(proved.data.encryptedUtxo.slice(0, 6)).toEqual(Uint8Array.of(2, 105, 0, 0, 0, 6));
     expect(proved.data.eddsaOwner).toBe(false);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("uses the dedicated merge-zone circuit, assembly, and instruction", async () => {
+    const value = zoneSource();
+    const fetch = vi.fn((_request: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as Record<
+        string,
+        unknown
+      >;
+      expect(body["circuitType"]).toBe("merge-zone");
+      expect(body["zoneProgramId"]).not.toBe("0x0");
+      return Promise.resolve(proofResponse());
+    });
+    const zoneClient = client(fetch);
+    const indexer = fakeRpc({ getInputMerkleProofs: () => Promise.resolve(value.proofs) });
+
+    await expectCode(
+      zoneClient.proveMerge({ prepared: value.prepared, material: value.material, indexer }),
+      "CLIENT_INVALID_MERGE",
+    );
+    const proved = await zoneClient.proveMergeZone({
+      prepared: value.prepared,
+      material: value.material,
+      indexer,
+    });
+    const mergeViewTag = new Uint8Array(32).fill(9) as Bytes32;
+    const transaction = zoneClient.finishMergeZoneSubmissionUnsigned({
+      proved,
+      feePayer: PAYER,
+      zoneProgramId: ZONE_PROGRAM,
+      mergeViewTag,
+      recentBlockhash: BLOCKHASH,
+    });
+    const instruction = mergeZoneInstruction({
+      tree: TREE,
+      zoneProgramId: ZONE_PROGRAM,
+      payer: PAYER,
+      data: proved.data,
+      mergeViewTag,
+    });
+
+    expect(transaction.messageBytes).toEqual(legacyZoneMessage(instruction));
+    expect(instruction.data[0]).toBe(13);
     expect(fetch).toHaveBeenCalledOnce();
   });
 
@@ -362,6 +466,35 @@ function legacyMessage(merge: Instruction): Uint8Array {
     Uint8Array.of(4),
     compact(merge.accounts.length),
     Uint8Array.of(1, 0, 3, 4),
+    compact(merge.data.length),
+    merge.data,
+  );
+}
+
+function legacyZoneMessage(merge: Instruction): Uint8Array {
+  const zoneAuthority = zoneAuthAddress(ZONE_PROGRAM)[0];
+  const accounts = [
+    PAYER,
+    TREE,
+    COMPUTE_BUDGET,
+    zoneAuthority,
+    SHIELDED_POOL_PROGRAM_ID,
+    ZONE_PROGRAM,
+  ];
+  const computeData = Uint8Array.of(2, 0xc0, 0x5c, 0x15, 0);
+  return concat(
+    Uint8Array.of(1, 0, 4),
+    compact(accounts.length),
+    ...accounts.map(addressBytes),
+    decodeBase58(BLOCKHASH, 32, "blockhash"),
+    compact(2),
+    Uint8Array.of(2),
+    compact(0),
+    compact(computeData.length),
+    computeData,
+    Uint8Array.of(5),
+    compact(merge.accounts.length),
+    Uint8Array.of(1, 3, 0, 4),
     compact(merge.data.length),
     merge.data,
   );

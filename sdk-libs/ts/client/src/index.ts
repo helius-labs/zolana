@@ -1,5 +1,10 @@
 export { ZolanaClient } from "./client.js";
-export type { SignedPrivateTransaction } from "./client.js";
+export type {
+  MergeMaterialInput,
+  ProvedMerge,
+  ProvedMergeZone,
+  SignedPrivateTransaction,
+} from "./client.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
 export type {
   CanonicalClientErrorCode,

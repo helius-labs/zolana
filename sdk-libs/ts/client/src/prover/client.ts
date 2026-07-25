@@ -18,6 +18,7 @@ const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 2_000n;
 const MAX_POLL_MS = 1_200_000;
 const PROVE_MERGE = Symbol("proveMerge");
+const PROVE_MERGE_ZONE = Symbol("proveMergeZone");
 
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
@@ -61,6 +62,10 @@ export class ProverClient {
 
   async [PROVE_MERGE](inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     return this.#send(JSON.stringify(mergeProverRequest(inputs)), true, context);
+  }
+
+  async [PROVE_MERGE_ZONE](inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
+    return this.#send(JSON.stringify(mergeProverRequest(inputs, "merge-zone")), true, context);
   }
 
   async #send(body: string, p256: boolean, context?: RequestContext): Promise<Proof> {
@@ -178,9 +183,20 @@ export function proveMerge(
   return client[PROVE_MERGE](inputs, context);
 }
 
-export function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknown>> {
+export function proveMergeZone(
+  client: ProverClient,
+  inputs: MergeInputs,
+  context?: RequestContext,
+): Promise<Proof> {
+  return client[PROVE_MERGE_ZONE](inputs, context);
+}
+
+export function mergeProverRequest(
+  inputs: MergeInputs,
+  circuitType: "merge" | "merge-zone" = "merge",
+): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    circuitType: "merge",
+    circuitType,
     inputs: inputs.inputs.map(inputJson),
     output: outputJson(inputs.output),
     p256PubX: hex(inputs.p256PublicKeyX),
