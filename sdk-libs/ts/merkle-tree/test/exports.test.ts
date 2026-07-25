@@ -18,6 +18,11 @@ describe("public exports", () => {
       "IndexedMerkleTreeError",
       "MerkleTree",
       "MerkleTreeError",
+      // The Poseidon hasher is the Rust implementation compiled to WebAssembly,
+      // so unlike its two siblings it has a load step, and callers that cannot
+      // await an implicit one need to drive and observe it.
+      "initializePoseidon",
+      "isPoseidonInitialized",
       "keccakHasher",
       "poseidonHasher",
       "sha256Hasher",
