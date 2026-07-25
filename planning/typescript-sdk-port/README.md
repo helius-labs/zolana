@@ -33,20 +33,21 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker commits. Last update: 2026-07-25 23:35.
+Refreshed as each worker commits. Last update: 2026-07-26 00:35.
 
 | | |
 | --- | --- |
-| Rows the table calls supported | 74 of 145, the figure the CI gate reports |
-| Rows evidenced, but the table still shows them open | None known. The seven batch files outstanding at 22:00 are folded in |
+| Rows the table calls supported | 90 of 145, the figure the CI gate reports. Six more are closed on a confirmed `NOT_APPLICABLE` disposition, which the gate counts separately |
+| Rows evidenced, but the table still shows them open | None known. Client batch B, transaction batch B, and the wallet file are folded in |
 | Rows carrying an attributable verdict | 145 of 145 |
 | Rows still unexamined | None, and the Status column no longer holds a `todo` entry |
-| Rows carrying an adverse verdict | 61: 33 `PARTIAL`, 23 `DIVERGENT`, 4 `BLOCKED`, 1 `STALE` |
-| Branch | 351 commits vs `main`. The checklist gate is green |
+| Rows carrying an adverse verdict | 45: 27 `PARTIAL`, 17 `DIVERGENT`, 1 `STALE`. No row is `BLOCKED` |
+| Rows this branch cannot close | None. See [scope-and-denominator.md](scope-and-denominator.md) |
+| Branch | 373 commits vs `main`. The checklist gate is green |
 | Phase | 2 of 4: remediation. Phases 3 and 4 not started |
 
-The count moved from 19 to 74 in one evening, so it is worth saying what it does
-and does not mean. The gap between the two figures the last update carried was
+The count moved from 19 to 90 in one evening, so it is worth saying what it does
+and does not mean. The gap between the two figures an earlier update carried was
 bookkeeping, and folding the batch files in closed it. The rise since then is
 not bookkeeping: it comes from batches that stopped comparing implementations by
 reading them and started generating oracles from Rust and replaying them in
@@ -55,7 +56,15 @@ verdicts hold to the degree those oracles cover the row, and the reconciler
 downgraded the claims that outran their tests.
 
 What the number still does not cover is the SDK as a whole. No package gate set
-has passed, and 61 rows carry an adverse verdict.
+has passed, and 45 rows carry an adverse verdict.
+
+The scope pass of `2026-07-26` answered a question that had been distorting the
+remaining work: none of the 145 rows needs a change to `programs/`,
+`program-libs/`, `prover/`, or a circuit. Rows described as blocked on the
+protocol were blocked on a ruling, the rulings arrived, and each pointed back
+into `sdk-libs`. So the denominator for the entry criterion is 45, and the three
+findings whose fix is genuinely outside are recorded with a recommended route in
+[scope-and-denominator.md](scope-and-denominator.md).
 
 In flight:
 
@@ -63,11 +72,11 @@ In flight:
 | --- | --- |
 | Quality and no-shortcuts audit of `sdk-libs/ts` | Done. Functionality was cut, two live defects fixed, quality otherwise sound |
 | Fold the merged batches into the table | Done through client batch B. No `row-updates` file is waiting on the reconciler |
-| Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc`, 5 commits ahead and merging clean. Landed the indexed-range sentinel bound, the faucet-port offset, and the keypair bigint bound |
+| Wallet, merkle and stragglers, 10 rows | Folded. Seven wallet rows closed and the package holds no `BLOCKED` row; `W02` is unowned and `W04` rests on a reading |
 | Keypair error redaction, is the guarantee real | Done. No secret reaches an error surface, but the sanitizer is not what prevents it |
 | Client package, rows C01 to C22 | 9 of 22 closed, including the three zone prover rails the owner un-deferred. `C02`, `C03`, `C04`, and `C08` stay `DIVERGENT` |
 | Transaction, 31 rows | 5 commits ahead, second pass queued behind the capacity limit |
-| `user_record` binding fix, own branch off `main` | Done, PR #160, 23 checks green |
+| `user_record` binding fix, own branch off `main` | Fix done, PR #160 open with 23 checks green. Checked `2026-07-26`: not yet merged, and `a811b20e` is not an ancestor of `main` |
 
 Merged into the integration branch:
 
