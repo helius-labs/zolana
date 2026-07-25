@@ -16,13 +16,13 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `6daa55950dd853fbc58a4a10685228a3d382048b`
+- Review HEAD: `7e2743cac2a231991069ffb30d20574c4eb0057a`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `4 done / 118 total`; `57 needs_fix`; `0 needs_re_review`; `2 in_progress`
-- Exact next eligible row: `K14 sdk-libs/keypair/src/lib.rs`
-- Active reviews: `K04 sdk-libs/keypair/src/viewing_key.rs`; `M02 sdk-libs/merkle-tree/src/lib.rs`
+- Progress: `4 done / 118 total`; `60 needs_fix`; `0 needs_re_review`; `1 in_progress`
+- Exact next eligible row: `T07 sdk-libs/transaction/src/serialization/proofless.rs`
+- Active reviews: `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `I01 in_flight`; `I02 in_flight`; `I03 in_flight`; `I04 in_flight`; `I05 in_flight`; `I06 in_flight`; `I07 proposed`; `I08 in_flight`; `I09 in_flight`; `I10 proposed`; `I11 in_flight`; `I12 in_flight`; `I13 in_flight`; `I14 in_flight`; `I15 in_flight`; `I17 in_flight`; `I18 in_flight`; `I19 proposed`; `I20 in_flight`; `I21 in_flight`; `I22 proposed`; `I23 in_flight`; `I24 in_flight`; `I25 in_flight`; `I26 in_flight`; `I27 in_flight`; `I28 in_flight`; `I29 in_flight`; `I30 in_flight`; `I31 in_flight`; `I32 in_flight`; `I33 in_flight`; `I34 in_flight`; `I35 in_flight`; `I36 in_flight`; `I37 in_flight`; `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
 
@@ -178,7 +178,7 @@ Columns:
 | K01 | `sdk-libs/keypair/src/constants.rs` | `keypair/src/constants.ts` | needs_fix | PARTIAL | proposed | Seven Rust-public constants are hidden, the inventory incorrectly classifies them as internal, and direct constant evidence is incomplete. Export or record an exact JavaScript disposition for each public constant, correct the inventory, and add current-Rust evidence. | 2026-07-25 review | - |
 | K02 | `sdk-libs/keypair/src/signing_key.rs` | `keypair/src/signing-key.ts` | needs_fix | DIVERGENT | proposed | The tagged public-key runtime encoding is 34 bytes while its TypeScript type says `Bytes33`, and the public `isEd25519` capability is missing. RNG failure, scalar rejection, signature boundaries, and secret inspection also lack evidence. Correct the type and adaptation, add `isEd25519`, and add current-Rust generation, signing, malformed-input, and secret-exposure tests. | 2026-07-25 review | - |
 | K03 | `sdk-libs/keypair/src/nullifier_key.rs` | `keypair/src/nullifier-key.ts` | needs_fix | PARTIAL | proposed | Source behavior aligns, but malformed import, repeated derivation, capability separation, and secret-inspection vectors are incomplete. The inventory describes a leaf index instead of the blinding input, and fixture names and provenance point to the wrong responsibility. Correct the records and add exact current-Rust success, malformed-input, repeatability, capability, and inspection evidence. | 2026-07-25 review | - |
-| K04 | `sdk-libs/keypair/src/viewing_key.rs` | `keypair/src/viewing-key.ts` | in_progress | - | none | Active read-only review; recorder awaits the completed report. | - | - |
+| K04 | `sdk-libs/keypair/src/viewing_key.rs` | `keypair/src/viewing-key.ts` | needs_fix | DIVERGENT | proposed | Valid cryptographic behavior and current-Rust vectors align, but zero-scalar is collapsed to invalid-secret, HKDF failures lack Rust error parity, and boundary, browser-runtime, inspection, adversarial, and temporary-cleanup evidence is incomplete. Preserve the aligned behavior, distinguish zero-scalar and HKDF failures, and add the missing evidence. | 2026-07-25 review | - |
 | K05 | `sdk-libs/keypair/src/pubkey.rs` | `keypair/src/public-key.ts` | needs_fix | DIVERGENT | proposed | The Rust public key is a 34-byte tagged value, while TypeScript declares the runtime value as `Bytes33`. P256 decompression, canonical equality, and structured error behavior also differ or lack proof, and the public export ledger has no adversarial or browser evidence. Correct the tagged-key type and API, align decompression, equality, and errors, then add malformed, parity, export, and browser vectors from current Rust. | 2026-07-25 review | - |
 | K06 | `sdk-libs/keypair/src/shielded.rs` | `keypair/src/shielded.ts` | needs_fix | DIVERGENT | proposed | The spec-authoritative P256 owner-hash construction conflicts with the current TypeScript path. Construction and facade APIs, compressed-address handling, ownership boundaries, and current-Rust evidence are also missing or divergent. Resolve the owner-hash conflict, align construction and ownership capabilities, expose the required facade and address behavior, and add exact fixtures plus malformed and capability-separation tests. | 2026-07-25 review | - |
 | K07 | `sdk-libs/keypair/src/hash.rs` | `keypair/src/hash.ts`, `hash/index.ts` | needs_fix | DIVERGENT | proposed | Covered valid vectors match current Rust, but TypeScript omits the public Poseidon API, accepts malformed field widths and arities outside Rust's `1..=12`, and exposes extra unsafe hash helpers. Boundary, browser, and property evidence is incomplete, and owner hashing inherits the K06 spec conflict. Add the public Poseidon surface, enforce Rust widths and arities, remove or internalize unsafe helpers, resolve K06, and add exact rejection, boundary, browser, and property vectors. | 2026-07-25 review | - |
@@ -188,7 +188,7 @@ Columns:
 | K11 | `sdk-libs/keypair/src/traits/view_key.rs` | `keypair/src/viewing-key.ts` | needs_fix | PARTIAL | proposed | All 14 concrete operations exist on TypeScript `ViewingKey`, but public `ViewingKeyLike` exposes only two unused methods. `ShieldedKeypair` cannot substitute, higher packages require concrete `ViewingKey`, and trait declaration, facade, malformed-input, secret-exposure, browser, and current-Rust evidence is missing. Add the public trait adaptation and facade, accept the least-powerful capability in higher packages, and add the missing evidence. | 2026-07-25 review | - |
 | K12 | `sdk-libs/keypair/src/traits/shielded_keypair.rs` | `keypair/src/shielded.ts` | needs_fix | PARTIAL | proposed | Concrete operations exist, but the generic interface omits six named capabilities, is unused, and lacks a workable async/HSM facade and evidence. Correct Rust's malformed-P256-sign panic and secret-returning nullifier trait method, then complete and consume the generic facade with current-Rust, malformed, capability, async/HSM, browser, and secret-exposure evidence. | 2026-07-25 review | - |
 | K13 | `sdk-libs/keypair/src/traits/mod.rs` | `keypair/src/index.ts` | needs_fix | PARTIAL | proposed | Rust trait-module exports are represented only by incomplete root-level TypeScript interfaces; no documented traits subpath or counterpart and no trait-specific fixture exist. The declarations are accurate, but consumer, browser, and packed-package evidence does not exercise the interfaces. Add the documented traits surface and trait-specific fixture, then exercise the interfaces through consumer, browser, and packed-package tests. | 2026-07-25 review | - |
-| K14 | `sdk-libs/keypair/src/lib.rs` | `keypair/src/index.ts` | todo | - | none | - | - | - |
+| K14 | `sdk-libs/keypair/src/lib.rs` | `keypair/src/index.ts` | needs_fix | DIVERGENT | proposed | The package export map and browser graph are coherent, but Rust-public constants, Poseidon, `symmetricApply`, `isEd25519`, `Signature`, compressed-address and traits surfaces are missing; `Bytes33` falsely declares a 34-byte key. The K06 owner-hash spec conflict, collapsed errors, stale metadata, and missing exact root, type, tarball, and consumer allowlists also prevent package parity. Complete and correct the package surface, resolve the inherited conflicts, refresh metadata, and add exact allowlist evidence. | 2026-07-25 review | - |
 
 ### Merkle tree, 2 rows
 
@@ -201,7 +201,7 @@ Columns:
 
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| X01 | `sdk-libs/indexer-api/src/lib.rs` | `indexer-api/src/` | todo | - | none | - | - | - |
+| X01 | `sdk-libs/indexer-api/src/lib.rs` | `indexer-api/src/` | needs_fix | DIVERGENT | proposed | TypeScript accurately follows current Rust and Photon, but authoritative `docs/spec.md` defines materially different indexer context, UTXO, transaction, and output schemas. Public base64-to-bytes and hash error distinctions are incomplete, the promised Rust fixture is absent, and exhaustive rejection and live-Photon evidence is missing. Resolve the Rust and Photon conflict with the spec, then align the TypeScript schema, public conversions, errors, fixtures, and evidence. | 2026-07-25 review | - |
 
 ### Smart-account client, 1 row
 
@@ -1201,3 +1201,42 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `4/118`; package `0/31`
 - Exact next file: `K14 sdk-libs/keypair/src/lib.rs`
 - Full SDK parity claim: unsupported; anonymous context, capability, and state behavior diverge
+
+### 2026-07-25 11:39 UTC | K04 | `sdk-libs/keypair/src/viewing_key.rs`
+
+- Baseline: HEAD `7e2743cac2a231991069ffb30d20574c4eb0057a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module defines concrete viewing-key cryptographic behavior.
+- Evidence: Valid cryptographic behavior and current-Rust vectors align, but zero-scalar is collapsed to invalid-secret, HKDF failures lack Rust error parity, and boundary, browser-runtime, inspection, adversarial, and temporary-cleanup evidence is incomplete. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Preserve the aligned behavior, distinguish zero-scalar and HKDF failures, and add the missing boundary, runtime, security, and cleanup evidence.
+- Row transition: `in_progress -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K14 sdk-libs/keypair/src/lib.rs`
+- Full SDK parity claim: unsupported; viewing-key errors and evidence remain divergent
+
+### 2026-07-25 11:39 UTC | K14 | `sdk-libs/keypair/src/lib.rs`
+
+- Baseline: HEAD `7e2743cac2a231991069ffb30d20574c4eb0057a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module defines the keypair package's public root surface.
+- Evidence: The package export map and browser graph are coherent, but Rust-public constants, Poseidon, `symmetricApply`, `isEd25519`, `Signature`, compressed-address and traits surfaces are missing; `Bytes33` falsely declares a 34-byte key. The K06 owner-hash spec conflict, collapsed errors, stale metadata, and missing exact root, type, tarball, and consumer allowlists prevent package parity. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Complete and correct the package surface, resolve inherited owner-hash and error conflicts, refresh metadata, and add exact root, type, tarball, and consumer allowlists.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `X01 sdk-libs/indexer-api/src/lib.rs`
+- Full SDK parity claim: unsupported; the keypair root surface and package evidence diverge
+
+### 2026-07-25 11:39 UTC | X01 | `sdk-libs/indexer-api/src/lib.rs`
+
+- Baseline: HEAD `7e2743cac2a231991069ffb30d20574c4eb0057a`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This crate defines the public indexer data and conversion contract.
+- Evidence: TypeScript accurately follows current Rust and Photon, but authoritative `docs/spec.md` defines materially different indexer context, UTXO, transaction, and output schemas. Public base64-to-bytes and hash error distinctions are incomplete, the promised Rust fixture is absent, and exhaustive rejection and live-Photon evidence is missing. No tests ran for this recorder update.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Resolve the Rust and Photon conflict with the spec, then align the TypeScript schema, public conversions, errors, fixtures, and exhaustive rejection and live-Photon evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/1`
+- Exact next file: `T07 sdk-libs/transaction/src/serialization/proofless.rs`
+- Full SDK parity claim: unsupported; the indexer schema conflicts with the authoritative spec
