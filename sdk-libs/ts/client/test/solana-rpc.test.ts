@@ -67,6 +67,33 @@ describe("SolanaRpc", () => {
     await expectCode(rpc.getAccount(ZERO_ADDRESS), "CLIENT_INVALID_RPC_RESPONSE");
   });
 
+  it("decodes program-owned registry account listings", async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(
+        rpcResult(1, [
+          {
+            pubkey: ZERO_ADDRESS,
+            account: {
+              owner: SHIELDED_POOL_PROGRAM_ID,
+              lamports: 7,
+              data: [
+                "BQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAA",
+                "base64",
+              ],
+            },
+          },
+        ]),
+      ),
+    );
+    const rpc = new SolanaRpc({ url: "https://solana.example.test", fetch });
+    const accounts = await rpc.getProgramAccounts(SHIELDED_POOL_PROGRAM_ID);
+
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]?.address).toBe(ZERO_ADDRESS);
+    expect(accounts[0]?.account.owner).toBe(SHIELDED_POOL_PROGRAM_ID);
+    expect(accounts[0]?.account.data).toHaveLength(48);
+  });
+
   it("serializes unsigned native transactions with zero signature slots", async () => {
     const fetch = vi.fn((_url: URL | RequestInfo, init?: RequestInit) => {
       const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as {

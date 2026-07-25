@@ -138,6 +138,7 @@ function decodeCandidate(
   wallet: Wallet,
   tx: IndexedShieldedTransaction,
   slotIndex: number,
+  unknownAssetIds: Set<bigint>,
 ):
   | Readonly<{
       utxos: readonly Readonly<{
@@ -319,7 +320,13 @@ function decodeCandidate(
         kind: "merge",
       };
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_ASSET") {
+      const assetId = error.details?.["assetId"];
+      if (typeof assetId === "string" && /^\d+$/u.test(assetId)) {
+        unknownAssetIds.add(BigInt(assetId));
+      }
+    }
     return undefined;
   }
   return undefined;
@@ -362,7 +369,14 @@ export async function decryptTransactions(
     let transactionStored = false;
     for (let slotIndex = 0; slotIndex < tx.outputSlots.length; slotIndex++) {
       for (const key of material.viewingKeys) {
-        const candidate = decodeCandidate(key, material, input.wallet, tx, slotIndex);
+        const candidate = decodeCandidate(
+          key,
+          material,
+          input.wallet,
+          tx,
+          slotIndex,
+          unknownAssetIds,
+        );
         if (!candidate) continue;
         for (const decoded of candidate.utxos) {
           const slot = tx.outputSlots[decoded.outputIndex];

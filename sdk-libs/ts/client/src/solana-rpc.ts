@@ -73,6 +73,29 @@ export class SolanaRpc implements Rpc {
       : decodeAccount(envelope["value"], "result.value");
   }
 
+  async getProgramAccounts(
+    programAddress: Address,
+    context?: RequestContext,
+  ): Promise<readonly Readonly<{ address: Address; account: RpcAccount }>[]> {
+    addressBytes(programAddress);
+    const result = await this.#call(
+      "getProgramAccounts",
+      [programAddress, { commitment: "confirmed", encoding: "base64" }],
+      context,
+    );
+    return Object.freeze(
+      array(result, "result").map((value, index) => {
+        const entry = object(value, `result[${String(index)}]`);
+        const address = string(entry["pubkey"], `result[${String(index)}].pubkey`) as Address;
+        addressBytes(address);
+        return Object.freeze({
+          address,
+          account: decodeAccount(entry["account"], `result[${String(index)}].account`),
+        });
+      }),
+    );
+  }
+
   async getMultipleAccounts(
     addresses: readonly Address[],
     context?: RequestContext,

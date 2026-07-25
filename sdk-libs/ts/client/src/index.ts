@@ -24,6 +24,7 @@ export type {
   MerkleProof,
   NonInclusionProof,
   Rpc,
+  RpcAccount,
   RpcContext,
   SpendProof,
 } from "./rpc.js";

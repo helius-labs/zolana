@@ -1,4 +1,5 @@
-import type { ZolanaIndexer } from "@zolana/client";
+import { ClientError, type Rpc, type ZolanaIndexer } from "@zolana/client";
+import { SHIELDED_POOL_PROGRAM_ID, decodeSplAssetRegistry } from "@zolana/interface";
 import type { Bytes32, RequestContext } from "@zolana/interface";
 import {
   decryptTransactions,
@@ -21,6 +22,35 @@ export interface SyncWalletConfig {
   readonly waitForIndexer?: boolean;
 }
 
+export async function backfillAssetRegistry(
+  wallet: Wallet,
+  registryRpc: Pick<Rpc, "getProgramAccounts">,
+  context?: RequestContext,
+): Promise<number> {
+  const getProgramAccounts = registryRpc.getProgramAccounts;
+  if (getProgramAccounts === undefined) return 0;
+  let accounts;
+  try {
+    accounts = await getProgramAccounts.call(registryRpc, SHIELDED_POOL_PROGRAM_ID, context);
+  } catch (error) {
+    if (error instanceof ClientError && error.code === "CLIENT_UNSUPPORTED_RPC_METHOD") return 0;
+    throw error;
+  }
+
+  let inserted = 0;
+  for (const { account } of accounts) {
+    if (account.owner !== SHIELDED_POOL_PROGRAM_ID) continue;
+    try {
+      const registry = decodeSplAssetRegistry(account.data);
+      wallet.registry.insert(registry.assetId, registry.mint);
+      inserted++;
+    } catch {
+      continue;
+    }
+  }
+  return inserted;
+}
+
 function positiveInteger(value: number, field: string, maximum: number): number {
   if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
     throw new WalletError("WALLET_INVALID_SYNC_CONFIG", {
@@ -35,6 +65,7 @@ export async function syncWallet(
     wallet: Wallet;
     authority: WalletAuthority;
     indexer: ZolanaIndexer;
+    registryRpc?: Pick<Rpc, "getProgramAccounts">;
     config?: SyncWalletConfig;
   }>,
   context?: RequestContext,
@@ -123,12 +154,18 @@ export async function syncWallet(
       if (collected.size === before) break;
       if (input.config?.waitForIndexer !== true) continue;
     }
-    return await decryptTransactions({
+    const decryptInput = {
       wallet: input.wallet,
       authority: input.authority,
       transactions: [...collected.values()],
       config: { tagWindow },
-    });
+    } as const;
+    let report = await decryptTransactions(decryptInput);
+    if (report.unknownAssetIds.length === 0 || input.registryRpc === undefined) return report;
+
+    const inserted = await backfillAssetRegistry(input.wallet, input.registryRpc, context);
+    if (inserted > 0) report = await decryptTransactions(decryptInput);
+    return report;
   } catch (cause) {
     throw wrapWalletError("WALLET_SYNC", cause);
   }

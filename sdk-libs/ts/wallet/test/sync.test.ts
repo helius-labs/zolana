@@ -1,10 +1,12 @@
 import type { ZolanaIndexer } from "@zolana/client";
-import type { Address, Bytes32 } from "@zolana/interface";
+import { SHIELDED_POOL_PROGRAM_ID, type Address, type Bytes32 } from "@zolana/interface";
+import { splAssetRegistryAccountCodec } from "@zolana/interface/codecs";
 import { randomBlinding, ShieldedKeypair } from "@zolana/keypair";
 import { AssetRegistry, Data, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
 import { describe, expect, it, vi } from "vitest";
 
 import { LocalWalletAuthority, WalletError, syncWallet } from "../src/index.js";
+import { backfillAssetRegistry } from "../src/sync.js";
 import { walletFixture } from "./helpers/fixtures.js";
 
 const OWNER = "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi" as Address;
@@ -43,6 +45,31 @@ function state(): Readonly<{
 }
 
 describe("wallet sync", () => {
+  it("backfills valid registry accounts once and skips malformed rows", async () => {
+    const { wallet } = state();
+    const registryData = splAssetRegistryAccountCodec.encode({ mint: OWNER, assetId: 2n });
+    const getProgramAccounts = vi.fn(() =>
+      Promise.resolve([
+        {
+          address: TREE,
+          account: { owner: SHIELDED_POOL_PROGRAM_ID, lamports: 1n, data: registryData },
+        },
+        {
+          address: OWNER,
+          account: {
+            owner: SHIELDED_POOL_PROGRAM_ID,
+            lamports: 1n,
+            data: Uint8Array.of(5),
+          },
+        },
+      ]),
+    );
+
+    await expect(backfillAssetRegistry(wallet, { getProgramAccounts })).resolves.toBe(1);
+    expect(wallet.registry.resolve(2n)).toBe(OWNER);
+    await expect(backfillAssetRegistry(wallet, { getProgramAccounts })).resolves.toBe(0);
+  });
+
   it("pages configured tag chunks and leaves repeated empty sync atomic", async () => {
     const fixture = await walletFixture<{
       inputs: {

@@ -104,6 +104,10 @@ export interface RpcAccount {
 
 export interface Rpc {
   getAccount(address: Address, context?: RequestContext): Promise<RpcAccount | undefined>;
+  getProgramAccounts?(
+    programAddress: Address,
+    context?: RequestContext,
+  ): Promise<readonly Readonly<{ address: Address; account: RpcAccount }>[]>;
   getMultipleAccounts(
     addresses: readonly Address[],
     context?: RequestContext,
