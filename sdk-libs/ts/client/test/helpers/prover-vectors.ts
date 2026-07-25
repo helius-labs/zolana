@@ -1,5 +1,4 @@
 import { sha256 } from "@noble/hashes/sha2.js";
-import { p256 } from "@noble/curves/nist.js";
 import {
   NullifierKey,
   type P256PublicKey,
@@ -171,11 +170,7 @@ export function buildProofInputs(
     externalData,
   });
   if (isP256) {
-    const signature = p256.sign(
-      privateMessage(inputs, outputs, externalData.hash()),
-      bytes(fixture.inputs.p256SecretBytes),
-      { prehash: false, format: "compact", lowS: false },
-    );
+    const signature = signing.sign(privateMessage(inputs, outputs, externalData.hash()));
     proofInputs.applyP256Signature({
       publicKey: signing.publicKey().p256(),
       r: signature.slice(0, 32) as Bytes32,
