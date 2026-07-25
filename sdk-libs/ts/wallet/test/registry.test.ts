@@ -1,5 +1,5 @@
 import type { Rpc } from "@zolana/client";
-import type { Address, Bytes32, Bytes33 } from "@zolana/interface";
+import type { Address, Bytes32, Bytes33, Signature, Transaction } from "@zolana/interface";
 import {
   NullifierKey,
   P256PublicKey,
@@ -13,8 +13,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildRegistrationTransaction,
+  ensureRegistered,
   fetchUserRecord,
+  registerIfAbsent,
   resolveRegisteredAddress,
+  type TransactionSigner,
 } from "../src/index.js";
 import { base58, fromBase58, hex, hexBytes, walletFixture } from "./helpers/fixtures.js";
 
@@ -49,11 +52,38 @@ function keypair(fixture: RegistryFixture): ShieldedKeypair {
   );
 }
 
-function recordBytes(fixture: RegistryFixture, mergingEnabled = false): Uint8Array {
+interface DelegateEpoch {
+  readonly delegate: Uint8Array;
+  readonly syncPublicKey: Uint8Array;
+  readonly viewingPublicKey: Uint8Array;
+}
+
+function recordBytes(
+  fixture: RegistryFixture,
+  options: Readonly<{
+    mergingEnabled?: boolean;
+    syncDelegate?: Uint8Array;
+    entries?: readonly DelegateEpoch[];
+    identity?: ShieldedAddress;
+  }> = {},
+): Uint8Array {
   const owner = fromBase58(fixture.inputs.owner);
-  const signing = hexBytes(fixture.expected.resolved.signingPubkeyBytes).slice(1);
-  const nullifier = hexBytes(fixture.expected.resolved.nullifierPubkeyBytes);
-  const viewing = hexBytes(fixture.expected.resolved.viewingPubkeyBytes);
+  const published = options.identity;
+  const signing =
+    published === undefined
+      ? hexBytes(fixture.expected.resolved.signingPubkeyBytes).slice(1)
+      : published.signingPublicKey.p256().toBytes();
+  const nullifier =
+    published === undefined
+      ? hexBytes(fixture.expected.resolved.nullifierPubkeyBytes)
+      : published.nullifierPublicKey;
+  const viewing =
+    published === undefined
+      ? hexBytes(fixture.expected.resolved.viewingPubkeyBytes)
+      : published.viewingPublicKey.toBytes();
+  const entries = options.entries ?? [];
+  const entryCount = new Uint8Array(4);
+  new DataView(entryCount.buffer).setUint32(0, entries.length, true);
   return Uint8Array.from([
     1,
     ...owner,
@@ -62,12 +92,15 @@ function recordBytes(fixture: RegistryFixture, mergingEnabled = false): Uint8Arr
     ...signing,
     ...nullifier,
     ...viewing,
-    0,
-    0,
-    0,
-    0,
-    0,
-    mergingEnabled ? 1 : 0,
+    ...(options.syncDelegate === undefined ? [0] : [1, ...options.syncDelegate]),
+    ...entryCount,
+    ...entries.flatMap((entry, index) => [
+      ...entry.delegate,
+      ...entry.syncPublicKey,
+      ...entry.viewingPublicKey,
+      ...new Uint8Array(8).fill(0).map((_, byte) => (byte === 0 ? index + 1 : 0)),
+    ]),
+    options.mergingEnabled === true ? 1 : 0,
   ]);
 }
 
@@ -95,6 +128,28 @@ function registryRpc(fixture: RegistryFixture, accountData?: Uint8Array): Rpc {
     getMerkleProofs: unsupported,
     getNonInclusionProofs: unsupported,
     getInputMerkleProofs: unsupported,
+  };
+}
+
+function sendingRegistry(
+  fixture: RegistryFixture,
+  accountData?: Uint8Array,
+): Readonly<{ rpc: Rpc; sent: Transaction[]; funding: TransactionSigner }> {
+  const sent: Transaction[] = [];
+  const base = registryRpc(fixture, accountData);
+  return {
+    rpc: {
+      ...base,
+      sendTransaction: (transaction) => {
+        sent.push(transaction);
+        return Promise.resolve(base58(new Uint8Array(64).fill(9)) as Signature);
+      },
+    },
+    sent,
+    funding: {
+      address: fixture.inputs.owner,
+      signNativeTransaction: (transaction) => Promise.resolve(transaction),
+    },
   };
 }
 
@@ -129,6 +184,104 @@ describe("wallet registry", () => {
       fixture.expected.resolved.signingPubkeyBytes,
     );
     expect(hex(resolved.viewTag)).toBe(fixture.expected.resolved.viewTagBytes);
+  });
+
+  it("resolves a delegated recipient to the delegate's latest epoch viewing key", async () => {
+    const fixture = await walletFixture<RegistryFixture>("user_registry");
+    const delegate = new Uint8Array(32).fill(5);
+    const firstEpoch = ViewingKey.fromSeed(new Uint8Array(32).fill(7) as Bytes32, 0).publicKey();
+    const latestEpoch = ViewingKey.fromSeed(new Uint8Array(32).fill(8) as Bytes32, 0).publicKey();
+    const entries = [firstEpoch, latestEpoch].map((epoch) => ({
+      delegate,
+      syncPublicKey: epoch.toBytes(),
+      viewingPublicKey: epoch.toBytes(),
+    }));
+
+    const active = registryRpc(fixture, recordBytes(fixture, { syncDelegate: delegate, entries }));
+    const delegated = await resolveRegisteredAddress({ rpc: active, owner: fixture.inputs.owner });
+    if (delegated === undefined) throw new Error("missing delegated address");
+    expect(hex(delegated.address.viewingPublicKey.toBytes())).toBe(hex(latestEpoch.toBytes()));
+    expect(hex(delegated.viewTag)).toBe(hex(latestEpoch.x()));
+    const record = await fetchUserRecord({ rpc: active, owner: fixture.inputs.owner });
+    expect(hex(record?.viewingPublicKey ?? new Uint8Array())).toBe(
+      fixture.expected.resolved.viewingPubkeyBytes,
+    );
+
+    const revoked = registryRpc(fixture, recordBytes(fixture, { entries }));
+    const restored = await resolveRegisteredAddress({ rpc: revoked, owner: fixture.inputs.owner });
+    if (restored === undefined) throw new Error("missing restored address");
+    expect(hex(restored.address.viewingPublicKey.toBytes())).toBe(
+      fixture.expected.resolved.viewingPubkeyBytes,
+    );
+  });
+
+  it("registers, no-ops, and rotates through ensureRegistered", async () => {
+    const fixture = await walletFixture<RegistryFixture>("user_registry");
+    const localKeypair = keypair(fixture);
+
+    const absent = sendingRegistry(fixture);
+    const written = await ensureRegistered({
+      rpc: absent.rpc,
+      funding: absent.funding,
+      keypair: localKeypair,
+    });
+    expect(written).toBeDefined();
+    expect(hex(absent.sent[0]?.messageBytes ?? new Uint8Array())).toBe(
+      fixture.expected.register.unsignedTransaction.messageBytes,
+    );
+
+    const current = sendingRegistry(fixture, recordBytes(fixture));
+    expect(
+      await ensureRegistered({
+        rpc: current.rpc,
+        funding: current.funding,
+        keypair: localKeypair,
+      }),
+    ).toBeUndefined();
+    expect(current.sent).toHaveLength(0);
+
+    const stale = sendingRegistry(
+      fixture,
+      recordBytes(fixture, { identity: ShieldedKeypair.generate().shieldedAddress() }),
+    );
+    expect(
+      await ensureRegistered({ rpc: stale.rpc, funding: stale.funding, keypair: localKeypair }),
+    ).toBeDefined();
+    expect(stale.sent).toHaveLength(1);
+  });
+
+  it("never rotates keys through registerIfAbsent", async () => {
+    const fixture = await walletFixture<RegistryFixture>("user_registry");
+    const localKeypair = keypair(fixture);
+
+    const absent = sendingRegistry(fixture);
+    expect(
+      await registerIfAbsent({ rpc: absent.rpc, funding: absent.funding, keypair: localKeypair }),
+    ).toMatchObject({ kind: "written" });
+    expect(hex(absent.sent[0]?.messageBytes ?? new Uint8Array())).toBe(
+      fixture.expected.register.unsignedTransaction.messageBytes,
+    );
+
+    const current = sendingRegistry(fixture, recordBytes(fixture));
+    expect(
+      await registerIfAbsent({ rpc: current.rpc, funding: current.funding, keypair: localKeypair }),
+    ).toEqual({ kind: "current" });
+    expect(current.sent).toHaveLength(0);
+
+    // A record published by another identity must be reported, never overwritten:
+    // the nullifier key it commits to cannot be rotated.
+    const conflicting = sendingRegistry(
+      fixture,
+      recordBytes(fixture, { identity: ShieldedKeypair.generate().shieldedAddress() }),
+    );
+    expect(
+      await registerIfAbsent({
+        rpc: conflicting.rpc,
+        funding: conflicting.funding,
+        keypair: localKeypair,
+      }),
+    ).toEqual({ kind: "mismatch" });
+    expect(conflicting.sent).toHaveLength(0);
   });
 
   it("no-ops for current keys and emits update tag five for rotated keys", async () => {
