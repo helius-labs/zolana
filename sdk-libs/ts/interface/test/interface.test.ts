@@ -5,9 +5,18 @@ import {
   DEFAULT_TREE_ADDRESS,
   InstructionTag,
   InterfaceError,
+  SPP_SUPPORTED_SHAPES,
   SHIELDED_POOL_PROGRAM_ID,
+  ShieldedPoolError,
   SOL_INTERFACE,
   SPL_TOKEN_PROGRAM_ID,
+  ciphertextHash,
+  decodeShieldedPoolError,
+  ownerPkFieldCompressed,
+  pack33,
+  pkFieldCompressed,
+  selectSppShape,
+  validateSppShape,
   type Address,
   type Bytes16,
   type Bytes31,
@@ -33,6 +42,7 @@ import {
   splAssetCounterAddress,
   splAssetRegistryAddress,
   splAssetVaultAddress,
+  zoneAuthAddress,
   zoneConfigAddress,
 } from "../src/pda/index.js";
 import {
@@ -139,12 +149,91 @@ describe("canonical values and PDAs", () => {
     expect(splAssetRegistryAddress(ZERO)).toBe("2hvmk7fEKrgvYor9L3cBuBBa7m4AhguKJoCpN9yck43g");
     expect(splAssetVaultAddress(ZERO)).toBe("AZR8qq1GyNwnZTRwvui7bLb7fkdu5MmxBzae1AtVnxnd");
     expect(zoneConfigAddress(ZERO)).toEqual(["C5NTe24T2Z4avgpPBhZYUvysKUwudWRTiPHP9GKeJq6y", 255]);
+    expect(zoneAuthAddress(ZERO)).toHaveLength(2);
     expect(associatedTokenAddress(ZERO, ZERO)).toBe("2a8MS8dWyyYNgBHgtzeTwrsDKsE6RnCoUqnonB4C8Xc3");
   });
 
   it("rejects malformed addresses before derivation", () => {
     expect(() => splAssetRegistryAddress("0" as Address)).toThrow(
       expect.objectContaining({ code: "INTERFACE_INVALID_ADDRESS" }),
+    );
+  });
+});
+
+describe("program errors and shapes", () => {
+  it("pins the complete program-error map and preserves unknown codes", () => {
+    expect(Object.values(ShieldedPoolError)).toEqual(
+      Array.from({ length: 26 }, (_, index) => 7000 + index),
+    );
+    expect(decodeShieldedPoolError(7023)).toEqual({
+      kind: "known",
+      code: 7023,
+      name: "BothPublicAmountsSet",
+    });
+    expect(decodeShieldedPoolError(7999)).toEqual({ kind: "unknown", code: 7999 });
+    expect(() => decodeShieldedPoolError(-1)).toThrow(
+      expect.objectContaining({ code: "INTERFACE_INVALID_INTEGER" }),
+    );
+  });
+
+  it("uses the ordered immutable Rust shape set for padded selection", () => {
+    expect(SPP_SUPPORTED_SHAPES.map(({ inputs, outputs }) => [inputs, outputs])).toEqual([
+      [1, 1],
+      [1, 2],
+      [2, 2],
+      [2, 3],
+      [3, 3],
+      [4, 3],
+      [4, 4],
+      [5, 3],
+      [5, 4],
+      [1, 8],
+    ]);
+    expect(selectSppShape(0, 0)).toBe(SPP_SUPPORTED_SHAPES[0]);
+    expect(selectSppShape(0, 2)).toBe(SPP_SUPPORTED_SHAPES[1]);
+    expect(validateSppShape(1, 1, { inputs: 2, outputs: 3 })).toBe(SPP_SUPPORTED_SHAPES[3]);
+    expect(Object.isFrozen(SPP_SUPPORTED_SHAPES[0])).toBe(true);
+    expect(() => selectSppShape(Number.NaN, 1)).toThrow(
+      expect.objectContaining({ code: "INTERFACE_INVALID_SHAPE" }),
+    );
+  });
+});
+
+describe("merge utilities", () => {
+  const compressed = hexBytes(
+    "02fb50388f29498d0a93ad25ec4c34037b9d3cc3cca4787eb6fedabe2b3003eac8",
+  );
+
+  it("matches the current Rust packing and ciphertext hash vector", () => {
+    const [low, high] = pack33(compressed);
+    expect(low.slice(1)).toEqual(compressed.slice(0, 31));
+    expect(high.slice(30)).toEqual(compressed.slice(31));
+    const ciphertext = hexBytes(
+      "d52cccc7053c653d83c840fcb12c3a1dd6ac2263a9f4c705d784dfd894234b6b5271590160bddbb7191a0eeb96646aa5397e0acb27b605aec6f1ceadcd2726cab1a675d511f202",
+    );
+    expect(hex(ciphertextHash(ciphertext))).toBe(
+      "2418c4f8d103a80bcc365a28f6172e7cd9cbfe71a301c19f775a64187ed2f453",
+    );
+  });
+
+  it("validates fixed lengths and SEC1 prefixes without curve parsing", () => {
+    const odd = compressed.slice();
+    odd[0] = 3;
+    expect(pkFieldCompressed(odd)).not.toEqual(pkFieldCompressed(compressed));
+    expect(ownerPkFieldCompressed(odd)).toEqual(ownerPkFieldCompressed(compressed));
+    expect(() => pack33(compressed.slice(1))).toThrow(
+      expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }),
+    );
+    const badPrefix = compressed.slice();
+    badPrefix[0] = 4;
+    expect(() => pkFieldCompressed(badPrefix)).toThrow(
+      expect.objectContaining({ code: "INTERFACE_CODEC" }),
+    );
+    expect(() => ciphertextHash(new Uint8Array())).toThrow(
+      expect.objectContaining({ code: "INTERFACE_HASH" }),
+    );
+    expect(() => ciphertextHash(new Uint8Array(257))).toThrow(
+      expect.objectContaining({ code: "INTERFACE_HASH" }),
     );
   });
 });

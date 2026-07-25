@@ -1,5 +1,14 @@
-import type { Address, Bytes16, Bytes32 } from "@zolana/interface";
-import type { OwnerTag, TransactOutput } from "@zolana/interface";
+import {
+  SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
+  selectSppShape,
+  validateSppShape,
+  type Address,
+  type Bytes16,
+  type Bytes32,
+  type OwnerTag,
+  type Shape,
+  type TransactOutput,
+} from "@zolana/interface";
 import { P256PublicKey, SigningKey, type ShieldedAddress } from "@zolana/keypair";
 
 import { TransactionError } from "../error.js";
@@ -24,23 +33,11 @@ import {
   type ProofOutputUtxo,
 } from "../utxo.js";
 
-export type Shape = Readonly<{ inputs: number; outputs: number }>;
-
-export const SPP_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze([
-  { inputs: 1, outputs: 1 },
-  { inputs: 1, outputs: 2 },
-  { inputs: 2, outputs: 2 },
-  { inputs: 2, outputs: 3 },
-  { inputs: 3, outputs: 3 },
-  { inputs: 4, outputs: 3 },
-  { inputs: 4, outputs: 4 },
-  { inputs: 5, outputs: 3 },
-  { inputs: 5, outputs: 4 },
-  { inputs: 1, outputs: 8 },
-]);
+export type { Shape };
+export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
 
 function checkedCount(value: number, name: string): number {
-  if (!Number.isInteger(value) || value <= 0) {
+  if (!Number.isSafeInteger(value) || value < 0) {
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { [name]: value });
   }
   return value;
@@ -49,15 +46,19 @@ function checkedCount(value: number, name: string): number {
 export function canonicalShape(inputs: number, outputs: number): Shape {
   checkedCount(inputs, "inputs");
   checkedCount(outputs, "outputs");
-  const shape = SPP_SUPPORTED_SHAPES.find(
-    (candidate) => inputs <= candidate.inputs && outputs <= candidate.outputs,
-  );
-  if (!shape) throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { inputs, outputs });
-  return Object.freeze({ ...shape });
+  try {
+    return selectSppShape(inputs, outputs);
+  } catch (error) {
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { inputs, outputs }, error);
+  }
 }
 
 export function resolveShape(inputs: number, outputs: number, declared?: Shape): Shape {
   if (!declared) return canonicalShape(inputs, outputs);
+  checkedCount(inputs, "inputs");
+  checkedCount(outputs, "outputs");
+  checkedCount(declared.inputs, "declaredInputs");
+  checkedCount(declared.outputs, "declaredOutputs");
   const supported = SPP_SUPPORTED_SHAPES.some(
     (shape) => shape.inputs === declared.inputs && shape.outputs === declared.outputs,
   );
@@ -79,7 +80,7 @@ export function resolveShape(inputs: number, outputs: number, declared?: Shape):
       max: declared.outputs,
     });
   }
-  return Object.freeze({ ...declared });
+  return validateSppShape(inputs, outputs, declared);
 }
 
 export interface PublicAmounts {

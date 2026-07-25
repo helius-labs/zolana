@@ -1,6 +1,8 @@
 import { sha256 } from "@noble/hashes/sha2.js";
+import { pack33 as interfacePack33 } from "@zolana/interface";
 
 import { bigIntToBytes, bytesToBigInt, type Bytes32 } from "./bytes.js";
+import { wrapKeypairError } from "./error.js";
 import { poseidon } from "./poseidon.js";
 
 export function splitBigEndian128(value: Uint8Array): readonly [Uint8Array, Uint8Array] {
@@ -27,11 +29,11 @@ export function ownerHash(
 }
 
 export function pack33(bytes: Uint8Array): readonly [Uint8Array, Uint8Array] {
-  const low = new Uint8Array(32);
-  low.set(bytes.subarray(0, 31), 1);
-  const high = new Uint8Array(32);
-  high.set(bytes.subarray(31), 30);
-  return [low, high];
+  try {
+    return interfacePack33(bytes);
+  } catch (error) {
+    throw wrapKeypairError("KEYPAIR_HASH", error);
+  }
 }
 
 export function sha256Bytes(bytes: Uint8Array): Bytes32 {

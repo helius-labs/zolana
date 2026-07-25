@@ -58,6 +58,10 @@ export function zoneConfigAddress(zoneProgram: Address): readonly [Address, numb
   );
 }
 
+export function zoneAuthAddress(zoneProgram: Address): readonly [Address, number] {
+  return findProgramAddress([encoder.encode("zone_auth")], checkedAddress(zoneProgram, "zoneProgram"));
+}
+
 export function associatedTokenAddress(owner: Address, mint: Address): Address {
   return findProgramAddress(
     [addressBytes(owner, "owner"), addressBytes(SPL_TOKEN_PROGRAM_ID), addressBytes(mint, "mint")],

@@ -1,9 +1,10 @@
 import { p256 } from "@noble/curves/nist.js";
+import { ownerPkFieldCompressed, pkFieldCompressed } from "@zolana/interface";
 
 import { type Bytes32, type Bytes33, checkedBytes, copyBytes } from "./bytes.js";
 import { P256_PUBLIC_KEY_LENGTH, SHIELDED_PUBLIC_KEY_LENGTH } from "./constants.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
-import { hashField, hashPublicKeyX } from "./hash.js";
+import { hashField } from "./hash.js";
 
 export type SignatureType = "p256" | "ed25519";
 export type ViewTag = Bytes32;
@@ -105,13 +106,23 @@ export class ShieldedPublicKey {
 
   hash(): Bytes32 {
     if (this.signatureType() === "p256") {
-      const key = this.p256();
-      return hashPublicKeyX(key.x(), key.yIsOdd()) as Bytes32;
+      try {
+        return pkFieldCompressed(this.p256().toBytes()) as Bytes32;
+      } catch (error) {
+        throw wrapKeypairError("KEYPAIR_HASH", error);
+      }
     }
     return hashField(this.confidentialViewTag()) as Bytes32;
   }
 
   ownerPublicKeyField(): Bytes32 {
+    if (this.signatureType() === "p256") {
+      try {
+        return ownerPkFieldCompressed(this.p256().toBytes()) as Bytes32;
+      } catch (error) {
+        throw wrapKeypairError("KEYPAIR_HASH", error);
+      }
+    }
     return hashField(this.confidentialViewTag()) as Bytes32;
   }
 

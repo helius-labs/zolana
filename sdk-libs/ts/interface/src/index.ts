@@ -6,8 +6,29 @@ import {
   zoneConfigAccountCodec,
 } from "./codecs/index.js";
 
-export { InterfaceError } from "./errors.js";
-export type { InterfaceErrorCode } from "./errors.js";
+export {
+  InterfaceError,
+  ShieldedPoolError,
+  decodeShieldedPoolError,
+} from "./errors.js";
+export type {
+  DecodedShieldedPoolError,
+  InterfaceErrorCode,
+  ShieldedPoolErrorCode,
+  ShieldedPoolErrorName,
+} from "./errors.js";
+export {
+  ciphertextHash,
+  ownerPkFieldCompressed,
+  pack33,
+  pkFieldCompressed,
+} from "./merge-utils.js";
+export {
+  SPP_SUPPORTED_SHAPES,
+  selectSppShape,
+  validateSppShape,
+} from "./shape.js";
+export type { Shape } from "./shape.js";
 
 type FixedBytes<Length extends number> = Uint8Array & {
   readonly __fixedBytesLength: Length;
@@ -182,34 +203,6 @@ export interface ZoneConfigAccount {
   readonly zoneAuthorityTransactIsEnabled: boolean;
   readonly bump: number;
 }
-
-export type ShieldedPoolErrorCode =
-  | 7000
-  | 7001
-  | 7002
-  | 7003
-  | 7004
-  | 7005
-  | 7006
-  | 7007
-  | 7008
-  | 7009
-  | 7010
-  | 7011
-  | 7012
-  | 7013
-  | 7014
-  | 7015
-  | 7016
-  | 7017
-  | 7018
-  | 7019
-  | 7020
-  | 7021
-  | 7022
-  | 7023
-  | 7024
-  | 7025;
 
 export function decodeProtocolConfig(data: Uint8Array): ProtocolConfigAccount {
   return protocolConfigAccountCodec.decode(data);
