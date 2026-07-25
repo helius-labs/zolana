@@ -1,12 +1,23 @@
 export const packageConfigurations = {
   interface: {
     entryPoints: [".", "./pda", "./codecs", "./instructions"],
-    dependencies: [],
+    dependencies: ["@noble/curves"],
+    browserDependencies: [
+      "@noble/curves/abstract/modular.js",
+      "@noble/curves/abstract/poseidon.js",
+    ],
     browser: true,
   },
   keypair: {
     entryPoints: [".", "./merge", "./hash"],
-    dependencies: ["@noble/ciphers", "@noble/curves", "@noble/ed25519", "@noble/hashes", "bs58"],
+    dependencies: [
+      "@noble/ciphers",
+      "@noble/curves",
+      "@noble/ed25519",
+      "@noble/hashes",
+      "@zolana/interface",
+      "bs58",
+    ],
     browserDependencies: [
       "@noble/ciphers/webcrypto.js",
       "@noble/curves/abstract/poseidon.js",
@@ -14,6 +25,7 @@ export const packageConfigurations = {
       "@noble/ed25519",
       "@noble/hashes/hkdf.js",
       "@noble/hashes/sha2.js",
+      "@zolana/interface",
       "bs58",
     ],
     browser: true,
