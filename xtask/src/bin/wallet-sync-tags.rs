@@ -62,6 +62,18 @@ const ROTATED_VIEWING_SECRET: [u8; 32] = [6u8; 32];
 const ALICE_VIEWING_SECRET: [u8; 32] = [9u8; 32];
 const BOB_VIEWING_SECRET: [u8; 32] = [11u8; 32];
 
+/// `58^43`, the smallest 32-byte value whose base58 encoding needs 44 characters.
+const AT_BASE58_LENGTH_BOUNDARY: [u8; 32] = [
+    0x0e, 0xdb, 0xaf, 0xda, 0x67, 0xca, 0x37, 0x18, 0x8c, 0xf2, 0x82, 0x63, 0x57, 0x1f, 0x03, 0xb9,
+    0x71, 0x68, 0x79, 0xe4, 0xac, 0xc9, 0xc5, 0x14, 0xab, 0x67, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+/// One below it, and so one character shorter once encoded.
+const BELOW_BASE58_LENGTH_BOUNDARY: [u8; 32] = [
+    0x0e, 0xdb, 0xaf, 0xda, 0x67, 0xca, 0x37, 0x18, 0x8c, 0xf2, 0x82, 0x63, 0x57, 0x1f, 0x03, 0xb9,
+    0x71, 0x68, 0x79, 0xe4, 0xac, 0xc9, 0xc5, 0x14, 0xab, 0x67, 0x27, 0xff, 0xff, 0xff, 0xff, 0xff,
+];
+
 /// How a case describes one entry of the wallet's viewing key history.
 struct History {
     key: &'static str,
@@ -384,7 +396,28 @@ fn build() -> Result<Value> {
             "waitForIndexerDefault": SyncWalletConfig::default().wait_for_indexer,
         },
         "cases": Value::Array(described),
+        "depositTreeOrder": deposit_tree_order(),
     }))
+}
+
+/// Rust orders deposits by their tree, which is an `Address` and so sorts by its
+/// 32 bytes. These three are in that order. The first two straddle the base58
+/// length boundary at `58^43`, where the larger number encodes one character
+/// longer and starts with the lowest digit, so their encoded strings sort the
+/// opposite way round and a port comparing strings orders them backwards.
+fn deposit_tree_order() -> Value {
+    let mut trees = [
+        Address::new_from_array(AT_BASE58_LENGTH_BOUNDARY),
+        Address::new_from_array(BELOW_BASE58_LENGTH_BOUNDARY),
+        Address::new_from_array([17u8; 32]),
+    ];
+    trees.sort();
+    Value::Array(
+        trees
+            .iter()
+            .map(|tree| json!({ "address": tree.to_string(), "bytes": hex(tree.as_ref()) }))
+            .collect(),
+    )
 }
 
 fn counterparty(name: &str) -> Result<P256Pubkey> {

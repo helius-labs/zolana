@@ -148,6 +148,26 @@ describe("wallet sync tag vectors", () => {
     expect(fixture.defaults.rounds).toBe(6);
   });
 
+  it("orders deposit trees the way Rust orders an address", () => {
+    const trees = fixture.depositTreeOrder;
+    const byBytes = [...trees].sort((left, right) => {
+      const leftBytes = bytes(left.bytes);
+      const rightBytes = bytes(right.bytes);
+      for (let index = 0; index < leftBytes.length; index++) {
+        const difference = (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
+        if (difference !== 0) return difference;
+      }
+      return 0;
+    });
+    expect(byBytes.map((tree) => tree.address)).toEqual(trees.map((tree) => tree.address));
+
+    // The premise of comparing decoded bytes: on this triple the encoded strings
+    // sort differently, so a comparator reading the base58 form would hand the
+    // decrypt pass a different deposit order than Rust does.
+    const byString = [...trees].map((tree) => tree.address).sort();
+    expect(byString).not.toEqual(trees.map((tree) => tree.address));
+  });
+
   for (const item of fixture.cases as readonly Case[]) {
     it(`asks for the same tags as Rust: ${item.id}`, async () => {
       const owner = keypair(item.identity);

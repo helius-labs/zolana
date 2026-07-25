@@ -7,7 +7,7 @@ import {
   type ZolanaIndexer,
 } from "@zolana/client";
 import { SHIELDED_POOL_PROGRAM_ID, decodeSplAssetRegistry } from "@zolana/interface";
-import type { Bytes32, RequestContext } from "@zolana/interface";
+import type { Address, Bytes32, RequestContext } from "@zolana/interface";
 import type { ViewingKey } from "@zolana/keypair";
 import {
   EncryptedScheme,
@@ -24,7 +24,7 @@ import type { IndexedShieldedTransaction } from "@zolana/transaction/instruction
 import { decodeOutputData } from "@zolana/transaction/serialization";
 
 import { WalletError, wrapWalletError } from "./error.js";
-import { bytesKey } from "./internal.js";
+import { bytesKey, decodeBase58 } from "./internal.js";
 import type { WalletAuthority } from "./wallet-authority.js";
 
 export interface SyncWalletConfig {
@@ -159,9 +159,16 @@ function hasMergeCiphertext(transaction: IndexedShieldedTransaction): boolean {
   });
 }
 
-function isProoflessPayload(payload: Uint8Array): boolean {
+/**
+ * Rust admits any payload `decode_output_data` accepts, not only one already
+ * flagged proofless: the deposit's own `ProoflessOutput` parse happens later, in
+ * the wallet, and screening on the scheme here would drop a deposit the wallet
+ * can still read.
+ */
+function isDecodablePayload(payload: Uint8Array): boolean {
   try {
-    return decodeOutputData(payload).scheme === EncryptedScheme.proofless;
+    decodeOutputData(payload);
+    return true;
   } catch {
     return false;
   }
@@ -169,6 +176,16 @@ function isProoflessPayload(payload: Uint8Array): boolean {
 
 function compareStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function compareAddresses(left: Address, right: Address): number {
+  const leftBytes = decodeBase58(left, 32, "tree");
+  const rightBytes = decodeBase58(right, 32, "tree");
+  for (let index = 0; index < leftBytes.length; index++) {
+    const difference = (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 function compareBySlotThenSignature(
@@ -182,6 +199,11 @@ function compareBySlotThenSignature(
 /**
  * Deposits are ordered by their leaf position first so that replaying a sync
  * inserts them in tree order regardless of which page surfaced them.
+ *
+ * Rust sorts an `Option`, where `None` comes first, and compares the tree as an
+ * address, which orders by its 32 bytes. Base58 and byte order disagree once the
+ * encodings differ in length, so a slot with no output must sort first and the
+ * tree must be compared decoded.
  */
 function compareDeposits(
   left: IndexedShieldedTransaction,
@@ -190,9 +212,9 @@ function compareDeposits(
   const leftSlot = left.outputSlots[0]?.outputContext;
   const rightSlot = right.outputSlots[0]?.outputContext;
   if (leftSlot === undefined || rightSlot === undefined) {
-    return Number(rightSlot !== undefined) - Number(leftSlot !== undefined);
+    return Number(leftSlot !== undefined) - Number(rightSlot !== undefined);
   }
-  const tree = compareStrings(leftSlot.tree, rightSlot.tree);
+  const tree = compareAddresses(leftSlot.tree, rightSlot.tree);
   if (tree !== 0) return tree;
   if (leftSlot.leafIndex !== rightSlot.leafIndex) {
     return leftSlot.leafIndex < rightSlot.leafIndex ? -1 : 1;
@@ -249,7 +271,7 @@ async function collectProoflessDeposits(
       if (match.txViewingPk !== undefined || match.salt !== undefined) continue;
       const key = `${match.txSignature}:${String(match.outputSlot.outputContext.leafIndex)}`;
       if (input.out.has(key)) continue;
-      if (!isProoflessPayload(match.outputSlot.payload)) continue;
+      if (!isDecodablePayload(match.outputSlot.payload)) continue;
       input.out.set(
         key,
         Object.freeze({

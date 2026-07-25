@@ -460,6 +460,20 @@
     "waitForIndexerBlocking": true,
     "waitForIndexerDefault": false
   },
+  "depositTreeOrder": [
+    {
+      "address": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "bytes": "0edbafda67ca37188cf28263571f03b9716879e4acc9c514ab6727ffffffffff"
+    },
+    {
+      "address": "21111111111111111111111111111111111111111111",
+      "bytes": "0edbafda67ca37188cf28263571f03b9716879e4acc9c514ab67280000000000"
+    },
+    {
+      "address": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+      "bytes": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
   "generator": "cargo run -p xtask --bin wallet-sync-tags",
   "rustSource": [
     "sdk-libs/wallet/src/wallet_sync.rs"
