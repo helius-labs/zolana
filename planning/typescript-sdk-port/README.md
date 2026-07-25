@@ -65,7 +65,13 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker commits. Last update: 2026-07-26 01:35.
+Refreshed as each worker commits. Last update: 2026-07-26 01:50.
+
+The figures below are checked mechanically rather than by eye. Run `node
+sdk-libs/ts/config/port-health.mjs` before trusting them: it reports whether the
+checklist has fallen behind the row updates feeding it, whether a worker branch
+has been left unmerged, and which agents have stopped writing. It exits non-zero
+when something needs attention.
 
 | | |
 | --- | --- |
@@ -75,10 +81,11 @@ Refreshed as each worker commits. Last update: 2026-07-26 01:35.
 | Rows still unexamined | None, and the Status column no longer holds a `todo` entry |
 | Rows carrying an adverse verdict | 45: 27 `PARTIAL`, 17 `DIVERGENT`, 1 `STALE`. No row is `BLOCKED` |
 | Rows this branch cannot close | None. See [scope-and-denominator.md](scope-and-denominator.md) |
-| Branch | 379 commits vs `main`. The checklist gate is green |
+| Branch | 439 commits vs `main`. 1722 unit tests pass; formatting, typecheck and lint are clean |
 | Phase | 2 of 4: remediation. Phases 3 and 4 not started |
 | Entry gate to phase 3 | Criteria 1 and 3 pass. Criterion 2 fails on the 45 adverse rows, criterion 4 on CI |
-| Continuous integration | Six checks failing. `typescript / static` is fixed; a dedicated worker owns the rest |
+| Reconciliation debt | Seven row updates have landed since the checklist last moved, so the 45 understates progress |
+| Continuous integration | `typescript / static` fixed. A worker owns the rest, and has merged `main` |
 
 The six failing checks are one cause and change, not six. `main` deleted a dead
 field, `CreateTree.owner`, that this branch still carries, so `cargo check
@@ -390,6 +397,31 @@ replaced the workspace package links. That reads exactly like the stale
 clear the cache and rebuild. Before doing that, run `git branch --show-current`.
 If it is not your branch, clearing caches will not help and rebuilding will
 write your work onto someone else's branch.
+
+### Detecting staleness and dead agents
+
+Two things go wrong here without announcing themselves, and both were found by
+accident before they were found on purpose.
+
+An agent dropped by the platform writes no error and no closing record. Its
+transcript stops on whatever it was saying. Three agents died that way in one
+evening and were noticed only because their branches happened to sit at the same
+commit. Separately, a document that was accurate when written goes stale without
+changing, so it keeps reading as true: the review checklist sat frozen for over
+an hour while seven row updates piled up behind it, and because the entry gate
+reads the checklist, the gate was answering from a count that no longer held.
+
+`node sdk-libs/ts/config/port-health.mjs` checks both. It exits non-zero when
+something needs attention and names it: agents that stopped writing, row updates
+that landed after the checklist last moved, worker branches left unmerged, and a
+status block whose numbers predate the branch they describe.
+
+Two cautions, both learned by getting it wrong. A finished agent and a dead one
+look similar in the text; what separates them is that a finished agent writes a
+closing record. Reading the prose instead marked two agents dead that had in fact
+reported back. And transcript writes lag behind the work, badly enough that one
+agent appeared silent for seventeen minutes while committing at two-minute
+intervals. Quiet is a reason to check the branch, not a death certificate.
 
 **What made the recoveries cheap.** Each of the three cost work only in the time
 spent recovering, because commits were guarded by a branch check before landing.
