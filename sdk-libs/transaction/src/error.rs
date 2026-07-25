@@ -118,9 +118,6 @@ pub enum TransactionError {
     #[error("zone authority output {index} is not bound to the pinned zone")]
     ZoneAuthorityOutputZoneMismatch { index: usize },
 
-    #[error("zone authority cannot move value out of the zone")]
-    ZoneAuthorityWithdrawalNotAllowed,
-
     #[error("public sol leg already set")]
     PublicSolAlreadySet,
 

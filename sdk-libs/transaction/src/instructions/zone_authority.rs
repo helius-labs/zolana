@@ -36,12 +36,16 @@ pub struct PreparedZoneAuthority {
 impl PreparedZoneAuthority {
     /// Pin the zone and bind every real UTXO to it.
     ///
-    /// Nobody authorizes this spend: the circuit checks only `nullifier_secret`
-    /// knowledge, so the zone binding is the sole reason the authority cannot
-    /// move value out of its policy zone. The public `zone_program_id` is
+    /// The UTXO owners do not authorize this spend: the circuit checks only
+    /// `nullifier_secret` knowledge, so the zone binding is what keeps the
+    /// authority inside its policy zone. The public `zone_program_id` is
     /// therefore nonzero and every non-dummy input and output must carry exactly
-    /// it, with no exemption for the default zone, and no public leg may pay
-    /// value out.
+    /// it, with no exemption for the default zone.
+    ///
+    /// The public leg is not bound. Nullification and settlement share one
+    /// instruction with no path that applies one without the other, so a leg in
+    /// either direction is safe, and neither the program nor the circuit gates
+    /// one on this rail.
     pub fn new(
         zone_program_id: Address,
         inputs: Vec<SppProofInputUtxo>,
@@ -69,28 +73,21 @@ impl PreparedZoneAuthority {
                 return Err(TransactionError::ZoneAuthorityOutputZoneMismatch { index });
             }
         }
-        if external_data
-            .public_sol_amount
-            .is_some_and(|amount| amount != 0)
-            || external_data
-                .public_spl_amount
-                .is_some_and(|amount| amount != 0)
-        {
-            return Err(TransactionError::ZoneAuthorityWithdrawalNotAllowed);
-        }
-
-        let shape = SppProofInputs::new(
+        let proof_inputs = SppProofInputs::new(
             inputs.clone(),
             outputs.clone(),
             external_data.clone(),
             payer,
-        )
-        .check_shape()?;
+        );
+        let shape = proof_inputs.check_shape()?;
+        // Zero when there is no public leg, so this replaces nothing the old
+        // refusal guaranteed; it carries the leg the ruling now permits.
+        let public_amounts = proof_inputs.public_amounts()?;
 
         Ok(Self {
             inputs,
             outputs,
-            public_amounts: PublicAmounts::default(),
+            public_amounts,
             external_data,
             payer_pubkey_hash: sha256_be(payer.as_array()),
             zone_program_id: Some(zone_program_id),
@@ -121,10 +118,16 @@ mod tests {
     use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 
     use super::*;
-    use crate::{data::Data, utxo::Utxo, ExternalData, SOL_MINT};
+    use crate::{
+        data::Data,
+        instructions::transact::spp_proof_inputs::{asset_field, signed_to_field},
+        utxo::Utxo,
+        ExternalData, SOL_MINT,
+    };
 
     const ZONE: Address = Address::new_from_array([9u8; 32]);
     const OTHER_ZONE: Address = Address::new_from_array([8u8; 32]);
+    const TOKEN: Address = Address::new_from_array([7u8; 32]);
 
     fn external_data() -> ExternalData {
         ExternalData::new([2u8; 33], [3u8; 16], Vec::new(), Vec::new(), Vec::new())
@@ -239,24 +242,39 @@ mod tests {
         }
     }
 
-    /// Value cannot leave the zone, and nobody signs this spend, so a public leg
-    /// would let the authority pay itself out.
+    /// A public leg in either direction is gated by neither the program nor the
+    /// circuit, so the authority rail must be able to build both, and the
+    /// amounts have to reach the proof inputs instead of being dropped.
     #[test]
-    fn a_public_leg_is_rejected() {
+    fn a_public_leg_is_accepted_in_either_direction() {
         let keypair = ShieldedKeypair::new().unwrap();
-        for external_data in [
-            external_data()
-                .with_public_sol(-500, Address::default())
-                .unwrap(),
+        for amount in [-500, 500] {
+            let (inputs, outputs) = padded(&keypair, Some(ZONE));
+            let prepared = prepare(
+                inputs,
+                outputs,
+                external_data()
+                    .with_public_sol(amount, Address::default())
+                    .unwrap(),
+            )
+            .expect("public sol leg");
+            assert_eq!(prepared.public_amounts.sol, signed_to_field(amount));
+        }
+
+        // The public SPL asset is read off the UTXOs, so a token leg needs
+        // token notes rather than the SOL ones the other cases use.
+        let (mut inputs, mut outputs) = padded(&keypair, Some(ZONE));
+        inputs[0].utxo.asset = TOKEN;
+        outputs[0].asset = TOKEN;
+        let prepared = prepare(
+            inputs,
+            outputs,
             external_data()
                 .with_public_spl(-500, Address::default(), Address::default())
                 .unwrap(),
-        ] {
-            let (inputs, outputs) = padded(&keypair, Some(ZONE));
-            assert_eq!(
-                reject(inputs, outputs, external_data),
-                TransactionError::ZoneAuthorityWithdrawalNotAllowed
-            );
-        }
+        )
+        .expect("public spl leg");
+        assert_eq!(prepared.public_amounts.spl, signed_to_field(-500));
+        assert_eq!(prepared.public_amounts.asset, asset_field(&TOKEN).unwrap());
     }
 }
