@@ -19,7 +19,7 @@ use crate::{
 /// (padded and zero-value slots get a length-matched random one), so the ordinal
 /// is the output position. It is a `u32` in the HKDF `info` string, and a
 /// wrapped value would reuse a `(key, nonce)` pair across two slots.
-fn slot_ordinal(position: usize) -> Result<u32, TransactionError> {
+pub fn slot_ordinal(position: usize) -> Result<u32, TransactionError> {
     u32::try_from(position).map_err(|_| TransactionError::OutputSlotOverflow { position })
 }
 

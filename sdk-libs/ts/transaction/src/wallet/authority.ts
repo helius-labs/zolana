@@ -21,6 +21,7 @@ import {
   type AnonymousSenderPlaintext,
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
+import { slotOrdinal } from "../instructions/transact.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "./asset.js";
 
@@ -166,7 +167,7 @@ export class LocalWalletAuthority implements WalletAuthority {
           data: output.data,
         },
         salt,
-        slotIndex,
+        slotOrdinal(slotIndex),
       );
       return {
         viewTag: output.ownerAddress.signingPublicKey.confidentialViewTag(),

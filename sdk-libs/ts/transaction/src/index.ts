@@ -25,6 +25,7 @@ export {
   createExternalData,
   prepareZoneAuthority,
   resolveShape,
+  slotOrdinal,
 } from "./instructions/index.js";
 export type {
   ExternalData,
@@ -68,6 +69,7 @@ export type {
 export {
   EncryptedScheme,
   encryptedSchemeFromByte,
+  encryptedSchemeToByte,
   outputDataEncoding,
   type OutputDataEncoding,
 } from "./serialization/index.js";

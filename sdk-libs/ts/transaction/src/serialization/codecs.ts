@@ -48,6 +48,11 @@ export function encryptedSchemeFromByte(byte: number): EncryptedScheme {
   }
 }
 
+/** The wire byte for a scheme, the counterpart of Rust `EncryptedScheme::as_byte`. */
+export function encryptedSchemeToByte(scheme: EncryptedScheme): number {
+  return encryptedSchemeFromByte(scheme);
+}
+
 export function outputDataEncoding(scheme: EncryptedScheme): OutputDataEncoding {
   switch (encryptedSchemeFromByte(scheme)) {
     case EncryptedScheme.proofless:

@@ -30,6 +30,7 @@ export {
   encodeSplitBundle,
   encodeSplitEncrypted,
   encryptedSchemeFromByte,
+  encryptedSchemeToByte,
   encryptConfidential,
   encryptAnonymous,
   encryptMerge,

@@ -5,6 +5,7 @@ export {
   canonicalShape,
   createExternalData,
   resolveShape,
+  slotOrdinal,
 } from "../instructions/transact.js";
 export type {
   ExternalData,
