@@ -1,9 +1,9 @@
 # Testing and conformance
 
-All parity claims use frozen Rust revision
+Parity claims use frozen Rust revision
 `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f` (`43fde8e4`). The six
-inventories are the coverage ledger. Every `inventory-active` row must name at
-least one fixture and test owned by its packet; every public declaration in
+inventories are the coverage ledger. Each `inventory-active` row must name at
+least one fixture and test owned by its packet. Each public declaration in
 [public-exports.md](public-exports.md) must appear in the declaration ledger
 below.
 
@@ -23,7 +23,7 @@ Compare:
 8. submitted signature, Solana confirmation, signature/tag-bound Photon
    appearance, recipient decryption, wallet sync report, balances, UTXOs,
    nullifiers, cursors, counters, and history; and
-9. on-chain state and external SOL/SPL source, recipient, interface, and vault
+9. Solana program state and external SOL/SPL source, recipient, interface, and vault
    balance changes.
 
 Class layout, stack text, and Rust blocking versus TypeScript Promise syntax
@@ -58,11 +58,11 @@ or error, and lower-case even-length hex bytes where applicable.
 
 Fixed test secrets carry `testOnlySecret: true`. Random output is golden only
 when random bytes are explicit fixture inputs. Integers are decimal strings.
-Object keys are sorted. `null` is used only when the wire distinguishes it from
+Object keys are sorted. `null` is used only when the encoded bytes distinguish it from
 omission. Errors compare code and details, not messages.
 
 The Rust generator calls production functions. It must not duplicate protocol
-math. Two runs must produce a clean diff, Rust must verify every emitted
+math. Two runs must produce a clean diff, Rust must verify each generated
 fixture, and CI must regenerate at the manifest commit.
 
 ## Public declaration coverage ledger
@@ -384,8 +384,8 @@ fixtures and tests must cover the complete corrected declaration:
 
 - `fx-keypair-root-class-viewing-key-v1` /
   `test-keypair-root-class-viewing-key` records recipient/request/shared tag
-  arguments, first-nullifier-only transaction viewing-key derivation, every
-  recipient or transaction viewing public key, salt, `u32` slot index,
+  arguments, first-nullifier-only transaction viewing-key derivation, the
+  recipient and transaction viewing public keys, salt, `u32` slot index,
   ciphertext, and the named merge encryption result.
 - `fx-keypair-root-interface-viewing-key-like-v1` /
   `test-keypair-root-interface-viewing-key-like` asserts that
@@ -397,7 +397,7 @@ fixtures and tests must cover the complete corrected declaration:
 - `fx-keypair-merge-function-encrypt-verifiable-v1`,
   `fx-keypair-merge-function-decrypt-verifiable-v1`, and
   `fx-keypair-merge-function-merge-public-contribution-v1`, with their existing
-  test IDs, record every secret/public key argument, ciphertext, and the named
+  test IDs, record the secret/public key arguments, ciphertext, and the named
   `{ ciphertext, txViewingPublicKey }` encryption result.
 
 These vectors call frozen production functions in
@@ -411,7 +411,7 @@ view-tag counters and transaction viewing-key derivation must reproduce
 
 ## Lifecycle conformance
 
-The canonical spend fixture records every stage separately:
+The canonical spend fixture records each stage separately:
 
 | Stage | Required comparison |
 | --- | --- |
@@ -421,7 +421,7 @@ The canonical spend fixture records every stage separately:
 | Proof inputs | `SppProofInputs`, public SOL/SPL amounts, input/output hashes, first nullifier, message hash, shape, and optional P256 witness. |
 | Indexer paths | one state inclusion and one nullifier non-inclusion proof per real input, in input order, with exact roots, indexes, path heights, and neighbors. |
 | Prover | exact circuit and JSON body, parsed uncompressed points/commitments, result error, compressed A/B/C, and optional commitment/PoK. |
-| Interface instruction | exact `transactInstruction` accounts, flags, withdrawal suffix, and bytes. Deposit fixtures similarly compare `depositInstruction` fields, accounts, bytes, commitment, and bootstrap view tag. |
+| Interface instruction | exact `transactInstruction` accounts, flags, withdrawal suffix, and bytes. Deposit fixtures similarly compare `depositInstruction` fields, accounts, bytes, commitment, and initial viewing-key tag. |
 | Native transaction | fee payer, blockhash, instruction order, message bytes, and empty signature slots before custody signing. |
 | Native signing/submission | signer receives only the native transaction; returned signature is the one submitted. |
 | Confirmation/indexing | Solana confirms that signature; RPC extracts its output tags; Photon returns the same signature and complete tag set before success. |
@@ -433,7 +433,7 @@ increase. Spend coverage has registered and unregistered routing, SOL and SPL
 withdrawals, external balances, and exact private change.
 
 The interface vector `fx-interface-root-const-instruction-tag-v1` and test
-`test-interface-root-const-instruction-tag` assert all 18 frozen numeric tags:
+`test-interface-root-const-instruction-tag` assert the 18 frozen numeric tags:
 `transact`, `deposit`, `zoneTransact`, `zoneAuthorityTransact`,
 `createSplInterface`, `createTree`, `createProtocolConfig`,
 `updateProtocolConfig`, `pauseTree`, `createZoneConfig`,
@@ -443,7 +443,7 @@ The interface vector `fx-interface-root-const-instruction-tag-v1` and test
 
 Transaction-wire vectors assert the corrected declarations exactly:
 `InputUtxo.nullifierHash`, `nullifierTreeRootIndex`, `utxoTreeRootIndex`,
-`treeIndex`, and `eddsaSignerIndex`; all three `OwnerTag` variants;
+`treeIndex`, and `eddsaSignerIndex`; the three `OwnerTag` variants;
 `TransactOutput.ownerTag` and optional `data`; `relayerFee` as validated `u16`
 `number`; messages as `{ viewTag, data }`; and P256 compressed commitment and
 proof-of-knowledge (`commitmentPok`) as 32-byte points. No test may use the removed
@@ -462,19 +462,19 @@ and wallet snapshots.
 Required cross-tests:
 
 - `depositInstructionDataCodec` and `depositInstruction` consume the same
-  fields emitted by `Deposit`; account metas and bytes match frozen Rust.
+  fields produced by `Deposit`; account metas and bytes match frozen Rust.
 - `PreparedTransfer.finalize` output feeds `assemble`/`intoProver` without
   copied proof math; both boundaries produce identical prover inputs.
 - `ProverClient.prove` request JSON and result parse match Rust, and
   `compressProof().toTransactProof()` matches `transactInstructionDataCodec`.
 - `@zolana/indexer-api` serializes requests and validates decoded responses;
   `@zolana/api` sends those exact requests and returns those schema-owned
-  values for all five methods. Mutation tests reject unknown fields, malformed
+  values for the five methods. Mutation tests reject unknown fields, malformed
   base58/base64, invalid limits, and mismatched JSON-RPC envelopes.
 - `ZolanaIndexer` conversion preserves addresses, signatures, bytes, paths,
   root indexes, pagination, and nullifier neighbors. Its non-inclusion
-  conversion accepts the exact ten-field wire proof, copies every hash/path
-  item to `Bytes32`, emits no `leafIndex`, and leaves the schema-owned input
+  conversion accepts the exact ten-field JSON proof, copies each hash/path
+  item to `Bytes32`, includes no `leafIndex`, and leaves the schema-owned input
   unaliased.
 - smart-account PDA and create/execute vectors compare exact bytes and metas;
   duplicate inner accounts union writable/signer privileges, inner indexes
@@ -518,7 +518,7 @@ native adapter APIs. They may not import or call `createDeposit`,
 `buildDepositTransaction`, `createTransfer`, `createWithdrawal`,
 `buildPrivateTransaction`, or `signPrivateTransaction`. Required cases:
 
-- raw SOL and SPL deposit field derivation, bootstrap view tag, exact
+- raw SOL and SPL deposit field derivation, initial viewing-key tag, exact
   instruction accounts/bytes, unsigned native transaction, submit, index, and
   decrypt;
 - registered `ConfidentialTransfer`, spend conversion, encryption/approval,
@@ -534,7 +534,7 @@ Four instruction workflow vectors are mandatory and independently countable:
 
 - `fx-workflow-instruction-deposit-v1` /
   `e2e-instruction-deposit-wire` asserts tag `deposit`, SOL and SPL account
-  flags/order, exact bytes, decoded deposit fields, and bootstrap view tag.
+  flags/order, exact bytes, decoded deposit fields, and initial viewing-key tag.
 - `fx-workflow-instruction-transfer-v1` /
   `e2e-instruction-transfer-wire` asserts tag `transact`, exact account
   flags/order and bytes, corrected input/output/message fields, proof rail, and
@@ -547,7 +547,7 @@ Four instruction workflow vectors are mandatory and independently countable:
   authority/vault/recipient/ATA/token-program suffix, one public SPL asset,
   corrected wire fields, and bytes.
 
-Each suite asserts its own on-chain and Photon confirmation. Passing one suite
+Each suite asserts its own Solana program and Photon confirmation. Passing one suite
 cannot satisfy the other.
 
 ## Failure, lag, and runtime matrix
@@ -557,17 +557,18 @@ text, JSON, and oversized bodies, JSON-RPC errors, successful invalid schemas,
 retry classification, and bounded redacted diagnostics. Transaction submission
 is not blindly retried after an unknown outcome.
 
-Indexer-lag tests make Solana confirmation succeed while Photon omits one or
-all expected tags. `confirmPrivateTransaction` must continue polling until the
+Indexer-lag tests make Solana confirmation succeed while Photon omits part or
+the complete expected tag set. `confirmPrivateTransaction` must continue
+polling until the
 same signature/tag set appears or return a typed timeout containing only safe
 metadata. A response for another signature must not satisfy confirmation.
 
-Every browser-capable package runs unit/vector tests and a packed-consumer
+Browser-capable packages run unit/vector tests and a packed-consumer
 bundle in Chromium. `@zolana/keypair`, transaction encryption/decryption,
 indexer schema, API transport, client transport/prover conversion, wallet
 authority/sync, interface, Merkle tree, and smart-account builders run without
 `Buffer`, `process`, `require`, `node:*`, filesystem, or injected polyfills.
-Node 20 and 22 run all package tests. Private `@zolana/test-kit` is Node-only.
+Node 20 and 22 run the package tests. Private `@zolana/test-kit` is Node-only.
 
 ## Property and mutation gates
 
@@ -604,13 +605,27 @@ npm run api:check
 npm run pack:check
 ```
 
+## Post-parity cryptographic certification
+
+The commands above, the 118-row review, specification-authority decisions, and
+the package, browser, fixture, and E2E gates must pass before
+[PKP-00 through PKP-08](proof-and-key-parity.md#implementation-work-packets)
+start. The PKP phase adds proof and key evidence to the existing fixtures and
+tests. It does not create another inventory or replace checklist verdicts.
+
+No complete proof or key-handling parity claim may rely on request snapshots,
+proof parsing, or TypeScript-only tests. Certification requires the
+release-targeted native Rust verifier to accept TypeScript-produced proof
+artifacts and requires real TypeScript prove, submit, verify, index, decrypt,
+and sync flows against the same-revision local stack.
+
 Local services use `ZOLANA_LOCALNET_URL`, `ZOLANA_INDEXER_URL`,
 `ZOLANA_PROVER_URL`, and one `ZOLANA_PORT_OFFSET`; tests use readiness
-deadlines, clean up only services they start, never fall back to devnet, and
+deadlines, clean up only services they start, do not fall back to devnet, and
 verify proving-key checksums.
 
 Release evidence contains the fixture manifest and clean regeneration, the
 182-row inventory-to-packet/test report, API reports, package tarball
 checksums/provenance, unit/vector/property/mutation summaries, browser results,
 indexer schema/transport cross-tests, smart-account vectors, prover matrix,
-both independent E2E suites, and all documented deliberate deviations.
+both independent E2E suites, and the documented deliberate deviations.

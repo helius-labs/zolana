@@ -16,7 +16,7 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `8a61adab06bc40d81b0b594bc8baca662c24d0bc`
+- Review HEAD: `ff5d05c59ca7ab186796bbc7ff78b82d375cacf3`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
@@ -104,16 +104,33 @@ record the blocker. An active uncommitted fix remains `in_progress`.
 
 ## Deterministic selection
 
-At each wake:
+The loop has five phases:
+
+1. Review the 118 primary rows.
+2. Implement actionable findings and independently re-review their commits.
+3. Resolve specification-authority blockers. Disputed behavior stays adverse
+   until the designated protocol owner records a decision and the affected
+   implementation and evidence agree.
+4. Pass the package and full SDK gates.
+5. Run [PKP-00 through PKP-08](proof-and-key-parity.md#implementation-work-packets).
+
+The proof and key phase is a certification overlay, not another source-file
+inventory. This checklist remains the authority for row verdicts.
+
+During the row-review phase, at each wake:
 
 1. Refresh rows marked `in_progress`. If an authorized fix now has a commit,
    change it to `needs_re_review`. Skip rows still owned by an active worker.
 2. Select the lowest queue ID marked `needs_re_review`.
 3. If none exists, select the lowest queue ID marked `todo`.
-4. If neither exists, evaluate package gates in package order, then full SDK
-   gates in listed order. Reopen the lowest responsible row when a gate fails.
-5. Stop only when each row is `done`, each package gate passes, and each full
-   SDK gate passes.
+4. When no `todo` row remains, drain `needs_fix` rows in queue order. Implement
+   authorized actionable findings with selective commits, then send each
+   commit to an independent re-review. Keep unresolved authority conflicts
+   adverse.
+5. Evaluate package gates in package order, then full SDK gates in listed
+   order. Reopen the lowest responsible row when a gate fails.
+6. Start PKP-00 only after the 118 rows are `done` and the package and full SDK
+   gates pass.
 
 Queue IDs encode dependency order:
 interface, keypair, merkle-tree, indexer-api, smart-account-client, API,
@@ -185,7 +202,7 @@ Columns:
 | K08 | `sdk-libs/keypair/src/encryption.rs` | `keypair/src/encryption.ts` | needs_fix | PARTIAL | proposed | TypeScript matches current Rust P256 ECDH, HKDF, and AES-CTR bytes, and the internal API disposition is valid. Shared-secret cleanup is not exception-safe, and current-Rust multi-block and counter, empty and boundary, malformed salt and slot, tamper, truncation, extension, defensive-copy, browser, security, and fixture-description evidence is incomplete. Make cleanup exception-safe and add exact current-Rust boundary, malformed, mutation, browser, and provenance fixtures. | 2026-07-25 review | - |
 | K09 | `sdk-libs/keypair/src/merge.rs` | `keypair/src/merge/` | needs_fix | PARTIAL | proposed | Merge encryption and its frozen vector are byte-compatible, but the public Rust `symmetric_apply` capability is missing. Malformed-secret and structured-error behavior, info and chunk boundaries, temporary cleanup, exports, and provenance lack exact evidence. Fix Rust's info-length panic risk before porting unrestricted `symmetric_apply`, then add the API with bounded inputs, cleanup, and current-Rust rejection and boundary fixtures. | 2026-07-25 review | - |
 | K10 | `sdk-libs/keypair/src/error.rs` | `keypair/src/error.ts` | needs_fix | DIVERGENT | proposed | TypeScript collapses or omits five Rust error distinctions, lacks code-indexed immutable diagnostics and exhaustive current-Rust evidence, and permits arbitrary enumerable causes or details to expose data. Define one-to-one closed codes and details, sanitize causes and redacted serialization, and add exhaustive current-Rust fixtures plus export and package tests. | 2026-07-25 review | - |
-| K11 | `sdk-libs/keypair/src/traits/view_key.rs` | `keypair/src/viewing-key.ts` | needs_fix | PARTIAL | proposed | All 14 concrete operations exist on TypeScript `ViewingKey`, but public `ViewingKeyLike` exposes only two unused methods. `ShieldedKeypair` cannot substitute, higher packages require concrete `ViewingKey`, and trait declaration, facade, malformed-input, secret-exposure, browser, and current-Rust evidence is missing. Add the public trait adaptation and facade, accept the least-powerful capability in higher packages, and add the missing evidence. | 2026-07-25 review | - |
+| K11 | `sdk-libs/keypair/src/traits/view_key.rs` | `keypair/src/viewing-key.ts` | needs_fix | PARTIAL | proposed | The 14 concrete operations exist on TypeScript `ViewingKey`, but public `ViewingKeyLike` exposes only two unused methods. `ShieldedKeypair` cannot substitute, higher packages require concrete `ViewingKey`, and trait declaration, facade, malformed-input, secret-exposure, browser, and current-Rust evidence is missing. Add the public trait adaptation and facade, accept the least-powerful capability in higher packages, and add the missing evidence. | 2026-07-25 review | - |
 | K12 | `sdk-libs/keypair/src/traits/shielded_keypair.rs` | `keypair/src/shielded.ts` | needs_fix | PARTIAL | proposed | Concrete operations exist, but the generic interface omits six named capabilities, is unused, and lacks a workable async/HSM facade and evidence. Correct Rust's malformed-P256-sign panic and secret-returning nullifier trait method, then complete and consume the generic facade with current-Rust, malformed, capability, async/HSM, browser, and secret-exposure evidence. | 2026-07-25 review | - |
 | K13 | `sdk-libs/keypair/src/traits/mod.rs` | `keypair/src/index.ts` | needs_fix | PARTIAL | proposed | Rust trait-module exports are represented only by incomplete root-level TypeScript interfaces; no documented traits subpath or counterpart and no trait-specific fixture exist. The declarations are accurate, but consumer, browser, and packed-package evidence does not exercise the interfaces. Add the documented traits surface and trait-specific fixture, then exercise the interfaces through consumer, browser, and packed-package tests. | 2026-07-25 review | - |
 | K14 | `sdk-libs/keypair/src/lib.rs` | `keypair/src/index.ts` | needs_fix | DIVERGENT | proposed | The package export map and browser graph are coherent, but Rust-public constants, Poseidon, `symmetricApply`, `isEd25519`, `Signature`, compressed-address and traits surfaces are missing; `Bytes33` falsely declares a 34-byte key. The K06 owner-hash spec conflict, collapsed errors, stale metadata, and missing exact root, type, tarball, and consumer allowlists also prevent package parity. Complete and correct the package surface, resolve the inherited conflicts, refresh metadata, and add exact allowlist evidence. | 2026-07-25 review | - |
@@ -348,6 +365,8 @@ input to this decision.
 - [ ] Fixture provenance points to the reviewed Rust revision and covers deterministic success, rejection, and tamper cases where applicable.
 - [ ] The public-export ledger has no unexplained difference.
 - [ ] No row or package gate has an unresolved adverse verdict.
+- [ ] Full CI, fixture regeneration, browser, packed-package consumer, action
+      E2E, and instruction E2E commands pass from a clean checkout.
 
 ## Copy-paste `/loop` prompt
 
@@ -362,8 +381,9 @@ Read and follow:
 - /Users/tilohelius/Workspace/zolana/.cursor/skills/review-ts/SKILL.md
 - /Users/tilohelius/Workspace/zolana/CLAUDE.md
 
-Keep review work read-only except for the checklist. Do not implement findings
-unless the user explicitly authorizes fixes.
+Review work is read-only except for this checklist. This loop may implement
+findings only when its invocation explicitly authorizes fixes. Fixes use the
+selective commit and independent re-review workflow above.
 
 At each wake:
 1. Refresh HEAD, fixture frozenCommit, Rust drift, dirty paths, active fix
@@ -371,7 +391,7 @@ At each wake:
 2. When an in_progress fix has a selective commit, mark it needs_re_review.
    Skip a row while its worker still has uncommitted changes.
 3. Select the lowest queue ID marked needs_re_review. If none exists, select the
-   lowest queue ID marked todo. Process no other row.
+   lowest queue ID marked todo. Process no other review row.
 4. Explain the canonical Rust file's purpose, imports/dependencies, public
    exports, basic flows, key or capability separations, and Rust/TypeScript test
    locations.
@@ -382,12 +402,22 @@ At each wake:
 6. Update only that row, the mutable baseline, affected gates, and one
    append-only session-log entry. State the exact next file.
 7. A fixed row becomes done only after independent re-review supports PARITY.
-8. After no row is eligible, check package gates in package order and full SDK
-   gates in listed order. Reopen the lowest responsible row for a failed gate.
+8. After the 118 rows have been reviewed, implement authorized actionable
+   needs_fix rows in queue order and independently re-review each commit.
+   Resolve specification-authority blockers before changing their verdicts.
+9. Check package gates in package order and full SDK gates in listed order,
+   including full CI, fixture regeneration, browser, packed-package consumer,
+   action E2E, and instruction E2E commands. Reopen the lowest responsible row
+   for a failed gate.
+10. After those gates pass, execute PKP-00 through PKP-08 from
+    planning/typescript-sdk-port/proof-and-key-parity.md. Do not claim complete
+    proof or key parity until native Rust verification and real
+    TypeScript-driven prove-to-chain local-stack evidence pass.
 
 Stop only when the 118 rows are done with PARITY or justified NOT_APPLICABLE,
-each of the nine package gate sets passes, and the full SDK gate set passes.
-Per-file completion alone must not produce a full SDK parity claim.
+each of the nine package gate sets passes, the full SDK gate set passes, and
+PKP-00 through PKP-08 have reproducible evidence. Per-file completion alone
+must not produce a full SDK, proof, or key-handling parity claim.
 ```
 
 ## Append-only session log
@@ -1129,7 +1159,7 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Baseline: HEAD `5ffa42da9f7c06a76230e3a9cfc26005f9dcd908`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
 - Worker: completed read-only review; implementation commit `none`
 - Explanation: This public trait defines the viewing-key capability surface.
-- Evidence: All 14 concrete operations exist on TypeScript `ViewingKey`, but public `ViewingKeyLike` has only two unused methods. `ShieldedKeypair` cannot substitute, higher packages require concrete `ViewingKey`, and trait declaration, facade, malformed-input, secret-exposure, browser, and current-Rust evidence is missing. No tests ran for this recorder update.
+- Evidence: The 14 concrete operations exist on TypeScript `ViewingKey`, but public `ViewingKeyLike` has only two unused methods. `ShieldedKeypair` cannot substitute, higher packages require concrete `ViewingKey`, and trait declaration, facade, malformed-input, secret-exposure, browser, and current-Rust evidence is missing. No tests ran for this recorder update.
 - Verdict: `PARTIAL`
 - Gap and smallest fix: Add the public trait adaptation and facade, accept the least-powerful capability in higher packages, and add the missing evidence.
 - Row transition: `todo -> needs_fix`

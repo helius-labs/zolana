@@ -51,7 +51,7 @@ Incoming secret byte arrays are copied. Returned secret bytes, where the
 allowlist requires them, are copies and documented as hazardous. `destroy()`
 overwrites owned mutable arrays and marks the object unusable; documentation
 must state that JavaScript cannot guarantee erasure of engine or crypto-library
-copies. Fixed fixture secrets are test-only and never enter examples.
+copies. Fixed fixture secrets are test-only and are excluded from examples.
 
 Circuit private inputs sent to a configured remote prover are an explicit trust
 boundary. The threat model states exactly which witness values the prover sees.
@@ -76,7 +76,7 @@ native signature slots. It does not submit and does not require the native
 fee-payer secret. `signPrivateTransaction` is only a convenience that calls the
 supplied `TransactionSigner`; it must produce the same message bytes.
 
-Approval occurs after all user-visible and settlement fields are final and
+Approval occurs after the user-visible and settlement fields are final and
 before proof generation. Any mutation to recipient, asset, amount, fee,
 expiry, payer, tree, selected inputs, output slots, or settlement accounts
 invalidates approval and private authorization. Rebuilds generate fresh salt
@@ -84,7 +84,7 @@ and dummy randomness. Submission is not automatically retried after an
 unknown outcome.
 
 Payer, private owner, and native signer may differ. Ed25519 account signer
-indices and P256 ownership fields bind the correct authority. No API may infer
+indices and P256 ownership fields identify the correct authority. No API may infer
 that possession of one key grants the other role.
 
 ## Confirmation binding
@@ -101,7 +101,7 @@ that possession of one key grants the other role.
 
 An indexed transaction with matching tags but a different signature, or the
 same signature with missing outputs, cannot satisfy confirmation. Indexer
-appearance never replaces Solana confirmation. Lag, abort, expiry, and timeout
+appearance does not replace Solana confirmation. Lag, abort, expiry, and timeout
 return typed `ClientError` values with safe method/signature/deadline metadata.
 Repeated confirmation is idempotent.
 
@@ -117,19 +117,19 @@ Repeated confirmation is idempotent.
 - AES-CTR plaintext is accepted only after its UTXO hash matches the
   proof-verified output commitment.
 - UTXO, external-data, private-transaction, public-input, and nullifier hashes
-  bind the exact fields and order. Optional zone/data fields follow frozen
+  include the exact fields in the required order. Optional zone/data fields follow frozen
   zero/absence rules.
 - Real input/output order survives shape padding. Dummy commitments and
   nullifiers are pairwise distinct and contribute no value. Default-zone dummy
   outputs have no ciphertext.
 - Per-asset conservation holds. One transaction has at most one public SPL
   asset and one withdrawal.
-- Every real input has one state inclusion proof and one nullifier
+- Each real input has one state inclusion proof and one nullifier
   non-inclusion proof with exact path height and input order.
 - P256 uses one BSB22 commitment and PoK; Ed25519 uses none. Proof points are
   validated and compressed with the required A negation.
-- SPL settlement binds the canonical vault/interface, recipient ATA, CPI
-  authority where required, and token program. SOL settlement binds the
+- SPL settlement requires the canonical vault/interface, recipient ATA, CPI
+  authority where required, and token program. SOL settlement requires the
   canonical SOL interface, recipient, and system program.
 - Indexer data is untrusted and schema/length/path/signature validated before
   state mutation. Wallet sync is atomic and idempotent across duplicate pages,
@@ -141,7 +141,7 @@ Repeated confirmation is idempotent.
 ## Network diagnostics and redaction
 
 URLs are parsed before use. Remote documentation recommends HTTPS; plain HTTP
-is local-development only. Every request accepts timeout and cancellation.
+is local-development only. Requests accept timeout and cancellation.
 Retries are limited to classified transient failures with capped jitter.
 
 API keys are secrets regardless of whether the service places them in a
@@ -152,7 +152,7 @@ redacted by field allowlist, not dumped wholesale.
 
 Response-body capture is disabled by default. Diagnostic capture is
 size-bounded, content-type aware, and redacts the body before attaching safe
-metadata. `ApiError`, `ClientError`, and nested causes never retain an
+metadata. `ApiError`, `ClientError`, and nested causes do not retain an
 unredacted body or `Request`/`Response` object. Tests cover text, JSON, binary,
 oversized, malformed, and secret-reflecting responses.
 
@@ -168,7 +168,7 @@ serialized size before allocating the final instruction.
 - signer, instruction, per-instruction account, and unique compiled-account
   counts fit their one-byte indexes;
 - each inner data length fits `u16`;
-- every generated account index exists and remains stable;
+- each generated account index exists and remains stable;
 - duplicate accounts union writable and signer privileges without downgrading;
 - program IDs are readonly/non-signer unless another use legitimately raises
   privilege;
@@ -178,20 +178,20 @@ serialized size before allocating the final instruction.
   message and transaction limits.
 
 Builders reject overflow rather than truncating with `as u8` or `as u16`.
-Golden vectors compare every account address, order, signer/writable bit,
+Golden vectors compare each account address, order, signer/writable bit,
 discriminator, index, length, and payload byte. Mutations cover privilege
 escalation/downgrade and boundary counts.
 
 ## Browser isolation
 
-All production roots are ESM and browser-capable as declared in the
+Production roots are ESM and browser-capable as declared in the
 architecture. Browser entry graphs cannot reference `Buffer`, `process`,
 `require`, CommonJS, `node:*`, filesystem/process APIs, Node type globals, or
 automatic polyfills. Randomness uses `globalThis.crypto.getRandomValues`;
 transport uses injected or global `fetch`; bytes use `Uint8Array`.
 
 Node-only behavior is confined to explicit non-root adapters or private
-`@zolana/test-kit`. Packed browser-consumer tests inspect the emitted graph,
+`@zolana/test-kit`. Packed browser-consumer tests inspect the generated graph,
 not only source imports. Browser tests cover cryptography, codecs, proof
 conversion, API/client transport, wallet authority/sync, and both instruction
 packages.
@@ -200,7 +200,7 @@ packages.
 
 Admit a dependency only after:
 
-- exact Rust-vector parity for every used cryptographic or codec operation;
+- exact Rust-vector parity for each used cryptographic or codec operation;
 - invalid point/scalar/length and field-boundary rejection;
 - ESM browser and Node support without hidden polyfills;
 - active maintenance, provenance, compatible license, and acceptable audit
@@ -226,7 +226,19 @@ in this dependency order:
 5. `@zolana/client`;
 6. `@zolana/wallet`.
 
-Private `@zolana/test-kit` is built before E2E but never published. Packages in
+Cryptographic certification follows base SDK parity. First complete the
+118-row review, remediate and independently re-review actionable adverse rows,
+resolve specification-authority blockers, and pass the full CI, fixture,
+browser, packed-package consumer, and independent E2E gates. Then run
+[PKP-00 through PKP-08](proof-and-key-parity.md#implementation-work-packets).
+
+The PKP work is a certification overlay on this release evidence. It does not
+replace the review checklist or add a second source inventory. A complete
+proof or key-handling parity claim requires native Rust verification of
+TypeScript-produced artifacts and real TypeScript prove-to-chain flows against
+the same-revision local stack.
+
+Private `@zolana/test-kit` is built before E2E and is not published. Packages in
 the same numbered group may release in parallel only when they have no
 workspace dependency on each other. The release transaction stops before
 dependent publication if any tarball, provenance, API, vector, browser, or E2E
@@ -255,7 +267,7 @@ pairs; unexplained API-report delta; secret or API key in diagnostics;
 unchecked remote schema or proof point; raw wallet key crossing into client or
 prover; unsigned custody mutation; unbound confirmation; smart-account
 overflow/flag failure; surviving protocol-byte mutation; Node global in a
-browser package; missing changed-code on-chain E2E; tarball consumer failure;
+browser package; missing changed-code Solana program E2E; tarball consumer failure;
 critical/high dependency finding without a time-bounded exception; or failure
 of either independent E2E suite. Split creation, merge creation/submission,
 idempotent ATA creation, and frozen deposit/transfer/SOL-withdrawal/

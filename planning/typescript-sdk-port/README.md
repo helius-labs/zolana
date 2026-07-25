@@ -6,7 +6,7 @@ implementation.
 
 ## Current baseline
 
-All current Rust claims and inventory rows use the selected `origin/main`
+Current Rust claims and inventory rows use the selected `origin/main`
 revision
 `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f` (`43fde8e4`). This revision is
 frozen for the plan; later changes to `origin/main` do not change the baseline.
@@ -59,8 +59,8 @@ current package graph or override higher-precedence sources.
 | --- | --- | --- |
 | Rust baseline | Local `2e1d7c8` | Frozen `origin/main` `43fde8e4` |
 | Tracked SDK paths | 170 | 182 |
-| Wallet ownership | Folded into `@zolana/client` | Separate `@zolana/wallet` |
-| Indexer schema | Folded into generated `@zolana/api` | `@zolana/indexer-api` schema and `@zolana/api` transport |
+| Wallet ownership | Included in `@zolana/client` | Separate `@zolana/wallet` |
+| Indexer schema | Included in generated `@zolana/api` | `@zolana/indexer-api` schema and `@zolana/api` transport |
 | Action contract | Export names and broad responsibilities | Exact functions, methods, types, stages, errors, and examples |
 | Signing name | `signTransaction` | `signPrivateTransaction` |
 | Instruction flow | Deferred to final examples | Defined before implementation and tested independently |
@@ -89,6 +89,9 @@ Read the package in this order:
    security and release gates.
 7. [Implementation work packets](work-packets.md) assigns ordered,
    non-overlapping implementation work.
+8. After the SDK parity gates pass, [proof and key-handling parity
+   certification](proof-and-key-parity.md) defines the PKP-00 through PKP-08
+   evidence phase.
 
 ## Planning documents
 
@@ -124,10 +127,13 @@ Read the package in this order:
   constraints, and release controls.
 - [Implementation work packets](work-packets.md): defines prerequisites,
   disjoint file ownership, required evidence, and completion criteria.
+- [Proof and key-handling parity certification](proof-and-key-parity.md):
+  certifies cryptographic behavior after the 118-row review and SDK gates
+  pass. It supplements the checklist instead of duplicating its inventory.
 
 ## Inventory rules
 
-The inventories must account for all 182 paths returned by:
+The inventories must account for the 182 paths returned by:
 
 ```text
 git ls-tree -r --name-only 43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f sdk-libs
@@ -161,20 +167,42 @@ Use sources in this order. A lower source cannot override a higher source:
    copying stale names or ownership.
 5. PR #111 is implementation reference material only.
 
+## Delivery sequence
+
+Use these phases in order:
+
+1. Review the 118 rows in
+   [review-checklist.md](review-checklist.md).
+2. Implement actionable adverse findings and independently re-review each
+   fix. Resolve specification-authority blockers before treating disputed
+   behavior as canonical.
+3. Pass the fixture, CI, browser, package-consumer, action E2E, and instruction
+   E2E gates in [testing-and-conformance.md](testing-and-conformance.md).
+4. Run PKP-00 through PKP-08 in
+   [proof-and-key-parity.md](proof-and-key-parity.md).
+
+The final phase is a cryptographic certification overlay. The checklist remains
+the authority for row status and verdicts.
+
 ## Definition of complete
 
-The port is complete only when:
+Base SDK parity is complete only when:
 
-- all `port` and `reuse` inventory rows have an implementation and mapped test;
+- the `port` and `reuse` inventory rows have an implementation and mapped test;
 - the public export snapshot matches the crosswalk;
 - Rust-generated fixture bytes and TypeScript bytes match exactly;
-- every example workflow passes against localnet, Photon, and the prover;
+- the example workflows pass against localnet, Photon, and the prover;
 - Node and browser gates pass for packages marked browser-compatible;
 - no core package imports `node:*`, reads `process.env`, or depends on `Buffer`;
 - API Extractor (or an equivalent declaration snapshot), TypeScript strict
   checking, lint, unit, property, conformance, integration, and package-consumer
   tests pass;
 - security and protocol reviewers approve the invariant checklist.
+
+A complete proof or key-handling parity claim also requires PKP-00 through
+PKP-08. The evidence must include native Rust verification of
+TypeScript-produced artifacts and real TypeScript prove-to-chain flows through
+the same-revision local stack.
 
 ## Open questions
 
