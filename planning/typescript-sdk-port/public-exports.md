@@ -337,6 +337,8 @@ export function mergeZoneInstruction(input: Readonly<{
   tree: Address; zoneProgramId: Address; payer: Address;
   data: MergeTransactInstructionData; mergeViewTag: Bytes32; cpi?: boolean;
 }>): Instruction;
+
+export const MERGE_INPUTS: 8;
 ```
 
 All builders are synchronous, return a newly owned `Instruction`, validate

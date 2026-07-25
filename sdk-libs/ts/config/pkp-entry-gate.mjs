@@ -116,7 +116,9 @@ if (skipCi) {
         checks.length === 0
           ? "the pull request reports no checks at all, which usually means a merge conflict stopped GitHub building the merge commit"
           : `${passing.length} passing, ${failing.length} failing, ${pending.length} pending` +
-            (failing.length > 0 ? `. Failing: ${failing.map((check) => check.name).join(", ")}` : ""),
+            (failing.length > 0
+              ? `. Failing: ${failing.map((check) => check.name).join(", ")}`
+              : ""),
       failing: failing.map((check) => check.name),
     });
   } catch (error) {

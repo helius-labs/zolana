@@ -1,0 +1,168 @@
+{
+  "coordinates": [
+    {
+      "accepted": true,
+      "b": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "name": "zero",
+      "value": "0x0"
+    },
+    {
+      "accepted": true,
+      "b": "0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "name": "one",
+      "value": "0x1"
+    },
+    {
+      "accepted": true,
+      "b": "0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "name": "no prefix",
+      "value": "1"
+    },
+    {
+      "accepted": true,
+      "b": "0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "name": "uppercase prefix",
+      "value": "0X1"
+    },
+    {
+      "accepted": true,
+      "b": "00000000000000000000000000000000000000000000000000000000000000ab000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "name": "uppercase digits",
+      "value": "0xAB"
+    },
+    {
+      "accepted": true,
+      "b": "0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "name": "full width",
+      "value": "0x0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "accepted": true,
+      "b": "30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd46000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "name": "modulus minus one",
+      "value": "0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd46"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "modulus",
+      "value": "0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "modulus plus one",
+      "value": "0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd48"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "all ones",
+      "value": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "doubled prefix",
+      "value": "0x0x1"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "negative",
+      "value": "-1"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "negative with prefix",
+      "value": "-0x1"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "unparsable",
+      "value": "hello"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "empty",
+      "value": ""
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "bare prefix",
+      "value": "0x"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "oversized",
+      "value": "0x111111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "leading space",
+      "value": " 0x1"
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "trailing space",
+      "value": "0x1 "
+    },
+    {
+      "accepted": false,
+      "b": null,
+      "name": "underscore separator",
+      "value": "0x1_0"
+    }
+  ],
+  "halfCommitments": [
+    {
+      "accepted": false,
+      "body": "{\"ar\":[\"0x0\",\"0x0\"],\"bs\":[[\"0x0\",\"0x0\"],[\"0x0\",\"0x0\"]],\"krs\":[\"0x0\",\"0x0\"],\"proof_commitment\":[\"0x0\",\"0x0\"]}",
+      "name": "commitment without its proof of knowledge"
+    },
+    {
+      "accepted": false,
+      "body": "{\"ar\":[\"0x0\",\"0x0\"],\"bs\":[[\"0x0\",\"0x0\"],[\"0x0\",\"0x0\"]],\"krs\":[\"0x0\",\"0x0\"],\"proof_commitment_pok\":[\"0x0\",\"0x0\"]}",
+      "name": "proof of knowledge without its commitment"
+    },
+    {
+      "accepted": false,
+      "body": "{\"ar\":[\"0x0\",\"0x0\"],\"bs\":[[\"0x0\",\"0x0\"],[\"0x0\",\"0x0\"]],\"krs\":[\"0x0\",\"0x0\"],\"proof_commitment\":[],\"proof_commitment_pok\":[]}",
+      "name": "both fields explicitly empty"
+    }
+  ],
+  "modulus": "30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47",
+  "rails": [
+    {
+      "accepted": true,
+      "hasCommitment": false,
+      "requestedCommitment": false,
+      "responseCommitment": false
+    },
+    {
+      "accepted": false,
+      "hasCommitment": null,
+      "requestedCommitment": false,
+      "responseCommitment": true
+    },
+    {
+      "accepted": false,
+      "hasCommitment": null,
+      "requestedCommitment": true,
+      "responseCommitment": false
+    },
+    {
+      "accepted": true,
+      "hasCommitment": true,
+      "requestedCommitment": true,
+      "responseCommitment": true
+    }
+  ]
+}

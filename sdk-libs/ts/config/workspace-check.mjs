@@ -97,7 +97,10 @@ async function checkExports() {
     const formats = dual ? ["es", "cjs"] : ["es"];
     for (const format of formats) {
       const marker = JSON.parse(
-        await readFile(path.join(packagesRoot, packageName, "dist", format, "package.json"), "utf8"),
+        await readFile(
+          path.join(packagesRoot, packageName, "dist", format, "package.json"),
+          "utf8",
+        ),
       );
       assert(
         marker.type === (format === "cjs" ? "commonjs" : "module"),

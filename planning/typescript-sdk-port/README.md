@@ -65,7 +65,7 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker commits. Last update: 2026-07-26 00:35.
+Refreshed as each worker commits. Last update: 2026-07-26 01:35.
 
 | | |
 | --- | --- |
@@ -75,8 +75,19 @@ Refreshed as each worker commits. Last update: 2026-07-26 00:35.
 | Rows still unexamined | None, and the Status column no longer holds a `todo` entry |
 | Rows carrying an adverse verdict | 45: 27 `PARTIAL`, 17 `DIVERGENT`, 1 `STALE`. No row is `BLOCKED` |
 | Rows this branch cannot close | None. See [scope-and-denominator.md](scope-and-denominator.md) |
-| Branch | 373 commits vs `main`. The checklist gate is green |
+| Branch | 379 commits vs `main`. The checklist gate is green |
 | Phase | 2 of 4: remediation. Phases 3 and 4 not started |
+| Entry gate to phase 3 | Criteria 1 and 3 pass. Criterion 2 fails on the 45 adverse rows, criterion 4 on CI |
+| Continuous integration | Six checks failing. `typescript / static` is fixed; a dedicated worker owns the rest |
+
+The six failing checks are one cause and change, not six. `main` deleted a dead
+field, `CreateTree.owner`, that this branch still carries, so `cargo check
+(workspace)` does not compile and the three Rust test jobs almost certainly
+inherit that rather than failing on their own account. `typescript / static`
+failed on three unformatted config scripts and is closed. `typescript /
+fixtures` is the one to watch: a stale provenance baseline has explained it
+twice, and regenerating fixtures to quiet a gate that is correctly reporting a
+divergence would destroy the evidence the parity claims rest on.
 
 The count moved from 19 to 90 in one evening, so it is worth saying what it does
 and does not mean. The gap between the two figures an earlier update carried was
@@ -324,17 +335,26 @@ another batch's work, and so agents stop contending for one index. The six
 branches below converge into `ts-sdk-port`, which is the single pull request.
 Nothing is published from a batch branch.
 
-The first wave of batches has merged. The table below is the second wave, as of
-2026-07-25 23:10.
+The first wave of batches has merged. The table below is live state as of
+2026-07-26 01:35, read from `git worktree list` rather than from memory.
 
-| Worktree | Branch | Batch |
+**Four directory names no longer describe their contents.** `zolana-ts-keypair`,
+`zolana-ts-interface-a`, `zolana-ts-programlibs` and `zolana-ts-wallet-misc` were
+each created for one batch and have since been reused for another, so their names
+say what the tree was for in the past and nothing about what it holds now. Read
+the branch column. Reassigning a tree by its directory name is what caused both
+collisions recorded below.
+
+| Worktree | Branch | Work |
 | --- | --- | --- |
 | `zolana-ts-sdk-port` | `ts-sdk-port` | Integration, plan, reconciliation. The reconciler edits the checklist here, so treat the tree as occupied even when it looks idle. |
 | `zolana-ts-transaction` | `port/transaction-b` | remaining `T` rows |
-| `zolana-ts-wallet-misc` | `port/client-b` | remaining `C` rows and the three zone prover rails. **The directory name is wrong**; see below. |
-| `zolana-ts-keypair` | `port/hashers-b` | remaining `H`, `M`, `K` rows, and the Poseidon move to WebAssembly |
-| `zolana-ts-interface-a` | `port/ci-green` | the eight failing CI jobs |
-| `zolana-ts-programlibs` | none | free |
+| `zolana-ts-client-b` | `port/client-b` | `C` rows and the zone prover rails. Merged; tree retained until its agent is unresumable |
+| `zolana-ts-keypair` | `port/wasm-verify` | verification of the WebAssembly hasher |
+| `zolana-ts-interface-a` | `port/versioned-tx` | address lookup tables and v0 messages, study only |
+| `zolana-ts-programlibs` | `port/merge-prefix` | discriminator and prefix strictness, the Light way |
+| `zolana-ts-wallet-misc` | `port/plan-rewrite` | restructuring these planning documents |
+| `zolana-ts-ci` | `port/ci-green` | the failing CI jobs |
 | `zolana-merge-record` | `fix/merge-user-record-binding` | program defect, **separate** pull request off `main` |
 | (no tree) | `fix/indexed-array-exclusive-highest-value` | protocol-library fix relocated out of the port, **separate** pull request off `main` |
 
@@ -343,8 +363,9 @@ worktree, or the work is lost with it.
 
 ### One tree, one branch, one agent
 
-This rule was learned twice in one evening, both times at the cost of nearly
-losing work. A worktree may hold one branch, and a branch may have one agent.
+This rule has now been learned three times in one evening, each time at the cost
+of nearly losing work. A worktree may hold one branch, and a branch may have one
+agent.
 The failure is not dramatic when it happens: the second agent's `git checkout`
 silently moves the first agent's `HEAD`, the first agent keeps editing files it
 believes are on its own branch, and the damage surfaces only at commit time.
@@ -356,9 +377,25 @@ tree kept its old batch's name, so an agent reading its own working directory
 reasonably concluded the tree belonged to someone else.
 
 So: do not reassign a worktree while its previous agent can still be resumed,
-and rename a tree when you repurpose it. `zolana-ts-wallet-misc` currently holds
-`port/client-b` and stands as the counterexample; it is left as it is because
-renaming a live tree under a working agent trades one hazard for another.
+and check `git worktree list` for the branch rather than trusting a directory
+name. Prefer creating a new tree over reusing one; a worktree costs a copy of
+`node_modules` and a collision costs an hour.
+
+**How it looks from inside.** The third occurrence is worth describing, because
+the symptom impersonates a different problem. When another agent checks out a
+branch in the tree you are working in, you do not get a git message. You get
+91 TypeScript test files failing to collect at once, because the checkout
+replaced the workspace package links. That reads exactly like the stale
+`node_modules/.vite` cache this project has hit before, and the reflex is to
+clear the cache and rebuild. Before doing that, run `git branch --show-current`.
+If it is not your branch, clearing caches will not help and rebuilding will
+write your work onto someone else's branch.
+
+**What made the recoveries cheap.** Each of the three cost work only in the time
+spent recovering, because commits were guarded by a branch check before landing.
+In the third case that guard is what saved it: two code commits landed correctly
+and the documentation commit refused to land on the wrong branch. Keep the guard
+in the worker prompts. It is the difference between an interruption and a loss.
 
 Each batch tree carries a copy-on-write clone of the root `node_modules`, which
 works because the npm workspace symlinks are relative and therefore resolve
