@@ -441,6 +441,12 @@ describe("frozen Rust keypair fixtures", () => {
     const tampered = new Uint8Array(encrypted.ciphertext);
     tampered[0] ^= 1;
     expectHex(mergeCiphertextHash(tampered), expected.tamperedCiphertextHashBytes);
+    expect(() => mergeCiphertextHash(new Uint8Array())).toThrow(
+      expect.objectContaining({ code: "KEYPAIR_HASH" }),
+    );
+    expect(() => mergeCiphertextHash(new Uint8Array(193))).toThrow(
+      expect.objectContaining({ code: "KEYPAIR_HASH" }),
+    );
   });
 
   it("matches malformed key, rail, padding, and tampered-signature evidence", () => {

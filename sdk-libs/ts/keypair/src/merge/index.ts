@@ -1,10 +1,12 @@
+import { ciphertextHash } from "@zolana/interface";
+
 import { type Bytes32, checkedBytes, copyBytes } from "../bytes.js";
+import { wrapKeypairError } from "../error.js";
 import { P256PublicKey } from "../public-key.js";
 import {
   MERGE_INFO as MERGE_INFO_BYTES,
   decryptVerifiableSecret,
   encryptVerifiableSecret,
-  mergeCiphertextHashInternal,
   packMergePublicKey,
 } from "./core.js";
 
@@ -53,5 +55,9 @@ export function mergePublicContribution(
 }
 
 export function mergeCiphertextHash(ciphertext: Uint8Array): Bytes32 {
-  return mergeCiphertextHashInternal(new Uint8Array(ciphertext));
+  try {
+    return ciphertextHash(ciphertext);
+  } catch (error) {
+    throw wrapKeypairError("KEYPAIR_HASH", error);
+  }
 }

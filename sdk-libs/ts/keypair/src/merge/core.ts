@@ -124,17 +124,6 @@ export function decryptVerifiableSecret(
   );
 }
 
-export function mergeCiphertextHashInternal(ciphertext: Uint8Array): Bytes32 {
-  const chunks: Uint8Array[] = [];
-  for (let offset = 0; offset < ciphertext.length; offset += 16) {
-    const chunk = ciphertext.subarray(offset, offset + 16);
-    const field = new Uint8Array(32);
-    field.set(chunk, 32 - chunk.length);
-    chunks.push(field);
-  }
-  return poseidon(chunks) as Bytes32;
-}
-
 export function packMergePublicKey(publicKey: P256PublicKey): readonly [Bytes32, Bytes32] {
   const bytes = checkedBytes<Bytes33>(publicKey.toBytes(), 33, "transaction viewing public key");
   const [low, high] = pack33(bytes);

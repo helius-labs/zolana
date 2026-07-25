@@ -7,7 +7,7 @@ import type { Bytes32 } from "./index.js";
 
 const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
-const PARTIAL_ROUNDS = [56, 57, 56, 60, 60, 63, 64, 63, 60, 66, 60, 65, 70, 60, 64, 68] as const;
+const PARTIAL_ROUNDS = [56, 57, 56, 60, 60, 63, 64, 63, 60, 66, 60, 65] as const;
 const Fp = Field(BN254_MODULUS);
 const permutations = new Map<number, ReturnType<typeof createPoseidon>>();
 
@@ -31,7 +31,11 @@ function permutation(inputCount: number): ReturnType<typeof createPoseidon> {
   if (cached !== undefined) return cached;
   const roundsPartial = PARTIAL_ROUNDS[inputCount - 1];
   if (roundsPartial === undefined) {
-    throw new InterfaceError("INTERFACE_HASH", { inputCount, minimum: 1, maximum: 16 });
+    throw new InterfaceError("INTERFACE_HASH", {
+      inputCount,
+      minimum: 1,
+      maximum: PARTIAL_ROUNDS.length,
+    });
   }
   const options = {
     Fp,

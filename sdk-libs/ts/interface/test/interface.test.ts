@@ -255,6 +255,13 @@ describe("merge utilities", () => {
     expect(hex(ciphertextHash(ciphertext))).toBe(
       "2418c4f8d103a80bcc365a28f6172e7cd9cbfe71a301c19f775a64187ed2f453",
     );
+    for (const vector of CURRENT_RUST_INTERFACE_FIXTURE.ciphertextHashes) {
+      const bytes = Uint8Array.from(
+        { length: vector.length },
+        (_, index) => index % 251,
+      );
+      expect(hex(ciphertextHash(bytes))).toBe(vector.hash);
+    }
   });
 
   it("validates fixed lengths and SEC1 prefixes without curve parsing", () => {
@@ -273,7 +280,7 @@ describe("merge utilities", () => {
     expect(() => ciphertextHash(new Uint8Array())).toThrow(
       expect.objectContaining({ code: "INTERFACE_HASH" }),
     );
-    expect(() => ciphertextHash(new Uint8Array(257))).toThrow(
+    expect(() => ciphertextHash(new Uint8Array(193))).toThrow(
       expect.objectContaining({ code: "INTERFACE_HASH" }),
     );
   });

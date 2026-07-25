@@ -128,6 +128,46 @@ mod tests {
     }
 
     #[test]
+    fn ciphertext_hash_chunk_boundaries_are_stable() {
+        for (length, expected) in [
+            (
+                1,
+                "2a09a9fd93c590c26b91effbb2499f07e8f7aa12e2b4940a3aed2411cb65e11c",
+            ),
+            (
+                15,
+                "2707075abaeed4475e86fc868690814e50dd764385db52b6373a3a6eeff9f0fb",
+            ),
+            (
+                16,
+                "230a4f2930567a68491a39fa84933b00991989bf68a5fd58b85d823d7169b7a7",
+            ),
+            (
+                17,
+                "1176d3feb89bdd89fdbe19aacd1e8e4ad8fae63dfce390829d7b15282a8960bb",
+            ),
+            (
+                191,
+                "0eee0edbf9501a52997fe7c8d27fb6038bea14814248db89b3da909f087dde89",
+            ),
+            (
+                192,
+                "124ffdcec1053549916312dbbc0229a7491737092e5a7d0da8be17c8376b340a",
+            ),
+        ] {
+            let ciphertext = (0..length)
+                .map(|index| (index % 251) as u8)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                ciphertext_hash(&ciphertext).unwrap().to_vec(),
+                hex_to_vec(expected)
+            );
+        }
+        assert!(ciphertext_hash(&[]).is_err());
+        assert!(ciphertext_hash(&vec![0; 193]).is_err());
+    }
+
+    #[test]
     fn pack33_low_high_split() {
         let pk = hex_to_33(TX_VIEWING_PK_HEX);
         let (lo, hi) = pack33(&pk);
