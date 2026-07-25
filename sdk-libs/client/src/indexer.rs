@@ -1090,6 +1090,49 @@ mod tests {
         assert!(!err.to_string().contains("wrong size"));
     }
 
+    /// A `tx_viewing_pk` of the wrong length is length-checked here rather than
+    /// by the API layer, so it converts through `fixed_bytes` into
+    /// `ClientError::Rpc` and `retry_cause` reports it as retryable. The
+    /// conversion runs inside the closure `poll_until` drives, so the whole
+    /// schedule is spent before the poll gives up. Counterpart to
+    /// `rejects_malformed_output_slot_hash`, where the API layer decodes the
+    /// field and the failure is fatal on the first attempt.
+    #[test]
+    fn a_malformed_viewing_key_is_retried_for_the_whole_schedule() {
+        let error = wait_for_indexer(
+            Some(IndexerRpcConfig {
+                wait_for_indexer: true,
+                poll: IndexerPollConfig::new(2, 0, 0),
+            }),
+            |response: &i64| *response,
+            || {
+                decode_optional_p256(Some(Base64String(vec![2u8; 32])), "transactions[0].tx_viewing_pk")
+                    .map(|_| 0i64)
+            },
+        )
+        .expect_err("a malformed viewing key must exhaust the schedule");
+
+        assert!(matches!(
+            error,
+            ClientError::PollTimedOut {
+                attempts: 3,
+                last_cause: Some(crate::error::RetryErrorCause::Rpc)
+            }
+        ));
+    }
+
+    #[test]
+    fn a_malformed_viewing_key_classifies_as_the_rpc_cause() {
+        let error = decode_optional_p256(Some(Base64String(vec![2u8; 32])), "tx_viewing_pk")
+            .expect_err("a 32-byte viewing key is not a compressed P256 point");
+
+        assert!(matches!(error, ClientError::Rpc(_)));
+        assert_eq!(
+            error.retry_cause(),
+            Some(crate::error::RetryErrorCause::Rpc)
+        );
+    }
+
     fn assert_json_rpc_request(body: &Value, method: &str) {
         assert_eq!(body["id"], "test-account");
         assert_eq!(body["jsonrpc"], "2.0");

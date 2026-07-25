@@ -63,6 +63,38 @@ describe("retry", () => {
       [new ClientError("CLIENT_RPC_HTTP", { details: { method: "getSlot", status: 503 } }), "rpc"],
       [new ClientError("CLIENT_RPC_JSON", { details: { method: "getSlot" } }), "rpc"],
       [new ClientError("CLIENT_RPC_ENVELOPE", { details: { method: "getSlot" } }), "rpc"],
+      // The six codes below also narrow Rust's `ClientError::Rpc`, so
+      // `ClientError::retry_cause` reports every one of them as
+      // `RetryErrorCause::Rpc`. `CLIENT_INVALID_RPC_RESPONSE` is the reachable
+      // one: `indexer.rs::fixed_bytes` produces `ClientError::Rpc` for the same
+      // malformed field that raises it here.
+      [
+        new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+          details: {
+            path: "transactions[0].tx_viewing_pk",
+            expected: 33,
+            actual: 32,
+          },
+        }),
+        "rpc",
+      ],
+      [
+        new ClientError("CLIENT_RPC_TRANSACTION_NOT_FOUND", { details: { signature: "sig" } }),
+        "rpc",
+      ],
+      [
+        new ClientError("CLIENT_RPC_PROGRAM_ERROR", {
+          details: {
+            method: "getTransaction",
+            instructionIndex: 0,
+            programError: { kind: "unknown", code: 7000 },
+          },
+        }),
+        "rpc",
+      ],
+      [new ClientError("CLIENT_RPC_TRANSACT_DECODE"), "rpc"],
+      [new ClientError("CLIENT_RPC_OWNER_TAG"), "rpc"],
+      [new ClientError("CLIENT_RPC_TRANSACT_NOT_FOUND"), "rpc"],
       [new ClientError("CLIENT_INDEXER_TIMEOUT"), "indexerTimeout"],
       [
         new ClientError("CLIENT_INDEXER", {
@@ -110,6 +142,37 @@ describe("retry", () => {
     }
     expect(retryCause(new Error("not a client error"))).toBeUndefined();
     expect(isRetryable(undefined)).toBe(false);
+  });
+
+  // Mirrors `indexer.rs::tests::a_malformed_viewing_key_is_retried_for_the_whole_schedule`,
+  // which spends all three attempts on the same rejection and reports the rpc
+  // cause. Before `CLIENT_INVALID_RPC_RESPONSE` was classified, this poll
+  // rethrew on the first attempt and the indexer response that Rust retried was
+  // fatal here.
+  it("spends the whole schedule on a malformed indexer field, as the Rust poll does", async () => {
+    let attemptCount = 0;
+    const rejection = new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+      details: {
+        path: "transactions[0].tx_viewing_pk",
+        expected: 33,
+        actual: 32,
+      },
+    });
+
+    await expect(
+      pollUntil(
+        () => {
+          attemptCount += 1;
+          return Promise.reject(rejection);
+        },
+        () => false,
+        { config: createIndexerPollConfig(2, 0n, 0n) },
+      ),
+    ).rejects.toMatchObject({
+      code: "CLIENT_POLL_TIMED_OUT",
+      details: { attempts: 3, lastCause: { category: "rpc" } },
+    });
+    expect(attemptCount).toBe(3);
   });
 
   it("records a last cause the Rust variant can hold", async () => {

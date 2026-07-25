@@ -139,12 +139,23 @@ function* pollSchedule(config: IndexerPollConfig): IterableIterator<bigint> {
 export function retryCause(error: unknown): RetryErrorCause | undefined {
   if (!isClientError(error)) return undefined;
   switch (error.code) {
-    // `CLIENT_RPC_HTTP`, `CLIENT_RPC_JSON`, and `CLIENT_RPC_ENVELOPE` are the
-    // codes `SolanaRpc` raises where Rust reports `ClientError::Rpc`.
+    // Every code below narrows Rust's `ClientError::Rpc`, which
+    // `ClientError::retry_cause` reports as `RetryErrorCause::Rpc`. Leaving one
+    // out makes the TypeScript poll give up where the Rust poll spends its
+    // schedule: `indexer.rs::fixed_bytes` turns a wrong-length `tx_viewing_pk`
+    // or `salt` into `ClientError::Rpc` inside the polled closure, and
+    // `indexer.ts::decodeP256` raises `CLIENT_INVALID_RPC_RESPONSE` for the same
+    // response.
     case "CLIENT_RPC":
     case "CLIENT_RPC_HTTP":
     case "CLIENT_RPC_JSON":
     case "CLIENT_RPC_ENVELOPE":
+    case "CLIENT_RPC_PROGRAM_ERROR":
+    case "CLIENT_RPC_TRANSACTION_NOT_FOUND":
+    case "CLIENT_RPC_TRANSACT_DECODE":
+    case "CLIENT_RPC_OWNER_TAG":
+    case "CLIENT_RPC_TRANSACT_NOT_FOUND":
+    case "CLIENT_INVALID_RPC_RESPONSE":
       return RPC_CAUSE;
     case "CLIENT_INDEXER_TIMEOUT":
       return INDEXER_TIMEOUT_CAUSE;

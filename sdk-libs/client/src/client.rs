@@ -1224,6 +1224,138 @@ mod tests {
         );
     }
 
+    /// The merge counterpart of `legacy_message_account_order_oracle`. The
+    /// instruction list mirrors `sdk-libs/wallet/src/actions/submit.rs`, whose
+    /// `create_and_send_transaction` compiles through the same `Message::new`.
+    /// The merge account set is what actually discriminates the two orderings:
+    /// its writable non-signers are the tree and the user record, which are not
+    /// in first-appearance order once `CompiledKeys` sorts them.
+    /// Regenerate with `ZOLANA_WRITE_ORACLES=1`.
+    #[test]
+    fn merge_message_account_order_oracle() {
+        use zolana_interface::instruction::{MergeTransact, MergeZone};
+
+        const ORACLE: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../ts/client/test/oracles/merge-message-order-v1.json",
+        );
+        /// `MERGE_CU_LIMIT` in `sdk-libs/wallet/src/actions/submit.rs`.
+        const MERGE_CU_LIMIT: u32 = 1_400_000;
+
+        // The same addresses `sdk-libs/ts/client/test/merge.test.ts` uses, so
+        // the two sides order an identical account set.
+        let tree = Pubkey::from_str_const("4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm");
+        let payer = Pubkey::from_str_const("4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4");
+        let user_record = Pubkey::new_from_array([17u8; 32]);
+        let blockhash = Hash::new_from_array([53u8; 32]);
+
+        let zone_program = Pubkey::new_from_array([3u8; 32]);
+        let merge_ix = MergeTransact {
+            tree,
+            payer,
+            user_record,
+            data: oracle_merge_data(),
+        }
+        .instruction();
+        let zone_ix = MergeZone {
+            tree,
+            zone_program_id: zone_program,
+            payer,
+            data: oracle_merge_data(),
+            merge_view_tag: [7u8; 32],
+        }
+        .instruction();
+
+        let compile = |instruction: Instruction| {
+            let instructions = [
+                solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+                    MERGE_CU_LIMIT,
+                ),
+                instruction,
+            ];
+            let mut message = Message::new(&instructions, Some(&payer));
+            message.recent_blockhash = blockhash;
+            json!({
+                "numRequiredSignatures": message.header.num_required_signatures,
+                "numReadonlySignedAccounts": message.header.num_readonly_signed_accounts,
+                "numReadonlyUnsignedAccounts": message.header.num_readonly_unsigned_accounts,
+                "accountKeys": message
+                    .account_keys
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                "instructions": message
+                    .instructions
+                    .iter()
+                    .map(|instruction| json!({
+                        "programIdIndex": instruction.program_id_index,
+                        "accounts": instruction.accounts,
+                    }))
+                    .collect::<Vec<_>>(),
+            })
+        };
+
+        let oracle = json!({
+            "source": "solana_message::Message::new over sdk-libs/wallet/src/actions/submit.rs's instruction list",
+            "generator": "cargo test -p zolana-client --lib --features client client::tests::merge_message_account_order_oracle",
+            "note": "Account keys and compiled indexes only; the instruction data bytes belong to the interface rows.",
+            "input": {
+                "tree": tree.to_string(),
+                "payer": payer.to_string(),
+                "userRecord": user_record.to_string(),
+                "zoneProgram": zone_program.to_string(),
+                "zoneAuthority": zolana_interface::pda::zone_auth(&zone_program).0.to_string(),
+                "recentBlockhash": blockhash.to_string(),
+                "computeUnitLimit": MERGE_CU_LIMIT,
+            },
+            "expected": compile(merge_ix),
+            "expectedZone": compile(zone_ix),
+        });
+        let rendered = format!("{}\n", serde_json::to_string_pretty(&oracle).unwrap());
+
+        if std::env::var_os("ZOLANA_WRITE_ORACLES").is_some() {
+            std::fs::create_dir_all(std::path::Path::new(ORACLE).parent().unwrap())
+                .expect("create oracle directory");
+            std::fs::write(ORACLE, &rendered).expect("write oracle");
+            return;
+        }
+        let committed = std::fs::read_to_string(ORACLE).expect("committed oracle");
+        assert_eq!(
+            committed, rendered,
+            "merge-message oracle is stale; regenerate with ZOLANA_WRITE_ORACLES=1"
+        );
+    }
+
+    /// Minimal shape-valid merge data for the ordering oracle. Only its length
+    /// reaches the compiled message, never the account order.
+    fn oracle_merge_data() -> zolana_interface::instruction::MergeTransactIxData {
+        use zolana_interface::instruction::{
+            instruction_data::transact::P256Proof, MergeTransactIxData,
+        };
+
+        MergeTransactIxData {
+            expiry_unix_ts: 42,
+            proof: P256Proof {
+                a: [0u8; 32],
+                b: [0u8; 64],
+                c: [0u8; 32],
+                commitment: [0u8; 32],
+                commitment_pok: [0u8; 32],
+            },
+            output_utxo_hash: [9u8; 32],
+            nullifiers: (0..8u8).map(|index| [index; 32]).collect(),
+            utxo_tree_root_index: (0..8u16).collect(),
+            nullifier_tree_root_index: (10..18u16).collect(),
+            private_tx_hash: [3u8; 32],
+            encrypted_utxo: {
+                let mut blob = vec![0u8; 110];
+                blob[0] = 2;
+                blob
+            },
+            eddsa_owner: false,
+        }
+    }
+
     /// Minimal well-formed `transact` data for the ordering oracle. Only its
     /// length reaches the compiled message, never the account order.
     fn oracle_transact_data(

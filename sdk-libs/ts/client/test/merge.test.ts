@@ -26,6 +26,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import mergeFixture from "../../fixtures/transaction/merge-v1.json" with { type: "json" };
 import proofFixture from "../../fixtures/client/proof-validity-v1.json" with { type: "json" };
+import messageOrderOracle from "./oracles/merge-message-order-v1.json" with { type: "json" };
 import { ClientError, type Rpc, ZolanaClient, ZolanaIndexer } from "../src/index.js";
 import { addressBytes, decodeBase58, encodeBase58, sha256Bytes } from "../src/internal.js";
 import { ProverClient } from "../src/prover/index.js";
@@ -450,54 +451,66 @@ function fixedInstructionData(): MergeTransactInstructionData {
   };
 }
 
-function legacyMessage(merge: Instruction): Uint8Array {
-  const accounts = [PAYER, TREE, COMPUTE_BUDGET, USER_RECORD, SHIELDED_POOL_PROGRAM_ID];
+/// Both expectations below take their account order and compiled indexes from
+/// `merge-message-order-v1.json`, which `solana_message::Message::new` produced
+/// in `sdk-libs/client/src/client.rs::merge_message_account_order_oracle` over
+/// the instruction list `sdk-libs/wallet/src/actions/submit.rs` sends. They were
+/// hand-written in first-appearance order before, which is not how `CompiledKeys`
+/// orders a class holding more than one account.
+type MessageOracle = Readonly<{
+  numRequiredSignatures: number;
+  numReadonlySignedAccounts: number;
+  numReadonlyUnsignedAccounts: number;
+  accountKeys: readonly string[];
+  instructions: readonly Readonly<{ programIdIndex: number; accounts: readonly number[] }>[];
+}>;
+
+function oracleMessage(oracle: MessageOracle, merge: Instruction): Uint8Array {
   const computeData = Uint8Array.of(2, 0xc0, 0x5c, 0x15, 0);
+  const [compute, mergeCompiled] = oracle.instructions;
+  if (compute === undefined || mergeCompiled === undefined) {
+    throw new Error("oracle must compile both instructions");
+  }
+  expect(mergeCompiled.accounts).toHaveLength(merge.accounts.length);
+
   return concat(
-    Uint8Array.of(1, 0, 3),
-    compact(accounts.length),
-    ...accounts.map(addressBytes),
+    Uint8Array.of(
+      oracle.numRequiredSignatures,
+      oracle.numReadonlySignedAccounts,
+      oracle.numReadonlyUnsignedAccounts,
+    ),
+    compact(oracle.accountKeys.length),
+    ...oracle.accountKeys.map((key) => addressBytes(key as Address)),
     decodeBase58(BLOCKHASH, 32, "blockhash"),
     compact(2),
-    Uint8Array.of(2),
+    Uint8Array.of(compute.programIdIndex),
     compact(0),
     compact(computeData.length),
     computeData,
-    Uint8Array.of(4),
-    compact(merge.accounts.length),
-    Uint8Array.of(1, 0, 3, 4),
+    Uint8Array.of(mergeCompiled.programIdIndex),
+    compact(mergeCompiled.accounts.length),
+    Uint8Array.from(mergeCompiled.accounts),
     compact(merge.data.length),
     merge.data,
   );
 }
 
+function legacyMessage(merge: Instruction): Uint8Array {
+  expect(messageOrderOracle.input).toMatchObject({
+    payer: PAYER,
+    tree: TREE,
+    userRecord: USER_RECORD,
+    recentBlockhash: BLOCKHASH,
+  });
+  return oracleMessage(messageOrderOracle.expected, merge);
+}
+
 function legacyZoneMessage(merge: Instruction): Uint8Array {
-  const zoneAuthority = zoneAuthAddress(ZONE_PROGRAM)[0];
-  const accounts = [
-    PAYER,
-    TREE,
-    COMPUTE_BUDGET,
-    zoneAuthority,
-    SHIELDED_POOL_PROGRAM_ID,
-    ZONE_PROGRAM,
-  ];
-  const computeData = Uint8Array.of(2, 0xc0, 0x5c, 0x15, 0);
-  return concat(
-    Uint8Array.of(1, 0, 4),
-    compact(accounts.length),
-    ...accounts.map(addressBytes),
-    decodeBase58(BLOCKHASH, 32, "blockhash"),
-    compact(2),
-    Uint8Array.of(2),
-    compact(0),
-    compact(computeData.length),
-    computeData,
-    Uint8Array.of(5),
-    compact(merge.accounts.length),
-    Uint8Array.of(1, 3, 0, 4),
-    compact(merge.data.length),
-    merge.data,
-  );
+  expect(messageOrderOracle.input).toMatchObject({
+    zoneProgram: ZONE_PROGRAM,
+    zoneAuthority: zoneAuthAddress(ZONE_PROGRAM)[0],
+  });
+  return oracleMessage(messageOrderOracle.expectedZone, merge);
 }
 
 function compact(value: number): Uint8Array {
