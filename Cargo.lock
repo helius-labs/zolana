@@ -6210,6 +6210,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "solana-account 2.2.1",
+ "solana-account 3.4.0",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",
  "solana-instruction 2.3.3",
@@ -6233,6 +6234,7 @@ dependencies = [
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
+ "zolana-user-registry-interface",
  "zolana-wallet",
 ]
 
@@ -11285,6 +11287,7 @@ dependencies = [
  "base64 0.22.1",
  "bincode 1.3.3",
  "bs58",
+ "bytemuck",
  "groth16-solana",
  "light-poseidon 0.4.0",
  "serde_json",

@@ -1,0 +1,1606 @@
+{
+  "accounts": {
+    "0": "11111111111111111111111111111111",
+    "1": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+    "10": "gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5",
+    "11": "k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn",
+    "12": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV",
+    "13": "swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC",
+    "14": "ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu",
+    "15": "21nS9Wz9sUTQ6MkcYUtnN8aSfPA26xJJP7zqshfzCzqc",
+    "16": "25hjHpTATmkdET17ynDhf1MCuYNDn1z7wXfVw5iaxLAK",
+    "17": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+    "18": "2DYKaRPBeNM5WdW8rNsYEktjPrnd89Mm4Lzp3qonSzoj",
+    "19": "2HTciirCEfeJeikeHgCTXdfVe1zpoD3ackfU7DrPCL8S",
+    "2": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+    "20": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+    "21": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+    "22": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+    "23": "2Z8oHviEbrqDD5kg2sW8h8kYceqdVTnrrPL6Lk2nBfRG",
+    "24": "2d46SEBFCA8SMB1BUAq3z1XJrp3qAXUgQnzkQ85Nvzjy",
+    "25": "2gyPaXeFnTRfVGFguU9yGtJ56yG2qbAVyCfQTW7ygL4g",
+    "26": "2ktgiq7GNkitdMWCLmUtZm4qM8UEWerKXcL4WtAaRfPP",
+    "27": "2poys8aGy427mSkhn4oordqbbHgSBiY961ziaGDBAzi6",
+    "28": "2tjH1S3HZMKLuY1DDN8j9WcMqStdrnDxeRfNdeFmvL2o",
+    "29": "2xea9jWJ9eca3dFiefTeSPP85c6qXqunCqL2h2JNffMW",
+    "3": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+    "30": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+    "31": "36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv",
+    "32": "3AQTaduKvYWFTu1ExZSQK1hQp5jSZ2yEt4KzsASAufKd",
+    "33": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
+    "34": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "35": "3NAM1YJMhSPvtAkmGTRABe1hYZN3aE2hZHKy3JZy9fHk",
+    "36": "3S5e9qmNHjhA2G1Ghkk5UWnTniaFFHiX7gzd6gcZtzcT",
+    "37": "3VzwJ9ENt2zPAMFn944zmPZE2snSvMQLg6fHA4fAeKwA",
+    "38": "3ZvESShPULHcJSWHaMPv4GKzH2zebR6AEWKwDShmPfFs",
+    "39": "3dqXakAQ4daqSXko1eiqM96kXCCrGUmynuzbGpkN8zaa",
+    "4": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+    "40": "3hkpj3dQevt4ad1JSx3ke1sWmMR3wYToMKfFLCnxtKuH",
+    "41": "3mg7sM6RFEBHiiFotFNfvteH1WdFcc9cujKuPaqZdfDz",
+    "42": "3qbR1eZRqXUWroWKKYhbDmR3FfqTHfqSU8zZSxtANzYh",
+    "43": "3uWi9x2SRpmjztkpkr2WWeBoVq3exjXG2YfDWLvm8KsQ",
+    "44": "3yS1JFVT284y8z1LC9MRoWxZjzFrdoD5axKsZiyMsfC7",
+    "45": "43MJSYxTcRNCH5FqdSgM6PjKz9U4Jrtu9MzXd71xczWp",
+    "46": "47GbarRUCifRRAWM4k1GPGW6EJgFyvaihmfBgV4ZNKqX",
+    "47": "4BBtj9tUo1xeZFkrW3LBg9GrUTtTezGYGBKqjs7A7fAE",
+    "48": "4F7BsTMVPKFshM1MwLf6y23cid6fL3xMpazVoF9krzUw",
+    "49": "4K2V1kpVycZ6qSFsNdz2FtpNxnJs17eBNzf9rdCMcKoe",
+    "5": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+    "50": "4NwnA4HWZurKyXWNowJwYmb9CwX4gBKzwQKov1ExMf8M",
+    "51": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+    "52": "4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm",
+    "53": "4ahfaxgYLok1PoFu7qHhRPuRwR9fhNPTcdKn69Nkbf6U",
+    "54": "4ecxjG9Yw73EXtWQZ8cciGgCBaMsNS5HB2zS9XRMLzRB",
+    "55": "4iYFsZcZXQLTfykuzRwY19SxRja53Vm6jSf6CuTx6Kjt",
+    "56": "4nTZ1s5a7hdgp51RRjGTJ2DiftnGiZSvHrKkGHWYqf4b",
+    "57": "4rNrAAYahzvuxAFvs2bNatzUv3zUPd8jrFzQKfZ9azPJ",
+    "58": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi1",
+    "59": "4zDSSmUbtbXNELkwjdFDAeY1QNQsjkWNy5KiSReM5f2i",
+    "6": "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF",
+    "60": "548jb4wcUtpbNS1TAva8TXJmeXd5QpCCXUzNVogwpzMR",
+    "61": "5842jNQd5C7pWXFxcDu3kQ5XtgqH5st25tf2ZBjYaKg8",
+    "62": "5ByKsfsdfVR3ecWU3XDy3GrJ8r3UkwZqeJKgcZn9Kezq",
+    "63": "5Ftd1yLeFniGnhkyUpYtL9d4P1FgS1FfChzLfwpk4zKY",
+    "7": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "8": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+    "9": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
+  },
+  "builders": {
+    "batchUpdateNullifierTree": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "332b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd032b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd0505022d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f7ff052d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f9ff070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe72f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f90107",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "createAssetCounter": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "77YYUwfwXB5BS7bEWpj4aNGkiqz6H6PE2mz7BUVLdwPn",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "10",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "createAssociatedTokenAccount": {
+      "accounts": [
+        {
+          "address": "3NAM1YJMhSPvtAkmGTRABe1hYZN3aE2hZHKy3JZy9fHk",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "9SBAq6YVfq1ECthq7yBBLdGDoWnhwgDd7kSJ7eZREFDc",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "01",
+      "programAddress": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+    },
+    "createProtocolConfig": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "060b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c010d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0001",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "createSplInterface": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "77YYUwfwXB5BS7bEWpj4aNGkiqz6H6PE2mz7BUVLdwPn",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "ASEKuvSPK66P4mgkkZ1WkG5Z3jA1WFgrj7p6saEhFQVS",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "67mW5mLvYpxXmvcXHGdebLj1Z9VbTYdBt76uzSjqmiBB",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "04",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "createTree": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "data": "052424242424242424242424242424242424242424242424242424242424242424",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "createTreeWithNullifierParams": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "data": "052424242424242424242424242424242424242424242424242424242424242424000000000000000000003075000000000000fa000000000000007800000000000028000000",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "createZoneConfig": {
+      "accounts": [
+        {
+          "address": "3NAM1YJMhSPvtAkmGTRABe1hYZN3aE2hZHKy3JZy9fHk",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0903030303030303030303030303030303030303030303030303030303030303030f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f01",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "depositSol": {
+      "accounts": [
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0101090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3db030911171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5db050b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7cb04fb711f01000001030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dd05000908070605010300010203",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "depositSpl": {
+      "accounts": [
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2Z8oHviEbrqDD5kg2sW8h8kYceqdVTnrrPL6Lk2nBfRG",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2d46SEBFCA8SMB1BUAq3z1XJrp3qAXUgQnzkQ85Nvzjy",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0101090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3db030911171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5db050b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7cb04fb711f01000001030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dd05000908070605010300010203",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "mergeTransact": {
+      "accounts": [
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "3VzwJ9ENt2zPAMFn944zmPZE2snSvMQLg6fHA4fAeKwA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0cffffffffffffffff191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf11921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f901070f151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd31b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf31b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf51d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff51d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7081f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f71f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f921292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f7ff080000010002000300040005000600ffff08ffff0600050004000300020001000000292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb016e00020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d01",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "mergeZone": {
+      "accounts": [
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0d2931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb03ffffffffffffffff191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf11921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f901070f151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd31b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf31b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf51d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff51d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7081f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f71f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f921292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f7ff080000010002000300040005000600ffff08ffff0600050004000300020001000000292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb016e00020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d01",
+      "programAddress": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+    },
+    "mergeZoneCpi": {
+      "accounts": [
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0d2931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb03ffffffffffffffff191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf11921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f901070f151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd31b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf31b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf51d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff51d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7081f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f71f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f921292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f7ff080000010002000300040005000600ffff08ffff0600050004000300020001000000292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb016e00020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d01",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "pauseTree": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "data": "0801",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "transactNoWithdrawal": {
+      "accounts": [
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0000f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "transactSolWithdrawal": {
+      "accounts": [
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0000f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "transactSplWithdrawal": {
+      "accounts": [
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "6zQNhLqFHhWaP8JNYeHzQ9a1DfBH627gzibFv1ZaaM8E",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "3AQTaduKvYWFTu1ExZSQK1hQp5jSZ2yEt4KzsASAufKd",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0000f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "transactSplWithdrawalNoCpiAuthority": {
+      "accounts": [
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3AQTaduKvYWFTu1ExZSQK1hQp5jSZ2yEt4KzsASAufKd",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0000f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "updateForesterAuthority": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "data": "07020d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "updateProtocolAuthority": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn",
+          "isSigner": true,
+          "isWritable": false
+        }
+      ],
+      "data": "07000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "updateSplInterfaceCreationPermissionless": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "data": "070601",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "updateTreeCreationAuthority": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "data": "07010c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "updateTreeCreationPermissionless": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "data": "070401",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "updateZoneConfig": {
+      "accounts": [
+        {
+          "address": "21nS9Wz9sUTQ6MkcYUtnN8aSfPA26xJJP7zqshfzCzqc",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "3ZvESShPULHcJSWHaMPv4GKzH2zebR6AEWKwDShmPfFs",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "data": "0b00",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "updateZoneConfigOwner": {
+      "accounts": [
+        {
+          "address": "21nS9Wz9sUTQ6MkcYUtnN8aSfPA26xJJP7zqshfzCzqc",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "3ZvESShPULHcJSWHaMPv4GKzH2zebR6AEWKwDShmPfFs",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3dqXakAQ4daqSXko1eiqM96kXCCrGUmynuzbGpkN8zaa",
+          "isSigner": true,
+          "isWritable": false
+        }
+      ],
+      "data": "0a2727272727272727272727272727272727272727272727272727272727272727",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "updateZoneCreationAuthority": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "data": "07030e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "updateZoneCreationPermissionless": {
+      "accounts": [
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "data": "070500",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "zoneAuthorityTransactSpl": {
+      "accounts": [
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "6zQNhLqFHhWaP8JNYeHzQ9a1DfBH627gzibFv1ZaaM8E",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "3AQTaduKvYWFTu1ExZSQK1hQp5jSZ2yEt4KzsASAufKd",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0300f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+      "programAddress": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+    },
+    "zoneAuthorityTransactSplCpi": {
+      "accounts": [
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "6zQNhLqFHhWaP8JNYeHzQ9a1DfBH627gzibFv1ZaaM8E",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "3AQTaduKvYWFTu1ExZSQK1hQp5jSZ2yEt4KzsASAufKd",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0300f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "zoneDepositSol": {
+      "accounts": [
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0f01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3db030911171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5db050b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd72a00000000000000050d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7df04000404040401030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dd0500090807060500",
+      "programAddress": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+    },
+    "zoneDepositSolCpi": {
+      "accounts": [
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0f01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3db030911171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5db050b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd72a00000000000000050d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7df04000404040401030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dd0500090807060500",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "zoneDepositSpl": {
+      "accounts": [
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2Z8oHviEbrqDD5kg2sW8h8kYceqdVTnrrPL6Lk2nBfRG",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2d46SEBFCA8SMB1BUAq3z1XJrp3qAXUgQnzkQ85Nvzjy",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0f01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3db030911171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5db050b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd72a00000000000000050d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7df04000404040401030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dd0500090807060500",
+      "programAddress": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+    },
+    "zoneDepositSplCpi": {
+      "accounts": [
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2Z8oHviEbrqDD5kg2sW8h8kYceqdVTnrrPL6Lk2nBfRG",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2d46SEBFCA8SMB1BUAq3z1XJrp3qAXUgQnzkQ85Nvzjy",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0f01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3db030911171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5db050b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd72a00000000000000050d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7df04000404040401030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dd0500090807060500",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "zoneTransactSol": {
+      "accounts": [
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0200f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+      "programAddress": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+    },
+    "zoneTransactSolCpi": {
+      "accounts": [
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0200f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    },
+    "zoneTransactSpl": {
+      "accounts": [
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "6zQNhLqFHhWaP8JNYeHzQ9a1DfBH627gzibFv1ZaaM8E",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "3AQTaduKvYWFTu1ExZSQK1hQp5jSZ2yEt4KzsASAufKd",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0200f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+      "programAddress": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+    },
+    "zoneTransactSplCpi": {
+      "accounts": [
+        {
+          "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "isSigner": true,
+          "isWritable": true
+        },
+        {
+          "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "address": "6zQNhLqFHhWaP8JNYeHzQ9a1DfBH627gzibFv1ZaaM8E",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "3AQTaduKvYWFTu1ExZSQK1hQp5jSZ2yEt4KzsASAufKd",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "isSigner": false,
+          "isWritable": false
+        }
+      ],
+      "data": "0200f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+      "programAddress": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    }
+  },
+  "constants": {
+    "associatedTokenProgramId": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+    "defaultTreeAddress": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8",
+    "mergeEncryptedUtxoLength": 110,
+    "mergeEncryptedUtxoTypePrefix": 2,
+    "mergeInputCount": 8,
+    "p256ProofLength": 192,
+    "shieldedPoolCpiAuthority": "6zQNhLqFHhWaP8JNYeHzQ9a1DfBH627gzibFv1ZaaM8E",
+    "shieldedPoolProgramId": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+    "solInterface": "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+    "splTokenProgramId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "utxoDomain": 1
+  },
+  "errors": {
+    "BothPublicAmountsSet": {
+      "code": 7023,
+      "message": "transact sets both public_sol_amount and public_spl_amount; at most one is allowed"
+    },
+    "ExpiredTransaction": {
+      "code": 7005,
+      "message": "transaction has expired"
+    },
+    "InvalidInstructionData": {
+      "code": 7000,
+      "message": "invalid instruction data"
+    },
+    "InvalidMergeOutputScheme": {
+      "code": 7020,
+      "message": "merge output ciphertext must be verifiably encrypted"
+    },
+    "InvalidMergeShape": {
+      "code": 7019,
+      "message": "merge_transact instruction shape is invalid"
+    },
+    "InvalidPda": {
+      "code": 7016,
+      "message": "account address does not match its canonical PDA derivation"
+    },
+    "InvalidProtocolConfig": {
+      "code": 7012,
+      "message": "protocol config account is invalid"
+    },
+    "InvalidSettlementAccounts": {
+      "code": 7009,
+      "message": "transact settlement accounts are invalid"
+    },
+    "InvalidSplAssetRegistry": {
+      "code": 7011,
+      "message": "SPL asset registry account is invalid"
+    },
+    "InvalidTransactProofEncoding": {
+      "code": 7007,
+      "message": "transact proof encoding is invalid"
+    },
+    "InvalidTransactShape": {
+      "code": 7006,
+      "message": "transact instruction shape is invalid"
+    },
+    "InvalidTreeAccounts": {
+      "code": 7001,
+      "message": "pool tree accounts are invalid"
+    },
+    "InvalidUserRecord": {
+      "code": 7018,
+      "message": "user record account is invalid"
+    },
+    "InvalidZoneConfig": {
+      "code": 7014,
+      "message": "zone config account is invalid"
+    },
+    "MergeDisabled": {
+      "code": 7017,
+      "message": "merging is not enabled for this user"
+    },
+    "MismatchedTransactProofRail": {
+      "code": 7021,
+      "message": "transact proof rail does not match the instruction inputs"
+    },
+    "MissingP256SigningKey": {
+      "code": 7024,
+      "message": "output owner tag references the p256 signing key but p256_signing_pk_x is absent"
+    },
+    "NullifierTreeUpdateFailed": {
+      "code": 7002,
+      "message": "nullifier tree maintenance failed"
+    },
+    "OwnerTagAccountMissing": {
+      "code": 7025,
+      "message": "output owner tag account index is out of range"
+    },
+    "PublicSettlementFailed": {
+      "code": 7010,
+      "message": "transact public settlement failed"
+    },
+    "StaleNullifierRoot": {
+      "code": 7015,
+      "message": "nullifier root index references a zeroed (stale) root-history slot"
+    },
+    "StateAppendFailed": {
+      "code": 7004,
+      "message": "state sub-tree append failed"
+    },
+    "TransactProofVerificationFailed": {
+      "code": 7008,
+      "message": "transact proof verification failed"
+    },
+    "TreePaused": {
+      "code": 7013,
+      "message": "pool tree is paused"
+    },
+    "UnauthorizedCaller": {
+      "code": 7003,
+      "message": "caller is not authorized"
+    },
+    "ZoneAuthorityTransactDisabled": {
+      "code": 7022,
+      "message": "zone_authority_transact is disabled for this zone"
+    }
+  },
+  "externalDataHashes": {
+    "full": "00a53c7231e5baf123e0b4824180f4aae349e9005378e8034ddbd1de0cbc4fbe",
+    "inputs": {
+      "dataHash": "373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb030911",
+      "mergeEncryptedUtxo": "020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d",
+      "mergeExpiryUnixTs": "18446744073709551615",
+      "mergeOutputUtxoHash": "1d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7",
+      "messageData": "090909090909090909090909",
+      "messageViewTag": "373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f",
+      "outputData": "01020304",
+      "outputUtxoHashA": "333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd050b",
+      "outputUtxoHashB": "333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f7ff050d",
+      "ownerTagA": "353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f9ff070d",
+      "ownerTagB": "353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f901070f",
+      "splTokenInterface": "5ByKsfsdfVR3ecWU3XDy3GrJ8r3UkwZqeJKgcZn9Kezq",
+      "userSolAccount": "548jb4wcUtpbNS1TAva8TXJmeXd5QpCCXUzNVogwpzMR",
+      "userSplTokenAccount": "5842jNQd5C7pWXFxcDu3kQ5XtgqH5st25tf2ZBjYaKg8"
+    },
+    "mergeTransact": "009f6d7a7c53ae65b1f0576f9bddacc40336e84ce18208781533fcb0efd8e939",
+    "mergeZone": "0097a012523e9816b059b9d370e93d338a386f57565b91eeb8f4dd08dfc8cfd1",
+    "minimal": "002cde824c04fbf014a29a1dd8abf06065026667d7d8c2073ee6fc4e803d8a1b",
+    "outputWithEmptyData": "00b20420f2a848fb805ea0326918e5aebdf6436680324e9ab1c55591f1bdb59d",
+    "outputWithNoData": "008b809fa0775de8b4bc64b9257e5170f319747c9bfdcc31da7a14507037d030"
+  },
+  "fetchTag": {
+    "account1": "4951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f9ff070d151b23",
+    "accountOutOfRangeRejects": true,
+    "accounts": [
+      "494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f7ff050d131b21",
+      "4951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f9ff070d151b23"
+    ],
+    "inline": "474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f",
+    "inlineValue": "474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f",
+    "missingP256Rejects": true,
+    "p256": "474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd050b131921",
+    "p256SigningKey": "474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd050b131921"
+  },
+  "instructionData": {
+    "deposit": "01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3db030911171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5db050b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7cb04fb711f01000001030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dd05000908070605010300010203",
+    "mergeTransact": "ffffffffffffffff191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf11921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f901070f151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd31b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf31b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf51d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff51d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7081f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f71f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f921292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f7ff080000010002000300040005000600ffff08ffff0600050004000300020001000000292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb016e00020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d01",
+    "mergeZone": "2931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb03ffffffffffffffff191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf11921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f901070f151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd31b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf31b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf51d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff51d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7081f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f71f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f921292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f7ff080000010002000300040005000600ffff08ffff0600050004000300020001000000292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb016e00020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d01",
+    "mergeZoneViewTag": "2931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb03",
+    "transactEddsa": "00f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df00020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73000b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+    "transactP256": "00f15365000000009210070d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9df01070f151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1020f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90b11191f272d353b434951575f656d73010b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde50d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc50d151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe70f151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e70f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e90211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e903000900010011191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebffff0000ff0201f7ffffffffffffff0001131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5eb0003131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5ed00151b232931373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7ed01070001020304050607151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef010400171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9ef0201000001171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1280007070707070707070707070707070707070707070707070707070707070707070707070707070707",
+    "zoneDeposit": "01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3db030911171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5db050b131921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd72a00000000000000050d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7df04000404040401030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dd0500090807060500"
+  },
+  "mergeUtils": {
+    "ciphertextHashRejects": {
+      "empty": true,
+      "over192": true
+    },
+    "ciphertextHashes": [
+      {
+        "hash": "2a09a9fd93c590c26b91effbb2499f07e8f7aa12e2b4940a3aed2411cb65e11c",
+        "length": 1
+      },
+      {
+        "hash": "2707075abaeed4475e86fc868690814e50dd764385db52b6373a3a6eeff9f0fb",
+        "length": 15
+      },
+      {
+        "hash": "230a4f2930567a68491a39fa84933b00991989bf68a5fd58b85d823d7169b7a7",
+        "length": 16
+      },
+      {
+        "hash": "1176d3feb89bdd89fdbe19aacd1e8e4ad8fae63dfce390829d7b15282a8960bb",
+        "length": 17
+      },
+      {
+        "hash": "272886d7109bf2bec0f46a1ccf44cce3de2c193ce36a96fa879e729d59d5106d",
+        "length": 31
+      },
+      {
+        "hash": "274db990fc4ebc45e2bdffdce5406f30c79854d2208b9b1600128486b60ec73e",
+        "length": 32
+      },
+      {
+        "hash": "1891a2722fb73ac7d784fa4500a7d703b8606ede5744ed65eb9303098f6f5aa6",
+        "length": 33
+      },
+      {
+        "hash": "20607164fcfdb57a9acf0e7d509cf59ea9d92fea5653949c6773bcd7bed4d372",
+        "length": 110
+      },
+      {
+        "hash": "0eee0edbf9501a52997fe7c8d27fb6038bea14814248db89b3da909f087dde89",
+        "length": 191
+      },
+      {
+        "hash": "124ffdcec1053549916312dbbc0229a7491737092e5a7d0da8be17c8376b340a",
+        "length": 192
+      }
+    ],
+    "compressedKeyEven": "0211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9",
+    "compressedKeyOdd": "0311171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9",
+    "ownerPkFieldEven": "1292cceae9de6d249117ffb4c4aa00cee8564a6d8a686eb343124dc48a1d9050",
+    "ownerPkFieldOdd": "1292cceae9de6d249117ffb4c4aa00cee8564a6d8a686eb343124dc48a1d9050",
+    "pack33High": "000000000000000000000000000000000000000000000000000000000000e3e9",
+    "pack33Low": "000211171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5db",
+    "pkFieldEven": "153fe52e9f51956aef9b248a4cbc4f4c41de303b93c0e04bc38cf33dd794da15",
+    "pkFieldOdd": "1de12703bcf1fff9cd741a4dc370d5a6af6414d165c98668b4fae134604cdda9",
+    "rejectedPrefixes": [
+      0,
+      1,
+      4,
+      255
+    ]
+  },
+  "note": "Generated by `cargo run -p xtask --bin ts-interface-oracle -- --write`. Every value is produced by calling zolana-interface, never transcribed by hand.",
+  "pdas": {
+    "associatedToken": "9SBAq6YVfq1ECthq7yBBLdGDoWnhwgDd7kSJ7eZREFDc",
+    "cpiAuthority": "6zQNhLqFHhWaP8JNYeHzQ9a1DfBH627gzibFv1ZaaM8E",
+    "mint": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+    "owner": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+    "protocolConfig": "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj",
+    "solInterface": "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+    "splAssetCounter": "77YYUwfwXB5BS7bEWpj4aNGkiqz6H6PE2mz7BUVLdwPn",
+    "splAssetRegistry": "ASEKuvSPK66P4mgkkZ1WkG5Z3jA1WFgrj7p6saEhFQVS",
+    "splAssetVault": "67mW5mLvYpxXmvcXHGdebLj1Z9VbTYdBt76uzSjqmiBB",
+    "zoneAuth": {
+      "address": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+      "bump": 253
+    },
+    "zoneConfig": {
+      "address": "54Qs55TY9AqbHgHzC3baEBEvGvV2U6zBUPpraa9Qwpt5",
+      "bump": 255
+    },
+    "zoneProgram": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+  },
+  "shapes": [
+    {
+      "inputs": 1,
+      "outputs": 1
+    },
+    {
+      "inputs": 1,
+      "outputs": 2
+    },
+    {
+      "inputs": 2,
+      "outputs": 2
+    },
+    {
+      "inputs": 2,
+      "outputs": 3
+    },
+    {
+      "inputs": 3,
+      "outputs": 3
+    },
+    {
+      "inputs": 4,
+      "outputs": 3
+    },
+    {
+      "inputs": 4,
+      "outputs": 4
+    },
+    {
+      "inputs": 5,
+      "outputs": 3
+    },
+    {
+      "inputs": 5,
+      "outputs": 4
+    },
+    {
+      "inputs": 1,
+      "outputs": 8
+    }
+  ],
+  "state": {
+    "discriminators": {
+      "protocolConfig": 3,
+      "splAssetCounter": 6,
+      "splAssetRegistry": 5,
+      "treeAccount": 1,
+      "zoneConfig": 4
+    },
+    "firstAssetId": "2",
+    "sizes": {
+      "protocolConfig": 132,
+      "splAssetCounter": 16,
+      "splAssetRegistry": 48,
+      "zoneConfig": 67
+    },
+    "tree": {
+      "accountSize": 1186136,
+      "addressTreeHeight": 40,
+      "inputQueueBatchSize": "30000",
+      "inputQueueZkpBatchSize": "250",
+      "rootHistoryCapacity": 120,
+      "stateHeight": 32,
+      "stateRootOffset": 16
+    }
+  },
+  "stateAccounts": {
+    "protocolConfig": {
+      "bytes": "030b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e010001",
+      "value": {
+        "authority": "k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn",
+        "foresterAuthority": "swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC",
+        "splInterfaceCreationIsPermissionless": true,
+        "treeCreationAuthority": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV",
+        "treeCreationIsPermissionless": true,
+        "zoneCreationAuthority": "ws91DX9HBAAxGW77BZs5FogRDwpRtcUpiLBpKdPTfWu",
+        "zoneCreationIsPermissionless": false
+      }
+    },
+    "protocolConfigNoncanonicalFlag": {
+      "bytes": "030b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e010701",
+      "zoneCreationIsPermissionless": true
+    },
+    "splAssetCounter": {
+      "bytes": "06000000000000000200000000000000",
+      "nextId": "2"
+    },
+    "splAssetCounterMax": {
+      "bytes": "0600000000000000ffffffffffffffff",
+      "nextId": "18446744073709551615"
+    },
+    "splAssetRegistry": {
+      "assetId": "7",
+      "bytes": "050000000000000001010101010101010101010101010101010101010101010101010101010101010700000000000000",
+      "mint": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+    },
+    "zoneConfig": {
+      "bytes": "040f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f101010101010101010101010101010101010101010101010101010101010101001fd",
+      "value": {
+        "authority": "21nS9Wz9sUTQ6MkcYUtnN8aSfPA26xJJP7zqshfzCzqc",
+        "bump": 253,
+        "programId": "25hjHpTATmkdET17ynDhf1MCuYNDn1z7wXfVw5iaxLAK",
+        "zoneAuthorityTransactIsEnabled": true
+      }
+    },
+    "zoneConfigNoncanonicalFlag": {
+      "bytes": "040f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f10101010101010101010101010101010101010101010101010101010101010102afd",
+      "zoneAuthorityTransactIsEnabled": true
+    }
+  },
+  "tags": {
+    "batchUpdateNullifierTree": 51,
+    "createAssetCounter": 16,
+    "createProtocolConfig": 6,
+    "createSplInterface": 4,
+    "createTree": 5,
+    "createZoneConfig": 9,
+    "deposit": 1,
+    "emitEvent": 14,
+    "mergeTransact": 12,
+    "pauseTree": 8,
+    "transact": 0,
+    "updateProtocolConfig": 7,
+    "updateZoneConfig": 11,
+    "updateZoneConfigOwner": 10,
+    "zoneAuthorityTransact": 3,
+    "zoneDeposit": 15,
+    "zoneMergeTransact": 13,
+    "zoneTransact": 2
+  }
+}
