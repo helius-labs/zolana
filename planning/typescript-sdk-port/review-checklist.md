@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `e7fa785b81be90f6efa06fb3a5b96fe807f8e416`
+- Review HEAD: `a0c49ffcb18418873494a7910ccf75411c51125c`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `4 done / 118 total`; `55 needs_fix`; `0 needs_re_review`; `2 in_progress`
-- Exact next eligible row: `K13 sdk-libs/keypair/src/traits/mod.rs`
+- Progress: `4 done / 118 total`; `56 needs_fix`; `0 needs_re_review`; `2 in_progress`
+- Exact next eligible row: `K14 sdk-libs/keypair/src/lib.rs`
 - Active reviews: `K04 sdk-libs/keypair/src/viewing_key.rs`; `M02 sdk-libs/merkle-tree/src/lib.rs`
 - Active fixes: `I01 in_flight`; `I02 in_flight`; `I03 in_flight`; `I04 in_flight`; `I05 in_flight`; `I06 in_flight`; `I07 proposed`; `I08 in_flight`; `I09 in_flight`; `I10 proposed`; `I11 in_flight`; `I12 in_flight`; `I13 in_flight`; `I14 in_flight`; `I15 in_flight`; `I17 in_flight`; `I18 in_flight`; `I19 proposed`; `I20 in_flight`; `I21 in_flight`; `I22 proposed`; `I23 in_flight`; `I24 in_flight`; `I25 in_flight`; `I26 in_flight`; `I27 in_flight`; `I28 in_flight`; `I29 in_flight`; `I30 in_flight`; `I31 in_flight`; `I32 in_flight`; `I33 in_flight`; `I34 in_flight`; `I35 in_flight`; `I36 in_flight`; `I37 in_flight`; `K01 proposed`; `K02 proposed`; `K03 proposed`; `M01 proposed`
 - Last session: `2026-07-25`
@@ -187,7 +187,7 @@ Columns:
 | K10 | `sdk-libs/keypair/src/error.rs` | `keypair/src/error.ts` | needs_fix | DIVERGENT | proposed | TypeScript collapses or omits five Rust error distinctions, lacks code-indexed immutable diagnostics and exhaustive current-Rust evidence, and permits arbitrary enumerable causes or details to expose data. Define one-to-one closed codes and details, sanitize causes and redacted serialization, and add exhaustive current-Rust fixtures plus export and package tests. | 2026-07-25 review | - |
 | K11 | `sdk-libs/keypair/src/traits/view_key.rs` | `keypair/src/viewing-key.ts` | needs_fix | PARTIAL | proposed | All 14 concrete operations exist on TypeScript `ViewingKey`, but public `ViewingKeyLike` exposes only two unused methods. `ShieldedKeypair` cannot substitute, higher packages require concrete `ViewingKey`, and trait declaration, facade, malformed-input, secret-exposure, browser, and current-Rust evidence is missing. Add the public trait adaptation and facade, accept the least-powerful capability in higher packages, and add the missing evidence. | 2026-07-25 review | - |
 | K12 | `sdk-libs/keypair/src/traits/shielded_keypair.rs` | `keypair/src/shielded.ts` | needs_fix | PARTIAL | proposed | Concrete operations exist, but the generic interface omits six named capabilities, is unused, and lacks a workable async/HSM facade and evidence. Correct Rust's malformed-P256-sign panic and secret-returning nullifier trait method, then complete and consume the generic facade with current-Rust, malformed, capability, async/HSM, browser, and secret-exposure evidence. | 2026-07-25 review | - |
-| K13 | `sdk-libs/keypair/src/traits/mod.rs` | `keypair/src/index.ts` | todo | - | none | - | - | - |
+| K13 | `sdk-libs/keypair/src/traits/mod.rs` | `keypair/src/index.ts` | needs_fix | PARTIAL | proposed | Rust trait-module exports are represented only by incomplete root-level TypeScript interfaces; no documented traits subpath or counterpart and no trait-specific fixture exist. The declarations are accurate, but consumer, browser, and packed-package evidence does not exercise the interfaces. Add the documented traits surface and trait-specific fixture, then exercise the interfaces through consumer, browser, and packed-package tests. | 2026-07-25 review | - |
 | K14 | `sdk-libs/keypair/src/lib.rs` | `keypair/src/index.ts` | todo | - | none | - | - | - |
 
 ### Merkle tree, 2 rows
@@ -1175,3 +1175,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `4/118`; package `0/14`
 - Exact next file: `K13 sdk-libs/keypair/src/traits/mod.rs`
 - Full SDK parity claim: unsupported; the generic keypair facade and safety evidence remain incomplete
+
+### 2026-07-25 11:36 UTC | K13 | `sdk-libs/keypair/src/traits/mod.rs`
+
+- Baseline: HEAD `a0c49ffcb18418873494a7910ccf75411c51125c`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module exports the keypair crate's public trait surface.
+- Evidence: Rust trait-module exports are represented only by incomplete root-level TypeScript interfaces; no documented traits subpath or counterpart and no trait-specific fixture exist. The declarations are accurate, but consumer, browser, and packed-package evidence does not exercise the interfaces. No tests ran for this recorder update.
+- Verdict: `PARTIAL`
+- Gap and smallest fix: Add the documented traits surface and trait-specific fixture, then exercise the interfaces through consumer, browser, and packed-package tests.
+- Row transition: `todo -> needs_fix`
+- Progress: `4/118`; package `0/14`
+- Exact next file: `K14 sdk-libs/keypair/src/lib.rs`
+- Full SDK parity claim: unsupported; the trait export surface and evidence remain incomplete
