@@ -1734,7 +1734,7 @@
       "packet": "P10",
       "path": "sdk-libs/wallet/src/actions/create_associated_token_account.rs",
       "responsibility": "Implements create_associated_token_account; public only where `public-exports.md` declares it.",
-      "target": "`@zolana/wallet` · `src/submit.ts`",
+      "target": "`@zolana/wallet` · `src/actions/create-associated-token-account.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
     {
