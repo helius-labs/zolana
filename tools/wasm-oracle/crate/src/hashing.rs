@@ -1,10 +1,11 @@
 //! W-03: hashing and field encoding.
 //!
-//! Four of these entry points widen a Rust signature so a generator can reach
-//! inputs the Rust type refuses. Each widening returns the rejection the
-//! signature implies, and each is listed in `tools/wasm-oracle/README.md`
-//! together with the reasoning, because a widening is a decision about what Rust
-//! would have done rather than an observation of what it does.
+//! Seven of these nine entry points widen a Rust signature so a generator can
+//! reach inputs the Rust type refuses: the six fixed-width byte arrays and the
+//! `i64`. Each widening returns the rejection its signature implies, and each
+//! carries its reasoning at the function, because a widening is a decision about
+//! what Rust would have done rather than an observation of what it does.
+//! `sha256_be` and `ciphertext_hash` already take `&[u8]` and widen nothing.
 
 use solana_address::Address;
 use wasm_bindgen::prelude::wasm_bindgen;
