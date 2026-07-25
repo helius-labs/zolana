@@ -33,22 +33,22 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker commits. Last update: 2026-07-25 20:37.
+Refreshed as each worker commits. Last update: 2026-07-25 20:55.
 
 | | |
 | --- | --- |
-| Rows the table calls supported | 5 of 145, the figure the CI gate reports |
-| Rows evidenced on the branch but not yet in the table | About 65, across three merged batches |
-| Rows with an adverse verdict | 107 before the fold-in |
+| Rows the table calls supported | 19 of 145, the figure the CI gate reports |
+| Rows evidenced, but the table still shows them open | About 50, from the interface and keypair batches |
+| Rows carrying an attributable verdict | 145 of 145, up from 127 |
 | Rows still unexamined | None. The 27 the coverage audit found are reviewed and merged |
-| Branch | 281 commits vs `main`. 1018 unit tests pass, typecheck, lint, and the checklist gate clean |
+| Branch | 288 commits vs `main`. 1143 unit tests pass and the checklist gate is green |
 | Phase | 2 of 4: remediation. Phase 1 reopened, phases 3 and 4 not started |
 
 Two figures appear above because they measure different things, and the honest
-one is 5. A verdict earned in a batch worktree does not reach the table by
+one is 19. A verdict earned in a batch worktree does not reach the table by
 itself: batches record outcomes in `row-updates/<batch>.md` precisely because
-they must not edit `review-checklist.md`, so roughly 65 rows of real evidence
-sit beside a table that still shows them open. Read that gap as bookkeeping
+they must not edit `review-checklist.md`, so about 50 rows of real evidence
+still sit beside a table that shows them open. Read that gap as bookkeeping
 rather than as work outstanding, but do not quote the larger number as
 progress until a reconciler has folded it in and the gate agrees.
 
@@ -101,6 +101,17 @@ One residual has no runtime guard: the sanitizer bounds which detail keys
 survive, not what those keys hold. A call site that passes computed data under
 an allowed key carries it intact to `ClientError.cause.details`. That property
 is held by the call sites, so review them when adding one.
+
+A fix applied to one copy of shared arithmetic does not reach its siblings.
+Two copies were left behind when theirs were corrected, and neither had a
+parity test, which is why the gap survived review. `client/src/internal.ts`
+kept a sixteen-entry Poseidon partial-round table after the other four copies
+were capped at twelve, so arities 13 to 16 produced a digest the program
+cannot reproduce rather than an error, because `light_poseidon` caps the
+width at 13 and the `sol_poseidon` syscall takes at most twelve. The keypair
+`bigIntToBytes` still truncated at 2^256 after `merkle-tree` was fixed. Both
+now carry vectors from the same Rust sources their siblings use. When fixing
+duplicated arithmetic, search out the other copies and give each the test.
 
 The interface batch is the pattern worth copying: it generated a JSON oracle
 from the real `zolana-interface` crate and compared TypeScript against that,
