@@ -64,7 +64,7 @@ impl Deposit {
         })
     }
 
-    pub fn instruction(&self, tree: Pubkey, depositor: Pubkey) -> Instruction {
+    pub fn instruction(&self, tree: Pubkey, depositor: Pubkey) -> Result<Instruction, ClientError> {
         deposit_instruction(tree, depositor, &self.deposit)
     }
 
@@ -119,7 +119,7 @@ pub async fn build_deposit_transaction<R: AsyncRpc>(
     let (blockhash, _) = rpc.get_latest_blockhash().await?;
     Ok(unsigned_deposit_transaction(
         payer,
-        deposit.instruction(tree, depositor),
+        deposit.instruction(tree, depositor)?,
         blockhash,
     ))
 }
@@ -134,7 +134,7 @@ pub fn build_deposit_transaction_sync<R: Rpc>(
     let (blockhash, _) = rpc.get_latest_blockhash()?;
     Ok(unsigned_deposit_transaction(
         payer,
-        deposit.instruction(tree, depositor),
+        deposit.instruction(tree, depositor)?,
         blockhash,
     ))
 }
@@ -152,7 +152,7 @@ pub fn deposit<R: Rpc>(
     depositor: &Keypair,
     deposit_fields: &AssetDeposit,
 ) -> Result<Signature, ClientError> {
-    let ix = deposit_instruction(tree, depositor.pubkey(), deposit_fields);
+    let ix = deposit_instruction(tree, depositor.pubkey(), deposit_fields)?;
     let mut signers: Vec<&Keypair> = vec![payer];
     if depositor.pubkey() != payer.pubkey() {
         signers.push(depositor);
@@ -161,13 +161,17 @@ pub fn deposit<R: Rpc>(
     rpc.create_and_send_transaction(&[ix], payer_address, &signers)
 }
 
-fn deposit_instruction(tree: Pubkey, depositor: Pubkey, deposit: &AssetDeposit) -> Instruction {
-    DepositInstruction {
+fn deposit_instruction(
+    tree: Pubkey,
+    depositor: Pubkey,
+    deposit: &AssetDeposit,
+) -> Result<Instruction, ClientError> {
+    Ok(DepositInstruction {
         tree,
         depositor,
         deposits: vec![deposit.clone()],
     }
-    .instruction()
+    .instruction()?)
 }
 
 fn unsigned_deposit_transaction(
@@ -254,7 +258,8 @@ mod tests {
             depositor: depositor.pubkey(),
             deposits: vec![entry.clone()],
         }
-        .instruction();
+        .instruction()
+        .expect("valid deposit");
         assert_eq!(sent.message.instructions.len(), 1);
         assert_eq!(sent.message.instructions[0].data, expected.data);
         assert!(sent.message.account_keys.contains(&payer.pubkey()));

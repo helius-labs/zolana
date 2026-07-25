@@ -12,7 +12,7 @@ pub use instruction_data::{
     MergeZoneIxDataRef, MessageData, OutputDataRef, OutputUtxo, OwnerTag, P256Proof, P256ProofRef,
     PauseTreeData, ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput,
     TransactOutputRef, TransactProof, UpdateProtocolConfigData, UpdateZoneConfigData,
-    UpdateZoneConfigOwnerData, UtxoData, ZoneDepositIxData, MAX_DEPOSIT_ASSETS,
+    UpdateZoneConfigOwnerData, UtxoData, ZoneDepositEntry, ZoneDepositIxData, MAX_DEPOSIT_ASSETS,
 };
 pub use zolana_event::{tag, tag::InstructionTag};
 

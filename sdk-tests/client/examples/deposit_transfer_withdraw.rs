@@ -53,7 +53,7 @@ fn main() -> Result<()> {
                 memo: None,
             }],
         }
-        .instruction();
+        .instruction()?;
         client.create_and_send_transaction(
             &[deposit_ix],
             alice_solana_keypair.pubkey(),

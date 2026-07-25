@@ -351,7 +351,8 @@ fn builder_assigns_indices(world: &mut ShieldedPoolWorld) {
             },
         ],
     }
-    .instruction();
+    .instruction()
+    .expect("valid deposit batch");
     let parsed = DepositIxData::deserialize(
         ix.data
             .get(1..)

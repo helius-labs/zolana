@@ -4,16 +4,17 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, CreateZoneConfigData, DepositAssetKind, DepositSplAccounts,
-        UpdateZoneConfig, UpdateZoneConfigOwner, ZoneDeposit, ZoneDepositIxData,
+        encode_instruction, tag, AssetDeposit, CreateZoneConfigData, DepositAsset,
+        DepositSplAccounts, UpdateZoneConfig, UpdateZoneConfigOwner, ZoneAssetDeposit, ZoneDeposit,
     },
     pda,
 };
 use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedAddress};
 
 use crate::{
-    instructions::ZONE_TEST_PROGRAM_ID, paths::default_zone_test_program_path, single_deposit_view,
-    wallet_data::wallet_shield_fields, DepositOutput, ProgramTestError, ZolanaProgramTest,
+    instructions::ZONE_TEST_PROGRAM_ID, paths::default_zone_test_program_path,
+    wallet_data::wallet_shield_fields, DepositBatch, DepositOutput, ProgramTestError,
+    ZolanaProgramTest,
 };
 
 impl ZolanaProgramTest {
@@ -101,17 +102,19 @@ impl ZolanaProgramTest {
         lamports: u64,
         owner: [u8; 32],
         blinding: [u8; BLINDING_LEN],
-    ) -> ZoneDepositIxData {
-        ZoneDepositIxData {
-            asset: DepositAssetKind::Sol,
-            view_tag: [0u8; 32],
-            owner,
-            blinding,
-            amount: lamports,
+    ) -> ZoneAssetDeposit {
+        ZoneAssetDeposit {
+            deposit: AssetDeposit {
+                asset: DepositAsset::Sol,
+                view_tag: [0u8; 32],
+                owner,
+                blinding,
+                amount: lamports,
+                utxo_data: None,
+                memo: None,
+            },
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            utxo_data: None,
-            memo: None,
         }
     }
 
@@ -120,38 +123,44 @@ impl ZolanaProgramTest {
         recipient: &ShieldedAddress,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<ZoneDepositIxData, ProgramTestError> {
+    ) -> Result<ZoneAssetDeposit, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
-        Ok(ZoneDepositIxData {
-            asset: DepositAssetKind::Sol,
-            view_tag: fields.view_tag,
-            owner: fields.owner,
-            blinding: fields.blinding,
-            amount: lamports,
+        Ok(ZoneAssetDeposit {
+            deposit: AssetDeposit {
+                asset: DepositAsset::Sol,
+                view_tag: fields.view_tag,
+                owner: fields.owner,
+                blinding: fields.blinding,
+                amount: lamports,
+                utxo_data: None,
+                memo: None,
+            },
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            utxo_data: None,
-            memo: None,
         })
     }
 
     pub fn wallet_zone_spl_shield_data(
         amount: u64,
+        mint: Pubkey,
+        user_token: Pubkey,
         recipient: &ShieldedAddress,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<ZoneDepositIxData, ProgramTestError> {
+    ) -> Result<ZoneAssetDeposit, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
-        Ok(ZoneDepositIxData {
-            asset: DepositAssetKind::Spl,
-            view_tag: fields.view_tag,
-            owner: fields.owner,
-            blinding: fields.blinding,
-            amount,
+        Ok(ZoneAssetDeposit {
+            deposit: AssetDeposit {
+                asset: DepositAsset::Spl(DepositSplAccounts { mint, user_token }),
+                view_tag: fields.view_tag,
+                owner: fields.owner,
+                blinding: fields.blinding,
+                amount,
+                utxo_data: None,
+                memo: None,
+            },
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            utxo_data: None,
-            memo: None,
         })
     }
 
@@ -159,54 +168,45 @@ impl ZolanaProgramTest {
         &mut self,
         tree: &Pubkey,
         depositor: &Keypair,
-        data: &ZoneDepositIxData,
+        deposit: &ZoneAssetDeposit,
     ) -> Result<DepositOutput, ProgramTestError> {
-        let ix = ZoneDeposit {
-            tree: *tree,
-            depositor: depositor.pubkey(),
-            spl: None,
-            view_tag: data.view_tag,
-            owner: data.owner,
-            blinding: data.blinding,
-            amount: data.amount,
-            zone_program_id: Self::zone_test_program_id(),
-            zone_data_hash: data.zone_data_hash,
-            zone_data: data.zone_data.clone(),
-            utxo_data: data.utxo_data.clone(),
-            memo: data.memo.clone(),
-        }
-        .instruction();
-        let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
-        single_deposit_view(&outcome.events)
+        let mut batch = self.zone_deposit_batch(tree, depositor, vec![deposit.clone()])?;
+        batch.outputs.pop().ok_or_else(|| {
+            ProgramTestError::Event("zone deposit batch emitted no output".to_string())
+        })
     }
 
-    pub fn zone_deposit_spl(
+    pub fn zone_deposit_batch(
         &mut self,
         tree: &Pubkey,
         depositor: &Keypair,
-        user_token: &Pubkey,
-        mint: &Pubkey,
-        data: &ZoneDepositIxData,
-    ) -> Result<DepositOutput, ProgramTestError> {
+        deposits: Vec<ZoneAssetDeposit>,
+    ) -> Result<DepositBatch, ProgramTestError> {
         let ix = ZoneDeposit {
             tree: *tree,
             depositor: depositor.pubkey(),
-            spl: Some(DepositSplAccounts {
-                mint: *mint,
-                user_token: *user_token,
-            }),
-            view_tag: data.view_tag,
-            owner: data.owner,
-            blinding: data.blinding,
-            amount: data.amount,
             zone_program_id: Self::zone_test_program_id(),
-            zone_data_hash: data.zone_data_hash,
-            zone_data: data.zone_data.clone(),
-            utxo_data: data.utxo_data.clone(),
-            memo: data.memo.clone(),
+            deposits,
         }
-        .instruction();
+        .instruction()?;
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
-        single_deposit_view(&outcome.events)
+        let Some(event) = outcome.events.first() else {
+            return Err(ProgramTestError::Event(
+                "no proofless zone deposit event emitted by transaction".into(),
+            ));
+        };
+        if outcome.events.len() != 1 {
+            return Err(ProgramTestError::Event(format!(
+                "expected one zone deposit event, transaction emitted {}",
+                outcome.events.len()
+            )));
+        }
+        let general_event = zolana_event::general_event_from_indexed(event).map_err(|err| {
+            ProgramTestError::Event(format!("batch zone deposit event decode failed: {err:?}"))
+        })?;
+        Ok(DepositBatch {
+            outputs: crate::deposit_outputs_from_event(event)?,
+            deposit_withdraws: general_event.deposit_withdraws.clone(),
+        })
     }
 }

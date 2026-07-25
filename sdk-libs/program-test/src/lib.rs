@@ -64,6 +64,8 @@ pub enum ProgramTestError {
     Io(#[from] std::io::Error),
     #[error("transaction: {0}")]
     Transaction(#[from] zolana_transaction::TransactionError),
+    #[error("deposit builder: {0}")]
+    DepositBuild(#[from] zolana_interface::instruction::DepositBuildError),
     #[error("indexer: {0}")]
     Indexer(#[from] IndexerError),
     #[error("event: {0}")]

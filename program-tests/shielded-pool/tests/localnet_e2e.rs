@@ -37,7 +37,7 @@ use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
+    external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_sol_field,
     real_output, set_output_owner_tags, spend_input, start_prover, transfer_output, SpendInputArgs,
     TransferProverInputsArgs,
@@ -139,15 +139,9 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let shield_ix = Deposit {
         tree: tree_pubkey,
         depositor: payer.pubkey(),
-        spl: None,
-        view_tag: shield_data.view_tag,
-        owner: shield_data.owner,
-        blinding: shield_data.blinding,
-        amount: shield_data.amount,
-        utxo_data: shield_data.utxo_data,
-        memo: shield_data.memo,
+        deposits: vec![shield_data],
     }
-    .instruction();
+    .instruction()?;
     let shield_tx = send_indexed(
         &mut rpc,
         &mut indexer,

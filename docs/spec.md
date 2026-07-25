@@ -1613,7 +1613,12 @@ struct DepositWithdraw {
 
 **Discriminator:** 15
 
-**Description.** Policy-zone analog of [`deposit`](#deposit): a public deposit without a proof that creates a UTXO owned by the calling zone program. Unlike [`deposit`](#deposit) this rail is not batched: it deposits one asset into one output. The zone program CPIs into SPP with its [`zone_config`](#zone-accounts) signer; the UTXO carries the program's `zone_program_id` (read from `zone_config`) and any policy/utxo data the program attaches.
+**Description.** Batched policy-zone analog of [`deposit`](#deposit): a public
+deposit without a proof that creates UTXOs owned by the calling zone program.
+The zone program CPIs into SPP with its [`zone_config`](#zone-accounts) signer.
+Every output carries the program's `zone_program_id` (read from `zone_config`)
+and its own policy/UTXO data. As with `deposit`, entries may share settlement
+groups and may span at most `MAX_DEPOSIT_ASSETS` assets.
 
 **Accounts**
 
@@ -1627,39 +1632,39 @@ struct DepositWithdraw {
 
 ```rust
 struct ZoneDepositIxData {
-    /// Settlement group kind for this deposit's single asset; the program reads
-    /// the accounts it names, as in `deposit`.
-    asset: DepositAssetKind,
-    /// Indexing tag for the output slot; a policy-zone view tag in an anonymous
-    /// zone, or the recipient `owner` pubkey otherwise.
-    view_tag: [u8; 32],
-    owner: [u8; 32],
-    blinding: [u8; 31],
-    public_sol_amount: Option<u64>,
-    public_spl_amount: Option<u64>,
-    /// Zone-defined data hash. The zone `program_id` is not in instruction data;
-    /// it is read from the signing `zone_config` account.
-    zone_data_hash: Option<[u8; 32]>,
-    /// Preimage of `zone_data_hash`.
-    zone_data: Option<Vec<u8>>,
-    /// Program-defined data hash.
-    data_hash: Option<[u8; 32]>,
-    /// Preimage of `data_hash`.
-    utxo_data: Option<Vec<u8>>,
+    /// Settlement groups in account order, as in `deposit`.
+    assets: Vec<DepositAssetKind>,
+    deposits: Vec<ZoneDepositEntry>,
+}
+
+struct ZoneDepositEntry {
+    /// Common output fields, including the settlement-group asset index.
+    deposit: DepositEntry,
+    /// Zone-defined hash committed into this output's zone hash.
+    zone_data_hash: [u8; 32],
+    /// Zone-defined preimage emitted with this output.
+    zone_data: Vec<u8>,
 }
 ```
 
-`blinding` is a fresh CSPRNG value sent in the clear, as in [`deposit`](#blinding-derivation).
+Every entry's `blinding` is a fresh CSPRNG value sent in the clear, as in
+[`deposit`](#blinding-derivation).
 
 **Checks**
 
 1. `tree_account` is not paused.
-2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
-3. The `zone_config` account must sign; SPP loads it by owner + discriminator (see [Zone Accounts](#zone-accounts)).
-4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `data_hash` and `zone_data_hash` from instruction data or `0`, `zone_program_id` from `zone_config.program_id`, `owner_utxo_hash` from instruction data.
-5. Append the hash to the UTXO tree.
-6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
-7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, as in [`deposit`](#deposit) but with the output's `OutputData::Proofless` payload carrying `zone_program_id`, `zone_data_hash`, `data_hash`, `utxo_data`, and `zone_data`.
+2. The batch and settlement groups satisfy the same non-empty, index,
+   uniqueness, reference, asset-count, and amount-overflow checks as `deposit`.
+3. The `zone_config` account must sign; SPP loads it by owner + discriminator
+   (see [Zone Accounts](#zone-accounts)).
+4. Per entry, compute the [UTXO hash](#utxo-hash) from its selected asset,
+   amount, owner, blinding, UTXO data hash, its own `zone_data_hash`, and
+   `zone_config.program_id`.
+5. Append every hash to the UTXO tree in one batch.
+6. Sum and settle each asset once, as in `deposit`.
+7. Emit one [`GeneralEvent`](#general-event) carrying every output in entry order,
+   including each output's `zone_program_id`, `zone_data_hash`, `zone_data`,
+   UTXO data, and memo.
 
 ### `merge_transact`
 

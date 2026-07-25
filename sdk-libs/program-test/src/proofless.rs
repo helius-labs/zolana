@@ -31,7 +31,7 @@ impl ZolanaProgramTest {
             depositor: depositor.pubkey(),
             deposits: vec![deposit.clone()],
         }
-        .instruction();
+        .instruction()?;
         self.send_deposit_ix(ix, depositor)
     }
 
@@ -48,7 +48,7 @@ impl ZolanaProgramTest {
             depositor: depositor.pubkey(),
             deposits,
         }
-        .instruction();
+        .instruction()?;
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         let Some(event) = outcome.events.first() else {
             return Err(ProgramTestError::Event(
@@ -81,7 +81,7 @@ impl ZolanaProgramTest {
             depositor: depositor.pubkey(),
             deposits: vec![deposit.clone()],
         }
-        .instruction();
+        .instruction()?;
         ix.program_id = self.program_id;
         ix.accounts = accounts;
         self.send_deposit_ix(ix, depositor)

@@ -109,15 +109,9 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let direct_ix = Deposit {
         tree: tree.pubkey(),
         depositor: depositor.pubkey(),
-        spl: None,
-        view_tag: direct_data.view_tag,
-        owner: direct_data.owner,
-        blinding: direct_data.blinding,
-        amount: direct_data.amount,
-        utxo_data: direct_data.utxo_data,
-        memo: direct_data.memo,
+        deposits: vec![direct_data],
     }
-    .instruction();
+    .instruction()?;
     let direct_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -151,18 +145,10 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let zone_ix = ZoneDeposit {
         tree: tree.pubkey(),
         depositor: depositor.pubkey(),
-        spl: None,
-        view_tag: zone_data.view_tag,
-        owner: zone_data.owner,
-        blinding: zone_data.blinding,
-        amount: zone_data.amount,
         zone_program_id,
-        zone_data_hash: zone_data.zone_data_hash,
-        zone_data: zone_data.zone_data.clone(),
-        utxo_data: zone_data.utxo_data,
-        memo: zone_data.memo,
+        deposits: vec![zone_data],
     }
-    .instruction();
+    .instruction()?;
     let zone_tx = send_indexed(
         &mut rpc,
         &mut indexer,

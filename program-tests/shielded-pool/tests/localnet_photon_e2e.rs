@@ -190,24 +190,19 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
 
     let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
+    let shield_view_tag = shield_data.view_tag;
     let shield_ix = Deposit {
         tree: tree_pubkey,
         depositor: payer.pubkey(),
-        spl: None,
-        view_tag: shield_data.view_tag,
-        owner: shield_data.owner,
-        blinding: shield_data.blinding,
-        amount: shield_data.amount,
-        utxo_data: shield_data.utxo_data,
-        memo: shield_data.memo,
+        deposits: vec![shield_data],
     }
-    .instruction();
+    .instruction()?;
     let shield_sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
     print_signature("deposit", &shield_sig);
 
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
-    let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, shield_sig)?;
-    assert_eq!(indexed_deposit.output_slot.view_tag, shield_data.view_tag);
+    let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_view_tag, shield_sig)?;
+    assert_eq!(indexed_deposit.output_slot.view_tag, shield_view_tag);
     assert_eq!(indexed_deposit.tx_signature, shield_sig);
     assert_eq!(
         indexed_deposit.output_slot.output_context.hash,
@@ -857,23 +852,18 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             data: Data::default(),
         };
         let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, blinding);
+        let shield_view_tag = shield_data.view_tag;
         let shield_ix = Deposit {
             tree: tree_pubkey,
             depositor: payer.pubkey(),
-            spl: None,
-            view_tag: shield_data.view_tag,
-            owner: shield_data.owner,
-            blinding: shield_data.blinding,
-            amount: shield_data.amount,
-            utxo_data: shield_data.utxo_data,
-            memo: shield_data.memo,
+            deposits: vec![shield_data],
         }
-        .instruction();
+        .instruction()?;
         let sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         print_signature(&format!("seed_deposit_{deposit_index}"), &sig);
 
         let note = RealSpendNote::new(utxo, &payer_nullifier_key, &payer_nullifier_pk, &zero)?;
-        let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, sig)?;
+        let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_view_tag, sig)?;
         assert_eq!(indexed_deposit.output_slot.output_context.hash, note.hash);
         spendable_notes.push_back(note);
     }
@@ -1616,15 +1606,9 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         let shield_ix = Deposit {
             tree: tree_pubkey,
             depositor: payer.pubkey(),
-            spl: None,
-            view_tag: shield_data.view_tag,
-            owner: shield_data.owner,
-            blinding: shield_data.blinding,
-            amount: shield_data.amount,
-            utxo_data: shield_data.utxo_data,
-            memo: shield_data.memo,
+            deposits: vec![shield_data],
         }
-        .instruction();
+        .instruction()?;
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;

@@ -114,7 +114,7 @@ impl Deposit<'_> {
             depositor: authority.pubkey(),
             deposits: vec![data.clone()],
         }
-        .instruction();
+        .instruction()?;
         let mut signers: Vec<&Keypair> = vec![payer];
         if authority.pubkey() != payer.pubkey() {
             signers.push(authority);

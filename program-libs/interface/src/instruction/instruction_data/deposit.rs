@@ -78,35 +78,28 @@ impl DepositIxData {
     }
 }
 
-/// Policy-zone analog of [`DepositIxData`] (spec:
-/// `zone_deposit`, tag 15). A zone program CPIs into SPP signing with
-/// its `zone_auth` PDA (seed `zone_auth`); the created UTXO is owned by the
-/// zone and additionally carries the zone's `policy_data`.
+/// One output of a batched policy-zone deposit.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct ZoneDepositIxData {
-    /// Settlement group kind for this deposit's single asset.
-    pub asset: DepositAssetKind,
-    /// As in [`DepositIxData`].
-    pub view_tag: [u8; 32],
-    pub owner: [u8; 32],
-    pub blinding: [u8; 31],
-    /// As in [`DepositIxData`]: the asset is inferred from the
-    /// settlement accounts the zone forwards.
-    pub amount: u64,
+pub struct ZoneDepositEntry {
+    /// Common output and settlement-group fields.
+    pub deposit: DepositEntry,
     /// Zone-defined data committed into `zone_hash`. The zone's `program_id` is
     /// NOT in instruction data: it is read from the `ZoneConfig` account (the
     /// signing `zone_auth` PDA) the zone forwards.
     pub zone_data_hash: [u8; 32],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
     pub zone_data: Vec<u8>,
-    /// Application data committed into the UTXO's `data_hash`, authorized by the
-    /// `ZoneConfig` account; `None` if the zone deposit carries no application
-    /// data.
-    pub utxo_data: Option<UtxoData>,
-    /// Optional free-form memo emitted in the clear with the proofless output.
-    /// Not committed into any hash, so it is informational only.
-    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
-    pub memo: Option<Vec<u8>>,
+}
+
+/// Batched policy-zone analog of [`DepositIxData`] (spec: `zone_deposit`, tag
+/// 15). A zone program CPIs into SPP signing with its `zone_auth` PDA. Every
+/// output is owned by that zone, while policy data is specified per output.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct ZoneDepositIxData {
+    #[wincode(with = "containers::Vec<DepositAssetKind, FixIntLen<u8>>")]
+    pub assets: Vec<DepositAssetKind>,
+    #[wincode(with = "containers::Vec<ZoneDepositEntry, FixIntLen<u8>>")]
+    pub deposits: Vec<ZoneDepositEntry>,
 }
 
 impl ZoneDepositIxData {

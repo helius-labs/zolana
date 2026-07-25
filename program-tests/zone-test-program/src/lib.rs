@@ -72,7 +72,9 @@ fn forward_to_spp(program_id: &Address, accounts: &[AccountView], data: &[u8]) -
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
-    invoke_signed_with_bounds::<16, _>(&instruction, accounts, core::slice::from_ref(&signer))
+    // A five-mint zone deposit carries tree + depositor + zone_auth, four
+    // accounts per SPL settlement group, and the SPP program account.
+    invoke_signed_with_bounds::<24, _>(&instruction, accounts, core::slice::from_ref(&signer))
 }
 
 fn check_shielded_pool(account: &Address) -> Result<(), ProgramError> {
