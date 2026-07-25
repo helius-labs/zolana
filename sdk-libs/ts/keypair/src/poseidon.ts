@@ -6,7 +6,11 @@ import { KeypairError, wrapKeypairError } from "./error.js";
 
 const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
-const PARTIAL_ROUNDS = [56, 57, 56, 60, 60, 63, 64, 63, 60, 66, 60, 65, 70, 60, 64, 68] as const;
+// Circom x5 partial-round counts for widths 2 through 13. The table stops at
+// twelve inputs because that is where the Rust hasher stops: `light_poseidon`
+// caps the width at 13, and the `sol_poseidon` syscall takes at most twelve
+// inputs. Hashing a wider input set would produce a digest no verifier accepts.
+const PARTIAL_ROUNDS = [56, 57, 56, 60, 60, 63, 64, 63, 60, 66, 60, 65] as const;
 const Fp = Field(BN254_MODULUS);
 const permutations = new Map<number, ReturnType<typeof createPoseidon>>();
 

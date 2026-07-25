@@ -50,6 +50,62 @@
       "lengthBytes": 33
     },
     {
+      "chunkCount": 3,
+      "ciphertextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+      "expectedBytes": "0250475f977d62ab920bbba56933e74e33ca2444d4a31f097af4b6a094f959d2",
+      "id": "ciphertext-hash-48",
+      "lengthBytes": 48
+    },
+    {
+      "chunkCount": 4,
+      "ciphertextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "expectedBytes": "1abb97a4b90755163567f61c256100e7fa7700114bc0e96bc6a52777f7df431c",
+      "id": "ciphertext-hash-64",
+      "lengthBytes": 64
+    },
+    {
+      "chunkCount": 5,
+      "ciphertextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f",
+      "expectedBytes": "27d7fb1c7a6a45855c9073fb9723efc2c18638664b84ca42a8bb4891572aaea6",
+      "id": "ciphertext-hash-80",
+      "lengthBytes": 80
+    },
+    {
+      "chunkCount": 6,
+      "ciphertextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "expectedBytes": "1e4b020d1493e4851e19f4bbef32363427e5b1754478c963548edbe6ac9dac71",
+      "id": "ciphertext-hash-96",
+      "lengthBytes": 96
+    },
+    {
+      "chunkCount": 7,
+      "ciphertextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f",
+      "expectedBytes": "1bbbb13c21fde80acfdf89acd5a9b50fffb0cba569c5ab3461be3c87ed706565",
+      "id": "ciphertext-hash-112",
+      "lengthBytes": 112
+    },
+    {
+      "chunkCount": 8,
+      "ciphertextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+      "expectedBytes": "0c3ec45969c0cfdd2041c5f9f591f5110d432278faf843292dcf94009d5246c8",
+      "id": "ciphertext-hash-128",
+      "lengthBytes": 128
+    },
+    {
+      "chunkCount": 9,
+      "ciphertextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f",
+      "expectedBytes": "1f47356ef9b5a292d7fa2b64072e036fce394cf74e2dad30c511e05777340093",
+      "id": "ciphertext-hash-144",
+      "lengthBytes": 144
+    },
+    {
+      "chunkCount": 10,
+      "ciphertextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+      "expectedBytes": "135d3188315c4bd17be756199d8c65190ebd5f80cb830f8b2761f9e36f3a0ceb",
+      "id": "ciphertext-hash-160",
+      "lengthBytes": 160
+    },
+    {
       "chunkCount": 11,
       "ciphertextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
       "expectedBytes": "26f007cd337ac0bfc16a731d7cbe8b13ff8c8a5e323be339a89a104bb9fa08ab",
@@ -236,6 +292,7 @@
     {
       "id": "poseidon-reject-no-inputs",
       "inputsBytes": [],
+      "kind": "arity",
       "reason": "Poseidon(InvalidWidthCircom { width: 1, max_limit: 13 })"
     },
     {
@@ -255,6 +312,7 @@
         "0000000000000000000000000000000000000000000000000000000000000000",
         "0000000000000000000000000000000000000000000000000000000000000000"
       ],
+      "kind": "arity",
       "reason": "Poseidon(InvalidWidthCircom { width: 14, max_limit: 13 })"
     },
     {
@@ -262,6 +320,7 @@
       "inputsBytes": [
         "01010101010101010101010101010101010101010101010101010101010101"
       ],
+      "kind": "shorterThan32",
       "reason": "Poseidon(InvalidInputLength { len: 31, modulus_bytes_len: 32 })"
     },
     {
@@ -269,6 +328,7 @@
       "inputsBytes": [
         "010101010101010101010101010101010101010101010101010101010101010101"
       ],
+      "kind": "longerThan32",
       "reason": "Poseidon(InvalidInputLength { len: 33, modulus_bytes_len: 32 })"
     },
     {
@@ -276,6 +336,7 @@
       "inputsBytes": [
         "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"
       ],
+      "kind": "notCanonical",
       "reason": "Poseidon(InputLargerThanModulus)"
     },
     {
@@ -283,6 +344,7 @@
       "inputsBytes": [
         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
       ],
+      "kind": "notCanonical",
       "reason": "Poseidon(InputLargerThanModulus)"
     }
   ],
@@ -290,6 +352,32 @@
   "rustPath": "program-libs/hasher/src/poseidon.rs",
   "rustSymbol": "<Poseidon as Hasher>::hashv",
   "schema": "zolana-ts-fixtures-v1",
+  "shortInputs": [
+    {
+      "alignedBytes": "0000000000000000000000000000000000000000000000000000000000000001",
+      "expectedBytes": "29176100eaa962bdc1fe6c654d6a3c130e96a4d1168b33848b897dc502820133",
+      "id": "short-input-1",
+      "shortBytes": "01"
+    },
+    {
+      "alignedBytes": "0000000000000000000000000000000000000000000000000102030405060708",
+      "expectedBytes": "2854ab6b6e613953d6f3c556fe90b633431d700ee6b12cb5b6fc60a7699a8049",
+      "id": "short-input-8",
+      "shortBytes": "0102030405060708"
+    },
+    {
+      "alignedBytes": "000000000000000000000000000000000102030405060708090a0b0c0d0e0f10",
+      "expectedBytes": "279d28c0ad63d5eb11dde5636a3137561ed0f453fe4e54a764b0abd66f423d97",
+      "id": "short-input-16",
+      "shortBytes": "0102030405060708090a0b0c0d0e0f10"
+    },
+    {
+      "alignedBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "expectedBytes": "2d1faf6cf358763421511eb637adf7b6609443d38edc4ed2b042dfbf834b03f5",
+      "id": "short-input-31",
+      "shortBytes": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    }
+  ],
   "vectors": [
     {
       "expectedBytes": "2a09a9fd93c590c26b91effbb2499f07e8f7aa12e2b4940a3aed2411cb65e11c",

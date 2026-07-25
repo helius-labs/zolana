@@ -26,7 +26,9 @@ use ark_ff::{AdditiveGroup, BigInteger, Field, PrimeField};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use zolana_hasher::{Hasher, Poseidon};
-use zolana_interface::merge_utils::{ciphertext_hash, owner_pk_field_compressed, pk_field_compressed};
+use zolana_interface::merge_utils::{
+    ciphertext_hash, owner_pk_field_compressed, pk_field_compressed,
+};
 
 /// `light_poseidon::MAX_X5_LEN` is 13, and the width is one wider than the
 /// input count, so the Rust hasher accepts 1 through 12 inputs. The Solana
@@ -101,6 +103,7 @@ fn fixture() -> Result<Value> {
         "rustPath": "program-libs/hasher/src/poseidon.rs",
         "rustSymbol": "<Poseidon as Hasher>::hashv",
         "schema": "zolana-ts-fixtures-v1",
+        "shortInputs": short_inputs()?,
         "vectors": vectors()?,
         "version": "1"
     }))
@@ -122,16 +125,12 @@ fn parameters() -> Value {
     let per_arity = (1..=MAX_INPUTS)
         .map(|inputs| {
             let params = circom_parameters(inputs);
-            let ark = params
-                .ark
-                .iter()
-                .flat_map(|value| fr_bytes(value))
-                .collect::<Vec<u8>>();
+            let ark = params.ark.iter().flat_map(fr_bytes).collect::<Vec<u8>>();
             let mds = params
                 .mds
                 .iter()
                 .flatten()
-                .flat_map(|value| fr_bytes(value))
+                .flat_map(fr_bytes)
                 .collect::<Vec<u8>>();
             json!({
                 "arkCount": params.ark.len(),
@@ -206,9 +205,12 @@ fn vectors() -> Result<Vec<Value>> {
 }
 
 fn vector(family: &str, inputs: usize, values: Vec<[u8; 32]>) -> Result<Value> {
-    let refs = values.iter().map(|value| value.as_slice()).collect::<Vec<_>>();
-    let expected = Poseidon::hashv(&refs)
-        .map_err(|error| anyhow::anyhow!("{family}/{inputs}: {error:?}"))?;
+    let refs = values
+        .iter()
+        .map(|value| value.as_slice())
+        .collect::<Vec<_>>();
+    let expected =
+        Poseidon::hashv(&refs).map_err(|error| anyhow::anyhow!("{family}/{inputs}: {error:?}"))?;
     Ok(json!({
         "expectedBytes": hex(&expected),
         "id": format!("poseidon-{family}-{inputs}"),
@@ -216,33 +218,72 @@ fn vector(family: &str, inputs: usize, values: Vec<[u8; 32]>) -> Result<Value> {
     }))
 }
 
-/// Inputs the Rust hasher refuses. The TypeScript ports must refuse the same
-/// ones; the `reason` is the Rust error, recorded so a future widening of the
-/// Rust domain shows up as fixture drift rather than as a silent divergence.
+/// Inputs the Rust hasher refuses, with the Rust error recorded so a future
+/// widening of the Rust domain shows up as fixture drift rather than as a
+/// silent divergence.
+///
+/// `kind` separates the rejections every port has to reproduce from the one
+/// they deliberately do not: `shorterThan32` is the Rust hasher's strict
+/// 32-byte input rule, and three ports read a shorter slice as a big-endian
+/// integer instead, which `shortInputs` pins to the same digest.
 fn rejects() -> Vec<Value> {
     let zero = [0u8; 32];
-    let mut out = vec![reject("no-inputs", &[])];
+    let mut out = vec![reject("no-inputs", "arity", &[])];
 
     let thirteen = vec![zero; MAX_INPUTS + 1];
     out.push(reject(
         "arity-above-max",
+        "arity",
         &thirteen.iter().map(|v| v.as_slice()).collect::<Vec<_>>(),
     ));
 
     let short = [1u8; 31];
-    out.push(reject("input-31-bytes", &[&short[..]]));
+    out.push(reject("input-31-bytes", "shorterThan32", &[&short[..]]));
     let long = [1u8; 33];
-    out.push(reject("input-33-bytes", &[&long[..]]));
+    out.push(reject("input-33-bytes", "longerThan32", &[&long[..]]));
 
     let modulus = modulus_bytes();
-    out.push(reject("input-equals-modulus", &[&modulus[..]]));
+    out.push(reject(
+        "input-equals-modulus",
+        "notCanonical",
+        &[&modulus[..]],
+    ));
     let all_ones = [0xffu8; 32];
-    out.push(reject("input-above-modulus", &[&all_ones[..]]));
+    out.push(reject(
+        "input-above-modulus",
+        "notCanonical",
+        &[&all_ones[..]],
+    ));
 
     out
 }
 
-fn reject(id: &str, inputs: &[&[u8]]) -> Value {
+/// The Rust hasher takes 32-byte inputs only, while three of the TypeScript
+/// ports accept anything shorter and read it as a big-endian integer. That is
+/// a wider input domain, not a different digest: each entry pins the shorter
+/// form to the Rust hash of the same value right-aligned into 32 bytes, so the
+/// laxness stays checked instead of assumed.
+fn short_inputs() -> Result<Vec<Value>> {
+    let mut out = Vec::new();
+    for length in [1usize, 8, 16, 31] {
+        let short = (0..length)
+            .map(|index| (index as u8) + 1)
+            .collect::<Vec<u8>>();
+        let mut aligned = [0u8; 32];
+        aligned[32 - length..].copy_from_slice(&short);
+        let expected = Poseidon::hashv(&[&aligned[..]])
+            .map_err(|error| anyhow::anyhow!("short_inputs({length}): {error:?}"))?;
+        out.push(json!({
+            "alignedBytes": hex(&aligned),
+            "expectedBytes": hex(&expected),
+            "id": format!("short-input-{length}"),
+            "shortBytes": hex(&short),
+        }));
+    }
+    Ok(out)
+}
+
+fn reject(id: &str, kind: &str, inputs: &[&[u8]]) -> Value {
     let error = match Poseidon::hashv(inputs) {
         Ok(hash) => panic!("{id} unexpectedly hashed to {}", hex(&hash)),
         Err(error) => format!("{error:?}"),
@@ -250,6 +291,7 @@ fn reject(id: &str, inputs: &[&[u8]]) -> Value {
     json!({
         "id": format!("poseidon-reject-{id}"),
         "inputsBytes": inputs.iter().map(|input| hex(input)).collect::<Vec<_>>(),
+        "kind": kind,
         "reason": error,
     })
 }
@@ -259,8 +301,14 @@ fn reject(id: &str, inputs: &[&[u8]]) -> Value {
 /// arity, so 1 through 192 bytes walks arity 1 through 12 and 193 bytes is the
 /// first length the Rust hasher cannot take.
 fn ciphertext_hashes() -> Result<Vec<Value>> {
+    let mut lengths = (1..=MAX_INPUTS)
+        .map(|chunks| chunks * 16)
+        .collect::<Vec<_>>();
+    lengths.extend([1usize, 15, 17, 31, 33, 191]);
+    lengths.sort_unstable();
+
     let mut out = Vec::new();
-    for length in [1usize, 15, 16, 17, 31, 32, 33, 176, 191, 192] {
+    for length in lengths {
         let ciphertext = ciphertext_bytes(length);
         let hash = ciphertext_hash(&ciphertext)
             .map_err(|error| anyhow::anyhow!("ciphertext_hash({length}): {error:?}"))?;
