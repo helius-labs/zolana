@@ -204,9 +204,46 @@ export interface ExternalData {
   readonly resolvedOwnerTags: readonly Bytes32[];
   readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
   hash(): Bytes32;
+  /** Rust `ExternalData::with_public_sol`. A leg may be set once. */
+  withPublicSol(amount: bigint, userSolAccount: Address): ExternalData;
+  /** Rust `ExternalData::with_public_spl`. A leg may be set once. */
+  withPublicSpl(amount: bigint, userSplToken: Address, splTokenInterface: Address): ExternalData;
+  /** Rust `ExternalData::with_zone_hashes`. Both hashes are set together, once. */
+  withZoneHashes(dataHash: Bytes32, zoneDataHash: Bytes32): ExternalData;
 }
 
-function externalDataHash(data: Omit<ExternalData, "hash">): Bytes32 {
+/**
+ * What a caller must supply, the counterpart of Rust `ExternalData::new`. The
+ * public legs, the zone hashes, the expiry, the relayer fee, and the three
+ * accounts carry Rust's defaults, so a confidential transfer names only the
+ * fields it actually has.
+ */
+export interface ExternalDataInit {
+  readonly instructionDiscriminator?: number;
+  readonly expiryUnixTs?: bigint;
+  readonly relayerFee?: number;
+  readonly publicSolAmount?: bigint;
+  readonly publicSplAmount?: bigint;
+  readonly userSolAccount?: Address;
+  readonly userSplToken?: Address;
+  readonly splTokenInterface?: Address;
+  readonly dataHash?: Bytes32;
+  readonly zoneDataHash?: Bytes32;
+  readonly txViewingPublicKey: P256PublicKey;
+  readonly salt: Bytes16;
+  readonly outputs: readonly TransactOutput[];
+  readonly resolvedOwnerTags: readonly Bytes32[];
+  readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
+}
+
+/** The `transact` tag, which Rust `ExternalData::new` takes from `tag::TRANSACT`. */
+const TRANSACT_DISCRIMINATOR = 0;
+/** Rust's default expiry: `u64::MAX`, meaning no expiry. */
+const NO_EXPIRY = 0xffff_ffff_ffff_ffffn;
+/** The all-zero address Rust defaults the three accounts to. */
+const UNSET_ACCOUNT = "11111111111111111111111111111111" as Address;
+
+function externalDataHash(data: ExternalDataFields): Bytes32 {
   if (data.outputs.length !== data.resolvedOwnerTags.length) {
     throw new TransactionError("TRANSACTION_OUTPUT_TAG_MISMATCH");
   }
@@ -267,35 +304,89 @@ function externalDataHash(data: Omit<ExternalData, "hash">): Bytes32 {
   });
 }
 
-export function createExternalData(input: Omit<ExternalData, "hash">): ExternalData {
-  const snapshot = {
+type ExternalDataFields = Omit<
+  ExternalData,
+  "hash" | "withPublicSol" | "withPublicSpl" | "withZoneHashes"
+>;
+
+export function createExternalData(input: ExternalDataInit): ExternalData {
+  const snapshot: ExternalDataFields = {
     ...input,
+    instructionDiscriminator: input.instructionDiscriminator ?? TRANSACT_DISCRIMINATOR,
+    expiryUnixTs: input.expiryUnixTs ?? NO_EXPIRY,
+    relayerFee: input.relayerFee ?? 0,
+    userSolAccount: input.userSolAccount ?? UNSET_ACCOUNT,
+    userSplToken: input.userSplToken ?? UNSET_ACCOUNT,
+    splTokenInterface: input.splTokenInterface ?? UNSET_ACCOUNT,
     salt: checked<Bytes16>(input.salt, 16, "salt"),
-    outputs: input.outputs.map((output) =>
-      Object.freeze({
-        ...output,
-        utxoHash: checked<Bytes32>(output.utxoHash, 32, "output hash"),
-        ownerTag:
-          output.ownerTag.kind === "inline"
-            ? Object.freeze({
-                kind: "inline" as const,
-                value: checked<Bytes32>(output.ownerTag.value, 32, "output owner tag"),
-              })
-            : Object.freeze({ ...output.ownerTag }),
-        ...(output.data === undefined ? {} : { data: new Uint8Array(output.data) }),
-      }),
+    // The hash closes over these arrays, so freezing them is what keeps a
+    // holder of the returned value from changing the preimage under it.
+    outputs: Object.freeze(
+      input.outputs.map((output) =>
+        Object.freeze({
+          ...output,
+          utxoHash: checked<Bytes32>(output.utxoHash, 32, "output hash"),
+          ownerTag:
+            output.ownerTag.kind === "inline"
+              ? Object.freeze({
+                  kind: "inline" as const,
+                  value: checked<Bytes32>(output.ownerTag.value, 32, "output owner tag"),
+                })
+              : Object.freeze({ ...output.ownerTag }),
+          ...(output.data === undefined ? {} : { data: new Uint8Array(output.data) }),
+        }),
+      ),
     ),
-    resolvedOwnerTags: input.resolvedOwnerTags.map((tag) =>
-      checked<Bytes32>(tag, 32, "resolved owner tag"),
+    resolvedOwnerTags: Object.freeze(
+      input.resolvedOwnerTags.map((tag) => checked<Bytes32>(tag, 32, "resolved owner tag")),
     ),
-    messages: input.messages.map((message) =>
-      Object.freeze({
-        viewTag: checked<Bytes32>(message.viewTag, 32, "message view tag"),
-        data: new Uint8Array(message.data),
-      }),
+    messages: Object.freeze(
+      input.messages.map((message) =>
+        Object.freeze({
+          viewTag: checked<Bytes32>(message.viewTag, 32, "message view tag"),
+          data: new Uint8Array(message.data),
+        }),
+      ),
     ),
   };
-  return Object.freeze({ ...snapshot, hash: (): Bytes32 => externalDataHash(snapshot) });
+  return sealExternalData(snapshot);
+}
+
+/// The builders re-enter through `createExternalData` so a derived value is
+/// copied and frozen exactly like the original; a caller keeping the value it
+/// passed cannot reach into either.
+function sealExternalData(fields: ExternalDataFields): ExternalData {
+  const set = (changed: Partial<ExternalDataFields>): ExternalData =>
+    createExternalData({ ...fields, ...changed });
+  return Object.freeze({
+    ...fields,
+    hash: (): Bytes32 => externalDataHash(fields),
+    withPublicSol: (amount: bigint, userSolAccount: Address): ExternalData => {
+      if (fields.publicSolAmount !== undefined) {
+        throw new TransactionError("TRANSACTION_PUBLIC_SOL_ALREADY_SET");
+      }
+      return set({ publicSolAmount: amount, userSolAccount });
+    },
+    withPublicSpl: (
+      amount: bigint,
+      userSplToken: Address,
+      splTokenInterface: Address,
+    ): ExternalData => {
+      if (fields.publicSplAmount !== undefined) {
+        throw new TransactionError("TRANSACTION_PUBLIC_SPL_ALREADY_SET");
+      }
+      return set({ publicSplAmount: amount, userSplToken, splTokenInterface });
+    },
+    withZoneHashes: (dataHash: Bytes32, zoneDataHash: Bytes32): ExternalData => {
+      if (fields.dataHash !== undefined || fields.zoneDataHash !== undefined) {
+        throw new TransactionError("TRANSACTION_ZONE_HASHES_ALREADY_SET");
+      }
+      return set({
+        dataHash: checked<Bytes32>(dataHash, 32, "data hash"),
+        zoneDataHash: checked<Bytes32>(zoneDataHash, 32, "zone data hash"),
+      });
+    },
+  });
 }
 
 /**

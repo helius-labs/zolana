@@ -34,7 +34,10 @@ pub enum TransactionError {
     #[error("data attached to an output with zero amount")]
     DataWithoutOutput,
 
-    #[error("too many outputs to derive blinding positions")]
+    /// Raised where an output count or position outgrows the width the wire
+    /// format gives it: the `u8` blinding position in the serialization rails,
+    /// and the `u16` output and message counts in the external-data preimage.
+    #[error("too many outputs to encode")]
     TooManyOutputs,
 
     #[error("duplicate data record")]
@@ -126,6 +129,23 @@ pub enum TransactionError {
 
     #[error("zone hashes already set")]
     ZoneHashesAlreadySet,
+
+    /// The external-data preimage writes payload lengths behind `u16` prefixes,
+    /// and `program-libs/interface` casts rather than checking, so an oversized
+    /// payload hashes a silently shortened preimage. By owner ruling the SDKs
+    /// refuse it instead; see the T21 entry in
+    /// `planning/typescript-sdk-port/authority-rulings.md`. The count prefixes
+    /// at the same boundary raise [`Self::TooManyOutputs`], which is the code
+    /// TypeScript already raises there.
+    #[error("{outputs} outputs are paired with {tags} resolved owner tags")]
+    OutputTagMismatch { outputs: usize, tags: usize },
+
+    #[error("{field} is {actual} bytes, over the {maximum} the external data preimage encodes")]
+    ExternalDataLengthOverflow {
+        field: &'static str,
+        maximum: usize,
+        actual: usize,
+    },
 
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,

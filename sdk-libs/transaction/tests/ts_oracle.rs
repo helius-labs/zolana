@@ -20,7 +20,8 @@ use std::{fs, path::PathBuf};
 
 use serde_json::{json, Map, Value};
 use solana_address::Address;
-use zolana_event::ProoflessOutput;
+use zolana_event::{MessageData, ProoflessOutput};
+use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
     hash::hash_field,
@@ -46,7 +47,7 @@ use zolana_transaction::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
-            AnonymousSenderEncode,
+            AnonymousSenderEncode, AnonymousTransferRecipientPlaintext,
         },
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         merge::{Merge as MergeSerialization, MergeEncode, MergePlaintext},
@@ -125,6 +126,8 @@ fn ts_code(error: &TransactionError) -> &'static str {
         TransactionError::PublicSolAlreadySet => "TRANSACTION_PUBLIC_SOL_ALREADY_SET",
         TransactionError::PublicSplAlreadySet => "TRANSACTION_PUBLIC_SPL_ALREADY_SET",
         TransactionError::ZoneHashesAlreadySet => "TRANSACTION_ZONE_HASHES_ALREADY_SET",
+        TransactionError::ExternalDataLengthOverflow { .. } => "TRANSACTION_INVALID_DATA_LENGTH",
+        TransactionError::OutputTagMismatch { .. } => "TRANSACTION_OUTPUT_TAG_MISMATCH",
         TransactionError::MultiplePublicSplAssets => "TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS",
         TransactionError::MissingPublicSplAsset => "TRANSACTION_MISSING_PUBLIC_SPL_ASSET",
         TransactionError::SignerNotP256 => "TRANSACTION_SIGNER_NOT_P256",
@@ -293,6 +296,21 @@ fn samples() -> Vec<(&'static str, TransactionError)> {
         (
             "ZoneHashesAlreadySet",
             TransactionError::ZoneHashesAlreadySet,
+        ),
+        (
+            "OutputTagMismatch",
+            TransactionError::OutputTagMismatch {
+                outputs: 2,
+                tags: 1,
+            },
+        ),
+        (
+            "ExternalDataLengthOverflow",
+            TransactionError::ExternalDataLengthOverflow {
+                field: "output data",
+                maximum: 65_535,
+                actual: 65_536,
+            },
         ),
         (
             "MultiplePublicSplAssets",
@@ -2697,7 +2715,268 @@ fn oracle() -> Value {
         "transactTypes": transact_types_section(),
         "zoneAuthority": zone_authority_section(),
         "decrypt": decrypt_section(),
+        "externalData": external_data_section(),
+        "anonymousProgression": anonymous_progression_section(),
     })
+}
+
+/// The four `u16` prefixes in the external-data preimage: the output count,
+/// each output's ciphertext length, the message count, and each message's
+/// length. `program-libs/interface` casts rather than checks, so an oversized
+/// input would be hashed over a shortened preimage; by owner ruling (T21) both
+/// SDKs refuse instead. Each case names the counts and lengths rather than the
+/// bytes so the boundary sizes stay describable in a committed fixture.
+fn external_data_section() -> Value {
+    let cases = [
+        ExternalDataShape {
+            name: "small",
+            outputs: 3,
+            messages: 2,
+            output_data_len: Some(4),
+            message_data_len: 4,
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "outputsWithoutData",
+            outputs: 2,
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "fewerTagsThanOutputs",
+            outputs: 2,
+            tags: Some(1),
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "moreTagsThanOutputs",
+            outputs: 2,
+            tags: Some(3),
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "maxOutputs",
+            outputs: 65_535,
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "oneOutputPastMax",
+            outputs: 65_536,
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "maxMessages",
+            messages: 65_535,
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "oneMessagePastMax",
+            messages: 65_536,
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "maxOutputDataLength",
+            output_data_len: Some(65_535),
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "oneOutputDataBytePastMax",
+            output_data_len: Some(65_536),
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "maxMessageDataLength",
+            messages: 1,
+            message_data_len: 65_535,
+            ..ExternalDataShape::default()
+        },
+        ExternalDataShape {
+            name: "oneMessageDataBytePastMax",
+            messages: 1,
+            message_data_len: 65_536,
+            ..ExternalDataShape::default()
+        },
+    ]
+    .into_iter()
+    .map(|shape| {
+        let mut case = Map::new();
+        case.insert("name".into(), json!(shape.name));
+        case.insert("outputs".into(), json!(shape.outputs));
+        case.insert("messages".into(), json!(shape.messages));
+        case.insert("outputDataLength".into(), json!(shape.output_data_len));
+        case.insert("messageDataLength".into(), json!(shape.message_data_len));
+        case.insert("tags".into(), json!(shape.tags));
+        match shape.build().hash() {
+            Ok(hash) => {
+                case.insert("hashHex".into(), json!(hex(&hash)));
+                case.insert("error".into(), Value::Null);
+            }
+            Err(error) => {
+                case.insert("hashHex".into(), Value::Null);
+                case.insert("error".into(), json!(ts_code(&error)));
+            }
+        }
+        Value::Object(case)
+    })
+    .collect::<Vec<_>>();
+
+    json!({
+        "txViewingPublicKeyHex": hex(&[2u8; 33]),
+        "saltHex": hex(&[9u8; 16]),
+        "outputDataByte": EXTERNAL_DATA_OUTPUT_BYTE,
+        "messageDataByte": EXTERNAL_DATA_MESSAGE_BYTE,
+        "cases": cases,
+        "builders": external_data_builder_cases(),
+    })
+}
+
+const EXTERNAL_DATA_SOL_AMOUNT: i64 = 500;
+const EXTERNAL_DATA_SPL_AMOUNT: i64 = -7;
+const EXTERNAL_DATA_DATA_HASH: [u8; 32] = [7u8; 32];
+const EXTERNAL_DATA_ZONE_DATA_HASH: [u8; 32] = [8u8; 32];
+
+/// `ExternalData::new` plus the three builders. Each leg may be set once, so
+/// the sequences that set one twice are what pins the refusal, and the
+/// accepted sequences pin that the defaults `new` fills reach the preimage.
+fn external_data_builder_cases() -> Value {
+    let base = ExternalDataShape {
+        name: "builders",
+        outputs: 2,
+        messages: 1,
+        output_data_len: Some(3),
+        message_data_len: 2,
+        ..ExternalDataShape::default()
+    };
+    let sequences: [(&str, &[&str]); 8] = [
+        ("defaults", &[]),
+        ("publicSol", &["publicSol"]),
+        ("publicSpl", &["publicSpl"]),
+        ("zoneHashes", &["zoneHashes"]),
+        ("allThree", &["publicSol", "publicSpl", "zoneHashes"]),
+        ("publicSolTwice", &["publicSol", "publicSol"]),
+        ("publicSplTwice", &["publicSpl", "publicSpl"]),
+        ("zoneHashesTwice", &["zoneHashes", "zoneHashes"]),
+    ];
+    let cases = sequences
+        .into_iter()
+        .map(|(name, ops)| {
+            let built = ops.iter().try_fold(base.build(), |data, op| match *op {
+                "publicSol" => {
+                    data.with_public_sol(EXTERNAL_DATA_SOL_AMOUNT, address(EXTERNAL_SOL_BYTE))
+                }
+                "publicSpl" => data.with_public_spl(
+                    EXTERNAL_DATA_SPL_AMOUNT,
+                    address(EXTERNAL_SPL_BYTE),
+                    address(EXTERNAL_SPL_INTERFACE_BYTE),
+                ),
+                "zoneHashes" => {
+                    data.with_zone_hashes(EXTERNAL_DATA_DATA_HASH, EXTERNAL_DATA_ZONE_DATA_HASH)
+                }
+                other => panic!("unknown builder op {other}"),
+            });
+            let mut case = Map::new();
+            case.insert("name".into(), json!(name));
+            case.insert("ops".into(), json!(ops));
+            match built.and_then(|data| data.hash()) {
+                Ok(hash) => {
+                    case.insert("hashHex".into(), json!(hex(&hash)));
+                    case.insert("error".into(), Value::Null);
+                }
+                Err(error) => {
+                    case.insert("hashHex".into(), Value::Null);
+                    case.insert("error".into(), json!(ts_code(&error)));
+                }
+            }
+            Value::Object(case)
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "outputs": base.outputs,
+        "messages": base.messages,
+        "outputDataLength": base.output_data_len,
+        "messageDataLength": base.message_data_len,
+        "solAmount": EXTERNAL_DATA_SOL_AMOUNT.to_string(),
+        "splAmount": EXTERNAL_DATA_SPL_AMOUNT.to_string(),
+        "solAccount": address(EXTERNAL_SOL_BYTE).to_string(),
+        "splToken": address(EXTERNAL_SPL_BYTE).to_string(),
+        "splTokenInterface": address(EXTERNAL_SPL_INTERFACE_BYTE).to_string(),
+        "dataHashHex": hex(&EXTERNAL_DATA_DATA_HASH),
+        "zoneDataHashHex": hex(&EXTERNAL_DATA_ZONE_DATA_HASH),
+        "cases": cases,
+    })
+}
+
+const EXTERNAL_SOL_BYTE: u8 = 41;
+const EXTERNAL_SPL_BYTE: u8 = 42;
+const EXTERNAL_SPL_INTERFACE_BYTE: u8 = 43;
+
+const EXTERNAL_DATA_OUTPUT_BYTE: u8 = 0xab;
+const EXTERNAL_DATA_MESSAGE_BYTE: u8 = 0xcd;
+
+/// Counts and payload sizes rather than the bytes themselves; both languages
+/// expand a shape the same way, so the boundary cases stay small on disk.
+struct ExternalDataShape {
+    name: &'static str,
+    outputs: usize,
+    messages: usize,
+    output_data_len: Option<usize>,
+    message_data_len: usize,
+    /// Resolved owner tags, when the case pairs a different number of them
+    /// with the outputs than there are outputs.
+    tags: Option<usize>,
+}
+
+/// One output with no ciphertext and no messages: the smallest shape a case
+/// can vary from.
+impl Default for ExternalDataShape {
+    fn default() -> Self {
+        Self {
+            name: "",
+            outputs: 1,
+            messages: 0,
+            output_data_len: None,
+            message_data_len: 0,
+            tags: None,
+        }
+    }
+}
+
+impl ExternalDataShape {
+    /// Output `i` takes `i` big-endian at the front of its commitment and at
+    /// the back of its owner tag, so a case that pairs the two the wrong way
+    /// round hashes differently instead of passing.
+    fn build(&self) -> ExternalData {
+        let indexed = |index: usize, at_front: bool| {
+            let mut bytes = [0u8; 32];
+            let position = if at_front { 0 } else { 30 };
+            bytes[position..position + 2].copy_from_slice(&(index as u16).to_be_bytes());
+            bytes
+        };
+        let outputs = (0..self.outputs)
+            .map(|index| TransactOutput {
+                utxo_hash: indexed(index, true),
+                owner_tag: OwnerTag::P256SigningKey,
+                data: self
+                    .output_data_len
+                    .map(|len| vec![EXTERNAL_DATA_OUTPUT_BYTE; len]),
+            })
+            .collect();
+        let messages = (0..self.messages)
+            .map(|index| MessageData {
+                view_tag: indexed(index, true),
+                data: vec![EXTERNAL_DATA_MESSAGE_BYTE; self.message_data_len],
+            })
+            .collect();
+        ExternalData::new(
+            [2u8; 33],
+            [9u8; 16],
+            outputs,
+            (0..self.tags.unwrap_or(self.outputs))
+                .map(|index| indexed(index, false))
+                .collect(),
+            messages,
+        )
+    }
 }
 
 const DECRYPT_USER_VIEWING_SEED: [u8; 32] = [31u8; 32];
@@ -2709,6 +2988,84 @@ const DECRYPT_SLOT_INDEX: u32 = 2;
 /// attacker chose, so which category the reader rejects them under is part of
 /// the protocol: a scanner that skips a slot on one category and aborts the
 /// wallet sync on another must see the same category in both languages.
+const ANON_SENDER_VIEWING_SEED: [u8; 32] = [41u8; 32];
+const ANON_RECIPIENT_VIEWING_SEED: [u8; 32] = [43u8; 32];
+const ANON_TX_VIEWING_SEED: [u8; 32] = [47u8; 32];
+const ANON_OWNER_SIGNING_SECRET: [u8; 32] = [53u8; 32];
+const ANON_STEPS: u64 = 4;
+
+/// A sender and a recipient exchanging four anonymous transfers in sequence.
+/// The shared view tag is what lets the recipient find the slot without a
+/// per-transfer channel, and it advances by an index the two derive
+/// independently: the sender from its own key toward the recipient, the
+/// recipient the other way round. Each step also carries the transfer it
+/// addresses, so the case pins that the tag stream and the payload stay in
+/// step rather than only that the tags agree in isolation.
+fn anonymous_progression_section() -> Value {
+    let sender = ViewingKey::from_bytes(&ANON_SENDER_VIEWING_SEED).expect("sender viewing key");
+    let recipient =
+        ViewingKey::from_bytes(&ANON_RECIPIENT_VIEWING_SEED).expect("recipient viewing key");
+    let tx = ViewingKey::from_bytes(&ANON_TX_VIEWING_SEED).expect("tx viewing key");
+    let owner =
+        shielded_keypair(&ANON_OWNER_SIGNING_SECRET, &ANON_SENDER_VIEWING_SEED).signing_pubkey();
+
+    let steps = (0..ANON_STEPS)
+        .map(|index| {
+            let sent = sender
+                .get_send_shared_view_tag(&recipient.pubkey(), index)
+                .expect("send shared view tag");
+            let received = recipient
+                .get_recipient_shared_view_tag(&sender.pubkey(), index)
+                .expect("recipient shared view tag");
+            assert_eq!(sent, received, "the two sides derive one tag per index");
+
+            let salt = [index as u8 + 1; SALT_LEN];
+            let slot_index = index as u32;
+            let plaintext = AnonymousTransferRecipientPlaintext {
+                owner_pubkey: owner,
+                sender_pubkey: sender.pubkey(),
+                asset_id: SOL_ASSET_ID,
+                amount: 100 + index,
+                blinding: [index as u8 + 7; BLINDING_LEN],
+                data: Data::default(),
+            };
+            let bytes = plaintext
+                .serialize()
+                .expect("serialize anonymous recipient");
+            let body = AnonymousRecipient::encrypt(
+                &bytes,
+                &AnonymousRecipientEncode {
+                    tx: tx.clone(),
+                    recipient_pubkey: recipient.pubkey(),
+                    sender_pubkey: sender.pubkey(),
+                    salt,
+                    slot_index,
+                },
+            )
+            .expect("encrypt anonymous recipient");
+
+            json!({
+                "index": index,
+                "tagHex": hex(&sent),
+                "saltHex": hex(&salt),
+                "slotIndex": slot_index,
+                "amount": plaintext.amount.to_string(),
+                "blindingHex": hex(&plaintext.blinding),
+                "plaintextHex": hex(&bytes),
+                "bodyHex": hex(&body),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "senderViewingSeedHex": hex(&ANON_SENDER_VIEWING_SEED),
+        "recipientViewingSeedHex": hex(&ANON_RECIPIENT_VIEWING_SEED),
+        "txViewingSeedHex": hex(&ANON_TX_VIEWING_SEED),
+        "ownerPublicKeyHex": hex(owner.as_bytes()),
+        "steps": steps,
+    })
+}
+
 fn decrypt_section() -> Value {
     let user = ViewingKey::from_bytes(&DECRYPT_USER_VIEWING_SEED).expect("user viewing key");
     let tx = ViewingKey::from_bytes(&DECRYPT_TX_VIEWING_SEED).expect("tx viewing key");
