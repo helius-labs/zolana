@@ -505,7 +505,8 @@ export function prepareZoneAuthority(
   // does, and only the zone program can sign for it. The zone binding is what
   // keeps the authority inside its own policy zone, so the zone is pinned
   // nonzero and every real UTXO carries exactly it, with no exemption for the
-  // default zone.
+  // default zone. The public leg is not bound: settlement and nullification
+  // share one instruction, so a leg in either direction is safe and allowed.
   if (input.zoneProgramId === UNPINNED_ZONE) {
     throw new TransactionError("TRANSACTION_MISSING_ZONE_AUTHORITY_PROGRAM_ID");
   }
@@ -518,13 +519,6 @@ export function prepareZoneAuthority(
     if (!output.isDummy() && output.zoneProgramId !== input.zoneProgramId) {
       throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH", { index });
     }
-  }
-  // A negative public amount pays value out of the zone. A positive one moves
-  // value in, which neither the program nor the circuit gates on the authority
-  // rail, so only the outgoing direction is refused here.
-  const { sol = 0n, spl = 0n } = input.publicAmounts ?? {};
-  if (sol < 0n || spl < 0n) {
-    throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_WITHDRAWAL_NOT_ALLOWED");
   }
   return Object.freeze({
     ...input,

@@ -86,14 +86,16 @@ Against `sdk-libs/transaction/src/authority.rs:48-62` and
 2. `prepareZoneAuthority` rejected any nonzero public amount, which refused a
    zone-authority *deposit* under an error named for withdrawal. Per
    `rejection-validation.md`, neither the program nor the circuit gates a public
-   leg on the authority rail, and the containment rule the guard implements says
-   nothing about value moving in. It now refuses only a negative amount;
-   `transaction/test/transfer.test.ts` asserts a positive one builds. The
-   withdrawal half is untouched, pending the owner ruling that document asks for.
-   `double-spend-analysis.md` since showed by execution that double-spend
-   protection holds on the withdrawal path too, so the direction left refused is
-   a policy choice rather than a safety boundary, and relaxing the deposit
-   direction risks no invariant.
+   leg on the authority rail. The narrow relaxation to `amount < 0` landed in
+   `d2ff553b`; the owner then ruled in `authority-rulings.md` (`2030aa2f`) that
+   a zone authority may pay value out as well, on the strength of
+   `double-spend-analysis.md` showing by execution that nullification and
+   settlement share one instruction with no partial-application path. The guard
+   and its error code `TRANSACTION_ZONE_AUTHORITY_WITHDRAWAL_NOT_ALLOWED` are
+   therefore gone, and the test asserts a public leg builds in either direction.
+   The Rust counterpart (`sdk-libs/transaction/src/instructions/zone_authority.rs:72-80`)
+   still carries the `amount != 0` guard and needs the same removal; that crate
+   is outside this change.
 3. `LocalWalletAuthority.requestUserApproval` rejected a request naming another
    Solana address with `WALLET_APPROVAL_IDENTITY_MISMATCH`. Rust takes the trait
    default, which approves without inspecting the request, so the error code is
