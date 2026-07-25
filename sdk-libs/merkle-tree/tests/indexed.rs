@@ -2,7 +2,10 @@ use num_bigint::{BigUint, ToBigUint};
 use num_traits::Num;
 use zolana_hasher::{bigint::bigint_to_be_bytes_array, Hasher, Poseidon};
 use zolana_indexed_array::HIGHEST_ADDRESS_PLUS_ONE;
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
+use zolana_merkle_tree::{
+    indexed::{IndexedMerkleTree, IndexedReferenceMerkleTreeError},
+    ReferenceMerkleTreeError,
+};
 
 const MERKLE_TREE_HEIGHT: usize = 4;
 const MERKLE_TREE_CANOPY: usize = 0;
@@ -75,4 +78,49 @@ pub fn functional_non_inclusion_test() {
     relayer_merkle_tree
         .verify_non_inclusion_proof(&non_inclusion_proof)
         .unwrap();
+}
+
+#[test]
+fn non_inclusion_verifier_rejects_untrusted_roots_and_paths() {
+    let mut tree =
+        IndexedMerkleTree::<Poseidon, usize>::new(MERKLE_TREE_HEIGHT, MERKLE_TREE_CANOPY).unwrap();
+    tree.append(&30_u32.to_biguint().unwrap()).unwrap();
+
+    let mut wrong_root = tree
+        .get_non_inclusion_proof(&10_u32.to_biguint().unwrap())
+        .unwrap();
+    wrong_root.root[0] ^= 1;
+    assert_eq!(
+        tree.verify_non_inclusion_proof(&wrong_root),
+        Err(IndexedReferenceMerkleTreeError::NonInclusionProofFailed)
+    );
+
+    let mut wrong_path = tree
+        .get_non_inclusion_proof(&10_u32.to_biguint().unwrap())
+        .unwrap();
+    wrong_path.merkle_proof[0][0] ^= 1;
+    assert_eq!(
+        tree.verify_non_inclusion_proof(&wrong_path),
+        Err(IndexedReferenceMerkleTreeError::NonInclusionProofFailed)
+    );
+}
+
+#[test]
+fn non_inclusion_verifier_requires_the_tree_height() {
+    let tree =
+        IndexedMerkleTree::<Poseidon, usize>::new(MERKLE_TREE_HEIGHT, MERKLE_TREE_CANOPY).unwrap();
+    let mut proof = tree
+        .get_non_inclusion_proof(&10_u32.to_biguint().unwrap())
+        .unwrap();
+    proof.merkle_proof.pop();
+
+    assert_eq!(
+        tree.verify_non_inclusion_proof(&proof),
+        Err(IndexedReferenceMerkleTreeError::Reference(
+            ReferenceMerkleTreeError::InvalidProofLength(
+                MERKLE_TREE_HEIGHT - 1,
+                MERKLE_TREE_HEIGHT
+            )
+        ))
+    );
 }

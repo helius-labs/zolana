@@ -18,6 +18,8 @@ pub enum IndexedReferenceMerkleTreeError {
     NonInclusionProofFailedLowerBoundViolated,
     #[error("NonInclusionProofFailedHigherBoundViolated")]
     NonInclusionProofFailedHigherBoundViolated,
+    #[error("NonInclusionProofFailed")]
+    NonInclusionProofFailed,
     #[error(transparent)]
     Indexed(#[from] IndexedArrayError),
     #[error(transparent)]
@@ -174,6 +176,10 @@ where
         &self,
         proof: &NonInclusionProof,
     ) -> Result<(), IndexedReferenceMerkleTreeError> {
+        if proof.root != self.root() {
+            return Err(IndexedReferenceMerkleTreeError::NonInclusionProofFailed);
+        }
+
         let value_big_int = BigUint::from_bytes_be(&proof.value);
         let lower_end_value = BigUint::from_bytes_be(&proof.leaf_lower_range_value);
         if lower_end_value >= value_big_int {
@@ -192,8 +198,12 @@ where
             next_index: proof.next_index,
         };
         let leaf_hash = array_element.hash::<H>(&higher_end_value)?;
-        self.merkle_tree
-            .verify(&leaf_hash, &proof.merkle_proof, proof.leaf_index)?;
+        if !self
+            .merkle_tree
+            .verify(&leaf_hash, &proof.merkle_proof, proof.leaf_index)?
+        {
+            return Err(IndexedReferenceMerkleTreeError::NonInclusionProofFailed);
+        }
         Ok(())
     }
 }
