@@ -36,10 +36,11 @@ revisions must not be combined into one parity claim without an explicit compati
 
 ## Entry criteria and scope
 
-This document is a post-parity certification overlay. It does not repeat the 118-row inventory or
+This document is a post-parity certification overlay. It does not repeat the row inventory or
 replace its verdicts. Start PKP-00 only after:
 
-1. the 118 rows have been reviewed;
+1. the 145 rows have been reviewed, a denominator raised from 118 on 2026-07-25 by the coverage
+   audit;
 2. actionable adverse rows have been implemented and independently re-reviewed;
 3. specification-authority blockers have a recorded decision and matching implementation evidence;
 4. full CI, fixture regeneration, browser, packed-package consumer, action E2E, and instruction E2E
