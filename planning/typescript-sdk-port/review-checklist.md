@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `ac364ba03994d909f0d89888d3df83882c8787c5`
+- Review HEAD: `c94c05a1c60de345cd321abfe0498aac5921efd3`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `33 done / 118 total`; `45 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `T20 sdk-libs/transaction/src/instructions/transact/shape.rs`
+- Progress: `33 done / 118 total`; `46 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `T21 sdk-libs/transaction/src/instructions/transact/external_data.rs`
 - Active reviews: `none`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
@@ -238,7 +238,7 @@ Columns:
 | T17 | `sdk-libs/transaction/src/wallet/mod.rs` | `transaction/src/wallet/index.ts` | needs_fix | DIVERGENT | proposed | TypeScript root and wallet entry points omit much of Rust's aggregate public API, expose an undeclared serial worker alias plus mutable internals and registry entries, and lack exact runtime, declaration, tarball, browser, named-consumer, and aggregate-fixture allowlists. Add the missing aggregate surface, remove or document excess exports, and prove exact entry-point contracts while preserving T12-T16 ownership and their Rust prerequisites. | 2026-07-25 review | - |
 | T18 | `sdk-libs/transaction/src/instructions/types.rs` | `transaction/src/instructions/index.ts`, `utxo.ts` | needs_fix | DIVERGENT | proposed | A TypeScript proof-input wrapper exists, but custom zero-owner inputs hash different fields, construction retains mutable UTXO and nullifier-key references instead of Rust ownership and clone semantics, the instructions subpath omits the mapped class, and inventory and evidence are stale. First make Rust reject noncanonical zero-owner dummies; meanwhile require TypeScript to match current-Rust hashing, then align ownership, exports, inventory, and evidence. | 2026-07-25 review | - |
 | T19 | `sdk-libs/transaction/src/instructions/transact/types.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | TypeScript only partially covers the default private-hash and indexed-shape paths; it omits public Rust aggregate, builder, hash, and output-slot capabilities, runtime validation, owned copies, equality, root and instructions exports, fixtures for omitted capabilities, and adversarial cases. First require zero dummy hashes, address-hash cardinality equal to input cardinality, and a zone program when the zone hash is nonzero in Rust; then align the TypeScript surface and evidence while preserving T11 canonical UTXO and zone-validation ownership and T18 input construction, dummy, hash, nullifier, and ownership responsibility. | 2026-07-25 review | - |
-| T20 | `sdk-libs/transaction/src/instructions/transact/shape.rs` | `transaction/src/transact/index.ts` | todo | - | none | - | - | - |
+| T20 | `sdk-libs/transaction/src/instructions/transact/shape.rs` | `transaction/src/transact/index.ts` | needs_fix | DIVERGENT | proposed | The canonical immutable interface shape table and TypeScript selection match Rust, but TypeScript conflates `TooManyOutputsForShape`, treats malformed falsy declarations as omission, and lacks exhaustive boundary, error, declaration, runtime, and pack evidence. Align those TypeScript semantics and evidence while preserving I02 interface shape ownership; no Rust implementation change is required, though direct Rust tests are missing. | 2026-07-25 review | - |
 | T21 | `sdk-libs/transaction/src/instructions/transact/external_data.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
 | T22 | `sdk-libs/transaction/src/instructions/transact/slots.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
 | T23 | `sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
@@ -1448,3 +1448,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `33/118`; package `0/31`
 - Exact next file: `T20 sdk-libs/transaction/src/instructions/transact/shape.rs`
 - Full SDK parity claim: unsupported; transact aggregate, validation, ownership, equality, export, fixture, and adversarial coverage diverge
+
+### 2026-07-25 12:30 UTC | T20 | `sdk-libs/transaction/src/instructions/transact/shape.rs`
+
+- Baseline: HEAD `c94c05a1c60de345cd321abfe0498aac5921efd3`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module selects a canonical transaction shape and validates optional declared shape capacity while reusing the immutable interface-owned shape table. I02 retains ownership of the public shape type, constants, table, ordering, and immutability.
+- Evidence: The canonical immutable table and selection match current Rust. TypeScript conflates `TooManyOutputsForShape`, treats malformed falsy declarations as omission, and lacks exhaustive boundary, error, declaration, runtime, and pack evidence. Direct Rust tests for this module are also missing; no Rust implementation defect was found.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: Align TypeScript declared-shape validation and error distinctions, then add exhaustive boundary, error, declaration, runtime, and packed-package evidence without duplicating or changing I02 interface shape ownership. Add direct Rust tests as evidence only; no Rust implementation change is required.
+- Row transition: `todo -> needs_fix`
+- Progress: `33/118`; package `0/31`
+- Exact next file: `T21 sdk-libs/transaction/src/instructions/transact/external_data.rs`
+- Full SDK parity claim: unsupported; declared-shape semantics and boundary, error, declaration, runtime, pack, and direct Rust evidence remain incomplete
