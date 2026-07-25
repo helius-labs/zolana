@@ -8,7 +8,7 @@ use zolana_interface::event::{
 /// encoded event as instruction data and no accounts, so the event is recorded
 /// in the transaction's inner-instruction log for indexers to read.
 #[inline(never)]
-pub(crate) fn emit_encoded_event(data: &[u8]) -> ProgramResult {
+fn emit_encoded_event(data: &[u8]) -> ProgramResult {
     let instruction = InstructionView {
         program_id: &crate::ID,
         accounts: &[],

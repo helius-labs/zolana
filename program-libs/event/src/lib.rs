@@ -2,7 +2,6 @@ pub mod output_data;
 pub mod output_utxo;
 pub mod proofless;
 pub mod tag;
-pub mod write;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use output_data::MessageData;
@@ -11,7 +10,6 @@ pub use proofless::{
     encode_output_data, encode_verifiably_encrypted, OutputDataEncoding, ProoflessOutput,
     PLAINTEXT_OUTPUT_FIXED_LEN,
 };
-pub use write::{EventLengthOverflow, ProoflessEvent, ProoflessOutputSlot};
 
 /// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing
 /// instructions (spec: General Event). It records the queue sequence numbers and

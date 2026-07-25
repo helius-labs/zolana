@@ -1,12 +1,11 @@
 use pinocchio::ProgramResult;
 use zolana_interface::{
-    error::ShieldedPoolError,
-    event::{DepositWithdraw, EventKind, ProoflessEvent, ProoflessOutput, ProoflessOutputSlot},
-    instruction::DepositEntry,
+    event::{encode_output_data, DepositWithdraw, EventKind, GeneralEvent, ProoflessOutput},
+    instruction::{DepositEntry, OutputUtxo},
 };
 
 use super::processor::ZoneData;
-use crate::instructions::event::emit_encoded_event;
+use crate::instructions::event::emit_general_event;
 
 pub(crate) struct ProoflessOutputCtx {
     pub utxo_hash: [u8; 32],
@@ -14,11 +13,11 @@ pub(crate) struct ProoflessOutputCtx {
     pub zone_program_id: Option<[u8; 32]>,
 }
 
-pub(crate) fn proofless_output_slot(
+pub(crate) fn proofless_output_utxo(
     entry: DepositEntry,
     zone: Option<ZoneData>,
     ctx: ProoflessOutputCtx,
-) -> ProoflessOutputSlot {
+) -> OutputUtxo {
     let (data_hash, utxo_data) = match entry.utxo_data {
         Some(record) => (Some(record.data_hash), Some(record.data)),
         None => (None, None),
@@ -27,41 +26,43 @@ pub(crate) fn proofless_output_slot(
         Some(zone) => (Some(zone.data_hash), Some(zone.data)),
         None => (None, None),
     };
-    ProoflessOutputSlot {
+    let data = encode_output_data(ProoflessOutput {
+        owner: entry.owner,
+        blinding: entry.blinding,
+        asset: ctx.asset,
+        amount: entry.amount,
+        data_hash,
+        utxo_data,
+        zone_program_id: ctx.zone_program_id,
+        zone_data_hash,
+        zone_data,
+        memo: entry.memo,
+    });
+    OutputUtxo {
         view_tag: entry.view_tag,
         utxo_hash: ctx.utxo_hash,
-        output: ProoflessOutput {
-            owner: entry.owner,
-            blinding: entry.blinding,
-            asset: ctx.asset,
-            amount: entry.amount,
-            data_hash,
-            utxo_data,
-            zone_program_id: ctx.zone_program_id,
-            zone_data_hash,
-            zone_data,
-            memo: entry.memo,
-        },
+        data,
     }
 }
 
-pub(crate) struct DepositEvent<'a> {
-    pub outputs: &'a [ProoflessOutputSlot],
-    pub deposit_withdraws: &'a [DepositWithdraw],
+pub(crate) struct DepositEvent {
+    pub outputs: Vec<OutputUtxo>,
+    pub deposit_withdraws: Vec<DepositWithdraw>,
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
 }
 
-/// Encode the event into one exactly-sized allocation and emit it, so no output's
-/// plaintext is written to an intermediate buffer first.
-pub(crate) fn emit_deposit_event(e: DepositEvent<'_>) -> ProgramResult {
-    let encoded = ProoflessEvent {
+pub(crate) fn emit_deposit_event(e: DepositEvent) -> ProgramResult {
+    let event = GeneralEvent {
+        inputs: Vec::new(),
         outputs: e.outputs,
-        deposit_withdraws: e.deposit_withdraws,
+        messages: Vec::new(),
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
         first_output_leaf_index: e.first_output_leaf_index,
         output_tree: e.output_tree,
-    }
-    .encode(EventKind::Deposit)
-    .map_err(|_| ShieldedPoolError::EventEncodingOverflow)?;
-    emit_encoded_event(&encoded)
+        relay_fee: None,
+        deposit_withdraws: e.deposit_withdraws,
+    };
+    emit_general_event(EventKind::Deposit, event)
 }

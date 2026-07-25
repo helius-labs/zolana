@@ -22,13 +22,6 @@ name = "output_data"
 path = "tests/output_data.rs"
 required-features = ["program-test"]
 
-[[test]]
-name = "event_write"
-path = "tests/event_write.rs"
-required-features = ["program-test"]
-
-[dev-dependencies]
-proptest = { workspace = true }
 
 [dependencies]
 borsh = { workspace = true }
