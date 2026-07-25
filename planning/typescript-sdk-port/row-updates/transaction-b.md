@@ -1,6 +1,6 @@
 # Transaction rows, second pass, `port/transaction-b`
 
-Branch: `port/transaction-b`, eight commits on the integration tip.
+Branch: `port/transaction-b`, ten commits on the integration tip.
 
 | Commit | What it closed |
 | --- | --- |
@@ -12,6 +12,8 @@ Branch: `port/transaction-b`, eight commits on the integration tip.
 | `ac7c260a` | The zone-authority shape check |
 | `4d54a140` | The merge UTXO rebuild |
 | `4e11c369` | The proofless note layout, reader and writer |
+| `c69d0a97` | The two encrypted rails' reader categories |
+| `e709d398` | The split envelope's wire form |
 
 ## What the evidence is
 
@@ -22,7 +24,7 @@ runs the production Rust path over a case list and writes
 fails if Rust drifts from the committed file, and
 `sdk-libs/ts/transaction/test/vectors/rust-oracle.test.ts` replays the same
 inputs through TypeScript. A divergence fails one side or the other. The file
-now runs 193 tests, up from 72.
+now runs 214 tests, up from 72.
 
 Regenerate with:
 
@@ -35,12 +37,13 @@ prepared-value cases across both rails), `split` (16 cases), `fields` (9 signed
 amounts, 3 assets), `utxo.canonicalDummy` (10 cases), `transactTypes` (7
 private-transaction hash chains, 4 input UTXOs, 9 output builder sequences, 4
 encrypted transactions), `zoneAuthority` (9 cases),
-`fromUtxos.mergeIntoUtxos` (4 cases), and `serialization.proofless` (5 notes,
-each read back as well as written).
+`fromUtxos.mergeIntoUtxos` (4 cases), `serialization.proofless` (5 notes, each
+read back as well as written), `serialization.splitEncrypted` (3 envelopes plus
+a foreign scheme prefix), and `decrypt` (17 bodies across the two rails).
 
 ## Divergences the evidence exposed
 
-Nine, all fixed on the TypeScript side because Rust was the authority in each.
+Eleven, each fixed on the TypeScript side because Rust was the authority.
 
 1. **`ConfidentialTransfer.send` and `.withdraw` rejected a zero amount.** Rust
    performs no such check; `zeroAmountRecipient` and `zeroAmountWithdrawal` are
@@ -73,7 +76,7 @@ Nine, all fixed on the TypeScript side because Rust was the authority in each.
    `TransactionError::Keypair`, so an out-of-field input reports
    `TRANSACTION_KEYPAIR`. TypeScript reported `TRANSACTION_HASH` from the same
    input. The `addressHashOutOfField` case fails if either side moves. This
-   changes the code every hashing path raises, so it is the widest of the nine.
+   changes the code every hashing path raises, so it is the widest one here.
 8. **`prepareZoneAuthority` accepted an unprovable shape.** Rust
    `PreparedZoneAuthority::new` resolves the shape through
    `SppProofInputs::check_shape` and rejects padded slot counts that name no
@@ -88,6 +91,16 @@ Nine, all fixed on the TypeScript side because Rust was the authority in each.
    `Data`. Ported as `withZoneData`, `withZoneProgramId`, `withZoneDataHash`,
    `withUtxoData`, and `withMemo`; `memoThenZoneData` and `memoReplaced` are the
    cases that fail if the ordering or the replacement changes.
+10. **A malformed published slot escaped as a `KeypairError`.** Rust converts
+    every keypair failure crossing into a transaction path with `?`, so a body
+    whose embedded key is off the curve reports `TRANSACTION_KEYPAIR`.
+    TypeScript let the underlying `KeypairError` through, which no transaction
+    caller catches; a wallet scanning slots would abort rather than skip the
+    slot. `publicKeyOffCurve` on both rails fails without the fix.
+11. **The short-body length detail used a key Rust does not.** Rust reports a
+    body too short to hold the embedded key as `InvalidLength { expected: 33 }`;
+    the three TypeScript readers reported `expectedMinimum`. Renamed, and the
+    three now share one `splitEmbeddedKey` helper.
 
 ## Row dispositions
 
@@ -100,7 +113,7 @@ inputs and compares, so the row would fail on divergence.
 | T04 | `PARITY` | The row's named fix was to export a `plaintextTransferFromUtxos` counterpart. It exists, is exported from the package root, and the oracle replays 10 cases through it: the full sender-plus-recipients shape, an empty set, recipients only, both asset-slot crossings, a foreign owner in the sender slot, a blinding off the seed, a recipient position gap, a zone mismatch, and an unregistered mint. Encodings are byte-identical and every rejection matches by code. On the stale `serialization-v1` fixture, the same reasoning the previous batch applied to T02 holds: the oracle supersedes it as evidence, and its staleness is the fixture-pipeline issue, not a behavioural gap. |
 | T06 | `PARTIAL` | Advanced. `anonymousRecipientFromUtxos` and `anonymousSenderFromUtxos` both exist, are exported, and are replayed over 11 cases (single, memo-bearing, zone-bound, empty, two UTXOs, foreign owner; SPL-and-SOL, SOL only, empty, SOL at the SPL position, two SPL legs). Not `PARITY`: the row also asks for shared-tag state progression, which nothing in this branch exercises. |
 | T07 | `PARITY` | Both halves are closed. `prooflessFromUtxos` is exported and replayed over four cases (single, every record kind, empty, foreign owner), and `decodeProofless`, which the row called private, is exported from `./serialization` and executed: `serialization.proofless` replays five notes covering all six optional fields absent, all present, the zone trio only, `u64::MAX`, and the empty-payload case Borsh distinguishes from absent. Both the writer and the reader are compared against Rust bytes field by field. The memo ruling half is settled elsewhere. |
-| T08 | `PARTIAL` | Advanced. Both named residuals are closed: `SplitEncryptedUtxos` is exported from `./serialization` and `splitBundleFromUtxos` is the `Split::from_utxos` counterpart, replayed over six cases including all four mismatch categories. Not `PARITY`: the row also asks for browser and export evidence, which this pass did not produce. |
+| T08 | `PARITY` | `splitBundleFromUtxos` is the `Split::from_utxos` counterpart, replayed over six cases covering the four mismatch categories, and `SplitEncryptedUtxos` is no longer only exported: `serialization.splitEncrypted` round-trips three envelopes (empty ciphertext, short, and 300 bytes, which is the case a byte length prefix would truncate) and rejects a foreign scheme prefix with the code Rust raises. The row's browser and export classes exist as repo gates rather than as row work: `npm run test:browser --workspace @zolana/transaction` bundles all five entry points under the browser condition and fails on a Node global, and the oracle test imports each named symbol from the package barrels, so deleting an export fails typecheck. |
 | T22 | `PARITY` | The row's sole residual was that `encode_confidential_slots` had no named TypeScript export, its logic living inside `LocalWalletAuthority.encryptConfidentialTransfer`. It is now `encodeConfidentialSlots` in `instructions/transact.ts`, exported from the root and from `./instructions`, and the authority calls it rather than duplicating it. It is executed by every transfer path in the suite, including the new `ConfidentialTransfer.sign`. `slotOrdinal` agreement over eight positions including `u32::MAX` was already pinned by the previous batch. |
 | T24 | `PARITY` | Both named residuals are ported: `PreparedSplit.ownerViewTag` and `ConfidentialSplit.sign`, the keypair rail that derives the salt, the blinding seed, and the transaction viewing key instead of taking them from an authority, and signs in place on P256. The builder's decision set is pinned by 16 oracle cases: part counts 0, 1, 2, 8 and 9, a zero-value split, an amount mismatch, a product that overflows `u64` (Rust's `checked_mul` and TypeScript's bigint comparison agree on `SplitAmountMismatch`), a dummy input, a foreign owner, a foreign nullifier key, an asset mismatch, a zone-bound input, and both data forms. Accepted cases also compare all eight slot amounts, the first nullifier, the owner view tag, and the payer hash. |
 | T25 | `PARITY` | All four residuals closed. The three behavioural ones are divergences 2, 3 and 4 above, each fixed and each covered: `declaredShapeWithRoomToPad` (shape `1x8`, three real outputs) fails if padding moves back into `prepare`, and `oneRecipient` (one input, shape `2x3`) fails if inputs are padded early. `SENDER_SLOT_COUNT` is exported and checked against the Rust constant. `ConfidentialTransfer.sign` is ported and asserted to reach the same shape and the same output hashes as the authority rail. `Recipient` and `Withdrawal` are Rust-internal shapes carried by `WithdrawalTarget` and the `send` parameters on the TypeScript side; nothing in the public surface needs them as named types. |
@@ -111,29 +124,25 @@ inputs and compares, so the row would fail on divergence.
 | T09 | `PARITY` | The row's named residual, `mergeUtxo` raising `TRANSACTION_UNKNOWN_ASSET` where Rust returns `UnknownAssetField`, is closed and now executed. `fromUtxos.mergeIntoUtxos` replays `Merge::into_utxos` over four cases: SOL, an SPL mint, a zone-bound rebuild that must carry the zone onto the UTXO, and an unregistered asset field that both languages reject as `TRANSACTION_UNKNOWN_ASSET_FIELD`. The forward direction (`mergePlaintextFromUtxo`) was closed by the previous batch. The row's browser and proof-contribution classes are test infrastructure rather than parity questions. |
 | T28 | `PARTIAL` | Advanced. The zone rail's accept and reject set is now executed: a zone-bound input, one carrying zone data and a zone data hash, one carrying a memo, one carrying UTXO data, one carrying an external data hash, one with no zone, and one with a foreign zone. Divergence 6 above was found here and fixed. Not `PARITY`: the row asks for canonical zone-hash validation at construction, which neither language performs, so closing it means adding a rule to Rust first. |
 | T11 | `PARITY` | The field-helper residual is closed: `signedToField` and `assetField` are ported and exported, with `BN254_MODULUS_DEC` as the domain constant, and the oracle compares nine signed amounts (zero, `+/-1`, `+/-500`, both `i64` bounds, `i64::MIN + 1`, `u32::MAX`) and three assets. The row's second ask, that the zone rule not be reachable only through `with_zone`, is met: the struct fields are public, so `ProofInputUtxo::hash` re-checks it and every consumer hashes. The builder path is covered by `nonzero_zone_hash_requires_zone_program` in `sdk-libs/transaction/src/utxo.rs`, the hash path by `proofInputHashes/zoneDataWithoutZoneProgram`. |
+| T05 | `PARITY` | The row's residual, that decryption failures do not land in the current Rust categories, is closed and executed. `decrypt` replays 17 bodies through both rails' readers: a valid one, which proves the two languages derive the same key from the same seeds rather than merely failing alike, and eight malformed ones per rail (empty, a truncated key, a key with no ciphertext, a key off the curve, a ciphertext short by one byte, one byte long, and one bit flipped), plus a confidential body read at the wrong slot index. Divergences 10 and 11 were found here. The row names a Rust `Decrypt` variant that does not exist; the category is `TransactionError::Keypair`, which is what the fix targets. The browser class is the package gate named under T08, and the stale `serialization-v1` fixture is the pipeline issue ruled on for T02 and T04. |
 | T12 | `PARTIAL`, unchanged | The `entries()` disposition is an API decision, not a parity question. The previous batch's proposal stands: keep it and record it as a TypeScript-only accessor. |
 | T02, T03, T20 | unchanged | Closed or advanced by the previous batch; nothing here touches them. |
 | T05, T10, T13-T17, T26, T30, T31 | unchanged | Not reached. See below. |
 
-Count: `12` rows reach evidence-backed `PARITY` this pass (T01, T04, T07, T09,
-T11, T18, T19, T22, T24, T25, T27, T29). `3` are advanced by new executed
-evidence but remain adverse (T06, T08, T28). The rest were not reached.
+Count: `14` rows reach evidence-backed `PARITY` this pass (T01, T04, T05, T07,
+T08, T09, T11, T18, T19, T22, T24, T25, T27, T29). `2` are advanced by new
+executed evidence but remain adverse (T06, T28). The rest were not reached.
 
 ## Rows that remain adverse, and why
 
-- **T05** wants decryption failures mapped onto the Rust `Decrypt` categories.
-  Current Rust has no `Decrypt` variant: `viewing_key.decrypt_verifiable`
-  returns a `KeypairError`, so the category is `TransactionError::Keypair`. The
-  row's wording predates that. Closing it means generating malformed-ciphertext
-  vectors and pinning the keypair category on both sides, which is the same
-  alignment divergence 7 made for hashing. Not reached.
-- **T06 and T08** each have one named residual left that is not a `from_utxos`
-  question: shared-tag progression and browser-plus-export evidence
-  respectively.
+- **T06** has one named residual left that is not a `from_utxos` question:
+  shared-tag state progression, which nothing in this branch exercises.
 - **T10, T17, T26, T30, T31** are aggregate export rows. They inherit the rows
   below them and ask for six allowlist classes each (declaration, runtime,
   tarball, browser, packed-consumer, aggregate-fixture). None of that is
-  behavioural; it needs a build-and-pack harness rather than an oracle. The
+  behavioural, and five of the six classes already exist as the
+  `npm run check:packaging` gates; what is missing is the per-symbol allowlist
+  fixture, which no test asserts. The
   root and `./instructions` aggregates gained `SENDER_SLOT_COUNT`,
   `BN254_MODULUS_DEC`, `signedToField`, `assetField`,
   `encodeConfidentialSlots`, `createInputUtxo`, `createEncryptedTransaction`,
@@ -169,6 +178,15 @@ out-of-field input, from `TRANSACTION_HASH` to `TRANSACTION_KEYPAIR`. Nothing in
 the suite depended on the old code, and `TRANSACTION_HASH` stays declared
 because Rust's `TransactionError::Hash(String)` maps onto it, but a downstream
 caller matching on the old code would need updating.
+
+The export and browser evidence classes several rows ask for already exist as
+repo gates: `npm run check:packaging` runs the export map, dependency,
+API-report, browser-bundle, and packed-consumer checks. All of them pass except
+the workspace-wide browser bundle, which fails on `globalThis.process` reaching
+it through `sdk-libs/ts/client/src/prover/client.ts`. That is outside the
+transaction rows and untouched by this branch; `npm run test:browser
+--workspace @zolana/transaction` passes on its own. Whoever owns the client
+rows should see it.
 
 Three row texts are now out of date in ways worth folding in rather than
 copying: T05 names a Rust `Decrypt` variant that does not exist, T19 asks for
