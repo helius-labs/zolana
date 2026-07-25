@@ -54,6 +54,7 @@ impl MergeZone {
             AccountMeta::new(self.tree, false),
             AccountMeta::new_readonly(zone_config, auth_signer),
             AccountMeta::new(self.payer, true),
+            AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ];
 
@@ -107,7 +108,13 @@ mod tests {
         let keys: Vec<_> = ix.accounts.iter().map(|m| m.pubkey).collect();
         assert_eq!(
             keys,
-            vec![builder.tree, zone_config, builder.payer, PROGRAM_ID_PUBKEY]
+            vec![
+                builder.tree,
+                zone_config,
+                builder.payer,
+                Pubkey::default(),
+                PROGRAM_ID_PUBKEY
+            ]
         );
         // `.instruction()` targets the zone program, so the `zone_auth` PDA is not
         // a transaction-level signer.

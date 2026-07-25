@@ -62,8 +62,6 @@ impl Transact {
             Some(TransactWithdrawal::Sol(sol)) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
                 accounts.push(AccountMeta::new(sol.recipient, false));
-                // System program for the `settle_sol` Transfer CPI.
-                accounts.push(AccountMeta::new_readonly(Pubkey::default(), false));
             }
             Some(TransactWithdrawal::Spl(spl)) => {
                 if let Some(cpi_authority) = spl.cpi_authority {
@@ -76,6 +74,9 @@ impl Transact {
             }
             None => {}
         }
+        // System program for the forester-fee collection CPI and, on the native
+        // SOL rail, public settlement.
+        accounts.push(AccountMeta::new_readonly(Pubkey::default(), false));
         // Program account, loadable for the `emit_event` self-CPI.
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 

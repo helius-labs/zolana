@@ -46,7 +46,6 @@ pub fn process_zone_authority_transact_ix(
         &ix,
         &mut proof_inputs,
         transact_accounts,
-        clock.slot,
         ZONE_AUTHORITY_TRANSACT,
         &resolved_outputs,
     )

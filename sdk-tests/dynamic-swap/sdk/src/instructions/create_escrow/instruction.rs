@@ -39,11 +39,12 @@ impl CreateEscrow {
         } = self;
 
         // SPP resolves each spent input's owner by position within the forwarded
-        // transact account tail: [authority(payer)=0, tree=1, owner=2, program=3].
+        // transact account tail: [authority(payer)=0, tree=1, system_program=2,
+        // owner=3, program=4].
         // create_escrow's two inputs are the source UTXO (owned by `owner`) and
         // maker_funding (owned by `authority`), so route each to its owner's slot.
         const PAYER_POSITION: u8 = 0;
-        const OWNER_POSITION: u8 = 2;
+        const OWNER_POSITION: u8 = 3;
         route_input(&mut transact, 0, OWNER_POSITION)?;
         route_input(&mut transact, 1, PAYER_POSITION)?;
 
@@ -63,10 +64,11 @@ impl CreateEscrow {
             AccountMeta::new_readonly(pair, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-            // Forwarded SPP `transact` CPI tail: payer, tree, the owner signer,
-            // then the shielded-pool program id last.
+            // Forwarded SPP `transact` CPI tail: payer, tree, System Program for
+            // fee collection, the owner signer, then the shielded-pool program.
             AccountMeta::new(authority, true),
             AccountMeta::new(tree, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(owner, true),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];

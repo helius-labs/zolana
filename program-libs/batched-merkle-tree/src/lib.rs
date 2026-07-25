@@ -19,6 +19,7 @@
 //! | [`initialize_address_tree`] | Initialize a batched address or nullifier tree |
 //! | [`merkle_tree_metadata`] | Tree and queue metadata structs |
 //! | [`merkle_tree_update`] | Apply queued batches to the tree |
+//! | [`events`] | Batch update events |
 //! | [`verify`] | Groth16 verification and verifying keys |
 //! | [`errors`] | Error types for batch operations |
 //!
@@ -72,17 +73,11 @@
 //! **Root history:** A cyclic buffer of recent roots (default: 200) keeps
 //! validity proofs valid as the tree continues to update.
 //!
-//! **Rollover:** When a tree reaches capacity (`2^height` leaves) it is replaced
-//! with a new tree. The old tree is marked rolled over and keeps its roots for
-//! ongoing validity proofs. Rollover is allowed once the rollover threshold is
-//! met (default: 95% full). Rollover metadata lives in [`merkle_tree_metadata`].
-//!
 //! ## Dependencies
 //!
 //! - **`zolana-bloom-filter`** - Bloom filter for non-inclusion proofs
 //! - **`zolana-hasher`** - Poseidon hash for hash chains and tree operations
 //! - **`groth16-solana`** - Groth16 proof verification for batch updates (see [`verify`])
-//! - **`zolana-merkle-tree-metadata`** - Shared metadata structures for Merkle trees
 //! - **`zolana-account-checks`** - Account validation and discriminator checks
 //!
 //! ## Testing and reference implementations
@@ -108,6 +103,7 @@
 pub mod batch;
 pub mod constants;
 pub mod errors;
+pub mod events;
 pub mod initialize_address_tree;
 pub mod merkle_tree;
 pub mod merkle_tree_metadata;
@@ -120,43 +116,3 @@ pub mod zero_copy;
 
 // Use the appropriate BorshDeserialize and BorshSerialize based on feature
 use borsh::{BorshDeserialize, BorshSerialize};
-
-pub(crate) fn serialize_address<W: borsh::io::Write>(
-    address: &solana_address::Address,
-    writer: &mut W,
-) -> borsh::io::Result<()> {
-    borsh::BorshSerialize::serialize(&address.to_bytes(), writer)
-}
-
-pub(crate) fn deserialize_address<R: borsh::io::Read>(
-    reader: &mut R,
-) -> borsh::io::Result<solana_address::Address> {
-    <[u8; 32] as borsh::BorshDeserialize>::deserialize_reader(reader)
-        .map(solana_address::Address::from)
-}
-
-pub(crate) fn serialize_option_address<W: borsh::io::Write>(
-    address: &Option<solana_address::Address>,
-    writer: &mut W,
-) -> borsh::io::Result<()> {
-    match address {
-        Some(address) => {
-            borsh::BorshSerialize::serialize(&1u8, writer)?;
-            serialize_address(address, writer)
-        }
-        None => borsh::BorshSerialize::serialize(&0u8, writer),
-    }
-}
-
-pub(crate) fn deserialize_option_address<R: borsh::io::Read>(
-    reader: &mut R,
-) -> borsh::io::Result<Option<solana_address::Address>> {
-    match <u8 as borsh::BorshDeserialize>::deserialize_reader(reader)? {
-        0 => Ok(None),
-        1 => deserialize_address(reader).map(Some),
-        _ => Err(borsh::io::Error::new(
-            borsh::io::ErrorKind::InvalidData,
-            "invalid Option<Address> tag",
-        )),
-    }
-}

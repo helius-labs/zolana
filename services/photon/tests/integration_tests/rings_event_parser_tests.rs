@@ -411,7 +411,6 @@ async fn discovers_rings_tree_account_metadata() {
                 .tree_height()
                 .try_into()
                 .expect("Rings state tree height must fit in u8"),
-            pda::shielded_pool_program_id().to_bytes(),
             tree_pubkey.to_bytes(),
             address_tree_params(),
         )

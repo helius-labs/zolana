@@ -160,7 +160,6 @@ fn build_tree_fixture(
             &mut tree_account_bytes,
             TREE_ACCOUNT_DISCRIMINATOR,
             STATE_HEIGHT as u8,
-            [1u8; 32],
             tree.to_bytes(),
             address_tree_params(),
         )

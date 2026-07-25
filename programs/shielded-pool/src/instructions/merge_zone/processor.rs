@@ -71,10 +71,10 @@ pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     // also inserted into the nullifier queue for replay protection.
     process_merge_core(
         merge_accounts.tree,
+        merge_accounts.payer,
         merge,
         derived,
         merge_view_tag,
-        clock.slot,
         Some(merge_view_tag),
     )
 }
