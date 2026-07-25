@@ -12,11 +12,15 @@ Reconstructed from git history on `ts-sdk-port` against `origin/ts-sdk-port`,
 restricted to paths under `sdk-libs/` plus the `xtask` fixture generators.
 
 - HEAD read for this record: `c541ba753aefaf644541583a0d64a8faeeb59425`
-- Rust SDK commits found: 12
+- Rust SDK commits documented below: 12
 
-Several agents commit to this branch at the same time. Rust SDK work that lands
-after that HEAD is absent here. See [refreshing this
-record](#refreshing-this-record) for the command that finds it.
+**This record is behind the branch, and by a wide margin.** The same query run
+on 2026-07-26 returns 48 commits touching the Rust SDK crates, so 36 are
+undocumented here. Among them is `d3514b24`, which changed
+`sdk-libs/client/src/prover/proof.rs` on two counts that rows `C08` and `T23`
+name. Treat the table below as the entries someone has written up rather than
+as the set of changes, and run the query in [refreshing this
+record](#refreshing-this-record) before relying on the absence of an entry.
 
 ## Scope boundary
 
@@ -31,12 +35,24 @@ One violation occurred and was reverted. Commit `bc55a9b9` hardened the
 `program-libs/interface/src/instruction/instruction_data/transact.rs`, replacing
 `as u16` truncation with a checked conversion. Commit `b416a64f` reverted it. The
 guard cannot be reached, because a Solana transaction cannot carry 65536 bytes of
-instruction data, and the file belongs to the program rather than the SDK. Row
-T21 is therefore blocked on protocol scope rather than closed.
+instruction data, and the file belongs to the program rather than the SDK.
+
+The revert stands, but the sentence that used to follow it here, that row `T21`
+is therefore blocked on protocol scope, was overtaken by the ruling of
+2026-07-26 and is withdrawn. The program keeps truncating and the guard moves
+into the two SDKs, which is where this branch may put it: TypeScript already
+raises `TRANSACTION_TOO_MANY_OUTPUTS`, and the Rust SDK takes the matching one.
+`T21` is ordinary in-scope work. See [the T21
+ruling](authority-rulings.md#the-external-data-length-prefix-t21) for why the
+loud disagreement was preferred over silent agreement.
 
 Amending `docs/spec.md` is permitted where the amendment records behavior the
-implementations already have. One such amendment is authorized: defining the
-`DataRecord::Memo` tag `3` that both languages implement.
+implementations already have. Four such amendments are authorized so far: the
+`DataRecord::Memo` tag `3` that both languages implement, the deposit
+discovery-tag ruling, the owner-encoding amendment at `b97b2a88`, and the
+confidential owner-tag amendment at `1d6b9873`. Each is recorded in
+[`authority-rulings.md`](authority-rulings.md) with the evidence it was made
+against.
 
 ## Summary
 
@@ -463,10 +479,17 @@ carry 65536 bytes of instruction data, so no output count, data length, or
 message count reaches the boundary.
 
 `b416a64f` restored the casts and removed the helper, the comment, and the test.
-Row T21 keeps its adverse verdict and is blocked on protocol scope. Its
-prerequisite as written was misfiled in the first place: it named
+Its prerequisite as written was misfiled in the first place: it named
 `sdk-libs/transaction/src/instructions/transact/external_data.rs`, which contains
 no unchecked `u16` cast, when the casts are in the interface preimage.
+
+Row `T21` keeps its adverse verdict, and the reason has changed. It was recorded
+here as blocked on protocol scope. The ruling of 2026-07-26 decided otherwise:
+the program keeps truncating, both SDKs refuse the oversized input loudly, and
+the work is a Rust SDK guard matching the TypeScript one plus a boundary vector
+at `0xffff` against `0x10000`. That work is in scope and is step 5 of
+[`remaining-work.md`](remaining-work.md). Do not read this section as a reason
+to leave the row alone.
 
 ## Open defects in the Rust SDK that no commit has fixed
 
