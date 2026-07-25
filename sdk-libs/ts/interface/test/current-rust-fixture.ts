@@ -96,6 +96,79 @@ export const CURRENT_RUST_INTERFACE_FIXTURE = Object.freeze({
       }),
     ]),
   }),
+  builders: Object.freeze({
+    programAddress: "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA" as Address,
+    createAssetCounter: Object.freeze({
+      data: "10",
+      accounts: Object.freeze([
+        Object.freeze({
+          address: "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR" as Address,
+          isSigner: true,
+          isWritable: true,
+        }),
+        Object.freeze({
+          address: "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj" as Address,
+          isSigner: false,
+          isWritable: false,
+        }),
+        Object.freeze({
+          address: "77YYUwfwXB5BS7bEWpj4aNGkiqz6H6PE2mz7BUVLdwPn" as Address,
+          isSigner: false,
+          isWritable: true,
+        }),
+        Object.freeze({
+          address: "11111111111111111111111111111111" as Address,
+          isSigner: false,
+          isWritable: false,
+        }),
+      ]),
+    }),
+    createSplInterface: Object.freeze({
+      data: "04",
+      accounts: Object.freeze([
+        Object.freeze({
+          address: "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR" as Address,
+          isSigner: true,
+          isWritable: true,
+        }),
+        Object.freeze({
+          address: "5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj" as Address,
+          isSigner: false,
+          isWritable: false,
+        }),
+        Object.freeze({
+          address: "77YYUwfwXB5BS7bEWpj4aNGkiqz6H6PE2mz7BUVLdwPn" as Address,
+          isSigner: false,
+          isWritable: true,
+        }),
+        Object.freeze({
+          address: "ASEKuvSPK66P4mgkkZ1WkG5Z3jA1WFgrj7p6saEhFQVS" as Address,
+          isSigner: false,
+          isWritable: true,
+        }),
+        Object.freeze({
+          address: "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi" as Address,
+          isSigner: false,
+          isWritable: false,
+        }),
+        Object.freeze({
+          address: "67mW5mLvYpxXmvcXHGdebLj1Z9VbTYdBt76uzSjqmiBB" as Address,
+          isSigner: false,
+          isWritable: true,
+        }),
+        Object.freeze({
+          address: "11111111111111111111111111111111" as Address,
+          isSigner: false,
+          isWritable: false,
+        }),
+        Object.freeze({
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address,
+          isSigner: false,
+          isWritable: false,
+        }),
+      ]),
+    }),
+  }),
   discriminators: Object.freeze({
     treeAccount: 1,
     protocolConfig: 3,

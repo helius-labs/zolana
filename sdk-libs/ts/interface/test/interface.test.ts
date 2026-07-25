@@ -257,9 +257,7 @@ describe("program errors and shapes", () => {
 });
 
 describe("merge utilities", () => {
-  const compressed = hexBytes(
-    "02fb50388f29498d0a93ad25ec4c34037b9d3cc3cca4787eb6fedabe2b3003eac8",
-  );
+  const compressed = hexBytes("02fb50388f29498d0a93ad25ec4c34037b9d3cc3cca4787eb6fedabe2b3003eac8");
 
   it("matches the current Rust packing and ciphertext hash vector", () => {
     const [low, high] = pack33(compressed);
@@ -272,10 +270,7 @@ describe("merge utilities", () => {
       "2418c4f8d103a80bcc365a28f6172e7cd9cbfe71a301c19f775a64187ed2f453",
     );
     for (const vector of CURRENT_RUST_INTERFACE_FIXTURE.ciphertextHashes) {
-      const bytes = Uint8Array.from(
-        { length: vector.length },
-        (_, index) => index % 251,
-      );
+      const bytes = Uint8Array.from({ length: vector.length }, (_, index) => index % 251);
       expect(hex(ciphertextHash(bytes))).toBe(vector.hash);
     }
   });
@@ -715,6 +710,66 @@ describe("instruction builders", () => {
       expect(built.programAddress).toBe(SHIELDED_POOL_PROGRAM_ID);
       expect(built.data[0]).toBe(tag);
     }
+  });
+
+  it("matches exact current Rust asset-counter and SPL-interface builders", () => {
+    const fixture = CURRENT_RUST_INTERFACE_FIXTURE.builders;
+    const assetCounter = createAssetCounterInstruction({
+      authority: CURRENT_RUST_INTERFACE_FIXTURE.pda.owner,
+    });
+    const splInterface = createSplInterfaceInstruction({
+      authority: CURRENT_RUST_INTERFACE_FIXTURE.pda.owner,
+      mint: CURRENT_RUST_INTERFACE_FIXTURE.pda.mint,
+    });
+    expect({
+      programAddress: assetCounter.programAddress,
+      data: hex(assetCounter.data),
+      accounts: assetCounter.accounts,
+    }).toEqual({
+      programAddress: fixture.programAddress,
+      ...fixture.createAssetCounter,
+    });
+    expect({
+      programAddress: splInterface.programAddress,
+      data: hex(splInterface.data),
+      accounts: splInterface.accounts,
+    }).toEqual({
+      programAddress: fixture.programAddress,
+      ...fixture.createSplInterface,
+    });
+
+    assetCounter.data[0] = 0;
+    const assetAuthority = assetCounter.accounts[0];
+    const splMint = splInterface.accounts[4];
+    if (assetAuthority === undefined || splMint === undefined)
+      throw new Error("missing fixture meta");
+    assetAuthority.address = ZERO;
+    splInterface.data[0] = 0;
+    splMint.address = ZERO;
+    expect(
+      hex(
+        createAssetCounterInstruction({ authority: CURRENT_RUST_INTERFACE_FIXTURE.pda.owner }).data,
+      ),
+    ).toBe(fixture.createAssetCounter.data);
+    expect(
+      createSplInterfaceInstruction({
+        authority: CURRENT_RUST_INTERFACE_FIXTURE.pda.owner,
+        mint: CURRENT_RUST_INTERFACE_FIXTURE.pda.mint,
+      }).accounts,
+    ).toEqual(fixture.createSplInterface.accounts);
+  });
+
+  it("rejects malformed asset-counter and SPL-interface addresses", () => {
+    const invalid = "invalid" as Address;
+    expect(() => createAssetCounterInstruction({ authority: invalid })).toThrow(
+      expect.objectContaining({ code: "INTERFACE_INVALID_ADDRESS" }),
+    );
+    expect(() =>
+      createSplInterfaceInstruction({
+        authority: CURRENT_RUST_INTERFACE_FIXTURE.pda.owner,
+        mint: invalid,
+      }),
+    ).toThrow(expect.objectContaining({ code: "INTERFACE_INVALID_ADDRESS" }));
   });
 
   it("builds ATA, transact, zone, and merge variants", () => {
