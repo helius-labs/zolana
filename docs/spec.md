@@ -139,7 +139,7 @@ Operations 1-4 run against the default zone via [`transact`](#transact) (or [`de
 | 1 | create_spl_interface | Initialize SPL/Token-22 pool escrow per token mint |
 | 2 | create_tree | Initialize new Tree account (nullifier tree + queue and UTXO tree, co-located) |
 | 3 | create_protocol_config | Initialize protocol config (role authorities, permissionless flags) |
-| 4 | update_protocol_config | Rotate the protocol config authority and the role authorities |
+| 4 | update_protocol_config | Rotate the protocol config authority or a role authority, or set a permissionless flag; one field per call |
 | 5 | pause_tree | Freeze writes to a Tree account |
 
 ### Zone Creator
@@ -1148,7 +1148,8 @@ The merged output's hash and ciphertext carry no merge-service fields; the outpu
 
 ```rust
 struct ProtocolConfig {
-    /// Permitted to call `update_protocol_config` and `pause_tree`; rotates every authority.
+    /// Permitted to call `update_protocol_config` and `pause_tree`; can rotate
+    /// any authority, one per call.
     protocol_authority: Address,
     /// Permitted to call `create_tree` unless `tree_creation_is_permissionless`.
     tree_creation_authority: Address,
@@ -1167,6 +1168,45 @@ struct ProtocolConfig {
 When a `*_is_permissionless` flag is set, any signer may call the corresponding
 creation instruction; otherwise the transaction signer must equal the matching
 creation authority.
+
+The three `bool` fields are stored on chain as `u8`. Readers test for non-zero
+rather than for `1` (`state/protocol_config.rs:64-74`), and
+[`create_protocol_config`](#instructions) casts the raw instruction bytes into
+them without a range check (`protocol_config/create.rs:13-14`), so a config
+created with a flag byte of, say, `7` is well formed and behaves as set. A
+conforming decoder must therefore treat any non-zero byte as `true`.
+
+<a id="protocol-config-updates"></a>
+**Protocol config updates.** `update_protocol_config` writes exactly one field
+per call, not a full rewrite. Its instruction data is a seven-variant enum
+covering every mutable field
+(`instruction_data/protocol_config.rs:21-29`), and the program assigns the one
+field the variant names (`protocol_config/update.rs:23-37`):
+
+| Variant | Field written |
+| --- | --- |
+| `ProtocolAuthority` | `protocol_authority` |
+| `TreeCreationAuthority` | `tree_creation_authority` |
+| `ForesterAuthority` | `forester_authority` |
+| `ZoneCreationAuthority` | `zone_creation_authority` |
+| `TreeCreationPermissionless` | `tree_creation_is_permissionless` |
+| `ZoneCreationPermissionless` | `zone_creation_is_permissionless` |
+| `SplInterfaceCreationPermissionless` | `spl_interface_creation_is_permissionless` |
+
+Changing several fields means several instructions in one transaction, which
+Solana executes atomically. The seven fields carry no cross-field validation:
+each authority gates a different instruction and each check reads only its own
+field, so a sequence of single-field updates reaches exactly the states a full
+write could reach, and no partial sequence can leave the config in a state a
+full write could not produce. `create_protocol_config` is the only full write
+(`protocol_config/create.rs:44-53`).
+
+Rotating `protocol_authority` additionally requires the **incoming** authority
+to sign, as a third account, and the instruction is rejected unless that signer
+equals the address being written (`protocol_config/update.rs:15-20`). This is
+the one irrecoverable mistake the instruction can make, so the single-field form
+is safer here than a blind full rewrite: the authority cannot be rotated to an
+address nobody controls.
 
 ### Authority Governance
 
