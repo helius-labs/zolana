@@ -18,7 +18,10 @@ import type { ShieldedKeypairLike, ViewingKeyLike } from "../../src/traits/index
 const readText = readFileSync as unknown as (path: URL, encoding: "utf8") => string;
 
 function traitMethods(file: string, trait: string): readonly string[] {
-  const source = readText(new URL(`../../../../keypair/src/traits/${file}`, import.meta.url), "utf8");
+  const source = readText(
+    new URL(`../../../../keypair/src/traits/${file}`, import.meta.url),
+    "utf8",
+  );
   const start = source.indexOf(`pub trait ${trait} {`);
   if (start < 0) throw new Error(`trait ${trait} not found in ${file}`);
   // The declaration block ends at the first line that closes it at column zero,
@@ -72,9 +75,7 @@ const rustOnly = ["try_sign"];
 describe("capability trait surface", () => {
   it("declares every ShieldedKeypairTrait capability", () => {
     const rust = traitMethods("shielded_keypair.rs", "ShieldedKeypairTrait");
-    expect([...rust].sort()).toEqual(
-      [...Object.values(shieldedKeypairNames), ...rustOnly].sort(),
-    );
+    expect([...rust].sort()).toEqual([...Object.values(shieldedKeypairNames), ...rustOnly].sort());
   });
 
   it("declares every ViewingKeyTrait capability", () => {
