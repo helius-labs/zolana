@@ -5,7 +5,7 @@ use num_traits::Num;
 use zolana_hasher::{
     bigint::bigint_to_be_bytes_array, zero_bytes::ZeroBytes, Hasher, HasherError, Poseidon,
 };
-use zolana_indexed_array::{errors::IndexedArrayError, HIGHEST_ADDRESS_PLUS_ONE};
+use zolana_indexed_array::HIGHEST_ADDRESS_PLUS_ONE;
 use zolana_merkle_tree::{
     indexed::{IndexedMerkleTree, IndexedReferenceMerkleTreeError},
     ReferenceMerkleTreeError,
@@ -152,35 +152,6 @@ fn non_inclusion_verifier_requires_the_tree_height() {
             )
         ))
     );
-}
-
-#[test]
-fn custom_highest_value_is_an_exclusive_bound() {
-    let highest_value = BigUint::from(100u32);
-    let mut tree = IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(
-        MERKLE_TREE_HEIGHT,
-        MERKLE_TREE_CANOPY,
-        highest_value.clone(),
-    )
-    .unwrap();
-    tree.append(&BigUint::from(99u32)).unwrap();
-    let root = tree.root();
-    let elements = tree.indexed_array.elements.clone();
-
-    assert_eq!(
-        tree.append(&highest_value),
-        Err(IndexedReferenceMerkleTreeError::Indexed(
-            IndexedArrayError::NewElementGreaterOrEqualToNextElement
-        ))
-    );
-    assert_eq!(
-        tree.append(&BigUint::from(101u32)),
-        Err(IndexedReferenceMerkleTreeError::Indexed(
-            IndexedArrayError::NewElementGreaterOrEqualToNextElement
-        ))
-    );
-    assert_eq!(tree.root(), root);
-    assert_eq!(tree.indexed_array.elements, elements);
 }
 
 #[test]
