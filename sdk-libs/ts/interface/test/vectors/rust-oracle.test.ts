@@ -81,7 +81,6 @@ import {
   zoneConfigAddress,
 } from "../../src/pda/index.js";
 import {
-  batchUpdateNullifierTreeInstruction,
   createAssetCounterInstruction,
   createAssociatedTokenAccountInstruction,
   createProtocolConfigInstruction,
@@ -591,24 +590,6 @@ describe("builders", () => {
     );
   });
 
-  it("matches batch-update-nullifier-tree", () => {
-    expectInstruction(
-      batchUpdateNullifierTreeInstruction({
-        authority: owner,
-        tree,
-        newRoot: filler(42, 32) as Bytes32,
-        oldRoot: filler(43, 32) as Bytes32,
-        zkpBatchIndex: 517,
-        compressedProof: {
-          a: filler(44, 32) as Bytes32,
-          b: filler(45, 64) as Bytes64,
-          c: filler(46, 32) as Bytes32,
-        },
-      }),
-      builders.batchUpdateNullifierTree,
-    );
-  });
-
   it("matches SOL and SPL deposits", () => {
     expectInstruction(
       depositInstruction({ tree, depositor, data: depositData }),
@@ -890,7 +871,6 @@ describe("re-export ledgers", () => {
     assertLedger(
       oracle.ledgers.builders,
       {
-        BatchUpdateNullifierTree: "batchUpdateNullifierTreeInstruction",
         CreateAssetCounter: "createAssetCounterInstruction",
         CreateAssociatedTokenAccount: "createAssociatedTokenAccountInstruction",
         CreateProtocolConfig: "createProtocolConfigInstruction",
@@ -908,6 +888,9 @@ describe("re-export ledgers", () => {
         ZoneAuthorityTransact: "zoneAuthorityTransactInstruction",
         ZoneDeposit: "zoneDepositInstruction",
         ZoneTransact: "zoneTransactInstruction",
+        // Withdrawn from the public surface: the builder needs an address-append
+        // proof no TypeScript path can produce. The decoder stays.
+        BatchUpdateNullifierTree: null,
         // Argument types, erased into the builder input types at the TypeScript
         // boundary: `DepositSplAccounts` and the `TransactWithdrawal` union.
         DepositSplAccounts: null,

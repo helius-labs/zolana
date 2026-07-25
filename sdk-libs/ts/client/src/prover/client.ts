@@ -233,7 +233,11 @@ export class ProverClient {
           });
         }
         if (status === "completed") {
-          const result = isObject(value) && isObject(value["result"]) ? value["result"] : value;
+          // Rust unwraps the envelope on the key's presence, not on its type:
+          // `value.get("result").map_or(&value, ..)`. Requiring an object here
+          // sent a `result: null` back into the parser as the whole envelope,
+          // where the missing proof read as malformed rather than as absent.
+          const result = isObject(value) && "result" in value ? value["result"] : value;
           return parseProof(result, p256);
         }
         // queued / processing / pending / unknown: keep polling until the bound.

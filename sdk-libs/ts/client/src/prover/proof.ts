@@ -81,9 +81,20 @@ export function compressedProof(
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 export function parseProof(value: unknown, requireCommitment: boolean): Proof {
-  const envelope = asObject(value, "$");
-  const proofValue = Object.hasOwn(envelope, "proof") ? envelope["proof"] : envelope;
+  // Rust unwraps before it validates: `proof_from_value` reads `proof` off
+  // whatever it was handed, falling back to the whole value, and only then
+  // separates a proof the server declined to send from one it sent badly. A null
+  // is `ProverServer`; anything with bytes in it can still be `ProofParse`.
+  // Validating the envelope first turned an absent proof into a malformed one.
+  const proofValue = isRecord(value) && Object.hasOwn(value, "proof") ? value["proof"] : value;
+  if (proofValue === null) {
+    throw new ClientError("CLIENT_PROVER_SERVER", { details: { reason: "null proof" } });
+  }
   const proof = asObject(proofValue, "$.proof");
   const aRaw = parseG1(proof["ar"], "$.proof.ar");
   const a = new Uint8Array(aRaw);

@@ -247,6 +247,20 @@ not looser. It now catches `process?.env` and the multi-line `globalThis.process
 form that let the original leak through a source-level scan. It continues to run
 against the minified bundle.
 
+## CI outcome
+
+Run `30177854476` on PR #162: **29 checks pass, one fails.** The one failure is
+`clippy`, on the `program-libs/interface/src/merge_utils.rs:167` line that the
+scope rule puts out of reach. Everything else is green, including all seven
+`tests / localnet photon / *` variants (both the five the `default-run` fix
+repaired and the two that flaked on the Anza download), `tests / shielded-pool`,
+`tests / programs`, `cargo check (workspace)`, `rustfmt`, `cargo-machete`,
+`typescript / packaging`, `typescript / fixtures`, and `typescript / merge gate`.
+
+`cargo check (workspace)` passing here is consistent with the `CreateTree`
+analysis below: #162 targets `ts-sdk-port`, so it never builds the merge against
+`main` where the collision happens.
+
 ## Local verification
 
 Green under the pinned 1.97.0 toolchain: `cargo check --workspace --all-targets`

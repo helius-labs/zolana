@@ -68,7 +68,6 @@ describe("public exports", () => {
       "zoneDepositInstructionDataCodec",
     ]);
     expect(Object.keys(instructions).sort()).toEqual([
-      "batchUpdateNullifierTreeInstruction",
       "createAssetCounterInstruction",
       "createAssociatedTokenAccountInstruction",
       "createProtocolConfigInstruction",

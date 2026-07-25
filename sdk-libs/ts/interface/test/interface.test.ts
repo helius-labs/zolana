@@ -66,7 +66,6 @@ import {
   zoneConfigAddress,
 } from "../src/pda/index.js";
 import {
-  batchUpdateNullifierTreeInstruction,
   createAssetCounterInstruction,
   createAssociatedTokenAccountInstruction,
   createProtocolConfigInstruction,
@@ -632,17 +631,6 @@ describe("instruction builders", () => {
 
   it("builds every admin and setup instruction with exact tags", () => {
     const instructions = [
-      [
-        batchUpdateNullifierTreeInstruction({
-          authority: ZERO,
-          tree: DEFAULT_TREE_ADDRESS,
-          newRoot: b32(1),
-          oldRoot: b32(2),
-          zkpBatchIndex: 3,
-          compressedProof: { a: b32(4), b: b64(5), c: b32(6) },
-        }),
-        51,
-      ],
       [createAssetCounterInstruction({ authority: ZERO }), 16],
       [createSplInterfaceInstruction({ authority: ZERO, mint: ZERO }), 4],
       [

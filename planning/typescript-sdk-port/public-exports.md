@@ -240,12 +240,14 @@ fixed layouts. They are not generic serialization utilities.
 `@zolana/interface/instructions` maps each Rust builder struct's public fields
 to one object parameter and `.instruction()` to a function:
 
+One Rust builder has no counterpart. `BatchUpdateNullifierTree` is withdrawn:
+its `compressedProof` comes from the `address-append` circuit, and no TypeScript
+path can prove it, so the builder advertised the last step of a pipeline whose
+earlier steps this SDK does not ship. `batchUpdateNullifierTreeDataCodec` stays,
+because a tool that finds the instruction in a transaction can still read it.
+`interface/test/exports.test.ts` fails if the builder returns.
+
 ```ts
-export function batchUpdateNullifierTreeInstruction(input: Readonly<{
-  authority: Address; tree: Address; newRoot: Bytes32; oldRoot: Bytes32;
-  zkpBatchIndex: number; compressedProofA: Bytes32;
-  compressedProofB: Bytes64; compressedProofC: Bytes32;
-}>): Instruction;
 export function createAssetCounterInstruction(input: Readonly<{
   authority: Address;
 }>): Instruction;

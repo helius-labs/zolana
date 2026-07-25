@@ -96,13 +96,15 @@ fn main() {
 fn run() -> Result<()> {
     let mut check = false;
     let mut current_client = false;
+    let mut reports_only = false;
     for arg in env::args().skip(1) {
         match arg.as_str() {
             "--check" => check = true,
             "--current-client" => current_client = true,
+            "--reports-only" => reports_only = true,
             "--help" | "-h" => {
                 println!(
-                    "Generate and verify deterministic TypeScript conformance fixtures.\n\nusage: cargo run -p xtask --bin ts-fixtures -- [--check] [--current-client]"
+                    "Generate and verify deterministic TypeScript conformance fixtures.\n\nusage: cargo run -p xtask --bin ts-fixtures -- [--check] [--current-client] [--reports-only]"
                 );
                 return Ok(());
             }
@@ -112,6 +114,18 @@ fn run() -> Result<()> {
     let root = workspace_root()?;
     if current_client {
         return generate_current_client_fixtures(&root, check);
+    }
+    // The reports are a pure function of the inventory tables and read none of
+    // the frozen Rust sources, so gating them on that revision left a factual
+    // error in `inventory.json` unfixable while the gate was red for unrelated
+    // reasons.
+    if reports_only {
+        let inventory = inventory(&root)?;
+        let out = root.join("sdk-libs/ts");
+        write_inventory_report(&out.join("reports/inventory.json"), &inventory)?;
+        write_packet_report(&out, &inventory)?;
+        println!("regenerated reports for {} inventory rows", inventory.len());
+        return Ok(());
     }
     assert_frozen_sources(&root)?;
     let inventory = inventory(&root)?;
