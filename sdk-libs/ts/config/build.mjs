@@ -58,10 +58,7 @@ async function writeEmptyEntry(distDirectory, format, exportPath) {
       `${JSON.stringify({ version: 3, file: `${base}.js`, sources: [], names: [], mappings: "" })}\n`,
     );
   }
-  await writeFile(
-    `${destination}.d.ts`,
-    `export {};\n//# sourceMappingURL=${base}.d.ts.map\n`,
-  );
+  await writeFile(`${destination}.d.ts`, `export {};\n//# sourceMappingURL=${base}.d.ts.map\n`);
   await writeFile(
     `${destination}.d.ts.map`,
     `${JSON.stringify({ version: 3, file: `${base}.d.ts`, sources: [], names: [], mappings: "" })}\n`,
@@ -92,7 +89,9 @@ async function transpileToCommonJs(distDirectory) {
   // The same declarations, read as CommonJS because of the manifest beside
   // them. Both trees sit two directories below the package root, so the source
   // paths in the declaration maps stay correct.
-  for (const entry of entries.filter((name) => name.endsWith(".d.ts") || name.endsWith(".d.ts.map"))) {
+  for (const entry of entries.filter(
+    (name) => name.endsWith(".d.ts") || name.endsWith(".d.ts.map"),
+  )) {
     const destination = path.join(cjsDirectory, entry);
     await mkdir(path.dirname(destination), { recursive: true });
     await copyFile(path.join(esDirectory, entry), destination);
