@@ -1,6 +1,10 @@
 import type { Address, Bytes16, Bytes32 } from "@zolana/interface";
 import type { NullifierKey, P256PublicKey, ShieldedAddress, ViewingKey } from "@zolana/keypair";
 
+import type {
+  AnonymousRecipientPlaintext,
+  AnonymousSenderPlaintext,
+} from "../serialization/codecs.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "./asset.js";
 
@@ -20,6 +24,12 @@ export interface EncryptedTransfer {
       }>
     | undefined
   )[];
+}
+
+export interface AnonymousRecipientSlot {
+  readonly viewTag: Bytes32;
+  readonly recipientPublicKey: P256PublicKey;
+  readonly plaintext: AnonymousRecipientPlaintext;
 }
 
 export interface SplitBundlePlaintext {
@@ -54,6 +64,14 @@ export interface WalletAuthority {
       firstNullifier: Bytes32;
       outputs: readonly ProofOutputUtxo[];
       assets: AssetRegistry;
+    }>,
+  ): Promise<EncryptedTransfer>;
+  encryptAnonymousTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      senderViewTag: Bytes32;
+      sender: AnonymousSenderPlaintext;
+      recipients: readonly AnonymousRecipientSlot[];
     }>,
   ): Promise<EncryptedTransfer>;
   encryptSplit(

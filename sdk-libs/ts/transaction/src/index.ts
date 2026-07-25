@@ -36,6 +36,7 @@ export {
   decryptTransactions,
 } from "./wallet/index.js";
 export type {
+  AnonymousRecipientSlot,
   AssetBalance,
   EncryptedSplit,
   EncryptedTransfer,

@@ -158,6 +158,16 @@ describe("transaction core", () => {
 
     const { keypair } = keyMaterial();
     const wallet = new Wallet({ identity: keypair.shieldedAddress(), registry });
+    const laterMint = "Vote111111111111111111111111111111111111111" as Address;
+    registry.insert(3n, laterMint);
+    expect(() => wallet.registry.resolve(3n)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_UNKNOWN_ASSET" }),
+    );
+    const registrySnapshot = wallet.registry;
+    registrySnapshot.insert(4n, laterMint);
+    expect(() => wallet.registry.resolve(4n)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_UNKNOWN_ASSET" }),
+    );
     expect(wallet.balances()).toEqual([]);
     expect(wallet.balance(SOL_MINT)).toBeUndefined();
     expect(

@@ -1,4 +1,5 @@
 export {
+  type AnonymousRecipientSlot,
   type EncryptedSplit,
   type EncryptedTransfer,
   type P256Signature,

@@ -65,6 +65,10 @@ export class AssetRegistry {
   entries(): readonly (readonly [bigint, Address])[] {
     return [...this.#byId.entries()].map(([id, mint]) => Object.freeze([id, mint] as const));
   }
+
+  clone(): AssetRegistry {
+    return new AssetRegistry(this.entries().filter(([assetId]) => assetId !== SOL_ASSET_ID));
+  }
 }
 
 export function addressForAssetField(registry: AssetRegistry, field: Bytes32): Address | undefined {

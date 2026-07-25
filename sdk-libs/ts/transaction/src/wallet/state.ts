@@ -3,7 +3,7 @@ import type { ShieldedAddress } from "@zolana/keypair";
 
 import { TransactionError } from "../error.js";
 import { copy } from "../internal.js";
-import type { Utxo } from "../utxo.js";
+import { Utxo } from "../utxo.js";
 import { AssetRegistry } from "./asset.js";
 
 export interface AssetBalance {
@@ -43,6 +43,16 @@ export interface WalletUtxo {
 function snapshotUtxo(value: WalletUtxo): WalletUtxo {
   return Object.freeze({
     ...value,
+    utxo: new Utxo({
+      owner: value.utxo.owner,
+      asset: value.utxo.asset,
+      amount: value.utxo.amount,
+      blinding: value.utxo.blinding,
+      data: value.utxo.data,
+      ...(value.utxo.zoneProgramId === undefined
+        ? {}
+        : { zoneProgramId: value.utxo.zoneProgramId }),
+    }),
     outputContext: Object.freeze({
       ...value.outputContext,
       hash: copy(value.outputContext.hash),
@@ -55,14 +65,18 @@ function snapshotUtxo(value: WalletUtxo): WalletUtxo {
 
 export class Wallet {
   readonly identity: ShieldedAddress;
-  readonly registry: AssetRegistry;
+  readonly #registry: AssetRegistry;
   #utxos: WalletUtxo[] = [];
   #transactions: PrivateTransaction[] = [];
   #nullifiers = new Set<string>();
 
   constructor(input: Readonly<{ identity: ShieldedAddress; registry: AssetRegistry }>) {
     this.identity = input.identity;
-    this.registry = input.registry;
+    this.#registry = input.registry.clone();
+  }
+
+  get registry(): AssetRegistry {
+    return this.#registry.clone();
   }
 
   utxos(): readonly WalletUtxo[] {
@@ -78,7 +92,7 @@ export class Wallet {
   balance(mint: Address): AssetBalance | undefined {
     const matching = this.#utxos.filter((entry) => !entry.spent && entry.utxo.asset === mint);
     if (matching.length === 0) return undefined;
-    const amount = matching.reduce((sum, entry) => sum + entry.utxo.amount, 0n);
+    const amount = checkedBalance(matching.reduce((sum, entry) => sum + entry.utxo.amount, 0n));
     return Object.freeze({ mint, amount, spendableAmount: amount });
   }
 
@@ -89,8 +103,8 @@ export class Wallet {
     );
     return [...mints]
       .sort((left, right) => {
-        const leftId = this.registry.assetId(left);
-        const rightId = this.registry.assetId(right);
+        const leftId = this.#registry.assetId(left);
+        const rightId = this.#registry.assetId(right);
         return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
       })
       .flatMap((mint) => {
@@ -105,9 +119,9 @@ export class Wallet {
     nullifiers: ReadonlySet<string>;
   }> {
     return {
-      utxos: this.#utxos,
-      transactions: this.#transactions,
-      nullifiers: this.#nullifiers,
+      utxos: this.#utxos.map(snapshotUtxo),
+      transactions: this.privateTransactions(),
+      nullifiers: new Set(this.#nullifiers),
     };
   }
 
@@ -136,4 +150,11 @@ export class Wallet {
 
 export function hex(bytes: Uint8Array): string {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function checkedBalance(amount: bigint): bigint {
+  if (amount > 0xffff_ffff_ffff_ffffn) {
+    throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
+  }
+  return amount;
 }

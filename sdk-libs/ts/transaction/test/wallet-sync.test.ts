@@ -67,6 +67,7 @@ function fixtureAuthority(
     spendNullifierKey: () => Promise.resolve(nullifier),
     syncMaterial: () => Promise.resolve(material),
     encryptConfidentialTransfer: unsupported,
+    encryptAnonymousTransfer: unsupported,
     encryptSplit: unsupported,
     requestUserApproval: () => Promise.resolve(),
     signP256: unsupported,
