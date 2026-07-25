@@ -59,7 +59,7 @@ In flight:
 | Quality and no-shortcuts audit of `sdk-libs/ts` | Running |
 | Fold three merged batches into the table | Running |
 | Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc`, 5 commits ahead and merging clean. Landed the indexed-range sentinel bound, the faucet-port offset, and the keypair bigint bound |
-| Keypair error redaction, is the guarantee real | Running |
+| Keypair error redaction, is the guarantee real | Test strengthened in `3e2360b2`, worker still reporting |
 | Client package, rows C01 to C22 | RPC half closed, prover half outstanding |
 | Transaction, 31 rows | 5 commits ahead, second pass queued behind the capacity limit |
 | `user_record` binding fix, own branch off `main` | Done, PR #160, 23 checks green |
@@ -85,6 +85,22 @@ keypair merge the client error suite failed, which read exactly like a
 cross-batch regression in secret redaction; it was vitest serving a cached
 transform of the pre-merge module. Clear `node_modules/.vite` before believing
 a failure that appears in the first run after a merge.
+
+A passing test is not evidence until you have seen it fail. That same redaction
+test passed for an incidental reason: its fixture placed each secret it carried
+under a key outside `KeypairErrorDetails`, so it proved only that unknown keys
+are dropped, and would have kept passing had redaction broken for a value under
+a known key. It is now asserted at the composed boundary, with control edits
+confirming each assertion fails when the allowlist is removed, when a call site
+is pointed at `toHex(bytes)`, and when the client keeps the dependency cause.
+Two assertions also moved off `toMatchObject`, whose subset matching let extra
+fields through unnoticed. Prefer an exact `toEqual` when the property under test
+is that something is absent.
+
+One residual has no runtime guard: the sanitizer bounds which detail keys
+survive, not what those keys hold. A call site that passes computed data under
+an allowed key carries it intact to `ClientError.cause.details`. That property
+is held by the call sites, so review them when adding one.
 
 The interface batch is the pattern worth copying: it generated a JSON oracle
 from the real `zolana-interface` crate and compared TypeScript against that,
