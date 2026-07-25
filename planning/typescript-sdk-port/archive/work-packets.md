@@ -42,7 +42,7 @@ Owned files:
 Source inventory rows: the seven rows whose `Packet` cell is `P00` (one
 keypair, five client, and one transaction test/generator evidence row). P00 also
 checks all 182 rows without taking ownership from their declared packets.
-Frozen evidence includes crate roots, `sdk-tests/client/**`,
+Frozen evidence includes crate roots, `sdk-tests/rust-client/**`,
 `program-tests/shielded-pool/**`, `program-tests/spp-test-validator/**`,
 user-registry, and smart-account support.
 

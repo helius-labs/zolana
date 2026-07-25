@@ -377,7 +377,7 @@ A deposit is not a `TRANSACT`. `confirm_private_transaction` therefore cannot ru
 on a deposit transaction, and every caller in the tree confirms a transfer or a
 withdrawal: `cli/src/wallet_cli/withdraw.rs:53`,
 `cli/src/wallet_cli/transaction.rs:51` and `:139`,
-`sdk-tests/client/examples/deposit_transfer_withdraw.rs:114` (the transfer) and
+`sdk-tests/rust-client/examples/deposit_transfer_withdraw.rs:114` (the transfer) and
 `:199` (the withdrawal), and the escrow, rfq, and swap tests. The deposit step in
 that same example does not call it.
 

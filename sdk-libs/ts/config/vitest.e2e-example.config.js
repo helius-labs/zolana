@@ -1,0 +1,3 @@
+import { defineE2eConfig } from "./vitest.e2e.config.js";
+
+export default defineE2eConfig("sdk-tests/typescript-client/**/*.test.ts");
