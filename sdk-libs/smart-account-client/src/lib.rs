@@ -172,7 +172,7 @@ pub fn execute_sync_ix(
 
     let args = SyncTransactionArgs {
         account_index,
-        num_signers: signer_keys.len() as u8,
+        num_signers: checked_u8(signer_keys.len(), "signer count"),
         payload: SyncPayload::Transaction(payload_bytes),
     };
 
@@ -201,6 +201,16 @@ pub fn execute_sync_ix(
 // Payload compilation (internal)
 // ---------------------------------------------------------------------------
 
+/// Narrow a count or index into the single byte the payload encodes it as.
+///
+/// Truncating instead would compile a payload that reads correctly and names a
+/// different account than the caller passed, so the wrap is refused. These
+/// builders are infallible by signature and already panic on a failed
+/// serialize, so the refusal takes the same form.
+fn checked_u8(value: usize, what: &str) -> u8 {
+    u8::try_from(value).unwrap_or_else(|_| panic!("{what} exceeds u8: {value}"))
+}
+
 fn compile_instructions_to_payload(
     instructions: &[Instruction],
     vault_pda: &Pubkey,
@@ -220,7 +230,7 @@ fn compile_instructions_to_payload(
                 } else if is_signer && !meta.is_signer {
                     meta.is_signer = true;
                 }
-                pos as u8
+                checked_u8(pos, "compiled account count")
             } else {
                 let idx = account_metas.len();
                 if is_writable {
@@ -228,7 +238,7 @@ fn compile_instructions_to_payload(
                 } else {
                     account_metas.push(AccountMeta::new_readonly(*key, is_signer));
                 }
-                idx as u8
+                checked_u8(idx, "compiled account count")
             }
         };
 
@@ -241,13 +251,16 @@ fn compile_instructions_to_payload(
             }
         }
 
-        payload.push(instructions.len() as u8);
+        payload.push(checked_u8(instructions.len(), "inner instruction count"));
 
         for ix in instructions {
             let program_id_index = ensure_key(&ix.program_id, false, false);
             payload.push(program_id_index);
 
-            payload.push(ix.accounts.len() as u8);
+            payload.push(checked_u8(
+                ix.accounts.len(),
+                "inner instruction account count",
+            ));
             for meta in &ix.accounts {
                 let idx = ensure_key(&meta.pubkey, meta.is_writable, meta.is_signer);
                 payload.push(idx);
@@ -266,4 +279,44 @@ fn compile_instructions_to_payload(
     }
 
     (payload, account_metas)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn inner_with(accounts: Vec<Pubkey>) -> Instruction {
+        Instruction {
+            program_id: Pubkey::new_unique(),
+            accounts: accounts
+                .into_iter()
+                .map(|key| AccountMeta::new_readonly(key, false))
+                .collect(),
+            data: Vec::new(),
+        }
+    }
+
+    /// The payload names accounts by u8 index, so 256 is the full range and the
+    /// 257th is the first that cannot be encoded. The TypeScript port pins the
+    /// same two boundaries in `smart-account-client/test/boundaries.test.ts`.
+    #[test]
+    fn compiles_the_full_u8_index_range() {
+        let vault = Pubkey::new_unique();
+        // Plus the vault and the inner program id, which are compiled first.
+        let keys: Vec<Pubkey> = (0..254).map(|_| Pubkey::new_unique()).collect();
+        let (payload, metas) = compile_instructions_to_payload(&[inner_with(keys)], &vault);
+
+        assert_eq!(metas.len(), 256);
+        // The index run ends just before the u16 data length, and its last
+        // entry must be 255 rather than a wrap to zero.
+        assert_eq!(payload[payload.len() - 3], 255);
+    }
+
+    #[test]
+    #[should_panic(expected = "compiled account count exceeds u8")]
+    fn refuses_an_account_index_past_u8() {
+        let vault = Pubkey::new_unique();
+        let keys: Vec<Pubkey> = (0..255).map(|_| Pubkey::new_unique()).collect();
+        compile_instructions_to_payload(&[inner_with(keys)], &vault);
+    }
 }

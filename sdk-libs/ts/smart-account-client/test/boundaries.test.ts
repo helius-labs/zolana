@@ -163,18 +163,24 @@ describe("count and payload boundaries", () => {
     );
   });
 
-  it("accepts 255 unique compiled accounts and rejects 256", () => {
-    const accounts = Array.from({ length: 253 }, (_, index) =>
+  // The compiled list is addressed by u8 index, so 256 entries fit and the
+  // 257th is the first that cannot be named. Rust allocates the same range:
+  // `compile_instructions_to_payload` refuses only once the index exceeds u8.
+  it("accepts 256 unique compiled accounts, the full u8 index range, and rejects 257", () => {
+    // Plus the vault and the inner program id, which the compiler adds first.
+    const accounts = Array.from({ length: 254 }, (_, index) =>
       meta(testAddress(index + 1000), false, false),
     );
-    expect(
-      executeSyncInstruction({
-        settings: SETTINGS,
-        accountIndex: 0,
-        signerKeys: [],
-        innerInstructions: [inner({ accounts })],
-      }).accounts,
-    ).toHaveLength(257);
+    const compiled = executeSyncInstruction({
+      settings: SETTINGS,
+      accountIndex: 0,
+      signerKeys: [],
+      innerInstructions: [inner({ accounts })],
+    });
+    // Settings and the program precede the 256 CPI accounts on the outer list.
+    expect(compiled.accounts).toHaveLength(258);
+    // The payload must name the last account as index 255, not wrap to zero.
+    expect(compiled.data).toContain(255);
 
     expectError("SMART_ACCOUNT_TOO_MANY_ACCOUNTS", () =>
       executeSyncInstruction({
