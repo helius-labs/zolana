@@ -191,6 +191,34 @@ The row's other residual, "6 of the 8 prove entry points are absent", is now 1 o
 8: the three zone rails route through `prover.prove()`, which accepts
 `ZoneProverInputs` and selects the commitment expectation per rail.
 
+## C21, three orderings found by re-audit: closed
+
+A read-only audit of the RPC half against Rust HEAD found three divergences the
+earlier pass had not claimed. None changes which inputs are accepted, which is
+why they survived a test suite that only checks accept and reject. Each changes
+which error a caller branches on.
+
+`validate_spend_proofs` in `sdk-libs/client/src/client.rs` finishes the state
+proof before starting the nullifier one: state leaf, state tree, nullifier leaf,
+nullifier tree. TypeScript checked both leaves and then both trees, so a pair
+wrong in two ways named the nullifier leaf where Rust names the state tree.
+
+`finish_submission_unsigned` validates the fee payer before the tree. TypeScript
+had them reversed, telling a caller to fix the tree while the fee payer they
+control was also wrong.
+
+`prove_transact` takes `config: Option<IndexerRpcConfig>`; the TypeScript
+signature had dropped it, so a direct caller could not ask for the slot bound the
+delegating methods accept. The submission path still passes none, as Rust does.
+
+Evidence: `indexer-client.test.ts`, "reports the field Rust reports when a pair is
+wrong in two ways" and "names the fee payer before the tree, as Rust does". Both
+were run against the old ordering and observed to fail with the old error code.
+Commit: `07ce3376`.
+
+The same audit reported `MERGE_INPUTS` still unexported; that reading was stale,
+and the constant is exported and now imported (C22 above).
+
 ## Prover shape inventory, definitive
 
 Rust `prover::json` writes eight circuit types. TypeScript reaches seven.
