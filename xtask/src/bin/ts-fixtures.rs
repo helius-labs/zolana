@@ -24,14 +24,14 @@ use zolana_transaction::{
     derive_blinding, instructions::transact::canonical_shape, AssetRegistry, Data, DataRecord,
 };
 
-const FROZEN_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
+const HISTORICAL_BASELINE_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
+const INTERFACE_SHA: &str = "14ad30017ef5b512548f65284eae0212684d8197";
 const MERKLE_SHA: &str = "975783aa38b65734585f7749e347201fd67a2b71";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
 const EXPECTED_FIXTURE_COUNT: usize = 57;
-const FROZEN_SOURCE_PATHS: [&str; 13] = [
+const BASELINE_SOURCE_PATHS: [&str; 12] = [
     "program-libs/hasher/src",
-    "program-libs/interface/src/instruction",
     "program-tests/test-utils/src/smart_account.rs",
     "sdk-libs/client/src/prover",
     "sdk-libs/client/src/rpc.rs",
@@ -44,6 +44,9 @@ const FROZEN_SOURCE_PATHS: [&str; 13] = [
     "sdk-libs/wallet/tests",
     "sdk-libs/zolana-api/src",
 ];
+const INTERFACE_SOURCE_PATHS: [&str; 1] = ["program-libs/interface/src"];
+const MERKLE_SOURCE_PATHS: [&str; 2] =
+    ["program-libs/indexed-array/src", "sdk-libs/merkle-tree/src"];
 const INVENTORY_FILES: [&str; 6] = [
     "planning/typescript-sdk-port/inventory-client.md",
     "planning/typescript-sdk-port/inventory-wallet.md",
@@ -134,34 +137,34 @@ fn workspace_root() -> Result<PathBuf> {
 }
 
 fn assert_frozen_sources(root: &Path) -> Result<()> {
-    let commit = Command::new("git")
-        .current_dir(root)
-        .args(["cat-file", "-e", &format!("{FROZEN_SHA}^{{commit}}")])
-        .status()?;
-    if !commit.success() {
-        bail!("frozen revision {FROZEN_SHA} is unavailable");
-    }
-    let unchanged = Command::new("git")
-        .current_dir(root)
-        .args(["diff", "--quiet", FROZEN_SHA, "--"])
-        .args(FROZEN_SOURCE_PATHS)
-        .status()?;
-    if !unchanged.success() {
-        bail!("fixture source paths differ from frozen revision {FROZEN_SHA}");
-    }
-    let merkle_unchanged = Command::new("git")
-        .current_dir(root)
-        .args([
-            "diff",
-            "--quiet",
-            MERKLE_SHA,
-            "--",
-            "program-libs/indexed-array/src",
-            "sdk-libs/merkle-tree/src",
-        ])
-        .status()?;
-    if !merkle_unchanged.success() {
-        bail!("Merkle fixture sources differ from revision {MERKLE_SHA}");
+    for (name, revision, paths) in [
+        (
+            "baseline",
+            HISTORICAL_BASELINE_SHA,
+            BASELINE_SOURCE_PATHS.as_slice(),
+        ),
+        (
+            "interface",
+            INTERFACE_SHA,
+            INTERFACE_SOURCE_PATHS.as_slice(),
+        ),
+        ("Merkle", MERKLE_SHA, MERKLE_SOURCE_PATHS.as_slice()),
+    ] {
+        let commit = Command::new("git")
+            .current_dir(root)
+            .args(["cat-file", "-e", &format!("{revision}^{{commit}}")])
+            .status()?;
+        if !commit.success() {
+            bail!("{name} fixture source revision {revision} is unavailable");
+        }
+        let unchanged = Command::new("git")
+            .current_dir(root)
+            .args(["diff", "--quiet", revision, "--"])
+            .args(paths)
+            .status()?;
+        if !unchanged.success() {
+            bail!("{name} fixture sources differ from revision {revision}");
+        }
     }
     Ok(())
 }
@@ -169,7 +172,13 @@ fn assert_frozen_sources(root: &Path) -> Result<()> {
 fn inventory(root: &Path) -> Result<Vec<InventoryRow>> {
     let frozen_paths = command_lines(
         root,
-        &["ls-tree", "-r", "--name-only", FROZEN_SHA, "sdk-libs"],
+        &[
+            "ls-tree",
+            "-r",
+            "--name-only",
+            HISTORICAL_BASELINE_SHA,
+            "sdk-libs",
+        ],
     )?;
     if frozen_paths.len() != 182 {
         bail!(
@@ -1661,7 +1670,7 @@ fn api_fixture(vectors: &Value) -> Result<(&'static str, Value)> {
         vectors["inputs"].clone(),
         vectors["expected"].clone(),
     );
-    fixture["sourceRevision"] = Value::String(FROZEN_SHA.to_string());
+    fixture["sourceRevision"] = Value::String(HISTORICAL_BASELINE_SHA.to_string());
     Ok(("api/transport-v1.json", fixture))
 }
 
@@ -2248,7 +2257,7 @@ fn write_inventory_report(path: &Path, rows: &[InventoryRow]) -> Result<()> {
                 "unknownPackets":"0"
             },
             "dispositionCounts":disposition_counts,
-            "frozenCommit":FROZEN_SHA,
+            "frozenCommit":HISTORICAL_BASELINE_SHA,
             "packetCounts":packet_counts,
             "rows":rows.iter().map(|row| json!({
                 "disposition":row.disposition,
@@ -2266,9 +2275,9 @@ fn write_inventory_report(path: &Path, rows: &[InventoryRow]) -> Result<()> {
 }
 
 fn write_manifest(root: &Path, fixtures: &Path) -> Result<()> {
-    let spec = git_blob(root, &format!("{FROZEN_SHA}:docs/spec.md"))?;
+    let spec = git_blob(root, &format!("{HISTORICAL_BASELINE_SHA}:docs/spec.md"))?;
     let lock_path = "prover/server/prover/provingkeys/proving-keys.lock";
-    let proving_lock = git_blob(root, &format!("{FROZEN_SHA}:{lock_path}"))?;
+    let proving_lock = git_blob(root, &format!("{HISTORICAL_BASELINE_SHA}:{lock_path}"))?;
     let mut entries = fixture_entries(fixtures)?;
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let rustc = command_text(root, "rustup", &["run", "1.97.0", "rustc", "--version"])
@@ -2277,9 +2286,15 @@ fn write_manifest(root: &Path, fixtures: &Path) -> Result<()> {
         &fixtures.join("manifest.json"),
         &json!({
             "files":entries.into_iter().map(|(path, sha256)| json!({"path":path,"sha256":sha256})).collect::<Vec<_>>(),
-            "frozenCommit":FROZEN_SHA,
+            "canonicalSourceRevisions":{
+                "baseline":HISTORICAL_BASELINE_SHA,
+                "interface":INTERFACE_SHA,
+                "merkleTree":MERKLE_SHA
+            },
+            "frozenCommit":HISTORICAL_BASELINE_SHA,
             "generatorCommand":GENERATOR_COMMAND,
-            "photonSchemaRevision":FROZEN_SHA,
+            "historicalBaselineCommit":HISTORICAL_BASELINE_SHA,
+            "photonSchemaRevision":HISTORICAL_BASELINE_SHA,
             "provingKeyRelease":{
                 "lockPath":lock_path,
                 "lockSha256":sha256(&proving_lock)
@@ -2382,7 +2397,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 "p00Rows":p00_rows.len().to_string()
             },
             "fixtureIds":fixture_ids(&out.join("fixtures"))?,
-            "frozenCommit":FROZEN_SHA,
+            "frozenCommit":HISTORICAL_BASELINE_SHA,
             "ownedChangedPaths":changed_paths,
             "packet":"P00",
             "p00InventoryRows":p00_rows,
@@ -2525,7 +2540,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                         "test":"e2e-action-ata-idempotent"
                     }
                 ],
-                "sourceRevision":FROZEN_SHA
+                "sourceRevision":HISTORICAL_BASELINE_SHA
             },
             "p13FollowUp":{
                 "blocker":"P00-owned missing workflow fixtures in sdk-libs/ts/reports/packets/P13.json",
@@ -2564,7 +2579,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                         "test":"e2e-instruction-withdraw-spl-wire"
                     }
                 ],
-                "sourceRevision":FROZEN_SHA
+                "sourceRevision":HISTORICAL_BASELINE_SHA
             },
             "schema":"zolana-ts-packet-evidence-v1"
         }),
@@ -2573,7 +2588,13 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
 
 fn verify_manifest(fixtures: &Path) -> Result<()> {
     let manifest: Value = serde_json::from_slice(&fs::read(fixtures.join("manifest.json"))?)?;
-    if manifest["frozenCommit"] != FROZEN_SHA || manifest["schema"] != FIXTURE_SCHEMA {
+    if manifest["frozenCommit"] != HISTORICAL_BASELINE_SHA
+        || manifest["historicalBaselineCommit"] != HISTORICAL_BASELINE_SHA
+        || manifest["canonicalSourceRevisions"]["baseline"] != HISTORICAL_BASELINE_SHA
+        || manifest["canonicalSourceRevisions"]["interface"] != INTERFACE_SHA
+        || manifest["canonicalSourceRevisions"]["merkleTree"] != MERKLE_SHA
+        || manifest["schema"] != FIXTURE_SCHEMA
+    {
         bail!("manifest provenance mismatch");
     }
     let files = manifest["files"]
@@ -2815,7 +2836,7 @@ mod tests {
             .expect("keypair fixture");
         assert_eq!(secret["inputs"]["testOnlySecret"], true);
         for (path, fixture) in &fixtures {
-            let encoded = serde_json::to_string(fixture).expect("serialize fixture");
+            let encoded = serde_json::to_string(&fixture["inputs"]).expect("serialize inputs");
             let encoded = encoded.to_ascii_lowercase();
             if encoded.contains("blinding") || encoded.contains("secret") {
                 assert_eq!(

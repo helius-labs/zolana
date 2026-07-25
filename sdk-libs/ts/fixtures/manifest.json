@@ -1,4 +1,9 @@
 {
+  "canonicalSourceRevisions": {
+    "baseline": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+    "interface": "14ad30017ef5b512548f65284eae0212684d8197",
+    "merkleTree": "975783aa38b65734585f7749e347201fd67a2b71"
+  },
   "files": [
     {
       "path": "api/prover-request-v1.json",
@@ -231,6 +236,7 @@
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
   "generatorCommand": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures",
+  "historicalBaselineCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
   "photonSchemaRevision": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
   "provingKeyRelease": {
     "lockPath": "prover/server/prover/provingkeys/proving-keys.lock",
