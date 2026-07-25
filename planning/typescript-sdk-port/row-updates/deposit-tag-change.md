@@ -182,3 +182,85 @@ not added here because the Rust `MockIndexer`
 (`sdk-libs/wallet/src/wallet_sync.rs:641`) ignores the tag filter entirely, so
 the existing Rust sync tests cannot express it without a tag-filtering mock, and
 the TypeScript sync test file is held by another worker in this tree.
+
+## Follow-up: the resolved tag (commit `c3aa8f5a`)
+
+The "not changed, deliberately" paragraph above is now closed. A reconciliation
+pass ruled that `ResolvedAddress.view_tag` had to follow the deposit derivation:
+registry resolution is where a sender who knows only a Solana address learns
+where to send, so it is the common path rather than an edge case, and it was the
+last place handing out the viewing-x tag.
+
+Both languages now derive it from the shared accessor:
+
+- `sdk-libs/wallet/src/user_registry.rs::resolved_address_from_record` builds the
+  `ShieldedAddress` first and takes `address.confidential_view_tag()`.
+- `sdk-libs/ts/wallet/src/registry.ts::resolvedAddressFromRecord` mirrors it with
+  `address.confidentialViewTag()`.
+
+The two are identical, and the change carries a second correctness effect beyond
+the deposit case: the resolved tag no longer moves when a sync delegate rotates
+the record's viewing key. It is the owner tag, which is what a scanning wallet
+looks for, and it survives delegation and revocation.
+
+No in-repo caller reads the field. `create_transfer` /`createTransfer` and the
+CLI deposit both take `resolved.address` and re-derive from it, so nothing
+internal changed behaviour; the field is consumed only across the SDK boundary,
+which is exactly why it was silently wrong.
+
+### Tests
+
+- `resolved_address_from_record_maps_registered_keys` and
+  `resolve_registered_address_fetches_and_maps_record` now assert the signing
+  tag; the first also asserts it **is not** the bootstrap (viewing-x) tag, so a
+  reversion fails on the tag itself.
+- `sdk-libs/ts/wallet/test/registry.test.ts` gained the same positive and
+  negative assertions against the derivation rather than only against the
+  fixture, so regenerating the fixture cannot re-pin the old value.
+- The delegated-resolution test previously asserted the tag equalled the
+  delegate's latest epoch key x-coordinate. It now asserts the owner tag and
+  that it is *not* the epoch key.
+
+### Fixture
+
+One value moved: `viewTagBytes` in `sdk-libs/ts/fixtures/wallet/user_registry.json`,
+from `ae140a14...` (viewing pubkey x) to `3250fcf6...` (signing pubkey x), plus
+its `manifest.json` `sha256`. Both are the generator's own output, obtained the
+same way as last time: the frozen-source guard was lifted locally, the generator
+run into `target/ts-fixtures-check`, and only this file taken. The scratch run
+differed in exactly the five pre-existing drifted fixtures plus this one, which
+confirms the change's blast radius. The guard edit was reverted and not
+committed.
+
+No other fixture or oracle encodes the value. `workflows/deposit-v1.json` and
+`interface/deposit-instruction-v1.json` still feed a synthetic tag as input.
+
+### Is the derivation duplicated?
+
+**No, but the call sites bypass it.** Each language has exactly one derivation:
+`ShieldedPublicKey::confidential_view_tag()`, which `ShieldedAddress` forwards to
+(`sdk-libs/keypair/src/shielded.rs:29`, `sdk-libs/ts/keypair/src/shielded.ts:62`).
+Both bugs were sites that reached past that accessor for `viewing_pubkey.x()`
+instead of calling it. After this change the only remaining readers of the
+viewing-x value are the sync scan, which must keep it (see above), and the
+negative assertions in the tests.
+
+There is a smaller redundancy worth folding, and it is a call-path duplication
+rather than a derivation one: `recipient_confidential_view_tag(_sync)` /
+`recipientConfidentialViewTag` fetches the record and derives the tag itself,
+which is now precisely `resolved_address_from_record(..).view_tag` with a zero
+tag substituted for an unregistered owner. Expressing the accessor in terms of
+the resolver would leave one path from record to tag per language. It is a
+public-surface change in both SDKs, so it belongs in its own change rather than
+here.
+
+### Verification
+
+Rust: `cargo test -p zolana-wallet` (83 + 13 passed) and
+`cargo test -p zolana-transaction` (all suites green).
+
+TypeScript, after a rebuild: `test:unit` 776 passed, `test:vectors` all green,
+`test:cross` 66 passed, `typecheck`, `build`, `test:exports`, and
+`npm run test:e2e:actions` 9 of 9. The two remaining `test:unit` failures are in
+`sdk-libs/ts/client/test/merge.test.ts`, another worker's in-flight legacy
+message-compilation change, and reproduce without this one.
