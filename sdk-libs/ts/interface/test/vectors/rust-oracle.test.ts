@@ -1042,6 +1042,38 @@ describe("decoder acceptance", () => {
       oracle.errors.InvalidMergeOutputScheme.code,
     );
   });
+
+  /**
+   * The write half of the same divergence, which rows I20 and I21 rest on.
+   * Rust reaches its non-canonical bytes by serializing the canonical value and
+   * overwriting one byte, so the vectors differ from the canonical encoding at
+   * the prefix offset and nowhere else: that is what makes the prefix, rather
+   * than any other field, the reason TypeScript refuses to build them.
+   */
+  it("pins the merge prefix guard on the encode side against Rust's own bytes", () => {
+    const nonCanonical = (): MergeTransactInstructionData => {
+      const value = mergeData();
+      const encryptedUtxo = Uint8Array.from(value.encryptedUtxo);
+      encryptedUtxo[0] = 0;
+      return { ...value, encryptedUtxo };
+    };
+    const mergeViewTag = filler(41, 32) as Bytes32;
+
+    const canonical = bytes(oracle.instructionData.mergeTransact);
+    const rustNonCanonical = bytes(acceptance.mergeNonCanonicalPrefixBytes);
+    const differing = [...canonical]
+      .map((byte, index) => (byte === rustNonCanonical[index] ? -1 : index))
+      .filter((index) => index >= 0);
+    expect(differing).toEqual([canonical.length - 111]);
+    expect(rustNonCanonical[canonical.length - 111]).toBe(0);
+
+    expect(() => mergeTransactInstructionDataCodec.encode(nonCanonical())).toThrow(
+      /INTERFACE_CODEC/,
+    );
+    expect(() =>
+      mergeZoneInstructionDataCodec.encode({ mergeViewTag, merge: nonCanonical() }),
+    ).toThrow(/INTERFACE_CODEC/);
+  });
 });
 
 describe("fetch tag", () => {
