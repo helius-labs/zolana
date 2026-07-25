@@ -165,6 +165,9 @@ export class ProverClient {
     }
   }
 
+  /// Mirrors `poll_async`: request the status, then wait between attempts, with
+  /// the total sleep bounded by `maxWaitMs`. A 4xx is final, a 5xx or a
+  /// transport failure is transient, and every other status has its body read.
   async #poll(jobId: string, p256: boolean, signal: ComposedSignal): Promise<Proof> {
     if (!/^[A-Za-z0-9_-]{1,256}$/u.test(jobId)) {
       throw new ClientError("CLIENT_PROVER_JOB", { details: { method: "prove" } });
@@ -174,47 +177,70 @@ export class ProverClient {
     url.searchParams.set("job_id", jobId);
     const interval = Math.max(MIN_POLL_INTERVAL_MS, this.#asyncPoll.pollIntervalMs);
     const maxWaitMs = this.#asyncPoll.maxWaitMs;
-    const started = Date.now();
-    for (;;) {
-      if (Date.now() - started >= maxWaitMs) {
+    let waitedMs = 0;
+    const waitOrTimeout = async (): Promise<void> => {
+      if (waitedMs >= maxWaitMs) {
         throw new ClientError("CLIENT_PROVER_TIMEOUT", {
           details: { method: "proveStatus", jobId, timeoutMs: maxWaitMs },
         });
       }
-      await sleep(BigInt(interval), { signal: signal.signal });
+      const sleepMs = Math.min(interval, maxWaitMs - waitedMs);
+      await sleep(BigInt(sleepMs), { signal: signal.signal });
+      waitedMs += sleepMs;
+    };
+    for (;;) {
+      // The Rust status GET inherits the shared client's request timeout, so a
+      // server that accepts the connection and never answers is a transport
+      // failure there. Without a bound here the same server hangs the poll
+      // past `maxWaitMs` forever.
+      const request = composeSignal(
+        { signal: signal.signal, timeoutMs: REQUEST_TIMEOUT_MS },
+        "proveStatus",
+      );
       let response: Response;
       try {
-        response = await this.#fetch(url, { signal: signal.signal });
-      } catch {
-        if (signal.signal.aborted) throw requestError("prove", signal);
-        continue;
+        try {
+          response = await this.#fetch(url, { signal: request.signal });
+        } catch {
+          if (signal.signal.aborted) throw requestError("prove", signal);
+          await waitOrTimeout();
+          continue;
+        }
+        if (response.status >= 400 && response.status < 500) {
+          throw new ClientError("CLIENT_PROVER_HTTP", {
+            details: { method: "proveStatus", status: response.status },
+          });
+        }
+        if (response.status >= 500) {
+          await waitOrTimeout();
+          continue;
+        }
+        let value: unknown;
+        try {
+          value = await decodeResponse(response);
+        } catch (error) {
+          if (signal.signal.aborted) throw requestError("prove", signal);
+          // Rust retries when reading the body fails and fails outright when the
+          // body is not JSON, so only the read failure is transient here.
+          if (!(error instanceof ClientError && error.code === "CLIENT_PROVER_TEXT")) throw error;
+          await waitOrTimeout();
+          continue;
+        }
+        const status = isObject(value) ? value["status"] : undefined;
+        if (status === "failed") {
+          throw new ClientError("CLIENT_PROVER_SERVER", {
+            details: { method: "proveStatus", status: "failed" },
+          });
+        }
+        if (status === "completed") {
+          const result = isObject(value) && isObject(value["result"]) ? value["result"] : value;
+          return parseProof(result, p256);
+        }
+        // queued / processing / pending / unknown: keep polling until the bound.
+        await waitOrTimeout();
+      } finally {
+        request.cleanup();
       }
-      if (!response.ok) {
-        // A queued job survives a server-side failure; a client error is final.
-        if (response.status >= 500) continue;
-        throw new ClientError("CLIENT_PROVER_HTTP", {
-          details: { method: "proveStatus", status: response.status },
-        });
-      }
-      let value: unknown;
-      try {
-        value = await decodeResponse(response);
-      } catch (error) {
-        if (signal.signal.aborted) throw requestError("prove", signal);
-        throw error;
-      }
-      const status = isObject(value) ? value["status"] : undefined;
-      if (status === "pending" || status === "processing" || status === "queued") continue;
-      if (status === "failed") {
-        throw new ClientError("CLIENT_PROVER_SERVER", {
-          details: { method: "proveStatus", status: "failed" },
-        });
-      }
-      if (status === "completed") {
-        const result = isObject(value) && isObject(value["result"]) ? value["result"] : value;
-        return parseProof(result, p256);
-      }
-      continue;
     }
   }
 }

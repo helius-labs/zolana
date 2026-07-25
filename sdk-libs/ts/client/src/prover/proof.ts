@@ -85,7 +85,6 @@ export function parseProof(value: unknown, requireCommitment: boolean): Proof {
   const envelope = asObject(value, "$");
   const proofValue = Object.hasOwn(envelope, "proof") ? envelope["proof"] : envelope;
   const proof = asObject(proofValue, "$.proof");
-  rejectUnknown(proof, ["ar", "bs", "krs", "proof_commitment", "proof_commitment_pok"]);
   const aRaw = parseG1(proof["ar"], "$.proof.ar");
   const a = new Uint8Array(aRaw);
   const y = bytesToBigInt(a.subarray(32));
@@ -93,7 +92,7 @@ export function parseProof(value: unknown, requireCommitment: boolean): Proof {
   const b = parseG2(proof["bs"], "$.proof.bs");
   const c = parseG1(proof["krs"], "$.proof.krs");
   const hasCommitment =
-    proof["proof_commitment"] !== undefined || proof["proof_commitment_pok"] !== undefined;
+    present(proof["proof_commitment"]) || present(proof["proof_commitment_pok"]);
   if (requireCommitment !== hasCommitment) {
     throw new ClientError("CLIENT_PROOF_RAIL_MISMATCH", {
       details: { expected: requireCommitment ? "p256" : "eddsa" },
@@ -193,13 +192,26 @@ function parseG2(value: unknown, path: string): Bytes128 {
   return result as Bytes128;
 }
 
+/// The prover writes every coordinate as `0x%064x`, but the Rust parser reads
+/// it through `BigInt::from_str_radix(trim_start_matches("0x"), 16)`, which
+/// takes the same digits with the prefix left off. Accept both so a producer
+/// the Rust client handles is not rejected here; the digits are always read as
+/// hexadecimal, prefix or not, exactly as Rust reads them.
 function parseCoordinate(value: unknown, path: string): bigint {
-  if (typeof value !== "string" || !/^0x[0-9a-fA-F]+$/u.test(value)) {
-    invalid(path);
-  }
-  const result = BigInt(value);
+  if (typeof value !== "string") invalid(path);
+  const digits = /^0[xX]/u.test(value) ? value.slice(2) : value;
+  if (!/^[0-9a-fA-F]+$/u.test(digits)) invalid(path);
+  const result = BigInt(`0x${digits}`);
   if (result >= BN254_BASE_MODULUS) invalid(path);
   return result;
+}
+
+/// Rust reads the two commitment fields as `#[serde(default)] Vec<String>` and
+/// decides the rail on `is_empty()`, so an explicit `[]` means "no commitment"
+/// there. Treat it the same rather than reading a present-but-empty array as a
+/// commitment and failing the rail check.
+function present(value: unknown): boolean {
+  return value !== undefined && !(Array.isArray(value) && value.length === 0);
 }
 
 function asObject(value: unknown, path: string): Record<string, unknown> {
@@ -210,10 +222,6 @@ function asObject(value: unknown, path: string): Record<string, unknown> {
 function asArray(value: unknown, path: string): unknown[] {
   if (!Array.isArray(value)) invalid(path);
   return value;
-}
-
-function rejectUnknown(value: Record<string, unknown>, allowed: readonly string[]): void {
-  if (Object.keys(value).some((key) => !allowed.includes(key))) invalid("$.proof");
 }
 
 function invalid(path: string): never {

@@ -60,17 +60,50 @@ describe("prover proof conversion", () => {
     });
   });
 
-  it("rejects rail confusion, partial commitments, unknown fields, and malformed points", () => {
+  it("rejects rail confusion, partial commitments, and malformed points", () => {
     expectCode(() => parseProof(ZERO_PROOF, true), "CLIENT_PROOF_RAIL_MISMATCH");
     expectCode(
       () => parseProof({ ...ZERO_PROOF, proof_commitment: ZERO_POINT }, true),
       "CLIENT_PROOF_PARSE",
     );
-    expectCode(() => parseProof({ ...ZERO_PROOF, extra: 1 }, false), "CLIENT_PROOF_PARSE");
     expectCode(
       () => parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x1"] }, false),
       "CLIENT_PROOF_POINT",
     );
+    expectCode(() => parseProof({ ...ZERO_PROOF, ar: ["0xzz", "0x0"] }, false), "CLIENT_PROOF_PARSE");
+    expectCode(() => parseProof({ ...ZERO_PROOF, ar: ["", "0x0"] }, false), "CLIENT_PROOF_PARSE");
+  });
+
+  /// `GnarkProofJson` is a plain serde struct with no `deny_unknown_fields`, so
+  /// the Rust client ignores any key the prover adds. Rejecting them here would
+  /// mean a prover release that adds one field keeps working through the Rust
+  /// SDK and breaks only through this one.
+  it("ignores gnark fields the Rust parser ignores", () => {
+    const proof = parseProof({ ...ZERO_PROOF, curve: "bn254", commitments: 0 }, false);
+
+    expect(proof.commitment).toBeUndefined();
+    expect(proof.a).toEqual(new Uint8Array(64));
+  });
+
+  /// Rust decides the rail on `Vec::is_empty()`, so `proof_commitment: []` reads
+  /// as an eddsa proof there. Reading a present-but-empty array as a commitment
+  /// would reject a response the Rust client accepts.
+  it("reads an empty commitment array as no commitment, as Rust does", () => {
+    const proof = parseProof(
+      { ...ZERO_PROOF, proof_commitment: [], proof_commitment_pok: [] },
+      false,
+    );
+
+    expect(proof.commitment).toBeUndefined();
+  });
+
+  /// `hex_to_be_32` strips an optional `0x` and parses the rest as hexadecimal,
+  /// so a producer that omits the prefix is read correctly by the Rust client.
+  it("accepts a coordinate without the 0x prefix, as Rust does", () => {
+    const prefixed = parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x2"] }, false);
+    const bare = parseProof({ ...ZERO_PROOF, ar: ["1", "2"] }, false);
+
+    expect(bare.a).toEqual(prefixed.a);
   });
 
   it("negates proof A over the BN254 base field before compression", () => {
