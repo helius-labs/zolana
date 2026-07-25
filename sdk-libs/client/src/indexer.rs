@@ -1106,8 +1106,11 @@ mod tests {
             }),
             |response: &i64| *response,
             || {
-                decode_optional_p256(Some(Base64String(vec![2u8; 32])), "transactions[0].tx_viewing_pk")
-                    .map(|_| 0i64)
+                decode_optional_p256(
+                    Some(Base64String(vec![2u8; 32])),
+                    "transactions[0].tx_viewing_pk",
+                )
+                .map(|_| 0i64)
             },
         )
         .expect_err("a malformed viewing key must exhaust the schedule");

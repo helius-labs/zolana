@@ -28,9 +28,7 @@ use zolana_client::{
 use zolana_interface::instruction::instruction_data::transact::{
     OwnerTag, TransactOutput, TransactProof,
 };
-use zolana_keypair::{
-    NullifierKey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
-};
+use zolana_keypair::{NullifierKey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     derive_blinding,
     instructions::{
@@ -272,12 +270,8 @@ fn cases() -> Vec<Case> {
 fn case_json(case: &Case) -> Value {
     let signer = keypair(case.p256);
     let external = external_data(case);
-    let mut proof_inputs = SppProofInputs::new(
-        case.inputs.clone(),
-        case.outputs.clone(),
-        external,
-        payer(),
-    );
+    let mut proof_inputs =
+        SppProofInputs::new(case.inputs.clone(), case.outputs.clone(), external, payer());
     if case.p256 {
         proof_inputs.sign_p256(&signer).expect("p256 signature");
     }
@@ -449,7 +443,10 @@ fn ts_field_alignment_oracle_is_current() {
 }
 
 fn write_oracle(path: PathBuf, oracle: &Value) {
-    let rendered = format!("{}\n", serde_json::to_string_pretty(oracle).expect("render"));
+    let rendered = format!(
+        "{}\n",
+        serde_json::to_string_pretty(oracle).expect("render")
+    );
     let current = std::fs::read_to_string(&path).unwrap_or_default();
     if current == rendered {
         return;

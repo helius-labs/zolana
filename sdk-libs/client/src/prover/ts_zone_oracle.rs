@@ -268,7 +268,11 @@ fn p256_owner(keypair: &ShieldedKeypair, inputs: &mut SppProofInputs) -> P256Own
 /// The named intermediates that feed the public-input chain, in Rust's order.
 /// A TypeScript failure compares these first, so the report names the element
 /// that diverged rather than only the final hash.
-fn chain_json(inputs: &TransferInputs, nullifiers: &[[u8; 32]], output_hashes: &[[u8; 32]]) -> Value {
+fn chain_json(
+    inputs: &TransferInputs,
+    nullifiers: &[[u8; 32]],
+    output_hashes: &[[u8; 32]],
+) -> Value {
     json!({
         "nullifierChain": hex(&create_hash_chain_from_slice(nullifiers).expect("nullifier chain")),
         "outputHashChain": hex(&create_hash_chain_from_slice(output_hashes).expect("output chain")),
@@ -494,7 +498,10 @@ fn ts_zone_oracle_is_current() {
             "otherZone": other_zone_case(),
         }
     });
-    let rendered = format!("{}\n", serde_json::to_string_pretty(&oracle).expect("render"));
+    let rendered = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&oracle).expect("render")
+    );
     let path = oracle_path();
     let current = std::fs::read_to_string(&path).unwrap_or_default();
     if current == rendered {

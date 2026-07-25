@@ -20,7 +20,6 @@ use std::{fs, path::PathBuf};
 
 use serde_json::{json, Map, Value};
 use solana_address::Address;
-use wincode;
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
     PublicKey, SigningKey, ViewingKey,
@@ -119,11 +118,15 @@ fn ts_code(error: &TransactionError) -> &'static str {
         TransactionError::TooManyInputs { .. } => "TRANSACTION_TOO_MANY_INPUTS",
         TransactionError::TooManyOutputsForShape { .. } => "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
         TransactionError::MergeInputRailMismatch { .. } => "TRANSACTION_MERGE_INPUT_RAIL_MISMATCH",
-        TransactionError::MergeInputOwnerMismatch { .. } => "TRANSACTION_MERGE_INPUT_OWNER_MISMATCH",
+        TransactionError::MergeInputOwnerMismatch { .. } => {
+            "TRANSACTION_MERGE_INPUT_OWNER_MISMATCH"
+        }
         TransactionError::MergeInputNullifierKeyMismatch { .. } => {
             "TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH"
         }
-        TransactionError::MergeInputAssetMismatch { .. } => "TRANSACTION_MERGE_INPUT_ASSET_MISMATCH",
+        TransactionError::MergeInputAssetMismatch { .. } => {
+            "TRANSACTION_MERGE_INPUT_ASSET_MISMATCH"
+        }
         TransactionError::MergeInputZoneMismatch { .. } => "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
         TransactionError::SelectedBalanceOverflow => "TRANSACTION_SELECTED_BALANCE_OVERFLOW",
         TransactionError::WalletBalanceOverflow => "TRANSACTION_WALLET_BALANCE_OVERFLOW",
@@ -174,7 +177,10 @@ fn samples() -> Vec<(&'static str, TransactionError)> {
             "NonCanonicalDataOrder",
             TransactionError::NonCanonicalDataOrder,
         ),
-        ("MissingZoneProgramId", TransactionError::MissingZoneProgramId),
+        (
+            "MissingZoneProgramId",
+            TransactionError::MissingZoneProgramId,
+        ),
         (
             "UnsupportedOutputData",
             TransactionError::UnsupportedOutputData,
@@ -269,7 +275,10 @@ fn samples() -> Vec<(&'static str, TransactionError)> {
         ),
         ("PublicSolAlreadySet", TransactionError::PublicSolAlreadySet),
         ("PublicSplAlreadySet", TransactionError::PublicSplAlreadySet),
-        ("ZoneHashesAlreadySet", TransactionError::ZoneHashesAlreadySet),
+        (
+            "ZoneHashesAlreadySet",
+            TransactionError::ZoneHashesAlreadySet,
+        ),
         (
             "MultiplePublicSplAssets",
             TransactionError::MultiplePublicSplAssets,
@@ -445,10 +454,7 @@ fn data_section() -> Value {
             ],
         ),
         data_case("memoLongerThanAByte", &[("memo", vec![7; 300])]),
-        data_case(
-            "duplicateMemo",
-            &[("memo", vec![1]), ("memo", vec![2])],
-        ),
+        data_case("duplicateMemo", &[("memo", vec![1]), ("memo", vec![2])]),
         data_case(
             "duplicateZone",
             &[("zoneData", vec![1]), ("zoneData", vec![2])],
@@ -457,14 +463,8 @@ fn data_section() -> Value {
             "utxoBeforeZone",
             &[("utxoData", vec![1]), ("zoneData", vec![2])],
         ),
-        data_case(
-            "zoneAfterMemo",
-            &[("memo", vec![0]), ("zoneData", vec![1])],
-        ),
-        data_case(
-            "utxoAfterMemo",
-            &[("memo", vec![0]), ("utxoData", vec![1])],
-        ),
+        data_case("zoneAfterMemo", &[("memo", vec![0]), ("zoneData", vec![1])]),
+        data_case("utxoAfterMemo", &[("memo", vec![0]), ("utxoData", vec![1])]),
         data_case("emptyRecordBytes", &[("utxoData", Vec::new())]),
     ];
     json!({ "cases": cases })
@@ -506,10 +506,7 @@ fn shape_json(shape: Shape) -> Value {
 
 fn shape_case(declared: Option<Shape>, n_in: usize, n_out: usize) -> Value {
     let mut case = Map::new();
-    case.insert(
-        "declared".into(),
-        declared.map_or(Value::Null, shape_json),
-    );
+    case.insert("declared".into(), declared.map_or(Value::Null, shape_json));
     case.insert("inputs".into(), json!(n_in));
     case.insert("outputs".into(), json!(n_out));
     match resolve_shape(declared, n_in, n_out) {
@@ -688,7 +685,10 @@ fn utxo_case(case: UtxoCase) -> Value {
     let built = ProofInputUtxo::new(case.owner_hash, &case.asset, case.amount, &case.blinding)
         .map(|input| input.with_data_hash(case.data_hash.unwrap_or_default()))
         .and_then(|input| {
-            input.with_zone(case.zone_data_hash.unwrap_or_default(), &case.zone_program_id)
+            input.with_zone(
+                case.zone_data_hash.unwrap_or_default(),
+                &case.zone_program_id,
+            )
         })
         .and_then(|input| input.hash());
     match built {
