@@ -32,6 +32,7 @@ import {
   submitMergeTransaction,
   syncWallet,
   type TransactionSigner,
+  type WalletAuthority,
 } from "@zolana/wallet";
 import { fixtureJson } from "@zolana/test-kit/fixtures";
 import {
@@ -658,23 +659,28 @@ describe("P12 action workflows", () => {
     });
   });
 
-  it("approves the matching authority, rejects another identity, and builds rotation", async () => {
+  it("approves any request the local authority is handed and builds rotation", async () => {
     const fixture = await fixtureJson<MergeFixture>("workflows/action-merge-v1");
     const keypair = seededKeypair(
       fixture.inputs.signingSecretBytes,
       fixture.inputs.viewingSeedBytes,
     );
     const owner = fixture.inputs.enabledRecord.owner;
-    const authority = new LocalWalletAuthority({ solanaPublicKey: owner, keypair });
+    const authority: WalletAuthority = new LocalWalletAuthority({
+      solanaPublicKey: owner,
+      keypair,
+    });
     await expect(
       authority.requestUserApproval({
         solanaPublicKey: owner,
         summary: "approve private transfer",
       }),
     ).resolves.toBeUndefined();
+    // `LocalWalletAuthority` carries no interactive approval: Rust takes the
+    // trait default, which approves without inspecting the request.
     await expect(
-      authority.requestUserApproval({ solanaPublicKey: TREE, summary: "reject private transfer" }),
-    ).rejects.toMatchObject({ code: "WALLET_APPROVAL_IDENTITY_MISMATCH" });
+      authority.requestUserApproval({ solanaPublicKey: TREE, summary: "another identity" }),
+    ).resolves.toBeUndefined();
 
     const rpc = new TestRpc();
     rpc.setAccount(fixture.inputs.enabledRecord.pda, {

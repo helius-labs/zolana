@@ -1,5 +1,5 @@
 import type { Address, Bytes32, Signature } from "@zolana/interface";
-import type { ShieldedAddress } from "@zolana/keypair";
+import type { P256PublicKey, ShieldedAddress } from "@zolana/keypair";
 
 import { TransactionError } from "../error.js";
 import { copy } from "../internal.js";
@@ -25,6 +25,49 @@ export interface SyncReport {
   readonly spent: number;
   readonly transactions: number;
   readonly unknownAssetIds: readonly bigint[];
+}
+
+export interface CounterpartyCounter {
+  readonly counterparty: P256PublicKey;
+  readonly count: bigint;
+}
+
+/**
+ * How far each tag family of one viewing key has been scanned. A sync resumes
+ * from these counters and queries `count + window` tags per family, so a
+ * counterparty that has advanced its own counter stays reachable.
+ */
+export interface ViewingKeyEntry {
+  readonly viewingPublicKey: P256PublicKey;
+  readonly createdAt: bigint;
+  readonly txCount: bigint;
+  readonly requestCount: bigint;
+  readonly knownSenders: readonly CounterpartyCounter[];
+  readonly knownRecipients: readonly CounterpartyCounter[];
+}
+
+export function newViewingKeyEntry(
+  viewingPublicKey: P256PublicKey,
+  createdAt: bigint,
+): ViewingKeyEntry {
+  return Object.freeze({
+    viewingPublicKey,
+    createdAt,
+    txCount: 0n,
+    requestCount: 0n,
+    knownSenders: Object.freeze([]),
+    knownRecipients: Object.freeze([]),
+  });
+}
+
+function snapshotViewingKeyEntry(value: ViewingKeyEntry): ViewingKeyEntry {
+  return Object.freeze({
+    ...value,
+    knownSenders: Object.freeze(value.knownSenders.map((entry) => Object.freeze({ ...entry }))),
+    knownRecipients: Object.freeze(
+      value.knownRecipients.map((entry) => Object.freeze({ ...entry })),
+    ),
+  });
 }
 
 export interface WalletUtxo {
@@ -66,6 +109,7 @@ function snapshotUtxo(value: WalletUtxo): WalletUtxo {
 export class Wallet {
   readonly identity: ShieldedAddress;
   readonly #registry: AssetRegistry;
+  #viewingKeyHistory: ViewingKeyEntry[];
   #utxos: WalletUtxo[] = [];
   #transactions: PrivateTransaction[] = [];
   #nullifiers = new Set<string>();
@@ -73,10 +117,15 @@ export class Wallet {
   constructor(input: Readonly<{ identity: ShieldedAddress; registry: AssetRegistry }>) {
     this.identity = input.identity;
     this.#registry = input.registry.clone();
+    this.#viewingKeyHistory = [newViewingKeyEntry(input.identity.viewingPublicKey, 0n)];
   }
 
   get registry(): AssetRegistry {
     return this.#registry.clone();
+  }
+
+  get viewingKeyHistory(): readonly ViewingKeyEntry[] {
+    return this.#viewingKeyHistory.map(snapshotViewingKeyEntry);
   }
 
   registerAsset(assetId: bigint, mint: Address): void {
@@ -121,19 +170,23 @@ export class Wallet {
     utxos: readonly WalletUtxo[];
     transactions: readonly PrivateTransaction[];
     nullifiers: ReadonlySet<string>;
+    viewingKeyHistory: readonly ViewingKeyEntry[];
   }> {
     return {
       utxos: this.#utxos.map(snapshotUtxo),
       transactions: this.privateTransactions(),
       nullifiers: new Set(this.#nullifiers),
+      viewingKeyHistory: this.viewingKeyHistory,
     };
   }
 
+  /** Omitting `viewingKeyHistory` leaves the scan position untouched. */
   _replace(
     input: Readonly<{
       utxos: readonly WalletUtxo[];
       transactions: readonly PrivateTransaction[];
       nullifiers: ReadonlySet<string>;
+      viewingKeyHistory?: readonly ViewingKeyEntry[];
     }>,
   ): void {
     const hashes = new Set<string>();
@@ -149,6 +202,9 @@ export class Wallet {
       Object.freeze({ ...transaction, id: Object.freeze({ ...transaction.id }) }),
     );
     this.#nullifiers = new Set(input.nullifiers);
+    if (input.viewingKeyHistory !== undefined) {
+      this.#viewingKeyHistory = input.viewingKeyHistory.map(snapshotViewingKeyEntry);
+    }
   }
 }
 

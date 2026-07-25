@@ -157,8 +157,9 @@ export interface CreatedSplit {
   readonly perOutputAmount: bigint;
 }
 
-function positiveAmount(amount: bigint): void {
-  if (amount <= 0n || amount > 0xffff_ffff_ffff_ffffn) {
+/** Rust takes a `u64`, so only a value outside that range is refused. */
+function u64Amount(amount: bigint): void {
+  if (amount < 0n || amount > 0xffff_ffff_ffff_ffffn) {
     throw new WalletError("WALLET_INVALID_AMOUNT", {
       details: { amount: amount.toString() },
     });
@@ -246,7 +247,7 @@ function withdrawal(
 }
 
 export function createWithdrawal(params: WithdrawalParams): CreatedWithdrawal {
-  positiveAmount(params.amount);
+  u64Amount(params.amount);
   const tree = spendTree(params.wallet, params.asset, () => true);
   const inputs = selectInputs(params.wallet, tree, params.asset, params.amount);
   const resolved = withdrawal(params.recipient, params.asset);
@@ -272,7 +273,7 @@ export async function createTransfer(
   params: TransferParams,
   context?: RequestContext,
 ): Promise<CreatedTransfer> {
-  positiveAmount(params.amount);
+  u64Amount(params.amount);
   try {
     const registered = await resolveRegisteredAddress(
       { rpc: params.rpc, owner: params.recipient },

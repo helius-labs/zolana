@@ -1,5 +1,8 @@
 export {
+  LocalWalletAuthority,
   type AnonymousRecipientSlot,
+  type ApprovalRequest,
+  type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,
   type P256Signature,
@@ -15,4 +18,11 @@ export {
   type WalletSyncConfig,
 } from "./sync.js";
 export { Wallet } from "./state.js";
-export type { AssetBalance, PrivateTransaction, SyncReport, WalletUtxo } from "./state.js";
+export type {
+  AssetBalance,
+  CounterpartyCounter,
+  PrivateTransaction,
+  SyncReport,
+  ViewingKeyEntry,
+  WalletUtxo,
+} from "./state.js";

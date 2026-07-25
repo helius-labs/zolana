@@ -501,11 +501,11 @@ export function prepareZoneAuthority(
     publicAmounts?: Readonly<{ sol?: bigint; spl?: bigint }>;
   }>,
 ): PreparedZoneAuthority {
-  // Nobody authorizes this spend: the circuit checks only nullifier-secret
-  // knowledge, so the zone binding is the sole reason the authority cannot move
-  // value out of its policy zone. The zone is therefore pinned nonzero, every
-  // real UTXO carries exactly it with no exemption for the default zone, and no
-  // public leg may pay value out.
+  // The UTXO owners do not authorize this spend; the zone's `zone_config` PDA
+  // does, and only the zone program can sign for it. The zone binding is what
+  // keeps the authority inside its own policy zone, so the zone is pinned
+  // nonzero and every real UTXO carries exactly it, with no exemption for the
+  // default zone.
   if (input.zoneProgramId === UNPINNED_ZONE) {
     throw new TransactionError("TRANSACTION_MISSING_ZONE_AUTHORITY_PROGRAM_ID");
   }
@@ -519,8 +519,11 @@ export function prepareZoneAuthority(
       throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH", { index });
     }
   }
+  // A negative public amount pays value out of the zone. A positive one moves
+  // value in, which neither the program nor the circuit gates on the authority
+  // rail, so only the outgoing direction is refused here.
   const { sol = 0n, spl = 0n } = input.publicAmounts ?? {};
-  if (sol !== 0n || spl !== 0n) {
+  if (sol < 0n || spl < 0n) {
     throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_WITHDRAWAL_NOT_ALLOWED");
   }
   return Object.freeze({

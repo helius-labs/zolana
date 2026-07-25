@@ -8,13 +8,14 @@ import {
 } from "@zolana/client";
 import { SHIELDED_POOL_PROGRAM_ID, decodeSplAssetRegistry } from "@zolana/interface";
 import type { Bytes32, RequestContext } from "@zolana/interface";
-import type { P256PublicKey, ViewingKey } from "@zolana/keypair";
+import type { ViewingKey } from "@zolana/keypair";
 import {
   EncryptedScheme,
   decryptTransactions,
   type AssetBalance,
   type PrivateTransaction,
   type SyncReport,
+  type ViewingKeyEntry,
   type Wallet,
   type WalletSyncMaterial,
 } from "@zolana/transaction";
@@ -34,26 +35,11 @@ export interface SyncWalletConfig {
   readonly retry?: IndexerPollConfig;
 }
 
-export interface CounterpartyCounter {
-  readonly counterparty: P256PublicKey;
-  readonly count: bigint;
-}
-
 /**
  * Per-viewing-key counters that extend the queried tag ranges past the scan
- * window. Owned by the wallet state in `@zolana/transaction`; sync degrades to
- * the bare window while that state is absent.
+ * window. Owned by the wallet state in `@zolana/transaction`.
  */
-export interface ViewingKeyCounters {
-  readonly viewingPublicKey: P256PublicKey;
-  readonly txCount: bigint;
-  readonly requestCount: bigint;
-  readonly knownSenders: readonly CounterpartyCounter[];
-  readonly knownRecipients: readonly CounterpartyCounter[];
-}
-
-type WalletWithViewingKeyHistory = Wallet &
-  Readonly<{ viewingKeyHistory?: readonly ViewingKeyCounters[] }>;
+export type { CounterpartyCounter, ViewingKeyEntry as ViewingKeyCounters } from "@zolana/transaction";
 
 export async function backfillAssetRegistry(
   wallet: Wallet,
@@ -91,11 +77,11 @@ function atLeastOne(value: number, field: string): number {
   return Math.max(value, 1);
 }
 
-function viewingKeyCounters(wallet: Wallet, key: ViewingKey): ViewingKeyCounters | undefined {
-  const history = (wallet as WalletWithViewingKeyHistory).viewingKeyHistory;
-  if (history === undefined) return undefined;
+function viewingKeyCounters(wallet: Wallet, key: ViewingKey): ViewingKeyEntry | undefined {
   const publicKey = bytesKey(key.publicKey().toBytes());
-  return history.find((entry) => bytesKey(entry.viewingPublicKey.toBytes()) === publicKey);
+  return wallet.viewingKeyHistory.find(
+    (entry) => bytesKey(entry.viewingPublicKey.toBytes()) === publicKey,
+  );
 }
 
 /**

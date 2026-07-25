@@ -143,6 +143,30 @@ describe("wallet actions", () => {
     ).toThrow(expect.objectContaining({ code: "WALLET_SPLIT_NOT_DIVISIBLE" }));
   });
 
+  it("builds a zero-amount withdrawal and refuses one outside the u64 range", () => {
+    // `create_withdrawal` has no amount check and `select_inputs` returns on the
+    // first eligible note, so zero is a withdrawal Rust builds.
+    const zero = createWithdrawal({
+      wallet: fundedWallet([3n, 8n]),
+      payer: OWNER,
+      recipient: TREE,
+      asset: SOL_MINT,
+      amount: 0n,
+    });
+    expect(zero.transaction.inputCount()).toBe(1);
+    expect(zero.withdrawal).toEqual({ kind: "sol", recipient: TREE });
+
+    expect(() =>
+      createWithdrawal({
+        wallet: fundedWallet([3n]),
+        payer: OWNER,
+        recipient: TREE,
+        asset: SOL_MINT,
+        amount: 0x1_0000_0000_0000_0000n,
+      }),
+    ).toThrow(expect.objectContaining({ code: "WALLET_INVALID_AMOUNT" }));
+  });
+
   it("falls back to a public withdrawal for an unregistered recipient", async () => {
     const wallet = fundedWallet([10n]);
     const created = await createTransfer({

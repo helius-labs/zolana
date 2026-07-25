@@ -713,9 +713,9 @@ describe("manifest-verified transaction builders", () => {
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_SPLIT_INPUT_NULLIFIER_KEY_MISMATCH" }));
   });
 
-  // Nobody authorizes a zone-authority transact, so the zone binding is the only
-  // thing keeping value inside the policy zone.
-  it("pins a zone-authority transact to a nonzero zone and refuses a public leg", () => {
+  // The zone program signs a zone-authority transact, not the UTXO owners, so
+  // the zone binding is what keeps their value inside the policy zone.
+  it("pins a zone-authority transact to a nonzero zone and refuses an outgoing leg", () => {
     const sender = owner(section(load("zone"), "inputs"));
     const seed = new Uint8Array(31).fill(4) as Bytes31;
     const zone = encodeAddress(new Uint8Array(32).fill(9));
@@ -767,5 +767,8 @@ describe("manifest-verified transaction builders", () => {
         expect.objectContaining({ code: "TRANSACTION_ZONE_AUTHORITY_WITHDRAWAL_NOT_ALLOWED" }),
       );
     }
+    // Paying value into the zone is gated by neither the program nor the
+    // circuit, so the authority rail must be able to build it.
+    expect(prepare({ publicAmounts: { sol: 10n } }).publicAmounts).toEqual({ sol: 10n });
   });
 });

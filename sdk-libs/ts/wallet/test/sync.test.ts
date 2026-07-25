@@ -2,7 +2,15 @@ import type { ZolanaIndexer } from "@zolana/client";
 import { SHIELDED_POOL_PROGRAM_ID, type Address, type Bytes32 } from "@zolana/interface";
 import { splAssetRegistryAccountCodec } from "@zolana/interface/codecs";
 import { randomBlinding, ShieldedKeypair } from "@zolana/keypair";
-import { AssetRegistry, Data, EncryptedScheme, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
+import {
+  AssetRegistry,
+  Data,
+  EncryptedScheme,
+  SOL_ASSET_ID,
+  SOL_MINT,
+  Utxo,
+  Wallet,
+} from "@zolana/transaction";
 import { encodeOutputData, encodeProofless } from "@zolana/transaction/serialization";
 import { describe, expect, it, vi } from "vitest";
 
@@ -208,12 +216,13 @@ describe("wallet sync", () => {
       const counterparty = ShieldedKeypair.generate().viewingKey().publicKey();
       const counters: ViewingKeyCounters = {
         viewingPublicKey: viewingKey.publicKey(),
+        createdAt: 0n,
         txCount: 3n,
         requestCount: 1n,
         knownSenders: [{ counterparty, count: 1n }],
         knownRecipients: [{ counterparty, count: 1n }],
       };
-      Object.assign(wallet, { viewingKeyHistory: [counters] });
+      wallet._replace({ ...wallet._state(), viewingKeyHistory: [counters] });
       const target =
         family === "recipientShared"
           ? viewingKey.recipientSharedViewTag(counterparty, 1n)
@@ -252,6 +261,99 @@ describe("wallet sync", () => {
       expect(wallet.utxos()).toHaveLength(3);
       expect(wallet.balance(SOL_MINT)?.amount).toBe(40n + DEPOSIT_AMOUNT);
     }
+  });
+
+  it("queries a discovered sender's shared family on the next round", async () => {
+    const { wallet, authority, keypair } = state();
+    const sender = ShieldedKeypair.generate();
+    const senderViewingPublicKey = sender.viewingKey().publicKey();
+    const blinding = randomBlinding();
+    const note = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 7n,
+      blinding,
+      data: new Data(),
+    });
+    const envelope = await new LocalWalletAuthority({
+      solanaPublicKey: OWNER,
+      keypair: sender,
+    }).encryptAnonymousTransfer({
+      firstNullifier: bytes32(1),
+      senderViewTag: bytes32(3),
+      sender: {
+        ownerPublicKey: sender.signingPublicKey(),
+        splAssetId: SOL_ASSET_ID,
+        splAmount: 0n,
+        solAmount: 1n,
+        blindingSeed: randomBlinding(),
+        recipientViewingPublicKeys: [keypair.viewingKey().publicKey()],
+        splData: new Data(),
+        solData: new Data(),
+      },
+      recipients: [
+        {
+          viewTag: keypair.viewingKey().recipientRequestViewTag(0n),
+          recipientPublicKey: keypair.viewingKey().publicKey(),
+          plaintext: {
+            ownerPublicKey: keypair.signingPublicKey(),
+            senderPublicKey: senderViewingPublicKey,
+            assetId: SOL_ASSET_ID,
+            amount: 7n,
+            blinding,
+            data: new Data(),
+          },
+        },
+      ],
+    });
+    const requestTag = keypair.viewingKey().recipientRequestViewTag(0n);
+    const transaction = {
+      slot: 1n,
+      txSignature: "3QnHBSdd4LEV3B9vCPgqmMKtaLQupsnEsBz3JqnHhBWQ",
+      txViewingPublicKey: envelope.txViewingPublicKey,
+      salt: envelope.salt,
+      outputSlots: envelope.payload.flatMap((message, index) =>
+        message === undefined
+          ? []
+          : [
+              {
+                viewTag: message.viewTag,
+                outputContext: {
+                  hash: index === 1 ? note.hash(keypair.nullifierKey().publicKey()) : bytes32(0),
+                  tree: TREE,
+                  leafIndex: BigInt(index),
+                },
+                payload: message.data,
+              },
+            ],
+      ),
+      messages: [],
+      nullifiers: [],
+      proofless: false,
+    };
+    const requested = new Set<string>();
+    const indexer = {
+      getShieldedTransactionsByTags: (request: Readonly<{ tags: readonly Bytes32[] }>) => {
+        for (const tag of request.tags) requested.add(hex(tag));
+        const matched = request.tags.some((tag) => hex(tag) === hex(requestTag));
+        return Promise.resolve({
+          context: { blockTime: 0n },
+          transactions: matched ? [transaction] : [],
+        });
+      },
+      getEncryptedUtxosByTags: () => Promise.resolve({ context: { blockTime: 0n }, matches: [] }),
+    } as unknown as ZolanaIndexer;
+
+    await syncWallet({ wallet, authority, indexer, config: { tagWindow: 1n } });
+
+    expect(wallet.utxos()).toHaveLength(3);
+    // The sender is only known once the note decoded, so its shared tags can
+    // only have been asked for on a later round.
+    expect(
+      requested.has(
+        hex(keypair.viewingKey().recipientSharedViewTag(senderViewingPublicKey, 0n)),
+      ),
+    ).toBe(true);
   });
 
   it("forwards the indexer poll configuration", async () => {
