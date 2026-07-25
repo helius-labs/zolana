@@ -20,7 +20,14 @@ import {
   type Shape,
   type TransactionErrorCode,
 } from "../../src/index.js";
-import { encodeData, decodeData } from "../../src/serialization/index.js";
+import {
+  decodeConfidential,
+  decodeData,
+  decodeMerge,
+  encodeConfidential,
+  encodeData,
+  encodeMerge,
+} from "../../src/serialization/index.js";
 import oracle from "../oracles/transaction-parity-v1.json" with { type: "json" };
 
 /// `sdk-libs/transaction/tests/ts_oracle.rs` produced every value in
@@ -355,6 +362,59 @@ describe("the Rust oracle and TypeScript agree on UTXO commitments", () => {
       expect(hex(deriveBlinding(bytes(entry.seedHex) as Bytes31, entry.position))).toBe(
         entry.blindingHex,
       );
+    }
+  });
+});
+
+describe("the Rust oracle and TypeScript agree on the key-free plaintext layouts", () => {
+  it("encodes a confidential output the same way", () => {
+    for (const entry of oracle.serialization.confidential as readonly Readonly<{
+      name: string;
+      assetId: string;
+      amount: string;
+      blindingHex: string;
+      zoneProgramId: string | null;
+      records: readonly Readonly<{ kind: string; bytesHex: string }>[];
+      encodedHex: string;
+    }>[]) {
+      const value = {
+        assetId: BigInt(entry.assetId),
+        amount: BigInt(entry.amount),
+        blinding: bytes(entry.blindingHex) as Bytes31,
+        ...(entry.zoneProgramId === null ? {} : { zoneProgramId: entry.zoneProgramId as Address }),
+        data: new Data(
+          entry.records.map(
+            (record) => ({ kind: record.kind, bytes: bytes(record.bytesHex) }) as DataRecord,
+          ),
+        ),
+      };
+      const encoded = encodeConfidential(value);
+      expect(`${entry.name}:${hex(encoded)}`).toBe(`${entry.name}:${entry.encodedHex}`);
+      const parsed = decodeConfidential(encoded);
+      expect(parsed.assetId).toBe(value.assetId);
+      expect(parsed.amount).toBe(value.amount);
+      expect(hex(parsed.blinding)).toBe(entry.blindingHex);
+      expect(parsed.zoneProgramId ?? null).toBe(entry.zoneProgramId);
+    }
+  });
+
+  it("encodes a merge plaintext the same way", () => {
+    for (const entry of oracle.serialization.merge as readonly Readonly<{
+      name: string;
+      amount: string;
+      assetFieldHex: string;
+      blindingHex: string;
+      encodedHex: string;
+    }>[]) {
+      const encoded = encodeMerge({
+        amount: BigInt(entry.amount),
+        assetField: bytes(entry.assetFieldHex) as Bytes32,
+        blinding: bytes(entry.blindingHex) as Bytes31,
+      });
+      expect(`${entry.name}:${hex(encoded)}`).toBe(`${entry.name}:${entry.encodedHex}`);
+      const parsed = decodeMerge(encoded);
+      expect(parsed.amount).toBe(BigInt(entry.amount));
+      expect(hex(parsed.assetField)).toBe(entry.assetFieldHex);
     }
   });
 });

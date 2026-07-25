@@ -24,6 +24,7 @@ use wincode;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::{
     derive_blinding,
+    serialization::{confidential::ConfidentialOutputPlaintext, merge::MergePlaintext},
     instructions::transact::{canonical_shape, shape::resolve_shape, slot_ordinal, Shape},
     owner_utxo_hash, AssetRegistry, Data, DataRecord, EncryptedScheme, ProofInputUtxo,
     TransactionError, SOL_ASSET_ID, SOL_MINT,
@@ -808,6 +809,94 @@ fn utxo_section() -> Value {
     })
 }
 
+/// The two plaintext layouts that carry no key material, so both languages can
+/// build them from the same literals. The keyed layouts (anonymous, split
+/// bundle, plaintext transfer) need a shared keypair derivation and are not
+/// covered here.
+fn serialization_section() -> Value {
+    let confidential = [
+        ("bare", 1u64, 1_000u64, None, Data::default()),
+        (
+            "zoneBound",
+            7,
+            42,
+            Some(address(12)),
+            Data::new(vec![DataRecord::ZoneData(vec![9, 9])]),
+        ),
+        (
+            "everyRecord",
+            2,
+            u64::MAX,
+            Some(address(12)),
+            Data::new(vec![
+                DataRecord::ZoneData(vec![9, 9]),
+                DataRecord::UtxoData(vec![1]),
+                DataRecord::Memo(b"gm".to_vec()),
+            ]),
+        ),
+        ("zeroAmount", 1, 0, None, Data::default()),
+    ]
+    .into_iter()
+    .map(|(name, asset_id, amount, zone_program_id, data)| {
+        let plaintext = ConfidentialOutputPlaintext {
+            asset_id,
+            amount,
+            blinding: [11u8; BLINDING_LEN],
+            zone_program_id,
+            data,
+        };
+        let bytes = plaintext.serialize().expect("serialize confidential");
+        assert_eq!(
+            ConfidentialOutputPlaintext::deserialize(&bytes).expect("round trip"),
+            plaintext
+        );
+        json!({
+            "name": name,
+            "assetId": asset_id.to_string(),
+            "amount": amount.to_string(),
+            "blindingHex": hex(&[11u8; BLINDING_LEN]),
+            "zoneProgramId": zone_program_id.map(|id| id.to_string()),
+            "records": plaintext
+                .data
+                .records
+                .iter()
+                .map(|record| match record {
+                    DataRecord::ZoneData(bytes) => json!({ "kind": "zoneData", "bytesHex": hex(bytes) }),
+                    DataRecord::UtxoData(bytes) => json!({ "kind": "utxoData", "bytesHex": hex(bytes) }),
+                    DataRecord::Memo(bytes) => json!({ "kind": "memo", "bytesHex": hex(bytes) }),
+                })
+                .collect::<Vec<_>>(),
+            "encodedHex": hex(&bytes),
+        })
+    })
+    .collect::<Vec<_>>();
+
+    let merge = [("zero", 0u64, [0u8; 32]), ("max", u64::MAX, [4u8; 32])]
+        .into_iter()
+        .map(|(name, amount, asset_field)| {
+            let plaintext = MergePlaintext {
+                amount,
+                asset_field,
+                blinding: [11u8; BLINDING_LEN],
+            };
+            let bytes = plaintext.serialize().expect("serialize merge");
+            let parsed = MergePlaintext::deserialize(&bytes).expect("round trip");
+            assert_eq!(parsed.amount, plaintext.amount);
+            assert_eq!(parsed.asset_field, plaintext.asset_field);
+            assert_eq!(parsed.blinding, plaintext.blinding);
+            json!({
+                "name": name,
+                "amount": amount.to_string(),
+                "assetFieldHex": hex(&asset_field),
+                "blindingHex": hex(&[11u8; BLINDING_LEN]),
+                "encodedHex": hex(&bytes),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({ "confidential": confidential, "merge": merge })
+}
+
 fn slots_section() -> Value {
     let cases = [
         0usize,
@@ -847,6 +936,7 @@ fn oracle() -> Value {
         "asset": asset_section(),
         "utxo": utxo_section(),
         "slots": slots_section(),
+        "serialization": serialization_section(),
     })
 }
 

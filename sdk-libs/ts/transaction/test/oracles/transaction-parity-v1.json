@@ -1648,6 +1648,80 @@
       }
     ]
   },
+  "serialization": {
+    "confidential": [
+      {
+        "amount": "1000",
+        "assetId": "1",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "0100000000000000e8030000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0000",
+        "name": "bare",
+        "records": [],
+        "zoneProgramId": null
+      },
+      {
+        "amount": "42",
+        "assetId": "7",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "07000000000000002a000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b010c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c010102000909",
+        "name": "zoneBound",
+        "records": [
+          {
+            "bytesHex": "0909",
+            "kind": "zoneData"
+          }
+        ],
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "amount": "18446744073709551615",
+        "assetId": "2",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "0200000000000000ffffffffffffffff0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b010c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c03010200090902010001030200676d",
+        "name": "everyRecord",
+        "records": [
+          {
+            "bytesHex": "0909",
+            "kind": "zoneData"
+          },
+          {
+            "bytesHex": "01",
+            "kind": "utxoData"
+          },
+          {
+            "bytesHex": "676d",
+            "kind": "memo"
+          }
+        ],
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "amount": "0",
+        "assetId": "1",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "010000000000000000000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0000",
+        "name": "zeroAmount",
+        "records": [],
+        "zoneProgramId": null
+      }
+    ],
+    "merge": [
+      {
+        "amount": "0",
+        "assetFieldHex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "000000000000000000000000000000000000000000000000000000000000000000000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "name": "zero"
+      },
+      {
+        "amount": "18446744073709551615",
+        "assetFieldHex": "0404040404040404040404040404040404040404040404040404040404040404",
+        "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "encodedHex": "ffffffffffffffff04040404040404040404040404040404040404040404040404040404040404040b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "name": "max"
+      }
+    ]
+  },
   "shape": {
     "canonical": [
       {
