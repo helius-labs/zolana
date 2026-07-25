@@ -52,6 +52,12 @@ import {
   type TransactWithdrawal,
 } from "../../src/index.js";
 import {
+  addressTreeParamsCodec,
+  batchUpdateNullifierTreeDataCodec,
+  createTreeDataCodec,
+  createZoneConfigDataCodec,
+  updateZoneConfigDataCodec,
+  updateZoneConfigOwnerDataCodec,
   mergeExternalDataHash,
   depositInstructionDataCodec,
   mergeTransactInstructionDataCodec,
@@ -487,6 +493,47 @@ describe("instruction data codecs", () => {
     expect(
       mergeTransactInstructionDataCodec.decode(bytes(oracle.instructionData.mergeTransact)),
     ).toEqual(mergeData());
+  });
+
+  it("round-trips the payload Rust builders emit for every remaining data type", () => {
+    const payload = (name: keyof typeof builders, from = 1, to?: number): Uint8Array => {
+      const data = bytes(builders[name].data);
+      return data.subarray(from, to ?? data.length);
+    };
+
+    const batch = payload("batchUpdateNullifierTree");
+    expect(
+      hex(
+        batchUpdateNullifierTreeDataCodec.encode(batchUpdateNullifierTreeDataCodec.decode(batch)),
+      ),
+    ).toBe(hex(batch));
+
+    const createTree = payload("createTree");
+    expect(hex(createTreeDataCodec.encode(createTreeDataCodec.decode(createTree)))).toBe(
+      hex(createTree),
+    );
+
+    // Rust appends the nullifier parameters bare, with no Option tag: the
+    // program tells the two forms apart by instruction-data length alone.
+    const custom = payload("createTreeWithNullifierParams");
+    expect(custom.length).toBe(32 + 37);
+    expect(
+      hex(createTreeDataCodec.encode(createTreeDataCodec.decode(custom.subarray(0, 32)))),
+    ).toBe(hex(custom.subarray(0, 32)));
+    const params = custom.subarray(32);
+    expect(hex(addressTreeParamsCodec.encode(addressTreeParamsCodec.decode(params)))).toBe(
+      hex(params),
+    );
+    expect(addressTreeParamsCodec.decode(params)).toEqual(addressTreeParams());
+
+    for (const [name, codec] of [
+      ["createZoneConfig", createZoneConfigDataCodec],
+      ["updateZoneConfig", updateZoneConfigDataCodec],
+      ["updateZoneConfigOwner", updateZoneConfigOwnerDataCodec],
+    ] as const) {
+      const encoded = payload(name);
+      expect(hex(codec.encode(codec.decode(encoded) as never)), name).toBe(hex(encoded));
+    }
   });
 });
 
