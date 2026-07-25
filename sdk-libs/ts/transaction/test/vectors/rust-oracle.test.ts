@@ -1,6 +1,7 @@
-import type { Address, Bytes16, Bytes31, Bytes32 } from "@zolana/interface";
+import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "@zolana/interface";
 import {
   NullifierKey,
+  P256PublicKey,
   ShieldedKeypair,
   ShieldedPublicKey,
   SigningKey,
@@ -60,6 +61,7 @@ import {
   decodeData,
   decodeMerge,
   decodeProofless,
+  decodeSplitEncrypted,
   decryptConfidential,
   decryptMerge,
   encodeAnonymousRecipient,
@@ -70,8 +72,10 @@ import {
   encodePlaintextTransfer,
   encodeProofless,
   encodeSplitBundle,
+  encodeSplitEncrypted,
   mergeUtxo,
   type ProoflessOutput,
+  type SplitEncryptedUtxos,
 } from "../../src/serialization/index.js";
 import oracle from "../oracles/transaction-parity-v1.json" with { type: "json" };
 
@@ -567,6 +571,40 @@ describe("the Rust oracle and TypeScript agree on the key-free plaintext layouts
       expect(parsed.memo === undefined ? null : hex(parsed.memo)).toBe(entry.memoHex);
     });
   }
+
+  // The split envelope's ciphertext carries a u16 length prefix, so a payload
+  // past 255 bytes is the case a byte prefix would silently truncate.
+  const splitEncrypted = oracle.serialization.splitEncrypted;
+  for (const entry of splitEncrypted.cases as readonly Readonly<{
+    name: string;
+    typePrefix: number;
+    txViewingPublicKeyHex: string;
+    saltHex: string;
+    ciphertextHex: string;
+    encodedHex: string;
+  }>[]) {
+    it(`round-trips the ${entry.name} split envelope the same way`, () => {
+      const value: SplitEncryptedUtxos = {
+        typePrefix: entry.typePrefix,
+        txViewingPublicKey: P256PublicKey.fromBytes(bytes(entry.txViewingPublicKeyHex) as Bytes33),
+        salt: bytes(entry.saltHex) as Bytes16,
+        ciphertext: bytes(entry.ciphertextHex),
+      };
+      expect(hex(encodeSplitEncrypted(value))).toBe(entry.encodedHex);
+
+      const parsed = decodeSplitEncrypted(bytes(entry.encodedHex));
+      expect(parsed.typePrefix).toBe(entry.typePrefix);
+      expect(hex(parsed.txViewingPublicKey.toBytes())).toBe(entry.txViewingPublicKeyHex);
+      expect(hex(parsed.salt)).toBe(entry.saltHex);
+      expect(hex(parsed.ciphertext)).toBe(entry.ciphertextHex);
+    });
+  }
+
+  it("rejects a split envelope carrying another scheme's prefix", () => {
+    expect(codeOf(() => decodeSplitEncrypted(bytes(splitEncrypted.foreignSchemeHex)))).toBe(
+      splitEncrypted.foreignSchemeError,
+    );
+  });
 
   it("encodes a merge plaintext the same way", () => {
     for (const entry of oracle.serialization.merge as readonly Readonly<{
