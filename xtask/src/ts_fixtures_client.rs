@@ -172,13 +172,13 @@ fn error_vectors() -> Value {
         },
         ClientError::PollTimedOut {
             attempts: 3,
-            last_error: Some("transient".into()),
+            last_cause: Some(zolana_client::RetryErrorCause::Indexer),
         },
         ClientError::ProofPathLength {
             got: 31,
             expected: 32,
         },
-        ClientError::WitnessInputCountMismatch {
+        ClientError::ProofInputCountMismatch {
             got: 1,
             expected: 2,
         },
@@ -362,17 +362,26 @@ fn client_error_json(error: ClientError) -> Value {
         ),
         ClientError::PollTimedOut {
             attempts,
-            last_error,
+            last_cause,
         } => (
             "CLIENT_POLL_TIMED_OUT",
-            json!({"attempts":attempts,"lastError":last_error}),
+            json!({
+                "attempts":attempts,
+                "lastCause":last_cause.map(|cause| json!({
+                    "category": match cause {
+                        zolana_client::RetryErrorCause::Rpc => "rpc",
+                        zolana_client::RetryErrorCause::Indexer => "indexer",
+                        zolana_client::RetryErrorCause::IndexerTimeout => "indexerTimeout",
+                    }
+                }))
+            }),
         ),
         ClientError::ProofPathLength { got, expected } => (
             "CLIENT_PROOF_PATH_LENGTH",
             json!({"got":got,"expected":expected}),
         ),
-        ClientError::WitnessInputCountMismatch { got, expected } => (
-            "CLIENT_WITNESS_INPUT_COUNT_MISMATCH",
+        ClientError::ProofInputCountMismatch { got, expected } => (
+            "CLIENT_PROOF_INPUT_COUNT_MISMATCH",
             json!({"got":got,"expected":expected}),
         ),
         ClientError::AccountNotFound { address } => {
@@ -937,7 +946,7 @@ fn rpc_vectors() -> Result<Value, Box<dyn std::error::Error>> {
             },
             "retry": {
                 "delaysMs": delays,
-                "attempts": retry.num_retries.saturating_add(1).to_string(),
+                "attempts": retry.attempts().to_string(),
                 "lagError": error(&lag)
             },
             "sourceLimitations": [{

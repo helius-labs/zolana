@@ -1424,7 +1424,7 @@ fn wallet_sync_vectors(owner: &ShieldedKeypair) -> Result<Value, Box<dyn std::er
     };
     let timeout = ClientError::PollTimedOut {
         attempts: 3,
-        last_error: Some(format!("{:?}", ClientError::IndexerTimeout)),
+        last_cause: Some(zolana_client::RetryErrorCause::IndexerTimeout),
     };
     Ok(section(
         json!({

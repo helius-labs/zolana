@@ -1,8 +1,15 @@
-use solana_pubkey::Pubkey;
+use solana_address::Address;
 use thiserror::Error;
 use zolana_hasher::HasherError;
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetryErrorCause {
+    Rpc,
+    Indexer,
+    IndexerTimeout,
+}
 
 #[derive(Debug, Error)]
 pub enum ClientError {
@@ -54,13 +61,13 @@ pub enum ClientError {
     },
 
     #[error("SPL token account is required for mint {mint}")]
-    MissingSplTokenAccount { mint: Pubkey },
+    MissingSplTokenAccount { mint: Address },
 
     #[error("address resolution error: {0}")]
     AddressResolution(String),
 
     #[error("user registry record not found for {owner}: {record}")]
-    UserRegistryRecordNotFound { owner: Pubkey, record: Pubkey },
+    UserRegistryRecordNotFound { owner: Address, record: Address },
 
     #[error("a transaction supports a single public SPL asset; got a second distinct asset")]
     MultiplePublicSplAssets,
@@ -86,7 +93,7 @@ pub enum ClientError {
     MergeInputAssetMismatch { index: usize },
 
     #[error("owner {owner} has not enabled the merge service on its user-registry record")]
-    MergeDisabled { owner: Pubkey },
+    MergeDisabled { owner: Address },
 
     #[error("nothing to merge for asset {asset:?}: fewer than two plain utxos are available")]
     NothingToMerge { asset: solana_address::Address },
@@ -101,7 +108,7 @@ pub enum ClientError {
     MergeNullifierKeyMismatch,
 
     #[error("merging keypair viewing key does not match the registry record for {owner}")]
-    MergeViewingKeyMismatch { owner: Pubkey },
+    MergeViewingKeyMismatch { owner: Address },
 
     #[error("merge proof was fetched for tree {proof_tree:?}, but the submit ix targets {submit_tree:?}")]
     MergeTreeMismatch {
@@ -191,24 +198,35 @@ pub enum ClientError {
     IndexerNotCaughtUp {
         target: i64,
         latest: i64,
-        attempts: u32,
+        attempts: u64,
     },
 
-    #[error("poll gave up after {attempts} attempts; last transient error: {last_error:?}")]
+    #[error("poll gave up after {attempts} attempts; last transient cause: {last_cause:?}")]
     PollTimedOut {
-        attempts: u32,
-        last_error: Option<String>,
+        attempts: u64,
+        last_cause: Option<RetryErrorCause>,
     },
 
     #[error("proof path has {got} elements, expected {expected}")]
     ProofPathLength { got: usize, expected: usize },
 
-    #[error("assembled witness has {got} input slots, expected {expected}")]
-    WitnessInputCountMismatch { got: usize, expected: usize },
+    #[error("assembled proof inputs have {got} input slots, expected {expected}")]
+    ProofInputCountMismatch { got: usize, expected: usize },
 
     #[error("deposit funding account not found: {address:?}")]
     AccountNotFound { address: [u8; 32] },
 
     #[error("SOL deposit funding account {sender:?} must be the signing authority")]
     DepositSenderNotSigner { sender: [u8; 32] },
+}
+
+impl ClientError {
+    pub fn retry_cause(&self) -> Option<RetryErrorCause> {
+        match self {
+            Self::Rpc(_) => Some(RetryErrorCause::Rpc),
+            Self::Indexer(_) => Some(RetryErrorCause::Indexer),
+            Self::IndexerTimeout => Some(RetryErrorCause::IndexerTimeout),
+            _ => None,
+        }
+    }
 }

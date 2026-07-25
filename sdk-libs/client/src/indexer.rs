@@ -62,7 +62,7 @@ fn wait_for_indexer<T>(
     Err(ClientError::IndexerNotCaughtUp {
         target,
         latest,
-        attempts: config.poll.num_retries.saturating_add(1),
+        attempts: config.poll.attempts(),
     })
 }
 
@@ -93,7 +93,7 @@ where
     Err(ClientError::IndexerNotCaughtUp {
         target,
         latest,
-        attempts: config.poll.num_retries.saturating_add(1),
+        attempts: config.poll.attempts(),
     })
 }
 
