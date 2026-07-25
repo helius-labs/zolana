@@ -36,6 +36,18 @@ revisions must not be combined into one parity claim without an explicit compati
 
 ## Entry criteria and scope
 
+The four criteria below are evaluated by `sdk-libs/ts/config/pkp-entry-gate.mjs`, and
+`pkp-entry-watch.sh` polls that gate and wakes the coordinator when it passes, so this phase begins
+when the work is ready rather than when somebody notices. Run the gate before starting any packet
+here.
+
+Mechanising this was not tidiness. For most of the port's life "CI is green" meant "the four gates
+run locally are green", while the 27 jobs on the pull request were skipping because it was a draft; the
+first real run then failed eight jobs, two of them genuine defects including a browser bundle that
+could not load. Criterion 4 was not merely unmet, it was unmeasured, and prose criteria are what let
+that stand for months. The gate distinguishes cannot-decide from refuses for the same reason: an
+unreachable GitHub is not evidence of a block.
+
 This document is a post-parity certification overlay. It does not repeat the row inventory or
 replace its verdicts. Start PKP-00 only after:
 
