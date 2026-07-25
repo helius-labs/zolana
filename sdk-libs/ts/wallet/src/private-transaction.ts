@@ -1,9 +1,12 @@
 import { type SignedPrivateTransaction, type ZolanaClient } from "@zolana/client";
 import type { Address, Bytes32, RequestContext, Transaction } from "@zolana/interface";
+import type { ShieldedAddress } from "@zolana/keypair";
 import {
   ConfidentialTransfer,
   ProofInputUtxo,
+  type Data,
   type SppProofInputs,
+  type Utxo,
   type Wallet,
 } from "@zolana/transaction";
 import { ConfidentialSplit } from "@zolana/transaction/instructions";
@@ -14,6 +17,44 @@ import { equalBytes } from "./internal.js";
 import type { TransactionSigner } from "./submit.js";
 import type { WalletAuthority } from "./wallet-authority.js";
 
+function sameOptionalHash(left: Bytes32 | undefined, right: Bytes32 | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return equalBytes(left, right);
+}
+
+function sameData(left: Data, right: Data): boolean {
+  const records = left.records();
+  const other = right.records();
+  return (
+    records.length === other.length &&
+    records.every((record, index) => {
+      const candidate = other[index];
+      return (
+        candidate !== undefined &&
+        record.kind === candidate.kind &&
+        equalBytes(record.bytes, candidate.bytes)
+      );
+    })
+  );
+}
+
+function sameUtxo(left: Utxo, right: Utxo): boolean {
+  return (
+    equalBytes(left.owner.toBytes(), right.owner.toBytes()) &&
+    left.asset === right.asset &&
+    left.amount === right.amount &&
+    equalBytes(left.blinding, right.blinding) &&
+    left.zoneProgramId === right.zoneProgramId &&
+    sameData(left.data, right.data)
+  );
+}
+
+/**
+ * The note the signer is about to spend must still be the exact note the
+ * unsigned transaction was built from. Matching on the commitment alone would
+ * let a note swapped between build and sign pass, so every field that feeds the
+ * commitment is compared.
+ */
 function matchingInput(
   wallet: Wallet,
   tree: Address,
@@ -27,22 +68,24 @@ function matchingInput(
         entry.outputContext.tree === tree &&
         equalBytes(entry.outputContext.hash, expected.outputContext.hash) &&
         equalBytes(entry.nullifier, expected.nullifier) &&
-        entry.utxo.asset === expected.utxo.asset &&
-        entry.utxo.amount === expected.utxo.amount &&
-        equalBytes(entry.utxo.blinding, expected.utxo.blinding),
+        sameOptionalHash(entry.dataHash, expected.dataHash) &&
+        sameOptionalHash(entry.zoneDataHash, expected.zoneDataHash) &&
+        sameUtxo(entry.utxo, expected.utxo),
     );
 }
 
+/**
+ * The P256 rail is a property of the signing authority, not of the notes being
+ * spent: a P256 owner must sign even when every input note carries a different
+ * rail, and a Solana owner never signs.
+ */
 async function applyP256Signature(
   proofInputs: SppProofInputs,
+  address: ShieldedAddress,
   authority: WalletAuthority,
 ): Promise<void> {
-  const requiresP256 = proofInputs.inputUtxos.some(
-    (input) => !input.isDummy() && input.utxo.owner.signatureType() === "p256",
-  );
-  if (requiresP256) {
-    proofInputs.applyP256Signature(await authority.signP256(proofInputs.messageHash()));
-  }
+  if (address.signingPublicKey.signatureType() !== "p256") return;
+  proofInputs.applyP256Signature(await authority.signP256(proofInputs.messageHash()));
 }
 
 async function prepareShielded(
@@ -121,7 +164,7 @@ async function prepareShielded(
       payload: encrypted.payload,
     });
   }
-  await applyP256Signature(proofInputs, authority);
+  await applyP256Signature(proofInputs, address, authority);
   const withdrawal = transaction._withdrawal();
   return Object.freeze({
     transaction: proofInputs,

@@ -49,8 +49,11 @@ function rpc(overrides: Partial<Rpc> = {}): Rpc {
   };
 }
 
-function fundedWallet(amounts: readonly bigint[], asset: Address = SOL_MINT): Wallet {
-  const keypair = ShieldedKeypair.generate();
+function fundedWallet(
+  amounts: readonly bigint[],
+  asset: Address = SOL_MINT,
+  keypair: ShieldedKeypair = ShieldedKeypair.generate(),
+): Wallet {
   const wallet = new Wallet({
     identity: keypair.shieldedAddress(),
     registry: new AssetRegistry(asset === SOL_MINT ? [] : [[1n, asset]]),
@@ -307,5 +310,72 @@ describe("wallet actions", () => {
     expect(hex(unsigned.messageBytes)).toBe(clientFixture.expected.legacyMessages.limitOnlyBytes);
     expect(unsigned.signatures).toEqual([undefined]);
     expect(signed.signatures).toEqual([SIGNATURE]);
+  });
+
+  it("takes the signing rail from the authority address", async () => {
+    const client = {
+      rpc: rpc(),
+      finishSubmissionUnsigned: () =>
+        Promise.resolve({ messageBytes: Uint8Array.of(1), signatures: [undefined] }),
+    } as unknown as ZolanaClient;
+    const signatureCount = async (keypair: ShieldedKeypair): Promise<number> => {
+      const wallet = fundedWallet([10n], SOL_MINT, keypair);
+      const authority = new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair });
+      const signP256 = vi.spyOn(authority, "signP256");
+      const transaction = createWithdrawal({
+        wallet,
+        payer: OWNER,
+        recipient: TREE,
+        asset: SOL_MINT,
+        amount: 5n,
+      }).transaction;
+      await buildPrivateTransaction({ transaction, wallet, authority, client, feePayer: OWNER });
+      return signP256.mock.calls.length;
+    };
+
+    expect(await signatureCount(ShieldedKeypair.generate())).toBe(1);
+    expect(await signatureCount(ShieldedKeypair.fromEd25519(bytes32(3), 0))).toBe(0);
+  });
+
+  it("rejects an input note swapped between build and sign", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = fundedWallet([10n], SOL_MINT, keypair);
+    const transaction = createWithdrawal({
+      wallet,
+      payer: OWNER,
+      recipient: TREE,
+      asset: SOL_MINT,
+      amount: 5n,
+    }).transaction;
+    const original = wallet.utxos()[0];
+    if (original === undefined) throw new Error("missing funded note");
+    // Same commitment, nullifier, asset, amount, and blinding: the swap is only
+    // visible once the attached data is compared too.
+    wallet._replace({
+      utxos: [
+        {
+          ...original,
+          utxo: new Utxo({
+            owner: keypair.signingPublicKey(),
+            asset: SOL_MINT,
+            amount: 10n,
+            blinding: original.utxo.blinding,
+            data: new Data([{ kind: "memo", bytes: Uint8Array.of(7) }]),
+          }),
+        },
+      ],
+      transactions: [],
+      nullifiers: new Set(),
+    });
+
+    await expect(
+      buildPrivateTransaction({
+        transaction,
+        wallet,
+        authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        client: { rpc: rpc() } as unknown as ZolanaClient,
+        feePayer: OWNER,
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "WALLET_UNSIGNED_INPUT_UNAVAILABLE" }));
   });
 });
