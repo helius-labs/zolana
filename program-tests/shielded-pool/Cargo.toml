@@ -32,6 +32,8 @@ zolana-transaction = { workspace = true }
 [dev-dependencies]
 bytemuck = { workspace = true }
 cucumber = { workspace = true }
+solana-account = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 groth16-solana = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
@@ -79,6 +81,10 @@ path = "tests/localnet_wallet_cli_e2e.rs"
 required-features = ["localnet"]
 
 [[test]]
+name = "merge_user_record"
+path = "tests/merge_user_record.rs"
+
+[[test]]
 name = "transact"
 path = "tests/transact/transact.rs"
 
@@ -93,3 +99,7 @@ path = "tests/transact/p256.rs"
 [[test]]
 name = "both_amounts"
 path = "tests/transact/both_amounts.rs"
+
+[[test]]
+name = "double_spend"
+path = "tests/transact/double_spend.rs"
