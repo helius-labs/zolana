@@ -80,7 +80,7 @@ export async function assembleMerge(
       undefined,
       context,
     );
-    return assembleMergeWithProofsUnchecked(prepared, material, proofs, tree);
+    return assembleMergeRailUnchecked(prepared, material, proofs, tree);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -94,7 +94,7 @@ export function assembleMergeWithProofs(
 ): MergeAssembly {
   try {
     if (prepared instanceof PreparedMergeZone) throw new ClientError("CLIENT_INVALID_MERGE");
-    return assembleMergeWithProofsUnchecked(prepared, material, proofs, tree);
+    return assembleMergeRailUnchecked(prepared, material, proofs, tree);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -115,7 +115,7 @@ export async function assembleMergeZone(
       undefined,
       context,
     );
-    return assembleMergeWithProofsUnchecked(
+    return assembleMergeRailUnchecked(
       prepared,
       material,
       proofs,
@@ -138,7 +138,7 @@ export function assembleMergeZoneWithProofs(
     // The zone binding check lives on the hash accessor the proof-fetching entry
     // point calls; run it here too so both paths reject an unbound input.
     prepared.inputUtxoHashes();
-    return assembleMergeWithProofsUnchecked(
+    return assembleMergeRailUnchecked(
       prepared,
       material,
       proofs,
@@ -150,7 +150,13 @@ export function assembleMergeZoneWithProofs(
   }
 }
 
-function assembleMergeWithProofsUnchecked(
+/**
+ * Shared body of the four entry points. Unchecked only in that the caller has
+ * already established which rail `prepared` belongs to; the material is still
+ * validated here, so the entry points that fetch proofs validate twice on
+ * purpose, to fail before the indexer round trip.
+ */
+function assembleMergeRailUnchecked(
   prepared: PreparedMerge,
   material: MergeMaterialInput,
   proofs: readonly SpendProof[],
