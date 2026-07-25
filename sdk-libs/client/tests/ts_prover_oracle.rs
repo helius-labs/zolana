@@ -21,7 +21,9 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 use solana_address::Address;
 use zolana_client::{
-    assemble, MerkleContext, MerkleProof, NonInclusionProof, ProverInputs, SpendProof,
+    assemble,
+    prover::field::{be, right_align_slice},
+    MerkleContext, MerkleProof, NonInclusionProof, ProverInputs, SpendProof,
 };
 use zolana_interface::instruction::instruction_data::transact::{
     OwnerTag, TransactOutput, TransactProof,
@@ -384,6 +386,83 @@ fn oracle_path() -> PathBuf {
         .join("../ts/client/test/oracles/prover-edge-cases-v1.json")
 }
 
+/// BN254's scalar modulus, big-endian. `prover::field` never mentions it; the
+/// point of pinning it here is that the boundary cases either side of it are
+/// where the TypeScript port adds a check Rust does not have.
+const BN254_MODULUS: [u8; 32] = [
+    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
+];
+
+fn field_cases() -> Vec<(&'static str, Vec<u8>)> {
+    let mut modulus_minus_one = BN254_MODULUS;
+    modulus_minus_one[31] = 0x00;
+    vec![
+        ("empty", Vec::new()),
+        ("single-byte", vec![0x07]),
+        ("leading-zero-two-bytes", vec![0x00, 0xff]),
+        ("thirty-one-bytes", vec![0xff; 31]),
+        ("thirty-two-modulus-minus-one", modulus_minus_one.to_vec()),
+        ("thirty-two-modulus", BN254_MODULUS.to_vec()),
+        ("thirty-two-all-ones", vec![0xff; 32]),
+        ("thirty-three-bytes", vec![0x01; 33]),
+    ]
+}
+
+fn field_case_json(name: &str, bytes: &[u8]) -> Value {
+    match right_align_slice(bytes) {
+        Ok(aligned) => json!({
+            "name": name,
+            "bytes": hex(bytes),
+            "alignedBytes": hex(&aligned),
+            "value": be(&aligned).to_string(),
+        }),
+        Err(error) => json!({
+            "name": name,
+            "bytes": hex(bytes),
+            "error": format!("{error:?}"),
+        }),
+    }
+}
+
+/// `prover::field` (C06) has no fixture and no Rust test of its own, and the
+/// TypeScript counterpart `internal.ts::bytesField` layers a BN254 range check
+/// on top of the same alignment. Pin what Rust actually returns for each length
+/// and either side of the modulus so the port's extra rejection is measured
+/// rather than assumed.
+#[test]
+fn ts_field_alignment_oracle_is_current() {
+    let oracle = json!({
+        "expected": {
+            "cases": field_cases()
+                .iter()
+                .map(|(name, bytes)| field_case_json(name, bytes))
+                .collect::<Vec<_>>(),
+            "modulusBytes": hex(&BN254_MODULUS),
+        }
+    });
+    write_oracle(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../ts/client/test/oracles/field-alignment-v1.json"),
+        &oracle,
+    );
+}
+
+fn write_oracle(path: PathBuf, oracle: &Value) {
+    let rendered = format!("{}\n", serde_json::to_string_pretty(oracle).expect("render"));
+    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    if current == rendered {
+        return;
+    }
+    std::fs::create_dir_all(path.parent().expect("oracle directory")).expect("create oracle dir");
+    std::fs::write(&path, &rendered).expect("write oracle");
+    assert!(
+        std::env::var_os("ZOLANA_UPDATE_TS_ORACLES").is_some(),
+        "{} was stale and has been rewritten; commit it",
+        path.display()
+    );
+}
+
 #[test]
 fn ts_prover_edge_case_oracle_is_current() {
     let oracle = json!({
@@ -397,18 +476,5 @@ fn ts_prover_edge_case_oracle_is_current() {
         },
         "expected": {"cases": cases().iter().map(case_json).collect::<Vec<_>>()}
     });
-    let rendered = format!("{}\n", serde_json::to_string_pretty(&oracle).expect("render"));
-
-    let path = oracle_path();
-    let current = std::fs::read_to_string(&path).unwrap_or_default();
-    if current == rendered {
-        return;
-    }
-    std::fs::create_dir_all(path.parent().expect("oracle directory")).expect("create oracle dir");
-    std::fs::write(&path, &rendered).expect("write oracle");
-    assert!(
-        std::env::var_os("ZOLANA_UPDATE_TS_ORACLES").is_some(),
-        "{} was stale and has been rewritten; commit it",
-        path.display()
-    );
+    write_oracle(oracle_path(), &oracle);
 }

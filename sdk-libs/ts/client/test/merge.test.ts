@@ -297,7 +297,7 @@ describe("merge proving and unsigned submission", () => {
         hex(data.outputUtxoHash),
         data.nullifiers.map((nullifier) => hex(nullifier)),
         hex(data.privateTxHash),
-        hex(data.encryptedUtxo as Bytes32),
+        hex(data.encryptedUtxo),
       ]);
     };
     const before = emit();
