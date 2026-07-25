@@ -89,15 +89,25 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let check = env::args().skip(1).try_fold(false, |_check, arg| match arg.as_str() {
-        "--check" => Ok(true),
-        "--help" | "-h" => {
-            println!("Generate and verify deterministic TypeScript conformance fixtures.\n\nusage: cargo run -p xtask --bin ts-fixtures -- [--check]");
-            std::process::exit(0);
+    let mut check = false;
+    let mut current_client = false;
+    for arg in env::args().skip(1) {
+        match arg.as_str() {
+            "--check" => check = true,
+            "--current-client" => current_client = true,
+            "--help" | "-h" => {
+                println!(
+                    "Generate and verify deterministic TypeScript conformance fixtures.\n\nusage: cargo run -p xtask --bin ts-fixtures -- [--check] [--current-client]"
+                );
+                return Ok(());
+            }
+            _ => bail!("unexpected argument {arg:?}"),
         }
-        _ => bail!("unexpected argument {arg:?}"),
-    })?;
+    }
     let root = workspace_root()?;
+    if current_client {
+        return generate_current_client_fixtures(&root, check);
+    }
     assert_frozen_sources(&root)?;
     let inventory = inventory(&root)?;
 
@@ -121,6 +131,84 @@ fn run() -> Result<()> {
             EXPECTED_FIXTURE_COUNT,
             inventory.len()
         );
+    }
+    Ok(())
+}
+
+fn generate_current_client_fixtures(root: &Path, check: bool) -> Result<()> {
+    let revision = command_text(
+        root,
+        "git",
+        &["log", "-1", "--format=%H", "--", "sdk-libs/client/src"],
+    )?;
+    let vectors = production_client_vectors(root)?;
+    let fixtures = client_fixtures(&vectors)?
+        .into_iter()
+        .filter(|(path, _)| {
+            matches!(
+                *path,
+                "client/errors-v1.json" | "client/rpc-indexer-v1.json"
+            )
+        })
+        .map(|(path, mut fixture)| {
+            fixture["sourceRevision"] = Value::String(revision.trim().to_string());
+            (path, fixture)
+        })
+        .collect::<Vec<_>>();
+    let fixtures_root = root.join("sdk-libs/ts/fixtures");
+
+    if check {
+        for (path, expected) in &fixtures {
+            let actual: Value = serde_json::from_slice(&fs::read(fixtures_root.join(path))?)?;
+            if actual != *expected {
+                bail!("current client fixture differs: {path}");
+            }
+        }
+        verify_current_client_manifest(&fixtures_root, revision.trim(), &fixtures)?;
+        println!("verified {} current client fixtures", fixtures.len());
+        return Ok(());
+    }
+
+    for (path, fixture) in &fixtures {
+        write_json(&fixtures_root.join(path), fixture)?;
+    }
+    let manifest_path = fixtures_root.join("manifest.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+    manifest["canonicalSourceRevisions"]["client"] = Value::String(revision.trim().to_string());
+    let entries = manifest["files"]
+        .as_array_mut()
+        .ok_or_else(|| anyhow::anyhow!("manifest files is not an array"))?;
+    for (path, _) in &fixtures {
+        let bytes = fs::read(fixtures_root.join(path))?;
+        let entry = entries
+            .iter_mut()
+            .find(|entry| entry["path"] == *path)
+            .ok_or_else(|| anyhow::anyhow!("manifest lacks {path}"))?;
+        entry["sha256"] = Value::String(sha256(&bytes));
+    }
+    write_json(&manifest_path, &manifest)?;
+    println!("generated {} current client fixtures", fixtures.len());
+    Ok(())
+}
+
+fn verify_current_client_manifest(
+    fixtures_root: &Path,
+    revision: &str,
+    fixtures: &[(&str, Value)],
+) -> Result<()> {
+    let manifest: Value = serde_json::from_slice(&fs::read(fixtures_root.join("manifest.json"))?)?;
+    if manifest["canonicalSourceRevisions"]["client"] != revision {
+        bail!("manifest client revision differs");
+    }
+    for (path, _) in fixtures {
+        let entry = manifest["files"]
+            .as_array()
+            .and_then(|entries| entries.iter().find(|entry| entry["path"] == *path))
+            .ok_or_else(|| anyhow::anyhow!("manifest lacks {path}"))?;
+        let bytes = fs::read(fixtures_root.join(path))?;
+        if entry["sha256"] != sha256(&bytes) {
+            bail!("manifest hash mismatch for {path}");
+        }
     }
     Ok(())
 }
