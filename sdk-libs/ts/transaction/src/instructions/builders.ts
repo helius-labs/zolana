@@ -1,6 +1,7 @@
 import type { Address, Bytes31, Bytes32 } from "@zolana/interface";
 import {
   ShieldedKeypair,
+  randomSalt,
   type P256PublicKey,
   type ShieldedAddress,
   type ShieldedPublicKey,
@@ -9,6 +10,7 @@ import {
 import { Data } from "../data.js";
 import { TransactionError } from "../error.js";
 import { checked, decodeAddress, equal, random31, sha256Be } from "../internal.js";
+import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
   createProofOutput,
@@ -16,7 +18,13 @@ import {
   type ProofOutputUtxo,
 } from "../utxo.js";
 import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
-import { SppProofInputs, createExternalData, type InputUtxoContext } from "./transact.js";
+import {
+  SppProofInputs,
+  createExternalData,
+  exactShape,
+  type InputUtxoContext,
+  type Shape,
+} from "./transact.js";
 
 /** Padded input count of both merge rails, the counterpart of Rust `MERGE_INPUTS`. */
 export const MERGE_INPUTS = 8;
@@ -81,16 +89,49 @@ export class PreparedMerge {
   }
 
   inputUtxoHashes(): readonly InputUtxoContext[] {
-    return this.inputs
-      .filter((input) => !input.isDummy())
-      .map((input, index) =>
-        Object.freeze({
-          index,
-          utxoHash: input.hash(),
-          nullifier: input.nullifier(),
-        }),
-      );
+    return realInputContexts(this.inputs, hasData);
   }
+}
+
+/** An input carrying program or zone data, which the plain merge rail never consolidates. */
+function hasData(input: ProofInputUtxo): boolean {
+  return (
+    input.dataHash !== undefined ||
+    input.zoneDataHash !== undefined ||
+    !input.utxo.data.isEmpty()
+  );
+}
+
+/**
+ * An input carrying program-controlled UTXO data. A policy zone authorizes its own
+ * data's transition before the merge, so `zoneDataHash` stays consumable there
+ * while `utxoData` never is.
+ */
+function hasUtxoData(input: ProofInputUtxo): boolean {
+  return input.dataHash !== undefined || input.utxo.data.utxoData() !== undefined;
+}
+
+/**
+ * Commitments for the real inputs only. The rail's data policy is re-checked here
+ * because the prepared value is publicly constructible, so the builder's check is
+ * not the only way in.
+ */
+function realInputContexts(
+  inputs: readonly ProofInputUtxo[],
+  disqualifying: (input: ProofInputUtxo) => boolean,
+): readonly InputUtxoContext[] {
+  return inputs
+    .filter((input) => !input.isDummy())
+    .map((input, index) => {
+      if (disqualifying(input)) {
+        throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
+      }
+      return Object.freeze({
+        index,
+        utxoHash: input.hash(),
+        nullifier: input.nullifier(),
+      });
+    });
 }
 
 export class Merge {
@@ -179,12 +220,10 @@ export class PreparedMergeZone extends PreparedMerge {
     this.zoneProgramId = input.zoneProgramId;
   }
 
+  // Rust re-checks only the data policy here; the zone binding is the builder's
+  // rule, and `validateMergeZoneInputs` stays available for callers that want it.
   override inputUtxoHashes(): readonly InputUtxoContext[] {
-    validateMergeZoneInputs(this.inputs, this.zoneProgramId);
-    if (!this.output.isDummy() && this.output.zoneProgramId !== this.zoneProgramId) {
-      throw new TransactionError("TRANSACTION_OUTPUT_ZONE_MISMATCH", { index: 0 });
-    }
-    return super.inputUtxoHashes();
+    return realInputContexts(this.inputs, hasUtxoData);
   }
 }
 
@@ -367,6 +406,36 @@ export class ConfidentialSplit {
       payerPublicKeyHash: this.#payerHash,
     });
   }
+
+  /**
+   * Keypair rail: assemble with the owner's own viewing key, seal the bundle at
+   * slot 0, and sign in place. The authority rail is `prepare` plus
+   * `PreparedSplit.finalize`, with encryption and signing delegated to a
+   * `WalletAuthority`.
+   */
+  sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
+    const prepared = this.prepare();
+    const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
+    const salt = randomSalt();
+    const signed = prepared.finalize({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: {
+        viewTag: prepared.ownerViewTag(),
+        data: encryptSplit(
+          tx,
+          prepared.owner.viewingPublicKey,
+          encodeSplitBundle(prepared.bundlePlaintext(assets)),
+          salt,
+          0,
+        ),
+      },
+    });
+    if (keypair.signingPublicKey().signatureType() === "p256") {
+      signed.applyP256Signature(keypair.signP256(signed.messageHash()));
+    }
+    return signed;
+  }
 }
 
 export class PreparedSplit {
@@ -447,6 +516,15 @@ export class PreparedSplit {
     };
   }
 
+  /**
+   * The owner's confidential view tag. It tags the bundle at slot 0 and every
+   * covered real output, and equals the bundle view tag because the split is
+   * self-owned.
+   */
+  ownerViewTag(): Bytes32 {
+    return this.owner.confidentialViewTag();
+  }
+
   finalize(
     input: Readonly<{
       txViewingPublicKey: P256PublicKey;
@@ -454,7 +532,7 @@ export class PreparedSplit {
       payload: Readonly<{ viewTag: Bytes32; data: Uint8Array }>;
     }>,
   ): SppProofInputs {
-    const tag = this.owner.confidentialViewTag();
+    const tag = this.ownerViewTag();
     const outputs = this.outputs.map((output, index) => ({
       utxoHash: output.hash(),
       ownerTag: { kind: "inline" as const, value: tag },
@@ -490,6 +568,7 @@ export interface PreparedZoneAuthority {
   readonly publicAmounts: Readonly<{ sol?: bigint; spl?: bigint }>;
   readonly zoneProgramId: Address;
   readonly payerPublicKeyHash: Bytes32;
+  readonly shape: Shape;
   inputUtxoHashes(): readonly InputUtxoContext[];
 }
 
@@ -521,8 +600,12 @@ export function prepareZoneAuthority(
       throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH", { index });
     }
   }
+  // The padded slot counts must name a proving system that exists, exactly as
+  // `SppProofInputs` requires of an owner-signed transact.
+  const shape = exactShape(input.inputs.length, input.outputs.length);
   return Object.freeze({
     ...input,
+    shape,
     publicAmounts: input.publicAmounts ?? {},
     inputUtxoHashes: (): readonly InputUtxoContext[] =>
       input.inputs

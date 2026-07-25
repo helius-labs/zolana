@@ -12,6 +12,7 @@ export {
   type TransactionErrorValue,
 } from "./error.js";
 export {
+  BN254_MODULUS_DEC,
   ConfidentialSplit,
   MERGE_INPUTS,
   Merge,
@@ -19,27 +20,37 @@ export {
   PreparedMerge,
   PreparedMergeZone,
   PreparedSplit,
+  SENDER_SLOT_COUNT,
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
   ConfidentialTransfer,
+  assetField,
   canonicalShape,
+  createEncryptedTransaction,
   createExternalData,
+  createInputUtxo,
+  encodeConfidentialSlots,
   prepareZoneAuthority,
+  privateTxHash,
   resolveShape,
+  signedToField,
   slotOrdinal,
 } from "./instructions/index.js";
 export type {
+  EncryptedTransaction,
   ExternalData,
+  InputUtxo,
   InputUtxoContext,
   OutputContext,
   PreparedTransfer,
   PreparedZoneAuthority,
+  PrivateTxHashInput,
   PublicAmounts,
   Shape,
   WithdrawalTarget,
 } from "./instructions/index.js";
-export { ProofInputUtxo, Utxo, deriveBlinding, ownerUtxoHash } from "./utxo.js";
-export type { Blinding, ProofOutputUtxo, UtxoInit } from "./utxo.js";
+export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash } from "./utxo.js";
+export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
 export {
   AssetRegistry,
   LocalWalletAuthority,

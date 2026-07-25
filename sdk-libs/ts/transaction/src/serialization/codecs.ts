@@ -829,6 +829,43 @@ export function decryptAnonymous(
 export const encryptSplit = encryptAnonymous;
 export const decryptSplit = decryptAnonymous;
 
+/**
+ * The published body carries the counterparty key in front of the ciphertext.
+ * Rust reports a body too short to hold one as `InvalidLength { expected: 33 }`
+ * even though 33 is a minimum, so the detail keys match across the two.
+ */
+function splitEmbeddedKey(body: Uint8Array): Readonly<{ key: P256PublicKey; rest: Uint8Array }> {
+  if (body.length < 33) {
+    throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
+      expected: 33,
+      actual: body.length,
+    });
+  }
+  return {
+    key: P256PublicKey.fromBytes(body.slice(0, 33) as Bytes33),
+    rest: body.slice(33),
+  };
+}
+
+/**
+ * Rust converts every `KeypairError` that crosses into a transaction path with
+ * `?`, so a caller sees one category for a key or cipher failure. Reproducing
+ * that here keeps the reader's rejection categories identical; without it a
+ * malformed published slot escapes as a `KeypairError` no transaction caller
+ * catches.
+ */
+function inTransactionCategory<T>(run: () => T): T {
+  try {
+    return run();
+  } catch (error) {
+    if (error instanceof TransactionError) throw error;
+    const code = (error as { code?: unknown }).code;
+    throw new TransactionError("TRANSACTION_KEYPAIR", {
+      ...(typeof code === "string" ? { keypair: code } : {}),
+    });
+  }
+}
+
 export function decryptConfidential(
   key: ViewingKey,
   txViewingPublicKey: P256PublicKey,
@@ -836,14 +873,10 @@ export function decryptConfidential(
   salt: Bytes16,
   slotIndex: number,
 ): ConfidentialOutputPlaintext {
-  if (body.length < 33) {
-    throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
-      expectedMinimum: 33,
-      actual: body.length,
-    });
-  }
-  P256PublicKey.fromBytes(body.slice(0, 33) as Bytes33);
-  return decodeConfidential(key.decryptUtxo(body.slice(33), txViewingPublicKey, salt, slotIndex));
+  const { rest } = inTransactionCategory(() => splitEmbeddedKey(body));
+  return decodeConfidential(
+    inTransactionCategory(() => key.decryptUtxo(rest, txViewingPublicKey, salt, slotIndex)),
+  );
 }
 
 export function decryptConfidentialAsSender(
@@ -852,14 +885,10 @@ export function decryptConfidentialAsSender(
   salt: Bytes16,
   slotIndex: number,
 ): ConfidentialOutputPlaintext {
-  if (body.length < 33) {
-    throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
-      expectedMinimum: 33,
-      actual: body.length,
-    });
-  }
-  const recipient = P256PublicKey.fromBytes(body.slice(0, 33) as Bytes33);
-  return decodeConfidential(tx.decryptSlotEphemeral(recipient, body.slice(33), salt, slotIndex));
+  const { key, rest } = inTransactionCategory(() => splitEmbeddedKey(body));
+  return decodeConfidential(
+    inTransactionCategory(() => tx.decryptSlotEphemeral(key, rest, salt, slotIndex)),
+  );
 }
 
 export function encodeMerge(value: MergePlaintext): Uint8Array {
@@ -943,16 +972,10 @@ export function encryptMerge(
 }
 
 export function decryptMerge(userViewingKey: ViewingKey, body: Uint8Array): MergePlaintext {
-  if (body.length < 33) {
-    throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
-      expectedMinimum: 33,
-      actual: body.length,
-    });
-  }
-  const txViewingPublicKey = P256PublicKey.fromBytes(body.slice(0, 33) as Bytes33);
+  const { key, rest } = inTransactionCategory(() => splitEmbeddedKey(body));
   const secret = userViewingKey.secretBytes();
   try {
-    return decodeMerge(decryptVerifiable(secret, txViewingPublicKey, body.slice(33)));
+    return decodeMerge(inTransactionCategory(() => decryptVerifiable(secret, key, rest)));
   } finally {
     secret.fill(0);
   }
