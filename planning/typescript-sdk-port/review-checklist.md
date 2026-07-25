@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `176509028d7367ff9bcaaa7aaf8968ff745a0658`
+- Review HEAD: `97713a7e09e76ee06da8cb91229fbbaf80e98325`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `33 done / 118 total`; `49 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `T24 sdk-libs/transaction/src/instructions/transact/split.rs`
+- Progress: `33 done / 118 total`; `50 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `T25 sdk-libs/transaction/src/instructions/transact/transfer.rs`
 - Active reviews: `none`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
@@ -242,7 +242,7 @@ Columns:
 | T21 | `sdk-libs/transaction/src/instructions/transact/external_data.rs` | `transaction/src/instructions/transact.ts` | needs_fix | PARTIAL | proposed | The canonical hash preimage matches the spec and current interface, but TypeScript omits Rust constructor defaults, builders, and duplicate errors; retains optional hashes and arrays without complete defensive copies or freezing; has inconsistent malformed-input errors; and lacks root, subpath, export, boundary, property, tamper, and current-Rust fixture evidence. First replace Rust's unchecked `u16` casts with checked conversions and named errors, then align TypeScript and its evidence while preserving I11 ownership of canonical `externalDataHash`. | 2026-07-25 review | - |
 | T22 | `sdk-libs/transaction/src/instructions/transact/slots.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | TypeScript has only an internal wallet adaptation and omits the public Rust slot struct and two helpers; runtime, copy, error, and export evidence is incomplete. Both implementations mirror one ciphertext per output, conflicting with `docs/spec.md` sender-bundle and recipient-ordinal mapping. First correct Rust's layout per spec, use checked slot conversion, and reject inconsistent hash-only output contexts; then align TypeScript without taking authority or serialization ownership from T13 or T03-T10. | 2026-07-25 review | - |
 | T23 | `sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | Core current-Rust proof assembly and frozen prover vectors match, but the public helper and `PublicAmounts` API disposition is incomplete; constructor, signature, error, mutation, and real-before-dummy validation differ; and boundary, property, tamper, declaration, and pack evidence is incomplete. Resolve the `docs/spec.md` P256 input-owner conflict with Rust, Go, and TypeScript behavior and add canonical BN254 validation to Rust before aligning the TypeScript API and evidence, while preserving client/prover and T19 ownership. | 2026-07-25 review | - |
-| T24 | `sdk-libs/transaction/src/instructions/transact/split.rs` | `transaction/src/instructions/builders.ts` | todo | - | none | - | - | - |
+| T24 | `sdk-libs/transaction/src/instructions/transact/split.rs` | `transaction/src/instructions/builders.ts` | needs_fix | DIVERGENT | proposed | Valid fixed `1x8` split construction and bytes match, but Rust lacks required input-owner, nullifier, and dummy validation. TypeScript diverges in zone and amount error categories and details, public signing, fields, and `PreparedSplit.asset` surface, malformed prepared-state and ownership semantics, and evidence, export, and browser coverage. First add Rust ownership validation and named errors; then align TypeScript while preserving T08 serialization ownership. | 2026-07-25 review | - |
 | T25 | `sdk-libs/transaction/src/instructions/transact/transfer.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
 | T26 | `sdk-libs/transaction/src/instructions/transact/mod.rs` | `transaction/src/transact/index.ts` | todo | - | none | - | - | - |
 | T27 | `sdk-libs/transaction/src/instructions/merge.rs` | `transaction/src/instructions/builders.ts` | needs_fix | DIVERGENT | proposed | TypeScript uses the wrong nullifier authority, reports zone failures under the wrong error category, and does not reproduce `PreparedMerge` revalidation. Expiry handling, constants, public API, secret boundaries, and exact current-Rust evidence are also incomplete. Require the Rust-equivalent nullifier capability, align zone errors and revalidation, expose the canonical expiry and constants, and add exact, stale, malformed, capability, and secret-exposure fixtures. | 2026-07-25 review | - |
@@ -1500,3 +1500,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `33/118`; package `0/31`
 - Exact next file: `T24 sdk-libs/transaction/src/instructions/transact/split.rs`
 - Full SDK parity claim: unsupported; public API, validation, errors, mutation, spec, BN254, and boundary/property/tamper/declaration/pack evidence diverge
+
+### 2026-07-25 12:43 UTC | T24 | `sdk-libs/transaction/src/instructions/transact/split.rs`
+
+- Baseline: HEAD `97713a7e09e76ee06da8cb91229fbbaf80e98325`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module owns fixed `1x8` split preparation, signing, and instruction construction. T08 retains serialization ownership.
+- Evidence: Valid split construction and bytes match current Rust. Rust lacks required input-owner, nullifier, and dummy validation; TypeScript diverges in zone and amount error categories and details, public signing, fields, and `PreparedSplit.asset` surface, malformed prepared-state and ownership semantics, and evidence, export, and browser coverage.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: First add Rust ownership validation and named errors. Then align the TypeScript error contract, public surface, prepared-state and ownership semantics, and evidence without taking serialization ownership from T08.
+- Row transition: `todo -> needs_fix`
+- Progress: `33/118`; package `0/31`
+- Exact next file: `T25 sdk-libs/transaction/src/instructions/transact/transfer.rs`
+- Full SDK parity claim: unsupported; split validation, errors, public surface, prepared-state ownership, and evidence diverge
