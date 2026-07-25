@@ -403,7 +403,7 @@ describe("ZolanaIndexer and ZolanaClient", () => {
     const api = new ZolanaApi({
       url: "https://indexer.example.test",
       fetch: vi.fn((_url: unknown, init?: RequestInit) => {
-        bodies.push(JSON.parse(String(init?.body)));
+        bodies.push(JSON.parse(typeof init?.body === "string" ? init.body : ""));
         return Promise.resolve(
           envelope({
             context: { block_time: 1 },
@@ -475,12 +475,10 @@ describe("ZolanaIndexer and ZolanaClient", () => {
     expect(configured.indexerConfig.poll.numRetries).toBe(1);
 
     const pending = configured.confirmPrivateTransaction(SIGNATURE);
-    const rejection = expect(pending).rejects.toEqual(
-      expect.objectContaining({
-        code: "CLIENT_INDEXER_TIMEOUT",
-        details: expect.objectContaining({ attempts: 2 }),
-      }),
-    );
+    const rejection = expect(pending).rejects.toMatchObject({
+      code: "CLIENT_INDEXER_TIMEOUT",
+      details: { attempts: 2 },
+    });
     await vi.runAllTimersAsync();
     await rejection;
     expect(calls).toBe(2);

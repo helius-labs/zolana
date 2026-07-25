@@ -35,7 +35,7 @@ function encodeBase58(bytes: Uint8Array): string {
   for (const byte of bytes) value = value * 256n + BigInt(byte);
   let out = "";
   while (value > 0n) {
-    out = BASE58[Number(value % 58n)] + out;
+    out = `${BASE58[Number(value % 58n)] ?? ""}${out}`;
     value /= 58n;
   }
   for (const byte of bytes) {
