@@ -429,3 +429,24 @@ committed. The oracle was byte-identical on both bases and the four gates pass o
 Worth an owner decision: this worktree is named for the wallet batch and another
 agent treats it as theirs. Two agents sharing one worktree cannot both hold a
 branch.
+
+It happened a second time. At 01:22 the same worktree was switched to
+`port/plan-rewrite` by a third agent, mid-run and without warning. The symptom
+was not a git message but a total collapse of the TypeScript suite: all 91 files
+failed to collect because the checkout replaced the workspace package links, so
+`@zolana/hasher` and its siblings stopped resolving. Anyone who sees that failure
+shape should check `git branch --show-current` before clearing caches.
+
+Nothing was lost. Every commit in this batch is guarded by
+`test "$(git branch --show-current)" = "port/client-b"` before `git commit`, so
+the two code commits landed on the right branch and the docs commit refused to
+land on the wrong one. The pending edits were saved as a patch, reverted from the
+other agent's tree, and replayed.
+
+The branch now has its own worktree at
+`/Users/tilohelius/Workspace/zolana-ts-client-b`, created with `git worktree
+add`, and the four gates were re-run there from a clean `npm install`: 1546
+tests pass. `zolana-ts-wallet-misc` is left as its current occupant had it. Two
+naming conventions collided here, one worktree per batch and one per agent, and
+until that is settled the guard on every commit is the only thing making the
+outcome safe.
