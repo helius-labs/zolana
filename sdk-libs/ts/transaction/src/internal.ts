@@ -93,7 +93,7 @@ function permutation(inputCount: number): ReturnType<typeof createPoseidon> {
   if (cached) return cached;
   const roundsPartial = PARTIAL_ROUNDS[inputCount - 1];
   if (roundsPartial === undefined) {
-    throw new TransactionError("TRANSACTION_HASH", { inputCount });
+    throw new TransactionError("TRANSACTION_KEYPAIR", { inputCount });
   }
   const options = {
     Fp: FIELD,
@@ -107,16 +107,20 @@ function permutation(inputCount: number): ReturnType<typeof createPoseidon> {
   return generated;
 }
 
+/**
+ * Rust routes every Poseidon and hash-chain failure through `KeypairError`, so
+ * an out-of-field input reports the keypair category rather than the hash one.
+ */
 export function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
   const values = inputs.map((input, index) => {
     const value = bytesToBigInt(input);
     if (input.length > 32 || value >= BN254_MODULUS) {
-      throw new TransactionError("TRANSACTION_HASH", { index, reason: "invalidField" });
+      throw new TransactionError("TRANSACTION_KEYPAIR", { index, reason: "invalidField" });
     }
     return value;
   });
   const result = permutation(values.length)([0n, ...values])[0];
-  if (result === undefined) throw new TransactionError("TRANSACTION_HASH");
+  if (result === undefined) throw new TransactionError("TRANSACTION_KEYPAIR");
   return bigIntBytes(result) as Bytes32;
 }
 

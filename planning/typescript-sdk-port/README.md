@@ -33,34 +33,39 @@ unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker commits. Last update: 2026-07-25 20:55.
+Refreshed as each worker commits. Last update: 2026-07-25 23:35.
 
 | | |
 | --- | --- |
-| Rows the table calls supported | 19 of 145, the figure the CI gate reports |
-| Rows evidenced, but the table still shows them open | About 50, from the interface and keypair batches |
-| Rows carrying an attributable verdict | 145 of 145, up from 127 |
-| Rows still unexamined | None. The 27 the coverage audit found are reviewed and merged |
-| Branch | 288 commits vs `main`. 1143 unit tests pass and the checklist gate is green |
-| Phase | 2 of 4: remediation. Phase 1 reopened, phases 3 and 4 not started |
+| Rows the table calls supported | 74 of 145, the figure the CI gate reports |
+| Rows evidenced, but the table still shows them open | None known. The seven batch files outstanding at 22:00 are folded in |
+| Rows carrying an attributable verdict | 145 of 145 |
+| Rows still unexamined | None, and the Status column no longer holds a `todo` entry |
+| Rows carrying an adverse verdict | 61: 33 `PARTIAL`, 23 `DIVERGENT`, 4 `BLOCKED`, 1 `STALE` |
+| Branch | 351 commits vs `main`. The checklist gate is green |
+| Phase | 2 of 4: remediation. Phases 3 and 4 not started |
 
-Two figures appear above because they measure different things, and the honest
-one is 19. A verdict earned in a batch worktree does not reach the table by
-itself: batches record outcomes in `row-updates/<batch>.md` precisely because
-they must not edit `review-checklist.md`, so about 50 rows of real evidence
-still sit beside a table that shows them open. Read that gap as bookkeeping
-rather than as work outstanding, but do not quote the larger number as
-progress until a reconciler has folded it in and the gate agrees.
+The count moved from 19 to 74 in one evening, so it is worth saying what it does
+and does not mean. The gap between the two figures the last update carried was
+bookkeeping, and folding the batch files in closed it. The rise since then is
+not bookkeeping: it comes from batches that stopped comparing implementations by
+reading them and started generating oracles from Rust and replaying them in
+TypeScript, several with control edits applied and observed to fail. The
+verdicts hold to the degree those oracles cover the row, and the reconciler
+downgraded the claims that outran their tests.
+
+What the number still does not cover is the SDK as a whole. No package gate set
+has passed, and 61 rows carry an adverse verdict.
 
 In flight:
 
 | Work | State |
 | --- | --- |
 | Quality and no-shortcuts audit of `sdk-libs/ts` | Done. Functionality was cut, two live defects fixed, quality otherwise sound |
-| Fold three merged batches into the table | Running |
+| Fold the merged batches into the table | Done through client batch B. No `row-updates` file is waiting on the reconciler |
 | Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc`, 5 commits ahead and merging clean. Landed the indexed-range sentinel bound, the faucet-port offset, and the keypair bigint bound |
 | Keypair error redaction, is the guarantee real | Done. No secret reaches an error surface, but the sanitizer is not what prevents it |
-| Client package, rows C01 to C22 | RPC half closed, prover half outstanding |
+| Client package, rows C01 to C22 | 9 of 22 closed, including the three zone prover rails the owner un-deferred. `C02`, `C03`, `C04`, and `C08` stay `DIVERGENT` |
 | Transaction, 31 rows | 5 commits ahead, second pass queued behind the capacity limit |
 | `user_record` binding fix, own branch off `main` | Done, PR #160, 23 checks green |
 

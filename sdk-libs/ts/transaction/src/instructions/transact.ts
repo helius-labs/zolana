@@ -10,31 +10,81 @@ import {
   type Shape,
   type TransactOutput,
 } from "@zolana/interface";
-import { P256PublicKey, SigningKey, type ShieldedAddress } from "@zolana/keypair";
+import {
+  P256PublicKey,
+  ShieldedKeypair,
+  SigningKey,
+  ViewingKey,
+  randomSalt,
+  type ShieldedAddress,
+  type SignatureType,
+} from "@zolana/keypair";
 
+import { Data } from "../data.js";
 import { TransactionError } from "../error.js";
 import {
   ZERO_32,
+  bigIntBytes,
   checkU64,
   checked,
   copy,
   decodeAddress,
   equal,
   hashChain,
+  hashField,
   poseidon,
   random31,
   sha256Be,
   sha256Bytes,
 } from "../internal.js";
+import { EncryptedScheme, encodeOutputData, encryptConfidential } from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
+  Utxo,
   createProofOutput,
   deriveBlinding,
   type ProofOutputUtxo,
 } from "../utxo.js";
+import { SOL_ASSET_ID, type AssetRegistry } from "../wallet/asset.js";
 
 export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
+
+/**
+ * Fixed number of leading sender-owned output slots in a transfer: SPL change at
+ * slot 0, SOL change at slot 1. Recipients always start at slot 2.
+ */
+export const SENDER_SLOT_COUNT = 2;
+
+/** The BN254 scalar modulus, as the decimal literal Rust pins. */
+export const BN254_MODULUS_DEC =
+  "21888242871839275222246405745257275088548364400416034343698204186575808495617";
+
+const BN254_MODULUS = BigInt(BN254_MODULUS_DEC);
+const I64_MIN = -(2n ** 63n);
+const I64_MAX = 2n ** 63n - 1n;
+
+/**
+ * A signed public amount as the field element a proof's public inputs carry: a
+ * negative amount wraps around the BN254 modulus. Rust takes an `i64`, so the
+ * range check here stands in for the type.
+ */
+export function signedToField(value: bigint): Bytes32 {
+  if (typeof value !== "bigint" || value < I64_MIN || value > I64_MAX) {
+    throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
+      name: "signed amount",
+      minimum: I64_MIN.toString(),
+      maximum: I64_MAX.toString(),
+      actual: String(value),
+    });
+  }
+  return bigIntBytes(value < 0n ? BN254_MODULUS + value : value) as Bytes32;
+}
+
+/** The field element an asset mint contributes to a proof's public inputs. */
+export function assetField(asset: Address): Bytes32 {
+  return hashField(decodeAddress(asset));
+}
 
 function checkedCount(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {
@@ -51,6 +101,21 @@ export function canonicalShape(inputs: number, outputs: number): Shape {
   } catch (error) {
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { inputs, outputs }, error);
   }
+}
+
+/**
+ * The proving system whose slot counts the padded transaction already matches.
+ * Unlike `canonicalShape` this rounds nothing up: the counts are final by the
+ * time a proof is assembled.
+ */
+export function exactShape(inputs: number, outputs: number): Shape {
+  const exact = SPP_SUPPORTED_SHAPES.find(
+    (shape) => shape.inputs === inputs && shape.outputs === outputs,
+  );
+  if (!exact) {
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { inputs, outputs });
+  }
+  return Object.freeze({ ...exact });
 }
 
 export function resolveShape(inputs: number, outputs: number, declared?: Shape): Shape {
@@ -233,6 +298,106 @@ export function createExternalData(input: Omit<ExternalData, "hash">): ExternalD
   return Object.freeze({ ...snapshot, hash: (): Bytes32 => externalDataHash(snapshot) });
 }
 
+/**
+ * A spent UTXO carrying the nullifier public key rather than the secret, for
+ * callers that hash a transaction they cannot sign.
+ */
+export interface InputUtxo {
+  readonly utxo: Utxo;
+  readonly nullifierPublicKey: Bytes32;
+  readonly zoneDataHash?: Bytes32;
+  readonly dataHash?: Bytes32;
+  hash(): Bytes32;
+  isDummy(): boolean;
+}
+
+export function createInputUtxo(
+  input: Readonly<{
+    utxo: Utxo;
+    nullifierPublicKey: Bytes32;
+    zoneDataHash?: Bytes32;
+    dataHash?: Bytes32;
+  }>,
+): InputUtxo {
+  const nullifierPublicKey = checked<Bytes32>(
+    input.nullifierPublicKey,
+    32,
+    "nullifier public key",
+  );
+  const utxo = new Utxo(input.utxo);
+  return Object.freeze({
+    ...input,
+    utxo,
+    nullifierPublicKey,
+    hash(): Bytes32 {
+      return utxo.hash(nullifierPublicKey, input.dataHash, input.zoneDataHash);
+    },
+    isDummy(): boolean {
+      return utxo.owner.isZero();
+    },
+  });
+}
+
+export interface PrivateTxHashInput {
+  readonly inputHashes: readonly Bytes32[];
+  readonly outputHashes: readonly Bytes32[];
+  /** One per input slot; omitted means a chain of zeros of the same length. */
+  readonly addressHashes?: readonly Bytes32[];
+  readonly externalDataHash: Bytes32;
+}
+
+/**
+ * The circuit reads one address hash per input slot, so a set of a different
+ * length would silently shift the address chain rather than fail.
+ */
+export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
+  if (input.addressHashes !== undefined && input.addressHashes.length !== input.inputHashes.length) {
+    throw new TransactionError("TRANSACTION_ADDRESS_HASH_COUNT_MISMATCH", {
+      expected: input.inputHashes.length,
+      actual: input.addressHashes.length,
+    });
+  }
+  const addressHashes = input.addressHashes ?? input.inputHashes.map(() => copy(ZERO_32));
+  return poseidon([
+    hashChain(input.inputHashes),
+    hashChain(input.outputHashes),
+    hashChain(addressHashes),
+    input.externalDataHash,
+  ]);
+}
+
+export interface EncryptedTransaction {
+  readonly inputs: readonly InputUtxo[];
+  readonly outputs: readonly ProofOutputUtxo[];
+  readonly externalData: ExternalData;
+  hash(): Bytes32;
+}
+
+export function createEncryptedTransaction(
+  input: Readonly<{
+    inputs: readonly InputUtxo[];
+    outputs: readonly ProofOutputUtxo[];
+    externalData: ExternalData;
+  }>,
+): EncryptedTransaction {
+  const inputs = Object.freeze([...input.inputs]);
+  const outputs = Object.freeze([...input.outputs]);
+  return Object.freeze({
+    ...input,
+    inputs,
+    outputs,
+    // An unused slot contributes a zero hash, matching the circuit and
+    // `SppProofInputs.messageHash`.
+    hash(): Bytes32 {
+      return privateTxHash({
+        inputHashes: inputs.map((entry) => (entry.isDummy() ? copy(ZERO_32) : entry.hash())),
+        outputHashes: outputs.map((entry) => (entry.isDummy() ? copy(ZERO_32) : entry.hash())),
+        externalDataHash: input.externalData.hash(),
+      });
+    },
+  });
+}
+
 export class SppProofInputs {
   readonly payerPublicKeyHash: Bytes32;
   readonly inputUtxos: readonly ProofInputUtxo[];
@@ -260,16 +425,7 @@ export class SppProofInputs {
   }
 
   checkShape(): Shape {
-    const exact = SPP_SUPPORTED_SHAPES.find(
-      (shape) => shape.inputs === this.inputUtxos.length && shape.outputs === this.outputs.length,
-    );
-    if (!exact) {
-      throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
-        inputs: this.inputUtxos.length,
-        outputs: this.outputs.length,
-      });
-    }
-    return Object.freeze({ ...exact });
+    return exactShape(this.inputUtxos.length, this.outputs.length);
   }
 
   publicAmounts(): PublicAmounts {
@@ -306,13 +462,13 @@ export class SppProofInputs {
     const outputHashes = this.outputs.map((output) =>
       output.isDummy() ? copy(ZERO_32) : output.hash(),
     );
-    const privateHash = poseidon([
-      hashChain(inputHashes),
-      hashChain(outputHashes),
-      hashChain(inputHashes.map(() => copy(ZERO_32))),
-      this.externalData.hash(),
-    ]);
-    return sha256Bytes(privateHash);
+    return sha256Bytes(
+      privateTxHash({
+        inputHashes,
+        outputHashes,
+        externalDataHash: this.externalData.hash(),
+      }),
+    );
   }
 
   applyP256Signature(signature: P256Signature): void {
@@ -403,7 +559,11 @@ export class ConfidentialTransfer {
   }
 
   withShape(shape: Shape): this {
-    this.#shape = resolveShape(this.#inputs.length, 2 + this.#recipients.length, shape);
+    this.#shape = resolveShape(
+      this.#inputs.length,
+      SENDER_SLOT_COUNT + this.#recipients.length,
+      shape,
+    );
     return this;
   }
 
@@ -413,16 +573,16 @@ export class ConfidentialTransfer {
     );
   }
 
+  // Rust `send` performs no amount check; `checkU64` stands in for its `u64`
+  // parameter and nothing more. A zero-amount recipient is a slot Rust builds.
   send(recipient: ShieldedAddress, asset: Address, amount: bigint): void {
     checkU64(amount, "recipient amount");
-    if (amount === 0n) throw new TransactionError("TRANSACTION_INVALID_AMOUNT", { amount: "0" });
     this.#recipients.push({ address: recipient, asset, amount });
   }
 
   withdraw(asset: Address, amount: bigint, target: WithdrawalTarget): void {
     if (this.#withdrawal) throw new TransactionError("TRANSACTION_WITHDRAWAL_ALREADY_SET");
     checkU64(amount, "withdrawal amount");
-    if (amount === 0n) throw new TransactionError("TRANSACTION_INVALID_AMOUNT", { amount: "0" });
     if (target.kind === "spl" && asset === ZERO_ADDRESS) {
       throw new TransactionError("TRANSACTION_WITHDRAWAL_ASSET_MISMATCH");
     }
@@ -494,23 +654,14 @@ export class ConfidentialTransfer {
           ownerAddress: recipient.address,
           asset: recipient.asset,
           amount: recipient.amount,
-          blinding: deriveBlinding(this.#blindingSeed, index + 2),
+          blinding: deriveBlinding(this.#blindingSeed, index + SENDER_SLOT_COUNT),
         }),
       ),
     ];
     const shape = resolveShape(this.#inputs.length, outputs.length, this.#shape);
-    while (outputs.length < shape.outputs) {
-      const signing = SigningKey.generate(this.#owner.signingPublicKey.signatureType());
-      outputs.push(
-        createProofOutput({
-          asset: ZERO_ADDRESS,
-          amount: 0n,
-          ownerTag: signing.publicKey().confidentialViewTag(),
-        }),
-      );
-    }
+    // Padding belongs to `finalize`, where Rust does it: the slots handed to an
+    // authority for encryption are the real outputs only.
     const inputs = [...this.#inputs];
-    while (inputs.length < shape.inputs) inputs.push(ProofInputUtxo.dummy());
     const target = this.#withdrawal?.target;
     const firstInput = this.#inputs[0];
     if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
@@ -532,6 +683,26 @@ export class ConfidentialTransfer {
       finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
         finalizeTransfer(preparedBase, encrypted),
     });
+  }
+
+  /**
+   * Keypair rail: encrypt every real slot with the owner's own viewing key and
+   * sign in place. The authority rail is `prepare` plus `PreparedTransfer.finalize`,
+   * with encryption and signing delegated to a `WalletAuthority`.
+   */
+  sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
+    const prepared = this.prepare();
+    const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
+    const salt = randomSalt();
+    const signed = prepared.finalize({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: encodeConfidentialSlots(prepared.outputs, assets, tx, salt),
+    });
+    if (keypair.signingPublicKey().signatureType() === "p256") {
+      signed.applyP256Signature(keypair.signP256(signed.messageHash()));
+    }
+    return signed;
   }
 }
 
@@ -558,15 +729,45 @@ function finalizeTransfer(
       : equal(sha256Be(senderResolved), prepared.payerPublicKeyHash)
         ? { kind: "account", index: 0 }
         : { kind: "inline", value: senderResolved };
-  // Dummy slots match the default confidential envelope: 5 + 1 + 33 + 49.
-  const dummyLength = 88;
+
+  // Each padded slot gets one throwaway-key view tag, shared between its dummy
+  // output and its dummy ciphertext. The tag's rail is sampled from this
+  // transaction's real recipients so a curve-membership test on the published
+  // tag cannot single out a dummy. Real recipients occupy the slots past the two
+  // sender change positions.
+  const recipientRails = prepared.outputs
+    .slice(SENDER_SLOT_COUNT)
+    .flatMap((output) =>
+      output.ownerAddress ? [output.ownerAddress.signingPublicKey.signatureType()] : [],
+    );
+  const senderRail = prepared.owner.signingPublicKey.signatureType();
+  const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
+  const outputUtxos = [
+    ...prepared.outputs,
+    ...Array.from({ length: padCount }, () =>
+      createProofOutput({
+        asset: ZERO_ADDRESS,
+        amount: 0n,
+        ownerTag: dummyViewTag(dummyRail(recipientRails, senderRail)),
+      }),
+    ),
+  ];
+  const inputUtxos = [...prepared.inputs];
+  while (inputUtxos.length < prepared.shape.inputs) inputUtxos.push(ProofInputUtxo.dummy());
+
+  // Length-matched random ciphertext for every position without a real encoding:
+  // padded slots and zero-value change slots.
+  const needsDummyCiphertext =
+    padCount > 0 || prepared.outputs.some((_, index) => encrypted.payload[index] === undefined);
+  const dummyLength = needsDummyCiphertext ? dummyCiphertextLength(encrypted.salt) : 0;
+
   const outputs: TransactOutput[] = [];
   const resolved: Bytes32[] = [];
-  for (let index = 0; index < prepared.outputs.length; index++) {
-    const output = prepared.outputs[index];
+  for (let index = 0; index < outputUtxos.length; index++) {
+    const output = outputUtxos[index];
     if (!output) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
     const slot = encrypted.payload[index];
-    if (index < 2) {
+    if (index < SENDER_SLOT_COUNT) {
       outputs.push({
         utxoHash: output.hash(),
         ownerTag: senderTag,
@@ -605,8 +806,8 @@ function finalizeTransfer(
   });
   return new SppProofInputs({
     payerPublicKeyHash: prepared.payerPublicKeyHash,
-    inputUtxos: prepared.inputs,
-    outputs: prepared.outputs,
+    inputUtxos,
+    outputs: outputUtxos,
     externalData,
   });
 }
@@ -615,6 +816,94 @@ function randomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length);
   globalThis.crypto.getRandomValues(bytes);
   return bytes;
+}
+
+/**
+ * Encode each real output as its own confidential ciphertext, keyed to that
+ * output's owner viewing key, at `slotIndex == output position`. Dummy outputs
+ * yield `undefined`; the transfer builder fills those positions with a
+ * length-matched random ciphertext under the padded tag.
+ */
+export function encodeConfidentialSlots(
+  outputs: readonly ProofOutputUtxo[],
+  assets: AssetRegistry,
+  tx: ViewingKey,
+  salt: Bytes16,
+): readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[] {
+  return outputs.map((output, slotIndex) => {
+    const address = output.ownerAddress;
+    if (output.isDummy() || address === undefined) return undefined;
+    return {
+      viewTag: address.signingPublicKey.confidentialViewTag(),
+      data: encodeOutputData(
+        EncryptedScheme.confidential,
+        encryptConfidential(
+          tx,
+          address.viewingPublicKey,
+          {
+            assetId: assets.assetId(output.asset),
+            amount: output.amount,
+            blinding: output.blinding,
+            ...(output.zoneProgramId === undefined ? {} : { zoneProgramId: output.zoneProgramId }),
+            data: output.data,
+          },
+          salt,
+          slotOrdinal(slotIndex),
+        ),
+        "encrypted",
+      ),
+    };
+  });
+}
+
+function dummyViewTag(rail: SignatureType): Bytes32 {
+  return SigningKey.generate(rail).publicKey().confidentialViewTag();
+}
+
+/**
+ * The rail for a padded slot's dummy tag: a random draw from this transaction's
+ * real recipient rails, so each dummy is distributed identically to a real
+ * recipient. With no real recipients (a change-only transfer) there is no
+ * distribution to match, so the dummy takes the sender's rail -- the only identity
+ * in play. Drawing a rail the recipients do not use would let an observer flag the
+ * off-distribution slots as dummies and recover the recipient count.
+ */
+function dummyRail(
+  recipientRails: readonly SignatureType[],
+  senderRail: SignatureType,
+): SignatureType {
+  if (recipientRails.length === 0) return senderRail;
+  return recipientRails[randomIndex(recipientRails.length)] ?? senderRail;
+}
+
+/** A uniform index below `bound`, rejection-sampled so no value is favoured. */
+function randomIndex(bound: number): number {
+  const limit = Math.floor(0x1_0000_0000 / bound) * bound;
+  const draw = new Uint32Array(1);
+  do {
+    globalThis.crypto.getRandomValues(draw);
+  } while ((draw[0] ?? 0) >= limit);
+  return (draw[0] ?? 0) % bound;
+}
+
+/**
+ * The exact ciphertext byte length of a real confidential slot, derived by
+ * encoding a throwaway output through the same path. This keeps dummy slots
+ * byte-length-indistinguishable from real ones without pinning a brittle constant.
+ */
+function dummyCiphertextLength(salt: Bytes16): number {
+  const throwaway = ViewingKey.generate();
+  return encodeOutputData(
+    EncryptedScheme.confidential,
+    encryptConfidential(
+      throwaway,
+      throwaway.publicKey(),
+      { assetId: SOL_ASSET_ID, amount: 0n, blinding: random31(), data: new Data() },
+      salt,
+      0,
+    ),
+    "encrypted",
+  ).length;
 }
 
 export interface OutputContext {

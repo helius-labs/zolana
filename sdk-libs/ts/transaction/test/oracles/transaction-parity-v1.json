@@ -262,6 +262,187 @@
       }
     ]
   },
+  "decrypt": {
+    "confidential": [
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef25152673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b8836213d",
+        "error": null,
+        "name": "valid",
+        "plaintext": {
+          "amount": "77",
+          "assetId": "1",
+          "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+        }
+      },
+      {
+        "bodyHex": "",
+        "error": {
+          "actual": 0,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 33
+        },
+        "name": "empty",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef2",
+        "error": {
+          "actual": 32,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 33
+        },
+        "name": "publicKeyTruncated",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef251",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_DESERIALIZE",
+          "expected": null
+        },
+        "name": "publicKeyOnly",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff52673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b8836213d",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_KEYPAIR",
+          "expected": null
+        },
+        "name": "publicKeyOffCurve",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef25152673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b883621",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_DESERIALIZE",
+          "expected": null
+        },
+        "name": "ciphertextTruncated",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef25152673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b8836213d00",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_DESERIALIZE",
+          "expected": null
+        },
+        "name": "ciphertextExtraByte",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef25152673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b8836213c",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_DESERIALIZE",
+          "expected": null
+        },
+        "name": "ciphertextBitFlipped",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "036bf85d5fe84598b10ca6199ec09ccd7d35dcd7195fdd1dc7737a0c67006ef25152673fbfda8f9e48b3ebd4acead383c499a3dfb3fac43a5b4f80ea0f713a27102b7c07fecc0352acd5a6fa163b8836213d",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_DESERIALIZE",
+          "expected": null
+        },
+        "name": "wrongSlotIndex",
+        "plaintext": null,
+        "slotIndex": 3
+      }
+    ],
+    "merge": [
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6e59d34f2046f1004099570e265100640829dd1a768386caee194ac6b14559888bc264a6833349719b2a84c0174280c2d4ce4dfcb9d1b3adc6802c6243ae1d8a02b9db2b68cc5452a",
+        "error": null,
+        "name": "valid",
+        "plaintext": {
+          "amount": "1234",
+          "assetFieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+          "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+        }
+      },
+      {
+        "bodyHex": "",
+        "error": {
+          "actual": 0,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 33
+        },
+        "name": "empty",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6",
+        "error": {
+          "actual": 32,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 33
+        },
+        "name": "publicKeyTruncated",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6e5",
+        "error": {
+          "actual": 0,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 71
+        },
+        "name": "publicKeyOnly",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff9d34f2046f1004099570e265100640829dd1a768386caee194ac6b14559888bc264a6833349719b2a84c0174280c2d4ce4dfcb9d1b3adc6802c6243ae1d8a02b9db2b68cc5452a",
+        "error": {
+          "actual": null,
+          "code": "TRANSACTION_KEYPAIR",
+          "expected": null
+        },
+        "name": "publicKeyOffCurve",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6e59d34f2046f1004099570e265100640829dd1a768386caee194ac6b14559888bc264a6833349719b2a84c0174280c2d4ce4dfcb9d1b3adc6802c6243ae1d8a02b9db2b68cc545",
+        "error": {
+          "actual": 70,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 71
+        },
+        "name": "ciphertextTruncated",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6e59d34f2046f1004099570e265100640829dd1a768386caee194ac6b14559888bc264a6833349719b2a84c0174280c2d4ce4dfcb9d1b3adc6802c6243ae1d8a02b9db2b68cc5452a00",
+        "error": {
+          "actual": 72,
+          "code": "TRANSACTION_INVALID_LENGTH",
+          "expected": 71
+        },
+        "name": "ciphertextExtraByte",
+        "plaintext": null
+      },
+      {
+        "bodyHex": "02b681d64eae3d8d154a92f5eb51aaa85fe9bf65513572f85470b13076ab6ba6e59d34f2046f1004099570e265100640829dd1a768386caee194ac6b14559888bc264a6833349719b2a84c0174280c2d4ce4dfcb9d1b3adc6802c6243ae1d8a02b9db2b68cc5452b",
+        "error": null,
+        "name": "ciphertextBitFlipped",
+        "plaintext": {
+          "amount": "1234",
+          "assetFieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+          "blindingHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0a"
+        }
+      }
+    ],
+    "saltHex": "03030303030303030303030303030303",
+    "slotIndex": 2,
+    "txViewingSeedHex": "2525252525252525252525252525252525252525252525252525252525252525",
+    "userViewingSeedHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f"
+  },
   "errors": {
     "variants": [
       {
@@ -616,6 +797,61 @@
       }
     ]
   },
+  "fields": {
+    "assetField": [
+      {
+        "asset": "11111111111111111111111111111111",
+        "fieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864"
+      },
+      {
+        "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+        "fieldHex": "1d9811f297197604e6e4873f61eacfdcbc56012aa519a62b153e4d4a0b5febef"
+      },
+      {
+        "asset": "JEKNVnkbo3jma5nREBBJCDoXFVeKkD56V3xKrvRmWxFG",
+        "fieldHex": "2578c8bbec89b2fe57969cfb9b884d2e92f1949334ac9530537b324dc674f63d"
+      }
+    ],
+    "bn254Modulus": "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+    "signedToField": [
+      {
+        "fieldHex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "value": "0"
+      },
+      {
+        "fieldHex": "0000000000000000000000000000000000000000000000000000000000000001",
+        "value": "1"
+      },
+      {
+        "fieldHex": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000",
+        "value": "-1"
+      },
+      {
+        "fieldHex": "00000000000000000000000000000000000000000000000000000000000001f4",
+        "value": "500"
+      },
+      {
+        "fieldHex": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffe0d",
+        "value": "-500"
+      },
+      {
+        "fieldHex": "0000000000000000000000000000000000000000000000007fffffffffffffff",
+        "value": "9223372036854775807"
+      },
+      {
+        "fieldHex": "30644e72e131a029b85045b68181585d2833e84879b97090c3e1f593f0000001",
+        "value": "-9223372036854775808"
+      },
+      {
+        "fieldHex": "30644e72e131a029b85045b68181585d2833e84879b97090c3e1f593f0000002",
+        "value": "-9223372036854775807"
+      },
+      {
+        "fieldHex": "00000000000000000000000000000000000000000000000000000000ffffffff",
+        "value": "4294967295"
+      }
+    ]
+  },
   "fromUtxos": {
     "anonymousRecipient": [
       {
@@ -814,6 +1050,44 @@
       }
     ],
     "blindingSeedHex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "mergeIntoUtxos": [
+      {
+        "amount": "500",
+        "asset": "11111111111111111111111111111111",
+        "assetFieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+        "error": null,
+        "name": "solAsset",
+        "zoneBound": false,
+        "zoneProgramId": null
+      },
+      {
+        "amount": "500",
+        "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+        "assetFieldHex": "1d9811f297197604e6e4873f61eacfdcbc56012aa519a62b153e4d4a0b5febef",
+        "error": null,
+        "name": "splAsset",
+        "zoneBound": false,
+        "zoneProgramId": null
+      },
+      {
+        "amount": "500",
+        "asset": "11111111111111111111111111111111",
+        "assetFieldHex": "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+        "error": null,
+        "name": "zoneBound",
+        "zoneBound": true,
+        "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
+      },
+      {
+        "amount": null,
+        "asset": null,
+        "assetFieldHex": "06a1aa0d6ef4d2209671738c1c4dc1d3c7dfdbc400b2a177548bdd58998fefc0",
+        "error": "TRANSACTION_UNKNOWN_ASSET_FIELD",
+        "name": "unregisteredAsset",
+        "zoneBound": false,
+        "zoneProgramId": null
+      }
+    ],
     "otherPublicKeyHex": "0003741dd5bda817d95e4626537320e5d55179983028b2f82c99d500c5ee8624e3c4",
     "ownerPublicKeyHex": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
     "plaintextTransfer": [
@@ -1226,6 +1500,837 @@
     "zoneProgramId": "p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV"
   },
   "generator": "ZOLANA_WRITE_TS_ORACLES=1 cargo test -p zolana-transaction --test ts_oracle",
+  "merge": {
+    "cases": [
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "2d8f2b39e00aa10532ede81c95a9a5bc5634f0f7d9cfd13e94ff0fc39520040f",
+            "utxoHashHex": "10e7cd3954ca81e0362eaee78b83119733e62c484c7cf2350fd5a4fd2a83d32e"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "single",
+        "outputAmount": "100",
+        "paddedInputs": 8,
+        "rail": "plain"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "02ca8c49ca3c2318b69aabc04f5c8e7be49844548e205132dfdef2dd107072dd",
+            "utxoHashHex": "2bb191606a2a31fe7d5b1dad0f10dec2d4e3da41707dfcc195a4cfa89cb9264e"
+          },
+          {
+            "index": 1,
+            "nullifierHex": "0824c7e3c943ce1cffe2ff1ae6eaed103b386f66f1ceb27ef4ece48891f26b67",
+            "utxoHashHex": "2ad5e4cde73e3901f3afafaafaa694cd20c73161bd4b887fa9d313fa7fb89f6e"
+          },
+          {
+            "index": 2,
+            "nullifierHex": "29b027681ba7d1c231e0867597ab4d642e99d30cc86799bca5f47ef7d854dad1",
+            "utxoHashHex": "24fd25fdad4124d8408de0723a07dfef48c4c396597c9993f13b71a6d2ac4775"
+          },
+          {
+            "index": 3,
+            "nullifierHex": "0c611c538f8eaab375a60d4d4099ce3b21ef69f795063b507d295e1b00e49c20",
+            "utxoHashHex": "12b22462f05abd3441cefc1ea2a84cbc5583450c43de777c2138b1b866ea6f55"
+          },
+          {
+            "index": 4,
+            "nullifierHex": "1b6e0cffb256465345442df786bfa361d83cefb707a5736889831525fe62c3c9",
+            "utxoHashHex": "0f813386f66edc6626bd762ec33bbc9c4d573272e15a6beff431b0216de8a71b"
+          },
+          {
+            "index": 5,
+            "nullifierHex": "1b0b9c92cd96bebf3d43178f5f8af1f488b43150273f3ead749e82e5e25191e7",
+            "utxoHashHex": "2bf9dd327f09343fc20ce131a04028ed53ffffe7cc977e6581028663816e2ae4"
+          },
+          {
+            "index": 6,
+            "nullifierHex": "028838ef433644f54e844741a5961d62b93eb052a7644ec1626756232d31deba",
+            "utxoHashHex": "233441124019e61509997ebef8a2be6f8556bfad39a1a0dc5f899770a323b006"
+          },
+          {
+            "index": 7,
+            "nullifierHex": "0a4d32c651af0a6884248d81a7c7b8aded6c4ae38de8faf1d80fc549644c2876",
+            "utxoHashHex": "02020b4d4bdd6385bae89a2ea7ea145963af82004525e6da10a2e2c429c2a072"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "2",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "3",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 2,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "4",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 3,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 4,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "6",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 5,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "7",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 6,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "8",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 7,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "eightInputs",
+        "outputAmount": "36",
+        "paddedInputs": 8,
+        "rail": "plain"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "1ddc566dd887ecd3be3c775355f7863e5983b887c2a5df288c6f32da31085bff",
+            "utxoHashHex": "1bc3a745845a428b128c1e3f9e3a9dd632cc084ab0d6c85e6c7bd22538f52952"
+          },
+          {
+            "index": 1,
+            "nullifierHex": "12840ba57c0b9f6853fdfde15ced8f52d72f32f7ecb9959683bb94b71db9601b",
+            "utxoHashHex": "22b4c39f4861815b57bb79c08e7cf3d0db7187dd22b21a1fd158789cd055e031"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "0",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "0",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zeroAmounts",
+        "outputAmount": "0",
+        "paddedInputs": 8,
+        "rail": "plain"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "2f31822b02ff4daf1ac8901b9e9def5a78d3d0fb1db9cb3159cb219792b8f72f",
+            "utxoHashHex": "02c62137929578add3ce9f56ea08694abe28115d28155c4c22aa879c6867326e"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "18446744073709551615",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "maxAmount",
+        "outputAmount": "18446744073709551615",
+        "paddedInputs": 8,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_NO_INPUTS",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [],
+        "name": "empty",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_TOO_MANY_INPUTS",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 2,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 3,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 4,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 5,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 6,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 7,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 8,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "nineInputs",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_SELECTED_BALANCE_OVERFLOW",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "18446744073709551615",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "1",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "overflow",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_OWNER_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "other",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "foreignOwner",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "other",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "foreignNullifierKey",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_ASSET_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          },
+          {
+            "amount": "100",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 1,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "assetMismatch",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneBoundInput",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              "utxoData"
+            ],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "inlineUtxoData",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": true,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "externalDataHash",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": true
+          }
+        ],
+        "name": "externalZoneDataHash",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "plain"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "17ceb4462393b05ee582aa0886d8846f45c8d18640e4399d2b4528954db4389d",
+            "utxoHashHex": "2ab21c4892cb398baaec6eb0f49823383dbabfdf75223e3c8220ec8624954078"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneSingle",
+        "outputAmount": "100",
+        "paddedInputs": 8,
+        "rail": "zone"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "1135d0154946b09ddfc99a3475f4b8b06bb57b2b1b3986bfcfb7925cb14a7290",
+            "utxoHashHex": "03e031ec80e5963d32ba7e2c19e4acc80e6c814714a9290d637205d3e5c2e3c9"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              "zoneData"
+            ],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": true
+          }
+        ],
+        "name": "zoneWithZoneData",
+        "outputAmount": "100",
+        "paddedInputs": 8,
+        "rail": "zone"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "error": null,
+        "expiryUnixTs": "18446744073709551615",
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "17ceb4462393b05ee582aa0886d8846f45c8d18640e4399d2b4528954db4389d",
+            "utxoHashHex": "2ab21c4892cb398baaec6eb0f49823383dbabfdf75223e3c8220ec8624954078"
+          }
+        ],
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              "memo"
+            ],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneWithMemo",
+        "outputAmount": "100",
+        "paddedInputs": 8,
+        "rail": "zone"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [
+              "utxoData"
+            ],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneWithUtxoData",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "zone"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": true,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneWithDataHash",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "zone"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": null,
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneMissingOnInput",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "zone"
+      },
+      {
+        "asset": null,
+        "error": "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
+        "expiryUnixTs": null,
+        "inputContexts": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "dataHash": false,
+            "nullifier": "owner",
+            "owner": "owner",
+            "position": 0,
+            "records": [],
+            "zone": "2xea9jWJ9eca3dFiefTeSPP85c6qXqunCqL2h2JNffMW",
+            "zoneDataHash": false
+          }
+        ],
+        "name": "zoneWrongOnInput",
+        "outputAmount": null,
+        "paddedInputs": null,
+        "rail": "zone"
+      }
+    ],
+    "dataHashHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+    "foreignZone": "2xea9jWJ9eca3dFiefTeSPP85c6qXqunCqL2h2JNffMW",
+    "mergeInputs": 8,
+    "preparedContexts": [
+      {
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "inputContexts": null,
+        "name": "plainDataHash",
+        "perturbation": "dataHash",
+        "rail": "plain"
+      },
+      {
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "inputContexts": null,
+        "name": "plainZoneDataHash",
+        "perturbation": "zoneDataHash",
+        "rail": "plain"
+      },
+      {
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "inputContexts": null,
+        "name": "plainInlineUtxoData",
+        "perturbation": "utxoData",
+        "rail": "plain"
+      },
+      {
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "inputContexts": null,
+        "name": "zoneDataHash",
+        "perturbation": "dataHash",
+        "rail": "zone"
+      },
+      {
+        "error": null,
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "1135d0154946b09ddfc99a3475f4b8b06bb57b2b1b3986bfcfb7925cb14a7290",
+            "utxoHashHex": "03e031ec80e5963d32ba7e2c19e4acc80e6c814714a9290d637205d3e5c2e3c9"
+          }
+        ],
+        "name": "zoneZoneDataHash",
+        "perturbation": "zoneDataHash",
+        "rail": "zone"
+      },
+      {
+        "error": "TRANSACTION_MERGE_INPUT_HAS_DATA",
+        "inputContexts": null,
+        "name": "zoneInlineUtxoData",
+        "perturbation": "utxoData",
+        "rail": "zone"
+      },
+      {
+        "error": null,
+        "inputContexts": [
+          {
+            "index": 0,
+            "nullifierHex": "14bd453b368254924288151fd9248ce984c9766862ff2377184dd59312d62d14",
+            "utxoHashHex": "1691a4f5bd102376cfa515460ea0fa2dcc1536a5194aeac5ab5766d3ee971f2d"
+          }
+        ],
+        "name": "zoneForeignZone",
+        "perturbation": "foreignZone",
+        "rail": "zone"
+      }
+    ],
+    "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+    "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020"
+  },
   "schema": "zolana-transaction-parity-oracle-v1",
   "scheme": {
     "invalid": [
@@ -2329,7 +3434,109 @@
         "encodedHex": "ffffffffffffffff04040404040404040404040404040404040404040404040404040404040404040b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
         "name": "max"
       }
-    ]
+    ],
+    "proofless": [
+      {
+        "amount": "1000",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "17171717171717171717171717171717171717171717171717171717171717",
+        "dataHashHex": null,
+        "encodedHex": "0101010101010101010101010101010101010101010101010101010101010101171717171717171717171717171717171717171717171717171717171717170000000000000000000000000000000000000000000000000000000000000000e803000000000000000000000000",
+        "memoHex": null,
+        "name": "bare",
+        "ownerHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "utxoDataHex": null,
+        "zoneDataHashHex": null,
+        "zoneDataHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "amount": "18446744073709551615",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "17171717171717171717171717171717171717171717171717171717171717",
+        "dataHashHex": null,
+        "encodedHex": "0101010101010101010101010101010101010101010101010101010101010101171717171717171717171717171717171717171717171717171717171717170000000000000000000000000000000000000000000000000000000000000000ffffffffffffffff000000000000",
+        "memoHex": null,
+        "name": "maxAmount",
+        "ownerHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "utxoDataHex": null,
+        "zoneDataHashHex": null,
+        "zoneDataHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "amount": "1000",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "17171717171717171717171717171717171717171717171717171717171717",
+        "dataHashHex": null,
+        "encodedHex": "0101010101010101010101010101010101010101010101010101010101010101171717171717171717171717171717171717171717171717171717171717170000000000000000000000000000000000000000000000000000000000000000e8030000000000000000011e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e012020202020202020202020202020202020202020202020202020202020202020010300000001020300",
+        "memoHex": null,
+        "name": "zoneBound",
+        "ownerHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "utxoDataHex": null,
+        "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020",
+        "zoneDataHex": "010203",
+        "zoneProgramId": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD"
+      },
+      {
+        "amount": "1000",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "17171717171717171717171717171717171717171717171717171717171717",
+        "dataHashHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+        "encodedHex": "0101010101010101010101010101010101010101010101010101010101010101171717171717171717171717171717171717171717171717171717171717170000000000000000000000000000000000000000000000000000000000000000e803000000000000011f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f01020000000405011e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e0120202020202020202020202020202020202020202020202020202020202020200103000000010203010100000006",
+        "memoHex": "06",
+        "name": "everyOptionalField",
+        "ownerHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "utxoDataHex": "0405",
+        "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020",
+        "zoneDataHex": "010203",
+        "zoneProgramId": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD"
+      },
+      {
+        "amount": "1000",
+        "asset": "11111111111111111111111111111111",
+        "blindingHex": "17171717171717171717171717171717171717171717171717171717171717",
+        "dataHashHex": null,
+        "encodedHex": "0101010101010101010101010101010101010101010101010101010101010101171717171717171717171717171717171717171717171717171717171717170000000000000000000000000000000000000000000000000000000000000000e803000000000000000100000000000001000000000100000000",
+        "memoHex": "",
+        "name": "emptyPayloads",
+        "ownerHex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "utxoDataHex": "",
+        "zoneDataHashHex": null,
+        "zoneDataHex": "",
+        "zoneProgramId": null
+      }
+    ],
+    "splitEncrypted": {
+      "cases": [
+        {
+          "ciphertextHex": "",
+          "encodedHex": "02033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f10a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0000",
+          "name": "empty",
+          "saltHex": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "txViewingPublicKeyHex": "033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f1",
+          "typePrefix": 2
+        },
+        {
+          "ciphertextHex": "010203",
+          "encodedHex": "02033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f10a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0300010203",
+          "name": "short",
+          "saltHex": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "txViewingPublicKeyHex": "033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f1",
+          "typePrefix": 2
+        },
+        {
+          "ciphertextHex": "070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707",
+          "encodedHex": "02033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f10a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a2c01070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707",
+          "name": "overAByteLengthPrefix",
+          "saltHex": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+          "txViewingPublicKeyHex": "033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f1",
+          "typePrefix": 2
+        }
+      ],
+      "foreignSchemeError": "TRANSACTION_BAD_DISCRIMINATOR",
+      "foreignSchemeHex": "03033adab15d66256bf15cd716035b3f041444e512fed1dd64d4ba75597d20e366f10a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0300010203"
+    }
   },
   "shape": {
     "canonical": [
@@ -4017,7 +5224,1351 @@
       }
     ]
   },
+  "split": {
+    "cases": [
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": null,
+        "firstNullifierHex": "2d8f2b39e00aa10532ede81c95a9a5bc5634f0f7d9cfd13e94ff0fc39520040f",
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "twoEqualParts",
+        "numOutputs": 2,
+        "outputAmounts": [
+          "50",
+          "50",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "ownerViewTagHex": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+        "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
+        "perOutputAmount": "50"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": null,
+        "firstNullifierHex": "2860158b176f2f2dfebffc8c9b3c658163cebc0e9f6e7bd0c1cb882cc35430d7",
+        "input": {
+          "amount": "80",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "eightEqualParts",
+        "numOutputs": 8,
+        "outputAmounts": [
+          "10",
+          "10",
+          "10",
+          "10",
+          "10",
+          "10",
+          "10",
+          "10"
+        ],
+        "ownerViewTagHex": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+        "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
+        "perOutputAmount": "10"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": null,
+        "firstNullifierHex": "1ddc566dd887ecd3be3c775355f7863e5983b887c2a5df288c6f32da31085bff",
+        "input": {
+          "amount": "0",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "zeroValueSplit",
+        "numOutputs": 2,
+        "outputAmounts": [
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "ownerViewTagHex": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+        "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
+        "perOutputAmount": "0"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_INVALID_PART_COUNT",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "18446744073709551615",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "maxPerOutput",
+        "numOutputs": 1,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "18446744073709551615"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_INVALID_PART_COUNT",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "onePart",
+        "numOutputs": 1,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "100"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_INVALID_PART_COUNT",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "90",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "ninePartsRequested",
+        "numOutputs": 9,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "10"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_INVALID_PART_COUNT",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "zeroParts",
+        "numOutputs": 0,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "0"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_AMOUNT_MISMATCH",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "amountMismatch",
+        "numOutputs": 3,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "30"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_AMOUNT_MISMATCH",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "8",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "productOverflows",
+        "numOutputs": 8,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "18446744073709551615"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": true,
+        "error": "TRANSACTION_SPLIT_INPUT_IS_DUMMY",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "dummyInput",
+        "numOutputs": 2,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "50"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_INPUT_OWNER_MISMATCH",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "other",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "foreignOwner",
+        "numOutputs": 2,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "50"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_INPUT_NULLIFIER_KEY_MISMATCH",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "other",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "foreignNullifierKey",
+        "numOutputs": 2,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "50"
+      },
+      {
+        "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_INPUT_ASSET_MISMATCH",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "assetMismatch",
+        "numOutputs": 2,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "50"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_INPUT_ZONE_MISMATCH",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+          "zoneDataHash": false
+        },
+        "name": "zoneBoundInput",
+        "numOutputs": 2,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "50"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_INPUT_HAS_DATA",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": false,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [
+            "utxoData"
+          ],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "inputWithData",
+        "numOutputs": 2,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "50"
+      },
+      {
+        "asset": "11111111111111111111111111111111",
+        "dummyInput": false,
+        "error": "TRANSACTION_SPLIT_INPUT_HAS_DATA",
+        "firstNullifierHex": null,
+        "input": {
+          "amount": "100",
+          "asset": "11111111111111111111111111111111",
+          "dataHash": true,
+          "nullifier": "owner",
+          "owner": "owner",
+          "position": 0,
+          "records": [],
+          "zone": null,
+          "zoneDataHash": false
+        },
+        "name": "inputWithDataHash",
+        "numOutputs": 2,
+        "outputAmounts": null,
+        "ownerViewTagHex": null,
+        "payerPublicKeyHashHex": null,
+        "perOutputAmount": "50"
+      }
+    ],
+    "payer": "21nS9Wz9sUTQ6MkcYUtnN8aSfPA26xJJP7zqshfzCzqc"
+  },
+  "transactTypes": {
+    "blindingHex": "17171717171717171717171717171717171717171717171717171717171717",
+    "emptyExternalData": {
+      "expiryUnixTs": "18446744073709551615",
+      "hashHex": "0056a4ba4862e582dd9c49e9aa5e81dc45595e7599226b6cd8de3356c122f24f",
+      "instructionDiscriminator": 0,
+      "relayerFee": 0
+    },
+    "encryptedTransaction": [
+      {
+        "hashHex": "1248fdab7a1aa40cff7e0b3c226f44003f7208c7e7575c0b37d5dbb2931cc70b",
+        "name": "bothDummy",
+        "realInput": false,
+        "realOutput": false
+      },
+      {
+        "hashHex": "0fb3045b5fbd44297d3a37c1bbe0d72c773d1e811aadb5fd3af7ab67cae25f8d",
+        "name": "realInputDummyOutput",
+        "realInput": true,
+        "realOutput": false
+      },
+      {
+        "hashHex": "27388618f09533df50a409a3bdf00219478a993cdf7803e4334c39703d688ab7",
+        "name": "dummyInputRealOutput",
+        "realInput": false,
+        "realOutput": true
+      },
+      {
+        "hashHex": "019d910ef9a2d29134b577ae02f3a46eac98b5d6192ddd84b0b04bc41fba5e66",
+        "name": "bothReal",
+        "realInput": true,
+        "realOutput": true
+      }
+    ],
+    "externalDataHashHex": "0505050505050505050505050505050505050505050505050505050505050505",
+    "inputUtxos": [
+      {
+        "dataHash": false,
+        "hashHex": "0d6d3d46b44da6663b175c71f05fdd1943ab0029a39d111b8ef454aedebb4502",
+        "isDummy": false,
+        "name": "bare",
+        "zone": null,
+        "zoneDataHash": false
+      },
+      {
+        "dataHash": true,
+        "hashHex": "20a0b3a80931bbd11bd60baa45ab390e9f0aee1e53644df5ce6b7dcc7c2741cb",
+        "isDummy": false,
+        "name": "dataHash",
+        "zone": null,
+        "zoneDataHash": false
+      },
+      {
+        "dataHash": false,
+        "hashHex": "2276cd18fa778eef09165896262d360c44359fdcab106143498deeae0785aa97",
+        "isDummy": false,
+        "name": "zoneBound",
+        "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+        "zoneDataHash": true
+      },
+      {
+        "dataHash": true,
+        "hashHex": "2b65f50c00b2a3a5989d8caab3271149996a6fb10c71740b67e57f6b05c67720",
+        "isDummy": false,
+        "name": "bothHashes",
+        "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+        "zoneDataHash": true
+      }
+    ],
+    "nullifierPublicKeyHex": "1e818d7473d005432d41e569956da29e419ce8cbd3b7110d510847eb8d7d600e",
+    "outputBuilders": [
+      {
+        "dataHashHex": null,
+        "hashHex": "0d6d3d46b44da6663b175c71f05fdd1943ab0029a39d111b8ef454aedebb4502",
+        "isDummy": false,
+        "name": "bare",
+        "ops": [],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [],
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "dataHashHex": null,
+        "hashHex": "0d6d3d46b44da6663b175c71f05fdd1943ab0029a39d111b8ef454aedebb4502",
+        "isDummy": false,
+        "name": "memo",
+        "ops": [
+          "memoA"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "06",
+            "kind": "memo"
+          }
+        ],
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "dataHashHex": null,
+        "hashHex": "0d6d3d46b44da6663b175c71f05fdd1943ab0029a39d111b8ef454aedebb4502",
+        "isDummy": false,
+        "name": "memoReplaced",
+        "ops": [
+          "memoA",
+          "memoB"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "0909",
+            "kind": "memo"
+          }
+        ],
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "dataHashHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+        "hashHex": "20a0b3a80931bbd11bd60baa45ab390e9f0aee1e53644df5ce6b7dcc7c2741cb",
+        "isDummy": false,
+        "name": "utxoDataReplaced",
+        "ops": [
+          "utxoDataA",
+          "utxoDataB"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "07",
+            "kind": "utxoData"
+          }
+        ],
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "dataHashHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+        "hashHex": "20a0b3a80931bbd11bd60baa45ab390e9f0aee1e53644df5ce6b7dcc7c2741cb",
+        "isDummy": false,
+        "name": "memoThenUtxoData",
+        "ops": [
+          "memoA",
+          "utxoDataA"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "0405",
+            "kind": "utxoData"
+          },
+          {
+            "bytesHex": "06",
+            "kind": "memo"
+          }
+        ],
+        "zoneDataHashHex": null,
+        "zoneProgramId": null
+      },
+      {
+        "dataHashHex": null,
+        "hashHex": "2276cd18fa778eef09165896262d360c44359fdcab106143498deeae0785aa97",
+        "isDummy": false,
+        "name": "memoThenZoneData",
+        "ops": [
+          "memoA",
+          "zoneDataA"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "010203",
+            "kind": "zoneData"
+          },
+          {
+            "bytesHex": "06",
+            "kind": "memo"
+          }
+        ],
+        "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020",
+        "zoneProgramId": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD"
+      },
+      {
+        "dataHashHex": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+        "hashHex": "2b65f50c00b2a3a5989d8caab3271149996a6fb10c71740b67e57f6b05c67720",
+        "isDummy": false,
+        "name": "allThreeOutOfOrder",
+        "ops": [
+          "memoA",
+          "zoneDataA",
+          "utxoDataA"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [
+          {
+            "bytesHex": "010203",
+            "kind": "zoneData"
+          },
+          {
+            "bytesHex": "0405",
+            "kind": "utxoData"
+          },
+          {
+            "bytesHex": "06",
+            "kind": "memo"
+          }
+        ],
+        "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020",
+        "zoneProgramId": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD"
+      },
+      {
+        "dataHashHex": null,
+        "hashHex": "0bc86eaf548bfe206f861ea5f3cbe61785fe9474cc0b0ef1bf8dc8fd9c074173",
+        "isDummy": false,
+        "name": "zoneProgramIdOnly",
+        "ops": [
+          "zoneProgramId"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [],
+        "zoneDataHashHex": null,
+        "zoneProgramId": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD"
+      },
+      {
+        "dataHashHex": null,
+        "hashHex": "2276cd18fa778eef09165896262d360c44359fdcab106143498deeae0785aa97",
+        "isDummy": false,
+        "name": "zoneDataHashOnly",
+        "ops": [
+          "zoneDataHash"
+        ],
+        "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "records": [],
+        "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020",
+        "zoneProgramId": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD"
+      }
+    ],
+    "privateTxHashes": [
+      {
+        "actual": null,
+        "addressHashesHex": null,
+        "error": null,
+        "expected": null,
+        "hashHex": "21975d5585dfa00728fa96b469586899abfbe7a3e4be3fdb087ea828331e37e2",
+        "inputHashesHex": [],
+        "name": "empty",
+        "outputHashesHex": []
+      },
+      {
+        "actual": null,
+        "addressHashesHex": null,
+        "error": null,
+        "expected": null,
+        "hashHex": "1bcb33102c5d477849db97be21ec243f9bf4b575e97ee7b22937dba542633142",
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "name": "oneInputOneOutput",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
+      },
+      {
+        "actual": null,
+        "addressHashesHex": null,
+        "error": null,
+        "expected": null,
+        "hashHex": "023f9d9549d4d8c24de8c5aa35dec895e78759ab3458417080e1d836f20e3e18",
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202"
+        ],
+        "name": "twoInputsThreeOutputs",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828",
+          "2929292929292929292929292929292929292929292929292929292929292929",
+          "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a"
+        ]
+      },
+      {
+        "actual": null,
+        "addressHashesHex": [
+          "0808080808080808080808080808080808080808080808080808080808080808",
+          "0909090909090909090909090909090909090909090909090909090909090909"
+        ],
+        "error": null,
+        "expected": null,
+        "hashHex": "234a5f3c7e6c4cb98a35254a6888784363e2c4e8ed29d95810e3e45a5ac4df28",
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202"
+        ],
+        "name": "addressHashesPaired",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
+      },
+      {
+        "actual": 1,
+        "addressHashesHex": [
+          "0808080808080808080808080808080808080808080808080808080808080808"
+        ],
+        "error": "TRANSACTION_ADDRESS_HASH_COUNT_MISMATCH",
+        "expected": 2,
+        "hashHex": null,
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202"
+        ],
+        "name": "addressHashesShort",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
+      },
+      {
+        "actual": 2,
+        "addressHashesHex": [
+          "0808080808080808080808080808080808080808080808080808080808080808",
+          "0909090909090909090909090909090909090909090909090909090909090909"
+        ],
+        "error": "TRANSACTION_ADDRESS_HASH_COUNT_MISMATCH",
+        "expected": 1,
+        "hashHex": null,
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "name": "addressHashesLong",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
+      },
+      {
+        "actual": null,
+        "addressHashesHex": [
+          "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0"
+        ],
+        "error": "TRANSACTION_KEYPAIR",
+        "expected": null,
+        "hashHex": null,
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "name": "addressHashOutOfField",
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
+      }
+    ]
+  },
+  "transfer": {
+    "cases": [
+      {
+        "changeAmounts": [
+          "0",
+          "100"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "changeOnly",
+        "ops": [],
+        "preparedInputs": 1,
+        "preparedOutputs": 2,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "70"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "oneRecipient",
+        "ops": [
+          {
+            "amount": "30",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 3,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "100"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "zeroAmountRecipient",
+        "ops": [
+          {
+            "amount": "0",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 3,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "0"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "wholeBalanceLeavesNoChange",
+        "ops": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 3,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_INSUFFICIENT_BALANCE",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "recipientBeyondBalance",
+        "ops": [
+          {
+            "amount": "101",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "100"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "zeroAmountWithdrawal",
+        "ops": [
+          {
+            "amount": "0",
+            "asset": "11111111111111111111111111111111",
+            "kind": "withdraw",
+            "target": "sol"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 2,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        },
+        "userSolAccount": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "60"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "solWithdrawal",
+        "ops": [
+          {
+            "amount": "40",
+            "asset": "11111111111111111111111111111111",
+            "kind": "withdraw",
+            "target": "sol"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 2,
+        "publicSol": "-40",
+        "publicSpl": null,
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        },
+        "userSolAccount": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": [
+          "60",
+          "5"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "position": 0
+          },
+          {
+            "amount": "5",
+            "asset": "11111111111111111111111111111111",
+            "position": 1
+          }
+        ],
+        "name": "splWithdrawal",
+        "ops": [
+          {
+            "amount": "40",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "kind": "withdraw",
+            "target": "spl"
+          }
+        ],
+        "preparedInputs": 2,
+        "preparedOutputs": 2,
+        "publicSol": null,
+        "publicSpl": "-40",
+        "shape": {
+          "inputs": 2,
+          "outputs": 2
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr"
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_WITHDRAWAL_ALREADY_SET",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "withdrawalTwice",
+        "ops": [
+          {
+            "amount": "10",
+            "asset": "11111111111111111111111111111111",
+            "kind": "withdraw",
+            "target": "sol"
+          },
+          {
+            "amount": "10",
+            "asset": "11111111111111111111111111111111",
+            "kind": "withdraw",
+            "target": "sol"
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_WITHDRAWAL_ASSET_MISMATCH",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "position": 0
+          }
+        ],
+        "name": "splAssetAtASolTarget",
+        "ops": [
+          {
+            "amount": "10",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "kind": "withdraw",
+            "target": "sol"
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_WITHDRAWAL_ASSET_MISMATCH",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "solAssetAtASplTarget",
+        "ops": [
+          {
+            "amount": "10",
+            "asset": "11111111111111111111111111111111",
+            "kind": "withdraw",
+            "target": "spl"
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+            "position": 0
+          },
+          {
+            "amount": "100",
+            "asset": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+            "position": 1
+          }
+        ],
+        "name": "twoSplAssets",
+        "ops": [],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "70"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "declaredShapeWithRoomToPad",
+        "ops": [
+          {
+            "amount": "30",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          },
+          {
+            "kind": "withShape",
+            "shape": {
+              "inputs": 1,
+              "outputs": 8
+            }
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 3,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 1,
+          "outputs": 8
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "declaredShapeTooNarrow",
+        "ops": [
+          {
+            "amount": "30",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          },
+          {
+            "kind": "withShape",
+            "shape": {
+              "inputs": 1,
+              "outputs": 1
+            }
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": null,
+        "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+        "inputs": [
+          {
+            "amount": "100",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "declaredShapeUnsupported",
+        "ops": [
+          {
+            "kind": "withShape",
+            "shape": {
+              "inputs": 7,
+              "outputs": 7
+            }
+          }
+        ],
+        "preparedInputs": null,
+        "preparedOutputs": null,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": null,
+        "userSolAccount": null,
+        "userSplToken": null
+      },
+      {
+        "changeAmounts": [
+          "0",
+          "0"
+        ],
+        "error": null,
+        "inputs": [
+          {
+            "amount": "18446744073709551615",
+            "asset": "11111111111111111111111111111111",
+            "position": 0
+          }
+        ],
+        "name": "maxAmountRecipient",
+        "ops": [
+          {
+            "amount": "18446744073709551615",
+            "asset": "11111111111111111111111111111111",
+            "kind": "send"
+          }
+        ],
+        "preparedInputs": 1,
+        "preparedOutputs": 3,
+        "publicSol": null,
+        "publicSpl": null,
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        },
+        "userSolAccount": "11111111111111111111111111111111",
+        "userSplToken": "11111111111111111111111111111111"
+      }
+    ],
+    "ownerViewingSeedHex": "1515151515151515151515151515151515151515151515151515151515151515",
+    "payer": "21nS9Wz9sUTQ6MkcYUtnN8aSfPA26xJJP7zqshfzCzqc",
+    "recipientViewingSeedHex": "1616161616161616161616161616161616161616161616161616161616161616",
+    "senderSlotCount": 2,
+    "solTarget": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+    "splTarget": {
+      "splTokenInterface": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+      "userSplToken": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr"
+    }
+  },
   "utxo": {
+    "canonicalDummy": [
+      {
+        "error": null,
+        "field": null,
+        "fields": [],
+        "name": "canonical"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "asset",
+        "fields": [
+          "asset"
+        ],
+        "name": "asset"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "amount",
+        "fields": [
+          "amount"
+        ],
+        "name": "amount"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "data",
+        "fields": [
+          "data"
+        ],
+        "name": "data"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "zone_program_id",
+        "fields": [
+          "zone_program_id"
+        ],
+        "name": "zoneProgramId"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "data_hash",
+        "fields": [
+          "data_hash"
+        ],
+        "name": "dataHash"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "zone_data_hash",
+        "fields": [
+          "zone_data_hash"
+        ],
+        "name": "zoneDataHash"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "nullifier_key",
+        "fields": [
+          "nullifier_key"
+        ],
+        "name": "nullifierKey"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "asset",
+        "fields": [
+          "amount",
+          "asset"
+        ],
+        "name": "assetBeatsAmount"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "data",
+        "fields": [
+          "zone_program_id",
+          "data"
+        ],
+        "name": "dataBeatsZoneProgramId"
+      }
+    ],
     "deriveBlinding": [
       {
         "blindingHex": "e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d0",
@@ -4160,5 +6711,151 @@
         "zoneProgramId": null
       }
     ]
-  }
+  },
+  "zoneAuthority": [
+    {
+      "error": null,
+      "extraOutputs": 0,
+      "index": null,
+      "inputContexts": [
+        {
+          "index": 0,
+          "nullifierHex": "18284894667d6074f3ffb05bfaff1eadda0ffaafe69472ba9c9d97311414850d",
+          "utxoHashHex": "183431c419abccac7da399f3fbc5ffa8bebd92c66a4288fabc4e0244b2c0f259"
+        }
+      ],
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "zoneBound",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": {
+        "inputs": 2,
+        "outputs": 2
+      }
+    },
+    {
+      "error": "TRANSACTION_MISSING_ZONE_AUTHORITY_PROGRAM_ID",
+      "extraOutputs": 0,
+      "index": null,
+      "inputContexts": null,
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "unpinnedZone",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "11111111111111111111111111111111",
+      "publicSol": null,
+      "shape": null
+    },
+    {
+      "error": "TRANSACTION_ZONE_AUTHORITY_INPUT_ZONE_MISMATCH",
+      "extraOutputs": 0,
+      "index": 0,
+      "inputContexts": null,
+      "inputZone": "36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv",
+      "name": "inputOutsideZone",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": null
+    },
+    {
+      "error": "TRANSACTION_ZONE_AUTHORITY_INPUT_ZONE_MISMATCH",
+      "extraOutputs": 0,
+      "index": 0,
+      "inputContexts": null,
+      "inputZone": null,
+      "name": "inputUnbound",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": null
+    },
+    {
+      "error": "TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH",
+      "extraOutputs": 0,
+      "index": 0,
+      "inputContexts": null,
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "outputOutsideZone",
+      "outputZone": "36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv",
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": null
+    },
+    {
+      "error": "TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH",
+      "extraOutputs": 0,
+      "index": 0,
+      "inputContexts": null,
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "outputUnbound",
+      "outputZone": null,
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": null
+    },
+    {
+      "error": null,
+      "extraOutputs": 0,
+      "index": null,
+      "inputContexts": [
+        {
+          "index": 0,
+          "nullifierHex": "18284894667d6074f3ffb05bfaff1eadda0ffaafe69472ba9c9d97311414850d",
+          "utxoHashHex": "183431c419abccac7da399f3fbc5ffa8bebd92c66a4288fabc4e0244b2c0f259"
+        }
+      ],
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "depositLeg",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": "500",
+      "shape": {
+        "inputs": 2,
+        "outputs": 2
+      }
+    },
+    {
+      "error": null,
+      "extraOutputs": 0,
+      "index": null,
+      "inputContexts": [
+        {
+          "index": 0,
+          "nullifierHex": "18284894667d6074f3ffb05bfaff1eadda0ffaafe69472ba9c9d97311414850d",
+          "utxoHashHex": "183431c419abccac7da399f3fbc5ffa8bebd92c66a4288fabc4e0244b2c0f259"
+        }
+      ],
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "withdrawalLeg",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": "-500",
+      "shape": {
+        "inputs": 2,
+        "outputs": 2
+      }
+    },
+    {
+      "error": "TRANSACTION_UNSUPPORTED_SHAPE",
+      "extraOutputs": 3,
+      "index": null,
+      "inputContexts": null,
+      "inputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "name": "unsupportedShape",
+      "outputZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "payerPublicKeyHashHex": null,
+      "pinnedZone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+      "publicSol": null,
+      "shape": null
+    }
+  ]
 }

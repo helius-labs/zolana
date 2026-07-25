@@ -20,28 +20,43 @@ use std::{fs, path::PathBuf};
 
 use serde_json::{json, Map, Value};
 use solana_address::Address;
+use zolana_event::ProoflessOutput;
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
-    PublicKey, SigningKey, ViewingKey,
+    hash::hash_field,
+    PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
 };
 use zolana_transaction::{
     derive_blinding,
-    instructions::transact::{canonical_shape, shape::resolve_shape, slot_ordinal, Shape},
+    instructions::{
+        merge::{Merge, MERGE_INPUTS},
+        merge_zone::MergeZone,
+        transact::{
+            canonical_shape,
+            shape::resolve_shape,
+            slot_ordinal,
+            spp_proof_inputs::{asset_field, signed_to_field, BN254_MODULUS_DEC},
+            ConfidentialSplit, ConfidentialTransfer, EncryptedTransaction, ExternalData, InputUtxo,
+            PrivateTxHash, Shape, SppProofOutputUtxo, WithdrawalTarget, SENDER_SLOT_COUNT,
+        },
+        types::{InputUtxoContext, SppProofInputUtxo},
+        zone_authority::PreparedZoneAuthority,
+    },
     owner_utxo_hash,
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
             AnonymousSenderEncode,
         },
-        confidential::ConfidentialOutputPlaintext,
-        merge::MergePlaintext,
+        confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+        merge::{Merge as MergeSerialization, MergeEncode, MergePlaintext},
         plaintext::{PlaintextEncode, PlaintextTransfer},
         proofless::{Proofless, ProoflessEncode},
-        split::{Split, SplitEncode},
-        OwnerCx, UtxoSerialization,
+        split::{Split, SplitEncode, SplitEncryptedUtxos},
+        DecodeCx, OwnerCx, UtxoSerialization,
     },
     AssetRegistry, Data, DataRecord, EncryptedScheme, ProofInputUtxo, TransactionError, Utxo,
-    SOL_ASSET_ID, SOL_MINT,
+    SOL_ASSET_ID, SOL_MINT, SPLIT,
 };
 
 const ORACLE_PATH: &str = "../ts/transaction/test/oracles/transaction-parity-v1.json";
@@ -399,6 +414,84 @@ fn errors_section() -> Value {
         })
         .collect::<Vec<_>>();
     json!({ "variants": variants })
+}
+
+/// `MergeSerialization::into_utxos`: the asset field is the only value the
+/// plaintext cannot carry directly, so an unregistered one must be named rather
+/// than resolved to a default mint.
+fn merge_into_utxos_cases(registry: &AssetRegistry, spl_mint: &Address, zone: &Address) -> Value {
+    let owner = owner_key(&OWNER_SECRET);
+    let cases: [(&str, Address, bool); 4] = [
+        ("solAsset", SOL_MINT, false),
+        ("splAsset", *spl_mint, false),
+        ("zoneBound", SOL_MINT, true),
+        ("unregisteredAsset", address(SPL_MINT_BYTE + 1), false),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|(name, asset, zone_bound)| {
+                let asset_field = hash_field(asset.as_array()).expect("asset field");
+                let plaintext = MergePlaintext {
+                    amount: 500,
+                    asset_field,
+                    blinding: TRANSACT_TYPES_BLINDING,
+                };
+                let cx = OwnerCx {
+                    owner,
+                    assets: registry,
+                    zone_program_id: zone_bound.then_some(*zone),
+                };
+                let outcome = MergeSerialization::into_utxos(plaintext, &cx);
+                json!({
+                    "name": name,
+                    "assetFieldHex": hex(&asset_field),
+                    "zoneBound": zone_bound,
+                    "error": outcome.as_ref().err().map(ts_code),
+                    "asset": outcome
+                        .as_ref()
+                        .ok()
+                        .and_then(|utxos| utxos.first())
+                        .map(|utxo| utxo.asset.to_string()),
+                    "amount": outcome
+                        .as_ref()
+                        .ok()
+                        .and_then(|utxos| utxos.first())
+                        .map(|utxo| utxo.amount.to_string()),
+                    "zoneProgramId": outcome
+                        .as_ref()
+                        .ok()
+                        .and_then(|utxos| utxos.first())
+                        .and_then(|utxo| utxo.zone_program_id)
+                        .map(|id| id.to_string()),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn context_json(contexts: &[InputUtxoContext]) -> Value {
+    Value::Array(
+        contexts
+            .iter()
+            .map(|context| {
+                json!({
+                    "index": context.index,
+                    "utxoHashHex": hex(&context.utxo_hash),
+                    "nullifierHex": hex(&context.nullifier),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn record_json(record: &DataRecord) -> Value {
+    match record {
+        DataRecord::ZoneData(bytes) => json!({ "kind": "zoneData", "bytesHex": hex(bytes) }),
+        DataRecord::UtxoData(bytes) => json!({ "kind": "utxoData", "bytesHex": hex(bytes) }),
+        DataRecord::Memo(bytes) => json!({ "kind": "memo", "bytesHex": hex(bytes) }),
+    }
 }
 
 fn record(kind: &str, bytes: &[u8]) -> (DataRecord, Value) {
@@ -821,7 +914,64 @@ fn utxo_section() -> Value {
         "proofInputHashes": cases,
         "ownerUtxoHashes": owner_hashes,
         "deriveBlinding": blindings,
+        "canonicalDummy": canonical_dummy_cases(),
     })
+}
+
+/// A zero-owner input stands for an unused slot, so every other field must be
+/// zero too. The checks run in a fixed order, and each case names the field the
+/// rejection must report; the multi-field cases pin that order.
+fn canonical_dummy_cases() -> Value {
+    let perturbations: [(&str, &[&str]); 10] = [
+        ("canonical", &[]),
+        ("asset", &["asset"]),
+        ("amount", &["amount"]),
+        ("data", &["data"]),
+        ("zoneProgramId", &["zone_program_id"]),
+        ("dataHash", &["data_hash"]),
+        ("zoneDataHash", &["zone_data_hash"]),
+        ("nullifierKey", &["nullifier_key"]),
+        ("assetBeatsAmount", &["amount", "asset"]),
+        ("dataBeatsZoneProgramId", &["zone_program_id", "data"]),
+    ];
+
+    Value::Array(
+        perturbations
+            .iter()
+            .map(|(name, fields)| {
+                let mut input = SppProofInputUtxo::new_dummy();
+                for field in *fields {
+                    match *field {
+                        "asset" => input.utxo.asset = address(SPL_MINT_BYTE),
+                        "amount" => input.utxo.amount = 7,
+                        "data" => input.utxo.data = merge_data(&["memo"]),
+                        "zone_program_id" => {
+                            input.utxo.zone_program_id = Some(address(MERGE_ZONE_BYTE));
+                        }
+                        "data_hash" => input.data_hash = Some(MERGE_DATA_HASH),
+                        "zone_data_hash" => input.zone_data_hash = Some(MERGE_ZONE_DATA_HASH),
+                        "nullifier_key" => {
+                            input.nullifier_key =
+                                shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED)
+                                    .nullifier_key
+                                    .clone();
+                        }
+                        other => panic!("unknown dummy field {other}"),
+                    }
+                }
+                let outcome = input.check_canonical_dummy();
+                json!({
+                    "name": name,
+                    "fields": fields,
+                    "error": outcome.as_ref().err().map(ts_code),
+                    "field": match outcome {
+                        Err(TransactionError::NoncanonicalDummyInput { field }) => json!(field),
+                        _ => Value::Null,
+                    },
+                })
+            })
+            .collect(),
+    )
 }
 
 /// The two plaintext layouts that carry no key material, so both languages can
@@ -875,11 +1025,7 @@ fn serialization_section() -> Value {
                 .data
                 .records
                 .iter()
-                .map(|record| match record {
-                    DataRecord::ZoneData(bytes) => json!({ "kind": "zoneData", "bytesHex": hex(bytes) }),
-                    DataRecord::UtxoData(bytes) => json!({ "kind": "utxoData", "bytesHex": hex(bytes) }),
-                    DataRecord::Memo(bytes) => json!({ "kind": "memo", "bytesHex": hex(bytes) }),
-                })
+                .map(record_json)
                 .collect::<Vec<_>>(),
             "encodedHex": hex(&bytes),
         })
@@ -909,7 +1055,144 @@ fn serialization_section() -> Value {
         })
         .collect::<Vec<_>>();
 
-    json!({ "confidential": confidential, "merge": merge })
+    json!({
+        "confidential": confidential,
+        "merge": merge,
+        "proofless": proofless_layout_cases(),
+        "splitEncrypted": split_encrypted_cases(),
+    })
+}
+
+/// The split bundle's outer envelope. Its ciphertext carries a `u16` length
+/// prefix, so the boundary cases are the empty payload and one longer than a
+/// byte prefix could hold; the reader also owes the discriminator check.
+fn split_encrypted_cases() -> Value {
+    let tx_viewing_pk = ViewingKey::from_bytes(&SENDER_VIEWING_SEED)
+        .expect("viewing key")
+        .pubkey();
+    let envelope = |ciphertext: Vec<u8>| SplitEncryptedUtxos {
+        type_prefix: SPLIT,
+        tx_viewing_pk,
+        salt: [10u8; SALT_LEN],
+        ciphertext,
+    };
+    let cases = [
+        ("empty", envelope(Vec::new())),
+        ("short", envelope(vec![1, 2, 3])),
+        ("overAByteLengthPrefix", envelope(vec![7u8; 300])),
+    ]
+    .into_iter()
+    .map(|(name, value)| {
+        let bytes = value.serialize().expect("serialize split envelope");
+        assert_eq!(
+            SplitEncryptedUtxos::deserialize(&bytes).expect("round trip"),
+            value
+        );
+        json!({
+            "name": name,
+            "typePrefix": value.type_prefix,
+            "txViewingPublicKeyHex": hex(value.tx_viewing_pk.as_bytes()),
+            "saltHex": hex(&value.salt),
+            "ciphertextHex": hex(&value.ciphertext),
+            "encodedHex": hex(&bytes),
+        })
+    })
+    .collect::<Vec<_>>();
+
+    let mut foreign_scheme = envelope(vec![1, 2, 3])
+        .serialize()
+        .expect("serialize split envelope");
+    foreign_scheme[0] = SPLIT + 1;
+    json!({
+        "cases": cases,
+        "foreignSchemeHex": hex(&foreign_scheme),
+        "foreignSchemeError": ts_code(
+            &SplitEncryptedUtxos::deserialize(&foreign_scheme).expect_err("foreign scheme"),
+        ),
+    })
+}
+
+/// The proofless note is the one plaintext with six optional fields, so the
+/// TypeScript reader has to agree with Borsh on which are present and in what
+/// order. Every case records both the bytes and the fields they decode to.
+fn proofless_layout_cases() -> Value {
+    let bare = ProoflessOutput {
+        owner: [1u8; 32],
+        blinding: TRANSACT_TYPES_BLINDING,
+        asset: SOL_MINT.to_bytes(),
+        amount: 1_000,
+        data_hash: None,
+        utxo_data: None,
+        zone_program_id: None,
+        zone_data_hash: None,
+        zone_data: None,
+        memo: None,
+    };
+    let cases = [
+        ("bare", bare.clone()),
+        (
+            "maxAmount",
+            ProoflessOutput {
+                amount: u64::MAX,
+                ..bare.clone()
+            },
+        ),
+        (
+            "zoneBound",
+            ProoflessOutput {
+                zone_program_id: Some(address(MERGE_ZONE_BYTE).to_bytes()),
+                zone_data_hash: Some(MERGE_ZONE_DATA_HASH),
+                zone_data: Some(vec![1, 2, 3]),
+                ..bare.clone()
+            },
+        ),
+        (
+            "everyOptionalField",
+            ProoflessOutput {
+                data_hash: Some(MERGE_DATA_HASH),
+                utxo_data: Some(vec![4, 5]),
+                zone_program_id: Some(address(MERGE_ZONE_BYTE).to_bytes()),
+                zone_data_hash: Some(MERGE_ZONE_DATA_HASH),
+                zone_data: Some(vec![1, 2, 3]),
+                memo: Some(vec![6]),
+                ..bare
+            },
+        ),
+        (
+            "emptyPayloads",
+            ProoflessOutput {
+                utxo_data: Some(Vec::new()),
+                zone_data: Some(Vec::new()),
+                memo: Some(Vec::new()),
+                ..bare
+            },
+        ),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|(name, output)| {
+                let bytes = Proofless::serialize(output).expect("proofless bytes");
+                json!({
+                    "name": name,
+                    "ownerHex": hex(&output.owner),
+                    "blindingHex": hex(&output.blinding),
+                    "asset": Address::new_from_array(output.asset).to_string(),
+                    "amount": output.amount.to_string(),
+                    "dataHashHex": output.data_hash.as_ref().map(|hash| hex(hash)),
+                    "utxoDataHex": output.utxo_data.as_ref().map(|data| hex(data)),
+                    "zoneProgramId": output
+                        .zone_program_id
+                        .map(|id| Address::new_from_array(id).to_string()),
+                    "zoneDataHashHex": output.zone_data_hash.as_ref().map(|hash| hex(hash)),
+                    "zoneDataHex": output.zone_data.as_ref().map(|data| hex(data)),
+                    "memoHex": output.memo.as_ref().map(|data| hex(data)),
+                    "encodedHex": hex(&bytes),
+                })
+            })
+            .collect(),
+    )
 }
 
 const OWNER_SECRET: [u8; 32] = [
@@ -1393,6 +1676,976 @@ fn from_utxos_section() -> Value {
         "anonymousSender": anonymous_sender,
         "split": split,
         "proofless": proofless,
+        "mergeIntoUtxos": merge_into_utxos_cases(&registry, &spl_mint, &zone),
+    })
+}
+
+const TRANSFER_VIEWING_SEED: [u8; 32] = [21; 32];
+const RECIPIENT_VIEWING_SEED: [u8; 32] = [22; 32];
+const PAYER_BYTE: u8 = 15;
+
+fn shielded_keypair(secret: &[u8; 32], viewing_seed: &[u8; 32]) -> ShieldedKeypair {
+    ShieldedKeypair::from_keys(
+        SigningKey::from_bytes(secret).expect("signing key"),
+        ViewingKey::from_bytes(viewing_seed).expect("viewing key"),
+    )
+    .expect("shielded keypair")
+}
+
+/// One call on the transfer builder. Both languages replay the same list in
+/// order, so a guard that fires on one side and not the other shows up as a
+/// different recorded outcome rather than as a shape difference later.
+enum TransferOp {
+    Send {
+        asset: Address,
+        amount: u64,
+    },
+    Withdraw {
+        asset: Address,
+        amount: u64,
+        target: &'static str,
+    },
+    WithShape(Shape),
+}
+
+fn transfer_op_json(op: &TransferOp) -> Value {
+    match op {
+        TransferOp::Send { asset, amount } => json!({
+            "kind": "send",
+            "asset": asset.to_string(),
+            "amount": amount.to_string(),
+        }),
+        TransferOp::Withdraw {
+            asset,
+            amount,
+            target,
+        } => json!({
+            "kind": "withdraw",
+            "asset": asset.to_string(),
+            "amount": amount.to_string(),
+            "target": target,
+        }),
+        TransferOp::WithShape(shape) => json!({ "kind": "withShape", "shape": shape_json(*shape) }),
+    }
+}
+
+fn withdrawal_target(target: &str) -> WithdrawalTarget {
+    match target {
+        "sol" => WithdrawalTarget::Sol {
+            user_sol_account: address(20),
+        },
+        "spl" => WithdrawalTarget::Spl {
+            user_spl_token: address(21),
+            spl_token_interface: address(22),
+        },
+        other => panic!("unknown withdrawal target {other}"),
+    }
+}
+
+struct TransferCase {
+    name: &'static str,
+    /// `(asset, amount, blinding position)` per input, all owned by the fixed
+    /// transfer keypair so both languages derive the same commitments.
+    inputs: Vec<(Address, u64, u8)>,
+    ops: Vec<TransferOp>,
+}
+
+fn transfer_case(case: TransferCase) -> Value {
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let recipient = shielded_keypair(&OTHER_SECRET, &RECIPIENT_VIEWING_SEED);
+    let inputs = case
+        .inputs
+        .iter()
+        .map(|(asset, amount, position)| {
+            SppProofInputUtxo::new(
+                Utxo {
+                    owner: owner.signing_pubkey(),
+                    asset: *asset,
+                    amount: *amount,
+                    blinding: derive_blinding(&BLINDING_SEED, *position),
+                    zone_program_id: None,
+                    data: Data::default(),
+                },
+                &owner,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let mut json_case = Map::new();
+    json_case.insert("name".into(), json!(case.name));
+    json_case.insert(
+        "inputs".into(),
+        Value::Array(
+            case.inputs
+                .iter()
+                .map(|(asset, amount, position)| {
+                    json!({
+                        "asset": asset.to_string(),
+                        "amount": amount.to_string(),
+                        "position": position,
+                    })
+                })
+                .collect(),
+        ),
+    );
+    json_case.insert(
+        "ops".into(),
+        Value::Array(case.ops.iter().map(transfer_op_json).collect()),
+    );
+
+    let mut transfer = ConfidentialTransfer::new(
+        owner.shielded_address().expect("shielded address"),
+        inputs,
+        address(PAYER_BYTE),
+    );
+    let mut failure = None;
+    for op in &case.ops {
+        let outcome = match op {
+            TransferOp::Send { asset, amount } => transfer
+                .send(
+                    &recipient.shielded_address().expect("recipient address"),
+                    *asset,
+                    *amount,
+                )
+                .map(|_| ()),
+            TransferOp::Withdraw {
+                asset,
+                amount,
+                target,
+            } => transfer
+                .withdraw(*asset, *amount, withdrawal_target(target))
+                .map(|_| ()),
+            TransferOp::WithShape(shape) => {
+                transfer = transfer.with_shape(*shape);
+                Ok(())
+            }
+        };
+        if let Err(error) = outcome {
+            failure = Some(error);
+            break;
+        }
+    }
+
+    let prepared = match failure {
+        Some(error) => Err(error),
+        None => transfer.prepare(),
+    };
+    match prepared {
+        Ok(prepared) => {
+            json_case.insert("error".into(), Value::Null);
+            // Counts before padding: Rust pads in `finalize`, so a language that
+            // pads in `prepare` reports the shape's width here instead.
+            json_case.insert("preparedInputs".into(), json!(prepared.inputs.len()));
+            json_case.insert("preparedOutputs".into(), json!(prepared.outputs.len()));
+            json_case.insert("shape".into(), shape_json(prepared.shape));
+            json_case.insert(
+                "publicSol".into(),
+                prepared
+                    .public_sol_amount
+                    .map_or(Value::Null, |amount| json!(amount.to_string())),
+            );
+            json_case.insert(
+                "publicSpl".into(),
+                prepared
+                    .public_spl_amount
+                    .map_or(Value::Null, |amount| json!(amount.to_string())),
+            );
+            json_case.insert(
+                "changeAmounts".into(),
+                Value::Array(
+                    prepared
+                        .outputs
+                        .iter()
+                        .take(SENDER_SLOT_COUNT)
+                        .map(|output| json!(output.amount.to_string()))
+                        .collect(),
+                ),
+            );
+            json_case.insert(
+                "userSolAccount".into(),
+                json!(prepared.user_sol_account.to_string()),
+            );
+            json_case.insert(
+                "userSplToken".into(),
+                json!(prepared.user_spl_token.to_string()),
+            );
+        }
+        Err(error) => {
+            json_case.insert("error".into(), json!(ts_code(&error)));
+            for field in [
+                "preparedInputs",
+                "preparedOutputs",
+                "shape",
+                "publicSol",
+                "publicSpl",
+                "changeAmounts",
+                "userSolAccount",
+                "userSplToken",
+            ] {
+                json_case.insert(field.into(), Value::Null);
+            }
+        }
+    }
+    Value::Object(json_case)
+}
+
+/// The transfer builder's accept and reject set. Blindings and dummy tags are
+/// randomly sampled, so this pins what the builder decides rather than the bytes
+/// it produces: which inputs it takes, which shape it resolves, and how the
+/// public leg and the two change slots come out.
+fn transfer_section() -> Value {
+    let spl_mint = address(SPL_MINT_BYTE);
+    let sol_input = |amount: u64, position: u8| (SOL_MINT, amount, position);
+    let cases = vec![
+        transfer_case(TransferCase {
+            name: "changeOnly",
+            inputs: vec![sol_input(100, 0)],
+            ops: Vec::new(),
+        }),
+        transfer_case(TransferCase {
+            name: "oneRecipient",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Send {
+                asset: SOL_MINT,
+                amount: 30,
+            }],
+        }),
+        // The guard TypeScript used to apply here refused a zero amount that
+        // Rust takes, so this is the case that keeps the two ends together.
+        transfer_case(TransferCase {
+            name: "zeroAmountRecipient",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Send {
+                asset: SOL_MINT,
+                amount: 0,
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "wholeBalanceLeavesNoChange",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Send {
+                asset: SOL_MINT,
+                amount: 100,
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "recipientBeyondBalance",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Send {
+                asset: SOL_MINT,
+                amount: 101,
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "zeroAmountWithdrawal",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Withdraw {
+                asset: SOL_MINT,
+                amount: 0,
+                target: "sol",
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "solWithdrawal",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Withdraw {
+                asset: SOL_MINT,
+                amount: 40,
+                target: "sol",
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "splWithdrawal",
+            inputs: vec![(spl_mint, 100, 0), sol_input(5, 1)],
+            ops: vec![TransferOp::Withdraw {
+                asset: spl_mint,
+                amount: 40,
+                target: "spl",
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "withdrawalTwice",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![
+                TransferOp::Withdraw {
+                    asset: SOL_MINT,
+                    amount: 10,
+                    target: "sol",
+                },
+                TransferOp::Withdraw {
+                    asset: SOL_MINT,
+                    amount: 10,
+                    target: "sol",
+                },
+            ],
+        }),
+        transfer_case(TransferCase {
+            name: "splAssetAtASolTarget",
+            inputs: vec![(spl_mint, 100, 0)],
+            ops: vec![TransferOp::Withdraw {
+                asset: spl_mint,
+                amount: 10,
+                target: "sol",
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "solAssetAtASplTarget",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::Withdraw {
+                asset: SOL_MINT,
+                amount: 10,
+                target: "spl",
+            }],
+        }),
+        transfer_case(TransferCase {
+            name: "twoSplAssets",
+            inputs: vec![(spl_mint, 100, 0), (address(9), 100, 1)],
+            ops: Vec::new(),
+        }),
+        transfer_case(TransferCase {
+            name: "declaredShapeWithRoomToPad",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![
+                TransferOp::Send {
+                    asset: SOL_MINT,
+                    amount: 30,
+                },
+                TransferOp::WithShape(Shape::IN1_OUT8),
+            ],
+        }),
+        transfer_case(TransferCase {
+            name: "declaredShapeTooNarrow",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![
+                TransferOp::Send {
+                    asset: SOL_MINT,
+                    amount: 30,
+                },
+                TransferOp::WithShape(Shape::IN1_OUT1),
+            ],
+        }),
+        transfer_case(TransferCase {
+            name: "declaredShapeUnsupported",
+            inputs: vec![sol_input(100, 0)],
+            ops: vec![TransferOp::WithShape(Shape::new(7, 7))],
+        }),
+        transfer_case(TransferCase {
+            name: "maxAmountRecipient",
+            inputs: vec![sol_input(u64::MAX, 0)],
+            ops: vec![TransferOp::Send {
+                asset: SOL_MINT,
+                amount: u64::MAX,
+            }],
+        }),
+    ];
+    json!({
+        "senderSlotCount": SENDER_SLOT_COUNT,
+        "payer": address(PAYER_BYTE).to_string(),
+        "ownerViewingSeedHex": hex(&TRANSFER_VIEWING_SEED),
+        "recipientViewingSeedHex": hex(&RECIPIENT_VIEWING_SEED),
+        "solTarget": address(20).to_string(),
+        "splTarget": {
+            "userSplToken": address(21).to_string(),
+            "splTokenInterface": address(22).to_string(),
+        },
+        "cases": cases,
+    })
+}
+
+/// One merge input. Defaults describe an input the plain merge rail accepts;
+/// each case perturbs exactly one field so the rejection it triggers is
+/// unambiguous.
+#[derive(Clone)]
+struct MergeInputSpec {
+    owner: &'static str,
+    nullifier: &'static str,
+    asset: Address,
+    amount: u64,
+    position: u8,
+    zone: Option<Address>,
+    records: Vec<&'static str>,
+    data_hash: bool,
+    zone_data_hash: bool,
+}
+
+impl MergeInputSpec {
+    fn new(amount: u64, position: u8) -> Self {
+        Self {
+            owner: "owner",
+            nullifier: "owner",
+            asset: SOL_MINT,
+            amount,
+            position,
+            zone: None,
+            records: Vec::new(),
+            data_hash: false,
+            zone_data_hash: false,
+        }
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "owner": self.owner,
+            "nullifier": self.nullifier,
+            "asset": self.asset.to_string(),
+            "amount": self.amount.to_string(),
+            "position": self.position,
+            "zone": self.zone.map_or(Value::Null, |zone| json!(zone.to_string())),
+            "records": self.records,
+            "dataHash": self.data_hash,
+            "zoneDataHash": self.zone_data_hash,
+        })
+    }
+}
+
+const MERGE_DATA_HASH: [u8; 32] = [31; 32];
+const MERGE_ZONE_DATA_HASH: [u8; 32] = [32; 32];
+
+fn merge_data(records: &[&'static str]) -> Data {
+    Data::new(
+        records
+            .iter()
+            .map(|kind| match *kind {
+                "zoneData" => DataRecord::ZoneData(vec![1, 2, 3]),
+                "utxoData" => DataRecord::UtxoData(vec![4, 5]),
+                "memo" => DataRecord::Memo(vec![6]),
+                other => panic!("unknown merge data record {other}"),
+            })
+            .collect(),
+    )
+}
+
+fn merge_input(
+    spec: &MergeInputSpec,
+    owner: &ShieldedKeypair,
+    other: &ShieldedKeypair,
+) -> SppProofInputUtxo {
+    let utxo = Utxo {
+        owner: if spec.owner == "owner" {
+            owner.signing_pubkey()
+        } else {
+            other.signing_pubkey()
+        },
+        asset: spec.asset,
+        amount: spec.amount,
+        blinding: derive_blinding(&BLINDING_SEED, spec.position),
+        zone_program_id: spec.zone,
+        data: merge_data(&spec.records),
+    };
+    let source = if spec.nullifier == "owner" {
+        owner
+    } else {
+        other
+    };
+    let mut input = SppProofInputUtxo::new(utxo, source);
+    if spec.data_hash {
+        input = input.with_data_hash(MERGE_DATA_HASH);
+    }
+    if spec.zone_data_hash {
+        input = input.with_zone_data_hash(MERGE_ZONE_DATA_HASH);
+    }
+    input
+}
+
+struct MergeCase {
+    name: &'static str,
+    rail: &'static str,
+    inputs: Vec<MergeInputSpec>,
+}
+
+fn merge_case(case: MergeCase) -> Value {
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let other = shielded_keypair(&OTHER_SECRET, &RECIPIENT_VIEWING_SEED);
+    let zone = address(MERGE_ZONE_BYTE);
+    let inputs = case
+        .inputs
+        .iter()
+        .map(|spec| merge_input(spec, &owner, &other))
+        .collect::<Vec<_>>();
+
+    let prepared = if case.rail == "zone" {
+        MergeZone::new(&owner, inputs, zone, None).map(|builder| {
+            let prepared = builder.prepare();
+            (
+                prepared.output.asset,
+                prepared.output.amount,
+                prepared.inputs.len(),
+                prepared.expiry_unix_ts,
+                prepared.input_utxo_hashes(),
+            )
+        })
+    } else {
+        Merge::new(&owner, inputs).map(|builder| {
+            let prepared = builder.prepare();
+            (
+                prepared.output.asset,
+                prepared.output.amount,
+                prepared.inputs.len(),
+                prepared.expiry_unix_ts,
+                prepared.input_utxo_hashes(),
+            )
+        })
+    };
+
+    let mut json_case = Map::new();
+    json_case.insert("name".into(), json!(case.name));
+    json_case.insert("rail".into(), json!(case.rail));
+    json_case.insert(
+        "inputs".into(),
+        Value::Array(case.inputs.iter().map(MergeInputSpec::json).collect()),
+    );
+    match prepared {
+        Ok((asset, amount, padded, expiry, contexts)) => {
+            let contexts = contexts.expect("merge input contexts");
+            json_case.insert("error".into(), Value::Null);
+            json_case.insert("asset".into(), json!(asset.to_string()));
+            json_case.insert("outputAmount".into(), json!(amount.to_string()));
+            json_case.insert("paddedInputs".into(), json!(padded));
+            json_case.insert("expiryUnixTs".into(), json!(expiry.to_string()));
+            json_case.insert("inputContexts".into(), context_json(&contexts));
+        }
+        Err(error) => {
+            json_case.insert("error".into(), json!(ts_code(&error)));
+            for field in [
+                "asset",
+                "outputAmount",
+                "paddedInputs",
+                "expiryUnixTs",
+                "inputContexts",
+            ] {
+                json_case.insert(field.into(), Value::Null);
+            }
+        }
+    }
+    Value::Object(json_case)
+}
+
+const MERGE_ZONE_BYTE: u8 = 30;
+
+/// The two merge rails' accept and reject sets. Output blindings are random, so
+/// this pins what the builders decide and the deterministic part of what they
+/// produce: the merged asset and amount, the padded input list, and the real
+/// inputs' hashes and nullifiers.
+fn merge_section() -> Value {
+    let spl_mint = address(SPL_MINT_BYTE);
+    let zone = address(MERGE_ZONE_BYTE);
+    let zoned = |mut spec: MergeInputSpec| {
+        spec.zone = Some(zone);
+        spec
+    };
+    let perturbed = |mut spec: MergeInputSpec, apply: &dyn Fn(&mut MergeInputSpec)| {
+        apply(&mut spec);
+        spec
+    };
+
+    let mut cases = vec![
+        merge_case(MergeCase {
+            name: "single",
+            rail: "plain",
+            inputs: vec![MergeInputSpec::new(100, 0)],
+        }),
+        merge_case(MergeCase {
+            name: "eightInputs",
+            rail: "plain",
+            inputs: (0..8u8)
+                .map(|position| MergeInputSpec::new(u64::from(position) + 1, position))
+                .collect(),
+        }),
+        merge_case(MergeCase {
+            name: "zeroAmounts",
+            rail: "plain",
+            inputs: vec![MergeInputSpec::new(0, 0), MergeInputSpec::new(0, 1)],
+        }),
+        merge_case(MergeCase {
+            name: "maxAmount",
+            rail: "plain",
+            inputs: vec![MergeInputSpec::new(u64::MAX, 0)],
+        }),
+        merge_case(MergeCase {
+            name: "empty",
+            rail: "plain",
+            inputs: Vec::new(),
+        }),
+        merge_case(MergeCase {
+            name: "nineInputs",
+            rail: "plain",
+            inputs: (0..9u8)
+                .map(|position| MergeInputSpec::new(1, position))
+                .collect(),
+        }),
+        merge_case(MergeCase {
+            name: "overflow",
+            rail: "plain",
+            inputs: vec![MergeInputSpec::new(u64::MAX, 0), MergeInputSpec::new(1, 1)],
+        }),
+        merge_case(MergeCase {
+            name: "foreignOwner",
+            rail: "plain",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.owner = "other";
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "foreignNullifierKey",
+            rail: "plain",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.nullifier = "other";
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "assetMismatch",
+            rail: "plain",
+            inputs: vec![
+                MergeInputSpec::new(100, 0),
+                perturbed(MergeInputSpec::new(100, 1), &|spec| spec.asset = spl_mint),
+            ],
+        }),
+        merge_case(MergeCase {
+            name: "zoneBoundInput",
+            rail: "plain",
+            inputs: vec![zoned(MergeInputSpec::new(100, 0))],
+        }),
+        merge_case(MergeCase {
+            name: "inlineUtxoData",
+            rail: "plain",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.records = vec!["utxoData"];
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "externalDataHash",
+            rail: "plain",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.data_hash = true;
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "externalZoneDataHash",
+            rail: "plain",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.zone_data_hash = true;
+            })],
+        }),
+    ];
+
+    // The zone rail differs from the plain rail on exactly two rules: every input
+    // must carry the pinned zone, and zone data is consumable where owner data is
+    // not. These cases sit on both sides of each.
+    cases.extend([
+        merge_case(MergeCase {
+            name: "zoneSingle",
+            rail: "zone",
+            inputs: vec![zoned(MergeInputSpec::new(100, 0))],
+        }),
+        merge_case(MergeCase {
+            name: "zoneWithZoneData",
+            rail: "zone",
+            inputs: vec![perturbed(zoned(MergeInputSpec::new(100, 0)), &|spec| {
+                spec.records = vec!["zoneData"];
+                spec.zone_data_hash = true;
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "zoneWithMemo",
+            rail: "zone",
+            inputs: vec![perturbed(zoned(MergeInputSpec::new(100, 0)), &|spec| {
+                spec.records = vec!["memo"];
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "zoneWithUtxoData",
+            rail: "zone",
+            inputs: vec![perturbed(zoned(MergeInputSpec::new(100, 0)), &|spec| {
+                spec.records = vec!["utxoData"];
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "zoneWithDataHash",
+            rail: "zone",
+            inputs: vec![perturbed(zoned(MergeInputSpec::new(100, 0)), &|spec| {
+                spec.data_hash = true;
+            })],
+        }),
+        merge_case(MergeCase {
+            name: "zoneMissingOnInput",
+            rail: "zone",
+            inputs: vec![MergeInputSpec::new(100, 0)],
+        }),
+        merge_case(MergeCase {
+            name: "zoneWrongOnInput",
+            rail: "zone",
+            inputs: vec![perturbed(MergeInputSpec::new(100, 0), &|spec| {
+                spec.zone = Some(address(29));
+            })],
+        }),
+    ]);
+
+    json!({
+        "mergeInputs": MERGE_INPUTS,
+        "zone": zone.to_string(),
+        "foreignZone": address(29).to_string(),
+        "dataHashHex": hex(&MERGE_DATA_HASH),
+        "zoneDataHashHex": hex(&MERGE_ZONE_DATA_HASH),
+        "cases": cases,
+        "preparedContexts": prepared_context_cases(),
+    })
+}
+
+/// `PreparedMerge` and `PreparedMergeZone` are publicly constructible, so their
+/// `input_utxo_hashes` re-checks the rail's data policy rather than trusting the
+/// builder. Each case takes a builder-produced value and perturbs one input.
+fn prepared_context_cases() -> Value {
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let zone = address(MERGE_ZONE_BYTE);
+    let other = shielded_keypair(&OTHER_SECRET, &RECIPIENT_VIEWING_SEED);
+    let clean = |zone_bound: bool| {
+        let mut spec = MergeInputSpec::new(100, 0);
+        if zone_bound {
+            spec.zone = Some(zone);
+        }
+        merge_input(&spec, &owner, &other)
+    };
+
+    let cases = [
+        ("plainDataHash", "plain", "dataHash"),
+        ("plainZoneDataHash", "plain", "zoneDataHash"),
+        ("plainInlineUtxoData", "plain", "utxoData"),
+        ("zoneDataHash", "zone", "dataHash"),
+        ("zoneZoneDataHash", "zone", "zoneDataHash"),
+        ("zoneInlineUtxoData", "zone", "utxoData"),
+        ("zoneForeignZone", "zone", "foreignZone"),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|(name, rail, perturbation)| {
+                let perturb = |input: &mut SppProofInputUtxo| match *perturbation {
+                    "dataHash" => input.data_hash = Some(MERGE_DATA_HASH),
+                    "zoneDataHash" => input.zone_data_hash = Some(MERGE_ZONE_DATA_HASH),
+                    "utxoData" => input.utxo.data = merge_data(&["utxoData"]),
+                    "foreignZone" => input.utxo.zone_program_id = Some(address(29)),
+                    other => panic!("unknown perturbation {other}"),
+                };
+                let contexts = if *rail == "zone" {
+                    let mut prepared = MergeZone::new(&owner, vec![clean(true)], zone, None)
+                        .expect("merge zone")
+                        .prepare();
+                    perturb(prepared.inputs.first_mut().expect("prepared input"));
+                    prepared.input_utxo_hashes()
+                } else {
+                    let mut prepared = Merge::new(&owner, vec![clean(false)])
+                        .expect("merge")
+                        .prepare();
+                    perturb(prepared.inputs.first_mut().expect("prepared input"));
+                    prepared.input_utxo_hashes()
+                };
+                json!({
+                    "name": name,
+                    "rail": rail,
+                    "perturbation": perturbation,
+                    "error": contexts.as_ref().err().map(ts_code),
+                    "inputContexts": contexts.map_or(Value::Null, |contexts| {
+                        Value::Array(
+                            contexts
+                                .iter()
+                                .map(|context| {
+                                    json!({
+                                        "index": context.index,
+                                        "utxoHashHex": hex(&context.utxo_hash),
+                                        "nullifierHex": hex(&context.nullifier),
+                                    })
+                                })
+                                .collect(),
+                        )
+                    }),
+                })
+            })
+            .collect(),
+    )
+}
+
+struct SplitCase {
+    name: &'static str,
+    input: MergeInputSpec,
+    asset: Address,
+    num_outputs: u8,
+    per_output_amount: u64,
+    dummy_input: bool,
+}
+
+impl SplitCase {
+    fn plain(name: &'static str, amount: u64, num_outputs: u8, per_output_amount: u64) -> Self {
+        Self {
+            name,
+            input: MergeInputSpec::new(amount, 0),
+            asset: SOL_MINT,
+            num_outputs,
+            per_output_amount,
+            dummy_input: false,
+        }
+    }
+}
+
+/// The split builder's accept and reject set. The blinding seed is random, so
+/// this pins the decision plus the deterministic products: the per-slot amounts,
+/// the first nullifier, the owner view tag, and the payer hash.
+fn split_section() -> Value {
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let other = shielded_keypair(&OTHER_SECRET, &RECIPIENT_VIEWING_SEED);
+    let payer = address(PAYER_BYTE);
+    let spl_mint = address(SPL_MINT_BYTE);
+    let perturbed = |mut case: SplitCase, apply: &dyn Fn(&mut SplitCase)| {
+        apply(&mut case);
+        case
+    };
+
+    let cases = [
+        SplitCase::plain("twoEqualParts", 100, 2, 50),
+        SplitCase::plain("eightEqualParts", 80, 8, 10),
+        SplitCase::plain("zeroValueSplit", 0, 2, 0),
+        SplitCase::plain("maxPerOutput", u64::MAX, 1, u64::MAX),
+        SplitCase::plain("onePart", 100, 1, 100),
+        SplitCase::plain("ninePartsRequested", 90, 9, 10),
+        SplitCase::plain("zeroParts", 100, 0, 0),
+        SplitCase::plain("amountMismatch", 100, 3, 30),
+        SplitCase::plain("productOverflows", 8, 8, u64::MAX),
+        perturbed(SplitCase::plain("dummyInput", 100, 2, 50), &|case| {
+            case.dummy_input = true;
+        }),
+        perturbed(SplitCase::plain("foreignOwner", 100, 2, 50), &|case| {
+            case.input.owner = "other";
+        }),
+        perturbed(
+            SplitCase::plain("foreignNullifierKey", 100, 2, 50),
+            &|case| {
+                case.input.nullifier = "other";
+            },
+        ),
+        perturbed(SplitCase::plain("assetMismatch", 100, 2, 50), &|case| {
+            case.asset = spl_mint;
+        }),
+        perturbed(SplitCase::plain("zoneBoundInput", 100, 2, 50), &|case| {
+            case.input.zone = Some(address(MERGE_ZONE_BYTE));
+        }),
+        perturbed(SplitCase::plain("inputWithData", 100, 2, 50), &|case| {
+            case.input.records = vec!["utxoData"];
+        }),
+        perturbed(SplitCase::plain("inputWithDataHash", 100, 2, 50), &|case| {
+            case.input.data_hash = true;
+        }),
+    ];
+
+    let cases = cases
+        .iter()
+        .map(|case| {
+            let input = if case.dummy_input {
+                SppProofInputUtxo::new_dummy()
+            } else {
+                merge_input(&case.input, &owner, &other)
+            };
+            let prepared = ConfidentialSplit::new(
+                owner.shielded_address().expect("shielded address"),
+                input,
+                case.asset,
+                case.num_outputs,
+                case.per_output_amount,
+                payer,
+            )
+            .and_then(ConfidentialSplit::prepare);
+            let mut json_case = Map::new();
+            json_case.insert("name".into(), json!(case.name));
+            json_case.insert("asset".into(), json!(case.asset.to_string()));
+            json_case.insert("numOutputs".into(), json!(case.num_outputs));
+            json_case.insert(
+                "perOutputAmount".into(),
+                json!(case.per_output_amount.to_string()),
+            );
+            json_case.insert("dummyInput".into(), json!(case.dummy_input));
+            json_case.insert("input".into(), case.input.json());
+            match prepared {
+                Ok(prepared) => {
+                    json_case.insert("error".into(), Value::Null);
+                    json_case.insert(
+                        "outputAmounts".into(),
+                        Value::Array(
+                            prepared
+                                .outputs
+                                .iter()
+                                .map(|output| json!(output.amount.to_string()))
+                                .collect(),
+                        ),
+                    );
+                    json_case.insert(
+                        "firstNullifierHex".into(),
+                        json!(hex(&prepared.first_nullifier)),
+                    );
+                    json_case.insert(
+                        "ownerViewTagHex".into(),
+                        json!(hex(&prepared.owner_view_tag().expect("owner view tag"))),
+                    );
+                    json_case.insert(
+                        "payerPublicKeyHashHex".into(),
+                        json!(hex(&prepared.payer_pubkey_hash)),
+                    );
+                }
+                Err(error) => {
+                    json_case.insert("error".into(), json!(ts_code(&error)));
+                    for field in [
+                        "outputAmounts",
+                        "firstNullifierHex",
+                        "ownerViewTagHex",
+                        "payerPublicKeyHashHex",
+                    ] {
+                        json_case.insert(field.into(), Value::Null);
+                    }
+                }
+            }
+            Value::Object(json_case)
+        })
+        .collect::<Vec<_>>();
+
+    json!({ "payer": payer.to_string(), "cases": cases })
+}
+
+/// The field encodings a proof's public inputs carry. `signed_to_field` wraps a
+/// negative amount around the BN254 modulus, which is the only place the SDK
+/// depends on the modulus value itself.
+fn fields_section() -> Value {
+    let signed = [
+        0i64,
+        1,
+        -1,
+        500,
+        -500,
+        i64::MAX,
+        i64::MIN,
+        i64::MIN + 1,
+        u32::MAX as i64,
+    ]
+    .iter()
+    .map(|value| {
+        json!({
+            "value": value.to_string(),
+            "fieldHex": hex(&signed_to_field(*value)),
+        })
+    })
+    .collect::<Vec<_>>();
+
+    let assets = [SOL_MINT, address(SPL_MINT_BYTE), address(255)]
+        .iter()
+        .map(|asset| {
+            json!({
+                "asset": asset.to_string(),
+                "fieldHex": hex(&asset_field(asset).expect("asset field")),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "bn254Modulus": BN254_MODULUS_DEC,
+        "signedToField": signed,
+        "assetField": assets,
     })
 }
 
@@ -1434,10 +2687,632 @@ fn oracle() -> Value {
         "shape": shape_section(),
         "asset": asset_section(),
         "utxo": utxo_section(),
+        "fields": fields_section(),
         "slots": slots_section(),
+        "transfer": transfer_section(),
+        "merge": merge_section(),
+        "split": split_section(),
         "serialization": serialization_section(),
         "fromUtxos": from_utxos_section(),
+        "transactTypes": transact_types_section(),
+        "zoneAuthority": zone_authority_section(),
+        "decrypt": decrypt_section(),
     })
+}
+
+const DECRYPT_USER_VIEWING_SEED: [u8; 32] = [31u8; 32];
+const DECRYPT_TX_VIEWING_SEED: [u8; 32] = [37u8; 32];
+const DECRYPT_SALT: [u8; SALT_LEN] = [3u8; SALT_LEN];
+const DECRYPT_SLOT_INDEX: u32 = 2;
+
+/// The reader half of the two encrypted rails. A published slot is bytes an
+/// attacker chose, so which category the reader rejects them under is part of
+/// the protocol: a scanner that skips a slot on one category and aborts the
+/// wallet sync on another must see the same category in both languages.
+fn decrypt_section() -> Value {
+    let user = ViewingKey::from_bytes(&DECRYPT_USER_VIEWING_SEED).expect("user viewing key");
+    let tx = ViewingKey::from_bytes(&DECRYPT_TX_VIEWING_SEED).expect("tx viewing key");
+    json!({
+        "userViewingSeedHex": hex(&DECRYPT_USER_VIEWING_SEED),
+        "txViewingSeedHex": hex(&DECRYPT_TX_VIEWING_SEED),
+        "saltHex": hex(&DECRYPT_SALT),
+        "slotIndex": DECRYPT_SLOT_INDEX,
+        "merge": merge_decrypt_cases(&user, &tx),
+        "confidential": confidential_decrypt_cases(&user, &tx),
+    })
+}
+
+/// Bodies are built by perturbing one the rail itself produced, so a case that
+/// should decrypt proves the two languages derive the same key from the same
+/// seeds rather than merely failing in the same way.
+fn merge_decrypt_cases(user: &ViewingKey, tx: &ViewingKey) -> Value {
+    let plaintext = MergePlaintext {
+        amount: 1_234,
+        asset_field: hash_field(&SOL_MINT.to_bytes()).expect("asset field"),
+        blinding: [11u8; BLINDING_LEN],
+    };
+    let bytes = MergeSerialization::serialize(&plaintext).expect("serialize merge");
+    let body = MergeSerialization::encrypt(
+        &bytes,
+        &MergeEncode {
+            tx: tx.clone(),
+            user_viewing_pk: user.pubkey(),
+        },
+    )
+    .expect("encrypt merge");
+
+    let cases = perturbations(&body)
+        .into_iter()
+        .map(|(name, body)| {
+            let cx = DecodeCx {
+                viewing_key: user,
+                tx_viewing_pk: None,
+                salt: None,
+                slot_index: 0,
+                first_nullifier: None,
+            };
+            let decoded = MergeSerialization::decode(&body, &cx).map(|plaintext| {
+                json!({
+                    "amount": plaintext.amount.to_string(),
+                    "assetFieldHex": hex(&plaintext.asset_field),
+                    "blindingHex": hex(&plaintext.blinding),
+                })
+            });
+            decrypt_case_json(name, &body, decoded)
+        })
+        .collect::<Vec<_>>();
+    Value::Array(cases)
+}
+
+fn confidential_decrypt_cases(user: &ViewingKey, tx: &ViewingKey) -> Value {
+    let plaintext = ConfidentialOutputPlaintext {
+        asset_id: SOL_ASSET_ID,
+        amount: 77,
+        blinding: [11u8; BLINDING_LEN],
+        zone_program_id: None,
+        data: Data::default(),
+    };
+    let bytes = plaintext.serialize().expect("serialize confidential");
+    let body = Confidential::encrypt(
+        &bytes,
+        &ConfidentialEncode {
+            tx: tx.clone(),
+            recipient_pubkey: user.pubkey(),
+            salt: DECRYPT_SALT,
+            slot_index: DECRYPT_SLOT_INDEX,
+        },
+    )
+    .expect("encrypt confidential");
+
+    let mut variants = perturbations(&body);
+    // The slot index and the salt are bound into the key, so a scanner that
+    // tries the wrong slot must fail the same way in both languages.
+    variants.push(("wrongSlotIndex", body.clone()));
+    let wrong_slot = variants.len() - 1;
+
+    let cases = variants
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, body))| {
+            let cx = DecodeCx {
+                viewing_key: user,
+                tx_viewing_pk: Some(tx.pubkey()),
+                salt: Some(DECRYPT_SALT),
+                slot_index: if index == wrong_slot {
+                    DECRYPT_SLOT_INDEX + 1
+                } else {
+                    DECRYPT_SLOT_INDEX
+                },
+                first_nullifier: None,
+            };
+            let decoded = Confidential::decode(&body, &cx).map(|plaintext| {
+                json!({
+                    "assetId": plaintext.asset_id.to_string(),
+                    "amount": plaintext.amount.to_string(),
+                    "blindingHex": hex(&plaintext.blinding),
+                })
+            });
+            let mut case = decrypt_case_json(name, &body, decoded);
+            if index == wrong_slot {
+                case["slotIndex"] = json!(DECRYPT_SLOT_INDEX + 1);
+            }
+            case
+        })
+        .collect::<Vec<_>>();
+    Value::Array(cases)
+}
+
+/// The malformed bodies both rails share: an embedded public key that is
+/// absent, truncated, or off the curve, and a ciphertext whose length no longer
+/// matches the plaintext the rail expects.
+fn perturbations(body: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
+    let mut off_curve = body.to_vec();
+    off_curve[..33].fill(0xff);
+    let mut flipped = body.to_vec();
+    let last = flipped.len() - 1;
+    flipped[last] ^= 0x01;
+    vec![
+        ("valid", body.to_vec()),
+        ("empty", Vec::new()),
+        ("publicKeyTruncated", body[..32].to_vec()),
+        ("publicKeyOnly", body[..33].to_vec()),
+        ("publicKeyOffCurve", off_curve),
+        ("ciphertextTruncated", body[..body.len() - 1].to_vec()),
+        ("ciphertextExtraByte", [body, &[0u8]].concat()),
+        ("ciphertextBitFlipped", flipped),
+    ]
+}
+
+fn decrypt_case_json(name: &str, body: &[u8], decoded: Result<Value, TransactionError>) -> Value {
+    let mut case = Map::new();
+    case.insert("name".into(), json!(name));
+    case.insert("bodyHex".into(), json!(hex(body)));
+    match decoded {
+        Ok(plaintext) => {
+            case.insert("plaintext".into(), plaintext);
+            case.insert("error".into(), Value::Null);
+        }
+        Err(error) => {
+            case.insert("plaintext".into(), Value::Null);
+            case.insert("error".into(), error_json(&error));
+        }
+    }
+    Value::Object(case)
+}
+
+/// The code plus the two length fields, which are the only error details these
+/// paths carry and the ones a caller reads to decide whether to retry.
+fn error_json(error: &TransactionError) -> Value {
+    let (expected, actual) = match error {
+        TransactionError::InvalidLength { expected, actual } => (json!(expected), json!(actual)),
+        _ => (Value::Null, Value::Null),
+    };
+    json!({ "code": ts_code(error), "expected": expected, "actual": actual })
+}
+
+/// `PreparedZoneAuthority`: the unsigned rail whose only containment is the
+/// pinned zone, so every acceptance and rejection here is load-bearing.
+fn zone_authority_section() -> Value {
+    struct Case {
+        name: &'static str,
+        /// Zone carried by the real input and output; `None` leaves them unbound.
+        input_zone: Option<Address>,
+        output_zone: Option<Address>,
+        pinned_zone: Address,
+        public_sol: Option<i64>,
+        /// Extra dummy slots appended past the two the padded pair already has.
+        extra_outputs: usize,
+    }
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let zone = address(MERGE_ZONE_BYTE);
+    let other_zone = address(MERGE_ZONE_BYTE + 1);
+    let payer = address(PAYER_BYTE);
+    let case = |name, input_zone, output_zone, pinned_zone, public_sol, extra_outputs| Case {
+        name,
+        input_zone,
+        output_zone,
+        pinned_zone,
+        public_sol,
+        extra_outputs,
+    };
+    let cases = [
+        case("zoneBound", Some(zone), Some(zone), zone, None, 0),
+        case(
+            "unpinnedZone",
+            Some(zone),
+            Some(zone),
+            Address::default(),
+            None,
+            0,
+        ),
+        case(
+            "inputOutsideZone",
+            Some(other_zone),
+            Some(zone),
+            zone,
+            None,
+            0,
+        ),
+        case("inputUnbound", None, Some(zone), zone, None, 0),
+        case(
+            "outputOutsideZone",
+            Some(zone),
+            Some(other_zone),
+            zone,
+            None,
+            0,
+        ),
+        case("outputUnbound", Some(zone), None, zone, None, 0),
+        case("depositLeg", Some(zone), Some(zone), zone, Some(500), 0),
+        case("withdrawalLeg", Some(zone), Some(zone), zone, Some(-500), 0),
+        // 2 inputs by 5 outputs names no proving system.
+        case("unsupportedShape", Some(zone), Some(zone), zone, None, 3),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|case| {
+                let inputs = vec![
+                    zone_authority_input(&owner, case.input_zone),
+                    SppProofInputUtxo::new_dummy(),
+                ];
+                let mut outputs = vec![
+                    zone_authority_output(&owner, case.output_zone),
+                    SppProofOutputUtxo::default(),
+                ];
+                outputs.extend((0..case.extra_outputs).map(|_| SppProofOutputUtxo::default()));
+                let external_data = match case.public_sol {
+                    Some(amount) => {
+                        ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new())
+                            .with_public_sol(amount, Address::default())
+                            .expect("public sol leg")
+                    }
+                    None => {
+                        ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new())
+                    }
+                };
+                let prepared = PreparedZoneAuthority::new(
+                    case.pinned_zone,
+                    inputs,
+                    outputs,
+                    external_data,
+                    payer,
+                );
+                let contexts = prepared
+                    .as_ref()
+                    .ok()
+                    .map(|prepared| context_json(&prepared.input_utxo_hashes().expect("contexts")));
+                json!({
+                    "name": case.name,
+                    "inputZone": case.input_zone.map(|id| id.to_string()),
+                    "outputZone": case.output_zone.map(|id| id.to_string()),
+                    "pinnedZone": case.pinned_zone.to_string(),
+                    "publicSol": case.public_sol.map(|amount| amount.to_string()),
+                    "extraOutputs": case.extra_outputs,
+                    "error": prepared.as_ref().err().map(ts_code),
+                    "index": match &prepared {
+                        Err(TransactionError::ZoneAuthorityInputZoneMismatch { index })
+                        | Err(TransactionError::ZoneAuthorityOutputZoneMismatch { index }) => {
+                            json!(index)
+                        }
+                        _ => Value::Null,
+                    },
+                    "shape": prepared.as_ref().ok().map(|prepared| json!({
+                        "inputs": prepared.shape.n_inputs(),
+                        "outputs": prepared.shape.n_outputs(),
+                    })),
+                    "payerPublicKeyHashHex": prepared
+                        .as_ref()
+                        .ok()
+                        .map(|prepared| hex(&prepared.payer_pubkey_hash)),
+                    "inputContexts": contexts,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn zone_authority_input(
+    owner: &ShieldedKeypair,
+    zone_program_id: Option<Address>,
+) -> SppProofInputUtxo {
+    SppProofInputUtxo::new(
+        Utxo {
+            owner: owner.signing_key.pubkey(),
+            asset: SOL_MINT,
+            amount: 500,
+            blinding: TRANSACT_TYPES_BLINDING,
+            zone_program_id,
+            data: Data::default(),
+        },
+        owner,
+    )
+}
+
+fn zone_authority_output(
+    owner: &ShieldedKeypair,
+    zone_program_id: Option<Address>,
+) -> SppProofOutputUtxo {
+    SppProofOutputUtxo {
+        asset: SOL_MINT,
+        amount: 500,
+        blinding: TRANSACT_TYPES_BLINDING,
+        zone_program_id,
+        owner_address: Some(owner.shielded_address().expect("shielded address")),
+        ..Default::default()
+    }
+}
+
+const TRANSACT_TYPES_BLINDING: [u8; BLINDING_LEN] = [23; BLINDING_LEN];
+const TRANSACT_TYPES_EXTERNAL_HASH: [u8; 32] = [5; 32];
+
+/// `InputUtxo`, `SppProofOutputUtxo`, `PrivateTxHash`, and `EncryptedTransaction`:
+/// the four transaction types whose behaviour is not reachable through a builder.
+fn transact_types_section() -> Value {
+    let owner = shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED);
+    let nullifier_pk = owner.nullifier_key.pubkey().expect("nullifier public key");
+    let external_data = ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new());
+
+    json!({
+        "blindingHex": hex(&TRANSACT_TYPES_BLINDING),
+        "externalDataHashHex": hex(&TRANSACT_TYPES_EXTERNAL_HASH),
+        "nullifierPublicKeyHex": hex(&nullifier_pk),
+        "privateTxHashes": private_tx_hash_cases(),
+        "inputUtxos": input_utxo_cases(&owner, &nullifier_pk),
+        "outputBuilders": output_builder_cases(&owner),
+        "encryptedTransaction": encrypted_transaction_cases(&owner, &nullifier_pk, &external_data),
+        "emptyExternalData": json!({
+            "instructionDiscriminator": external_data.instruction_discriminator,
+            "expiryUnixTs": external_data.expiry_unix_ts.to_string(),
+            "relayerFee": external_data.relayer_fee,
+            "hashHex": hex(&external_data.hash().expect("external data hash")),
+        }),
+    })
+}
+
+fn private_tx_hash_cases() -> Value {
+    struct Case {
+        name: &'static str,
+        inputs: usize,
+        outputs: usize,
+        /// Address-hash count and the byte every one of them is filled with.
+        addresses: Option<(usize, u8)>,
+    }
+    let case = |name, inputs, outputs, addresses| Case {
+        name,
+        inputs,
+        outputs,
+        addresses,
+    };
+    // The last case's address hash exceeds the BN254 modulus, which pins the
+    // error category Poseidon failures report.
+    let cases = [
+        case("empty", 0, 0, None),
+        case("oneInputOneOutput", 1, 1, None),
+        case("twoInputsThreeOutputs", 2, 3, None),
+        case("addressHashesPaired", 2, 1, Some((2, 8))),
+        case("addressHashesShort", 2, 1, Some((1, 8))),
+        case("addressHashesLong", 1, 1, Some((2, 8))),
+        case("addressHashOutOfField", 1, 1, Some((1, 0xf0))),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|case| {
+                let name = case.name;
+                let input_hashes = filled_hashes(case.inputs, 1);
+                let output_hashes = filled_hashes(case.outputs, 40);
+                let address_hashes = case
+                    .addresses
+                    .map(|(count, first_byte)| filled_hashes(count, first_byte));
+                let mut private_tx = PrivateTxHash::new(
+                    &input_hashes,
+                    &output_hashes,
+                    &TRANSACT_TYPES_EXTERNAL_HASH,
+                );
+                private_tx.address_hashes = address_hashes.as_deref();
+                let outcome = private_tx.hash();
+                json!({
+                    "name": name,
+                    "inputHashesHex": hex_all(&input_hashes),
+                    "outputHashesHex": hex_all(&output_hashes),
+                    "addressHashesHex": address_hashes.as_ref().map(|hashes| hex_all(hashes)),
+                    "hashHex": outcome.as_ref().ok().map(|hash| hex(hash)),
+                    "error": outcome.as_ref().err().map(ts_code),
+                    "expected": match &outcome {
+                        Err(TransactionError::AddressHashCountMismatch { expected, .. }) => {
+                            json!(expected)
+                        }
+                        _ => Value::Null,
+                    },
+                    "actual": match &outcome {
+                        Err(TransactionError::AddressHashCountMismatch { actual, .. }) => {
+                            json!(actual)
+                        }
+                        _ => Value::Null,
+                    },
+                })
+            })
+            .collect(),
+    )
+}
+
+fn filled_hashes(count: usize, first_byte: u8) -> Vec<[u8; 32]> {
+    (0..count)
+        .map(|index| [first_byte + index as u8; 32])
+        .collect()
+}
+
+fn hex_all(hashes: &[[u8; 32]]) -> Vec<String> {
+    hashes.iter().map(|hash| hex(hash)).collect()
+}
+
+fn transact_types_input(
+    owner: &ShieldedKeypair,
+    nullifier_pk: &[u8; 32],
+    zone: bool,
+    data_hash: bool,
+    zone_data_hash: bool,
+) -> InputUtxo {
+    InputUtxo {
+        utxo: Utxo {
+            owner: owner.signing_key.pubkey(),
+            asset: SOL_MINT,
+            amount: 100,
+            blinding: TRANSACT_TYPES_BLINDING,
+            zone_program_id: zone.then(|| address(MERGE_ZONE_BYTE)),
+            data: Data::default(),
+        },
+        nullifier_pk: *nullifier_pk,
+        zone_data_hash: zone_data_hash.then_some(MERGE_ZONE_DATA_HASH),
+        data_hash: data_hash.then_some(MERGE_DATA_HASH),
+    }
+}
+
+fn input_utxo_cases(owner: &ShieldedKeypair, nullifier_pk: &[u8; 32]) -> Value {
+    let cases: [(&str, bool, bool, bool); 4] = [
+        ("bare", false, false, false),
+        ("dataHash", false, true, false),
+        ("zoneBound", true, false, true),
+        ("bothHashes", true, true, true),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|(name, zone, data_hash, zone_data_hash)| {
+                let input =
+                    transact_types_input(owner, nullifier_pk, *zone, *data_hash, *zone_data_hash);
+                json!({
+                    "name": name,
+                    "zone": zone.then(|| address(MERGE_ZONE_BYTE).to_string()),
+                    "dataHash": data_hash,
+                    "zoneDataHash": zone_data_hash,
+                    "isDummy": input.is_dummy(),
+                    "hashHex": hex(&input.hash().expect("input utxo hash")),
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Payloads the output builders attach; the second of each kind must replace the
+/// first rather than add a duplicate record.
+fn output_builder_payload(op: &str) -> Vec<u8> {
+    match op {
+        "memoA" => vec![6],
+        "memoB" => vec![9, 9],
+        "utxoDataA" => vec![4, 5],
+        "utxoDataB" => vec![7],
+        "zoneDataA" => vec![1, 2, 3],
+        other => panic!("unknown output builder op {other}"),
+    }
+}
+
+fn output_builder_cases(owner: &ShieldedKeypair) -> Value {
+    let sequences: [(&str, &[&str]); 9] = [
+        ("bare", &[]),
+        ("memo", &["memoA"]),
+        ("memoReplaced", &["memoA", "memoB"]),
+        ("utxoDataReplaced", &["utxoDataA", "utxoDataB"]),
+        ("memoThenUtxoData", &["memoA", "utxoDataA"]),
+        ("memoThenZoneData", &["memoA", "zoneDataA"]),
+        ("allThreeOutOfOrder", &["memoA", "zoneDataA", "utxoDataA"]),
+        ("zoneProgramIdOnly", &["zoneProgramId"]),
+        ("zoneDataHashOnly", &["zoneDataHash"]),
+    ];
+    let address = owner.shielded_address().expect("shielded address");
+    let zone = self::address(MERGE_ZONE_BYTE);
+
+    Value::Array(
+        sequences
+            .iter()
+            .map(|(name, ops)| {
+                let mut output = SppProofOutputUtxo {
+                    asset: SOL_MINT,
+                    amount: 100,
+                    blinding: TRANSACT_TYPES_BLINDING,
+                    owner_address: Some(address),
+                    ..Default::default()
+                };
+                for op in *ops {
+                    output = match *op {
+                        "memoA" | "memoB" => output.with_memo(output_builder_payload(op)),
+                        "utxoDataA" | "utxoDataB" => {
+                            output.with_utxo_data(output_builder_payload(op), MERGE_DATA_HASH)
+                        }
+                        "zoneDataA" => output.with_zone_data(
+                            zone,
+                            output_builder_payload(op),
+                            MERGE_ZONE_DATA_HASH,
+                        ),
+                        "zoneProgramId" => output.with_zone_program_id(zone),
+                        "zoneDataHash" => output.with_zone_data_hash(zone, MERGE_ZONE_DATA_HASH),
+                        other => panic!("unknown output builder op {other}"),
+                    };
+                }
+                json!({
+                    "name": name,
+                    "ops": ops,
+                    "records": output
+                        .data
+                        .records
+                        .iter()
+                        .map(record_json)
+                        .collect::<Vec<_>>(),
+                    "dataHashHex": output.data_hash.as_ref().map(|hash| hex(hash)),
+                    "zoneDataHashHex": output.zone_data_hash.as_ref().map(|hash| hex(hash)),
+                    "zoneProgramId": output.zone_program_id.map(|id| id.to_string()),
+                    "isDummy": output.is_dummy(),
+                    "ownerHashHex": hex(&output.owner_hash().expect("owner hash")),
+                    "hashHex": hex(&output.hash().expect("output hash")),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn encrypted_transaction_cases(
+    owner: &ShieldedKeypair,
+    nullifier_pk: &[u8; 32],
+    external_data: &ExternalData,
+) -> Value {
+    let real_output = SppProofOutputUtxo {
+        asset: SOL_MINT,
+        amount: 100,
+        blinding: TRANSACT_TYPES_BLINDING,
+        owner_address: Some(owner.shielded_address().expect("shielded address")),
+        ..Default::default()
+    };
+    let cases: [(&str, bool, bool); 4] = [
+        ("bothDummy", false, false),
+        ("realInputDummyOutput", true, false),
+        ("dummyInputRealOutput", false, true),
+        ("bothReal", true, true),
+    ];
+
+    Value::Array(
+        cases
+            .iter()
+            .map(|(name, real_input, real_output_slot)| {
+                let input = if *real_input {
+                    transact_types_input(owner, nullifier_pk, false, false, false)
+                } else {
+                    InputUtxo {
+                        utxo: Utxo {
+                            owner: PublicKey::zeroed(),
+                            asset: Address::default(),
+                            amount: 0,
+                            blinding: TRANSACT_TYPES_BLINDING,
+                            zone_program_id: None,
+                            data: Data::default(),
+                        },
+                        nullifier_pk: [0u8; 32],
+                        zone_data_hash: None,
+                        data_hash: None,
+                    }
+                };
+                let output = if *real_output_slot {
+                    real_output.clone()
+                } else {
+                    SppProofOutputUtxo::default()
+                };
+                let transaction = EncryptedTransaction {
+                    inputs: vec![input],
+                    outputs: vec![output],
+                    external_data: external_data.clone(),
+                };
+                json!({
+                    "name": name,
+                    "realInput": real_input,
+                    "realOutput": real_output_slot,
+                    "hashHex": hex(&transaction.hash().expect("transaction hash")),
+                })
+            })
+            .collect(),
+    )
 }
 
 fn oracle_path() -> PathBuf {

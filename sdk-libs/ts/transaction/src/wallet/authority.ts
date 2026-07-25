@@ -15,13 +15,12 @@ import {
   encodeOutputData,
   encodeSplitBundle,
   encryptAnonymous,
-  encryptConfidential,
   encryptSplit,
   type AnonymousRecipientPlaintext,
   type AnonymousSenderPlaintext,
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
-import { slotOrdinal } from "../instructions/transact.js";
+import { encodeConfidentialSlots } from "../instructions/transact.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "./asset.js";
 
@@ -154,27 +153,11 @@ export class LocalWalletAuthority implements WalletAuthority {
   ): Promise<EncryptedTransfer> {
     const tx = this.#keypair.viewingKey().transactionViewingKey(input.firstNullifier);
     const salt = randomSalt();
-    const payload = input.outputs.map((output, slotIndex) => {
-      if (output.isDummy() || output.ownerAddress === undefined) return undefined;
-      const body = encryptConfidential(
-        tx,
-        output.ownerAddress.viewingPublicKey,
-        {
-          assetId: input.assets.assetId(output.asset),
-          amount: output.amount,
-          blinding: output.blinding,
-          ...(output.zoneProgramId === undefined ? {} : { zoneProgramId: output.zoneProgramId }),
-          data: output.data,
-        },
-        salt,
-        slotOrdinal(slotIndex),
-      );
-      return {
-        viewTag: output.ownerAddress.signingPublicKey.confidentialViewTag(),
-        data: encodeOutputData(EncryptedScheme.confidential, body, "encrypted"),
-      };
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
     });
-    return Promise.resolve({ txViewingPublicKey: tx.publicKey(), salt, payload });
   }
 
   /**

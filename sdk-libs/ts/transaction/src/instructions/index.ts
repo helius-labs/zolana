@@ -10,22 +10,34 @@ export {
 } from "./builders.js";
 export type { PreparedZoneAuthority } from "./builders.js";
 export {
+  BN254_MODULUS_DEC,
   ConfidentialTransfer,
+  SENDER_SLOT_COUNT,
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
+  assetField,
   canonicalShape,
+  createEncryptedTransaction,
   createExternalData,
+  createInputUtxo,
+  encodeConfidentialSlots,
+  privateTxHash,
   resolveShape,
+  signedToField,
   slotOrdinal,
 } from "./transact.js";
 export type {
+  EncryptedTransaction,
   ExternalData,
   IndexedShieldedTransaction,
+  InputUtxo,
   InputUtxoContext,
   OutputContext,
   PreparedTransfer,
+  PrivateTxHashInput,
   PublicAmounts,
   Shape,
   WithdrawalTarget,
 } from "./transact.js";
-export { ProofInputUtxo } from "../utxo.js";
+export { ProofInputUtxo, createProofOutput } from "../utxo.js";
+export type { ProofOutputInit, ProofOutputUtxo } from "../utxo.js";
