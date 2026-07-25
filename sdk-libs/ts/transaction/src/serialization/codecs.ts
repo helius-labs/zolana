@@ -4,9 +4,19 @@ import { decryptVerifiable, encryptVerifiable } from "@zolana/keypair/merge";
 
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
-import { checked, concat, copy, decodeAddress, encodeAddress } from "../internal.js";
+import {
+  checked,
+  concat,
+  copy,
+  decodeAddress,
+  encodeAddress,
+  equal,
+  hashField,
+} from "../internal.js";
 import type { AssetRegistry } from "../wallet/asset.js";
 import { Utxo, deriveBlinding } from "../utxo.js";
+
+const SPLIT_TYPE_PREFIX = 2;
 
 export const EncryptedScheme = Object.freeze({
   proofless: 0,
@@ -18,6 +28,37 @@ export const EncryptedScheme = Object.freeze({
   plaintextTransfer: 7,
 } as const);
 export type EncryptedScheme = (typeof EncryptedScheme)[keyof typeof EncryptedScheme];
+export type OutputDataEncoding = "plaintext" | "encrypted" | "verifiable";
+
+export function encryptedSchemeFromByte(byte: number): EncryptedScheme {
+  if (!Number.isInteger(byte) || byte < 0 || byte > 0xff) {
+    throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { byte });
+  }
+  switch (byte) {
+    case EncryptedScheme.proofless:
+    case EncryptedScheme.anonymousRecipient:
+    case EncryptedScheme.anonymousSender:
+    case EncryptedScheme.confidential:
+    case EncryptedScheme.split:
+    case EncryptedScheme.merge:
+    case EncryptedScheme.plaintextTransfer:
+      return byte;
+    default:
+      throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { byte });
+  }
+}
+
+export function outputDataEncoding(scheme: EncryptedScheme): OutputDataEncoding {
+  switch (encryptedSchemeFromByte(scheme)) {
+    case EncryptedScheme.proofless:
+    case EncryptedScheme.plaintextTransfer:
+      return "plaintext";
+    case EncryptedScheme.merge:
+      return "verifiable";
+    default:
+      return "encrypted";
+  }
+}
 
 export interface ConfidentialOutputPlaintext {
   readonly assetId: bigint;
@@ -325,6 +366,21 @@ export function confidentialUtxo(
   });
 }
 
+export function confidentialPlaintextFromUtxo(
+  utxo: Utxo,
+  owner: ShieldedPublicKey,
+  assets: AssetRegistry,
+): ConfidentialOutputPlaintext {
+  requireOwner(utxo, owner);
+  return {
+    assetId: assets.assetId(utxo.asset),
+    amount: utxo.amount,
+    blinding: copy(utxo.blinding),
+    ...(utxo.zoneProgramId === undefined ? {} : { zoneProgramId: utxo.zoneProgramId }),
+    data: new Data(utxo.data.records()),
+  };
+}
+
 export function encodeAnonymousRecipient(value: AnonymousRecipientPlaintext): Uint8Array {
   const writer = new Writer();
   writer.bytes(value.ownerPublicKey.toBytes());
@@ -546,6 +602,11 @@ export function decodeSplitBundle(bytes: Uint8Array): SplitBundlePlaintext {
 }
 
 export function encodeSplitEncrypted(value: SplitEncryptedUtxos): Uint8Array {
+  if (value.typePrefix !== SPLIT_TYPE_PREFIX) {
+    throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
+      typePrefix: value.typePrefix,
+    });
+  }
   const writer = new Writer();
   writer.u8(value.typePrefix);
   writer.bytes(value.txViewingPublicKey.toBytes());
@@ -565,6 +626,9 @@ export function encodeSplitEncrypted(value: SplitEncryptedUtxos): Uint8Array {
 export function decodeSplitEncrypted(bytes: Uint8Array): SplitEncryptedUtxos {
   const reader = new Reader(bytes);
   const typePrefix = reader.u8();
+  if (typePrefix !== SPLIT_TYPE_PREFIX) {
+    throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { typePrefix });
+  }
   const txViewingPublicKey = P256PublicKey.fromBytes(reader.take(33) as Bytes33);
   const salt = reader.take(16) as Bytes16;
   const ciphertext = reader.take(reader.u16());
@@ -575,6 +639,7 @@ export function decodeSplitEncrypted(bytes: Uint8Array): SplitEncryptedUtxos {
 export function splitBundleUtxos(
   value: SplitBundlePlaintext,
   assets: AssetRegistry,
+  zoneProgramId?: Address,
 ): readonly Utxo[] {
   if (value.numOutputs === 0 && !value.data.isEmpty()) {
     throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
@@ -589,6 +654,7 @@ export function splitBundleUtxos(
         amount: value.assetAmount,
         blinding: deriveBlinding(value.blindingSeed, position),
         data: value.data,
+        ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
       }),
   );
 }
@@ -596,18 +662,27 @@ export function splitBundleUtxos(
 export function encodeOutputData(
   scheme: EncryptedScheme,
   body: Uint8Array,
-  encoding: "plaintext" | "encrypted" | "verifiable",
+  encoding = outputDataEncoding(scheme),
 ): Uint8Array {
-  const blob = concat(Uint8Array.of(scheme), body);
+  const checkedScheme = encryptedSchemeFromByte(scheme);
+  const expectedEncoding = outputDataEncoding(checkedScheme);
+  if (encoding !== expectedEncoding) {
+    throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
+      scheme: checkedScheme,
+      encoding,
+      expectedEncoding,
+    });
+  }
+  const blob = concat(Uint8Array.of(checkedScheme), body);
   const writer = new Writer();
-  writer.u8(encoding === "plaintext" ? 0 : encoding === "encrypted" ? 1 : 2);
+  writer.u8(outputDataEncodingTag(encoding));
   writer.u32(blob.length);
   writer.bytes(blob);
   return writer.finish();
 }
 
 export function decodeOutputData(bytes: Uint8Array): Readonly<{
-  encoding: "plaintext" | "encrypted" | "verifiable";
+  encoding: OutputDataEncoding;
   scheme: EncryptedScheme;
   body: Uint8Array;
 }> {
@@ -615,20 +690,48 @@ export function decodeOutputData(bytes: Uint8Array): Readonly<{
   const encodingTag = reader.u8();
   const blob = reader.take(reader.u32());
   reader.exact();
-  const scheme = blob[0] as EncryptedScheme;
-  if (!Object.values(EncryptedScheme).includes(scheme)) {
-    throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { scheme });
+  if (blob.length === 0) {
+    throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
+      field: "encryptedOutput",
+      expectedMinimum: 1,
+      actual: 0,
+    });
   }
-  const encoding =
-    encodingTag === 0
-      ? "plaintext"
-      : encodingTag === 1
-        ? "encrypted"
-        : encodingTag === 2
-          ? "verifiable"
-          : undefined;
-  if (!encoding) throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { encodingTag });
+  const scheme = encryptedSchemeFromByte(blob[0] as number);
+  const encoding = outputDataEncodingFromTag(encodingTag);
+  const expectedEncoding = outputDataEncoding(scheme);
+  if (encoding !== expectedEncoding) {
+    throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
+      scheme,
+      encoding,
+      expectedEncoding,
+    });
+  }
   return { encoding, scheme, body: blob.slice(1) };
+}
+
+function outputDataEncodingTag(encoding: OutputDataEncoding): number {
+  switch (encoding) {
+    case "plaintext":
+      return 0;
+    case "encrypted":
+      return 1;
+    case "verifiable":
+      return 2;
+  }
+}
+
+function outputDataEncodingFromTag(tag: number): OutputDataEncoding {
+  switch (tag) {
+    case 0:
+      return "plaintext";
+    case 1:
+      return "encrypted";
+    case 2:
+      return "verifiable";
+    default:
+      throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { encodingTag: tag });
+  }
 }
 
 export function encodeProofless(value: ProoflessOutput): Uint8Array {
@@ -736,6 +839,7 @@ export function decryptConfidential(
       actual: body.length,
     });
   }
+  P256PublicKey.fromBytes(body.slice(0, 33) as Bytes33);
   return decodeConfidential(key.decryptUtxo(body.slice(33), txViewingPublicKey, salt, slotIndex));
 }
 
@@ -756,9 +860,22 @@ export function decryptConfidentialAsSender(
 }
 
 export function encodeMerge(value: MergePlaintext): Uint8Array {
+  if (
+    typeof value.amount !== "bigint" ||
+    value.amount < 0n ||
+    value.amount > 0xffff_ffff_ffff_ffffn
+  ) {
+    throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
+      value: String(value.amount),
+    });
+  }
   const amount = new Uint8Array(8);
   new DataView(amount.buffer).setBigUint64(0, value.amount, false);
-  return concat(amount, checked<Bytes32>(value.assetField, 32, "asset field"), value.blinding);
+  return concat(
+    amount,
+    checked<Bytes32>(value.assetField, 32, "asset field"),
+    checked<Bytes31>(value.blinding, 31, "blinding"),
+  );
 }
 
 export function decodeMerge(bytes: Uint8Array): MergePlaintext {
@@ -775,16 +892,54 @@ export function decodeMerge(bytes: Uint8Array): MergePlaintext {
   };
 }
 
+export function mergePlaintextFromUtxo(utxo: Utxo, owner: ShieldedPublicKey): MergePlaintext {
+  requireOwner(utxo, owner);
+  if (!utxo.data.isEmpty()) {
+    throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index: 0 });
+  }
+  return {
+    amount: utxo.amount,
+    assetField: hashField(decodeAddress(utxo.asset)),
+    blinding: copy(utxo.blinding),
+  };
+}
+
+export function mergeUtxo(
+  value: MergePlaintext,
+  owner: ShieldedPublicKey,
+  assets: AssetRegistry,
+  zoneProgramId?: Address,
+): Utxo {
+  const asset = assets.addressForField(checked<Bytes32>(value.assetField, 32, "asset field"));
+  if (asset === undefined) {
+    throw new TransactionError("TRANSACTION_UNKNOWN_ASSET", {
+      assetField: [...value.assetField],
+    });
+  }
+  return new Utxo({
+    owner,
+    asset,
+    amount: value.amount,
+    blinding: value.blinding,
+    ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
+  });
+}
+
 export function encryptMerge(
-  txViewingSecret: Bytes32,
+  txViewingKey: ViewingKey,
   userViewingPublicKey: P256PublicKey,
   value: MergePlaintext,
 ): Uint8Array {
-  const encrypted = encryptVerifiable(txViewingSecret, userViewingPublicKey, encodeMerge(value));
-  return concat(encrypted.txViewingPublicKey.toBytes(), encrypted.ciphertext);
+  const secret = txViewingKey.secretBytes();
+  try {
+    const encrypted = encryptVerifiable(secret, userViewingPublicKey, encodeMerge(value));
+    return concat(encrypted.txViewingPublicKey.toBytes(), encrypted.ciphertext);
+  } finally {
+    secret.fill(0);
+  }
 }
 
-export function decryptMerge(userViewingSecret: Bytes32, body: Uint8Array): MergePlaintext {
+export function decryptMerge(userViewingKey: ViewingKey, body: Uint8Array): MergePlaintext {
   if (body.length < 33) {
     throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
       expectedMinimum: 33,
@@ -792,5 +947,16 @@ export function decryptMerge(userViewingSecret: Bytes32, body: Uint8Array): Merg
     });
   }
   const txViewingPublicKey = P256PublicKey.fromBytes(body.slice(0, 33) as Bytes33);
-  return decodeMerge(decryptVerifiable(userViewingSecret, txViewingPublicKey, body.slice(33)));
+  const secret = userViewingKey.secretBytes();
+  try {
+    return decodeMerge(decryptVerifiable(secret, txViewingPublicKey, body.slice(33)));
+  } finally {
+    secret.fill(0);
+  }
+}
+
+function requireOwner(utxo: Utxo, owner: ShieldedPublicKey): void {
+  if (!equal(utxo.owner.toBytes(), owner.toBytes())) {
+    throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index: 0 });
+  }
 }

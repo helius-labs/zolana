@@ -48,3 +48,9 @@ export type {
   WalletSyncMaterial,
   WalletUtxo,
 } from "./wallet/index.js";
+export {
+  EncryptedScheme,
+  encryptedSchemeFromByte,
+  outputDataEncoding,
+  type OutputDataEncoding,
+} from "./serialization/index.js";

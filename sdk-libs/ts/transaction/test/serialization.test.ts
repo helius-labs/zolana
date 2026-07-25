@@ -1,11 +1,12 @@
-import type { Bytes16, Bytes31, Bytes32 } from "@zolana/interface";
+import type { Address, Bytes16, Bytes31, Bytes32 } from "@zolana/interface";
 import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
 import { describe, expect, it } from "vitest";
 
-import { Data, SOL_MINT, deriveBlinding } from "../src/index.js";
+import { AssetRegistry, Data, SOL_MINT, Utxo, deriveBlinding } from "../src/index.js";
 import { decodeAddress, hashField } from "../src/internal.js";
 import {
   EncryptedScheme,
+  confidentialPlaintextFromUtxo,
   decodeAnonymousRecipient,
   decodeAnonymousSender,
   decodeMerge,
@@ -23,10 +24,13 @@ import {
   encodePlaintextTransfer,
   encodeProofless,
   encodeSplitBundle,
+  encryptedSchemeFromByte,
   encryptAnonymous,
   encryptConfidential,
   encryptMerge,
   encryptSplit,
+  mergePlaintextFromUtxo,
+  mergeUtxo,
 } from "../src/serialization/index.js";
 import { decodeSplitEncrypted, encodeSplitEncrypted } from "../src/serialization/codecs.js";
 import { fixtureArray, fixtureObject, fixtureString, hexBytes, readFixture } from "./fixture.js";
@@ -243,14 +247,36 @@ describe("manifest-verified transaction serialization", () => {
     };
     const mergeExpected = fixtureObject(families.merge);
     const mergeBytes = encodeMerge(merge);
-    const mergeCiphertext = encryptMerge(tx.secretBytes(), keypair.viewingPublicKey(), merge);
+    const mergeCiphertext = encryptMerge(tx, keypair.viewingPublicKey(), merge);
     expect(hex(mergeBytes)).toBe(fixtureString(mergeExpected, "fixedBytes"));
     expect(hex(mergeCiphertext)).toBe(fixtureString(mergeExpected, "encryptedBodyBytes"));
     expect(hex(encodeOutputData(EncryptedScheme.merge, mergeCiphertext, "verifiable"))).toBe(
       fixtureString(mergeExpected, "envelopeBorshBytes"),
     );
     expect(decodeMerge(encodeMerge(merge))).toEqual(merge);
-    expect(decryptMerge(viewing.secretBytes(), mergeCiphertext)).toEqual(merge);
+    expect(decryptMerge(viewing, mergeCiphertext)).toEqual(merge);
+    const assets = new AssetRegistry();
+    const mergeOutput = mergeUtxo(
+      merge,
+      keypair.signingPublicKey(),
+      assets,
+      "SysvarRent111111111111111111111111111111111" as Address,
+    );
+    expect(mergeOutput.zoneProgramId).toBe("SysvarRent111111111111111111111111111111111");
+    expect(mergePlaintextFromUtxo(mergeOutput, keypair.signingPublicKey())).toEqual(merge);
+    expect(
+      confidentialPlaintextFromUtxo(
+        new Utxo({
+          owner: keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 55n,
+          blinding: deriveBlinding(seed, 1),
+          data: new Data(),
+        }),
+        keypair.signingPublicKey(),
+        assets,
+      ),
+    ).toMatchObject({ assetId: 1n, amount: 55n });
 
     const splitEncryptedExpected = fixtureObject(families.splitEncrypted);
     const splitEncrypted = encodeSplitEncrypted({
@@ -265,6 +291,7 @@ describe("manifest-verified transaction serialization", () => {
 
   it("rejects every malformed fixture family", () => {
     const fixture = load();
+    const { recipientViewing, tx } = keys(section(fixture, "inputs"));
     const expected = section(fixture, "expected");
     const schemes = fixtureArray(expected, "schemes").map((entry) => {
       const value = fixtureObject(entry, "scheme");
@@ -272,6 +299,24 @@ describe("manifest-verified transaction serialization", () => {
     });
     expect(schemes).toEqual([0, 1, 2, 3, 5, 6, 7]);
     expect(() => decodeOutputData(Uint8Array.of(4, 0, 0, 0, 0))).toThrow();
+    expect(() => encryptedSchemeFromByte(4)).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_BAD_DISCRIMINATOR",
+        details: { byte: 4 },
+      }),
+    );
+    expect(() =>
+      encodeOutputData(EncryptedScheme.confidential, Uint8Array.of(1), "plaintext"),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_BAD_DISCRIMINATOR" }));
+    expect(() => decodeOutputData(Uint8Array.of(0, 1, 0, 0, 0, 3))).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_BAD_DISCRIMINATOR" }),
+    );
+    expect(() => decodeOutputData(Uint8Array.of(0, 0, 0, 0, 0))).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_INVALID_LENGTH",
+        details: { field: "encryptedOutput", expectedMinimum: 1, actual: 0 },
+      }),
+    );
     const plaintext = hexBytes(
       fixtureString(
         fixtureObject(fixtureObject(expected.families).plaintextTransfer),
@@ -292,5 +337,14 @@ describe("manifest-verified transaction serialization", () => {
       fixtureString(fixtureObject(fixtureObject(expected.families).proofless), "borshBytes"),
     );
     expect(() => decodeProofless(proofless.slice(0, -1))).toThrow();
+    expect(() =>
+      decryptConfidential(
+        recipientViewing,
+        tx.publicKey(),
+        new Uint8Array(49),
+        new Uint8Array(16) as Bytes16,
+        0,
+      ),
+    ).toThrow();
   });
 });

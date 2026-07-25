@@ -296,7 +296,7 @@ function decodeCandidate(
       };
     }
     if (decoded.scheme === EncryptedScheme.merge && decoded.encoding === "verifiable") {
-      const value = decryptMerge(key.secretBytes(), decoded.body);
+      const value = decryptMerge(key, decoded.body);
       const asset = wallet.registry.entries().find(([, mint]) => {
         try {
           return equal(hashField(decodeAddress(mint)), value.assetField);
