@@ -20,8 +20,8 @@ Update this block at the start of each session.
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `33 done / 118 total`; `56 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `C01 sdk-libs/client/src/retry.rs`
+- Progress: `32 done / 118 total`; `57 needs_fix`; `1 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `C02 sdk-libs/client/src/error.rs` re-review
 - Active reviews: `none`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
@@ -255,8 +255,8 @@ Columns:
 
 | ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| C01 | `sdk-libs/client/src/retry.rs` | `client/src/indexer.ts` | todo | - | none | - | - | - |
-| C02 | `sdk-libs/client/src/error.rs` | `client/src/error.ts` | done | PARITY | committed | The closed TypeScript contract covers the 58 Rust variants, typed details, wrapped categories, throw translation, immutable diagnostics, sanitized causes, and package exports. | 2026-07-24 re-review | `7cb3acda` |
+| C01 | `sdk-libs/client/src/retry.rs` | `client/src/indexer.ts` | needs_fix | DIVERGENT | proposed | Normal private backoff matches, but TypeScript omits Rust's public retry operations, defaults, factories, and `pollUntil`; differs on Rust-valid configurations, zero delay, timer bounds, maximum attempts, and retry errors; duplicates the loops; and lacks focused fixture, error, export, and pack evidence. First classify Rust's idempotent retry policy, retain structured causes, cap the first delay, and pin attempt counts; then expose and reuse the aligned TypeScript surface with focused evidence. | 2026-07-25 review | - |
+| C02 | `sdk-libs/client/src/error.rs` | `client/src/error.ts` | needs_re_review | PARITY | committed | Re-review the closed client error boundary against the transaction error contract changed by `6882ca25`. | 2026-07-24 re-review | `6882ca25` |
 | C03 | `sdk-libs/client/src/rpc.rs` | `client/src/rpc.ts` | todo | - | none | - | - | - |
 | C04 | `sdk-libs/client/src/indexer.rs` | `client/src/indexer.ts` | done | PARITY | committed | The asynchronous adapter preserves the four requests, owned conversions, block-time polling, bounded failures, browser operation, and Rust-only blocking disposition. | 2026-07-24 re-review | `7cb3acda` |
 | C05 | `sdk-libs/client/src/solana_rpc.rs` | `client/src/solana-rpc.ts` | todo | - | none | - | - | - |
@@ -1591,3 +1591,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `33/118`; package review `31/31` complete; package parity gates failed
 - Exact next file: `C01 sdk-libs/client/src/retry.rs`
 - Full SDK parity claim: unsupported; transaction root exports, inherited child gaps, evidence allowlists, dependencies, and package metadata diverge
+
+### 2026-07-25 13:08 UTC | C01 | `sdk-libs/client/src/retry.rs`
+
+- Baseline: HEAD `6882ca259c206780e977199e51408d1f1aa2d512`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module owns the public indexer polling configuration, capped backoff iterator, synchronous `poll_until` operation, defaults, and wait factory.
+- Evidence: The normal private TypeScript backoff schedule matches, but TypeScript omits Rust's public retry operations, defaults, factories, and `pollUntil`; differs on Rust-valid configurations, zero delay, timer bounds, maximum attempts, and retry error handling; duplicates retry loops; and lacks focused fixture, error, export, and packed-package evidence.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: First classify Rust's idempotent retry policy, retain structured causes, cap the first delay, and add first-delay and attempt-count tests. Then expose and reuse one aligned TypeScript retry surface and add focused fixture, error, export, and pack evidence.
+- Row transition: `todo -> needs_fix`
+- Progress: `32/118`; package `1/22`; `C02` reopened for re-review after transaction error changes in `6882ca25`
+- Exact next file: `C02 sdk-libs/client/src/error.rs` re-review
+- Full SDK parity claim: unsupported; retry policy, public surface, boundary behavior, reuse, and focused evidence diverge
