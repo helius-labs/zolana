@@ -138,9 +138,7 @@ fn inputs(keypair: &ShieldedKeypair, zone_program_id: Option<Address>) -> Vec<Sp
     let mut slots: Vec<SppProofInputUtxo> = (0..REAL_INPUT_AMOUNTS.len() as u8)
         .map(|position| real_input(keypair, position, zone_program_id))
         .collect();
-    slots.extend(
-        (REAL_INPUT_AMOUNTS.len() as u8..MERGE_INPUTS as u8).map(dummy_input),
-    );
+    slots.extend((REAL_INPUT_AMOUNTS.len() as u8..MERGE_INPUTS as u8).map(dummy_input));
     slots
 }
 
@@ -271,7 +269,10 @@ fn ts_merge_oracle_is_current() {
             "mergeZone": rail_json(&zone, &zone_body)
         }
     });
-    let rendered = format!("{}\n", serde_json::to_string_pretty(&oracle).expect("render"));
+    let rendered = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&oracle).expect("render")
+    );
 
     let path = oracle_path();
     let current = std::fs::read_to_string(&path).unwrap_or_default();

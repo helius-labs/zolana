@@ -248,7 +248,7 @@ fn run(name: &str, job_id: &str, status_responses: Vec<MockResponse>) -> Value {
     let mut script = vec![queued(job_id)];
     script.extend(status_responses);
     let server = MockServer::respond_with(script);
-    let outcome = client(server.url()).send("{}".to_string());
+    let outcome = client(server.url()).send("{}".to_string(), false);
     let paths = server.paths();
     // The `/prove` request is not part of the poll; the count that matters is how
     // many times the loop went back for a status.
@@ -341,7 +341,10 @@ fn ts_poll_oracle_is_current() {
         "jobIds": ids,
     });
 
-    let rendered = format!("{}\n", serde_json::to_string_pretty(&oracle).expect("render"));
+    let rendered = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&oracle).expect("render")
+    );
     let path = oracle_path();
     let current = std::fs::read_to_string(&path).unwrap_or_default();
     if current == rendered {
@@ -471,10 +474,7 @@ fn read_request_path(stream: &mut TcpStream) -> String {
     let mut buf = [0_u8; 1024];
     let mut body_start = None;
     let mut content_len = None;
-    loop {
-        let Ok(read) = stream.read(&mut buf) else {
-            break;
-        };
+    while let Ok(read) = stream.read(&mut buf) {
         if read == 0 {
             break;
         }
