@@ -13,15 +13,27 @@ specific `docs/spec.md` amendments where the specification described behaviour
 the deployed program does not have, and a confirmed program defect may move to
 its own branch and pull request off `main` rather than land here.
 
-This rule has been broken. As of 2026-07-25 the branch carries 171 net inserted
-lines across six files under `program-libs/`, one of which survived a revert
-that was reported as complete. Read
+The rule was audited on 2026-07-25 and mostly held. Of 171 lines the branch had
+added under `program-libs/`, five were compiled into the deployed program, three
+went to a protocol library outside the program's dependency tree, and 163 sit
+behind `#[cfg(test)]`, an attribute `cargo build-sbf` leaves unset. Both
+compiled hunks are reverted. The test-only lines stay: their binary cost is zero and three are the
+golden vectors the port's parity claims rest on.
+
+Read
 [`row-updates/program-lib-scope-audit.md`](row-updates/program-lib-scope-audit.md)
-for the disposition of each hunk before adding to them.
+before adding to them. Two lessons in it generalize. A shared library is not
+automatically program code, since `indexed-array` reaches only
+`sdk-libs/merkle-tree` and the forester, so establish what loads a crate before
+assuming a change is in scope. And added validation is dangerous even when it
+looks
+defensive: the reverted hunk re-checked a merge ciphertext prefix the program
+already rejected with a dedicated error, which made the program's own guard
+unreachable and downgraded an error code that TypeScript consumers can observe.
 
 ## Status
 
-Refreshed as each worker returns. Last update: 2026-07-25 20:05.
+Refreshed as each worker returns. Last update: 2026-07-25 20:08.
 
 | | |
 | --- | --- |
@@ -42,7 +54,7 @@ In flight:
 | Wallet, merkle and stragglers, 10 rows | Running, `port/wallet-misc` |
 | The 27 uncovered rows | Running, `port/program-libs` |
 | Checklist reconciliation, log split, 27 new rows | Running |
-| `program-libs` scope audit and reverts | Running |
+
 | `user_record` binding fix, own branch off `main` | Running |
 
 Closed today: the deposit discovery tag moved to the signing pubkey in both
@@ -97,6 +109,10 @@ Nothing is published from a batch branch.
 | `zolana-ts-wallet-misc` | `port/wallet-misc` | wallet, merkle-tree, stragglers | 10 |
 | `zolana-ts-programlibs` | `port/program-libs` | the 27 rows the queue omitted | 27 |
 | `zolana-merge-record` | `fix/merge-user-record-binding` | program defect, **separate** pull request off `main` | 0 |
+| (no tree) | `fix/indexed-array-exclusive-highest-value` | protocol-library fix relocated out of the port, **separate** pull request off `main` | 0 |
+
+Both `fix/*` branches are local and unpushed. Push them before removing any
+worktree, or the work is lost with it.
 
 Each batch tree carries a copy-on-write clone of the root `node_modules`, which
 works because the npm workspace symlinks are relative and therefore resolve
