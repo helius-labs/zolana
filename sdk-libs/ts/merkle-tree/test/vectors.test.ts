@@ -148,8 +148,9 @@ describe("frozen indexed Merkle vectors", () => {
       );
       expect(customProof.merkleProof).toEqual(vector.customSentinel.proofBytes.map(hexBytes));
       expect(custom.verifyNonInclusionProof(customProof)).toBe(true);
-      expect(vector.customSentinel.appendAtSentinel).toBe(
-        "Err(Indexed(NewElementGreaterOrEqualToNextElement))",
+      expect(vector.customSentinel.appendAtSentinel).toBe("Err(ValueOutsideIndexedRange)");
+      expect(() => custom.insert(hexBytes(vector.customSentinel.sentinelBytes))).toThrow(
+        expect.objectContaining({ code: "INDEXED_MERKLE_TREE_INVALID_VALUE" }),
       );
       expect(vector.errors).toMatchObject({
         shortPath: "Reference(InvalidProofLength(3, 4))",

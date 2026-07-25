@@ -465,7 +465,7 @@
     "indexed": [
       {
         "customSentinel": {
-          "appendAtSentinel": "Err(Indexed(NewElementGreaterOrEqualToNextElement))",
+          "appendAtSentinel": "Err(ValueOutsideIndexedRange)",
           "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
           "proofBytes": [
             "2b52b90ca9a713e093c3278ea9e3518e5c383a256f790ca473e9fe8dfbe228c2",
@@ -610,7 +610,7 @@
       },
       {
         "customSentinel": {
-          "appendAtSentinel": "Err(Indexed(NewElementGreaterOrEqualToNextElement))",
+          "appendAtSentinel": "Err(ValueOutsideIndexedRange)",
           "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
           "proofBytes": [
             "9ebbcf3e7b9e01f8705586896d6cbb48280c6402e2e0a69e98228dd61130c1e8",
@@ -755,7 +755,7 @@
       },
       {
         "customSentinel": {
-          "appendAtSentinel": "Err(Indexed(NewElementGreaterOrEqualToNextElement))",
+          "appendAtSentinel": "Err(ValueOutsideIndexedRange)",
           "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
           "proofBytes": [
             "65ce8396b736f5da9d881cc6fbcb11ef9721292dc41ec8c40879fd9edea5744d",
@@ -941,6 +941,6 @@
   "rustPath": "sdk-libs/merkle-tree/src/lib.rs; sdk-libs/merkle-tree/src/indexed.rs; program-libs/hasher/src",
   "rustSymbol": "MerkleTree; IndexedMerkleTree; Poseidon; Sha256; Keccak",
   "schema": "zolana-ts-fixtures-v1",
-  "sourceRevision": "975783aa38b65734585f7749e347201fd67a2b71",
+  "sourceRevision": "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa",
   "version": "1"
 }
