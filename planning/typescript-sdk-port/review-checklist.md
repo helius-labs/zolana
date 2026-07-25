@@ -16,12 +16,12 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `97713a7e09e76ee06da8cb91229fbbaf80e98325`
+- Review HEAD: `11761d89fc639da660ef70f9494a52347082b4de`
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
 - Canonical Rust drift since freeze: `sdk-libs/merkle-tree/src/indexed.rs`
 - Primary rows: `118`
-- Progress: `33 done / 118 total`; `50 needs_fix`; `0 needs_re_review`; `0 in_progress`
-- Exact next eligible row: `T25 sdk-libs/transaction/src/instructions/transact/transfer.rs`
+- Progress: `33 done / 118 total`; `51 needs_fix`; `0 needs_re_review`; `0 in_progress`
+- Exact next eligible row: `T26 sdk-libs/transaction/src/instructions/transact/mod.rs`
 - Active reviews: `none`
 - Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
 - Last session: `2026-07-25`
@@ -243,7 +243,7 @@ Columns:
 | T22 | `sdk-libs/transaction/src/instructions/transact/slots.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | TypeScript has only an internal wallet adaptation and omits the public Rust slot struct and two helpers; runtime, copy, error, and export evidence is incomplete. Both implementations mirror one ciphertext per output, conflicting with `docs/spec.md` sender-bundle and recipient-ordinal mapping. First correct Rust's layout per spec, use checked slot conversion, and reject inconsistent hash-only output contexts; then align TypeScript without taking authority or serialization ownership from T13 or T03-T10. | 2026-07-25 review | - |
 | T23 | `sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | Core current-Rust proof assembly and frozen prover vectors match, but the public helper and `PublicAmounts` API disposition is incomplete; constructor, signature, error, mutation, and real-before-dummy validation differ; and boundary, property, tamper, declaration, and pack evidence is incomplete. Resolve the `docs/spec.md` P256 input-owner conflict with Rust, Go, and TypeScript behavior and add canonical BN254 validation to Rust before aligning the TypeScript API and evidence, while preserving client/prover and T19 ownership. | 2026-07-25 review | - |
 | T24 | `sdk-libs/transaction/src/instructions/transact/split.rs` | `transaction/src/instructions/builders.ts` | needs_fix | DIVERGENT | proposed | Valid fixed `1x8` split construction and bytes match, but Rust lacks required input-owner, nullifier, and dummy validation. TypeScript diverges in zone and amount error categories and details, public signing, fields, and `PreparedSplit.asset` surface, malformed prepared-state and ownership semantics, and evidence, export, and browser coverage. First add Rust ownership validation and named errors; then align TypeScript while preserving T08 serialization ownership. | 2026-07-25 review | - |
-| T25 | `sdk-libs/transaction/src/instructions/transact/transfer.rs` | `transaction/src/instructions/transact.ts` | todo | - | none | - | - | - |
+| T25 | `sdk-libs/transaction/src/instructions/transact/transfer.rs` | `transaction/src/instructions/transact.ts` | needs_fix | DIVERGENT | proposed | Valid transfer bytes and conservation match, but TypeScript pads during prepare rather than finalize, derives dummy tags from the sender rail, omits Rust public fields, types, direct signing, and chaining dispositions, and differs in ownership, withdrawal, amount, payload, error semantics, and evidence. Inherit T22's spec-conflicting ciphertext layout; first add Rust withdrawal-rail and range checks, excess-slot rejection, and checked recipient positions, then align TypeScript without taking T22 slot-layout or T23 proof-input ownership. | 2026-07-25 review | - |
 | T26 | `sdk-libs/transaction/src/instructions/transact/mod.rs` | `transaction/src/transact/index.ts` | todo | - | none | - | - | - |
 | T27 | `sdk-libs/transaction/src/instructions/merge.rs` | `transaction/src/instructions/builders.ts` | needs_fix | DIVERGENT | proposed | TypeScript uses the wrong nullifier authority, reports zone failures under the wrong error category, and does not reproduce `PreparedMerge` revalidation. Expiry handling, constants, public API, secret boundaries, and exact current-Rust evidence are also incomplete. Require the Rust-equivalent nullifier capability, align zone errors and revalidation, expose the canonical expiry and constants, and add exact, stale, malformed, capability, and secret-exposure fixtures. | 2026-07-25 review | - |
 | T28 | `sdk-libs/transaction/src/instructions/merge_zone.rs` | `transaction/src/instructions/builders.ts` | todo | - | none | - | - | - |
@@ -1513,3 +1513,16 @@ Copy this block for each wake. Do not rewrite earlier entries.
 - Progress: `33/118`; package `0/31`
 - Exact next file: `T25 sdk-libs/transaction/src/instructions/transact/transfer.rs`
 - Full SDK parity claim: unsupported; split validation, errors, public surface, prepared-state ownership, and evidence diverge
+
+### 2026-07-25 12:47 UTC | T25 | `sdk-libs/transaction/src/instructions/transact/transfer.rs`
+
+- Baseline: HEAD `11761d89fc639da660ef70f9494a52347082b4de`; fixture `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`; Rust drift `sdk-libs/merkle-tree/src/indexed.rs`
+- Worker: completed read-only review; implementation commit `none`
+- Explanation: This module owns transfer preparation, finalization, signing, and chaining. T22 retains slot-layout ownership, and T23 retains proof-input ownership.
+- Evidence: Valid transfer bytes and conservation match. TypeScript pads during prepare rather than finalize, derives dummy tags from the sender rail, omits Rust public fields, types, direct signing, and chaining dispositions, and differs in ownership, withdrawal, amount, payload, error semantics, and evidence. It also inherits T22's spec-conflicting ciphertext layout.
+- Verdict: `DIVERGENT`
+- Gap and smallest fix: First add Rust withdrawal-rail and range checks, excess-slot rejection, and checked recipient positions. Then align TypeScript's lifecycle, dummy tags, public surface, semantics, and evidence without taking T22 or T23 ownership.
+- Row transition: `todo -> needs_fix`
+- Progress: `33/118`; package `0/31`
+- Exact next file: `T26 sdk-libs/transaction/src/instructions/transact/mod.rs`
+- Full SDK parity claim: unsupported; transfer lifecycle, dummy tags, public surface, ownership, withdrawal, amount, payload, errors, slot layout, Rust validation, and evidence diverge
