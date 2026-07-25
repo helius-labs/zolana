@@ -3,6 +3,38 @@
 This directory defines the implementation contract for a TypeScript port of the
 Rust SDK.
 
+## What to do when you hit an open question
+
+Standing instruction from the protocol owner, 2026-07-26, binding on any agent
+working this port. It exists because the queue has repeatedly stalled on
+questions that were either not real or already answered somewhere.
+
+1. **Check the problem is real.** Reproduce it, read the current source on both
+   sides, and confirm it is not an artifact of a stale fixture, a cached build,
+   or a row description written before the code moved. A surprising number of
+   this port's blockers dissolved at this step: `create_two_inputs_hash_chain`
+   was recorded as a proof-path gap and has no production Rust callers, and
+   `T29` described a guard that exists in neither language.
+
+2. **If it is real, look at how Light Protocol solved it, and do that.** Light
+   is at `/Users/tilohelius/Workspace/light-protocol`, its TypeScript SDK is
+   `js/stateless.js`, and it is the mature lineage for this design. It has met
+   most of these problems already. Copy its answer rather than reasoning one out.
+
+3. **If Light has no answer, take the recommended path and record it.** Write the
+   question and what you chose into your row-updates file, marked for the
+   end-of-session report. Do not stop and wait.
+
+The rule outranks a reviewer's preference. Where this document or a row
+recommends one thing and Light does another, Light wins, and the row is what
+changes. Two things it does not outrank: the scope rule below, and the authority
+order, since neither is a matter of taste.
+
+Read
+[`light-protocol-comparison.md`](light-protocol-comparison.md) before invoking
+step 2, so you are comparing against what Light does rather than what it seems
+likely to do.
+
 ## Scope, which is narrower than it looks
 
 The port changes SDK crates. It does not change `programs/`, `program-libs/`,
