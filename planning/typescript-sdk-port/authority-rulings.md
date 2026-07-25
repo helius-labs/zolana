@@ -878,3 +878,17 @@ The narrower relaxation already in flight, admitting `amount > 0` so the check s
 | Follow-up artifacts | `row-updates/double-spend-analysis.md`, secondary finding |
 
 The finding stands as independent confirmation of work already underway rather than as a new obligation. Nothing in the TypeScript SDK constructs padding nullifiers, so no row changes either way and the fix arrives through the program rather than through this branch.
+
+### Where the `user_record` binding defect lands
+
+| Field | Value |
+| --- | --- |
+| Conflict | Three failing tests sit on the port branch for a program defect the SDK-only scope forbids fixing there. |
+| Ruling | Its own branch and pull request against the program, containing both the tests and the fix. The port branch drops the tests and stays green. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `row-updates/registry-merge-verification.md`, commit `cbf197e7` |
+
+Same disposition as the padding nullifier, for a different reason. That one already had a fix in flight and needed only to be left alone; this one had none anywhere, so leaving it alone would have dropped it. A separate pull request keeps the port free of protocol work without losing the finding.
+
+The fix must reckon with the two rails separately. Re-deriving the record's address may close the eddsa rail, because the circuit computes the input and output owner hashes from `signing_pk_field`, so a substituted key produces hashes that fail the inclusion check. The P256 rail probably does not close without a registry change: `owner_p256` is copied from instruction data at registration with no signature showing the registrant holds the matching private key, so establishing that the record is the canonical one for `record.owner` still leaves `owner_p256` an unverified claim. Requiring the record to sign is unavailable, because the spec makes merges callable by anyone (`docs/spec.md:1667`).
