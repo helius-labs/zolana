@@ -58,6 +58,11 @@ identical to the same code in Node:
 
 Decode, compile, instantiate, and two hashes cost 64 ms to `DOMContentLoaded`.
 
+**Superseded by "Poseidon packaging, second pass" below, on both counts.** The
+module-scope `await` is gone, and the 4 KB claim this paragraph rests on did not
+reproduce when tested directly. The paragraph stands as written because the
+owner's ruling was made on it.
+
 The `await` at module scope is load bearing, not stylistic. A browser refuses to
 compile a WebAssembly buffer larger than 4 KB synchronously on the main thread,
 and this one is 1.5 MB, so the alternative is an asynchronous `poseidon` and an
@@ -168,6 +173,138 @@ actually recur, without putting 585 KB into a package whose whole job is
 encoding. I did not build that split, because the ruling asked for one artifact
 and the honest way to price the alternative was to build the thing that was
 ruled and measure it. The measurement is above; the decision is the owner's.
+
+## Poseidon packaging, second pass
+
+The owner reversed on the loading arrangement after reading the measurement
+above, and recorded it at [authority-rulings.md](../authority-rulings.md),
+"Whether the WebAssembly Poseidon may use a module-scope await", with the work
+sequenced in
+[poseidon-wasm-and-packaging.md](../poseidon-wasm-and-packaging.md). Keep the
+artifact, drop the module-scope `await` for an explicit initializer, add a
+CommonJS build. Done in `21c9fe0b` and `7cb3e468`. The size table in PW-4 of the
+plan is updated from the same measurement recorded below.
+
+### The premise the plan rests on does not reproduce
+
+The plan, the ruling, and my own report above all state that a browser refuses
+to compile a WebAssembly buffer above 4 KB synchronously on the main thread, and
+that this is what forced the module-scope `await`. **That limit did not
+reproduce.** In Chrome 144, `new WebAssembly.Module` over the full 1,503,358-byte
+artifact on the main thread returns in 1 to 2 ms, instantiates against an empty
+import object, and hashes `poseidon([1, 2])` to `115cc0f5…17189a`, the same
+digest the fixture carries. No `await` anywhere in the page.
+
+The 4 KB ceiling was a V8 heuristic, and it is not in the way here. So a lazy
+synchronous load on first hash would have removed the module-scope `await` with
+no initializer, no API change, and no setup file in the suites.
+
+I implemented the ruling anyway, for two reasons rather than out of deference.
+One browser is not the web: Firefox and Safari were not testable here, and a
+runtime that does enforce the limit would fail hard at first hash rather than at
+a call the consumer can see and place. And the CommonJS build is the substantive
+half of the ruling, which stands on the packaging argument alone and does not
+need the sync-compile claim. But the plan's decisive constraint is not the
+constraint. What actually justifies the initializer is that it is the arrangement
+that behaves the same in every runtime, which is a weaker and more honest reason
+than the one recorded.
+
+### What the initializer costs, which the plan does not mention
+
+`poseidon()` throwing when uninitialized means every existing caller has to
+initialize, and 1,629 tests hash. They are served by one setup file,
+`sdk-libs/ts/config/poseidon.setup.mjs`, registered in the six vitest configs.
+The suites therefore do not exercise the uninitialized path;
+`hasher/test/initialization.test.ts` resets the singleton and covers it directly,
+including the double call, the concurrent call, and that a reload gives the same
+digest.
+
+The consumer-facing cost is the real one and it is a breaking change:
+`initializePoseidon` is now exported from `interface`, `keypair`, `merkle-tree`,
+`transaction`, `client`, and `wallet`, and an application that skips it gets a
+`HasherWasmError` at the first hash. That is the named failure the ruling chose
+over a silent wrong digest, and it is right, but it is an API break rather than
+an internal change.
+
+### The CommonJS build
+
+`tsc` emits `dist/es`; esbuild transpiles that tree into `dist/cjs`, and a
+`package.json` in each says which format it is. A second `tsc` invocation was
+the obvious route and does not work cleanly: the compiler takes a file's module
+format from the manifest beside the *sources*, which declares
+`"type": "module"`, so a CommonJS emit needs either a second manifest next to
+the sources or `verbatimModuleSyntax` turned off for that pass. Transpiling the
+output that was already checked cannot disagree with what was checked.
+`test-kit` reads `import.meta.url` and is never published, so it stays ESM only.
+
+Declarations are emitted once and copied into both trees. The text is identical;
+what differs is the manifest, which is what tells TypeScript to read the copy in
+`dist/cjs` as CommonJS. The exports map therefore nests `types` inside each of
+`import` and `require` rather than hoisting one `types` key, because a CommonJS
+consumer resolving the ESM declarations is told about a default export that does
+not exist. `pack:check` proves this rather than asserting it: it typechecks a
+`.cts` consumer against the packed tarballs.
+
+### Do both formats load and agree
+
+Yes.
+
+| | Loads | `poseidon([1, 2])` |
+| --- | --- | --- |
+| ESM, Node 20 and 22 | yes | `115cc0f5…17189a` |
+| CommonJS, Node 20 and 22 | yes | `115cc0f5…17189a` |
+| ESM, Chrome 144 | yes | `115cc0f5…17189a` |
+
+`hasher/test/module-formats.test.ts` holds the two builds to each other across
+all 100 fixture vectors and the four short-input cases, having loaded the
+CommonJS build through `createRequire` and the ESM build through `import` in one
+process. `pack:check` repeats the comparison against the published tarballs
+under Node 20 and Node 22, so a packaging change that silently served one format
+from the other's files would fail there.
+
+### Sizes, re-measured
+
+Each package bundled alone with esbuild and minified, then gzipped. "Before" is
+the same measurement on `4de089cc`, the base of this branch, so it supersedes
+the earlier table rather than restating it; those numbers were taken on an older
+base and are 0.3 to 1.5 KB off.
+
+| Package | Before | ESM after | CommonJS after | Growth, ESM |
+| --- | --- | --- | --- | --- |
+| `interface` | 11.6 KB | 578.4 KB | 581.4 KB | 49.7x |
+| `merkle-tree` | 12.3 KB | 581.9 KB | 597.5 KB | 47.3x |
+| `keypair` | 30.6 KB | 603.6 KB | 630.6 KB | 19.7x |
+| `transaction` | 45.5 KB | 618.7 KB | 650.6 KB | 13.6x |
+| `client` | 59.0 KB | 636.2 KB | 688.6 KB | 10.8x |
+
+The CommonJS build does not change the arithmetic. It costs 3 KB to 52 KB
+gzipped over the ESM build of the same package, which is the transpiler's
+interop preamble per module rather than a second copy of the artifact, and a
+consumer resolves one format or the other, never both. The artifact is 584.1 KB
+gzipped and is paid once per application.
+
+What does double is `dist` on disk, since both trees carry the inlined artifact
+and a full set of declarations. That is a publishing cost.
+
+### Gates
+
+`build`, `typecheck`, `lint:packages`, and `test:unit` pass; 1,629 tests, up
+from 1,619 at the base.
+
+`check:packaging` passes through `test:inventory`, `test:exports`,
+`test:dependencies`, and `api:check`, then fails at `test:browser` on
+`globalThis.process`. That is the `client/src/prover/client.ts:435`
+`localProverUrl` leak, now owned by another agent on `port/ci-green`; it is
+theirs and this branch does not touch it. Everything downstream of it was run
+with that one expression stubbed out locally and passes: the tarball checks for
+all ten production packages, the CommonJS and ESM consumers under Node 20 and
+22, the `.mts` and `.cts` type consumers, and the packed browser bundle. Per
+package, `browser-check.mjs` passes for `hasher`, `interface`, `keypair`,
+`merkle-tree`, `transaction`, and `wallet`, and fails only for `client`.
+
+The browser check was not weakened; it is still the bundle-level scan that
+caught the leak in the first place, and the control is that removing the leak is
+what makes it pass.
 
 ## H05 `program-libs/hasher/src/hash_chain.rs`
 

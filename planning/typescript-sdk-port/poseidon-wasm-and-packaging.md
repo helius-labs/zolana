@@ -65,6 +65,20 @@ A test that requires the CommonJS build from CommonJS and imports the ESM build 
 
 Re-measure the gzipped size per package for both formats and update this document. If the CommonJS build changes the arithmetic materially, say so plainly rather than leaving the earlier table standing.
 
+**Measured 2026-07-26**, on `port/hashers-b` at the integration tip, each package bundled alone with esbuild and minified. The "before" column is the same measurement taken on the base commit with the artifact absent, so it supersedes the estimate in the history section above rather than restating it.
+
+| Package | Before, gzipped | ESM after | CommonJS after | Growth, ESM |
+| --- | --- | --- | --- | --- |
+| `interface` | 11.6 KB | 578.4 KB | 581.4 KB | 49.7x |
+| `merkle-tree` | 12.3 KB | 581.9 KB | 597.5 KB | 47.3x |
+| `keypair` | 30.6 KB | 603.6 KB | 630.6 KB | 19.7x |
+| `transaction` | 45.5 KB | 618.7 KB | 650.6 KB | 13.6x |
+| `client` | 59.0 KB | 636.2 KB | 688.6 KB | 10.8x |
+
+The CommonJS build does not change the arithmetic. It costs between 3 KB and 52 KB gzipped over the ESM build of the same package, which is the transpiler's interop preamble per module and not a second copy of the artifact; the artifact itself is 584.1 KB gzipped and is paid once either way. Only one format reaches a given consumer.
+
+The `dist` directory on disk roughly doubles, since both trees carry the inlined artifact and a full set of declarations. That is a publishing cost, not a consumer one.
+
 ## What not to do
 
 Do not weaken a gate to pass. Do not reintroduce a hand-written Poseidon anywhere, including as a fallback for environments where the artifact fails to load: a fallback that produces digests by a second code path is the defect class returning by the back door. Do not make `poseidon()` async, since that pushes an await into each hashing call site across the five packages. Do not edit `programs/**`, `program-libs/**`, `prover/**`, or `docs/spec.md`; the Rust Poseidon is compiled through a thin wrapper crate that depends on it, and that wrapper is the only new Rust.
