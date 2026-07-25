@@ -371,6 +371,29 @@ describe("manifest-verified transaction builders", () => {
     );
     expect(hex(proof.externalData.hash())).toBe(fixtureString(expected, "externalDataHashBytes"));
     expect(hex(proof.messageHash())).toBe(fixtureString(expected, "messageHashBytes"));
+
+    // The keypair rail reaches the same assembly as the authority rail above,
+    // deriving the salt and the transaction viewing key instead of taking them.
+    const keypairRail = withRandom(
+      seed,
+      () =>
+        new ConfidentialTransfer(
+          sender.keypair.shieldedAddress(),
+          spends,
+          encodeAddress(hexBytes(fixtureString(inputs, "payerBytes"))),
+        ),
+    );
+    keypairRail.send(
+      receiver.shieldedAddress(),
+      SOL_MINT,
+      BigInt(fixtureString(inputs, "recipientAmount")),
+    );
+    const signedTransfer = keypairRail.sign(sender.keypair, registry);
+    expect(signedTransfer.checkShape()).toEqual(prepared.shape);
+    expect(signedTransfer.externalData.outputs.map((output) => hex(output.utxoHash))).toEqual(
+      prepared.outputs.map((output) => hex(output.hash())),
+    );
+
     const firstSpend = spends[0];
     if (!firstSpend) throw new Error("fixture input missing");
 

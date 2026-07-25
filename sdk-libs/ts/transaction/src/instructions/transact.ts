@@ -12,8 +12,10 @@ import {
 } from "@zolana/interface";
 import {
   P256PublicKey,
+  ShieldedKeypair,
   SigningKey,
   ViewingKey,
+  randomSalt,
   type ShieldedAddress,
   type SignatureType,
 } from "@zolana/keypair";
@@ -42,7 +44,7 @@ import {
   deriveBlinding,
   type ProofOutputUtxo,
 } from "../utxo.js";
-import { SOL_ASSET_ID } from "../wallet/asset.js";
+import { SOL_ASSET_ID, type AssetRegistry } from "../wallet/asset.js";
 
 export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
@@ -575,6 +577,26 @@ export class ConfidentialTransfer {
         finalizeTransfer(preparedBase, encrypted),
     });
   }
+
+  /**
+   * Keypair rail: encrypt every real slot with the owner's own viewing key and
+   * sign in place. The authority rail is `prepare` plus `PreparedTransfer.finalize`,
+   * with encryption and signing delegated to a `WalletAuthority`.
+   */
+  sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
+    const prepared = this.prepare();
+    const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
+    const salt = randomSalt();
+    const signed = prepared.finalize({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: encodeConfidentialSlots(prepared.outputs, assets, tx, salt),
+    });
+    if (keypair.signingPublicKey().signatureType() === "p256") {
+      signed.applyP256Signature(keypair.signP256(signed.messageHash()));
+    }
+    return signed;
+  }
 }
 
 function finalizeTransfer(
@@ -687,6 +709,44 @@ function randomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length);
   globalThis.crypto.getRandomValues(bytes);
   return bytes;
+}
+
+/**
+ * Encode each real output as its own confidential ciphertext, keyed to that
+ * output's owner viewing key, at `slotIndex == output position`. Dummy outputs
+ * yield `undefined`; the transfer builder fills those positions with a
+ * length-matched random ciphertext under the padded tag.
+ */
+export function encodeConfidentialSlots(
+  outputs: readonly ProofOutputUtxo[],
+  assets: AssetRegistry,
+  tx: ViewingKey,
+  salt: Bytes16,
+): readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[] {
+  return outputs.map((output, slotIndex) => {
+    const address = output.ownerAddress;
+    if (output.isDummy() || address === undefined) return undefined;
+    return {
+      viewTag: address.signingPublicKey.confidentialViewTag(),
+      data: encodeOutputData(
+        EncryptedScheme.confidential,
+        encryptConfidential(
+          tx,
+          address.viewingPublicKey,
+          {
+            assetId: assets.assetId(output.asset),
+            amount: output.amount,
+            blinding: output.blinding,
+            ...(output.zoneProgramId === undefined ? {} : { zoneProgramId: output.zoneProgramId }),
+            data: output.data,
+          },
+          salt,
+          slotOrdinal(slotIndex),
+        ),
+        "encrypted",
+      ),
+    };
+  });
 }
 
 function dummyViewTag(rail: SignatureType): Bytes32 {

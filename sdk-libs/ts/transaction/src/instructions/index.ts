@@ -18,6 +18,7 @@ export {
   assetField,
   canonicalShape,
   createExternalData,
+  encodeConfidentialSlots,
   resolveShape,
   signedToField,
   slotOrdinal,

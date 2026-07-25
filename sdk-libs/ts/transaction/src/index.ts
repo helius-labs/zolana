@@ -27,6 +27,7 @@ export {
   assetField,
   canonicalShape,
   createExternalData,
+  encodeConfidentialSlots,
   prepareZoneAuthority,
   resolveShape,
   signedToField,
