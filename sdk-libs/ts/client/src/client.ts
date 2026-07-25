@@ -29,10 +29,11 @@ import { assemble } from "./prover/assembly.js";
 import { ProverClient, proveMerge, proveMergeZone } from "./prover/client.js";
 import { assembleMerge, assembleMergeZone } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
-import { DEFAULT_INDEXER_POLL_CONFIG, pollUntil } from "./retry.js";
+import { DEFAULT_INDEXER_POLL_CONFIG, pollUntil, validatePollConfig } from "./retry.js";
 import {
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
+  type IndexerPollConfig,
   type IndexerRpcConfig,
   type Rpc,
   type RpcAccount,
@@ -70,6 +71,11 @@ export class ZolanaClient implements Rpc {
   readonly #prover: ProverClient;
   readonly #computeUnitLimit: number;
   readonly #computeUnitPrice: bigint | undefined;
+  /// `ZolanaClient::indexer_config.poll` in Rust, which
+  /// `with_indexer_poll_config` overrides. Confirmation polled a hard-coded
+  /// default before, so a caller who shortened or lengthened the schedule got
+  /// the default anyway.
+  readonly #indexerPollConfig: IndexerPollConfig;
 
   constructor(
     input: Readonly<{
@@ -79,6 +85,7 @@ export class ZolanaClient implements Rpc {
       tree: Address;
       computeUnitLimit?: number;
       computeUnitPriceMicroLamports?: bigint;
+      indexerPollConfig?: IndexerPollConfig;
     }>,
   ) {
     const candidate: unknown = input;
@@ -119,6 +126,15 @@ export class ZolanaClient implements Rpc {
     this.#prover = input.prover;
     this.tree = input.tree;
     this.#computeUnitPrice = input.computeUnitPriceMicroLamports;
+    const poll = input.indexerPollConfig ?? DEFAULT_INDEXER_POLL_CONFIG;
+    validatePollConfig(poll);
+    this.#indexerPollConfig = poll;
+  }
+
+  /// The poll schedule confirmation uses, mirroring Rust's
+  /// `ZolanaClient::indexer_config`.
+  get indexerPollConfig(): IndexerPollConfig {
+    return this.#indexerPollConfig;
   }
 
   getAccount(address: Address, context?: RequestContext): Promise<RpcAccount | undefined> {
@@ -475,14 +491,14 @@ export class ZolanaClient implements Rpc {
         () => this.rpc.confirmTransaction(signature, context),
         (confirmed) => confirmed,
         {
-          config: DEFAULT_INDEXER_POLL_CONFIG,
+          config: this.#indexerPollConfig,
           ...(context === undefined ? {} : { context }),
         },
       );
     } catch (cause) {
       if (!isClientError(cause) || cause.code !== "CLIENT_POLL_TIMED_OUT") throw cause;
       throw new ClientError("CLIENT_CONFIRMATION_TIMEOUT", {
-        details: { signature, attempts: DEFAULT_INDEXER_POLL_CONFIG.numRetries + 1 },
+        details: { signature, attempts: this.#indexerPollConfig.numRetries + 1 },
         cause,
       });
     }
@@ -490,20 +506,20 @@ export class ZolanaClient implements Rpc {
     if (tags.length === 0) throw new ClientError("CLIENT_MISSING_OUTPUT");
     try {
       await pollUntil(
-        () => this.indexer.getShieldedTransactionsByTags({ tags }, undefined, context),
-        (response) => {
-          const matched = response.transactions.find(
-            (transaction) => transaction.txSignature === signature,
-          );
-          if (matched === undefined) return false;
-          const indexed = [
-            ...matched.outputSlots.map((slot) => slot.viewTag),
-            ...matched.messages.map((message) => message.viewTag),
-          ];
-          return tags.every((tag) => indexed.some((item) => equal(item, tag)));
-        },
+        // `wait_for_indexed_transaction` sends `Some(50)`; omitting it left the
+        // page size to the server, so a busy tag could push the signature off
+        // the first page.
+        () =>
+          this.indexer.getShieldedTransactionsByTags({ tags, limit: 50 }, undefined, context),
+        // Rust accepts the signature alone. Re-checking that every requested
+        // tag reappears in `outputSlots`/`messages` made this reject records
+        // Rust confirms: the indexer answers a tag query with the whole
+        // transaction, and which slot carries a tag is the indexer's business,
+        // not a confirmation precondition.
+        (response) =>
+          response.transactions.some((transaction) => transaction.txSignature === signature),
         {
-          config: DEFAULT_INDEXER_POLL_CONFIG,
+          config: this.#indexerPollConfig,
           ...(context === undefined ? {} : { context }),
         },
       );
@@ -514,7 +530,7 @@ export class ZolanaClient implements Rpc {
         details: {
           signature,
           expectedTags: tags.length,
-          attempts: DEFAULT_INDEXER_POLL_CONFIG.numRetries + 1,
+          attempts: this.#indexerPollConfig.numRetries + 1,
         },
         cause,
       });

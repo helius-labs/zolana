@@ -356,6 +356,133 @@ describe("ZolanaIndexer and ZolanaClient", () => {
     expect(calls).toBe(2);
   });
 
+  // `wait_for_indexed_transaction` in `sdk-libs/client/src/client.rs` accepts on
+  // `item.tx_signature == signature` and looks at nothing else. Requiring every
+  // requested tag to reappear in `output_slots`/`messages` made this reject a
+  // record Rust confirms.
+  it("confirms the record Rust confirms, without re-checking where the tags landed", async () => {
+    vi.useFakeTimers();
+    const api = new ZolanaApi({
+      url: "https://indexer.example.test",
+      fetch: vi.fn(() =>
+        Promise.resolve(
+          envelope({
+            context: { block_time: 1 },
+            transactions: [
+              {
+                slot: 1,
+                tx_signature: SIGNATURE,
+                tx_viewing_pk: null,
+                salt: null,
+                output_slots: [],
+                messages: [],
+                nullifiers: [],
+                proofless: true,
+              },
+            ],
+            next_cursor: null,
+          }),
+        ),
+      ),
+    });
+    const rpc = fakeRpc({
+      confirmTransaction: () => Promise.resolve(true),
+      transactOutputViewTags: () => Promise.resolve([ZERO, ONE]),
+    });
+    const pending = client(new ZolanaIndexer(api), rpc).confirmPrivateTransaction(SIGNATURE);
+    await vi.runAllTimersAsync();
+
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  // `wait_for_indexed_transaction` passes `Some(50)`. Sending no limit left the
+  // page size to the server.
+  it("asks for the same page size the Rust confirmation asks for", async () => {
+    vi.useFakeTimers();
+    const bodies: unknown[] = [];
+    const api = new ZolanaApi({
+      url: "https://indexer.example.test",
+      fetch: vi.fn((_url: unknown, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return Promise.resolve(
+          envelope({
+            context: { block_time: 1 },
+            transactions: [
+              {
+                slot: 1,
+                tx_signature: SIGNATURE,
+                tx_viewing_pk: null,
+                salt: null,
+                output_slots: [],
+                messages: [],
+                nullifiers: [],
+                proofless: true,
+              },
+            ],
+            next_cursor: null,
+          }),
+        );
+      }),
+    });
+    const rpc = fakeRpc({
+      confirmTransaction: () => Promise.resolve(true),
+      transactOutputViewTags: () => Promise.resolve([ZERO]),
+    });
+    const pending = client(new ZolanaIndexer(api), rpc).confirmPrivateTransaction(SIGNATURE);
+    await vi.runAllTimersAsync();
+    await pending;
+
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({ params: { limit: 50 } });
+  });
+
+  // Rust polls `self.indexer_config.poll`, which `with_indexer_poll_config`
+  // overrides. Confirmation used the hard-coded default here, so a caller who
+  // configured a shorter schedule still waited out the default.
+  it("honors the configured poll schedule rather than the default", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const api = new ZolanaApi({
+      url: "https://indexer.example.test",
+      fetch: vi.fn(() => {
+        calls++;
+        return Promise.resolve(
+          envelope({
+            context: { block_time: 1 },
+            transactions: [],
+            next_cursor: null,
+          }),
+        );
+      }),
+    });
+    const rpc = fakeRpc({
+      confirmTransaction: () => Promise.resolve(true),
+      transactOutputViewTags: () => Promise.resolve([ZERO]),
+    });
+    const configured = new ZolanaClient({
+      rpc,
+      indexer: new ZolanaIndexer(api),
+      prover: new ProverClient({
+        url: "https://prover.example.test",
+        fetch: vi.fn(() => Promise.reject(new Error("prover must not be called"))),
+      }),
+      tree: TREE,
+      indexerPollConfig: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
+    });
+    expect(configured.indexerPollConfig.numRetries).toBe(1);
+
+    const pending = configured.confirmPrivateTransaction(SIGNATURE);
+    const rejection = expect(pending).rejects.toEqual(
+      expect.objectContaining({
+        code: "CLIENT_INDEXER_TIMEOUT",
+        details: expect.objectContaining({ attempts: 2 }),
+      }),
+    );
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(calls).toBe(2);
+  });
+
   it("rejects a wrong-signature Photon response after the bounded retry schedule", async () => {
     vi.useFakeTimers();
     const api = new ZolanaApi({
