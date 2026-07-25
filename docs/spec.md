@@ -1227,12 +1227,11 @@ Usage by instruction:
 | transact | Tag 0; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
 | deposit | Tag 1; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`deposit`](#deposit). |
 | zone_transact | Tag 2; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the zone auditor key and the recipient keys named in the policy proof |
-| zone_deposit | Tag 1; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`deposit`](#deposit). |
 | zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
 | create_spl_interface | Tag 4; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
 | create_tree | Tag 5; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
 | create_protocol_config | Tag 6; the transaction signer must equal the `protocol_authority` it writes |
-| update_protocol_config | Tag 7; gated by `protocol_config.protocol_authority`; rewrites every authority and flag |
+| update_protocol_config | Tag 7; gated by `protocol_config.protocol_authority`; writes one authority or flag per call. See [Protocol config updates](#protocol-config-updates). |
 | pause_tree | Tag 8; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
 | create_zone_config | Tag 9; creates the zone's `zone_config` (the `zone_auth` PDA), which must sign its own creation; the payer must equal `protocol_config.zone_creation_authority` unless `zone_creation_is_permissionless`. See [Zone Accounts](#zone-accounts). |
 | update_zone_config_owner | Tag 10; rotates `zone_config.authority`. Signer must equal current `authority`. |
@@ -1438,34 +1437,84 @@ GeneralEvent {
 
 **Accounts**
 
+Six accounts settle a SOL deposit, seven an SPL deposit. The program selects the
+branch by how many accounts remain after the fixed prefix
+(`deposit/account.rs:62`), and rejects any account beyond the last one it
+consumes (`account.rs:112-114`), so neither table may be padded.
+
+Both forms start with:
+
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | UTXO tree |
-| 2 | payer |   | x | depositor; signer authorizes any attached `utxo_data` |
+| 2 | depositor | x | x | funds the deposit; the signer authorizes any attached `utxo_data` (`deposit/processor.rs:43-46`) |
+
+SOL settlement (`account.rs:88-97`):
+
+| # | Name | W | S | Description |
+| --- | --- | --- | --- | --- |
+| 3 | system_program |   |   | must be the system program |
+| 4 | sol_interface | x |   | the SOL interface PDA that receives the lamports |
+| 5 | user_sol | x |   | lamport source; must equal `depositor` |
+| 6 | program |   |   | SPP's own account, for the [`emit_event`](#instructions) self-CPI in check 7 |
+
+SPL settlement (`account.rs:65-76`):
+
+| # | Name | W | S | Description |
+| --- | --- | --- | --- | --- |
+| 3 | user_token | x |   | depositor's token account |
+| 4 | vault | x |   | per-mint SPL interface vault |
+| 5 | registry |   |   | the mint's `Asset registry` PDA; supplies the deposited asset (`account.rs:171`) |
+| 6 | token_program |   |   | SPL Token or Token-22 |
+| 7 | program |   |   | SPP's own account, for the [`emit_event`](#instructions) self-CPI in check 7 |
 
 **Instruction data**
+
+The program deserializes with `wincode::deserialize_exact`
+(`instruction_data/deposit.rs:48`), so a payload of any other shape is rejected
+whole rather than partially accepted.
 
 ```rust
 struct DepositIxData {
     /// Recipient's signing pubkey (eddsa: the 32-byte key; P256: the
     /// X-coordinate); the indexing tag for the single output slot.
+    view_tag: [u8; 32],
+    /// Recipient `owner_hash`, not a pubkey; nested with `blinding` into the
+    /// UTXO's `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
     owner: [u8; 32],
-    /// Recipient `owner_hash`; nested with `blinding` into the UTXO's
-    /// `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
-    owner_hash: [u8; 32],
     /// Fresh CSPRNG per deposit, sent in the clear; the recipient spends it
     /// directly.
     blinding: [u8; 31],
-    /// `Some` for a SOL deposit.
-    public_sol_amount: Option<u64>,
-    /// `Some` for an SPL deposit.
-    public_spl_amount: Option<u64>,
-    /// Data hash; authorized by the `payer` signer.
-    data_hash: Option<[u8; 32]>,
-    /// Preimage of `data_hash`.
-    utxo_data: Option<Vec<u8>>,
+    /// Deposited amount; rejected when zero. The asset is not in instruction
+    /// data: it comes from the settlement accounts.
+    amount: u64,
+    /// Application data committed into the UTXO's `data_hash`, authorized by
+    /// the `depositor` signer.
+    utxo_data: Option<UtxoData>,
+    /// Free-form memo carried in the clear with the output. No hash covers it,
+    /// so it is informational.
+    memo: Option<Vec<u8>>,
+}
+
+struct UtxoData {
+    data_hash: [u8; 32],
+    /// `u16` length prefix.
+    data: Vec<u8>,
 }
 ```
+
+<a id="deposit-discovery"></a>
+**Discovery.** The program never reads `view_tag`. It copies the value into the
+event's output slot unread (`deposit/processor.rs:50`, `deposit/event.rs:44`),
+Photon persists it per output
+(`ingester/persist/rings_transactions.rs:113`), and
+[`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags)
+filters on that column, which is the only path by which a wallet finds an
+incoming deposit. A depositor that writes any other value still produces a
+valid, spendable UTXO, so the recipient's wallet simply never returns it and
+nothing anywhere reports an error. The recipient's signing pubkey reaches the
+indexer through this field alone: it is not in the payload's `owner`, which
+carries the `owner_hash`.
 
 <a id="blinding-derivation"></a>
 **Blinding.** `blinding` is a fresh 31-byte CSPRNG value the depositor sends in
@@ -1475,12 +1524,12 @@ the instruction data. It is not derived; the recipient reads it back from the
 **Checks**
 
 1. `tree_account` is not paused.
-2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
-3. `data_hash` and `utxo_data` are either both set or both absent; when set, the `payer` signer authorizes them. SPP commits the hash unchecked.
-4. Compute `owner_utxo_hash = Poseidon(owner_hash, blinding)`, then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `data_hash` from instruction data or `0`, `zone_program_id` is `0`, `zone_data_hash` is `0`.
+2. `depositor` signs, and `amount` is non-zero (`deposit/processor.rs:92-94`).
+3. `utxo_data`, when present, is authorized by the `depositor` signer. SPP commits its `data_hash` unchecked.
+4. Compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `amount` from instruction data and `asset` from the settlement accounts (all-zero for SOL, the mint the `registry` account holds for SPL), `data_hash` from `utxo_data` or `0`, `zone_program_id` is `0`, `zone_data_hash` is `0`.
 5. Append the hash to the UTXO tree.
-6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
-7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
+6. Transfer the deposit: SOL `depositor → sol interface account`, or CPI the token program `user_token → vault`.
+7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, which is why the trailing `program` account is passed.
 
 **Event**
 
@@ -1493,14 +1542,15 @@ GeneralEvent {
     // No UTXOs are spent.
     inputs: vec![],
     outputs: vec![OutputUtxo {
-        // The recipient's signing pubkey; lets them index the deposit by their
-        // own pubkey.
-        owner,
+        // The payload's view_tag, copied through unread: the recipient's
+        // signing pubkey, which is how they find the deposit.
+        owner: view_tag,
         utxo_hash,
-        // owner_hash and blinding are public; the recipient spends from them directly.
+        // The payload's owner (the recipient's owner_hash) and blinding are
+        // public; the recipient spends from them directly.
         // zone_data_hash and zone_data only set by zone_deposit.
         data: serialize(OutputData::Proofless(ProoflessOutput {
-            owner_hash,
+            owner_hash: owner,
             blinding,
             asset,
             amount,
@@ -1522,11 +1572,11 @@ GeneralEvent {
 }
 ```
 
-`data_hash` and `utxo_data` are set when the payer attaches them,
-else `None`. `zone_program_id`, `zone_data_hash`, and `zone_data` are set only by
-[`zone_deposit`](#zone_deposit). SPP does not interpret
-`utxo_data`; it copies the hash and preimage from instruction data into the event
-unchecked.
+`data_hash` and `utxo_data` come from the payload's `utxo_data` when the
+depositor attaches it, else `None`. `zone_program_id`, `zone_data_hash`, and
+`zone_data` are set only by [`zone_deposit`](#zone_deposit). SPP does not
+interpret `utxo_data`; it copies the hash and preimage from instruction data
+into the event unchecked, and carries the `memo` through the same way.
 
 
 ### General Event
@@ -1619,32 +1669,43 @@ struct DepositWithdraw {
 
 **Accounts**
 
+Seven accounts settle a SOL deposit, eight an SPL deposit: the
+[`deposit`](#deposit) sets with `zone_config` inserted after the depositor
+(`deposit/account.rs:49-55`). The trailing `program` account is required here
+too.
+
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | UTXO tree |
-| 2 | payer |   | x | depositor |
+| 2 | depositor | x | x | funds the deposit |
 | 3 | zone_config |   | x | the zone's `zone_auth` PDA; signs. See [Zone Accounts](#zone-accounts) |
+| 4.. | settlement | | | the SOL or SPL accounts from [`deposit`](#deposit), then `program` |
 
 **Instruction data**
+
+Deserialized with `wincode::deserialize_exact`
+(`instruction_data/deposit.rs:87`), as in [`deposit`](#deposit).
 
 ```rust
 struct ZoneDepositIxData {
     /// Indexing tag for the output slot; a policy-zone view tag in an anonymous
     /// zone, or the recipient `owner` pubkey otherwise.
     view_tag: [u8; 32],
+    /// Recipient `owner_hash`, as in `deposit`.
     owner: [u8; 32],
     blinding: [u8; 31],
-    public_sol_amount: Option<u64>,
-    public_spl_amount: Option<u64>,
-    /// Zone-defined data hash. The zone `program_id` is not in instruction data;
-    /// it is read from the signing `zone_config` account.
-    zone_data_hash: Option<[u8; 32]>,
-    /// Preimage of `zone_data_hash`.
-    zone_data: Option<Vec<u8>>,
-    /// Program-defined data hash.
-    data_hash: Option<[u8; 32]>,
-    /// Preimage of `data_hash`.
-    utxo_data: Option<Vec<u8>>,
+    /// Deposited amount; rejected when zero. The asset comes from the
+    /// settlement accounts.
+    amount: u64,
+    /// Zone-defined data hash, always present. The zone `program_id` is not in
+    /// instruction data; it is read from the signing `zone_config` account.
+    zone_data_hash: [u8; 32],
+    /// Preimage of `zone_data_hash`; `u16` length prefix, empty when unused.
+    zone_data: Vec<u8>,
+    /// Program-defined data, authorized by the `zone_config` signer.
+    utxo_data: Option<UtxoData>,
+    /// Free-form memo carried in the clear with the output.
+    memo: Option<Vec<u8>>,
 }
 ```
 
@@ -1653,11 +1714,11 @@ struct ZoneDepositIxData {
 **Checks**
 
 1. `tree_account` is not paused.
-2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
+2. `depositor` signs, and `amount` is non-zero (`deposit/processor.rs:67-70`, `:92-94`).
 3. The `zone_config` account must sign; SPP loads it by owner + discriminator (see [Zone Accounts](#zone-accounts)).
-4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `data_hash` and `zone_data_hash` from instruction data or `0`, `zone_program_id` from `zone_config.program_id`, `owner_utxo_hash` from instruction data.
+4. Compute the [UTXO hash](#utxo-hash): `amount` from instruction data and `asset` from the settlement accounts (all-zero for SOL, the mint the `registry` account holds for SPL), `data_hash` from `utxo_data` or `0`, `zone_data_hash` from instruction data, `zone_program_id` from `zone_config.program_id`, `owner_utxo_hash` from `owner` and `blinding`.
 5. Append the hash to the UTXO tree.
-6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
+6. Transfer the deposit: SOL `depositor → sol interface account`, or CPI the token program `user_token → vault`.
 7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, as in [`deposit`](#deposit) but with the output's `OutputData::Proofless` payload carrying `zone_program_id`, `zone_data_hash`, `data_hash`, `utxo_data`, and `zone_data`.
 
 ### `merge_transact`
