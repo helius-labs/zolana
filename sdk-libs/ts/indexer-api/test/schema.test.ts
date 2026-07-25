@@ -91,8 +91,12 @@ describe("indexer schema", () => {
 
   it("rejects malformed scalar values and limit boundaries", () => {
     expectSchemaError(() => base64String("A==="), "INDEXER_SCHEMA_INVALID_BASE64", "$");
-    expectSchemaError(() => hash("short"), "INDEXER_SCHEMA_INVALID_HASH", "$");
-    expectSchemaError(() => hash(new Uint8Array(31) as never), "INDEXER_SCHEMA_INVALID_HASH", "$");
+    expectSchemaError(() => hash("short"), "INDEXER_SCHEMA_HASH_WRONG_SIZE", "$");
+    expectSchemaError(
+      () => hash(new Uint8Array(31) as never),
+      "INDEXER_SCHEMA_HASH_WRONG_SIZE",
+      "$",
+    );
     expectSchemaError(() => limit(0n), "INDEXER_SCHEMA_INVALID_LIMIT", "$");
     expectSchemaError(() => limit(1001n), "INDEXER_SCHEMA_INVALID_LIMIT", "$");
   });
@@ -176,7 +180,7 @@ describe("indexer schema", () => {
           context: CONTEXT,
           proofs: [{ ...PROOF, path: [HASH, "short"] }],
         }),
-      "INDEXER_SCHEMA_INVALID_HASH",
+      "INDEXER_SCHEMA_HASH_WRONG_SIZE",
       "$.proofs[0].path[1]",
     );
     expectSchemaError(

@@ -144,11 +144,13 @@ function compilePayload(
       return existingIndex;
     }
 
-    if (accounts.length === MAX_U8) {
+    // The payload references accounts by u8 index, so the compiled list holds
+    // 256 entries rather than 255: the bound is on the index it hands back.
+    if (accounts.length > MAX_U8) {
       throw new SmartAccountClientError(
         "SMART_ACCOUNT_TOO_MANY_ACCOUNTS",
         "compiled account count exceeds u8",
-        { details: { maximum: MAX_U8 } },
+        { details: { maximum: MAX_U8 + 1 } },
       );
     }
     const index = accounts.length;

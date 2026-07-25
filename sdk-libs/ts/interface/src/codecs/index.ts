@@ -25,6 +25,11 @@ import {
   type TransactProof,
   type ZoneConfigAccount,
 } from "../index.js";
+import {
+  MERGE_ENCRYPTED_UTXO_LENGTH,
+  MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
+  MERGE_INPUT_COUNT,
+} from "../constants.js";
 import { StateDiscriminator } from "../state.js";
 import {
   Reader,
@@ -439,12 +444,30 @@ export const transactInstructionDataCodec: Codec<TransactInstructionData> = {
   },
 };
 
+/**
+ * Recorded divergence from `program-libs/interface`, pinned by
+ * `interface/test/vectors/rust-oracle.test.ts`. `MergeTransactIxData` carries no
+ * prefix rule, so Rust reads and writes any first byte and the shielded-pool
+ * program is what refuses a non-canonical one with `InvalidMergeOutputScheme`.
+ * Both merge codecs route through here so the pending ruling on whether the SDK
+ * should refuse this early is a change in one place.
+ */
+function checkMergeOutputScheme(encryptedUtxo: Uint8Array): void {
+  if (encryptedUtxo[0] !== MERGE_ENCRYPTED_UTXO_TYPE_PREFIX) {
+    fail("INTERFACE_CODEC", {
+      name: "encryptedUtxo.typePrefix",
+      expected: MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
+      actual: encryptedUtxo[0],
+    });
+  }
+}
+
 function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
   if (
-    value.nullifiers.length !== 8 ||
-    value.utxoTreeRootIndexes.length !== 8 ||
-    value.nullifierTreeRootIndexes.length !== 8 ||
-    value.encryptedUtxo.length !== 110
+    value.nullifiers.length !== MERGE_INPUT_COUNT ||
+    value.utxoTreeRootIndexes.length !== MERGE_INPUT_COUNT ||
+    value.nullifierTreeRootIndexes.length !== MERGE_INPUT_COUNT ||
+    value.encryptedUtxo.length !== MERGE_ENCRYPTED_UTXO_LENGTH
   ) {
     fail("INTERFACE_INVALID_LENGTH", {
       nullifiers: value.nullifiers.length,
@@ -453,13 +476,7 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
       encryptedUtxo: value.encryptedUtxo.length,
     });
   }
-  if (value.encryptedUtxo[0] !== 2) {
-    fail("INTERFACE_CODEC", {
-      name: "encryptedUtxo.typePrefix",
-      expected: 2,
-      actual: value.encryptedUtxo[0],
-    });
-  }
+  checkMergeOutputScheme(value.encryptedUtxo);
   writer
     .u64(value.expiryUnixTs, "expiryUnixTs")
     .bytes(value.proof.a, 32, "proof.a")
@@ -489,7 +506,9 @@ function readFixedList<T>(
   read: (input: Reader) => T,
 ): readonly T[] {
   const length = reader.u8(`${name}.length`);
-  if (length !== 8) fail("INTERFACE_INVALID_LENGTH", { name, expected: 8, actual: length });
+  if (length !== MERGE_INPUT_COUNT) {
+    fail("INTERFACE_INVALID_LENGTH", { name, expected: MERGE_INPUT_COUNT, actual: length });
+  }
   return Array.from({ length }, () => read(reader));
 }
 
@@ -516,21 +535,15 @@ function readMergeData(reader: Reader): MergeTransactInstructionData {
   );
   const privateTxHash = reader.bytes(32, "privateTxHash") as Bytes32;
   const encryptedLength = reader.u16("encryptedUtxo.length");
-  if (encryptedLength !== 110) {
+  if (encryptedLength !== MERGE_ENCRYPTED_UTXO_LENGTH) {
     fail("INTERFACE_INVALID_LENGTH", {
       name: "encryptedUtxo",
-      expected: 110,
+      expected: MERGE_ENCRYPTED_UTXO_LENGTH,
       actual: encryptedLength,
     });
   }
   const encryptedUtxo = reader.bytes(encryptedLength, "encryptedUtxo");
-  if (encryptedUtxo[0] !== 2) {
-    fail("INTERFACE_CODEC", {
-      name: "encryptedUtxo.typePrefix",
-      expected: 2,
-      actual: encryptedUtxo[0],
-    });
-  }
+  checkMergeOutputScheme(encryptedUtxo);
   return {
     expiryUnixTs,
     proof,

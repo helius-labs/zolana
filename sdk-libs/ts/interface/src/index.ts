@@ -54,9 +54,11 @@ export type Bytes64 = FixedBytes<64>;
 export type Bytes128 = FixedBytes<128>;
 
 export const P256_PROOF_LENGTH = 192;
-export const MERGE_INPUT_COUNT = 8;
-export const MERGE_ENCRYPTED_UTXO_LENGTH = 110;
-export const MERGE_ENCRYPTED_UTXO_TYPE_PREFIX = 2;
+export {
+  MERGE_ENCRYPTED_UTXO_LENGTH,
+  MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
+  MERGE_INPUT_COUNT,
+} from "./constants.js";
 export {
   ADDRESS_TREE_HEIGHT,
   ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
