@@ -67,6 +67,11 @@ current package graph or override higher-precedence sources.
 
 ## Start here
 
+Several agents work this plan at once in one worktree. Read [working in a shared
+worktree](review-checklist.md#working-in-a-shared-worktree) before your first
+edit or commit. It carries the path-ownership, pathspec-commit, and narrow-edit
+rules, with the failure that produced each one.
+
 Read the package in this order:
 
 1. [Architecture and API contract](architecture-and-api.md) for package
@@ -136,6 +141,9 @@ Read the package in this order:
 - [Production-readiness issues](production-readiness-issues.md): records the
   cross-cutting findings in nine groups, with the evidence behind each one, and
   schedules them into the delivery phases below.
+- [Rust SDK changes](rust-sdk-changes.md): records what the port changed in the
+  Rust SDK and why, which of those changes break a Rust consumer, and the
+  Rust-side defects review found and left open.
 
 ## Inventory rules
 
@@ -178,17 +186,21 @@ Use sources in this order. A lower source cannot override a higher source:
 Use these phases in order:
 
 1. Review the 118 rows in
-   [review-checklist.md](review-checklist.md).
+   [review-checklist.md](review-checklist.md). Closed on 2026-07-25: each row
+   carries a current-Rust verdict.
 2. Implement actionable adverse findings and independently re-review each
    fix. Resolve specification-authority blockers before treating disputed
-   behavior as canonical.
+   behavior as canonical. This is the active phase.
 3. Pass the fixture, CI, browser, package-consumer, action E2E, and instruction
    E2E gates in [testing-and-conformance.md](testing-and-conformance.md).
 4. Run PKP-00 through PKP-08 in
    [proof-and-key-parity.md](proof-and-key-parity.md).
 
 The final phase is a cryptographic certification overlay. The checklist remains
-the authority for row status and verdicts.
+the authority for row status and verdicts; its [mutable
+baseline](review-checklist.md#mutable-baseline) holds the live counts and the
+next eligible row. At the close of phase 1, 31 rows were `done` and 87 carried
+an adverse verdict, so a full SDK parity claim has no support yet.
 
 The 26 findings in
 [production-readiness-issues.md](production-readiness-issues.md#scheduling) are
