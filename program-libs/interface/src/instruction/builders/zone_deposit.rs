@@ -48,9 +48,7 @@ impl ZoneDeposit {
     ) -> Result<Instruction, DepositBuildError> {
         let layout = DepositLayout::new(
             self.deposits.len(),
-            self.deposits
-                .iter()
-                .map(|entry| entry.deposit.asset),
+            self.deposits.iter().map(|entry| entry.deposit.asset),
         )?;
         let deposits = self
             .deposits

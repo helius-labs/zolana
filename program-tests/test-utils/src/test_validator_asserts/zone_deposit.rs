@@ -67,13 +67,7 @@ pub fn assert_zone_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
     assert_ne!(root_after, root_before, "leaf must be appended");
 
     let indexed = wait_for_indexed_utxo(indexer, data.deposit.view_tag, signature);
-    assert_indexed_deposit_utxo(
-        &indexed,
-        data.deposit.view_tag,
-        signature,
-        tree,
-        event,
-    );
+    assert_indexed_deposit_utxo(&indexed, data.deposit.view_tag, signature, tree, event);
 
     let proof = wait_for_merkle_proof(indexer, to_address(tree), event.utxo_hash);
     assert_eq!(

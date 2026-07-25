@@ -76,6 +76,10 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
         DepositAccounts::validate_and_parse::<HAS_ZONE>(&crate::ID, accounts, assets)?;
 
     let zero = [0u8; 32];
+    let zone_program_id_field = match &zone_program_id {
+        Some(program_id) => solana_pk_hash(program_id)?,
+        None => zero,
+    };
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
 
@@ -105,13 +109,11 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
         blinding[1..].copy_from_slice(&deposit.blinding);
         let owner_utxo_hash = Poseidon::hashv(&[deposit.owner.as_slice(), blinding.as_slice()])
             .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
-        let zone_hash = {
-            let (zone_data_hash, zone_id_field) = match (&zone, &zone_program_id) {
-                (Some(zone), Some(program_id)) => (zone.data_hash, solana_pk_hash(program_id)?),
-                _ => (zero, zero),
-            };
-            hash_with_program_id(&zone_data_hash, &zone_id_field)?
+        let zone_data_hash = match &zone {
+            Some(zone) => zone.data_hash,
+            None => zero,
         };
+        let zone_hash = hash_with_program_id(&zone_data_hash, &zone_program_id_field)?;
         let utxo_hash = Poseidon::hashv(&[
             UTXO_DOMAIN_FIELD.as_slice(),
             group.asset_field.as_slice(),

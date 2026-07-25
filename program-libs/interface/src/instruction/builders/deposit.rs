@@ -128,10 +128,7 @@ impl DepositLayout {
         })
     }
 
-    pub(super) fn asset_index(
-        &self,
-        asset: DepositAsset,
-    ) -> Result<u8, DepositBuildError> {
+    pub(super) fn asset_index(&self, asset: DepositAsset) -> Result<u8, DepositBuildError> {
         let spl_base = usize::from(self.has_sol);
         let asset_index = match asset {
             DepositAsset::Sol => 0,
@@ -157,11 +154,7 @@ impl DepositLayout {
         if self.has_sol {
             assets.push(DepositAssetKind::Sol);
         }
-        assets.extend(
-            self.spl_groups
-                .iter()
-                .map(|_| DepositAssetKind::Spl),
-        );
+        assets.extend(self.spl_groups.iter().map(|_| DepositAssetKind::Spl));
         assets
     }
 
@@ -222,8 +215,8 @@ impl Deposit {
                 assets: layout.asset_kinds(),
                 deposits,
             }
-                .serialize()
-                .map_err(|_| DepositBuildError::Serialization)?,
+            .serialize()
+            .map_err(|_| DepositBuildError::Serialization)?,
         );
 
         let mut accounts = vec![

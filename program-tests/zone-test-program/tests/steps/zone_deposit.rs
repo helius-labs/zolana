@@ -11,9 +11,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::indexed_events_from_instruction_groups;
 use zolana_interface::{
-    instruction::{
-        AssetDeposit, DepositAsset, DepositSplAccounts, ZoneAssetDeposit, ZoneDeposit,
-    },
+    instruction::{AssetDeposit, DepositAsset, DepositSplAccounts, ZoneAssetDeposit, ZoneDeposit},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::random_blinding;

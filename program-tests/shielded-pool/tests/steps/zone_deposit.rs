@@ -6,9 +6,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::DepositWithdraw;
 use zolana_interface::{
-    instruction::{
-        AssetDeposit, UtxoData, ZoneAssetDeposit, ZoneDeposit,
-    },
+    instruction::{AssetDeposit, UtxoData, ZoneAssetDeposit, ZoneDeposit},
     pda,
 };
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
@@ -173,8 +171,7 @@ fn zone_batch_shield_sol(world: &mut ShieldedPoolWorld, count: u64, amount: u64)
     let deposits = (0..count)
         .map(|index| {
             let seed = u8::try_from(index + 1).expect("small batch");
-            let mut deposit =
-                ZolanaProgramTest::sol_shield_data(amount, [seed; 32], [seed; 31]);
+            let mut deposit = ZolanaProgramTest::sol_shield_data(amount, [seed; 32], [seed; 31]);
             deposit.utxo_data = Some(UtxoData {
                 data_hash: [seed.wrapping_add(20); 32],
                 data: vec![seed; 2],
@@ -235,13 +232,7 @@ fn zone_batch_shield_mixed(world: &mut ShieldedPoolWorld, lamports: u64, tokens:
             11,
         ),
         zone_entry(
-            ZolanaProgramTest::spl_shield_data(
-                tokens,
-                [2; 32],
-                [2; 31],
-                &mint,
-                &user_token,
-            ),
+            ZolanaProgramTest::spl_shield_data(tokens, [2; 32], [2; 31], &mint, &user_token),
             12,
         ),
         zone_entry(
