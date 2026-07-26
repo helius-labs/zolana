@@ -786,7 +786,16 @@ input to this decision.
       split / merge / private transfer / withdraw signatures against programs
       built in this worktree (`just build-programs`).
 =======
-- [ ] Proof inputs work with the same-revision prover for each supported shape and rail.
+- [x] Proof inputs work with the same-revision prover for each supported shape and rail.
+      Evidence at `a547447e`: `npm run test:p4:full` (verbose) against
+      `target/prover-server` at port offset 400 — **53/53** live prove+verify
+      cells. All ten shapes on confidential eddsa/p256 and transfer-zone /
+      transfer-p256-zone; zone-authority on the four squares; merge and
+      merge-zone 8×1. Each cell: TypeScript witness → same-revision prover →
+      compress → `xtask groth16-verify` accept. All 46 lockfile proving keys
+      downloaded; no missing-key finding. Zone-authority non-squares remain
+      SDK-rejected (not a prove gap).
+      ([row-updates/gate-prover.md](row-updates/gate-prover.md)).
 - [x] Indexer requests and responses match the same-revision live Photon contract.
       Evidence at HEAD: `sdk-libs/ts/e2e/photon/photon-contract.live.test.ts` (11 tests) drives
       every production indexer method through `@zolana/api` / `ZolanaIndexer` against
@@ -845,8 +854,14 @@ input to this decision.
       `MISSING` / `PARTIAL` / `OPEN` / `STALE` / `DIVERGENT` / `BLOCKED`.
       Unchecked package-completion bullets are incomplete evidence walks, not
       adverse verdicts ([row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
-- [ ] Full CI, fixture regeneration, browser, packed-package consumer, action
+- [x] Full CI, fixture regeneration, browser, packed-package consumer, action
       E2E, and instruction E2E commands pass from a clean checkout.
+      Evidence at `a547447e` ([row-updates/gate-prover.md](row-updates/gate-prover.md)):
+      after `npm install` + `npm run build`, `check:scope`, `check:static`,
+      `fixtures:check`, `check:packaging`, `check:browser-runtime`,
+      `test:cross`, `test:prover`, `test:e2e:actions` (9 pass / 2 skip), and
+      `test:e2e:instructions` (7 pass) all exit 0. Unit suite 2284 pass.
+      Packaging required dropping the unused `@noble/curves` (`df80c7e9`).
       Evidence at `6bcd79ae` ([row-updates/gate-ci.md](row-updates/gate-ci.md)):
       `fixtures:check`, `test:browser`, `check:browser-runtime`, `pack:check`,
       `test:e2e:actions` (9 pass / 1 skip), and `test:e2e:instructions` (7 pass)
