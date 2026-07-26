@@ -116,4 +116,7 @@ From the repository root: `npm run build`, `npm run test:unit` (2091 passed),
 and `npm run check:static` were green after the suite landed.
 `cargo run -p xtask --bin proof-response-parity -- --check` and
 `cargo clippy -p xtask --bin proof-response-parity -- -D warnings` were green.
-`fixtures-check.mjs` includes the new binary.
+`fixtures-check.mjs` lists the new binary. The full fixtures gate still fails on
+a pre-existing `ts-fixtures --check` drift in `client/errors-v1.json` that
+reproduces at the suite's base commit `3d846008` without these changes; it is
+outside P3's scope.
