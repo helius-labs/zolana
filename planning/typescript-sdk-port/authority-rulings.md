@@ -6,9 +6,10 @@ disagree, the options with their consequences, and the artifacts a change would
 touch. This is the artifact register `G7-2` reports as missing. It is not a
 statement of the authority order.
 
-The `Ruling` block in each section is left blank for the protocol owner. Fill
-the ruling and the date; leave the evidence untouched so a later reader can see
-what the ruling was made against.
+Every section here is ruled. A new section leaves its `Ruling` block blank for
+the protocol owner, who fills the ruling and the date; the evidence stays
+untouched either way, so a later reader can see what the ruling was made
+against.
 
 Line numbers are as of branch `ts-sdk-port` on 2026-07-25. Claims that could
 not be settled from the repository are labelled unverified with the missing
@@ -16,12 +17,33 @@ piece named.
 
 ## Contents
 
-- [Open: owner-hash encoding (G7-1)](#open-owner-hash-encoding-g7-1)
-- [Open: confidential owner tag (T23)](#open-confidential-owner-tag-t23)
+Sections carrying their own evidence:
+
+- [Ruled: owner-hash encoding (G7-1)](#ruled-owner-hash-encoding-g7-1)
+- [Ruled: indexer-api schema authority (X01)](#ruled-indexer-api-schema-authority-x01)
+- [Ruled: least-powerful capability at the call sites (K11)](#ruled-least-powerful-capability-at-the-call-sites-k11)
+- [Ruled: confidential owner tag (T23)](#ruled-confidential-owner-tag-t23)
 - [Ruled: ECDSA malleability policy (G2-1)](#ruled-ecdsa-malleability-policy-g2-1)
 - [Ruled: Ed25519 acceptance (G2-2)](#ruled-ed25519-acceptance-g2-2)
-- [Open: the u64 integer domain (C04)](#open-the-u64-integer-domain-c04)
-- [Closed rulings](#closed-rulings)
+- [Ruled: the u64 integer domain (C04)](#ruled-the-u64-integer-domain-c04)
+
+[Closed rulings](#closed-rulings), decided with shorter evidence:
+
+- [DataRecord::Memo tag 3](#datarecordmemo-tag-3)
+- [CI tiering](#ci-tiering)
+- [Custody seam](#custody-seam)
+- [Indexer error `method` detail](#indexer-error-method-detail)
+- [Breaking changes to the SDK crates](#breaking-changes-to-the-sdk-crates)
+- [Merge order against PR #158](#merge-order-against-pr-158)
+- [Zone-authority withdrawals](#zone-authority-withdrawals)
+- [The padding-nullifier finding against PR #142](#the-padding-nullifier-finding-against-pr-142)
+- [Where the `user_record` binding defect lands](#where-the-user_record-binding-defect-lands)
+- [Whether the zone prover paths are built now or deferred](#whether-the-zone-prover-paths-are-built-now-or-deferred)
+- [The forester instruction builder on the TypeScript public surface](#the-forester-instruction-builder-on-the-typescript-public-surface)
+- [How TypeScript gets its Poseidon](#how-typescript-gets-its-poseidon)
+- [Whether the WebAssembly Poseidon may use a module-scope await](#whether-the-webassembly-poseidon-may-use-a-module-scope-await)
+- [The external-data length prefix (T21)](#the-external-data-length-prefix-t21)
+- [Rail inference when parsing a proof (C08)](#rail-inference-when-parsing-a-proof-c08)
 
 ## Ruled: owner-hash encoding (G7-1)
 
@@ -909,8 +931,6 @@ precision-loss refusal, since silently truncating a slot is the failure this
 prevents. Follow Light in applying the coercion only to fields whose domain can
 actually exceed `2^53`, rather than uniformly, so a field that cannot overflow
 does not acquire a parse path it never needs.
-| Date | |
-| Follow-up artifacts | |
 
 ## Closed rulings
 
