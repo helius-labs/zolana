@@ -99,11 +99,18 @@ pub(crate) fn process_merge_core(
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
+        let allow_dummy_inputs = tree.allow_dummy_inputs().map_err(tree_error)?;
+        // We insert the merge view tag salt into the nullifier tree. It is essentially a dummy input.
+        if !allow_dummy_inputs {
+            unimplemented!(
+                "TODO: throw meaningful error that merge does not work once nullifier tree is too full."
+            );
+        }
         let mut derived = MergeProofInputs {
             utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
             nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
             external_data_hash,
-            allow_dummy_inputs: bool_field(tree.allow_dummy_inputs().map_err(tree_error)?),
+            allow_dummy_inputs: bool_field(allow_dummy_inputs),
             owner_binding,
         };
         let tree_write = apply_tree(&mut tree, ix, output_tree, &mut derived, single_use_tag)?;

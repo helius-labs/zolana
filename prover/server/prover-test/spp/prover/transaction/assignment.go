@@ -13,9 +13,9 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// TransactionRequiresP256 reports whether a transaction uses the P256 ownership
-// rail (any input is P256-owned) rather than the Solana-only rail. Callers use
-// it to select the matching proving system / verifying key before proving.
+// TransactionRequiresP256 reports whether a transaction uses the removed P256
+// ownership rail (any input is P256-owned). Such transactions can no longer be
+// proven; callers should reject them.
 func TransactionRequiresP256(tx ProofTransactionRequest) bool {
 	for i := range tx.Inputs {
 		if strings.TrimSpace(tx.Inputs[i].Utxo.OwnerP256Pubkey) != "" {
@@ -26,7 +26,6 @@ func TransactionRequiresP256(tx ProofTransactionRequest) bool {
 }
 
 type proofBuildOptions struct {
-	AllowMissingP256Signature bool
 }
 
 // assignmentTranscript holds values computed while building the witness that
@@ -34,11 +33,10 @@ type proofBuildOptions struct {
 // nullifiers (some surface as real public outputs, see BuildProofBundle), plus
 // the ownership metadata. These are production values, not debug-only.
 type assignmentTranscript struct {
-	inputHashes              []*big.Int
-	outputHashes             []*big.Int
-	nullifiers               []*big.Int
-	solanaOwnerPubkeys       []string
-	requiresP256OwnerWitness bool
+	inputHashes        []*big.Int
+	outputHashes       []*big.Int
+	nullifiers         []*big.Int
+	solanaOwnerPubkeys []string
 }
 
 type stateWitnesses struct {
@@ -55,11 +53,8 @@ type proofAssignment struct {
 	witness         frontend.Circuit
 	publicInputs    protocol.PublicInputs
 	publicInputHash *big.Int
-	// p256MessageDigest is the full SHA-256 ECDSA message the P256 owner signs;
-	// the signing payload carries it. Zero on the Solana-only rail.
-	p256MessageDigest [32]byte
-	outputUtxos       []ProofUtxoResponse
-	transcript        assignmentTranscript
+	outputUtxos     []ProofUtxoResponse
+	transcript      assignmentTranscript
 }
 
 func buildProofAssignment(
@@ -105,29 +100,15 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	p256MessageDigest, err := protocol.P256MessageDigest(privateTxHash)
-	if err != nil {
-		return proofAssignment{}, err
+	// The P256 ownership rail is removed; only Solana-owned inputs can be
+	// proven. The message-hash preimage slot is the constant Poseidon(0, 0) the
+	// Solana-only circuits bake into the public input hash.
+	if inputs.requiresP256OwnerWitness {
+		return proofAssignment{}, fmt.Errorf("spp: P256-owned inputs are no longer provable")
 	}
-	// Ownership rail: a transaction with any P256 input uses the P256-capable
-	// circuit; otherwise the Solana-only variant, which omits the P256 gadget
-	// and pins both message-hash limbs to 0 (no signature). The rail must match
-	// the proving system the caller selected (buildProofTransaction checks this).
-	requiresP256 := inputs.requiresP256OwnerWitness
-	if !requiresP256 {
-		p256MessageDigest = [32]byte{}
-	}
-	p256MessageLow, p256MessageHigh := protocol.P256MessageLimbs(p256MessageDigest)
+	zeroLimbs := [32]byte{}
+	p256MessageLow, p256MessageHigh := protocol.P256MessageLimbs(zeroLimbs)
 	p256MessageHashField, err := protocol.P256MessageHashField(p256MessageLow, p256MessageHigh)
-	if err != nil {
-		return proofAssignment{}, err
-	}
-	p256Pub, p256Sig, err := p256WitnessForTransaction(
-		tx,
-		p256MessageDigest,
-		inputs.requiresP256OwnerWitness,
-		options.AllowMissingP256Signature,
-	)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -142,26 +123,19 @@ func buildProofAssignment(
 		outputs,
 		publicInputs,
 		publicInputHash,
-		p256MessageLow,
-		p256MessageHigh,
-		p256Pub,
-		p256Sig,
-		requiresP256,
 	)
 	transcript := assignmentTranscript{
-		inputHashes:              inputs.hashes,
-		outputHashes:             outputs.hashes,
-		nullifiers:               inputs.nullifiers,
-		solanaOwnerPubkeys:       inputs.solanaOwnerPubkeys,
-		requiresP256OwnerWitness: inputs.requiresP256OwnerWitness,
+		inputHashes:        inputs.hashes,
+		outputHashes:       outputs.hashes,
+		nullifiers:         inputs.nullifiers,
+		solanaOwnerPubkeys: inputs.solanaOwnerPubkeys,
 	}
 	return proofAssignment{
-		witness:           witness,
-		publicInputs:      publicInputs,
-		publicInputHash:   publicInputHash,
-		p256MessageDigest: p256MessageDigest,
-		outputUtxos:       outputs.responses,
-		transcript:        transcript,
+		witness:         witness,
+		publicInputs:    publicInputs,
+		publicInputHash: publicInputHash,
+		outputUtxos:     outputs.responses,
+		transcript:      transcript,
 	}, nil
 }
 
@@ -187,42 +161,11 @@ func customZoneWitness(
 	outputs outputWitnesses,
 	publicInputs protocol.PublicInputs,
 	publicInputHash *big.Int,
-	p256MessageLow, p256MessageHigh *big.Int,
-	p256Pub txcircuit.P256PublicKey,
-	p256Sig txcircuit.P256Signature,
-	requiresP256 bool,
 ) frontend.Circuit {
 	var publicAssets, publicAmounts [txcircuit.NPublicSlots]frontend.Variable
 	for i := 0; i < txcircuit.NPublicSlots; i++ {
 		publicAssets[i] = publicInputs.PublicAssets[i]
 		publicAmounts[i] = publicInputs.PublicAmounts[i]
-	}
-	if requiresP256 {
-		return &customzone.CustomZoneP256Circuit{
-			Public: customzone.CustomZoneP256Public{
-				Nullifiers:          fieldVariables(publicInputs.Nullifiers),
-				OutputHashes:        fieldVariables(publicInputs.OutputUtxoHashes),
-				UtxoTreeRoots:       fieldVariables(publicInputs.UtxoTreeRoots),
-				NullifierTreeRoots:  fieldVariables(publicInputs.NullifierTreeRoots),
-				PrivateTxHash:       publicInputs.PrivateTxHash,
-				P256MessageHashLow:  p256MessageLow,
-				P256MessageHashHigh: p256MessageHigh,
-				ExternalDataHash:    publicInputs.ExternalDataHash,
-				PublicAssets:        publicAssets,
-				PublicAmounts:       publicAmounts,
-				ZoneProgramID:       publicInputs.ZoneProgramID,
-				PayerPubkeyHash:     publicInputs.PayerPubkeyHash,
-				AllowDummyInputs:    publicInputs.AllowDummyInputs,
-				InputOwnerPkHashes:  fieldVariables(publicInputs.InputOwnerPkHashes),
-				PublicInputHash:     publicInputHash,
-			},
-			Private: customzone.CustomZoneP256Private{
-				Inputs:  inputs.inputs,
-				Outputs: outputs.outputs,
-				P256Pub: p256Pub,
-				P256Sig: p256Sig,
-			},
-		}
 	}
 	return &customzone.CustomZoneEddsaOnlyCircuit{
 		Public: customzone.CustomZoneEddsaOnlyPublic{

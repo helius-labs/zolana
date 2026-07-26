@@ -85,14 +85,12 @@ type TestResult<T = ()> = anyhow::Result<T>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SpendRail {
-    P256,
     Eddsa,
 }
 
 impl SpendRail {
     fn label(self) -> &'static str {
         match self {
-            SpendRail::P256 => "p256",
             SpendRail::Eddsa => "eddsa",
         }
     }
@@ -1518,14 +1516,8 @@ fn restart_localnet() {
 /// ciphertext the Photon indexer returns -- no plaintext reconstruction.
 ///
 /// Two real inputs are used so the proof shape is exactly (2, 3), matching the
-/// available `transfer_p256_2_3` key without padding the instruction with dummy
+/// available `transfer_2_3` key without padding the instruction with dummy
 /// (zero) nullifiers that the program would reject on insertion.
-#[test]
-#[serial]
-fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
-    shield_encrypted_transfer_recovered_by_decryption_for(SpendRail::P256)
-}
-
 #[test]
 #[serial]
 fn shield_encrypted_transfer_eddsa_recovered_by_decryption() -> TestResult {
@@ -1589,11 +1581,9 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
 
     let assets = AssetRegistry::default();
     let sender = match expected_rail {
-        SpendRail::P256 => ShieldedKeypair::new()?,
         SpendRail::Eddsa => shielded_ed25519_from_solana(&payer)?,
     };
     let recipient = match expected_rail {
-        SpendRail::P256 => ShieldedKeypair::new()?,
         SpendRail::Eddsa => shielded_ed25519_from_solana(&Keypair::new())?,
     };
     let recipient_address = recipient.shielded_address()?;
@@ -1652,23 +1642,10 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     }
 
     let assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
-    let proof = match (&assembled.prover_inputs, expected_rail) {
-        (ProverInputs::P256(inputs), SpendRail::P256) => {
-            ProverClient::local().prove_transfer_p256(inputs)?
-        }
-        (ProverInputs::Eddsa(inputs), SpendRail::Eddsa) => {
-            ProverClient::local().prove_transfer(inputs)?
-        }
-        (ProverInputs::P256(_), SpendRail::Eddsa) => {
-            return Err(anyhow!(
-                "expected EdDSA prover inputs for an Ed25519 sender"
-            ))
-        }
-        (ProverInputs::Eddsa(_), SpendRail::P256) => {
-            return Err(anyhow!(
-                "expected P256 prover inputs for a default P256 sender"
-            ))
-        }
+    let proof = match &assembled.prover_inputs {
+        ProverInputs::Eddsa(inputs) => ProverClient::local().prove_transfer(inputs)?,
+        // The P256 rail is removed; the SDK keeps the variant as a placeholder.
+        ProverInputs::P256(_) => return Err(anyhow!("P256 rail removed")),
     };
     let packed = pack_proof(&proof)?;
     let ix_data = assembled.with_proof(packed);

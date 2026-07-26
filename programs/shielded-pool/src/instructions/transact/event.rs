@@ -42,7 +42,7 @@ pub fn build_transact_event(
         })
         .collect();
 
-    let movements = ix
+    let interface_transfers = ix
         .public_legs
         .iter()
         .zip(settlements.iter())
@@ -64,7 +64,7 @@ pub fn build_transact_event(
         salt: *ix.salt,
         first_output_leaf_index: tree_write.first_output_leaf_index,
         output_tree: tree_write.output_tree,
-        movements,
+        movements: interface_transfers,
         merge_view_tag: None,
     }
 }

@@ -39,7 +39,6 @@ func makeDefaultZone(t testing.TB, assignment *testAssignment, p256SigningPkFiel
 	if p256SigningPkField == nil {
 		p256SigningPkField = spptest.Fe(0)
 	}
-	assignment.P256SigningPkField = p256SigningPkField
 	pkField, nullifierPk := defaultOutputOwnerTag(t)
 	for i := range assignment.Outputs {
 		assignment.Outputs[i].OwnerPkHash = pkField
@@ -84,8 +83,6 @@ func buildDefaultZoneEddsaOnlyAssignmentFromUtxos(
 ) *testAssignment {
 	t.Helper()
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputUtxos, outputUtxos)
-	assignment.P256MessageHashLow = spptest.Fe(0)
-	assignment.P256MessageHashHigh = spptest.Fe(0)
 	makeDefaultZone(t, assignment, nil)
 	return assignment
 }
@@ -177,14 +174,43 @@ func TestDefaultZoneEddsaOnlyRejectsDataHashOnNonSignerOwnedOutput(t *testing.T)
 	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// A dummy output skips the owner binding, so an arbitrary tag still solves once
-// the public hash matches (the output contributes 0 to the private-tx-hash).
-func TestDefaultZoneEddsaOnlyDummyOutputUnconstrained(t *testing.T) {
+// A dummy output skips the owner binding, but its public tag must still name
+// a transaction participant (AssertDummyTags): a third party's pk_field would
+// read as a payment to someone uninvolved in the transaction.
+func TestDefaultZoneEddsaOnlyRejectsDummyOutputThirdPartyTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	solAsset := protocol.SolAsset()
-	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
+	assignment := dummyOutputAssignment(t, shape)
 
+	// Dummy slot tagged with a third party's pk_field.
+	assignment.Outputs[1].OwnerPkHash = spptest.Fe(424242)
+	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
+	refreshDummyOutputHashes(t, assignment)
+
+	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
+// The same dummy output solves when tagged with a signer (or the payer): the
+// pad then reads as a change output, attributing the transaction only to a
+// participant.
+func TestDefaultZoneEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	assignment := dummyOutputAssignment(t, shape)
+
+	// Dummy slot tagged with the real input's owner tag (a signer).
+	assignment.Outputs[1].OwnerPkHash = assignment.Inputs[0].OwnerPkHash
+	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
+	refreshDummyOutputHashes(t, assignment)
+
+	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
+func dummyOutputAssignment(t *testing.T, shape protocol.Shape) *testAssignment {
+	t.Helper()
+	solAsset := protocol.SolAsset()
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
 		shape,
@@ -195,16 +221,16 @@ func TestDefaultZoneEddsaOnlyDummyOutputUnconstrained(t *testing.T) {
 		},
 	)
 
-	assignment.P256SigningPkField = spptest.Fe(0)
-	assignment.P256MessageHashLow = spptest.Fe(0)
-	assignment.P256MessageHashHigh = spptest.Fe(0)
 	pkField, nullifierPk := defaultOutputOwnerTag(t)
 	assignment.Outputs[0].OwnerPkHash = pkField
 	assignment.Outputs[0].NullifierPk = nullifierPk
-	// Dummy slot: an arbitrary tag must not be rejected.
-	assignment.Outputs[1].OwnerPkHash = spptest.Fe(424242)
-	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
+	return assignment
+}
 
+// refreshDummyOutputHashes recomputes the private-tx hash (the dummy
+// contributes 0) and the public-input hash after output tag edits.
+func refreshDummyOutputHashes(t *testing.T, assignment *testAssignment) {
+	t.Helper()
 	inputHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo))
 	realOutputHash := spptest.AsBigInt(assignment.Outputs[0].Hash)
 	privateTxHash := spptest.MustPrivateTxHash(
@@ -216,6 +242,4 @@ func TestDefaultZoneEddsaOnlyDummyOutputUnconstrained(t *testing.T) {
 	)
 	assignment.PrivateTxHash = privateTxHash
 	refreshDefaultZonePublicInputHash(t, assignment)
-
-	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

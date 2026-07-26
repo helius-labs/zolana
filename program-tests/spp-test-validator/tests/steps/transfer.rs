@@ -169,8 +169,8 @@ impl LifecycleWorld {
             .as_ref()
             .map(|k| k.signing_pubkey().confidential_view_tag())
             .transpose()?;
-        // An eddsa actor pays and signs its own spend (the owner sits at signer index
-        // 0 / the fee payer); a P256 actor falls back to the global payer.
+        // Every actor pays and signs its own spend (the owner sits at signer index
+        // 0 / the fee payer); actors without a signer fall back to the global payer.
         let fee_payer = self
             .actor(from)
             .solana_signer
@@ -213,18 +213,15 @@ impl LifecycleWorld {
             })
             .collect();
 
-        // The rail follows the input owner type: P256-owned inputs prove on the
-        // P256 circuit, ed25519-owned inputs on the vanilla eddsa circuit (where the
-        // owner authorizes the spend by signing the transaction).
+        // All actors are eddsa-owned since the P256 rail was removed: the owner
+        // authorizes the spend by signing the transaction.
         let assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
         let (proof, rail) = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => (
-                ProverClient::local().prove_transfer_p256(inputs)?,
-                Rail::P256,
-            ),
             ProverInputs::Eddsa(inputs) => {
                 (ProverClient::local().prove_transfer(inputs)?, Rail::Eddsa)
             }
+            // Unreachable: every actor is eddsa-owned (the P256 rail is removed).
+            ProverInputs::P256(_) => return Err(anyhow!("P256 rail removed")),
         };
         self.last_rail = Some(rail);
         let ix_data = assembled.with_proof(transact_proof(&proof)?);
@@ -470,11 +467,3 @@ fn eddsa_signer_authorized(world: &mut LifecycleWorld) {
     );
 }
 
-#[then(expr = "the proof authorized the transfer")]
-fn p256_proof_authorized(world: &mut LifecycleWorld) {
-    assert_eq!(
-        world.last_rail,
-        Some(Rail::P256),
-        "transfer should take the P256 rail (ownership proven in the proof)"
-    );
-}

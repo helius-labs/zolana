@@ -89,6 +89,8 @@ const DEFAULT_TREE_INDEX: u8 = 0;
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
 
 /// Witness for one of the two proving rails, ready to hand to the prover client.
+/// The `P256` variant is a placeholder for the removed rail: proving with it
+/// fails with `ClientError::P256IsUnimplemented`.
 pub enum ProverInputs {
     P256(TransferP256Inputs),
     Eddsa(TransferInputs),

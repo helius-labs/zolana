@@ -49,6 +49,10 @@ use crate::{
 // SOL occupies asset id 1; the first registered SPL mint gets id 2.
 const FIRST_SPL_ASSET_ID: u64 = 2;
 
+/// Lamports airdropped to each actor's ed25519 signer to pay the fees of the
+/// spends it authorizes; zone deposits stay funded by the global payer.
+pub(crate) const ACTOR_FEE_FUNDING: u64 = 1_000_000_000;
+
 #[derive(cucumber::World)]
 #[world(init = Self::new)]
 pub struct ZoneLifecycleWorld {
@@ -248,7 +252,14 @@ impl ZoneLifecycleWorld {
 
     pub(crate) fn ensure_actor(&mut self, name: &str) -> Result<()> {
         if !self.actors.contains_key(name) {
-            self.actors.insert(name.to_string(), Actor::new()?);
+            // Eddsa-rail actor (the P256 rail is removed): its shielded identity
+            // derives from a fresh ed25519 signer, funded to pay the fees of the
+            // spends it authorizes (the eddsa rail reads the owner at signer
+            // index 0 / the fee payer).
+            let signer = Keypair::new();
+            self.rpc.airdrop(&signer.pubkey(), ACTOR_FEE_FUNDING)?;
+            let actor = Actor::eddsa(signer)?;
+            self.actors.insert(name.to_string(), actor);
         }
         Ok(())
     }

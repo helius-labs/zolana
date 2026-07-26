@@ -66,7 +66,7 @@ impl LifecycleWorld {
 
         let from_keypair = self.actor(from).keypair.clone();
         // An eddsa actor pays and signs its own spend (the owner sits at signer index
-        // 0 / the fee payer); a P256 actor falls back to the global payer.
+        // 0 / the fee payer); actors without a signer fall back to the global payer.
         let fee_payer = self
             .actor(from)
             .solana_signer
@@ -115,10 +115,8 @@ impl LifecycleWorld {
 
         let assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
         let (proof, rail) = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => (
-                ProverClient::local().prove_transfer_p256(inputs)?,
-                Rail::P256,
-            ),
+            // Unreachable: every actor is eddsa-owned (the P256 rail is removed).
+            ProverInputs::P256(_) => return Err(anyhow!("P256 rail removed")),
             ProverInputs::Eddsa(inputs) => {
                 (ProverClient::local().prove_transfer(inputs)?, Rail::Eddsa)
             }

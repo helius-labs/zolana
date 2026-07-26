@@ -123,7 +123,6 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				ExternalDataHash:    p.ExternalDataHash,
 				PublicAssets:        core.publicAssets,
 				PublicAmounts:       core.publicAmounts,
-				ZoneProgramID:       p.ZoneProgramID,
 				PayerPubkeyHash:     p.PayerPubkeyHash,
 				AllowDummyInputs:    p.AllowDummyInputs,
 				InputOwnerPkHashes:  core.inputOwnerPkHashes,

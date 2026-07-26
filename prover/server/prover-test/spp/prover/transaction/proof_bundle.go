@@ -207,11 +207,8 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 }
 
 func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHash *big.Int) (ProofTransaction, error) {
-	if ps.RequiresP256 != TransactionRequiresP256(tx) {
-		return ProofTransaction{}, fmt.Errorf(
-			"spp: proving system rail mismatch: system requiresP256=%v, transaction requiresP256=%v",
-			ps.RequiresP256, TransactionRequiresP256(tx),
-		)
+	if TransactionRequiresP256(tx) {
+		return ProofTransaction{}, fmt.Errorf("spp: transaction %q uses the removed P256 ownership rail", tx.Name)
 	}
 	built, err := buildProofAssignment(ps.Shape, tx, payerHash, proofBuildOptions{})
 	if err != nil {
@@ -259,7 +256,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 		PrivateTxHash:           parse.FieldHex(publicInputs.PrivateTxHash),
 		PublicLegs:              publicLegs,
 		EncryptedUtxos:          parse.HexString(tx.EncryptedUtxos),
-		RequiresP256:            transcript.requiresP256OwnerWitness,
+		RequiresP256:            false,
 		PublicInputHash:         parse.FieldHex(publicInputHash),
 		ExternalDataHash:        parse.FieldHex(publicInputs.ExternalDataHash),
 		SolanaOwnerPubkeys:      transcript.solanaOwnerPubkeys,
@@ -306,17 +303,13 @@ func normalizedPublicLegs(legs []PublicLegRequest) ([]PublicLegRequest, error) {
 }
 
 func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransactionRequest, payerHash *big.Int) (ProofSigningPayloadTransaction, error) {
-	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{
-		AllowMissingP256Signature: true,
-	})
+	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofSigningPayloadTransaction{}, err
 	}
 	return ProofSigningPayloadTransaction{
-		Name:                  tx.Name,
-		PrivateTxHash:         parse.FieldHex(built.publicInputs.PrivateTxHash),
-		P256MessageHash:       parse.BytesHex(built.p256MessageDigest[:]),
-		RequiresP256Signature: built.transcript.requiresP256OwnerWitness,
+		Name:          tx.Name,
+		PrivateTxHash: parse.FieldHex(built.publicInputs.PrivateTxHash),
 	}, nil
 }
 

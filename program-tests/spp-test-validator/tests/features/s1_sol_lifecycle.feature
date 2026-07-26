@@ -3,8 +3,8 @@ Feature: SOL decrypt-and-spend lifecycle over Photon
   spent, closing the loop end to end. Recovery is checked with a full-struct
   assert over the wallet's recovered note set (tracked in the World).
 
-  Only the transfer_p256_2_3 proving key is available and the client does not pad
-  inputs to the shape, so every transfer consolidates exactly two SOL notes.
+  Every transfer consolidates exactly two SOL notes, matching the (2,3) circuit
+  shape without dummy padding. All actors spend on the eddsa rail.
 
   Background:
     Given a fresh shielded pool

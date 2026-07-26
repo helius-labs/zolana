@@ -111,8 +111,6 @@ func buildZoneAuthorityAssignmentZones(t testing.TB, shape protocol.Shape, publi
 	}
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 	assignment.ZoneProgramID = new(big.Int).Set(publicZone)
-	assignment.P256MessageHashLow = spptest.Fe(0)
-	assignment.P256MessageHashHigh = spptest.Fe(0)
 	refreshZoneAuthorityPublicInputHash(t, assignment)
 	return assignment
 }

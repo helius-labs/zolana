@@ -5,18 +5,15 @@ type CircuitType string
 const (
 	BatchAddressAppendCircuitType CircuitType = "address-append"
 
-	TransferP256ConfidentialCircuitType CircuitType = "transfer-p256-confidential"
-	TransferConfidentialCircuitType     CircuitType = "transfer-confidential"
+	TransferConfidentialCircuitType CircuitType = "transfer-confidential"
 
 	// Policy zones are anonymous, so the zone variants have no confidential form.
-	TransferP256ZoneCircuitType CircuitType = "transfer-p256-zone"
-	TransferZoneCircuitType     CircuitType = "transfer-zone"
+	TransferZoneCircuitType CircuitType = "transfer-zone"
 
 	// TransferZoneAuthorityCircuitType is the anonymous policy-zone transfer used by
 	// zone_authority_transact: the zone authority controls its zone-owned UTXOs, so
 	// owners do not sign. Solana-only, no in-circuit signature, input owner
-	// pk_fields kept private. P256 has no zone-authority form (the rail exists only
-	// to verify a signature, which this variant omits).
+	// pk_fields kept private.
 	TransferZoneAuthorityCircuitType CircuitType = "transfer-zone-authority"
 
 	MergeCircuitType CircuitType = "merge"

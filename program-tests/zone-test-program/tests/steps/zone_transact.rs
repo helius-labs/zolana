@@ -34,8 +34,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ConfidentialTransfer, P256Owner, ProverClient, Rpc, Shape, SpendProof, SppProofInputUtxo,
-    SppProofInputs, TransferSpendInput, ZoneTransferP256Prover, ZoneTransferProver,
+    ConfidentialTransfer, ProverClient, Rpc, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
+    TransferSpendInput, ZoneTransferProver,
 };
 use zolana_interface::instruction::{
     instruction_data::transact::{
@@ -44,7 +44,7 @@ use zolana_interface::instruction::{
     tag::ZONE_TRANSACT,
     TransactLegAccounts, TransactSolLeg, ZoneTransact,
 };
-use zolana_keypair::{hash::sha256, ShieldedKeypair, SignatureType};
+use zolana_keypair::SignatureType;
 use zolana_test_utils::test_validator_asserts::{
     assert_zone_transact, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
@@ -110,19 +110,6 @@ impl ZoneLifecycleWorld {
         amount: u64,
     ) -> Result<Signature> {
         self.execute_zone_transfer(from, Some(to), asset, amount, None, Variant::Eddsa)
-    }
-
-    /// Zone-transfer `amount` of `asset` from `from` to `to` over the P256 rail
-    /// (ownership proven inside the proof via the shared P256 owner signature).
-    /// Sets `last_rail` to [`Variant::P256`].
-    pub(crate) fn zone_transfer_p256(
-        &mut self,
-        from: &str,
-        to: &str,
-        asset: Address,
-        amount: u64,
-    ) -> Result<Signature> {
-        self.execute_zone_transfer(from, Some(to), asset, amount, None, Variant::P256)
     }
 
     /// Zone-withdraw `amount` of SOL from `from`'s zone UTXOs to a fresh external
@@ -398,96 +385,10 @@ impl ZoneLifecycleWorld {
                     None,
                 )
             }
-            Variant::P256 => {
-                let p256_owner = self.p256_owner(proof_inputs, zone)?;
-                let prover = ZoneTransferP256Prover {
-                    inputs: spend_inputs,
-                    outputs: proof_inputs.output_utxos.clone(),
-                    external_data: proof_inputs.external_data.clone(),
-                    public_movements: proof_inputs.public_movements()?,
-                    payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
-                    allow_dummy_inputs: true,
-                    p256_owner,
-                    zone_program_id: Some(zone),
-                    shape: Some(shape),
-                };
-                let result = prover.build()?;
-                let proof = ProverClient::local().prove_transfer_p256_zone(&result.inputs)?;
-                assemble_ix_data(
-                    proof_inputs,
-                    &result.nullifiers,
-                    result.private_tx_hash,
-                    &result.input_root_indices,
-                    Variant::P256,
-                    transact_proof(&proof)?,
-                    Some(result.p256_signing_pk_x),
-                )
-            }
+            // The P256 rail is removed; kept as a placeholder arm so the
+            // instruction-data variant mapping stays exhaustive.
+            Variant::P256 => return Err(anyhow!("P256 rail removed")),
         }
-    }
-
-    /// Recover the shared [`P256Owner`] for the P256 rail: probe-build the zone P256
-    /// prover with a placeholder owner to recover `private_tx_hash` (independent of
-    /// the signature), sign `sha256(private_tx_hash)` with the actor that owns the
-    /// first real P256 input, then return the signed owner. The probe and the final
-    /// build use identical inputs/outputs/external_data, so the hash is stable.
-    fn p256_owner(&self, proof_inputs: &SppProofInputs, zone: Address) -> Result<P256Owner> {
-        let signing_keypair = self.p256_signing_keypair(proof_inputs)?;
-        let pubkey = signing_keypair.signing_pubkey().as_p256()?;
-        let tx_shape = proof_inputs.check_shape()?;
-
-        let probe = ZoneTransferP256Prover {
-            inputs: self.zone_spend_inputs(&proof_inputs.input_utxos)?,
-            outputs: proof_inputs.output_utxos.clone(),
-            external_data: proof_inputs.external_data.clone(),
-            public_movements: proof_inputs.public_movements()?,
-            payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
-            allow_dummy_inputs: true,
-            p256_owner: P256Owner {
-                pubkey,
-                sig_r: [0u8; 32],
-                sig_s: [0u8; 32],
-            },
-            zone_program_id: Some(zone),
-            shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
-        };
-        let private_tx_hash = probe.build()?.private_tx_hash;
-
-        let signature = signing_keypair.sign(&sha256(&private_tx_hash));
-        let mut sig_r = [0u8; 32];
-        let mut sig_s = [0u8; 32];
-        sig_r.copy_from_slice(
-            signature
-                .get(..32)
-                .ok_or_else(|| anyhow!("short P256 signature"))?,
-        );
-        sig_s.copy_from_slice(
-            signature
-                .get(32..)
-                .ok_or_else(|| anyhow!("short P256 signature"))?,
-        );
-        Ok(P256Owner {
-            pubkey,
-            sig_r,
-            sig_s,
-        })
-    }
-
-    /// The actor keypair whose signing pubkey owns the first real P256 input, used
-    /// to sign `sha256(private_tx_hash)`.
-    fn p256_signing_keypair(&self, proof_inputs: &SppProofInputs) -> Result<ShieldedKeypair> {
-        let owner = proof_inputs
-            .input_utxos
-            .iter()
-            .filter(|spend| !spend.is_dummy())
-            .map(|spend| spend.utxo.owner)
-            .find(|owner| matches!(owner.signature_type(), Ok(SignatureType::P256)))
-            .ok_or_else(|| anyhow!("no P256-owned input to authorize the zone transfer"))?;
-        self.actors
-            .values()
-            .find(|actor| actor.keypair.signing_pubkey() == owner)
-            .map(|actor| actor.keypair.clone())
-            .ok_or_else(|| anyhow!("no tracked actor owns the P256 input"))
     }
 
     /// Convert the builder's padded `SppProofInputUtxo` list into the prover's
@@ -837,13 +738,6 @@ fn zone_transfers_sol(world: &mut ZoneLifecycleWorld, from: String, amount: i64,
         .expect("zone transfer SOL");
 }
 
-#[when(expr = "{word} zone-transfers {int} lamports of SOL to {word} over the P256 rail")]
-fn zone_transfers_sol_p256(world: &mut ZoneLifecycleWorld, from: String, amount: i64, to: String) {
-    world
-        .zone_transfer_p256(&from, &to, SOL_MINT, amount as u64)
-        .expect("zone transfer SOL (P256)");
-}
-
 #[when(expr = "{word} zone-withdraws {int} lamports of SOL")]
 fn zone_withdraws_sol(world: &mut ZoneLifecycleWorld, from: String, amount: i64) {
     let (_sig, recipient) = world
@@ -877,11 +771,3 @@ fn eddsa_signer_authorized(world: &mut ZoneLifecycleWorld) {
     );
 }
 
-#[then(expr = "the proof authorized the zone transfer")]
-fn p256_proof_authorized(world: &mut ZoneLifecycleWorld) {
-    assert_eq!(
-        world.last_rail,
-        Some(Variant::P256),
-        "zone transfer should take the P256 rail (ownership proven in the proof)"
-    );
-}

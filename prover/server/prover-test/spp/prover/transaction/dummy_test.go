@@ -47,7 +47,7 @@ func solOutput(owner *big.Int, amount, blinding int64) ProofUtxoRequest {
 
 func proveAndVerify(t *testing.T, shape protocol.Shape, tx ProofTransactionRequest, payerHash *big.Int) {
 	t.Helper()
-	ps, err := Setup(shape, TransactionRequiresP256(tx))
+	ps, err := Setup(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestProveShieldWithAllDummyInputs(t *testing.T) {
 
 func TestProveMixedDirectionPublicLegs(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape, false)
+	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestProveMixedDirectionPublicLegs(t *testing.T) {
 
 func TestProveSixSameAssetPublicLegs(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape, false)
+	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestProveSixSameAssetPublicLegs(t *testing.T) {
 
 func TestProveThreeDistinctPublicAssets(t *testing.T) {
 	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
-	tx, payerHash, err := benchmarkTransaction(shape, false)
+	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}

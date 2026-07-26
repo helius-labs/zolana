@@ -2,7 +2,6 @@ package shared
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
 // SignerOwners projects the signer array onto the owner identities it proved:
@@ -25,32 +24,6 @@ func OutputOwners(outputs []UtxoCircuitFields) []frontend.Variable {
 		owners[i] = utxo.Owner
 	}
 	return owners
-}
-
-// AssertOutputOwnerTags — default zone only: every real output's owner_hash must
-// recompute from its public owner tag and the witnessed nullifier pubkey, which
-// is what makes the tag usable as the output's signer identity. Dummy slots skip
-// the binding so their public tag stays free.
-func AssertOutputOwnerTags(
-	api frontend.API,
-	outputs []UtxoCircuitFields,
-	ownerPkHashes []frontend.Variable,
-	nullifierPks []frontend.Variable,
-) error {
-	if err := validateLength("output owner pk hash", len(ownerPkHashes), len(outputs)); err != nil {
-		return err
-	}
-	if err := validateLength("output nullifier pk", len(nullifierPks), len(outputs)); err != nil {
-		return err
-	}
-	for i, utxo := range outputs {
-		ownerHash := abstractor.Call(api, ownerHashGadget{
-			OwnerKeyHash: ownerPkHashes[i],
-			NullifierPk:  nullifierPks[i],
-		})
-		assertWhen(api, utxo.isUtxo(api), api.IsZero(api.Sub(ownerHash, utxo.Owner)))
-	}
-	return nil
 }
 
 // constrainOutput classifies the slot, pins dummies, requires ownerSigned for

@@ -9,10 +9,7 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
-// Input is the pure per-slot spend witness. The per-slot protocol-public
-// signals (nullifier, tree roots, owner pk hash) live in each variant's Public
-// struct (Private for the zone-authority owner tags) and reach the constraint
-// helpers as inputSignals.
+// Input UTXO with inclusion and non inclusion proofs.
 type Input struct {
 	Utxo              UtxoCircuitFields
 	StatePathElements []frontend.Variable
@@ -26,9 +23,7 @@ type Input struct {
 	NullifierSecret frontend.Variable
 }
 
-// inputSignals carries one input slot's hoisted signals: the derived
-// nullifier, the claimed tree roots, and the signer pk hash the ownership check
-// binds the owner to.
+// Public inputs per input UTXO.
 type inputSignals struct {
 	Nullifier         frontend.Variable
 	UtxoTreeRoot      frontend.Variable
@@ -111,6 +106,7 @@ func constrainInput(api frontend.API, in Input, signals inputSignals) (frontend.
 
 	assertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
 	assertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
+	assertZeroWhen(api, in.isDummy(api), in.NullifierSecret)
 	assertWhen(api, isAddress, in.checkAddress(api))
 
 	inputHash := api.Select(isUtxo, utxoHash, frontend.Variable(0))

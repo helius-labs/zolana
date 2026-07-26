@@ -8,9 +8,9 @@ import "github.com/consensys/gnark/frontend"
 // an assertion on the public ZoneProgramID that the variant makes itself
 // (== 0 for the default zone, != 0 for the zone authority).
 
-// AssertDefaultZone — default zone: no utxo may be a member of a zone, dummy
+// AssertInDefaultZone — default zone: no utxo may be a member of a zone, dummy
 // slots included, so the zone fields are pinned to 0 across the transaction.
-func AssertDefaultZone(api frontend.API, inputs []Input, outputs []UtxoCircuitFields) {
+func AssertInDefaultZone(api frontend.API, inputs []Input, outputs []UtxoCircuitFields) {
 	for _, in := range inputs {
 		in.Utxo.assertInDefaultZone(api)
 	}

@@ -151,6 +151,9 @@ pub enum ClientError {
     #[error("p256 signature error: {0}")]
     P256Signature(String),
 
+    #[error("the P256 ownership rail is unimplemented")]
+    P256IsUnimplemented,
+
     #[error("field element exceeds 32 bytes")]
     FieldTooLong,
 

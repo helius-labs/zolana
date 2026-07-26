@@ -13,18 +13,10 @@ use zolana_interface::{
         transfer_confidential_1_1, transfer_confidential_1_2, transfer_confidential_1_8,
         transfer_confidential_2_2, transfer_confidential_2_3, transfer_confidential_3_3,
         transfer_confidential_4_3, transfer_confidential_4_4, transfer_confidential_5_3,
-        transfer_confidential_5_4, transfer_p256_confidential_1_1, transfer_p256_confidential_1_2,
-        transfer_p256_confidential_1_8, transfer_p256_confidential_2_2,
-        transfer_p256_confidential_2_3, transfer_p256_confidential_3_3,
-        transfer_p256_confidential_4_3, transfer_p256_confidential_4_4,
-        transfer_p256_confidential_5_3, transfer_p256_confidential_5_4, transfer_p256_zone_1_1,
-        transfer_p256_zone_1_2, transfer_p256_zone_1_8, transfer_p256_zone_2_2,
-        transfer_p256_zone_2_3, transfer_p256_zone_3_3, transfer_p256_zone_4_3,
-        transfer_p256_zone_4_4, transfer_p256_zone_5_3, transfer_p256_zone_5_4, transfer_zone_1_1,
-        transfer_zone_1_2, transfer_zone_1_8, transfer_zone_2_2, transfer_zone_2_3,
-        transfer_zone_3_3, transfer_zone_4_3, transfer_zone_4_4, transfer_zone_5_3,
-        transfer_zone_5_4, transfer_zone_authority_1_1, transfer_zone_authority_2_2,
-        transfer_zone_authority_3_3, transfer_zone_authority_4_4,
+        transfer_confidential_5_4, transfer_zone_1_1, transfer_zone_1_2, transfer_zone_1_8,
+        transfer_zone_2_2, transfer_zone_2_3, transfer_zone_3_3, transfer_zone_4_3,
+        transfer_zone_4_4, transfer_zone_5_3, transfer_zone_5_4, transfer_zone_authority_1_1,
+        transfer_zone_authority_2_2, transfer_zone_authority_3_3, transfer_zone_authority_4_4,
     },
     N_PUBLIC_SLOTS,
 };
@@ -78,42 +70,38 @@ impl<'a> TransactProof<'a> {
     pub fn verify<const IS_ZONE: bool, const IS_AUTHORITY: bool>(&self) -> ProgramResult {
         self.check_selector::<IS_ZONE, IS_AUTHORITY>()?;
         let public_input_hash = self.public_input_hash::<IS_ZONE, IS_AUTHORITY>()?;
-        let is_p256 = self.is_p256();
+        // The P256 ownership rail is removed: its circuit selectors remain as
+        // instruction-data placeholders but have no verifying keys, so every
+        // proof on them fails closed here.
+        if self.is_p256() {
+            return Err(ShieldedPoolError::UnsupportedCircuitId.into());
+        }
         let (n_in, n_out) = (self.n_inputs(), self.n_outputs());
-        // `committed` ties the proof format to the circuit: the P256 rail is
-        // BSB22-committed, the eddsa rail and the vanilla zone-authority circuit
-        // are not. The zone-authority instantiation is one key per shape (no rail
-        // split): it recomputes each owner `pk_field` from the witnessed point.
-        let (verifying_key, committed) = if IS_AUTHORITY {
-            (select_zone_authority_verifying_key(n_in, n_out)?, false)
+        // The zone-authority instantiation is one vanilla-Groth16 key per shape
+        // (no rail split): it recomputes each owner `pk_field` from the
+        // witnessed point. Transfer proofs are never BSB22-committed now that
+        // the P256 rail is removed.
+        let verifying_key = if IS_AUTHORITY {
+            select_zone_authority_verifying_key(n_in, n_out)?
+        } else if IS_ZONE {
+            select_zone_verifying_key(n_in, n_out)?
         } else {
-            let vk = match (IS_ZONE, is_p256) {
-                (true, true) => select_zone_verifying_key::<true>(n_in, n_out)?,
-                (true, false) => select_zone_verifying_key::<false>(n_in, n_out)?,
-                (false, true) => select_confidential_verifying_key::<true>(n_in, n_out)?,
-                (false, false) => select_confidential_verifying_key::<false>(n_in, n_out)?,
-            };
-            (vk, is_p256)
+            select_confidential_verifying_key(n_in, n_out)?
         };
         let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
         let verify_err = ShieldedPoolError::TransactProofVerificationFailed;
-        // The proof variant must agree with the circuit: a committed circuit (the
-        // P256 rail) carries the BSB22 commitment; a vanilla circuit (the eddsa
-        // rail or the zone-authority instantiation) does not.
-        let proof = match (&self.ix.proof, committed) {
-            (ProofData::Eddsa { a, b, c }, false) => verifier::CompressedGroth16Proof {
+        let proof = match &self.ix.proof {
+            ProofData::Eddsa { a, b, c } => verifier::CompressedGroth16Proof {
                 a,
                 b,
                 c,
                 commitment: None,
             },
-            (ProofData::P256(p), true) => verifier::CompressedGroth16Proof {
-                a: &p.a,
-                b: &p.b,
-                c: &p.c,
-                commitment: Some((&p.commitment, &p.commitment_pok)),
-            },
-            _ => return Err(ShieldedPoolError::MismatchedTransactProofVariant.into()),
+            // Unreachable in practice (the P256 rail is rejected above); kept so
+            // a stale P256-proof encoding fails with a precise error.
+            ProofData::P256(_) => {
+                return Err(ShieldedPoolError::MismatchedTransactProofVariant.into())
+            }
         };
         verifier::verify_groth16(
             proof,
@@ -285,31 +273,21 @@ fn hash_chain(items: &[[u8; 32]]) -> Result<[u8; 32], ProgramError> {
 
 /// Default `transact` (`IS_ZONE = false`): the recipient-binding confidential
 /// keys. The instruction can only ever reach these, never the anonymous keys.
-fn select_confidential_verifying_key<const IS_P256: bool>(
+fn select_confidential_verifying_key(
     n_inputs: usize,
     n_outputs: usize,
 ) -> Result<&'static Groth16Verifyingkey<'static>, ProgramError> {
-    let key = match (n_inputs, n_outputs, IS_P256) {
-        (1, 1, false) => &transfer_confidential_1_1::VERIFYINGKEY,
-        (1, 1, true) => &transfer_p256_confidential_1_1::VERIFYINGKEY,
-        (1, 2, false) => &transfer_confidential_1_2::VERIFYINGKEY,
-        (1, 2, true) => &transfer_p256_confidential_1_2::VERIFYINGKEY,
-        (2, 2, false) => &transfer_confidential_2_2::VERIFYINGKEY,
-        (2, 2, true) => &transfer_p256_confidential_2_2::VERIFYINGKEY,
-        (2, 3, false) => &transfer_confidential_2_3::VERIFYINGKEY,
-        (2, 3, true) => &transfer_p256_confidential_2_3::VERIFYINGKEY,
-        (3, 3, false) => &transfer_confidential_3_3::VERIFYINGKEY,
-        (3, 3, true) => &transfer_p256_confidential_3_3::VERIFYINGKEY,
-        (4, 3, false) => &transfer_confidential_4_3::VERIFYINGKEY,
-        (4, 3, true) => &transfer_p256_confidential_4_3::VERIFYINGKEY,
-        (4, 4, false) => &transfer_confidential_4_4::VERIFYINGKEY,
-        (4, 4, true) => &transfer_p256_confidential_4_4::VERIFYINGKEY,
-        (5, 3, false) => &transfer_confidential_5_3::VERIFYINGKEY,
-        (5, 3, true) => &transfer_p256_confidential_5_3::VERIFYINGKEY,
-        (5, 4, false) => &transfer_confidential_5_4::VERIFYINGKEY,
-        (5, 4, true) => &transfer_p256_confidential_5_4::VERIFYINGKEY,
-        (1, 8, false) => &transfer_confidential_1_8::VERIFYINGKEY,
-        (1, 8, true) => &transfer_p256_confidential_1_8::VERIFYINGKEY,
+    let key = match (n_inputs, n_outputs) {
+        (1, 1) => &transfer_confidential_1_1::VERIFYINGKEY,
+        (1, 2) => &transfer_confidential_1_2::VERIFYINGKEY,
+        (2, 2) => &transfer_confidential_2_2::VERIFYINGKEY,
+        (2, 3) => &transfer_confidential_2_3::VERIFYINGKEY,
+        (3, 3) => &transfer_confidential_3_3::VERIFYINGKEY,
+        (4, 3) => &transfer_confidential_4_3::VERIFYINGKEY,
+        (4, 4) => &transfer_confidential_4_4::VERIFYINGKEY,
+        (5, 3) => &transfer_confidential_5_3::VERIFYINGKEY,
+        (5, 4) => &transfer_confidential_5_4::VERIFYINGKEY,
+        (1, 8) => &transfer_confidential_1_8::VERIFYINGKEY,
         _ => return Err(ShieldedPoolError::InvalidTransactShape.into()),
     };
     Ok(key)
@@ -317,31 +295,21 @@ fn select_confidential_verifying_key<const IS_P256: bool>(
 
 /// `zone_transact` (`IS_ZONE = true`): the anonymous policy-zone keys (output
 /// owners left free for view tags). Only the zone path resolves these.
-fn select_zone_verifying_key<const IS_P256: bool>(
+fn select_zone_verifying_key(
     n_inputs: usize,
     n_outputs: usize,
 ) -> Result<&'static Groth16Verifyingkey<'static>, ProgramError> {
-    let key = match (n_inputs, n_outputs, IS_P256) {
-        (1, 1, false) => &transfer_zone_1_1::VERIFYINGKEY,
-        (1, 1, true) => &transfer_p256_zone_1_1::VERIFYINGKEY,
-        (1, 2, false) => &transfer_zone_1_2::VERIFYINGKEY,
-        (1, 2, true) => &transfer_p256_zone_1_2::VERIFYINGKEY,
-        (2, 2, false) => &transfer_zone_2_2::VERIFYINGKEY,
-        (2, 2, true) => &transfer_p256_zone_2_2::VERIFYINGKEY,
-        (2, 3, false) => &transfer_zone_2_3::VERIFYINGKEY,
-        (2, 3, true) => &transfer_p256_zone_2_3::VERIFYINGKEY,
-        (3, 3, false) => &transfer_zone_3_3::VERIFYINGKEY,
-        (3, 3, true) => &transfer_p256_zone_3_3::VERIFYINGKEY,
-        (4, 3, false) => &transfer_zone_4_3::VERIFYINGKEY,
-        (4, 3, true) => &transfer_p256_zone_4_3::VERIFYINGKEY,
-        (4, 4, false) => &transfer_zone_4_4::VERIFYINGKEY,
-        (4, 4, true) => &transfer_p256_zone_4_4::VERIFYINGKEY,
-        (5, 3, false) => &transfer_zone_5_3::VERIFYINGKEY,
-        (5, 3, true) => &transfer_p256_zone_5_3::VERIFYINGKEY,
-        (5, 4, false) => &transfer_zone_5_4::VERIFYINGKEY,
-        (5, 4, true) => &transfer_p256_zone_5_4::VERIFYINGKEY,
-        (1, 8, false) => &transfer_zone_1_8::VERIFYINGKEY,
-        (1, 8, true) => &transfer_p256_zone_1_8::VERIFYINGKEY,
+    let key = match (n_inputs, n_outputs) {
+        (1, 1) => &transfer_zone_1_1::VERIFYINGKEY,
+        (1, 2) => &transfer_zone_1_2::VERIFYINGKEY,
+        (2, 2) => &transfer_zone_2_2::VERIFYINGKEY,
+        (2, 3) => &transfer_zone_2_3::VERIFYINGKEY,
+        (3, 3) => &transfer_zone_3_3::VERIFYINGKEY,
+        (4, 3) => &transfer_zone_4_3::VERIFYINGKEY,
+        (4, 4) => &transfer_zone_4_4::VERIFYINGKEY,
+        (5, 3) => &transfer_zone_5_3::VERIFYINGKEY,
+        (5, 4) => &transfer_zone_5_4::VERIFYINGKEY,
+        (1, 8) => &transfer_zone_1_8::VERIFYINGKEY,
         _ => return Err(ShieldedPoolError::InvalidTransactShape.into()),
     };
     Ok(key)
@@ -471,8 +439,8 @@ mod tests {
         }
     }
 
-    /// Every supported shape resolves a verifying key on all four
-    /// rail/zone combinations, and the four are distinct keys per shape.
+    /// Every supported shape resolves a verifying key on both zone and
+    /// confidential families, and the two are distinct keys per shape.
     #[test]
     fn select_verifying_key_covers_zone_and_confidential() {
         let shapes = [
@@ -488,22 +456,17 @@ mod tests {
             (1, 8),
         ];
         for (n_in, n_out) in shapes {
-            let conf_eddsa = select_confidential_verifying_key::<false>(n_in, n_out).unwrap();
-            let conf_p256 = select_confidential_verifying_key::<true>(n_in, n_out).unwrap();
-            let zone_eddsa = select_zone_verifying_key::<false>(n_in, n_out).unwrap();
-            let zone_p256 = select_zone_verifying_key::<true>(n_in, n_out).unwrap();
-            // The zone (anonymous) keys must differ from the confidential keys and
-            // from each other, so a zone proof can never verify against a
-            // confidential key (or the wrong rail).
+            let conf_eddsa = select_confidential_verifying_key(n_in, n_out).unwrap();
+            let zone_eddsa = select_zone_verifying_key(n_in, n_out).unwrap();
+            // The zone (anonymous) keys must differ from the confidential keys,
+            // so a zone proof can never verify against a confidential key.
             assert!(!core::ptr::eq(conf_eddsa, zone_eddsa));
-            assert!(!core::ptr::eq(conf_p256, zone_p256));
-            assert!(!core::ptr::eq(zone_eddsa, zone_p256));
         }
     }
 
     #[test]
     fn select_verifying_key_rejects_unsupported_shape() {
-        assert!(select_confidential_verifying_key::<false>(6, 6).is_err());
-        assert!(select_zone_verifying_key::<true>(6, 6).is_err());
+        assert!(select_confidential_verifying_key(6, 6).is_err());
+        assert!(select_zone_verifying_key(6, 6).is_err());
     }
 }

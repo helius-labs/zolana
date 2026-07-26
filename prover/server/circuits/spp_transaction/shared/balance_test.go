@@ -17,7 +17,7 @@ import (
 func TestCircuitRejectsBalanceMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	asset := spptest.Fe(7)
 	inputs := []protocol.Utxo{
 		sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100)),
@@ -28,7 +28,7 @@ func TestCircuitRejectsBalanceMismatch(t *testing.T) {
 	}
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 type signedAmountRangeCircuit struct {
@@ -73,7 +73,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 
 	t.Run("deposit", func(t *testing.T) {
 		assert := test.NewAssert(t)
-		circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+		circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 		assets, amounts := solPublicSlot(25)
 		assignment := buildCircuitAssignmentExact(
 			t,
@@ -84,12 +84,12 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 			amounts,
 		)
 
-		assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+		assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 	})
 
 	t.Run("withdraw", func(t *testing.T) {
 		assert := test.NewAssert(t)
-		circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+		circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 		assets, amounts := solPublicSlot(-25)
 		assignment := buildCircuitAssignmentExact(
 			t,
@@ -100,7 +100,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 			amounts,
 		)
 
-		assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+		assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 	})
 }
 
@@ -109,7 +109,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 func TestCircuitAcceptsPublicSolMovementInSecondSlot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	solAsset := protocol.SolAsset()
 	assets, amounts := splPublicSlot(solAsset, 25)
 	assignment := buildCircuitAssignmentExact(
@@ -121,13 +121,13 @@ func TestCircuitAcceptsPublicSolMovementInSecondSlot(t *testing.T) {
 		amounts,
 	)
 
-	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitAcceptsPublicSplDeposit(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	publicAsset := spptest.Fe(77)
 	assets, amounts := splPublicSlot(publicAsset, 25)
 	assignment := buildCircuitAssignmentExact(
@@ -139,13 +139,13 @@ func TestCircuitAcceptsPublicSplDeposit(t *testing.T) {
 		amounts,
 	)
 
-	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	privateAsset := spptest.Fe(77)
 	assets, amounts := splPublicSlot(spptest.Fe(88), 25)
 	assignment := buildCircuitAssignmentExact(
@@ -157,13 +157,13 @@ func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
 		amounts,
 	)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsDuplicateActivePublicAssets(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	asset := spptest.Fe(77)
 	assets, amounts := noPublicSlots()
 	assets[0] = new(big.Int).Set(asset)
@@ -179,13 +179,13 @@ func TestCircuitRejectsDuplicateActivePublicAssets(t *testing.T) {
 		amounts,
 	)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	privateAsset := spptest.Fe(77)
 	assets, amounts := splPublicSlot(spptest.Fe(88), 25)
 	assignment := buildCircuitAssignmentExact(
@@ -197,7 +197,7 @@ func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 		amounts,
 	)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // Pure private transfer of two distinct SPL assets: each conserved on its own
@@ -205,7 +205,7 @@ func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 func TestCircuitConservesTwoDistinctAssets(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	a := spptest.Fe(77)
 	b := spptest.Fe(91)
 	assignment := buildCircuitAssignmentFromUtxos(
@@ -220,7 +220,7 @@ func TestCircuitConservesTwoDistinctAssets(t *testing.T) {
 			sampleUtxoWithAssetAndAmount(110, b, spptest.Fe(50)),
 		},
 	)
-	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // Conservation is per-asset, not total: a transaction whose total balances but
@@ -229,7 +229,7 @@ func TestCircuitConservesTwoDistinctAssets(t *testing.T) {
 func TestCircuitRejectsCrossAssetValueConversion(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	a := spptest.Fe(77)
 	b := spptest.Fe(91)
 	assignment := buildCircuitAssignmentFromUtxos(
@@ -244,7 +244,7 @@ func TestCircuitRejectsCrossAssetValueConversion(t *testing.T) {
 			sampleUtxoWithAssetAndAmount(110, b, spptest.Fe(60)),
 		},
 	)
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A public SPL deposit on asset a coexists with a purely private transfer of
@@ -252,7 +252,7 @@ func TestCircuitRejectsCrossAssetValueConversion(t *testing.T) {
 func TestCircuitConservesPublicSplAlongsidePrivateAsset(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	publicAsset := spptest.Fe(77)
 	privateAsset := spptest.Fe(91)
 	assets, amounts := splPublicSlot(publicAsset, 25)
@@ -270,14 +270,14 @@ func TestCircuitConservesPublicSplAlongsidePrivateAsset(t *testing.T) {
 		assets,
 		amounts,
 	)
-	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // SPL unshield (withdraw): the symmetric partner to TestCircuitAcceptsPublicSplDeposit.
 func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	asset := spptest.Fe(77)
 	assets, amounts := splPublicSlot(asset, -25)
 	assignment := buildCircuitAssignmentExact(
@@ -288,13 +288,13 @@ func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
 		assets,
 		amounts,
 	)
-	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	solAsset := protocol.SolAsset()
 	splAsset := spptest.Fe(77)
 
@@ -321,13 +321,13 @@ func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 		amounts,
 	)
 
-	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitAcceptsThreeDistinctPublicAssets(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	assets := [NPublicSlots]*big.Int{protocol.SolAsset(), spptest.Fe(77), spptest.Fe(91)}
 	amounts := [NPublicSlots]*big.Int{big.NewInt(25), big.NewInt(30), big.NewInt(35)}
 	assignment := buildCircuitAssignmentExact(
@@ -347,7 +347,7 @@ func TestCircuitAcceptsThreeDistinctPublicAssets(t *testing.T) {
 		amounts,
 	)
 
-	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // An asset id is public only while it moves: a balanced, otherwise-valid
@@ -360,7 +360,7 @@ func TestCircuitRejectsNonZeroPublicAssetWithoutAmount(t *testing.T) {
 	for name, slot := range map[string]int{"first_slot": 0, "second_slot": 1, "third_slot": 2} {
 		t.Run(name, func(t *testing.T) {
 			assert := test.NewAssert(t)
-			circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+			circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 			assets, amounts := noPublicSlots()
 			assets[slot] = spptest.Fe(88)
 			assignment := buildCircuitAssignmentExact(
@@ -371,7 +371,7 @@ func TestCircuitRejectsNonZeroPublicAssetWithoutAmount(t *testing.T) {
 				assets,
 				amounts,
 			)
-			assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+			assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 		})
 	}
 }

@@ -496,7 +496,6 @@ func TestQueueNameForCircuitType(t *testing.T) {
 	}{
 		{common.BatchAddressAppendCircuitType, "zk_address_append_queue"},
 		{common.TransferConfidentialCircuitType, "zk_transfer_queue"},
-		{common.TransferP256ConfidentialCircuitType, "zk_transfer_queue"},
 	}
 
 	for _, test := range tests {
@@ -954,7 +953,6 @@ func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
 	// Transfer circuits queue too: they route to the shared transfer queue.
 	transferTests := []common.CircuitType{
 		common.TransferConfidentialCircuitType,
-		common.TransferP256ConfidentialCircuitType,
 	}
 
 	for _, circuitType := range transferTests {

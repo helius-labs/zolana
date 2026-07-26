@@ -3,7 +3,7 @@ pub use zolana_event::{MessageData, OutputUtxo};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 use crate::{error::ShieldedPoolError, MAX_WIRE_PUBLIC_LEGS};
-
+// TODO: refactor to one enum which is a list of all circuit variants that are supported. eg ConfidentialEddsa(2,2)
 /// The circuit instantiation a `transact`-family proof is verified against
 /// (spec: Circuit Combinations). A pure verifying-key selector: it is not a
 /// public input and never enters `private_tx_hash` or `external_data_hash`.
@@ -270,7 +270,7 @@ pub struct TransactIxData {
     /// default-zone `transact`. Distinct from the per-UTXO `data_hash` /
     /// `zone_data_hash` in the UTXO body.
     pub data_hash: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub zone_data_hash: Option<[u8; 32]>, // TODO: check whether we use this at all.
     /// All `M` outputs in tree-append order (SPL change, SOL change, then
     /// recipients / dummies). Each carries its commitment, owner tag, and an
     /// optional ciphertext. Commitments are appended to the UTXO tree and folded
@@ -337,7 +337,7 @@ pub struct TransactIxDataRef<'a> {
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
     pub inputs: Vec<InputUtxo>,
     #[wincode(with = "containers::Vec<PublicLeg, FixIntLen<u8>>")]
-    pub public_legs: Vec<PublicLeg>,
+    pub public_legs: Vec<PublicLeg>, // TODO: rename interface transfers
     pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     #[wincode(with = "containers::Vec<TransactOutputRef<'a>, FixIntLen<u8>>")]
@@ -465,7 +465,9 @@ pub struct ExternalDataHash<'a, M: OutputDataBytes> {
     pub spp_instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
     pub public_legs: &'a [ResolvedPublicLeg],
+    /// Zk programs can commit their data to the external data hash.
     pub data_hash: Option<[u8; 32]>,
+    /// Zone programs can commit their data to the external data hash.
     pub zone_data_hash: Option<[u8; 32]>,
     pub outputs: &'a [ResolvedOutput<'a>],
     pub messages: &'a [M],
@@ -483,7 +485,7 @@ impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
                 ResolvedPublicLeg::Sol {
                     is_deposit,
                     amount,
-                    recipient,
+                    recipient, // TODO: rename recipient to sender_or_recipient
                 } => {
                     preimage.push(0);
                     preimage.push(u8::from(*is_deposit));
@@ -506,10 +508,6 @@ impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
         }
         preimage.extend_from_slice(&self.data_hash.unwrap_or([0u8; 32]));
         preimage.extend_from_slice(&self.zone_data_hash.unwrap_or([0u8; 32]));
-        // Count and per-datum length prefixes plus a strict {0,1} `data` presence
-        // byte keep the preimage injective: no bytes can shift across an output,
-        // a message, or a `data` boundary and forge the same hash for distinct
-        // instructions, and `None` never collides with `Some(&[])`.
         preimage.extend_from_slice(&(self.outputs.len() as u16).to_be_bytes());
         for output in self.outputs {
             preimage.extend_from_slice(output.utxo_hash);

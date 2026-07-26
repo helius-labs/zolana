@@ -24,7 +24,6 @@ import (
 
 	mergeprover "zolana/prover/prover/merge"
 	nulltree "zolana/prover/prover/nullifier_tree"
-	transferprover "zolana/prover/prover/transfer"
 	eddsaprover "zolana/prover/prover/transfer_eddsa_only"
 )
 
@@ -52,11 +51,11 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 		}
 	}
 
-	p256, err := transferprover.R1CSTransfer(2, 3, true)
-	add("transfer_p256_confidential_2_3", p256, err)
-
 	eddsa, err := eddsaprover.R1CSTransfer(2, 3, eddsaprover.ConfidentialVariant)
 	add("transfer_confidential_2_3", eddsa, err)
+
+	zone, err := eddsaprover.R1CSTransfer(2, 3, eddsaprover.ZoneVariant)
+	add("transfer_zone_2_3", zone, err)
 
 	merged, err := mergeprover.R1CSMerge()
 	add("merge_8_1", merged, err)
@@ -71,10 +70,10 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 // prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
-	"transfer_p256_confidential_2_3": {constraints: 210150, public: 2},
-	"transfer_confidential_2_3":      {constraints: 54152, public: 2},
-	"merge_8_1":                      {constraints: 461588, public: 2},
-	"batch_address-append_40_10":     {constraints: 423683, public: 2},
+	"transfer_confidential_2_3":  {constraints: 54505, public: 2},
+	"transfer_zone_2_3":          {constraints: 52805, public: 2},
+	"merge_8_1":                  {constraints: 180411, public: 2},
+	"batch_address-append_40_10": {constraints: 423683, public: 2},
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {

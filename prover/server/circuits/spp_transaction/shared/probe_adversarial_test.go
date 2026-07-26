@@ -1,13 +1,8 @@
 package shared_test
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"math/big"
 	"testing"
-
-	"github.com/consensys/gnark/std/math/emulated"
 
 	. "zolana/prover/circuits/spp_transaction/shared"
 
@@ -25,7 +20,7 @@ import (
 func TestProbeRejectsSameUtxoSpentTwiceInOneProof(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	asset := spptest.Fe(7)
 	utxo := sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100))
 	assignment := buildCircuitAssignmentFromUtxos(
@@ -38,20 +33,23 @@ func TestProbeRejectsSameUtxoSpentTwiceInOneProof(t *testing.T) {
 		},
 	)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // P2 — a masked dummy input's public owner tag must not enter the signer set:
 // a data-carrying output whose tag equals the dummy's tag is not authorized.
+// The dummy is tagged with the fee payer (the one non-signer participant
+// AssertDummyTags allows), so the only failing constraint is the signer mask:
+// the payer signed the transaction program-side but owns no input.
 func TestProbeRejectsDataOutputAuthorizedByDummyInputTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(protocol.Shape{NInputs: 1, NOutputs: 2}))
 
 	assignment := buildDummyInputShield(t, 125)
+	makeDefaultZone(t, assignment, nil)
 
-	// The dummy input carries a nonzero public tag (the program cannot mask it;
-	// the circuit must).
-	tag := testSolanaPkFieldSeed(t, 0x77)
+	// The dummy input carries the payer's public tag.
+	tag := testPayerPubkeyHash()
 	assignment.Inputs[0].OwnerPkHash = tag
 
 	// Output 0 is real and carries data, tagged with the dummy's tag; its owner
@@ -80,6 +78,28 @@ func TestProbeRejectsDataOutputAuthorizedByDummyInputTag(t *testing.T) {
 	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
+// P13 — attribution: a dummy slot's public tag must name a transaction
+// participant (AssertDummyTags). A dummy input or output tagged with a third
+// party's pk_field would read as their spend or as a payment to them.
+func TestProbeRejectsDummySlotTaggedWithThirdParty(t *testing.T) {
+	assert := test.NewAssert(t)
+	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(protocol.Shape{NInputs: 1, NOutputs: 2}))
+
+	// Dummy input tagged with a third party's pk_field.
+	assignment := buildDummyInputShield(t, 125)
+	makeDefaultZone(t, assignment, nil)
+	assignment.Inputs[0].OwnerPkHash = testSolanaPkFieldSeed(t, 0x77)
+	refreshDefaultZonePublicInputHash(t, assignment)
+	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+
+	// Tagged with the payer instead: a participant, so the proof solves.
+	assignment = buildDummyInputShield(t, 125)
+	makeDefaultZone(t, assignment, nil)
+	assignment.Inputs[0].OwnerPkHash = testPayerPubkeyHash()
+	refreshDefaultZonePublicInputHash(t, assignment)
+	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
 // P3 — custom zone: an input UTXO that belongs to a different zone than the
 // public (signing) zone must be rejected.
 func TestProbeRejectsForeignZoneInput(t *testing.T) {
@@ -91,8 +111,6 @@ func TestProbeRejectsForeignZoneInput(t *testing.T) {
 	inputs[0].ZoneProgramID = spptest.Fe(0xAAAA)
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 	assignment.ZoneProgramID = spptest.Fe(0xBBBB)
-	assignment.P256MessageHashLow = spptest.Fe(0)
-	assignment.P256MessageHashHigh = spptest.Fe(0)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
@@ -103,11 +121,11 @@ func TestProbeRejectsForeignZoneInput(t *testing.T) {
 func TestProbeRejectsInputWithInvalidDomain(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].Utxo.Domain = spptest.Fe(4)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // P5 — an output slot with the address domain tag must be rejected (outputs
@@ -115,11 +133,11 @@ func TestProbeRejectsInputWithInvalidDomain(t *testing.T) {
 func TestProbeRejectsAddressDomainOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Outputs[1].Utxo.Domain = spptest.Fe(AddressDomain)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // P6 — the custom-zone variants pin the public zone_program_id != 0 (same as
@@ -131,8 +149,6 @@ func TestProbeCustomZoneRejectsZeroZoneProgramID(t *testing.T) {
 	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.ZoneProgramID = spptest.Fe(0)
-	assignment.P256MessageHashLow = spptest.Fe(0)
-	assignment.P256MessageHashHigh = spptest.Fe(0)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
@@ -148,8 +164,6 @@ func TestProbeRejectsZoneDataOnBareUtxo(t *testing.T) {
 	outputs[0].ZoneDataHash = spptest.Fe(0x1234)
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 	assignment.ZoneProgramID = spptest.Fe(0xBBBB)
-	assignment.P256MessageHashLow = spptest.Fe(0)
-	assignment.P256MessageHashHigh = spptest.Fe(0)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
@@ -160,7 +174,7 @@ func TestProbeRejectsZoneDataOnBareUtxo(t *testing.T) {
 func TestProbeRejectsDummyOutputHashMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[1] = emptyOutputUtxo()
@@ -179,10 +193,9 @@ func TestProbeRejectsDummyOutputHashMismatch(t *testing.T) {
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash
-	assignment.P256MessageHashLow, assignment.P256MessageHashHigh = spptest.MustP256MessageLimbs(t, privateTxHash)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // P9 — an output amount above u64 max must be rejected by the output range
@@ -190,7 +203,7 @@ func TestProbeRejectsDummyOutputHashMismatch(t *testing.T) {
 func TestProbeRejectsOutputAmountAboveU64(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	asset := spptest.Fe(7)
 	tooBig := new(big.Int).Lsh(big.NewInt(1), 64)
 	assets, amounts := noPublicSlots()
@@ -208,7 +221,7 @@ func TestProbeRejectsOutputAmountAboveU64(t *testing.T) {
 		amounts,
 	)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // P10 — conservation at the boundary: five max-u64 inputs of one asset plus a
@@ -217,7 +230,7 @@ func TestProbeRejectsOutputAmountAboveU64(t *testing.T) {
 func TestProbeConservesAtSumBoundaries(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 3}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	asset := spptest.Fe(7)
 	max := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 64), big.NewInt(1))
 	inputs := []protocol.Utxo{
@@ -240,131 +253,5 @@ func TestProbeConservesAtSumBoundaries(t *testing.T) {
 		amounts,
 	)
 
-	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
-}
-
-// P11 — a P256-routed ADDRESS input still requires the shared signature:
-// isUtxoOrAddress covers the address kind, so an invalid P256 signature on a
-// P256-owned address slot must fail.
-func TestProbeRejectsP256AddressInputWithBadSignature(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
-	assignment := buildCircuitAssignment(t, shape)
-	priv := spptest.FixedP256Key(t, 11)
-	rewriteSingleInputAsP256(t, assignment, priv, priv)
-
-	// Turn the P256-owned input into an address slot: pin the non-seed fields,
-	// recompute the owner (nullifier secret 0), utxo hash, nullifier, and the
-	// transcript hashes.
-	in := &assignment.Inputs[0]
-	in.Utxo.Domain = spptest.Fe(AddressDomain)
-	in.Utxo.Asset = spptest.Fe(0)
-	in.Utxo.Amount = spptest.Fe(0)
-	in.Utxo.DataHash = spptest.Fe(0)
-	in.NullifierSecret = spptest.Fe(0)
-	compressed := elliptic.MarshalCompressed(elliptic.P256(), priv.PublicKey.X, priv.PublicKey.Y)
-	ownerKeyHash, err := protocol.OwnerPkField(compressed)
-	if err != nil {
-		t.Fatalf("P256 owner key hash: %v", err)
-	}
-	owner, err := protocol.OwnerHash(ownerKeyHash, spptest.MustNullifierPk(t, big.NewInt(0)))
-	if err != nil {
-		t.Fatalf("owner hash: %v", err)
-	}
-	in.Utxo.Owner = owner
-	addressHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
-	in.Nullifier = spptest.MustNullifier(t, addressHash, spptest.AsBigInt(in.Utxo.Blinding), big.NewInt(0))
-	nullifierTree := spptest.MustNewNullifierTree(t)
-	nfWitness := spptest.MustNonInclusion(t, nullifierTree, spptest.AsBigInt(in.Nullifier))
-	in.NullifierLowValue = nfWitness.LowValue
-	in.NullifierNextValue = nfWitness.NextValue
-	fillStateProofElements(in.NullifierLowPathElements, nfWitness.PathElements)
-	in.NullifierLowPathIndex = new(big.Int).SetUint64(nfWitness.LowIndex)
-	in.NullifierTreeRoot = nullifierTree.Root()
-
-	privateTxHash := spptest.MustPrivateTxHash(
-		t,
-		[]*big.Int{big.NewInt(0)},
-		spptest.ToBigInts(assignment.OutputHashes()),
-		[]*big.Int{addressHash},
-		spptest.AsBigInt(assignment.ExternalDataHash),
-	)
-	assignment.PrivateTxHash = privateTxHash
-	assignment.P256MessageHashLow, assignment.P256MessageHashHigh = spptest.MustP256MessageLimbs(t, privateTxHash)
-	refreshPublicInputHash(t, assignment)
-
-	// Corrupt the shared signature by signing the same digest with the wrong
-	// key: the address slot carries content, so its P256 routing requires
-	// SigValid against the witnessed pubkey.
-	digest := spptest.MustP256MessageDigest(t, privateTxHash)
-	r, s, err := ecdsa.Sign(rand.Reader, spptest.FixedP256Key(t, 22), digest[:])
-	if err != nil {
-		t.Fatalf("sign with wrong key: %v", err)
-	}
-	assignment.P256Sig = P256Signature{
-		R: emulated.ValueOf[emulated.P256Fr](r),
-		S: emulated.ValueOf[emulated.P256Fr](s),
-	}
-
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
-}
-
-// P12 — the witnessed P256 key enters the signer set only when a content input
-// routes to it: on a proof whose inputs are all eddsa-signed, a data-carrying
-// output tagged with the (witnessed but unrouted) P256 key's pk_field is not
-// authorized.
-func TestProbeRejectsDataOutputAuthorizedByUnroutedP256Key(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewDefaultZoneP256Circuit(Shape(shape))
-
-	inputs, outputs := defaultBalancedUtxos(t, shape)
-	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
-
-	// Witness a real P256 key with a valid signature over the message, but keep
-	// the input eddsa-tagged so the key never routes.
-	priv := spptest.FixedP256Key(t, 11)
-	pkField := mustP256PkField(t, priv)
-	assignment.P256SigningPkField = pkField
-	assignment.P256Pub = spptest.P256PubkeyAssignment(priv)
-
-	// Output 0 carries data and is tagged with the P256 pk_field; its owner
-	// recomputes from that tag, so the tag binding holds.
-	_, nullifierPk := defaultOutputOwnerTag(t)
-	owner, err := protocol.OwnerHash(pkField, nullifierPk)
-	if err != nil {
-		t.Fatalf("owner hash: %v", err)
-	}
-	assignment.Outputs[0].Utxo.Owner = owner
-	assignment.Outputs[0].Utxo.DataHash = spptest.Fe(0x99)
-	assignment.Outputs[0].Hash = spptest.MustUtxoHash(t, circuitFieldsToUtxo(assignment.Outputs[0].Utxo))
-	assignment.Outputs[0].OwnerPkHash = pkField
-	assignment.Outputs[0].NullifierPk = nullifierPk
-	assignment.Outputs[1].OwnerPkHash = testSolanaPkField(t)
-	assignment.Outputs[1].NullifierPk = nullifierPk
-
-	inputHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo))
-	privateTxHash := spptest.MustPrivateTxHash(
-		t,
-		[]*big.Int{inputHash},
-		spptest.ToBigInts(assignment.OutputHashes()),
-		noAddressHashes(1),
-		spptest.AsBigInt(assignment.ExternalDataHash),
-	)
-	assignment.PrivateTxHash = privateTxHash
-	assignment.P256MessageHashLow, assignment.P256MessageHashHigh = spptest.MustP256MessageLimbs(t, privateTxHash)
-	refreshDefaultZonePublicInputHash(t, assignment)
-
-	digest := spptest.MustP256MessageDigest(t, privateTxHash)
-	r, s, err := ecdsa.Sign(rand.Reader, priv, digest[:])
-	if err != nil {
-		t.Fatalf("sign P256 private tx hash: %v", err)
-	}
-	assignment.P256Sig = P256Signature{
-		R: emulated.ValueOf[emulated.P256Fr](r),
-		S: emulated.ValueOf[emulated.P256Fr](s),
-	}
-
-	assert.SolvingFailed(circuit, asDefaultZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

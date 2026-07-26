@@ -1,10 +1,7 @@
 package shared_test
 
 import (
-	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/elliptic"
-	"crypto/rand"
 	"math/big"
 	"testing"
 
@@ -16,7 +13,6 @@ import (
 	"zolana/prover/prover-test/spp/spptest"
 
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/math/emulated"
 )
 
 func TestShapeValidate(t *testing.T) {
@@ -55,17 +51,12 @@ type testAssignment struct {
 	Inputs  []testInput
 	Outputs []testOutput
 
-	ExternalDataHash    frontend.Variable
-	P256Pub             P256PublicKey
-	P256Sig             P256Signature
-	P256SigningPkField  frontend.Variable
-	PrivateTxHash       frontend.Variable
-	P256MessageHashLow  frontend.Variable
-	P256MessageHashHigh frontend.Variable
-	PublicAssets        [NPublicSlots]frontend.Variable
-	PublicAmounts       [NPublicSlots]frontend.Variable
-	ZoneProgramID       frontend.Variable
-	PayerPubkeyHash     frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxHash     frontend.Variable
+	PublicAssets      [NPublicSlots]frontend.Variable
+	PublicAmounts     [NPublicSlots]frontend.Variable
+	ZoneProgramID     frontend.Variable
+	PayerPubkeyHash   frontend.Variable
 	AllowDummyInputs    frontend.Variable
 
 	PublicInputHash frontend.Variable
@@ -143,34 +134,6 @@ func (a *testAssignment) outputNullifierPks() []frontend.Variable {
 	return out
 }
 
-func asCustomZoneP256(a *testAssignment) frontend.Circuit {
-	return &customzone.CustomZoneP256Circuit{
-		Public: customzone.CustomZoneP256Public{
-			Nullifiers:          a.InputNullifiers(),
-			OutputHashes:        a.OutputHashes(),
-			UtxoTreeRoots:       a.InputUtxoRoots(),
-			NullifierTreeRoots:  a.InputNullifierTreeRoots(),
-			PrivateTxHash:       a.PrivateTxHash,
-			P256MessageHashLow:  a.P256MessageHashLow,
-			P256MessageHashHigh: a.P256MessageHashHigh,
-			ExternalDataHash:    a.ExternalDataHash,
-			PublicAssets:        a.PublicAssets,
-			PublicAmounts:       a.PublicAmounts,
-			ZoneProgramID:       a.ZoneProgramID,
-			PayerPubkeyHash:     a.PayerPubkeyHash,
-			AllowDummyInputs:    a.AllowDummyInputs,
-			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
-			PublicInputHash:     a.PublicInputHash,
-		},
-		Private: customzone.CustomZoneP256Private{
-			Inputs:  a.coreInputs(),
-			Outputs: a.outputUtxos(),
-			P256Pub: a.P256Pub,
-			P256Sig: a.P256Sig,
-		},
-	}
-}
-
 func asCustomZoneEddsaOnly(a *testAssignment) frontend.Circuit {
 	return &customzone.CustomZoneEddsaOnlyCircuit{
 		Public: customzone.CustomZoneEddsaOnlyPublic{
@@ -219,37 +182,6 @@ func asCustomZoneAuthority(a *testAssignment) frontend.Circuit {
 	}
 }
 
-func asDefaultZoneP256(a *testAssignment) frontend.Circuit {
-	return &defaultzone.DefaultZoneP256Circuit{
-		Public: defaultzone.DefaultZoneP256Public{
-			Nullifiers:          a.InputNullifiers(),
-			OutputHashes:        a.OutputHashes(),
-			UtxoTreeRoots:       a.InputUtxoRoots(),
-			NullifierTreeRoots:  a.InputNullifierTreeRoots(),
-			PrivateTxHash:       a.PrivateTxHash,
-			P256MessageHashLow:  a.P256MessageHashLow,
-			P256MessageHashHigh: a.P256MessageHashHigh,
-			ExternalDataHash:    a.ExternalDataHash,
-			PublicAssets:        a.PublicAssets,
-			PublicAmounts:       a.PublicAmounts,
-			ZoneProgramID:       a.ZoneProgramID,
-			PayerPubkeyHash:     a.PayerPubkeyHash,
-			AllowDummyInputs:    a.AllowDummyInputs,
-			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
-			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
-			P256SigningPkField:  a.P256SigningPkField,
-			PublicInputHash:     a.PublicInputHash,
-		},
-		Private: defaultzone.DefaultZoneP256Private{
-			Inputs:             a.coreInputs(),
-			Outputs:            a.outputUtxos(),
-			OutputNullifierPks: a.outputNullifierPks(),
-			P256Pub:            a.P256Pub,
-			P256Sig:            a.P256Sig,
-		},
-	}
-}
-
 func asDefaultZoneEddsaOnly(a *testAssignment) frontend.Circuit {
 	return &defaultzone.DefaultZoneEddsaOnlyCircuit{
 		Public: defaultzone.DefaultZoneEddsaOnlyPublic{
@@ -261,7 +193,6 @@ func asDefaultZoneEddsaOnly(a *testAssignment) frontend.Circuit {
 			ExternalDataHash:    a.ExternalDataHash,
 			PublicAssets:        a.PublicAssets,
 			PublicAmounts:       a.PublicAmounts,
-			ZoneProgramID:       a.ZoneProgramID,
 			PayerPubkeyHash:     a.PayerPubkeyHash,
 			AllowDummyInputs:    a.AllowDummyInputs,
 			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
@@ -397,13 +328,6 @@ func buildCircuitAssignmentExact(
 
 	externalDataHash := spptest.Fe(300)
 	privateTxHash := spptest.MustPrivateTxHash(t, inputHashes, OutputHashes, noAddressHashes(shape.NInputs), externalDataHash)
-	p256MessageDigest := spptest.MustP256MessageDigest(t, privateTxHash)
-	p256MessageLow, p256MessageHigh := protocol.P256MessageLimbs(p256MessageDigest)
-	p256MessageHashField := spptest.MustP256FieldFromLimbs(t, p256MessageLow, p256MessageHigh)
-	p256Pub, p256Sig, err := spptest.UnusedP256Witness(p256MessageDigest[:])
-	if err != nil {
-		t.Fatalf("unused P256 witness: %v", err)
-	}
 	payerPubkeyHash := testPayerPubkeyHash()
 
 	signedAmounts := [NPublicSlots]*big.Int{}
@@ -416,7 +340,7 @@ func buildCircuitAssignmentExact(
 		UtxoTreeRoots:      utxoTreeRoots,
 		NullifierTreeRoots: nullifierTreeRoots,
 		PrivateTxHash:      privateTxHash,
-		P256MessageHash:    p256MessageHashField,
+		P256MessageHash:    zeroP256MessageHashField(t),
 		ExternalDataHash:   externalDataHash,
 		PublicAssets:       publicAssets,
 		PublicAmounts:      signedAmounts,
@@ -464,12 +388,7 @@ func buildCircuitAssignmentExact(
 		Inputs:              inputs,
 		Outputs:             outputs,
 		ExternalDataHash:    externalDataHash,
-		P256Pub:             p256Pub,
-		P256Sig:             p256Sig,
 		PrivateTxHash:       privateTxHash,
-		P256MessageHashLow:  p256MessageLow,
-		P256MessageHashHigh: p256MessageHigh,
-		P256SigningPkField:  spptest.Fe(0),
 		ZoneProgramID:       publicInputs.ZoneProgramID,
 		PayerPubkeyHash:     publicInputs.PayerPubkeyHash,
 		AllowDummyInputs:    publicInputs.AllowDummyInputs,
@@ -499,6 +418,13 @@ func fillStateProofElements(pathElements []frontend.Variable, proofElements []*b
 	}
 }
 
+// zeroP256MessageHashField is the constant P256-message preimage slot the
+// eddsa-only rails bake into the public input hash: Poseidon(0, 0).
+func zeroP256MessageHashField(t testing.TB) *big.Int {
+	t.Helper()
+	return spptest.MustP256FieldFromLimbs(t, big.NewInt(0), big.NewInt(0))
+}
+
 func refreshPublicInputHash(t testing.TB, assignment *testAssignment) {
 	refreshPublicInputHashVariant(t, assignment, false, false)
 }
@@ -511,11 +437,7 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, con
 		UtxoTreeRoots:      spptest.ToBigInts(assignment.InputUtxoRoots()),
 		NullifierTreeRoots: spptest.ToBigInts(assignment.InputNullifierTreeRoots()),
 		PrivateTxHash:      spptest.AsBigInt(assignment.PrivateTxHash),
-		P256MessageHash: spptest.MustP256FieldFromLimbs(
-			t,
-			spptest.AsBigInt(assignment.P256MessageHashLow),
-			spptest.AsBigInt(assignment.P256MessageHashHigh),
-		),
+		P256MessageHash:    zeroP256MessageHashField(t),
 		ExternalDataHash:   spptest.AsBigInt(assignment.ExternalDataHash),
 		ZoneProgramID:      spptest.AsBigInt(assignment.ZoneProgramID),
 		PayerPubkeyHash:    spptest.AsBigInt(assignment.PayerPubkeyHash),
@@ -530,7 +452,7 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, con
 	}
 	if confidential {
 		publicInputs.OutputOwnerPkHashes = spptest.ToBigInts(assignment.OutputOwnerPkHashes())
-		publicInputs.P256SigningPkField = spptest.AsBigInt(assignment.P256SigningPkField)
+		publicInputs.P256SigningPkField = big.NewInt(0)
 	}
 	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
 	assignment.PublicInputHash = spptest.MustHash(t, publicInputHashValue, err)
@@ -581,53 +503,6 @@ func sampleUtxo(base int) protocol.Utxo {
 		DataHash:      spptest.Fe(0),
 		ZoneDataHash:  spptest.Fe(0),
 		ZoneProgramID: spptest.Fe(0),
-	}
-}
-
-func rewriteSingleInputAsP256(t testing.TB, assignment *testAssignment, ownerPriv, signingPriv *ecdsa.PrivateKey) {
-	t.Helper()
-	if len(assignment.Inputs) != 1 {
-		t.Fatalf("rewriteSingleInputAsP256 expects one input, got %d", len(assignment.Inputs))
-	}
-	rewriteInputAsP256(t, assignment, 0, ownerPriv, signingPriv)
-}
-
-func rewriteInputAsP256(
-	t testing.TB,
-	assignment *testAssignment,
-	inputIndex int,
-	ownerPriv *ecdsa.PrivateKey,
-	signingPriv *ecdsa.PrivateKey,
-) {
-	t.Helper()
-	if inputIndex < 0 || inputIndex >= len(assignment.Inputs) {
-		t.Fatalf("P256 input index %d out of range", inputIndex)
-	}
-
-	nullifierSecret := spptest.AsBigInt(assignment.Inputs[inputIndex].NullifierSecret)
-	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
-	compressed := elliptic.MarshalCompressed(elliptic.P256(), ownerPriv.PublicKey.X, ownerPriv.PublicKey.Y)
-	ownerKeyHash, err := protocol.OwnerPkField(compressed)
-	if err != nil {
-		t.Fatalf("P256 owner key hash: %v", err)
-	}
-	owner, err := protocol.OwnerHash(ownerKeyHash, nullifierPk)
-	if err != nil {
-		t.Fatalf("P256 owner hash: %v", err)
-	}
-	assignment.Inputs[inputIndex].Utxo.Owner = owner
-	assignment.Inputs[inputIndex].OwnerPkHash = spptest.Fe(0)
-
-	rebuildAfterOwnerChange(t, assignment)
-	msg := spptest.MustP256MessageDigest(t, spptest.AsBigInt(assignment.PrivateTxHash))
-	r, s, err := ecdsa.Sign(rand.Reader, signingPriv, msg[:])
-	if err != nil {
-		t.Fatalf("sign P256 private tx hash: %v", err)
-	}
-	assignment.P256Pub = spptest.P256PubkeyAssignment(ownerPriv)
-	assignment.P256Sig = P256Signature{
-		R: emulated.ValueOf[emulated.P256Fr](r),
-		S: emulated.ValueOf[emulated.P256Fr](s),
 	}
 }
 
@@ -695,7 +570,6 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash
-	assignment.P256MessageHashLow, assignment.P256MessageHashHigh = spptest.MustP256MessageLimbs(t, privateTxHash)
 	refreshPublicInputHash(t, assignment)
 }
 

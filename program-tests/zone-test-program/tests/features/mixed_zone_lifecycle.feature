@@ -1,8 +1,8 @@
 Feature: Mixed zone lifecycle across owners
   One internally consistent run over a single validator that exercises every
-  proof-bearing zone instruction's happy path -- zone_transact over both the
-  eddsa rail (full lifecycle: deposit, transfer with wallet-sync discovery and
-  full-struct UTXO assertions, withdrawal) and the P256 rail, merge_zone
+  proof-bearing zone instruction's happy path -- zone_transact on the eddsa
+  rail (full lifecycle: deposit, transfer with wallet-sync discovery and
+  full-struct UTXO assertions, withdrawal), merge_zone
   (consolidation), and zone_authority_transact (permanent-delegate re-ownership)
   -- alongside proofless zone deposits, plus the proof-rejection negatives for
   every proof-bearing zone instruction.
@@ -26,7 +26,7 @@ Feature: Mixed zone lifecycle across owners
   - alice: eddsa rail. 6 deposits; consumes 2 (transfer) + 2 (withdrawal) and
     retains 2 for the borrow-only invalid-proof negatives.
   - bob: recipient of alice's eddsa transfer.
-  - carol: P256 rail. 2 deposits; consumes 2 in the P256 transfer to dave.
+  - carol: eddsa rail. 2 deposits; consumes 2 in the transfer to dave.
   - gary: 2 deposits; both consumed by the merge.
   - henry: 1 deposit; re-owned to ivan by the zone authority.
   - jane / kyle: 1 deposit each, for the authority bad-proof / disabled negatives.
@@ -34,7 +34,7 @@ Feature: Mixed zone lifecycle across owners
   Background:
     Given a fresh shielded pool
 
-  Scenario: Config, deposits, eddsa/P256 transfers, merge, authority transact, withdrawal, and proof rejections
+  Scenario: Config, deposits, eddsa transfers, merge, authority transact, withdrawal, and proof rejections
     When the authority creates an enabled zone config
     Then the zone config is owned by the authority and enabled
 
@@ -56,12 +56,11 @@ Feature: Mixed zone lifecycle across owners
     When bob syncs
     Then bob's UTXOs match
 
-    # P256 zone transfer carol -> dave. carol is a default (P256-rail) owner whose
-    # spends are authorized inside the proof; consumes two of carol's UTXOs.
+    # eddsa zone transfer carol -> dave; consumes two of carol's UTXOs.
     When carol zone-shields 1000000000 lamports of SOL
     When carol zone-shields 1000000000 lamports of SOL
-    When carol zone-transfers 200000000 lamports of SOL to dave over the P256 rail
-    Then the proof authorized the zone transfer
+    When carol zone-transfers 200000000 lamports of SOL to dave
+    Then the eddsa signer authorized the zone transfer
     When dave syncs
     Then dave's UTXOs match
 

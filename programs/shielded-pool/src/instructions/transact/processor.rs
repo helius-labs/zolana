@@ -122,7 +122,11 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
     discriminator: u8,
     resolved_outputs: &[ResolvedOutput],
 ) -> ProgramResult {
-    fill_public_slots(ix, &transact_accounts.settlements, proof_inputs)?;
+    process_public_legs(
+        &ix.public_legs,
+        &transact_accounts.settlements,
+        proof_inputs,
+    )?;
     let resolved_public_legs = resolve_public_legs(ix, &transact_accounts.settlements)?;
 
     let (tree_write, zkp_batch_size) = {
@@ -151,8 +155,17 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
     .hash()
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
-    proof_inputs.payer_pubkey_hash = Sha256BE::hash(&transact_accounts.payer.address().to_bytes())
+    proof_inputs.payer_pubkey_hash = Sha256BE::hash(&transact_accounts.payer.address().as_ref())
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+
+    TransactProof::new(ix, proof_inputs).verify::<IS_ZONE, IS_AUTHORITY>()?;
+
+    collect_forester_fee(
+        transact_accounts.payer,
+        transact_accounts.tree,
+        ix.inputs.len() as u64,
+        zkp_batch_size,
+    )?;
 
     let event = build_transact_event(
         ix,
@@ -160,87 +173,72 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
         tree_write,
         resolved_outputs,
     );
-    TransactProof::new(ix, proof_inputs).verify::<IS_ZONE, IS_AUTHORITY>()?;
-
-    for (leg, settlement) in ix
-        .public_legs
-        .iter()
-        .zip(transact_accounts.settlements.iter())
-    {
-        match settlement {
-            Settlement::Sol(sol) => settle_sol(sol, leg.amount(), leg.is_deposit())?,
-            Settlement::Spl(spl) => settle_spl(spl, leg.amount())?,
-        }
-    }
-    collect_forester_fee(
-        transact_accounts.payer,
-        transact_accounts.tree,
-        ix.inputs.len() as u64,
-        zkp_batch_size,
-    )?;
     emit_general_event(EventKind::Transact, event)
 }
 
-struct PublicAssetAggregate {
-    asset: [u8; 32],
-    amount: i128,
-}
-
-fn fill_public_slots(
-    ix: &TransactIxDataRef<'_>,
+// Settles each public leg and aggregates its asset into the proof's public
+// slots. A slot whose net cancels to zero is cleared but not reclaimed:
+// distinct assets are capped at N_PUBLIC_SLOTS regardless of cancellation.
+fn process_public_legs(
+    public_legs: &[PublicLeg],
     settlements: &[Settlement<'_>],
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<(), ProgramError> {
-    if ix.public_legs.len() != settlements.len() {
+    if public_legs.len() != settlements.len() {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
 
-    // Distinct assets can cancel to zero, so retain them until aggregation is
-    // complete. This lives on the heap: the u8 wire ceiling must not turn into
-    // a large fixed SBF stack allocation.
-    let mut aggregates: Vec<PublicAssetAggregate> = Vec::new();
-    for (leg, settlement) in ix.public_legs.iter().zip(settlements.iter()) {
+    let mut used_slots = 0usize;
+    for (leg, settlement) in public_legs.iter().zip(settlements.iter()) {
+        let amount = signed_amount(*leg);
+        if amount == 0 {
+            return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
+        }
+
         let asset = match (leg, settlement) {
-            (PublicLeg::Sol { .. }, Settlement::Sol(_)) => SOL_ASSET_FIELD,
-            (PublicLeg::Spl { .. }, Settlement::Spl(spl)) => verifier::hash_field(
-                &spl.mint,
-                ShieldedPoolError::TransactProofVerificationFailed,
-            )?,
+            (PublicLeg::Sol { .. }, Settlement::Sol(sol)) => {
+                settle_sol(sol, leg.amount(), leg.is_deposit())?;
+                SOL_ASSET_FIELD
+            }
+            (PublicLeg::Spl { .. }, Settlement::Spl(spl)) => {
+                settle_spl(spl, leg.amount())?;
+                verifier::hash_field(
+                    &spl.mint,
+                    ShieldedPoolError::TransactProofVerificationFailed,
+                )?
+            }
             _ => return Err(ShieldedPoolError::InvalidSettlementAccounts.into()),
         };
-        if let Some(existing) = aggregates.iter_mut().find(|entry| entry.asset == asset) {
-            existing.amount = existing
-                .amount
-                .checked_add(signed_amount(*leg))
-                .ok_or(ShieldedPoolError::PublicAssetAmountOverflow)?;
-        } else {
-            aggregates.push(PublicAssetAggregate {
-                asset,
-                amount: signed_amount(*leg),
-            });
+        match proof_inputs.public_slot_assets[..used_slots]
+            .iter()
+            .position(|slot_asset| *slot_asset == asset)
+        {
+            Some(i) => {
+                let net = proof_inputs.public_slot_amounts[i]
+                    .checked_add(amount)
+                    .ok_or(ShieldedPoolError::PublicAssetAmountOverflow)?;
+                proof_inputs.public_slot_amounts[i] = checked_slot_amount(net)?;
+            }
+            None => {
+                // TODO: make num of public amount slots part of the circuit enum
+                if used_slots == N_PUBLIC_SLOTS {
+                    return Err(ShieldedPoolError::TooManyPublicAssets.into());
+                }
+                proof_inputs.public_slot_assets[used_slots] = asset;
+                proof_inputs.public_slot_amounts[used_slots] = checked_slot_amount(amount)?;
+                used_slots += 1;
+            }
         }
     }
-
-    let active_count = aggregates.iter().filter(|entry| entry.amount != 0).count();
-    if active_count > N_PUBLIC_SLOTS {
-        return Err(ShieldedPoolError::TooManyPublicAssets.into());
-    }
-    for ((asset_slot, amount_slot), aggregate) in proof_inputs
-        .public_slot_assets
-        .iter_mut()
-        .zip(proof_inputs.public_slot_amounts.iter_mut())
-        .zip(aggregates.iter().filter(|entry| entry.amount != 0))
-    {
-        let magnitude = u64::try_from(aggregate.amount.unsigned_abs())
-            .map_err(|_| ShieldedPoolError::PublicAssetAmountOverflow)?;
-        *asset_slot = aggregate.asset;
-        *amount_slot = if aggregate.amount.is_negative() {
-            -i128::from(magnitude)
-        } else {
-            i128::from(magnitude)
-        };
-    }
     Ok(())
+}
+
+// Slot magnitudes are u64 wires; reject nets that exceed them.
+fn checked_slot_amount(net: i128) -> Result<i128, ProgramError> {
+    if u64::try_from(net.unsigned_abs()).is_err() {
+        return Err(ShieldedPoolError::PublicAssetAmountOverflow.into());
+    }
+    Ok(net)
 }
 
 fn signed_amount(leg: PublicLeg) -> i128 {

@@ -87,10 +87,6 @@ name = "shield_withdraw"
 path = "tests/transact/shield_withdraw.rs"
 
 [[test]]
-name = "p256"
-path = "tests/transact/p256.rs"
-
-[[test]]
 name = "public_legs"
 path = "tests/transact/public_legs.rs"
 

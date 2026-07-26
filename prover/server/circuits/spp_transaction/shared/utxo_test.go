@@ -17,9 +17,9 @@ import (
 func TestCircuitRejectsOwnerHashPreimageMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].Utxo.Owner = spptest.Fe(12345)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

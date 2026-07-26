@@ -204,6 +204,11 @@ fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
 
 /// Serialize a P256 transfer witness under the given circuit type. The confidential
 /// and zone variants share the witness shape and differ only by the circuit type.
+///
+/// Wire-format placeholder for the removed P256 rail: the prover no longer
+/// serves these circuit types; kept to document the request layout for an
+/// eventual re-implementation.
+#[allow(dead_code)]
 fn transfer_p256_inputs_json(inputs: &TransferP256Inputs, circuit_type: &str) -> String {
     let json = TransferP256InputsJson {
         circuit_type: circuit_type.to_string(),
@@ -239,11 +244,13 @@ fn transfer_p256_inputs_json(inputs: &TransferP256Inputs, circuit_type: &str) ->
 }
 
 /// Serialize the P256 confidential transfer witness.
+#[allow(dead_code)] // wire-format placeholder, see transfer_p256_inputs_json
 pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
     transfer_p256_inputs_json(inputs, "transfer-p256-confidential")
 }
 
 /// Serialize the P256 anonymous policy-zone transfer witness.
+#[allow(dead_code)] // wire-format placeholder, see transfer_p256_inputs_json
 pub(crate) fn to_json_p256_zone(inputs: &TransferP256Inputs) -> String {
     transfer_p256_inputs_json(inputs, "transfer-p256-zone")
 }

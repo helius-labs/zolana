@@ -26,7 +26,7 @@ use zolana_transaction::{
 };
 
 use crate::{
-    prover::{prove_and_verify_eddsa, prove_and_verify_p256},
+    prover::prove_and_verify_eddsa,
     test_indexer::TestIndexer,
     world::{
         asset_addr, asset_kind, random_32, random_blinding, spl_mint, Asset, SendSpec,
@@ -160,19 +160,9 @@ impl TransferWorld {
             .expect("into prover")
             .circuit
         {
-            ProverVariant::P256(prover) => {
-                assert_outputs(
-                    &prover.outputs,
-                    &prover.public_movements,
-                    &prover.external_data,
-                    plan,
-                    &sender,
-                    &recipients,
-                    &first_nullifier,
-                    seed,
-                );
-                prove_and_verify_p256(&prover.build().expect("build"));
-            }
+            // The P256 rail is removed; no scenario builds it anymore (its SDK
+            // types remain as unimplemented placeholders).
+            ProverVariant::P256(_) => unreachable!("P256 rail removed"),
             ProverVariant::Eddsa(prover) => {
                 assert_outputs(
                     &prover.outputs,

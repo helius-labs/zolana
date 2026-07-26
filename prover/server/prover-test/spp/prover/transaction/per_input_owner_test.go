@@ -11,7 +11,6 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
 )
 
@@ -31,16 +30,6 @@ func refreshStateEntry(t *testing.T, tx *ProofTransactionRequest, i int) {
 	tx.StateEntries[i].Hash = proofFieldInput(hash)
 }
 
-// mustNewCircuit builds the P256-capable circuit and panics on error -- a test
-// convenience over the error-returning txcircuit.NewCustomZoneP256Circuit.
-func mustNewCircuit(shape txcircuit.Shape) *customzone.CustomZoneP256Circuit {
-	circuit, err := customzone.NewCustomZoneP256Circuit(shape)
-	if err != nil {
-		panic(err)
-	}
-	return circuit
-}
-
 // mustNewSolanaCircuit builds the Solana-only circuit and panics on error.
 func mustNewSolanaCircuit(shape txcircuit.Shape) *customzone.CustomZoneEddsaOnlyCircuit {
 	circuit, err := customzone.NewCustomZoneEddsaOnlyCircuit(shape)
@@ -52,12 +41,7 @@ func mustNewSolanaCircuit(shape txcircuit.Shape) *customzone.CustomZoneEddsaOnly
 
 func solveAssignment(t *testing.T, shape protocol.Shape, built proofAssignment) {
 	t.Helper()
-	var circuit frontend.Circuit
-	if built.transcript.requiresP256OwnerWitness {
-		circuit = mustNewCircuit(txcircuit.Shape(shape))
-	} else {
-		circuit = mustNewSolanaCircuit(txcircuit.Shape(shape))
-	}
+	circuit := mustNewSolanaCircuit(txcircuit.Shape(shape))
 	if err := test.IsSolved(circuit, built.witness, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("assignment must solve the circuit: %v", err)
 	}
@@ -67,7 +51,7 @@ func solveAssignment(t *testing.T, shape protocol.Shape, built proofAssignment) 
 // input_owner_pk_hashes entry carries its own owner's pk_field.
 func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape, false)
+	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,12 +79,11 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	solveAssignment(t, shape, built)
 }
 
-// Spec UTXO Ownership: a P256-owned input (entry 0, bound to the shared
-// witnessed signing key) and an Ed25519-owned input share one proof on the
-// P256 rail.
-func TestBuildProofAssignmentAcceptsMixedP256AndSolanaOwners(t *testing.T) {
+// The P256 ownership rail is removed: a request carrying a P256-owned input
+// must fail to build.
+func TestBuildProofAssignmentRejectsP256Owner(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape, false)
+	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,23 +93,7 @@ func TestBuildProofAssignmentAcceptsMixedP256AndSolanaOwners(t *testing.T) {
 	tx.Inputs[0].Utxo.OwnerP256Pubkey = parse.BytesHex(compressed)
 	refreshStateEntry(t, &tx, 0)
 
-	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{
-		AllowMissingP256Signature: true,
-	})
-	if err != nil {
-		t.Fatalf("mixed P256 + Solana owners must build: %v", err)
-	}
-	if !built.transcript.requiresP256OwnerWitness {
-		t.Fatal("a P256-owned input must select the P256 rail")
-	}
-	entries := built.publicInputs.InputOwnerPkHashes
-	if entries[0].Sign() != 0 {
-		t.Fatalf("P256-owned input must carry entry 0, got %v", entries[0])
-	}
-	if entries[1].Sign() == 0 {
-		t.Fatal("Ed25519-owned input must carry a non-zero entry")
-	}
-	if built.transcript.solanaOwnerPubkeys[0] != "" {
-		t.Fatal("P256-owned input must have an empty owner pubkey entry")
+	if _, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{}); err == nil {
+		t.Fatal("a P256-owned input must be rejected: the rail is removed")
 	}
 }

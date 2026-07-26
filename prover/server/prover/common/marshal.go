@@ -239,10 +239,10 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		if _, err = ps.UnsafeReadFrom(file); err != nil {
 			return nil, err
 		}
-		// Rail comes from the serialized RequiresP256 flag; the confidentiality mode
-		// is not in the key header (kept stable so existing keys/VKs are untouched),
-		// so it is read from the canonical file name (transfer_confidential_*.key /
-		// transfer_p256_confidential_*.key).
+		// Confidentiality mode is not in the key header (kept stable so existing
+		// keys/VKs are untouched), so it is read from the canonical file name
+		// (transfer_confidential_*.key). The RequiresP256 header flag is legacy:
+		// the P256 ownership rail is removed.
 		ps.Confidential = strings.Contains(strings.ToLower(path), "confidential")
 		// Zone keys are named transfer_zone_*.key / transfer_p256_zone_*.key and
 		// are anonymous-only (no confidential zone variant). The two forms per rail
@@ -255,12 +255,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		switch {
 		case zoneAuthority:
 			ps.CircuitType = TransferZoneAuthorityCircuitType
-		case ps.RequiresP256 && zone:
-			ps.CircuitType = TransferP256ZoneCircuitType
 		case zone:
 			ps.CircuitType = TransferZoneCircuitType
-		case ps.RequiresP256:
-			ps.CircuitType = TransferP256ConfidentialCircuitType
 		default:
 			ps.CircuitType = TransferConfidentialCircuitType
 		}

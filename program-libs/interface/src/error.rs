@@ -107,6 +107,8 @@ pub enum ShieldedPoolError {
     MismatchedCircuitType = 7039,
     #[error("circuit selector variant does not match p256_signing_pk_x or the input signers")]
     MismatchedCircuitVariant = 7040,
+    #[error("circuit selector names the removed P256 ownership rail")]
+    UnsupportedCircuitId = 7041,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -184,6 +186,7 @@ mod tests {
             (PublicAssetAmountOverflow as u32, 7038),
             (MismatchedCircuitType as u32, 7039),
             (MismatchedCircuitVariant as u32, 7040),
+            (UnsupportedCircuitId as u32, 7041),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

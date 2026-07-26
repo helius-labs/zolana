@@ -1,6 +1,7 @@
 package shared_test
 
 import (
+	"math/big"
 	"testing"
 
 	customzone "zolana/prover/circuits/spp_transaction/custom"
@@ -29,8 +30,6 @@ func TestCustomZoneEddsaOnlySolves(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.P256MessageHashLow = spptest.Fe(0)
-	assignment.P256MessageHashHigh = spptest.Fe(0)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
@@ -43,20 +42,25 @@ func TestCustomZoneEddsaOnlySolves(t *testing.T) {
 	)
 }
 
-// Soundness guard: the Solana-only variant must reject a P256-owned input
-// (input_owner_pk_hashes[i] == 0 on a real slot), since it skips the
-// signature gadget. Otherwise a UTXO owned by OwnerHash(0, nullifier_pk)
-// could be spent with no signature.
-func TestCustomZoneEddsaOnlyRejectsP256Input(t *testing.T) {
+// Soundness guard: the Solana-only variant must reject a content slot whose
+// public owner tag is the 0 sentinel (the dropped P256 rail's routing mark),
+// since it has no signature gadget to authorize it. Otherwise a UTXO owned by
+// OwnerHash(0, nullifier_pk) could be spent with no signature.
+func TestCustomZoneEddsaOnlyRejectsZeroOwnerTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
-	priv := spptest.FixedP256Key(t, 11)
-	rewriteSingleInputAsP256(t, assignment, priv, priv)
-	assignment.P256MessageHashLow = spptest.Fe(0)
-	assignment.P256MessageHashHigh = spptest.Fe(0)
-	refreshPublicInputHash(t, assignment)
+
+	nullifierSecret := spptest.AsBigInt(assignment.Inputs[0].NullifierSecret)
+	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
+	owner, err := protocol.OwnerHash(big.NewInt(0), nullifierPk)
+	if err != nil {
+		t.Fatalf("owner hash: %v", err)
+	}
+	assignment.Inputs[0].Utxo.Owner = owner
+	assignment.Inputs[0].OwnerPkHash = spptest.Fe(0)
+	rebuildAfterOwnerChange(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

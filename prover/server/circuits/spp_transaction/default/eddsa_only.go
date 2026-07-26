@@ -7,23 +7,16 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// DefaultZoneEddsaOnlyPublic is the confidential Solana-only rail's
-// public-input-hash preimage. The rail carries no P256 witness: the
-// p256_message_hash and p256_signing_pk_field preimage slots are the constants
-// the host feeds (Poseidon(0, 0) and 0), baked into publicInputHash.
+// DefaultZoneEddsaOnlyPublic is the confidential Solana-only rail.
 type DefaultZoneEddsaOnlyPublic struct {
-	Nullifiers         []frontend.Variable
-	OutputHashes       []frontend.Variable
-	UtxoTreeRoots      []frontend.Variable
-	NullifierTreeRoots []frontend.Variable
-	PrivateTxHash      frontend.Variable
-	ExternalDataHash   frontend.Variable
-	// PublicAssets/PublicAmounts are the uniform public movement slots: a
-	// signed net flow per asset (SOL is an ordinary asset id). Idle slots are
-	// pinned to (0, 0) by AssertBalanceConservation.
+	Nullifiers          []frontend.Variable
+	OutputHashes        []frontend.Variable
+	UtxoTreeRoots       []frontend.Variable
+	NullifierTreeRoots  []frontend.Variable
+	PrivateTxHash       frontend.Variable
+	ExternalDataHash    frontend.Variable
 	PublicAssets        [shared.NPublicSlots]frontend.Variable
 	PublicAmounts       [shared.NPublicSlots]frontend.Variable
-	ZoneProgramID       frontend.Variable
 	PayerPubkeyHash     frontend.Variable
 	AllowDummyInputs    frontend.Variable
 	InputOwnerPkHashes  []frontend.Variable
@@ -68,11 +61,7 @@ func NewDefaultZoneEddsaOnlyCircuit(shape shared.Shape) (*DefaultZoneEddsaOnlyCi
 	}, nil
 }
 
-// transaction views this rail's witness as the shared transaction. Its preimage
-// tail publishes both owner-tag chains and the shared P256 signing key, which is
-// the constant 0 the host feeds here; the message slot is Poseidon(0, 0) for the
-// same reason.
-func (c *DefaultZoneEddsaOnlyCircuit) transaction(api frontend.API) shared.Transaction {
+func (c *DefaultZoneEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
 		Shape:              c.Shape,
 		Nullifiers:         c.Public.Nullifiers,
@@ -85,7 +74,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) transaction(api frontend.API) shared.Trans
 		ExternalDataHash:   c.Public.ExternalDataHash,
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,
-		ZoneProgramID:      c.Public.ZoneProgramID,
+		ZoneProgramID:      frontend.Variable(0),
 		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
 		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
@@ -99,7 +88,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) transaction(api frontend.API) shared.Trans
 }
 
 func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
-	tx := c.transaction(api)
+	tx := c.newTransaction(api)
 	if err := tx.ValidateLayout(
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Public.InputOwnerPkHashes), Want: c.Shape.NInputs},
 		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Public.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
@@ -107,10 +96,13 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	); err != nil {
 		return err
 	}
-
-	shared.AssertDefaultZone(api, tx.Inputs, tx.Outputs)
-	api.AssertIsEqual(c.Public.ZoneProgramID, 0)
-	if err := shared.AssertOutputOwnerTags(
+	// Assert that all input and output UTXOs are in the default zone.
+	shared.AssertInDefaultZone(api, tx.Inputs, tx.Outputs)
+	// Enforce confidentiality:
+	// 1. Input utxos pubkeys are part of public inputs.
+	// 2. Output UTXOs pubkeys are part of public input.
+	// 3. All dummy UTXO tags must be a signer.
+	if err := AssertOutputOwnerTags(
 		api,
 		tx.Outputs,
 		c.Public.OutputOwnerPkHashes,
@@ -120,5 +112,19 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	}
 
 	signers := shared.EddsaOnlySigners(api, tx.Inputs, c.Public.InputOwnerPkHashes)
-	return tx.Constrain(api, signers, signers.ContainsEach(api, c.Public.OutputOwnerPkHashes))
+	// If an output UTXO holds data the input must have signed a transaction.
+	outputPubkeyIsSigner := signers.ContainsEach(api, c.Public.OutputOwnerPkHashes)
+	if err := AssertDummyTags(
+		api,
+		tx.Inputs,
+		tx.Outputs,
+		c.Public.InputOwnerPkHashes,
+		c.Public.OutputOwnerPkHashes,
+		signers,
+		c.Public.PayerPubkeyHash,
+	); err != nil {
+		return err
+	}
+
+	return tx.Constrain(api, signers, outputPubkeyIsSigner)
 }

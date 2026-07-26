@@ -13,7 +13,6 @@ import (
 	"zolana/prover/prover/common"
 	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
-	"zolana/prover/prover/transfer"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
 	"github.com/google/uuid"
@@ -1096,9 +1095,7 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "zk_address_append_queue"
-	case common.TransferP256ConfidentialCircuitType,
-		common.TransferP256ZoneCircuitType,
-		common.TransferConfidentialCircuitType,
+	case common.TransferConfidentialCircuitType,
 		common.TransferZoneCircuitType,
 		common.TransferZoneAuthorityCircuitType,
 		common.MergeCircuitType,
@@ -1122,14 +1119,6 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return 30
-	case common.TransferP256ConfidentialCircuitType:
-		// P256 ownership rail: emulated-P256 + BSB22 commitment is heavy and
-		// runs well over the 10s floor on slower CI hardware.
-		return 60
-	case common.TransferP256ZoneCircuitType:
-		// Zone P256 adds policy constraints on top of the P256 rail; cold key
-		// load on CI can exceed the vanilla P256 sync budget.
-		return 90
 	case common.TransferConfidentialCircuitType, common.TransferZoneCircuitType, common.TransferZoneAuthorityCircuitType:
 		return 30
 	case common.MergeCircuitType, common.MergeZoneCircuitType:
@@ -1149,9 +1138,6 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
 		return handler.batchAddressAppendProof(buf)
-	case common.TransferP256ConfidentialCircuitType,
-		common.TransferP256ZoneCircuitType:
-		return handler.transferProof(buf)
 	case common.TransferConfidentialCircuitType,
 		common.TransferZoneCircuitType,
 		common.TransferZoneAuthorityCircuitType:
@@ -1225,31 +1211,6 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 	}
 
 	proof, err := nullifiertree.ProveBatchAddressAppend(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) transferProof(buf []byte) (*common.Proof, *Error) {
-	var params transfer.TransferParameters
-	if err := json.Unmarshal(buf, &params); err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
-		return nil, malformedBodyError(err)
-	}
-
-	circuitType := common.TransferP256ZoneCircuitType
-	if params.Confidential {
-		circuitType = common.TransferP256ConfidentialCircuitType
-	}
-	ps, err := handler.keyManager.GetTransferSystem(circuitType, params.NInputs, params.NOutputs)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("transfer: %w", err))
-	}
-
-	proof, err := transfer.ProveTransfer(ps, &params)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)

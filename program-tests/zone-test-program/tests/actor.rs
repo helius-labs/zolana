@@ -49,10 +49,6 @@ pub(crate) struct Actor {
 }
 
 impl Actor {
-    pub(crate) fn new() -> Result<Self> {
-        Self::with_keypair(ShieldedKeypair::new()?)
-    }
-
     pub(crate) fn with_keypair(keypair: ShieldedKeypair) -> Result<Self> {
         let wallet = Wallet::new(keypair.shielded_address()?, AssetRegistry::default())?;
         Ok(Self {

@@ -32,20 +32,16 @@ impl<'a> TransactAccounts<'a> {
         Self::from_iter(iter, ix, payer, tree)
     }
 
-    /// Parse the settlement accounts from an iterator already advanced past
-    /// `payer` and `tree`. `zone_transact` reuses this after peeling off its
-    /// extra `ZoneConfig` signer, so the two instructions share one
-    /// settlement-account validation.
+    /// 1. Validate spl interface transfers.
     pub(crate) fn from_iter(
         mut iter: AccountIterator<'a>,
         ix: &TransactIxDataRef<'_>,
         payer: &'a AccountView,
         tree: &'a mut AccountView,
     ) -> Result<Self, ProgramError> {
+        // Check no zero amounts and less than 255.
         validate_public_legs(&ix.public_legs)?;
-        // Settlement count is bounded on the wire by u8. Keep the variable-sized
-        // collection on the heap rather than reserving a 255-entry SBF stack
-        // array; actual transactions hit Solana's account/packet limits first.
+
         let mut settlements = Vec::with_capacity(ix.public_legs.len());
         for leg in &ix.public_legs {
             let settlement = match leg {
@@ -57,6 +53,7 @@ impl<'a> TransactAccounts<'a> {
                     let cpi_authority = if *is_deposit {
                         None
                     } else {
+                        // Withdrawals move funds spl interface -> user, program cpi authority pda needs to sign.
                         Some(validate_cpi_authority(iter.next_account("cpi_authority")?)?)
                     };
                     let vault = iter.next_account("vault")?;
@@ -92,7 +89,7 @@ impl<'a> TransactAccounts<'a> {
             };
             settlements.push(settlement);
         }
-        let system_program = iter.next_account("system_program")?;
+        let system_program = iter.next_account("system_program")?; // TODO: move before loop
         if !pinocchio_system::check_id(system_program.address()) {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
         }

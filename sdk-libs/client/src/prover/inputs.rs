@@ -74,7 +74,11 @@ pub struct TransferOutput {
 }
 
 /// Flat, pre-computed witness for the P256-capable spp_transaction circuit.
-/// Mirrors prover/server/prover/transfer/params.go TransferParameters.
+///
+/// Placeholder for the removed P256 rail: the prover no longer serves it and
+/// the on-chain verifier rejects its circuit ids, but the type is kept so
+/// downstream code keeps compiling until the rail is re-implemented or the
+/// API is broken deliberately.
 #[derive(Debug, Clone)]
 pub struct TransferP256Inputs {
     pub inputs: Vec<TransferInput>,
