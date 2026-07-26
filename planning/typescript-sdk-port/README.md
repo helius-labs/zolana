@@ -27,7 +27,7 @@ node sdk-libs/ts/config/pkp-entry-gate.mjs
 node sdk-libs/ts/config/port-health.mjs
 ```
 
-Last update: 2026-07-26 11:55 UTC. Times in this file are true UTC; some earlier
+Last update: 2026-07-26 15:25 UTC. Times in this file are true UTC; some earlier
 entries wrote the local `+02:00` clock and labelled it UTC.
 
 | | |
@@ -36,26 +36,34 @@ entries wrote the local `+02:00` clock and labelled it UTC.
 | Rows carrying an adverse verdict | None. Every row is `PARITY` or a confirmed `NOT_APPLICABLE`, `S01` last to close |
 | Reconciliation debt | None outstanding |
 | Phase | 3 of 4: cryptographic certification. The parity phase closed and the remediation phase closed with it |
-| Entry gate to the cryptographic phase | All four criteria hold. Criterion 2 closed when the last adverse row did; criterion 4 was the final holdout and closed when the two red Rust jobs went green |
-| Certification suites | Key-handling `K1`-`K10` complete. Proof suites: `P1` and `P3` landed, `P2` and `P4` in flight, `P5` not started. `P3` does not fully certify and its residuals are assigned |
-| Branch | Drift gate passes all eleven generators. `rustfmt` and the two Rust test jobs green after `e238fe97` |
+| Certification suites | Key-handling `K1`-`K10` and proof suites `P1`-`P5` all landed. `PKP-08`, the closing evidence package, is in flight |
+| Full SDK completion gates | The binding constraint. All seven substantive lines are open or partial, and none was ever evidenced; four workers hold them |
+| Branch | Drift gate passes all eleven generators. Unit suite 2228 green at `77ad22d2`. `check:static` red only on the seven lint errors in `g2-compression-live.test.ts`, owned by `port/g2` |
 
-Two things the gate cannot see. `P3` reported a real divergence rather than a
-clean pass: TypeScript refuses an off-curve G2 point at compression while Rust's
-`alt_bn128` syscall accepts it by design. And an external review of pull request
-159 raised 44 findings, of which the three release blockers and five High rows
-are under validation. Neither is counted above, because the gate reads the
-checklist and both sit outside it.
+Two things the row counts cannot see, and they are the reason the gates rather
+than the rows now decide the release. The first is a real divergence `P3`
+reported: pure-TypeScript G2 compression refused points a live prover produced
+and Rust's `alt_bn128_g2_compress_be` accepted. The cause is now known — the
+compressor read each `Fq2` coordinate as `c0` then `c1`, while gnark writes `c1`
+first, so correct bytes parsed into a genuinely off-curve point. The second is an
+external review of pull request 159: 44 findings, whose three release blockers
+and five High rows were validated, with the Medium and Low tail deferred by
+owner ruling until certification closes.
 
 ## Live workers and the merge order
 
-No worker holds a checklist row any more, because none is open. The four in
-flight carry certification suites and external findings instead:
+No worker holds a checklist row, because none is open. The four in flight hold
+the full SDK completion gates, which the pull request must close to be
+production-ready:
 
-1. `port/pkp-p2`, prover request parity, plus two gaps `P1` left
-2. `port/pkp-p4`, cryptographic verification: the full loop through a real prover, the Rust verifier, and the shielded-pool program
-3. `port/fnd-blockers`, validating the three release blockers and five High findings from the pull request 159 review
-4. `port/fnd-d5`, hardening Rust against the zero-length dummy ciphertext leak, plus the three `P3` residuals
+1. `port/g2`, the `Fq2` limb-order fix for G2 compression, its seven lint errors, and the documents that recorded the wrong cause — the one release blocker
+2. `port/gate3-flows`, unmocking the prover in the submission flows and extending the live suite to the spend flows
+3. `port/gate6-photon`, a live contract suite for the Photon indexer client
+4. `port/gate-ci`, the pull-request merge tier (`G9-1`, `G9-2`) and fixture-provenance gates (`G8-1`, `G8-2`)
+
+Two gate lines have no owner yet and are queued for the next free slot: the
+per-package evidence walk that closes package gate 1, and the shape-and-rail
+coverage line for the EdDSA and P256 rails.
 
 Two overlaps between them are known and benign. Each new suite registers an
 `xtask` binary in `xtask/Cargo.toml` and a generator name in
