@@ -266,12 +266,16 @@ describe("K9 capability and HSM boundary against current Rust", () => {
   it("lets a backend that is not a viewing key satisfy the interface", () => {
     expect(recorded.backendMatchesDirectKey).toBe(true);
     const backend = new BackendViewingKey(senderSecret());
-    const direct = ViewingKey.fromBytes(senderSecret());
     const recipient = ViewingKey.fromBytes(recipientSecret()).publicKey();
     const plaintext = fromHex(certification.transferEncryption.plaintextBytes);
+    // Against Rust's ciphertext rather than against the concrete TypeScript
+    // key, so the row detects a derivation change as well as a lossy adapter.
     expect(toHex(backend.encryptSlot(recipient, plaintext, salt(), slot))).toBe(
-      toHex(direct.encryptSlot(recipient, plaintext, salt(), slot)),
+      certification.transferEncryption.ciphertextBytes,
     );
+    expect(
+      toHex(ViewingKey.fromBytes(senderSecret()).encryptSlot(recipient, plaintext, salt(), slot)),
+    ).toBe(certification.transferEncryption.ciphertextBytes);
     expect(backend.calls).toEqual(["encryptSlot"]);
   });
 
