@@ -10,7 +10,7 @@ use borsh::BorshDeserialize;
 use cucumber::{then, when};
 use solana_address::Address;
 use zolana_client::{
-    CircuitType, ConfidentialTransfer, PublicMovements, Rpc, SettlementTarget, SppProofInputUtxo,
+    ConfidentialTransfer, ProverVariant, PublicMovements, Rpc, SettlementTarget, SppProofInputUtxo,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_interface::SOL_ASSET_FIELD;
@@ -157,7 +157,7 @@ impl TransferWorld {
             .expect("into prover")
             .circuit
         {
-            CircuitType::P256(prover) => {
+            ProverVariant::P256(prover) => {
                 assert_outputs(
                     &prover.outputs,
                     &prover.public_movements,
@@ -170,7 +170,7 @@ impl TransferWorld {
                 );
                 prove_and_verify_p256(&prover.build().expect("build"));
             }
-            CircuitType::Eddsa(prover) => {
+            ProverVariant::Eddsa(prover) => {
                 assert_outputs(
                     &prover.outputs,
                     &prover.public_movements,

@@ -1,9 +1,9 @@
 use zolana_interface::instruction::instruction_data::transact::{
-    InputUtxo, TransactIxData, TransactProof,
+    CircuitId, CircuitVariant, InputUtxo, TransactIxData, TransactProof,
 };
 use zolana_keypair::SignatureType;
 use zolana_transaction::instructions::{
-    transact::{inputs_require_p256, SppProofInputs},
+    transact::{inputs_proof_variant, SppProofInputs},
     types::SppProofInputUtxo,
 };
 
@@ -66,19 +66,20 @@ pub(crate) fn attach_input_proofs(
     Ok(spends)
 }
 
-pub enum CircuitType {
+pub enum ProverVariant {
     P256(TransferP256Prover),
     Eddsa(TransferProver),
 }
 
 /// A built circuit ready to hand to the prover client.
 pub struct BuiltCircuit {
-    pub circuit: CircuitType,
+    pub circuit: ProverVariant,
 }
 
-/// Sentinel `eddsa_signer_index` marking a P256-owned input; the program uses it
-/// to select the P256 verifying key and skip the eddsa signer check. Mirrors
-/// `P256_OWNED_SIGNER` in the shielded-pool program.
+/// Sentinel `eddsa_signer_index` marking a P256-owned input: it routes the
+/// input to the transaction's shared P256 signing key and skips the eddsa
+/// signer check. Valid only when the declared circuit selector is a P256
+/// variant. Mirrors `P256_OWNED_SIGNER` in the shielded-pool program.
 const P256_OWNED_SIGNER: u8 = 255;
 
 /// Default output-tree slot every input is placed at (`tree_index` 0).
@@ -159,8 +160,10 @@ pub fn into_prover(
     input_merkle_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
 ) -> Result<BuiltCircuit, ClientError> {
-    let requires_p256 = inputs_require_p256(&proof_inputs.input_utxos)?;
-    let p256_owner = if requires_p256 {
+    // Derived here, once: the variant drives the prover witness below and the
+    // `circuit` selector stamped by `assemble`, so they agree by construction.
+    let variant = inputs_proof_variant(&proof_inputs.input_utxos)?;
+    let p256_owner = if variant == CircuitVariant::P256 {
         Some(p256_owner(&proof_inputs)?)
     } else {
         None
@@ -177,9 +180,9 @@ pub fn into_prover(
 
     let spends = attach_input_proofs(inputs, input_merkle_proofs, dummy_nullifier_proofs)?;
 
-    let circuit = if requires_p256 {
+    let circuit = if variant == CircuitVariant::P256 {
         let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
-        CircuitType::P256(TransferP256Prover {
+        ProverVariant::P256(TransferP256Prover {
             inputs: spends,
             outputs,
             external_data,
@@ -189,7 +192,7 @@ pub fn into_prover(
             shape: Some(shape),
         })
     } else {
-        CircuitType::Eddsa(TransferProver {
+        ProverVariant::Eddsa(TransferProver {
             inputs: spends,
             outputs,
             external_data,
@@ -249,11 +252,16 @@ pub fn assemble(
         .map(zolana_transaction::instructions::transact::SettlementLeg::public_leg)
         .collect();
 
+    // The circuit selector derives from the same variant decision as the prover
+    // witness: the spending key material, never a user choice. `assemble` only
+    // builds default-zone `transact` data, so the type is always confidential.
+    let circuit_id = CircuitId::confidential(inputs_proof_variant(&proof_inputs.input_utxos)?);
+
     let BuiltCircuit { circuit } = into_prover(proof_inputs, input_proofs, dummy_nullifier_proofs)?;
 
     let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices, p256_signing_pk_x) =
         match circuit {
-            CircuitType::P256(prover) => {
+            ProverVariant::P256(prover) => {
                 let result = prover.build()?;
                 (
                     ProverInputs::P256(result.inputs),
@@ -264,7 +272,7 @@ pub fn assemble(
                     Some(result.p256_signing_pk_x),
                 )
             }
-            CircuitType::Eddsa(prover) => {
+            ProverVariant::Eddsa(prover) => {
                 let result = prover.build()?;
                 (
                     ProverInputs::Eddsa(result.inputs),
@@ -320,6 +328,7 @@ pub fn assemble(
         proof: TransactProof::zeroed_eddsa(),
         expiry_unix_ts,
         private_tx_hash: private_tx,
+        circuit: circuit_id,
         p256_signing_pk_x,
         inputs,
         public_legs,
@@ -349,7 +358,7 @@ mod tests {
         ExternalData, SppProofOutputUtxo,
     };
 
-    use super::{attach_input_proofs, into_prover, CircuitType};
+    use super::{attach_input_proofs, into_prover, ProverVariant};
     use crate::rpc::{MerkleContext, NonInclusionProof, NULLIFIER_TREE_HEIGHT};
 
     #[test]
@@ -387,7 +396,7 @@ mod tests {
         );
 
         let built = into_prover(proof_inputs, &[], &[]).expect("assemble prover");
-        let CircuitType::Eddsa(prover) = built.circuit else {
+        let ProverVariant::Eddsa(prover) = built.circuit else {
             panic!("dummy-only proof inputs use the eddsa rail");
         };
         assert_eq!(

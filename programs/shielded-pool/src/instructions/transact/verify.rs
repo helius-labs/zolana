@@ -6,7 +6,9 @@ use tinyvec::ArrayVec;
 use zolana_hasher::{Hasher, Sha256};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::instruction_data::transact::{TransactIxDataRef, TransactProof as ProofData},
+    instruction::instruction_data::transact::{
+        CircuitType, TransactIxDataRef, TransactProof as ProofData,
+    },
     verifying_keys::{
         transfer_confidential_1_1, transfer_confidential_1_2, transfer_confidential_1_8,
         transfer_confidential_2_2, transfer_confidential_2_3, transfer_confidential_3_3,
@@ -68,8 +70,12 @@ impl<'a> TransactProof<'a> {
     /// (confidential keys), `zone_transact` with `<true, false>` (anonymous keys),
     /// `zone_authority_transact` with `<true, true>` (zone-authority keys). This is
     /// what enforces that only the matching path can use a given key family.
+    /// The `circuit` selector in the instruction data must agree with both the
+    /// instruction (type) and the data (variant); the selector itself only picks
+    /// the verifying key, it is not a public input.
     #[inline(never)]
     pub fn verify<const IS_ZONE: bool, const IS_AUTHORITY: bool>(&self) -> ProgramResult {
+        self.check_selector::<IS_ZONE, IS_AUTHORITY>()?;
         let public_input_hash = self.public_input_hash::<IS_ZONE, IS_AUTHORITY>()?;
         let is_p256 = self.is_p256();
         let (n_in, n_out) = (self.n_inputs(), self.n_outputs());
@@ -106,7 +112,7 @@ impl<'a> TransactProof<'a> {
                 c: &p.c,
                 commitment: Some((&p.commitment, &p.commitment_pok)),
             },
-            _ => return Err(ShieldedPoolError::MismatchedTransactProofRail.into()),
+            _ => return Err(ShieldedPoolError::MismatchedTransactProofVariant.into()),
         };
         verifier::verify_groth16(
             proof,
@@ -117,6 +123,26 @@ impl<'a> TransactProof<'a> {
         )
     }
 
+    /// Fail-closed consistency of the declared circuit selector: its type must
+    /// match the dispatched instruction, and its variant must match
+    /// `p256_signing_pk_x` (present on the P256 variant only).
+    fn check_selector<const IS_ZONE: bool, const IS_AUTHORITY: bool>(&self) -> ProgramResult {
+        let expected = match (IS_ZONE, IS_AUTHORITY) {
+            (false, false) => CircuitType::Confidential,
+            (true, false) => CircuitType::Zone,
+            // The authority instantiation is a zone circuit; (<false, true>) is
+            // never instantiated, map it to the authority type as well.
+            (_, true) => CircuitType::ZoneAuthority,
+        };
+        if self.ix.circuit.circuit_type() != expected {
+            return Err(ShieldedPoolError::MismatchedCircuitType.into());
+        }
+        if self.is_p256() != self.ix.p256_signing_pk_x.is_some() {
+            return Err(ShieldedPoolError::MismatchedCircuitVariant.into());
+        }
+        Ok(())
+    }
+
     fn n_inputs(&self) -> usize {
         self.ix.inputs.len()
     }
@@ -125,11 +151,10 @@ impl<'a> TransactProof<'a> {
         self.ix.outputs.len()
     }
 
+    /// The proving variant comes from the declared circuit selector (validated
+    /// by [`Self::check_selector`]), not from the input signer indices.
     fn is_p256(&self) -> bool {
-        self.ix
-            .inputs
-            .iter()
-            .any(|input| input.eddsa_signer_index == P256_OWNED_SIGNER)
+        self.ix.circuit.is_p256()
     }
 
     #[inline(never)]
@@ -341,7 +366,108 @@ fn select_zone_authority_verifying_key(
 
 #[cfg(test)]
 mod tests {
+    use zolana_interface::instruction::instruction_data::transact::{CircuitId, TransactIxData};
+
     use super::*;
+
+    fn check_selector_for<const IS_ZONE: bool, const IS_AUTHORITY: bool>(
+        circuit: CircuitId,
+        p256_signing_pk_x: Option<[u8; 32]>,
+    ) -> ProgramResult {
+        let ix = TransactIxData {
+            proof: ProofData::zeroed_eddsa(),
+            expiry_unix_ts: 0,
+            private_tx_hash: [0u8; 32],
+            circuit,
+            p256_signing_pk_x,
+            inputs: Vec::new(),
+            public_legs: Vec::new(),
+            data_hash: None,
+            zone_data_hash: None,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            outputs: Vec::new(),
+            messages: Vec::new(),
+        };
+        let bytes = ix.serialize().unwrap();
+        let ix_ref = TransactIxDataRef::from_bytes(&bytes).unwrap();
+        let derived = TransactProofInputs::default();
+        TransactProof::new(&ix_ref, &derived).check_selector::<IS_ZONE, IS_AUTHORITY>()
+    }
+
+    /// The selector's type must match the dispatched instruction and its
+    /// variant must match `p256_signing_pk_x` presence, on all three
+    /// instruction paths.
+    #[test]
+    fn selector_type_and_variant_are_validated() {
+        use CircuitId::*;
+        use ShieldedPoolError::*;
+
+        type Case = (
+            (bool, bool),
+            CircuitId,
+            Option<[u8; 32]>,
+            Result<(), ShieldedPoolError>,
+        );
+        let table: &[Case] = &[
+            // transact: confidential only.
+            ((false, false), ConfidentialEddsa, None, Ok(())),
+            ((false, false), ConfidentialP256, Some([1u8; 32]), Ok(())),
+            ((false, false), ZoneEddsa, None, Err(MismatchedCircuitType)),
+            (
+                (false, false),
+                ZoneAuthority,
+                None,
+                Err(MismatchedCircuitType),
+            ),
+            (
+                (false, false),
+                ConfidentialP256,
+                None,
+                Err(MismatchedCircuitVariant),
+            ),
+            (
+                (false, false),
+                ConfidentialEddsa,
+                Some([1u8; 32]),
+                Err(MismatchedCircuitVariant),
+            ),
+            // zone_transact: zone only.
+            ((true, false), ZoneEddsa, None, Ok(())),
+            ((true, false), ZoneP256, Some([1u8; 32]), Ok(())),
+            (
+                (true, false),
+                ConfidentialEddsa,
+                None,
+                Err(MismatchedCircuitType),
+            ),
+            (
+                (true, false),
+                ZoneAuthority,
+                None,
+                Err(MismatchedCircuitType),
+            ),
+            // zone_authority_transact: the single authority instantiation.
+            ((true, true), ZoneAuthority, None, Ok(())),
+            ((true, true), ZoneEddsa, None, Err(MismatchedCircuitType)),
+            (
+                (true, true),
+                ZoneAuthority,
+                Some([1u8; 32]),
+                Err(MismatchedCircuitVariant),
+            ),
+        ];
+        for &((is_zone, is_authority), circuit, p256_signing_pk_x, want) in table {
+            let got = match (is_zone, is_authority) {
+                (false, false) => check_selector_for::<false, false>(circuit, p256_signing_pk_x),
+                (true, false) => check_selector_for::<true, false>(circuit, p256_signing_pk_x),
+                (true, true) => check_selector_for::<true, true>(circuit, p256_signing_pk_x),
+                (false, true) => unreachable!("no such instruction"),
+            };
+            let want = want.map_err(ProgramError::from);
+            assert_eq!(got, want, "circuit {circuit:?}");
+        }
+    }
 
     /// Every supported shape resolves a verifying key on all four
     /// rail/zone combinations, and the four are distinct keys per shape.

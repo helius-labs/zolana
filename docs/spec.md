@@ -244,6 +244,7 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
 | `SPPProof` | `[u8; 192]` | Compressed Groth16 proof with commitment. |
 | `TransactProof` | tagged enum | `Eddsa { a, b, c }` is a 128-byte vanilla Groth16 proof; `P256(SPPProof)` is the 192-byte BSB22-committed proof. The one-byte enum tag precedes either payload. |
+| `CircuitId` | `u16` enum | Selects the circuit instantiation a proof is verified against: `{ConfidentialEddsa = 0, ConfidentialP256 = 1, ZoneEddsa = 2, ZoneP256 = 3, ZoneAuthority = 4}`. See [Circuit Combinations](#circuit-variants). Unknown values are rejected at deserialization. |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
@@ -962,7 +963,7 @@ Thus different recipients or funding accounts cannot cancel out of
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Output UTXOs | Output UTXO hashes must be well formed and match `output_utxo_hashes[i]`. The proof hashes output `owner` into `output_utxo_hashes[i]` without unpacking it. |
-| Output owner tag (confidential variant) | The confidential variant exposes each output owner's signing pubkey — the output's fetch tag — as a public input and recomputes the output `owner_hash` from it, so the tag truthfully identifies the owner and a sender cannot mistag a recipient's output. The anonymous variant omits this, leaving `owner` free for a view tag. Instruction data selects the variant. |
+| Output owner tag (confidential variant) | The confidential variant exposes each output owner's signing pubkey — the output's fetch tag — as a public input and recomputes the output `owner_hash` from it, so the tag truthfully identifies the owner and a sender cannot mistag a recipient's output. The anonymous variant omits this, leaving `owner` free for a view tag. The `circuit` selector picks the variant. |
 | Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals. Public proof slots are the checked, non-zero net amounts aggregated from settlement legs by resolved asset. An idle slot has amount and asset pinned to `0`; the circuit retains its pairwise-distinct-asset constraint over active slots. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, address utxo hash chain, external data hash)`. Dummy inputs and outputs contribute `0` to the input and output chains, so the hash covers only real state; their real hashes still enter the public `output_utxo_hashes` and nullifier inputs. The address chain contains each address slot's `utxo_hash` (`0` elsewhere).<br>The owner signs this value; the ECDSA message digest `SHA-256(private_tx_hash)` is computed outside the circuit and bound by the `private_tx_hash_digest` public input (see [UTXO Ownership Check](#utxo-ownership-check)). SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
 | UTXO data | There is no program ownership: every real input takes the owner-signature path. `utxo_data` may sit on any UTXO; `data_hash` enters `utxo_hash` unchecked, so the owner signature over `private_tx_hash` authorizes any output that sets it. Zone programs additionally authorize spends of their zone (`zone_program_id`) via a PDA signer; policy proofs are checked by the zone program before CPI into SPP. |
@@ -978,9 +979,17 @@ Thus different recipients or funding accounts cannot cancel out of
 
 Each circuit is instantiated twice: 1. P256 & Ed25519 (Solana) 2. Ed25519 (Solana) only. The second instance omits the expensive P256 signature verification. The Ed25519 signature verification is always outsourced signature to the SPP. Therfore instance 2 has ~7× fewer constraints.
 
-Each is instantiated again on an owner-tag axis: a confidential variant that exposes each output owner's signing pubkey (the output's fetch tag) and recomputes the output `owner_hash` from it, and an anonymous variant that leaves `owner` unconstrained so a policy zone can place a view tag there. Instruction data selects the variant; the default zone always uses the confidential variant.
+Each is instantiated again on an owner-tag axis: a confidential variant that exposes each output owner's signing pubkey (the output's fetch tag) and recomputes the output `owner_hash` from it, and an anonymous variant that leaves `owner` unconstrained so a policy zone can place a view tag there. The default zone always uses the confidential variant.
 
-A third axis selects a zone-capable instantiation at compile time. The non-zone (default) variant pins every UTXO's zone fields to `0`. The zone variant binds each non-dummy input and output UTXO to the public `zone_program_id` when set: a UTXO whose `zone_program_id` is non-zero must equal the public `zone_program_id`, while a bare UTXO with `zone_program_id = 0` is exempt. The `zone_program_id` binding and non-zero `zone_data` are gated to the zone variant. Policy zones are anonymous, hiding the recipient behind a view tag, so there is no confidential zone variant: zone pairs only with the anonymous owner-tag variant.
+The `circuit: CircuitId` field of the instruction data declares the proving variant (P256 or Ed25519/Solana-only) and the circuit type (confidential, zone, or zone-authority). It is a selector only — not a public input and never hashed into `private_tx_hash` or `external_data_hash`. Binding comes from verifying-key selection: a proof generated for one instantiation fails pairing against another's key, so a lying selector cannot make an invalid proof verify. SPP validates the selector fail-closed before verification:
+
+1. The type must match the dispatched instruction: `Confidential*` for `transact`, `Zone*` for `zone_transact`, `ZoneAuthority` for `zone_authority_transact`.
+2. A `*P256` selector requires `p256_signing_pk_x` and a `TransactProof::P256` payload; a `*Eddsa` or `ZoneAuthority` selector requires `p256_signing_pk_x = None` and a `TransactProof::Eddsa` payload.
+3. The shape (`inputs.len()` × `outputs.len()`) is not part of the selector; it is read from the instruction data directly.
+
+Clients derive the selector from the spending key material (P256 iff an input owner is a P256 key) and the invoking instruction; users never choose it.
+
+A third axis selects a zone-capable instantiation, fixed by the dispatched instruction (rule 1 above). The non-zone (default) variant pins every UTXO's zone fields to `0`. The zone variant binds each non-dummy input and output UTXO to the public `zone_program_id` when set: a UTXO whose `zone_program_id` is non-zero must equal the public `zone_program_id`, while a bare UTXO with `zone_program_id = 0` is exempt. The `zone_program_id` binding and non-zero `zone_data` are gated to the zone variant. Policy zones are anonymous, hiding the recipient behind a view tag, so there is no confidential zone variant: zone pairs only with the anonymous owner-tag variant.
 
 **Transfer-key rotation.** Expanding the transfer circuit to
 `N_PUBLIC_SLOTS = 3` changes its constraint system. Every transfer proving key
@@ -1286,7 +1295,8 @@ struct InputUtxo {
     utxo_tree_root_index: u16,
     /// Account index of the input's tree; 255 means the output tree.
     tree_index: u8,
-    /// Account index of the input's Ed25519 signer; 255 when P256-owned.
+    /// Account index of the input's Ed25519 signer; 255 when P256-owned. The
+    /// variant itself is selected by `TransactIxData.circuit`, not this index.
     eddsa_signer_index: u8,
 }
 
@@ -1335,6 +1345,9 @@ struct TransactIxData {
     /// SPP cannot recompute it (it covers the private input UTXO hashes), so it
     /// is supplied directly rather than derived on-chain.
     private_tx_hash: [u8; 32],
+    /// Circuit selector; picks the verifying key. Not a public input — see
+    /// [Circuit Combinations](#circuit-variants).
+    circuit: CircuitId,
     /// Raw P256 x-coordinate of the transaction's shared signing key; `None` on
     /// the eddsa rail. SPP computes `hash_field(x)` for the P256 owner public
     /// input; the raw value is the `P256SigningKey` fetch tag.

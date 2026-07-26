@@ -68,8 +68,8 @@ pub enum ShieldedPoolError {
     InvalidMergeShape = 7019,
     #[error("merge output ciphertext must be verifiably encrypted")]
     InvalidMergeOutputScheme = 7020,
-    #[error("transact proof rail does not match the instruction inputs")]
-    MismatchedTransactProofRail = 7021,
+    #[error("transact proof variant does not match the instruction inputs")]
+    MismatchedTransactProofVariant = 7021,
     #[error("zone_authority_transact is disabled for this zone")]
     ZoneAuthorityTransactDisabled = 7022,
     #[error("output owner tag references the p256 signing key but p256_signing_pk_x is absent")]
@@ -96,6 +96,10 @@ pub enum ShieldedPoolError {
     TooManyPublicAssets = 7034,
     #[error("transact public settlement amounts overflow while aggregating an asset")]
     PublicAssetAmountOverflow = 7035,
+    #[error("circuit selector type does not match the dispatched instruction")]
+    MismatchedCircuitType = 7036,
+    #[error("circuit selector variant does not match p256_signing_pk_x or the input signers")]
+    MismatchedCircuitVariant = 7037,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -155,7 +159,7 @@ mod tests {
             (InvalidUserRecord as u32, 7018),
             (InvalidMergeShape as u32, 7019),
             (InvalidMergeOutputScheme as u32, 7020),
-            (MismatchedTransactProofRail as u32, 7021),
+            (MismatchedTransactProofVariant as u32, 7021),
             (ZoneAuthorityTransactDisabled as u32, 7022),
             (MissingP256SigningKey as u32, 7024),
             (OwnerTagAccountMissing as u32, 7025),
@@ -169,6 +173,8 @@ mod tests {
             (ZeroPublicLegAmount as u32, 7033),
             (TooManyPublicAssets as u32, 7034),
             (PublicAssetAmountOverflow as u32, 7035),
+            (MismatchedCircuitType as u32, 7036),
+            (MismatchedCircuitVariant as u32, 7037),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

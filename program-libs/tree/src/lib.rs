@@ -149,7 +149,7 @@ impl<'a> TreeAccount<'a> {
             return Err(TreeError::AddressInit);
         }
         if bytes.len() != size_of::<SppTreeLayout>() {
-            return Err(TreeError::BufferTooSmall);
+            return Err(TreeError::InvalidBufferSize);
         }
 
         let layout: &'a mut SppTreeLayout =

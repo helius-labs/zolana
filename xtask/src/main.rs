@@ -334,8 +334,8 @@ fn tx_size(args: Vec<String>) {
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
     use zolana_interface::{
         instruction::{
-            tag, InputUtxo, OwnerTag, P256Proof, PublicLeg, TransactIxData, TransactOutput,
-            TransactProof,
+            tag, CircuitId, CircuitVariant, InputUtxo, OwnerTag, P256Proof, PublicLeg,
+            TransactIxData, TransactOutput, TransactProof,
         },
         SHIELDED_POOL_PROGRAM_ID,
     };
@@ -431,6 +431,11 @@ fn tx_size(args: Vec<String>) {
             proof,
             expiry_unix_ts: 0,
             private_tx_hash: [0u8; 32],
+            circuit: CircuitId::confidential(if p256_signing_pk_x.is_some() {
+                CircuitVariant::P256
+            } else {
+                CircuitVariant::Eddsa
+            }),
             p256_signing_pk_x,
             inputs,
             public_legs,

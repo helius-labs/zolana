@@ -9,7 +9,7 @@ pub use p256_and_eddsa::{
     P256Owner, TransferP256ProofResult, TransferP256Prover, TransferSpendInput,
 };
 pub use witness::{
-    assemble, into_prover, AssembledTransfer, BuiltCircuit, CircuitType, ProverInputs, SpendProof,
+    assemble, into_prover, AssembledTransfer, BuiltCircuit, ProverInputs, ProverVariant, SpendProof,
 };
 pub use zolana_transaction::instructions::transact::PublicMovements;
 pub use zone_eddsa::{ZoneTransferProofResult, ZoneTransferProver};

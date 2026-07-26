@@ -11,7 +11,8 @@ use solana_transaction::Transaction;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            InputUtxo, OwnerTag, PublicLeg, TransactIxData, TransactOutput, TransactProof,
+            CircuitId, InputUtxo, OwnerTag, PublicLeg, TransactIxData, TransactOutput,
+            TransactProof,
         },
         Transact, TransactLegAccounts, TransactSolLeg, TransactSplLeg,
     },
@@ -48,6 +49,7 @@ fn ix_data(public_legs: Vec<PublicLeg>) -> TransactIxData {
         proof: TransactProof::zeroed_eddsa(),
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
+        circuit: CircuitId::ConfidentialEddsa,
         p256_signing_pk_x: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],

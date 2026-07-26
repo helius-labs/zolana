@@ -101,6 +101,11 @@ func constrainInput(api frontend.API, in Input, signals inputSignals) (frontend.
 	isAddress := in.isAddress(api)
 	api.AssertIsEqual(api.Add(isUtxo, isAddress, in.isDummy(api)), 1)
 
+	// Asset 0 marks content-less slots (dummies, addresses); a spendable utxo
+	// must name a real asset. This also makes asset-0 public movement slots
+	// unbalanceable, since no spendable utxo can carry asset 0.
+	assertZeroWhen(api, isUtxo, api.IsZero(in.Utxo.Asset))
+
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 	in.checkNonInclusion(api, utxoHash, signals)
 

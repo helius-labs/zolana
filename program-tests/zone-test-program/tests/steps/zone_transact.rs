@@ -38,7 +38,9 @@ use zolana_client::{
     SppProofInputs, TransferSpendInput, ZoneTransferP256Prover, ZoneTransferProver,
 };
 use zolana_interface::instruction::{
-    instruction_data::transact::{InputUtxo, TransactIxData, TransactProof},
+    instruction_data::transact::{
+        CircuitId, CircuitVariant, InputUtxo, TransactIxData, TransactProof,
+    },
     tag::ZONE_TRANSACT,
     TransactLegAccounts, TransactSolLeg, ZoneTransact,
 };
@@ -56,7 +58,7 @@ use crate::{
         send_transaction, transact_proof, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
         SPL_CHANGE_POSITION, ZERO,
     },
-    support::Rail,
+    support::Variant,
     world::decode_output_blinding,
     ZoneLifecycleWorld,
 };
@@ -99,7 +101,7 @@ impl ZoneLifecycleWorld {
     /// Zone-transfer `amount` of `asset` from `from` to `to` over the eddsa rail
     /// (the owner authorizes the spend with its ed25519 transaction signature),
     /// consolidating two of `from`'s spendable zone UTXOs of `asset` into the
-    /// (2, 3) shape. Sets `last_rail` to [`Rail::Eddsa`].
+    /// (2, 3) shape. Sets `last_rail` to [`Variant::Eddsa`].
     pub(crate) fn zone_transfer(
         &mut self,
         from: &str,
@@ -107,12 +109,12 @@ impl ZoneLifecycleWorld {
         asset: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.execute_zone_transfer(from, Some(to), asset, amount, None, Rail::Eddsa)
+        self.execute_zone_transfer(from, Some(to), asset, amount, None, Variant::Eddsa)
     }
 
     /// Zone-transfer `amount` of `asset` from `from` to `to` over the P256 rail
     /// (ownership proven inside the proof via the shared P256 owner signature).
-    /// Sets `last_rail` to [`Rail::P256`].
+    /// Sets `last_rail` to [`Variant::P256`].
     pub(crate) fn zone_transfer_p256(
         &mut self,
         from: &str,
@@ -120,7 +122,7 @@ impl ZoneLifecycleWorld {
         asset: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.execute_zone_transfer(from, Some(to), asset, amount, None, Rail::P256)
+        self.execute_zone_transfer(from, Some(to), asset, amount, None, Variant::P256)
     }
 
     /// Zone-withdraw `amount` of SOL from `from`'s zone UTXOs to a fresh external
@@ -138,7 +140,7 @@ impl ZoneLifecycleWorld {
         }
         let recipient = Keypair::new().pubkey();
         let sig =
-            self.execute_zone_transfer(from, None, asset, amount, Some(recipient), Rail::Eddsa)?;
+            self.execute_zone_transfer(from, None, asset, amount, Some(recipient), Variant::Eddsa)?;
         Ok((sig, recipient))
     }
 
@@ -155,7 +157,7 @@ impl ZoneLifecycleWorld {
         send_asset: Address,
         amount: u64,
         withdrawal: Option<Pubkey>,
-        rail: Rail,
+        rail: Variant,
     ) -> Result<Signature> {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
@@ -260,7 +262,7 @@ impl ZoneLifecycleWorld {
         send_asset: Address,
         amount: u64,
         withdrawal: Option<Pubkey>,
-        rail: Rail,
+        rail: Variant,
     ) -> Result<SentZoneTransfer> {
         let from_keypair = self.actor(from).keypair.clone();
         let to_keypair = to.map(|t| self.actor(t).keypair.clone());
@@ -366,14 +368,14 @@ impl ZoneLifecycleWorld {
         &self,
         proof_inputs: &SppProofInputs,
         zone: Address,
-        rail: Rail,
+        rail: Variant,
     ) -> Result<TransactIxData> {
         let spend_inputs = self.zone_spend_inputs(&proof_inputs.input_utxos)?;
         let tx_shape = proof_inputs.check_shape()?;
         let shape = Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs());
 
         match rail {
-            Rail::Eddsa => {
+            Variant::Eddsa => {
                 let prover = ZoneTransferProver {
                     inputs: spend_inputs,
                     outputs: proof_inputs.output_utxos.clone(),
@@ -390,12 +392,12 @@ impl ZoneLifecycleWorld {
                     &result.nullifiers,
                     result.private_tx_hash,
                     &result.input_root_indices,
-                    Rail::Eddsa,
+                    Variant::Eddsa,
                     transact_proof(&proof)?,
                     None,
                 )
             }
-            Rail::P256 => {
+            Variant::P256 => {
                 let p256_owner = self.p256_owner(proof_inputs, zone)?;
                 let prover = ZoneTransferP256Prover {
                     inputs: spend_inputs,
@@ -414,7 +416,7 @@ impl ZoneLifecycleWorld {
                     &result.nullifiers,
                     result.private_tx_hash,
                     &result.input_root_indices,
-                    Rail::P256,
+                    Variant::P256,
                     transact_proof(&proof)?,
                     Some(result.p256_signing_pk_x),
                 )
@@ -686,7 +688,7 @@ impl ZoneLifecycleWorld {
             &result.nullifiers,
             result.private_tx_hash,
             &result.input_root_indices,
-            Rail::Eddsa,
+            Variant::Eddsa,
             TransactProof::zeroed_eddsa(),
             None,
         )?;
@@ -727,7 +729,7 @@ fn assemble_ix_data(
     nullifiers: &[[u8; 32]],
     private_tx_hash: [u8; 32],
     root_indices: &[(u16, u16)],
-    rail: Rail,
+    rail: Variant,
     proof: TransactProof,
     p256_signing_pk_x: Option<[u8; 32]>,
 ) -> Result<TransactIxData> {
@@ -750,7 +752,7 @@ fn assemble_ix_data(
         .filter(|spend| !spend.is_dummy())
     {
         let signer = match (rail, spend.utxo.owner.signature_type()?) {
-            (Rail::P256, SignatureType::P256) => P256_OWNED_SIGNER,
+            (Variant::P256, SignatureType::P256) => P256_OWNED_SIGNER,
             _ => DEFAULT_EDDSA_SIGNER_INDEX,
         };
         real_signer_indices.push(signer);
@@ -783,6 +785,10 @@ fn assemble_ix_data(
         proof,
         expiry_unix_ts: external.expiry_unix_ts,
         private_tx_hash,
+        circuit: CircuitId::zone(match rail {
+            Variant::P256 => CircuitVariant::P256,
+            Variant::Eddsa => CircuitVariant::Eddsa,
+        }),
         p256_signing_pk_x,
         inputs,
         public_legs: external
@@ -862,7 +868,7 @@ fn invalid_proof_rejected(world: &mut ZoneLifecycleWorld) {
 fn eddsa_signer_authorized(world: &mut ZoneLifecycleWorld) {
     assert_eq!(
         world.last_rail,
-        Some(Rail::Eddsa),
+        Some(Variant::Eddsa),
         "zone transfer should take the eddsa rail (ed25519 signer authorizes the spend)"
     );
 }
@@ -871,7 +877,7 @@ fn eddsa_signer_authorized(world: &mut ZoneLifecycleWorld) {
 fn p256_proof_authorized(world: &mut ZoneLifecycleWorld) {
     assert_eq!(
         world.last_rail,
-        Some(Rail::P256),
+        Some(Variant::P256),
         "zone transfer should take the P256 rail (ownership proven in the proof)"
     );
 }

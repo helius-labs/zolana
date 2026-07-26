@@ -43,6 +43,22 @@ pub struct BloomFilter<const NUM_ITERS: usize, const BYTES: usize> {
 unsafe impl<const NUM_ITERS: usize, const BYTES: usize> Zeroable for BloomFilter<NUM_ITERS, BYTES> {}
 unsafe impl<const NUM_ITERS: usize, const BYTES: usize> Pod for BloomFilter<NUM_ITERS, BYTES> {}
 
+/// Double-hash probe parameters for `value`.
+///
+/// `h2` (the stride) is derived from an independent hash slice and forced odd:
+/// an even stride shares the power-of-two factor of the table size
+/// (`num_bits` has factor 2^6 for the nullifier tree), confining all probes to
+/// one congruence class; a zero stride (mod `num_bits`) would collapse every
+/// probe onto a single bit. An odd stride only shares the table's odd factor,
+/// and two decorrelated halves make `h1`/`h2` independent.
+#[inline(always)]
+fn probes(value: &[u8; 32]) -> (u64, u64) {
+    let hash = solana_nostd_keccak::hash(value);
+    let h1 = u64::from_le_bytes(hash[0..8].try_into().unwrap());
+    let h2 = u64::from_le_bytes(hash[16..24].try_into().unwrap()) | 1;
+    (h1, h2)
+}
+
 impl<const NUM_ITERS: usize, const BYTES: usize> BloomFilter<NUM_ITERS, BYTES> {
     pub fn calculate_bloom_filter_size(n: usize, p: f64) -> usize {
         let m = -((n as f64) * p.ln()) / (LN_2 * LN_2);
@@ -76,9 +92,7 @@ impl<const NUM_ITERS: usize, const BYTES: usize> BloomFilter<NUM_ITERS, BYTES> {
     }
 
     pub fn insert(&mut self, value: &[u8; 32]) -> Result<(), BloomFilterError> {
-        let hash = solana_nostd_keccak::hash(value);
-        let h1 = u64::from_le_bytes(hash[0..8].try_into().unwrap());
-        let h2 = u64::from_le_bytes(hash[8..16].try_into().unwrap());
+        let (h1, h2) = probes(value);
         let num_bits = BYTES as u64 * 8;
 
         let mut probe = h1;
@@ -108,9 +122,7 @@ impl<const NUM_ITERS: usize, const BYTES: usize> BloomFilter<NUM_ITERS, BYTES> {
     }
 
     pub fn contains(&self, value: &[u8; 32]) -> bool {
-        let hash = solana_nostd_keccak::hash(value);
-        let h1 = u64::from_le_bytes(hash[0..8].try_into().unwrap());
-        let h2 = u64::from_le_bytes(hash[8..16].try_into().unwrap());
+        let (h1, h2) = probes(value);
         let num_bits = BYTES as u64 * 8;
 
         let mut probe = h1;

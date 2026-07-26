@@ -91,7 +91,9 @@ fn test_append() {
     // value      = [0] [0] [0] [0] [0] [0] [0] [0]
     // next_index = [0] [0] [0] [0] [0] [0] [0] [0]
     // ```
-    let mut indexed_array: IndexedArray<Poseidon, usize> = IndexedArray::default();
+    let next_value = BigUint::from_str(HIGHEST_ADDRESS_PLUS_ONE).unwrap();
+    let mut indexed_array: IndexedArray<Poseidon, usize> =
+        IndexedArray::new(0_u32.to_biguint().unwrap(), next_value.clone());
 
     let nullifier1 = 30_u32.to_biguint().unwrap();
     let bundle1 = indexed_array.new_element(&nullifier1).unwrap();
@@ -121,9 +123,7 @@ fn test_append() {
         bigint_to_be_bytes_array::<32>(&nullifier1)
             .unwrap()
             .as_ref(),
-        bigint_to_be_bytes_array::<32>(&(0.to_biguint().unwrap()))
-            .unwrap()
-            .as_ref(),
+        bigint_to_be_bytes_array::<32>(&next_value).unwrap().as_ref(),
     ])
     .unwrap();
     assert_eq!(indexed_array.hash_element(1).unwrap(), expected_hash);
@@ -363,9 +363,7 @@ fn test_append() {
         bigint_to_be_bytes_array::<32>(&nullifier4)
             .unwrap()
             .as_ref(),
-        bigint_to_be_bytes_array::<32>(&(0.to_biguint().unwrap()))
-            .unwrap()
-            .as_ref(),
+        bigint_to_be_bytes_array::<32>(&next_value).unwrap().as_ref(),
     ])
     .unwrap();
     assert_eq!(indexed_array.hash_element(4).unwrap(), expected_hash);

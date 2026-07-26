@@ -3,7 +3,7 @@ use thiserror::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum TreeError {
     #[error("account buffer does not match the tree layout size")]
-    BufferTooSmall,
+    InvalidBufferSize,
     #[error("unsupported tree height")]
     HeightTooLarge,
     #[error("tree account deserialization failed")]

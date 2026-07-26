@@ -4,6 +4,89 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 use crate::{error::ShieldedPoolError, MAX_WIRE_PUBLIC_LEGS};
 
+/// The circuit instantiation a `transact`-family proof is verified against
+/// (spec: Circuit Combinations). A pure verifying-key selector: it is not a
+/// public input and never enters `private_tx_hash` or `external_data_hash`.
+/// Binding comes from key selection — a proof generated for one instantiation
+/// fails pairing against another's key — so the program validates the selector
+/// fail-closed against the dispatched instruction (type) and the instruction
+/// data (variant) before verification. Clients derive it from the spending key
+/// material and the invoking instruction; users never choose it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[wincode(tag_encoding = "u16")]
+pub enum CircuitId {
+    ConfidentialEddsa,
+    ConfidentialP256,
+    ZoneEddsa,
+    ZoneP256,
+    ZoneAuthority,
+}
+
+/// The circuit family, fixed by the dispatched instruction: `transact` runs
+/// `Confidential`, `zone_transact` runs `Zone`, `zone_authority_transact` runs
+/// `ZoneAuthority`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CircuitType {
+    Confidential,
+    Zone,
+    ZoneAuthority,
+}
+
+/// The proving variant: whether the circuit carries the P256 ownership gadget
+/// (and its BSB22-committed proof format).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CircuitVariant {
+    Eddsa,
+    P256,
+}
+
+impl CircuitId {
+    /// The default-zone `transact` selector for a proving variant.
+    pub const fn confidential(variant: CircuitVariant) -> Self {
+        match variant {
+            CircuitVariant::Eddsa => Self::ConfidentialEddsa,
+            CircuitVariant::P256 => Self::ConfidentialP256,
+        }
+    }
+
+    /// The policy-zone `zone_transact` selector for a proving variant.
+    pub const fn zone(variant: CircuitVariant) -> Self {
+        match variant {
+            CircuitVariant::Eddsa => Self::ZoneEddsa,
+            CircuitVariant::P256 => Self::ZoneP256,
+        }
+    }
+
+    /// The `zone_authority_transact` selector (a single vanilla-Groth16
+    /// instantiation; no variant split).
+    pub const fn zone_authority() -> Self {
+        Self::ZoneAuthority
+    }
+
+    pub const fn variant(self) -> CircuitVariant {
+        match self {
+            Self::ConfidentialP256 | Self::ZoneP256 => CircuitVariant::P256,
+            Self::ConfidentialEddsa | Self::ZoneEddsa | Self::ZoneAuthority => {
+                CircuitVariant::Eddsa
+            }
+        }
+    }
+
+    /// Whether the circuit carries the P256 ownership gadget (and its
+    /// BSB22-committed proof format).
+    pub const fn is_p256(self) -> bool {
+        matches!(self.variant(), CircuitVariant::P256)
+    }
+
+    pub const fn circuit_type(self) -> CircuitType {
+        match self {
+            Self::ConfidentialEddsa | Self::ConfidentialP256 => CircuitType::Confidential,
+            Self::ZoneEddsa | Self::ZoneP256 => CircuitType::Zone,
+            Self::ZoneAuthority => CircuitType::ZoneAuthority,
+        }
+    }
+}
+
 /// The BSB22-committed Groth16 proof of the P256 rail: `a || b || c ||
 /// commitment || commitment_pok`, 192 bytes on the wire (compressed points,
 /// G1 -> 32 bytes, G2 -> 64 bytes). This is the single definition of that
@@ -154,6 +237,7 @@ pub struct TransactOutput {
 pub struct TransactIxData {
     pub expiry_unix_ts: u64,
     pub private_tx_hash: [u8; 32],
+    pub circuit: CircuitId,
     // TODO: explore lifting the one-shared-P256-key-per-tx limit. P256 ownership
     // stays in-circuit (never program-native/precompile), so the circuit shape
     // gains a dimension K = max distinct P256 signing keys, each costing one more
@@ -250,6 +334,7 @@ pub struct OutputDataRef<'a> {
 pub struct TransactIxDataRef<'a> {
     pub expiry_unix_ts: u64,
     pub private_tx_hash: &'a [u8; 32],
+    pub circuit: CircuitId,
     pub p256_signing_pk_x: Option<[u8; 32]>,
     pub tx_viewing_pk: &'a [u8; 33],
     pub salt: &'a [u8; 16],
@@ -457,6 +542,45 @@ impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
 mod tests {
     use super::*;
 
+    /// The selector is a 2-byte little-endian enum tag; unknown values are
+    /// rejected at deserialization (fail-closed).
+    #[test]
+    fn circuit_id_wire_layout_and_unknown_rejection() {
+        let ids = [
+            CircuitId::ConfidentialEddsa,
+            CircuitId::ConfidentialP256,
+            CircuitId::ZoneEddsa,
+            CircuitId::ZoneP256,
+            CircuitId::ZoneAuthority,
+        ];
+        for (value, id) in ids.into_iter().enumerate() {
+            let bytes = wincode::serialize(&id).unwrap();
+            assert_eq!(bytes, (value as u16).to_le_bytes());
+            assert_eq!(wincode::deserialize_exact::<CircuitId>(&bytes).unwrap(), id);
+        }
+        let unknown = 5u16.to_le_bytes();
+        assert!(wincode::deserialize_exact::<CircuitId>(&unknown).is_err());
+    }
+
+    /// Constructors, type, and variant accessors agree with the variant split:
+    /// only the `*P256` selectors carry the P256 ownership gadget.
+    #[test]
+    fn circuit_id_accessors_are_consistent() {
+        use {CircuitType::*, CircuitVariant::*};
+        let table = [
+            (CircuitId::confidential(Eddsa), Confidential, Eddsa),
+            (CircuitId::confidential(P256), Confidential, P256),
+            (CircuitId::zone(Eddsa), Zone, Eddsa),
+            (CircuitId::zone(P256), Zone, P256),
+            (CircuitId::zone_authority(), ZoneAuthority, Eddsa),
+        ];
+        for (id, ty, variant) in table {
+            assert_eq!(id.circuit_type(), ty);
+            assert_eq!(id.variant(), variant);
+            assert_eq!(id.is_p256(), variant == P256);
+        }
+    }
+
     fn eddsa_proof() -> TransactProof {
         TransactProof::Eddsa {
             a: [1u8; 32],
@@ -520,6 +644,7 @@ mod tests {
             proof,
             expiry_unix_ts: 7,
             private_tx_hash: [9u8; 32],
+            circuit: CircuitId::ConfidentialP256,
             p256_signing_pk_x: Some([20u8; 32]),
             inputs: vec![InputUtxo {
                 nullifier_hash: [1u8; 32],
@@ -555,6 +680,7 @@ mod tests {
     fn assert_ref_matches_owned(view: &TransactIxDataRef, owned: &TransactIxData) {
         assert_eq!(view.expiry_unix_ts, owned.expiry_unix_ts);
         assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
+        assert_eq!(view.circuit, owned.circuit);
         assert_eq!(view.p256_signing_pk_x, owned.p256_signing_pk_x);
         assert_eq!(view.tx_viewing_pk, &owned.tx_viewing_pk);
         assert_eq!(view.salt, &owned.salt);

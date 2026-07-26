@@ -33,8 +33,9 @@ pub(crate) fn insert_into_current_queue_batch<const NUM_ITERS: usize, const BYTE
     // 1. Check that the current batch is ready (BatchState::Fill).
     //      1.1. If the current batch is inserted, clear the batch.
     {
-        let clear_batch = current_batch.get_state() == BatchState::Inserted;
-        if current_batch.get_state() == BatchState::Fill {
+        let current_state = current_batch.checked_state()?;
+        let clear_batch = current_state == BatchState::Inserted;
+        if current_state == BatchState::Fill {
             // Do nothing, checking most common case first.
         } else if clear_batch {
             // The bloom filter must be zeroed by a forester before the batch is

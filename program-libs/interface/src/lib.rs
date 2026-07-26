@@ -61,7 +61,6 @@ pub const DEFAULT_SOL_INTERFACE_INDEX_SEED: &[u8] = &[0];
 /// Seed for the shielded-pool program's own CPI authority PDA, used as the SPL
 /// vault authority for public SPL settlement.
 pub const SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED: &[u8] = b"cpi_authority";
-pub const SPP_ZONE_CONFIG_PDA_SEED: &[u8] = b"spp_zone_config";
 /// Seed for the shielded-pool protocol-config PDA. The config is the singleton
 /// authority oracle for admin instructions, so it is a canonical PDA the
 /// program creates and address-checks; a substituted config can't name a new

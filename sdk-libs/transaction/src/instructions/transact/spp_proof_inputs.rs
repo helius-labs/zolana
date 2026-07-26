@@ -1,6 +1,9 @@
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_interface::{MAX_WIRE_PUBLIC_LEGS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
+use zolana_interface::{
+    instruction::instruction_data::transact::CircuitVariant, MAX_WIRE_PUBLIC_LEGS, N_PUBLIC_SLOTS,
+    SOL_ASSET_FIELD,
+};
 use zolana_keypair::{
     hash::{hash_field, sha256, sha256_be},
     ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
@@ -51,17 +54,28 @@ pub fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {
     Ok(hash_field(asset.as_array())?)
 }
 
-pub fn inputs_require_p256(inputs: &[SppProofInputUtxo]) -> Result<bool, TransactionError> {
+/// The proving variant the spending key material requires: P256 iff any real
+/// input is P256-owned. This is the single derivation of the variant; the
+/// `circuit` selector stamped on the instruction data and the prover witness
+/// both come from it, so they agree by construction.
+pub fn inputs_proof_variant(
+    inputs: &[SppProofInputUtxo],
+) -> Result<CircuitVariant, TransactionError> {
     for spend in inputs {
-        // A dummy's zero owner reads as P256; skip it so it never forces the rail.
+        // A dummy's zero owner reads as P256; skip it so it never forces the
+        // P256 variant.
         if spend.is_dummy() {
             continue;
         }
         if spend.utxo.owner.signature_type()? == SignatureType::P256 {
-            return Ok(true);
+            return Ok(CircuitVariant::P256);
         }
     }
-    Ok(false)
+    Ok(CircuitVariant::Eddsa)
+}
+
+pub fn inputs_require_p256(inputs: &[SppProofInputUtxo]) -> Result<bool, TransactionError> {
+    Ok(inputs_proof_variant(inputs)? == CircuitVariant::P256)
 }
 
 pub fn first_nullifier(input_utxos: &[SppProofInputUtxo]) -> Result<[u8; 32], TransactionError> {

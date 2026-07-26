@@ -61,6 +61,9 @@ func constrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned
 	isUtxo := utxo.isUtxo(api)
 	api.AssertIsEqual(api.Add(isUtxo, utxo.isDummy(api)), 1)
 
+	// Same asset-0 rule as the input side: a real output must name a real asset.
+	assertZeroWhen(api, isUtxo, api.IsZero(utxo.Asset))
+
 	assertWhen(api, utxo.isDummy(api), utxo.checkDummy(api))
 
 	dataIsSet := api.Sub(1, api.IsZero(utxo.DataHash))

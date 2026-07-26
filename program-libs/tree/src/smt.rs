@@ -140,16 +140,12 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
     pub fn root_by_index(&self, index: u16) -> Result<[u8; 32], TreeError> {
         let capacity = self.root_history.len();
         let index = index as usize;
-        let cursor = usize::from(self.current_root_index());
         let len = usize::from(u16::from_le_bytes(self.root_history_len));
 
         if len == 0 || index >= capacity {
             return Err(TreeError::InvalidRootIndex);
         }
         if len < capacity && index >= len {
-            return Err(TreeError::InvalidRootIndex);
-        }
-        if len == 1 && index != cursor {
             return Err(TreeError::InvalidRootIndex);
         }
         let root = *self

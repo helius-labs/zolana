@@ -131,7 +131,7 @@ impl QueueBatches {
     pub fn increment_currently_processing_batch_index_if_full(
         &mut self,
     ) -> Result<(), BatchedMerkleTreeError> {
-        let state = self.get_current_batch()?.get_state();
+        let state = self.get_current_batch()?.checked_state()?;
         if state == BatchState::Full {
             self.currently_processing_batch_index =
                 (self.currently_processing_batch_index + 1) % self.num_batches;

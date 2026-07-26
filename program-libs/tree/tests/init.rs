@@ -178,9 +178,7 @@ fn root_history_wraps_around() {
     let appends = ROOT_HISTORY_CAPACITY + 5;
     let mut roots = Vec::with_capacity(appends);
     for i in 0..appends {
-        tree.utxo_tree()
-            .append(leaf((i % 200 + 1) as u8))
-            .unwrap();
+        tree.utxo_tree().append(leaf((i % 200 + 1) as u8)).unwrap();
         roots.push(tree.utxo_tree().root());
     }
 

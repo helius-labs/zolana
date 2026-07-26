@@ -339,7 +339,11 @@ fn check_input_signers(
             // A P256-owned input routes to the transaction's shared P256 key on this
             // sentinel; the circuit checks that key's signature. The confidential
             // variants publish the key itself as `p256_signing_pk_field`, so the
-            // sentinel hides nothing there.
+            // sentinel hides nothing there. The eddsa variant has no P256 path, so
+            // the sentinel is only valid when the selector declares P256.
+            if !ix.circuit.is_p256() {
+                return Err(ShieldedPoolError::MismatchedCircuitVariant.into());
+            }
             [0u8; 32]
         } else {
             // Eddsa signer check. The circuit relies on the program to check the signer.

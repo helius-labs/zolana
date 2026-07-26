@@ -22,8 +22,8 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
-    AsyncRpc, CircuitType, ClientError, ConfidentialTransfer, MerkleContext, MerkleProof,
-    NonInclusionProof, PublicMovements, Rpc, SettlementTarget, SpendProof, SppProofInputUtxo,
+    AsyncRpc, ClientError, ConfidentialTransfer, MerkleContext, MerkleProof, NonInclusionProof,
+    ProverVariant, PublicMovements, Rpc, SettlementTarget, SpendProof, SppProofInputUtxo,
     SppProofInputs, TransferP256Prover, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputDataEncoding;
@@ -188,8 +188,8 @@ fn prover_of(proof_inputs: SppProofInputs) -> TransferP256Prover {
         .expect("into prover")
         .circuit
     {
-        CircuitType::P256(prover) => prover,
-        CircuitType::Eddsa(_) => panic!("expected P256 rail"),
+        ProverVariant::P256(prover) => prover,
+        ProverVariant::Eddsa(_) => panic!("expected P256 rail"),
     }
 }
 
@@ -712,7 +712,7 @@ fn rail_follows_input_owner_type() {
         zolana_client::into_prover(proof_inputs, &input_merkle_proofs, &[])
             .unwrap()
             .circuit,
-        CircuitType::Eddsa(_)
+        ProverVariant::Eddsa(_)
     ));
 }
 

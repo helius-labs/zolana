@@ -23,9 +23,12 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::TransferOutput;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_interface::instruction::{
-    instruction_data::transact::{OwnerTag, TransactIxData},
-    Transact,
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::{
+        instruction_data::transact::{CircuitId, OwnerTag, TransactIxData},
+        Transact,
+    },
 };
 use zolana_keypair::hash::hash_field;
 use zolana_program_test::ZolanaProgramTest;
@@ -195,6 +198,50 @@ fn transact_sends_valid_proof() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[]);
     assert!(result.is_ok(), "transact failed: {result:?}");
+}
+
+/// The declared circuit selector is checked before proof verification: a
+/// selector whose type belongs to another instruction, or whose variant
+/// contradicts `p256_signing_pk_x`, is rejected even with an otherwise valid
+/// proof.
+#[test]
+fn transact_rejects_mismatched_circuit_selector() {
+    let Some(mut env) = TransactEnv::boot() else {
+        return;
+    };
+
+    let payer = env.rpc.payer.pubkey();
+    let valid = build_valid_transact_ix(&env);
+
+    for (circuit, error) in [
+        // A zone selector on the default-zone `transact` instruction.
+        (
+            CircuitId::ZoneEddsa,
+            ShieldedPoolError::MismatchedCircuitType,
+        ),
+        // The P256 variant without a `p256_signing_pk_x`.
+        (
+            CircuitId::ConfidentialP256,
+            ShieldedPoolError::MismatchedCircuitVariant,
+        ),
+    ] {
+        let mut data = valid.clone();
+        data.circuit = circuit;
+        let ix = Transact {
+            payer,
+            tree: env.tree.pubkey(),
+            legs: Vec::new(),
+            data,
+        }
+        .instruction();
+        let err = env
+            .rpc
+            .create_and_send_default_payer_transaction(&[ix], &[])
+            .expect_err("mismatched circuit selector must be rejected");
+        let needle = format!("Custom({})", error as u32);
+        let msg = format!("{err}");
+        assert!(msg.contains(&needle), "expected {needle}, got: {msg}");
+    }
 }
 
 /// A tampered output owner tag (changed after proving, so

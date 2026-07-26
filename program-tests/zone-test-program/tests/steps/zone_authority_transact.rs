@@ -30,7 +30,7 @@ use zolana_client::{
     ProverClient, PublicMovements, Shape, SpendProof, TransferSpendInput, ZoneAuthorityProver,
 };
 use zolana_interface::instruction::{
-    instruction_data::transact::{InputUtxo, OwnerTag, TransactOutput, TransactProof},
+    instruction_data::transact::{CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof},
     tag::ZONE_AUTHORITY_TRANSACT,
     TransactIxData, ZoneAuthorityTransact,
 };
@@ -330,6 +330,7 @@ impl ZoneLifecycleWorld {
             proof: transact_proof(&proof)?,
             expiry_unix_ts: external_data.expiry_unix_ts,
             private_tx_hash: result.private_tx_hash,
+            circuit: CircuitId::zone_authority(),
             p256_signing_pk_x: None,
             inputs,
             public_legs: external_data

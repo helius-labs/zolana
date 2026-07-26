@@ -112,13 +112,14 @@ impl Transact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::instruction_data::transact::TransactProof;
+    use crate::instruction::instruction_data::transact::{CircuitId, TransactProof};
 
     fn empty_data(public_legs: Vec<PublicLeg>) -> TransactIxData {
         TransactIxData {
             proof: TransactProof::zeroed_eddsa(),
             expiry_unix_ts: u64::MAX,
             private_tx_hash: [0u8; 32],
+            circuit: CircuitId::ConfidentialEddsa,
             p256_signing_pk_x: None,
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],

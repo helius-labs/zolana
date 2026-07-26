@@ -4,7 +4,7 @@ use crate::{
     ASSOCIATED_TOKEN_PROGRAM_ID, DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
     SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE_PDA_SEED, SPL_ASSET_COUNTER_PDA_SEED,
     SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
-    SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
+    SPP_PROTOCOL_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
 };
 
 pub fn shielded_pool_program_id() -> Pubkey {
@@ -66,25 +66,6 @@ pub fn associated_token_address(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
         &associated_token_program_id(),
     )
     .0
-}
-
-pub fn zone_config(zone_program: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[SPP_ZONE_CONFIG_PDA_SEED, zone_program.as_ref()],
-        &shielded_pool_program_id(),
-    )
-}
-
-pub fn zone_config_with_bump(zone_program: &Pubkey, bump: u8) -> Result<Pubkey, PubkeyError> {
-    let bump = [bump];
-    Pubkey::create_program_address(
-        &[
-            SPP_ZONE_CONFIG_PDA_SEED,
-            zone_program.as_ref(),
-            bump.as_slice(),
-        ],
-        &shielded_pool_program_id(),
-    )
 }
 
 pub fn zone_auth(zone_program: &Pubkey) -> (Pubkey, u8) {
