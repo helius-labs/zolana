@@ -9,7 +9,7 @@ use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
     spawn_prover, InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicAmounts, Rpc, Shape,
-    SppProofInputUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
+    SppProofInputUtxo, TransferSpendInput, ZoneAuthorityProofInputs, ZoneAuthorityProver,
 };
 use zolana_interface::{
     instruction::{
@@ -135,7 +135,7 @@ fn mixed_owners() -> ZoneAuthorityProver {
 }
 
 /// #5: build through the transaction-crate boundary: `PreparedZoneAuthority` ->
-/// `ZoneAuthorityWitness` -> `ZoneAuthorityProver` (shape 2x2).
+/// `ZoneAuthorityProofInputs` -> `ZoneAuthorityProver` (shape 2x2).
 fn boundary_prover() -> ZoneAuthorityProver {
     let zone = zone_program();
     let mut indexer = TestIndexer::new();
@@ -174,7 +174,7 @@ fn boundary_prover() -> ZoneAuthorityProver {
     let proofs = indexer
         .get_input_merkle_proofs(&commitments, None)
         .expect("merkle proofs");
-    ZoneAuthorityProver::try_from(ZoneAuthorityWitness { prepared, proofs })
+    ZoneAuthorityProver::try_from(ZoneAuthorityProofInputs { prepared, proofs })
         .expect("zone-authority prover")
 }
 

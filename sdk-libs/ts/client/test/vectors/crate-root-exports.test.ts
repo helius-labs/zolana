@@ -53,13 +53,13 @@ const CARRIED: Readonly<Record<string, string>> = {
   TransferP256Inputs: "TransferP256Inputs",
   ZolanaClient: "ZolanaClient",
   ZolanaIndexer: "ZolanaIndexer",
-  // The three zone rails and the zone-authority witness bridge. Rust names each
-  // rail by its prover struct and its result struct; TypeScript names the rail
-  // by the function that builds it, and the two zone result structs are
+  // The three zone rails and the zone-authority proof-inputs bridge. Rust names
+  // each rail by its prover struct and its result struct; TypeScript names the
+  // rail by the function that builds it, and the two zone result structs are
   // field-identical, so both carry as AssembledZone.
   ZoneAuthorityProofResult: "AssembledZone",
   ZoneAuthorityProver: "assembleZoneAuthority",
-  ZoneAuthorityWitness: "assembleZoneAuthorityWitness",
+  ZoneAuthorityProofInputs: "assembleZoneAuthorityProofInputs",
   ZoneTransferP256ProofResult: "AssembledZoneP256",
   ZoneTransferP256Prover: "assembleZoneP256",
   ZoneTransferProofResult: "AssembledZone",
@@ -95,10 +95,10 @@ const NOT_CARRIED: Readonly<Record<string, string>> = {
   Merge: "@zolana/transaction owns merge construction",
   MergeProofResult: "ZolanaClient.proveMerge returns ProvedMerge",
   MergeProver: "ZolanaClient.proveMerge owns merge proving",
-  MergeWitness: "prover-internal circuit witness",
+  MergeProofInputs: "ZolanaClient.proveMerge folds PreparedMerge and spends",
   MergeZone: "@zolana/transaction owns zone merge construction",
   MergeZoneProver: "ZolanaClient.proveMergeZone owns zone merge proving",
-  MergeZoneWitness: "prover-internal circuit witness",
+  MergeZoneProofInputs: "ZolanaClient.proveMergeZone folds PreparedMergeZone and spends",
   NULLIFIER_TREE_HEIGHT: "assembly validates path lengths against it internally",
   OutputContext: "@zolana/transaction owns the indexed output types",
   OutputSlot: "@zolana/transaction owns the indexed output types",

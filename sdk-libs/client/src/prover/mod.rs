@@ -26,7 +26,7 @@ pub use inputs::{
     TransferP256Inputs,
 };
 pub use merge::{MergeProofResult, MergeProver};
-pub use merge_zone::{MergeZoneProver, MergeZoneWitness};
+pub use merge_zone::{MergeZoneProofInputs, MergeZoneProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use transact::{
     P256Owner, PublicAmounts, TransferP256ProofResult, TransferP256Prover, TransferProofResult,
@@ -37,4 +37,4 @@ pub use zolana_transaction::instructions::transact::{
     canonical_shape, resolve_shape, Shape, SPP_SUPPORTED_SHAPES,
 };
 pub use zolana_transaction::ProofInputUtxo;
-pub use zone_authority::{ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness};
+pub use zone_authority::{ZoneAuthorityProofInputs, ZoneAuthorityProofResult, ZoneAuthorityProver};

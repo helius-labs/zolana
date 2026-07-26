@@ -208,7 +208,7 @@ describe("merge assembly against the Rust oracle", () => {
     expect(zoneBody["publicInputHash"]).not.toBe(defaultBody["publicInputHash"]);
   });
 
-  /// Rust `MergeWitness` clears both hashes before plain-merge assembly. A
+  /// Rust `MergeProofInputs` clears both hashes before plain-merge assembly. A
   /// hand-built prepared value that still carries them must normalize to the
   /// same public inputs the clean oracle recorded.
   it("clears nonzero data hashes on the plain rail to match the Rust oracle", () => {

@@ -26,7 +26,7 @@ use zolana_client::{
     assemble,
     error::ClientError,
     prover::{
-        merge::{MergeProver, MergeWitness},
+        merge::{MergeProver, MergeProofInputs},
         MergeInputs, ProofCompressed, ProverClient,
     },
     retry::IndexerPollConfig,
@@ -995,7 +995,7 @@ fn workflow_merge_vectors(owner: &ShieldedKeypair) -> Result<Value, Box<dyn std:
         .map(|(index, input)| spend_proof(input, tree, index))
         .collect::<Result<Vec<_>, _>>()?;
     let material = zolana_wallet::actions::submit::MergeMaterial::from_keypair(owner);
-    let result = MergeProver::try_from(MergeWitness {
+    let result = MergeProver::try_from(MergeProofInputs {
         prepared,
         nullifier_key: material.nullifier_key.clone(),
         proofs: proofs.clone(),

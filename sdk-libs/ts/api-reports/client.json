@@ -27,7 +27,7 @@
         "kind": "value"
       },
       {
-        "name": "assembleZoneAuthorityWitness",
+        "name": "assembleZoneAuthorityProofInputs",
         "kind": "value"
       },
       {
@@ -329,7 +329,7 @@
         "kind": "value"
       },
       {
-        "name": "assembleZoneAuthorityWitness",
+        "name": "assembleZoneAuthorityProofInputs",
         "kind": "value"
       },
       {

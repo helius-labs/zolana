@@ -26,7 +26,7 @@ export {
   assemble,
   assembleZone,
   assembleZoneAuthority,
-  assembleZoneAuthorityWitness,
+  assembleZoneAuthorityProofInputs,
   assembleZoneP256,
   canonicalShape,
   compressProof,

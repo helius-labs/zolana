@@ -1,6 +1,6 @@
 pub mod eddsa;
 pub mod p256_and_eddsa;
-pub mod witness;
+pub(crate) mod witness;
 pub mod zone_eddsa;
 pub mod zone_p256;
 

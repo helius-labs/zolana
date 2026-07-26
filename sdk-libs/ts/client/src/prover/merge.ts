@@ -184,7 +184,7 @@ export function assembleMergeZoneWithProofs(
  * purpose, to fail before the indexer round trip.
  */
 /**
- * Rust `MergeWitness` clears both hashes before plain-merge assembly. A
+ * Rust `MergeProofInputs` clears both hashes before plain-merge assembly. A
  * hand-built `PreparedMerge` can still carry them; leaving them would diverge
  * the circuit witness and public inputs from Rust.
  */

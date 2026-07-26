@@ -11,7 +11,7 @@ import { compressProof } from "./proof.js";
 import {
   assembleZone,
   assembleZoneAuthority,
-  assembleZoneAuthorityWitness,
+  assembleZoneAuthorityProofInputs,
   assembleZoneP256,
 } from "./zone.js";
 
@@ -23,7 +23,7 @@ export {
   assemble,
   assembleZone,
   assembleZoneAuthority,
-  assembleZoneAuthorityWitness,
+  assembleZoneAuthorityProofInputs,
   assembleZoneP256,
   compressProof,
   createDummyTransferInput,

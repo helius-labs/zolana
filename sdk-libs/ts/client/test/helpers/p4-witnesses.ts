@@ -289,7 +289,7 @@ export function buildZoneWitness(
     : assembleZone(built.proofInputs, built.spendProofs, built.zone);
 }
 
-export function buildZoneAuthorityWitness(shape: Readonly<{ inputs: number; outputs: number }>) {
+export function buildZoneAuthorityProofInputs(shape: Readonly<{ inputs: number; outputs: number }>) {
   const built = buildZoneInputs(false, shape, true);
   return assembleZoneAuthority(built.proofInputs, built.spendProofs, built.zone);
 }
@@ -328,7 +328,7 @@ function mergeSlots(zoneProgramId?: Address): {
   return { owner, nullifierKey, slots, tree };
 }
 
-export function buildMergeWitness() {
+export function buildMergeProofInputs() {
   const { owner, nullifierKey, slots, tree } = mergeSlots();
   const seed = bytes(mergeOracle.inputs.blindingSeedBytes) as Bytes31;
   const prepared = new PreparedMerge({
@@ -358,7 +358,7 @@ export function buildMergeWitness() {
   );
 }
 
-export function buildMergeZoneWitness() {
+export function buildMergeZoneProofInputs() {
   const zoneProgram = encodeBase58(bytes(mergeOracle.inputs.zoneProgramIdBytes)) as Address;
   const { owner, nullifierKey, slots, tree } = mergeSlots(zoneProgram);
   const seed = bytes(mergeOracle.inputs.blindingSeedBytes) as Bytes31;

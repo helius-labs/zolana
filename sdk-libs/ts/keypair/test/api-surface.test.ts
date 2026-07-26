@@ -44,7 +44,7 @@ const ROOT_EXPORTS = [
   "ShieldedKeypair",
   "ShieldedPublicKey",
   "SigningKey",
-  "VIEW_TAG_LENGTH",
+  "VIEW_TAG_LEN",
   "ViewingKey",
   "hashField",
   "initializePoseidon",

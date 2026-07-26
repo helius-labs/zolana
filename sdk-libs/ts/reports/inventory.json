@@ -123,7 +123,7 @@
       "marker": "active",
       "packet": "P09",
       "path": "sdk-libs/client/src/prover/merge.rs",
-      "responsibility": "Implements MergeProver; MergeProofResult; MergeWitness; public only where `public-exports.md` declares it.",
+      "responsibility": "Implements MergeProver; MergeProofResult; MergeProofInputs; public only where `public-exports.md` declares it.",
       "target": "`@zolana/client` · `src/prover/merge.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
@@ -133,7 +133,7 @@
       "marker": "active",
       "packet": "P09",
       "path": "sdk-libs/client/src/prover/merge_zone.rs",
-      "responsibility": "Implements MergeZoneProver; MergeZoneWitness; public only where `public-exports.md` declares it.",
+      "responsibility": "Implements MergeZoneProver; MergeZoneProofInputs; public only where `public-exports.md` declares it.",
       "target": "`@zolana/client` · `src/prover/merge.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
@@ -223,7 +223,7 @@
       "marker": "active",
       "packet": "P09",
       "path": "sdk-libs/client/src/prover/zone_authority.rs",
-      "responsibility": "Implements ZoneAuthorityProver; ZoneAuthorityProofResult; ZoneAuthorityWitness; public only where `public-exports.md` declares it.",
+      "responsibility": "Implements ZoneAuthorityProver; ZoneAuthorityProofResult; ZoneAuthorityProofInputs; public only where `public-exports.md` declares it.",
       "target": "`@zolana/client` · `src/prover/zone-authority.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
@@ -573,7 +573,7 @@
       "marker": "active",
       "packet": "P04",
       "path": "sdk-libs/keypair/src/constants.rs",
-      "responsibility": "`BLINDING_LENGTH`, `DST_VIEW_ROOT`, `P256_PUBLIC_KEY_LENGTH`, `P_CONST_SEC1`, `SALT_LENGTH`, `SHIELDED_PUBLIC_KEY_LENGTH`, `VIEW_TAG_LENGTH`, one per `pub` item of the Rust module. The `INFO_*` labels and the HPKE prefixes stay internal because Rust keeps them `pub(crate)`.",
+      "responsibility": "`BLINDING_LENGTH`, `DST_VIEW_ROOT`, `P256_PUBLIC_KEY_LENGTH`, `P_CONST_SEC1`, `SALT_LENGTH`, `SHIELDED_PUBLIC_KEY_LENGTH`, `VIEW_TAG_LEN`, one per `pub` item of the Rust module. The `INFO_*` labels and the HPKE prefixes stay internal because Rust keeps them `pub(crate)`.",
       "target": "`@zolana/keypair` · `src/constants.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
