@@ -74,3 +74,4 @@ export type {
   RpcContext,
   SpendProof,
 } from "./rpc.js";
+export { MAX_TRANSACTION_SIZE, transactionSize } from "./wire.js";

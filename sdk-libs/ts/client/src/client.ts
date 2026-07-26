@@ -30,6 +30,7 @@ import { ProverClient, proveMerge, proveMergeZone } from "./prover/client.js";
 import { assembleMerge, assembleMergeZone } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
 import { DEFAULT_INDEXER_RPC_CONFIG, pollUntil, validatePollConfig } from "./retry.js";
+import { compactU16 } from "./wire.js";
 import {
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
@@ -730,21 +731,6 @@ function computeUnitPriceInstruction(price: bigint): Instruction {
     accounts: Object.freeze([]),
     data,
   });
-}
-
-function compactU16(value: number): Uint8Array {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff) {
-    throw new ClientError("CLIENT_INVALID_INTEGER");
-  }
-  const result: number[] = [];
-  let remaining = value;
-  do {
-    let byte = remaining & 0x7f;
-    remaining >>>= 7;
-    if (remaining !== 0) byte |= 0x80;
-    result.push(byte);
-  } while (remaining !== 0);
-  return Uint8Array.from(result);
 }
 
 function concat(...values: readonly Uint8Array[]): Uint8Array {
