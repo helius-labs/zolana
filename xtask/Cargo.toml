@@ -27,7 +27,7 @@ p256 = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 wincode = { workspace = true }
-groth16-solana = { workspace = true, features = ["gnark-vk", "circom-vk"] }
+groth16-solana = { workspace = true, features = ["gnark-vk", "circom-vk", "bsb22"] }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
 solana-commitment-config = { workspace = true }
