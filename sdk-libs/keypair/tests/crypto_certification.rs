@@ -476,7 +476,7 @@ fn secret_lifecycle() -> Value {
 
 /// A viewing-key backend that is not a `ViewingKey`: it holds key material
 /// behind its own boundary and exposes only the trait. Implementing the trait
-/// here is the compile-time half of K9 -- if a method gains a signature a
+/// here is the compile-time half of K9. If a method gains a signature a
 /// custodial backend cannot satisfy, or the trait starts demanding secret
 /// export, this stops compiling.
 struct BackendViewingKey {

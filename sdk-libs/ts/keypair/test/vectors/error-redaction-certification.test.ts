@@ -25,7 +25,7 @@ import { mergeCiphertextHash, symmetricApply } from "../../src/merge/index.js";
  * at the same boundary with the same variant, including the rows Rust reaches
  * and the port cannot. The redaction half feeds distinctive key material into
  * every reachable failure and looks for it in every rendering a logger or a
- * crash reporter would produce -- message, stack, `JSON.stringify`, a spread,
+ * crash reporter would produce: message, stack, `JSON.stringify`, a spread,
  * `util.inspect`, and the whole `cause` chain, which is where a dependency's
  * own error would carry the input it rejected.
  */

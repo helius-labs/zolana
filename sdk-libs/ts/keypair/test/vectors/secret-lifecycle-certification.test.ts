@@ -17,8 +17,8 @@ import {
  * Rust and TypeScript do not have the same lifecycle to certify. Rust wipes on
  * `Drop` through `Zeroizing` and offers the caller no destruction; TypeScript
  * has no drop, so it exposes `destroy()`. The Rust rows here are the ones a
- * fixture can carry -- who owns an exported secret, and what a clone duplicates
- * -- and each is asserted as a shared property. The `destroy()` half is
+ * fixture can carry (who owns an exported secret, and what a clone duplicates)
+ * and each is asserted as a shared property. The `destroy()` half is
  * measured against the threat model it exists for, and the row-update records
  * it as a deliberate divergence rather than a parity claim.
  */
