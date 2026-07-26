@@ -844,10 +844,7 @@ mod tests {
 
         let sender = ShieldedKeypair::new().unwrap();
         let owner = sender.shielded_address().unwrap();
-        let recipient = ShieldedKeypair::new()
-            .unwrap()
-            .shielded_address()
-            .unwrap();
+        let recipient = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
 
         let change_only = ConfidentialTransfer::new(
             owner,

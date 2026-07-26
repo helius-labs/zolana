@@ -11,8 +11,7 @@ export const packageConfigurations = {
   },
   interface: {
     entryPoints: [".", "./pda", "./codecs", "./instructions"],
-    dependencies: ["@noble/curves", "@zolana/hasher"],
-    browserDependencies: ["@noble/curves/abstract/modular.js"],
+    dependencies: ["@zolana/hasher"],
     browser: true,
   },
   keypair: {
@@ -20,7 +19,6 @@ export const packageConfigurations = {
     dependencies: [
       "@noble/ciphers",
       "@noble/curves",
-      "@noble/ed25519",
       "@noble/hashes",
       "@zolana/hasher",
       "@zolana/interface",
@@ -29,7 +27,6 @@ export const packageConfigurations = {
     browserDependencies: [
       "@noble/ciphers/webcrypto.js",
       "@noble/curves/nist.js",
-      "@noble/ed25519",
       "@noble/hashes/hkdf.js",
       "@noble/hashes/sha2.js",
       "@zolana/interface",
@@ -39,13 +36,7 @@ export const packageConfigurations = {
   },
   transaction: {
     entryPoints: [".", "./serialization", "./instructions", "./transact", "./wallet"],
-    dependencies: [
-      "@noble/curves",
-      "@noble/hashes",
-      "@zolana/hasher",
-      "@zolana/interface",
-      "@zolana/keypair",
-    ],
+    dependencies: ["@noble/hashes", "@zolana/hasher", "@zolana/interface", "@zolana/keypair"],
     browser: true,
   },
   "indexer-api": {
@@ -61,6 +52,8 @@ export const packageConfigurations = {
   client: {
     entryPoints: [".", "./prover", "./retry"],
     dependencies: [
+      "@noble/curves",
+      "@noble/hashes",
       "@zolana/api",
       "@zolana/hasher",
       "@zolana/indexer-api",
@@ -97,10 +90,8 @@ export const packageConfigurations = {
     dependencies: [
       "@zolana/api",
       "@zolana/client",
-      "@zolana/indexer-api",
       "@zolana/interface",
       "@zolana/keypair",
-      "@zolana/merkle-tree",
       "@zolana/smart-account-client",
       "@zolana/transaction",
       "@zolana/wallet",

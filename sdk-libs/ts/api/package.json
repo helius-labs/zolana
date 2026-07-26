@@ -2,6 +2,19 @@
   "name": "@zolana/api",
   "version": "0.1.0",
   "description": "Browser-safe transport for the Zolana indexer API.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/api"
+  },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/api",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {

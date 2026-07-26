@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "description": "Private Node-only test support for Zolana packages.",
   "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/test-kit"
+  },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/test-kit",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -40,10 +50,8 @@
   "dependencies": {
     "@zolana/api": "0.1.0",
     "@zolana/client": "0.1.0",
-    "@zolana/indexer-api": "0.1.0",
     "@zolana/interface": "0.1.0",
     "@zolana/keypair": "0.1.0",
-    "@zolana/merkle-tree": "0.1.0",
     "@zolana/smart-account-client": "0.1.0",
     "@zolana/transaction": "0.1.0",
     "@zolana/wallet": "0.1.0"

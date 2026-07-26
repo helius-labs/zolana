@@ -1,10 +1,12 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { packageConfigurations, packageNames, productionPackageNames } from "./packages.mjs";
 
 const packagesRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const REPOSITORY_URL = "git+https://github.com/helius-labs/zolana.git";
+const BUGS_URL = "https://github.com/helius-labs/zolana/issues";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -12,6 +14,47 @@ function assert(condition, message) {
 
 async function manifest(packageName) {
   return JSON.parse(await readFile(path.join(packagesRoot, packageName, "package.json"), "utf8"));
+}
+
+/** Package name from an import specifier; relative and `node:` imports are ignored. */
+function dependencyName(specifier) {
+  if (specifier.startsWith(".") || specifier.startsWith("node:")) return undefined;
+  if (specifier.startsWith("@")) {
+    const segments = specifier.split("/");
+    return segments.slice(0, 2).join("/");
+  }
+  return specifier.split("/")[0];
+}
+
+/**
+ * Runtime imports from `src/**`, including bare `export … from` re-exports.
+ * Comment text that mentions a package name is ignored: only statement forms
+ * count, so an unused declaration cannot hide behind documentation.
+ */
+async function sourceDependencies(packageName) {
+  const sourceRoot = path.join(packagesRoot, packageName, "src");
+  let entries;
+  try {
+    entries = await readdir(sourceRoot, { recursive: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return new Set();
+    throw error;
+  }
+  const imported = new Set();
+  for (const entry of entries.filter((name) => name.endsWith(".ts"))) {
+    const source = await readFile(path.join(sourceRoot, entry), "utf8");
+    for (const match of source.matchAll(
+      /^\s*(?:import|export)\s+(?:type\s+)?(?:[^"'`]*?\sfrom\s+)?["']([^"']+)["']/gm,
+    )) {
+      const name = dependencyName(match[1]);
+      if (name !== undefined) imported.add(name);
+    }
+    for (const match of source.matchAll(/import\s*\(\s*["']([^"']+)["']\s*\)/g)) {
+      const name = dependencyName(match[1]);
+      if (name !== undefined) imported.add(name);
+    }
+  }
+  return imported;
 }
 
 function outputStem(exportPath) {
@@ -130,7 +173,31 @@ async function checkExports() {
   }
 }
 
+async function checkPublishMetadata() {
+  for (const packageName of packageNames) {
+    const value = await manifest(packageName);
+    assert(value.license === "Apache-2.0", `${value.name} must declare Apache-2.0`);
+    assert(value.repository?.type === "git", `${value.name} repository.type`);
+    assert(value.repository?.url === REPOSITORY_URL, `${value.name} repository.url`);
+    assert(
+      value.repository?.directory === `sdk-libs/ts/${packageName}`,
+      `${value.name} repository.directory`,
+    );
+    assert(
+      value.homepage ===
+        `https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/${packageName}`,
+      `${value.name} homepage`,
+    );
+    assert(value.bugs?.url === BUGS_URL, `${value.name} bugs.url`);
+    if (productionPackageNames.includes(packageName)) {
+      assert(value.publishConfig?.access === "public", `${value.name} publishConfig.access`);
+      assert(value.private !== true, `${value.name} must be publishable`);
+    }
+  }
+}
+
 async function checkDependencies() {
+  await checkPublishMetadata();
   for (const packageName of packageNames) {
     const value = await manifest(packageName);
     const dependencies = Object.keys(value.dependencies ?? {}).sort();
@@ -138,6 +205,11 @@ async function checkDependencies() {
     assert(
       JSON.stringify(dependencies) === JSON.stringify(expected),
       `${value.name} dependency graph`,
+    );
+    const imported = [...(await sourceDependencies(packageName))].sort();
+    assert(
+      JSON.stringify(imported) === JSON.stringify(expected),
+      `${value.name} source imports ${JSON.stringify(imported)} must match dependencies ${JSON.stringify(expected)}`,
     );
     for (const entryPoint of packageConfigurations[packageName].browserDependencies ?? []) {
       const segments = entryPoint.split("/");

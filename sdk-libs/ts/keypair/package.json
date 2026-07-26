@@ -2,6 +2,19 @@
   "name": "@zolana/keypair",
   "version": "0.1.0",
   "description": "Zolana private key material, signatures, viewing, and encryption.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/keypair"
+  },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/keypair",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -94,7 +107,6 @@
   "dependencies": {
     "@noble/ciphers": "^2.2.0",
     "@noble/curves": "^2.2.0",
-    "@noble/ed25519": "^3.1.0",
     "@noble/hashes": "^2.2.0",
     "@zolana/hasher": "0.1.0",
     "@zolana/interface": "0.1.0",

@@ -2,6 +2,19 @@
   "name": "@zolana/client",
   "version": "0.1.0",
   "description": "Zolana RPC, indexer, prover, transaction assembly, and confirmation.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/client"
+  },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/client",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -68,6 +81,8 @@
   "module": "./dist/es/index.js",
   "types": "./dist/es/index.d.ts",
   "dependencies": {
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
     "@zolana/api": "0.1.0",
     "@zolana/hasher": "0.1.0",
     "@zolana/indexer-api": "0.1.0",

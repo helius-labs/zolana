@@ -2,6 +2,19 @@
   "name": "@zolana/interface",
   "version": "0.1.0",
   "description": "Canonical Zolana program types, codecs, addresses, and instructions.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/interface"
+  },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/interface",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -91,7 +104,6 @@
     "api:check": "node ../config/workspace-check.mjs api"
   },
   "dependencies": {
-    "@noble/curves": "^2.2.0",
     "@zolana/hasher": "0.1.0"
   }
 }

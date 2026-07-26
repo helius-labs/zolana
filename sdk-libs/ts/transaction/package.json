@@ -8,6 +8,13 @@
     "url": "git+https://github.com/helius-labs/zolana.git",
     "directory": "sdk-libs/ts/transaction"
   },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/transaction",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -104,7 +111,6 @@
   "module": "./dist/es/index.js",
   "types": "./dist/es/index.d.ts",
   "dependencies": {
-    "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
     "@zolana/hasher": "0.1.0",
     "@zolana/interface": "0.1.0",
