@@ -29,7 +29,7 @@ five hand-written copies could be deleted.
 
 | | |
 | --- | --- |
-| Review rows | 145 of 145 examined. 142 closed; 3 reopened — see [What is not true yet](#what-is-not-true-yet) |
+| Review rows | 145 examined. 135 at `PARITY`, 7 justified `NOT_APPLICABLE`, 3 reopened — see [What is not true yet](#what-is-not-true-yet) |
 | Full SDK gates | 12 of 16 checked |
 | Package gates | 3 of 15 bullets checked across all eleven packages |
 | Cryptographic certification | All 15 suites landed: key-handling `K1`–`K10`, proof `P1`–`P5`, closing evidence `PKP-08` |
