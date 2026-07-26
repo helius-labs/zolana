@@ -121,4 +121,64 @@ mod tests {
         );
         assert_eq!(super::associated_token_address(&owner, &mint), expected);
     }
+
+    #[test]
+    fn current_pda_vectors_are_stable() {
+        let mint = Pubkey::new_from_array([1; 32]);
+        let owner = Pubkey::new_from_array([2; 32]);
+        let zone = Pubkey::new_from_array([3; 32]);
+        let spp = super::shielded_pool_program_id();
+        let vectors = [
+            Pubkey::find_program_address(&[crate::SPP_PROTOCOL_CONFIG_PDA_SEED], &spp),
+            Pubkey::find_program_address(
+                &[
+                    crate::SOL_INTERFACE_PDA_SEED,
+                    crate::DEFAULT_SOL_INTERFACE_INDEX_SEED,
+                ],
+                &spp,
+            ),
+            Pubkey::find_program_address(&[crate::SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED], &spp),
+            Pubkey::find_program_address(&[crate::SPL_ASSET_COUNTER_PDA_SEED], &spp),
+            Pubkey::find_program_address(
+                &[crate::SPL_ASSET_REGISTRY_PDA_SEED, mint.as_ref()],
+                &spp,
+            ),
+            Pubkey::find_program_address(&[crate::SPL_ASSET_VAULT_PDA_SEED, mint.as_ref()], &spp),
+            super::zone_config(&zone),
+            super::zone_auth(&zone),
+            Pubkey::find_program_address(
+                &[
+                    owner.as_ref(),
+                    super::spl_token_program_id().as_ref(),
+                    mint.as_ref(),
+                ],
+                &super::associated_token_program_id(),
+            ),
+        ];
+        let expected = [
+            ("5jjGnt3aqRhhzpaNBSSBJfQcZsAZQBCdhzDuaLRmgZcj", 254),
+            ("BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya", 252),
+            ("6zQNhLqFHhWaP8JNYeHzQ9a1DfBH627gzibFv1ZaaM8E", 254),
+            ("77YYUwfwXB5BS7bEWpj4aNGkiqz6H6PE2mz7BUVLdwPn", 254),
+            ("ASEKuvSPK66P4mgkkZ1WkG5Z3jA1WFgrj7p6saEhFQVS", 254),
+            ("67mW5mLvYpxXmvcXHGdebLj1Z9VbTYdBt76uzSjqmiBB", 255),
+            ("54Qs55TY9AqbHgHzC3baEBEvGvV2U6zBUPpraa9Qwpt5", 255),
+            ("2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx", 253),
+            ("9SBAq6YVfq1ECthq7yBBLdGDoWnhwgDd7kSJ7eZREFDc", 255),
+        ];
+        for ((address, bump), (expected_address, expected_bump)) in
+            vectors.into_iter().zip(expected)
+        {
+            assert_eq!(address.to_string(), expected_address);
+            assert_eq!(bump, expected_bump);
+        }
+        assert_eq!(
+            super::zone_config_with_bump(&zone, 255).unwrap(),
+            super::zone_config(&zone).0
+        );
+        assert_eq!(
+            super::zone_auth_with_bump(&zone, 253).unwrap(),
+            super::zone_auth(&zone).0
+        );
+    }
 }

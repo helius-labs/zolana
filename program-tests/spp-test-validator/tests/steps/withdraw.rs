@@ -87,7 +87,7 @@ impl LifecycleWorld {
             SOL_MINT,
             amount,
             WithdrawalTarget::Sol {
-                user_sol_account: Address::new_from_array(recipient.pubkey().to_bytes()),
+                recipient: Address::new_from_array(recipient.pubkey().to_bytes()),
             },
         )?;
         let proof_inputs = transfer.sign(&from_keypair, &self.assets)?;

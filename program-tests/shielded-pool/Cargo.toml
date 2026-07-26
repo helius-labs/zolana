@@ -93,3 +93,7 @@ path = "tests/transact/p256.rs"
 [[test]]
 name = "both_amounts"
 path = "tests/transact/both_amounts.rs"
+
+[[test]]
+name = "double_spend"
+path = "tests/transact/double_spend.rs"

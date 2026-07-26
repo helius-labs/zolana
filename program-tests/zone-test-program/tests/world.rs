@@ -33,7 +33,7 @@ use zolana_test_utils::{
     test_validator_asserts::assert_create_spl_interface,
 };
 use zolana_transaction::{
-    serialization::confidential::Confidential, AssetRegistry, Data, LocalWalletAuthority,
+    serialization::confidential::Confidential, AssetRegistry, LocalWalletAuthority, OutputData,
     ShieldedTransaction, Utxo, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 
@@ -340,7 +340,7 @@ impl ZoneLifecycleWorld {
             amount,
             blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
         let output_context = tx
