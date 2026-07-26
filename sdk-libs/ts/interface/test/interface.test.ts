@@ -35,6 +35,7 @@ import {
   type Bytes33,
   type Bytes64,
   type DepositInstructionData,
+  type ExternalDataHashInput,
   type TransactInstructionData,
 } from "../src/index.js";
 import {
@@ -343,6 +344,62 @@ describe("external data hash", () => {
         messages: [],
       }),
     ).toThrow(expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }));
+  });
+
+  /**
+   * The preimage writes four `u16` prefixes: the output count, each output's
+   * data length, the message count, and each message's data length. The Rust
+   * `program-libs/interface` casts instead of checking, so an oversized input
+   * there hashes a shortened preimage. Both SDKs refuse it, at a size no Solana
+   * transaction can carry, so the disagreement with the deployed program is
+   * unreachable. `@zolana/transaction` refuses first with the Rust SDK's own
+   * overflow variants; a caller reaching this function directly gets the
+   * refusal here instead, and must learn which prefix overflowed rather than
+   * receive a digest over truncated bytes.
+   */
+  describe("at the u16 prefix bounds", () => {
+    const MAX = 0xffff;
+    const output = Object.freeze({ utxoHash: b32(6), ownerTag: b32(7) });
+    const message = Object.freeze({ viewTag: b32(10), data: new Uint8Array() });
+
+    const bounded = (overrides: Partial<ExternalDataHashInput>): ExternalDataHashInput => ({
+      instructionDiscriminator: 0,
+      expiryUnixTs: 0n,
+      relayerFee: 0,
+      userSolAccount: ZERO,
+      userSplTokenAccount: ZERO,
+      splTokenInterface: ZERO,
+      outputs: [],
+      messages: [],
+      ...overrides,
+    });
+
+    it.each([
+      ["outputs", { outputs: Array.from({ length: MAX + 1 }, () => output) }],
+      ["messages", { messages: Array.from({ length: MAX + 1 }, () => message) }],
+      ["outputs[0].data", { outputs: [{ ...output, data: new Uint8Array(MAX + 1) }] }],
+      ["messages[0].data", { messages: [{ ...message, data: new Uint8Array(MAX + 1) }] }],
+      ["outputs[1].data", { outputs: [output, { ...output, data: new Uint8Array(MAX + 1) }] }],
+    ])("refuses %s past the prefix and names it", (name, overrides) => {
+      expect(() => externalDataHash(bounded(overrides))).toThrow(
+        expect.objectContaining({
+          code: "INTERFACE_INVALID_INTEGER",
+          details: expect.objectContaining({ name, maximum: MAX, actual: MAX + 1 }),
+        }),
+      );
+    });
+
+    // The bound is inclusive, so the largest representable payload still hashes.
+    // `@zolana/transaction`'s oracle test pins these digests against Rust; here
+    // only the accept-or-refuse boundary itself is under test.
+    it.each([
+      ["output data", { outputs: [{ ...output, data: new Uint8Array(MAX) }] }],
+      ["message data", { messages: [{ ...message, data: new Uint8Array(MAX) }] }],
+    ])("hashes the largest %s the prefix can carry", (_name, overrides) => {
+      const digest = externalDataHash(bounded(overrides));
+      expect(digest).toHaveLength(32);
+      expect(digest[0]).toBe(0);
+    });
   });
 });
 

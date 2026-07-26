@@ -20,18 +20,20 @@ residuals describe a state the tree left some commits ago.
 | T14 | PARTIAL | **PARITY** | verified only; the recorded gaps are stale |
 | T16 | DIVERGENT | **PARITY**, with a platform disposition | atomicity pinned |
 | T17 | DIVERGENT | **PARITY** on exports; allowlists open | verified only |
-| T21 | PARTIAL | **still PARTIAL**, and not this package's | see below |
+| T21 | PARTIAL | **PARITY** at the SDK layer | Rust guard had landed; interface layer now pinned |
 | T23 | DIVERGENT | **PARITY** | the public leg moved into `SppProofInputs` |
 | T26 | PARTIAL | **PARITY** on exports; allowlists open | verified only |
 | T28 | PARTIAL | **PARITY** | last clause closed, in the form parity allows |
 | T29 | PARTIAL | **PARITY** | `prepareZoneAuthority` derives what Rust derives |
 | T30 | PARTIAL | **PARITY** on exports; allowlists open | verified only |
 | T31 | PARTIAL | **PARITY** | second constant duplication found and closed |
+| S01 | DIVERGENT | **stays DIVERGENT** | verified; the residual is real, see below |
 
-Four rows keep an open item. T21 is owed by `sdk-libs/transaction` and
-`program-libs/interface`, not by TypeScript. T17, T26, and T30 each carry a
-packaging-allowlist clause that is a different kind of work from the export
-parity they also carry, and that clause is untouched here.
+Four rows keep an open item. T17, T26, and T30 each carry a packaging-allowlist
+clause that is a different kind of work from the export parity they also carry,
+and that clause is untouched here. T21 keeps a layering note about which error
+taxonomy the interface-level hash should use, which is a naming question with no
+input on which the two layers disagree.
 
 ## T12, `wallet/asset.rs`: PARITY
 
@@ -150,17 +152,49 @@ about whether the barrel names match Rust, and none of them were touched here.
 A reconciler may want to split that clause into its own row, since it is the
 same work in three places and unrelated to the parity the rows otherwise track.
 
-## T21, `external_data.rs`: still PARTIAL, and not owed by this package
+## T21, `external_data.rs`: PARITY at the SDK layer, one layering note open
 
-Unchanged, and correctly so. The ruling of `2026-07-26` leaves
-`program-libs/interface` truncating the `ExternalDataHash` length prefix and has
-both SDKs refuse an oversized input loudly instead. TypeScript already raises
-`TRANSACTION_TOO_MANY_OUTPUTS` past `0xffff`. What the row owes is the matching
-guard in `sdk-libs/transaction` and a boundary vector on both sides, `0xffff`
-outputs accepted and hashed against `0x10000` refused. Both halves are Rust
-work. Removing the TypeScript guard to close the row from this side would
-restore quiet truncation in one language, which is the state the ruling exists
-to end.
+An earlier draft of this file said the row's two halves were both Rust work.
+That was wrong, and a re-read at HEAD corrects it: the Rust guard has landed.
+`check_preimage_prefixes` refuses all four `u16` prefixes with
+`TransactionError::TooManyOutputs` for the two counts and
+`ExternalDataLengthOverflow { field, maximum, actual }` for the two data lengths
+(`sdk-libs/transaction/src/instructions/transact/external_data.rs:159-184`), and
+its own comment records the ruling that both SDKs refuse rather than reproduce
+`program-libs/interface`'s truncation.
+
+TypeScript matches it at the same layer. `transact.ts:252-280` wraps the
+interface hash and runs the same checks first, raising
+`TRANSACTION_TOO_MANY_OUTPUTS` and `TRANSACTION_INVALID_DATA_LENGTH`. The
+boundary vector the row asked for also exists now and is cross-language: the
+Rust oracle carries `maxOutputs` at `65535` with a computed digest against
+`oneOutputPastMax` at `65536` refused, plus the same pair for messages, and
+TypeScript replays all four (`transaction-parity-v1.json` `externalData.cases`,
+replayed at `test/vectors/rust-oracle.test.ts:1704-1741`). Rows T21's accepted
+`0xffff` and refused `0x10000` are therefore both pinned by execution, not by
+reading.
+
+What was genuinely missing, and is closed here, is the layer below. A caller
+reaching `@zolana/interface`'s `externalDataHash` directly never passes through
+`transact.ts`, so its refusal was unpinned: nothing failed if that function were
+"simplified" to mirror `program-libs/interface`'s cast, which would put a hash
+over a shortened preimage back into TypeScript with every suite still green.
+`interface/test/interface.test.ts` now pins it, refusing each of the four
+prefixes past `0xffff` with `INTERFACE_INVALID_INTEGER` naming the overflowing
+prefix, including a second-output case so the index in the name is load-bearing,
+and accepting the inclusive bound at `0xffff`.
+
+One layering note stays open, and it is a naming question rather than a
+behaviour gap. The interface layer reports the overflow as an integer-range
+failure naming the field, while the SDK layer above it reports Rust's two named
+variants. Both refuse the same inputs, and no input reaches the interface code
+through the SDK without meeting the SDK's check first, so the taxonomies never
+disagree on an outcome. Aligning them would mean either giving
+`@zolana/interface` overflow variants its Rust counterpart does not have, since
+`program-libs/interface` truncates and has no error to mirror, or routing every
+caller through the SDK. Neither is this row's work, and the checklist's TypeScript
+pointer for T21 aims at `interface/src/external-data-hash.ts` where the mirroring
+code is `transact.ts`.
 
 ## T23, the public leg: PARITY
 
@@ -254,6 +288,44 @@ declared `export const VIEW_TAG_LEN = 32` where Rust re-exports
 across two packages, and a change to the view tag length in the key material
 would not have reached this root. It is now a renaming re-export of the keypair
 constant, which keeps the Rust-facing spelling and leaves one declaration.
+
+## S01, `smart-account-client/src/lib.rs`: stays DIVERGENT
+
+Verified twice, by two workers reading independently and reaching the same
+verdict, so the residual is real rather than an artifact of one reading.
+
+On every input both languages accept, the bytes agree. The PDAs, the five create
+instructions, and the execute fixture are pinned against the Rust source in
+`sdk-libs/ts/smart-account-client/test/vectors.test.ts`, and the export surface is
+pinned against every `pub const` and `pub fn` in `lib.rs` by `exports.test.ts`.
+
+The row stays adverse because TypeScript refuses inputs Rust accepts, which is a
+divergence in the same way laxness is. Rust's builders are infallible by
+signature and carry no size or content checks, while TypeScript enforces the
+1232-byte instruction and payload limits, rejects an empty signer set, a
+threshold of zero or above the signer count, and duplicate signer keys on both
+the create and execute paths. The two also part ways on one overflow: an inner
+instruction whose data reaches `0x10000` is truncated by Rust's `as u16` cast and
+refused by TypeScript. Where both refuse, at more than 255 compiled accounts,
+outer signers, or inner instructions, Rust panics through `checked_u8` and
+TypeScript throws a typed error, so the outcome agrees and the reported shape
+does not.
+
+Nothing here is closable from `sdk-libs/ts/` in a direction worth taking. The
+mechanical fix is to delete the TypeScript guards, which would make the port
+accept oversized payloads and silently truncate an oversized inner instruction,
+the same trade the T21 ruling rejected for the external-data prefixes. The
+alternative is a Rust change, giving those two builders fallible signatures and
+stable error codes, which is outside this scope. The row needs an owner ruling
+of the same kind T21 got, and the note in `authority-rulings.md` leaving the S01
+size question open is still the current state.
+
+Three claims on the row are stale and were not reproducible at HEAD. The
+1232-byte enforcement exists (`instructions.ts:33`, `:192-203`, `:283-290`), the
+exact execute fixture exists (`vectors.test.ts:106-143`), and the export surface
+is pinned (`exports.test.ts:27-49`). A fourth, that Rust casts where TypeScript
+rejects indexes above 255, describes a real difference in error mechanism but not
+in policy: both refuse that input.
 
 ## Handoff to the `sync.ts` / `codecs.ts` worker
 
