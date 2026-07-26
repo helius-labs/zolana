@@ -220,6 +220,7 @@
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
   "ownedChangedPaths": [
+    "sdk-libs/ts/config/historical-baseline-commit",
     "sdk-libs/ts/fixtures/api/prover-request-v1.json",
     "sdk-libs/ts/fixtures/api/transport-v1.json",
     "sdk-libs/ts/fixtures/client/errors-v1.json",
