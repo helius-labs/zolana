@@ -92,6 +92,10 @@ export class ZolanaIndexer {
     });
   }
 
+  /// One request through `pollIndexer`. Blocking Rust polls until
+  /// `proofs.len() >= leaves.len()` when `wait_for_indexer` is unset; the async
+  /// twin does not, and Light's proof fetch does not either
+  /// (`getCompressedAccountProof` / `get_multiple_compressed_account_proofs`).
   getMerkleProofs(
     treeAccount: Address,
     leaves: readonly Bytes32[],

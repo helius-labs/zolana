@@ -247,7 +247,10 @@ describe("ZolanaIndexer and ZolanaClient", () => {
     expect(JSON.stringify(await pending.catch((cause: unknown) => cause))).not.toContain(secret);
   });
 
-  it("makes one default proof request without blocking-only count polling", async () => {
+  // Blocking Rust polls until proofs.len() >= leaves.len() when wait_for_indexer
+  // is unset. The async twin returns whatever arrived; so does Light. An
+  // incomplete answer must stay incomplete after one request here.
+  it("returns an incomplete proof set without polling for leaf coverage", async () => {
     let calls = 0;
     const api = new ZolanaApi({
       url: "https://indexer.example.test",
@@ -256,16 +259,17 @@ describe("ZolanaIndexer and ZolanaClient", () => {
         return Promise.resolve(
           envelope({
             context: { block_time: 123 },
-            proofs: [],
+            proofs: [merkle(hash(ZERO))],
           }),
         );
       }),
     });
-    const response = await new ZolanaIndexer(api).getMerkleProofs(TREE, [ZERO]);
+    const response = await new ZolanaIndexer(api).getMerkleProofs(TREE, [ZERO, ONE]);
 
     expect(calls).toBe(1);
     expect(response.context.blockTime).toBe(123n);
-    expect(response.proofs).toEqual([]);
+    expect(response.proofs).toHaveLength(1);
+    expect(response.proofs[0]?.leaf).toEqual(ZERO);
   });
 
   it("pairs state and nullifier proofs in input order and rejects reordered leaves", async () => {
