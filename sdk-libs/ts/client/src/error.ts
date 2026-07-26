@@ -208,6 +208,11 @@ export interface ClientErrorDetailsMap {
   }>;
   readonly CLIENT_TOO_MANY_ACCOUNTS: NoDetails;
   readonly CLIENT_TRANSACTION_ASSEMBLY: NoDetails;
+  readonly CLIENT_INCOMPLETE_SIGNATURES: Readonly<{
+    required: number;
+    provided: number;
+    missingIndex?: number;
+  }>;
   readonly CLIENT_INVALID_LENGTH: Readonly<{
     field: string;
     expected: number;
@@ -290,6 +295,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_CONFIRMATION_TIMEOUT",
   "CLIENT_TOO_MANY_ACCOUNTS",
   "CLIENT_TRANSACTION_ASSEMBLY",
+  "CLIENT_INCOMPLETE_SIGNATURES",
   "CLIENT_INVALID_LENGTH",
   "CLIENT_INVALID_FIELD",
   "CLIENT_INVALID_BASE58",
@@ -467,6 +473,11 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_INVALID_INTEGER: { field: "string", value: "string", length: "number" },
   CLIENT_INVALID_INPUT_CONTEXT: { index: "number" },
   CLIENT_CONFIRMATION_TIMEOUT: { signature: "string", attempts: "number" },
+  CLIENT_INCOMPLETE_SIGNATURES: {
+    required: "number",
+    provided: "number",
+    missingIndex: "number",
+  },
   CLIENT_INVALID_LENGTH: { field: "string", expected: "number", actual: "number" },
   CLIENT_INVALID_FIELD: { field: "string", value: "string" },
   CLIENT_INVALID_BASE58: { field: "string", expectedLength: "number", actualLength: "number" },
@@ -520,6 +531,7 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_PROOF_RAIL_MISMATCH: [],
   CLIENT_PROVER_HTTP: ["method"],
   CLIENT_INVALID_RPC_RESPONSE: [],
+  CLIENT_INCOMPLETE_SIGNATURES: ["required", "provided"],
 };
 
 export class ClientError<Code extends ClientErrorCode = ClientErrorCode> extends Error {
