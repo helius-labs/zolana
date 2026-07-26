@@ -67,6 +67,7 @@ export {
 export type { PollUntilOptions } from "./retry.js";
 export type {
   EncryptedUtxoMatch,
+  Commitment,
   GetByTagsRequest,
   GetEncryptedUtxosByTagsResponse,
   GetMerkleProofsResponse,
@@ -80,5 +81,6 @@ export type {
   Rpc,
   RpcAccount,
   RpcContext,
+  SendTransactionConfig,
   SpendProof,
 } from "./rpc.js";

@@ -24,11 +24,13 @@ import {
   sleep,
 } from "./internal.js";
 import type {
+  Commitment,
   GetMerkleProofsResponse,
   GetNonInclusionProofsResponse,
   IndexerRpcConfig,
   Rpc,
   RpcAccount,
+  SendTransactionConfig,
   SpendProof,
 } from "./rpc.js";
 
@@ -55,6 +57,40 @@ export interface InstructionGroup {
 
 export interface ConfirmedInstructionGroups {
   readonly groups: readonly InstructionGroup[];
+}
+
+/// Rust serializes the whole config struct, so an unset field arrives as an
+/// explicit `null` rather than being omitted. Reproduced literally: the node
+/// treats the two alike, but a recorded request is compared as a whole.
+function sendConfigParameter(
+  config: SendTransactionConfig | undefined,
+  absentPreflightCommitment: Commitment,
+): JsonObject {
+  return {
+    encoding: "base64",
+    maxRetries: config?.maxRetries === undefined ? null : countField(config.maxRetries),
+    minContextSlot: config?.minContextSlot === undefined ? null : slotField(config.minContextSlot),
+    preflightCommitment: config?.preflightCommitment ?? absentPreflightCommitment,
+    skipPreflight: config?.skipPreflight ?? false,
+  };
+}
+
+function countField(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new ClientError("CLIENT_INVALID_INTEGER", {
+      details: { field: "maxRetries", value: String(value) },
+    });
+  }
+  return value;
+}
+
+function slotField(value: bigint): number {
+  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ClientError("CLIENT_INVALID_INTEGER", {
+      details: { field: "minContextSlot", value: value.toString() },
+    });
+  }
+  return Number(value);
 }
 
 /// One entry of a `getSignatureStatuses` response. `confirmations` is absent
@@ -275,13 +311,33 @@ export class SolanaRpc implements Rpc {
   /// Sends and confirms, as the Rust `Rpc::send_transaction` does: the returned
   /// signature is confirmed at the `confirmed` commitment, not merely accepted.
   async sendTransaction(transaction: Transaction, context?: RequestContext): Promise<Signature> {
+    return this.#sendAndConfirm(transaction, sendConfigParameter(undefined, "confirmed"), context);
+  }
+
+  /// `Rpc::send_transaction_with_config`, whose config reaches the node
+  /// untouched apart from one fallback.
+  ///
+  /// An absent `preflightCommitment` resolves to `finalized` here and to
+  /// `confirmed` in `sendTransaction`. The two paths fill it from different
+  /// places in Rust, the config field's own default against the client's
+  /// configured commitment, which is why the difference is preserved rather
+  /// than smoothed over.
+  async sendTransactionWithConfig(
+    transaction: Transaction,
+    config: SendTransactionConfig,
+    context?: RequestContext,
+  ): Promise<Signature> {
+    return this.#sendAndConfirm(transaction, sendConfigParameter(config, "finalized"), context);
+  }
+
+  async #sendAndConfirm(
+    transaction: Transaction,
+    config: JsonObject,
+    context: RequestContext | undefined,
+  ): Promise<Signature> {
     const encoded = encodeBase64(serializeTransaction(transaction));
     const submit = async (): Promise<Signature> => {
-      const result = await this.#call(
-        "sendTransaction",
-        [encoded, { encoding: "base64", preflightCommitment: "confirmed" }],
-        context,
-      );
+      const result = await this.#call("sendTransaction", [encoded, config], context);
       const signature = string(result, "result") as Signature;
       signatureBytes(signature);
       return signature;
