@@ -9,6 +9,14 @@ const BN254_SCALAR_MODULUS_BE: [u8; 32] = [
     0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
 ];
 
+/// Largest valid Fr element (`BN254_SCALAR_MODULUS_BE - 1`).
+#[cfg(test)]
+pub(crate) const BN254_SCALAR_MAX_BE: [u8; 32] = {
+    let mut max = BN254_SCALAR_MODULUS_BE;
+    max[31] -= 1;
+    max
+};
+
 pub fn right_align<const N: usize>(bytes: &[u8; N]) -> [u8; 32] {
     const { assert!(N <= 32) };
     let mut out = [0u8; 32];
@@ -47,9 +55,10 @@ mod tests {
 
     #[test]
     fn checked_be_accepts_below_modulus_and_refuses_at_and_above() {
-        let mut below = BN254_SCALAR_MODULUS_BE;
-        below[31] = 0x00;
-        assert_eq!(checked_be(&below).unwrap(), be(&below));
+        assert_eq!(
+            checked_be(&BN254_SCALAR_MAX_BE).unwrap(),
+            be(&BN254_SCALAR_MAX_BE)
+        );
         assert!(matches!(
             checked_be(&BN254_SCALAR_MODULUS_BE),
             Err(ClientError::InvalidField)

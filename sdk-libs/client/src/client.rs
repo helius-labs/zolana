@@ -1011,7 +1011,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        prover::CompressedCommitments,
+        prover::{field::BN254_SCALAR_MAX_BE, CompressedCommitments},
         rpc::{MerkleContext, MerkleProof, NonInclusionProof},
     };
     use zolana_interface::instruction::{TransactSolWithdrawal, TransactWithdrawal};
@@ -1039,42 +1039,11 @@ mod tests {
 
     #[test]
     fn confirm_private_transaction_sync_waits_for_indexer() {
-        let payer = Keypair::new();
-        let sender = ShieldedKeypair::new().expect("sender");
-        let tree = Address::new_from_array([6u8; 32]);
-        let wallet = wallet_with_tree(sender.clone(), tree, 10);
-        let recipient = Pubkey::new_unique();
-        let input = SppProofInputUtxo::new(
-            wallet.utxos.first().expect("funded utxo").utxo.clone(),
-            &sender,
-        );
-        let mut transfer = ConfidentialTransfer::new(
-            sender.shielded_address().expect("shielded address"),
-            vec![input],
-            payer.pubkey(),
-        );
-        transfer
-            .withdraw(
-                SOL_MINT,
-                4,
-                WithdrawalTarget::Sol {
-                    user_sol_account: recipient,
-                },
-            )
-            .expect("withdraw");
-        let proof_inputs = transfer
-            .sign(&sender, &AssetRegistry::default())
-            .expect("sign");
-        let shielded = SignedPrivateTransaction {
-            transaction: proof_inputs,
-            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
-            tree,
-        };
-        let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);
+        let fixture = signed_sol_withdrawal_fixture();
         let signature = Signature::from([5u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
-            merkle_response(tree, commitment.utxo_hash),
-            nullifier_response(tree, commitment.nullifier),
+            merkle_response(fixture.tree, fixture.commitment.utxo_hash),
+            nullifier_response(fixture.tree, fixture.commitment.nullifier),
             indexed_transaction_response(signature),
         ]);
         let rpc = MockSubmitRpc::new(signature);
@@ -1085,26 +1054,31 @@ mod tests {
             ProverClient::new("http://unused.invalid".to_string()),
             AsyncZolanaIndexer::new(server.url()),
             AsyncProverClient::new("http://unused.invalid".to_string()),
-            tree,
+            fixture.tree,
         )
         .with_compute_unit_price(25_000);
 
         let blockhash = Hash::default();
         let mut transaction = client
-            .finish_submission_unsigned_sync_with(&shielded, payer.pubkey(), blockhash, |_| {
-                Ok(ProofCompressed {
-                    a: [0u8; 32],
-                    b: [0u8; 64],
-                    c: [0u8; 32],
-                    commitment: Some(CompressedCommitments {
-                        commitment: [0u8; 32],
-                        commitment_pok: [0u8; 32],
-                    }),
-                })
-            })
+            .finish_submission_unsigned_sync_with(
+                &fixture.shielded,
+                fixture.payer.pubkey(),
+                blockhash,
+                |_| {
+                    Ok(ProofCompressed {
+                        a: [0u8; 32],
+                        b: [0u8; 64],
+                        c: [0u8; 32],
+                        commitment: Some(CompressedCommitments {
+                            commitment: [0u8; 32],
+                            commitment_pok: [0u8; 32],
+                        }),
+                    })
+                },
+            )
             .expect("finish");
         transaction
-            .try_sign(&[&payer], blockhash)
+            .try_sign(&[&fixture.payer], blockhash)
             .expect("sign native transaction");
         let result = client.rpc().send_transaction(&transaction).expect("send");
         client
@@ -1124,6 +1098,37 @@ mod tests {
                 "/get_shielded_transactions_by_tags",
             ]
         );
+    }
+
+    #[test]
+    fn assemble_refuses_out_of_range_nullifier_high_element() {
+        let fixture = signed_sol_withdrawal_fixture();
+        let mut above_modulus =
+            nullifier_response(fixture.tree, fixture.commitment.nullifier);
+        above_modulus["result"]["proofs"][0]["high_element"] =
+            json!(encode_hash([u8::MAX; 32]));
+        let server = MockIndexerServer::respond_with(vec![
+            merkle_response(fixture.tree, fixture.commitment.utxo_hash),
+            above_modulus,
+        ]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(Signature::from([5u8; 64])),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            fixture.tree,
+        );
+        let error = client
+            .finish_submission_unsigned_sync_with(
+                &fixture.shielded,
+                fixture.payer.pubkey(),
+                Hash::default(),
+                |_| panic!("prove must not run when high_element is out of range"),
+            )
+            .expect_err("out-of-range high_element");
+        let _ = server.requests();
+        assert!(matches!(error, ClientError::InvalidField));
     }
 
     /// Emits the account order `Message::new` produces for a SOL withdrawal, so
@@ -1494,8 +1499,53 @@ mod tests {
         assert!(matches!(error, ClientError::IndexerTimeout));
     }
 
-    // Mock high element must stay below Fr; all-ones fails checked_be.
-    const MOCK_HIGH_ELEMENT: [u8; 32] = [1u8; 32];
+    struct SignedSolWithdrawalFixture {
+        payer: Keypair,
+        tree: Address,
+        shielded: SignedPrivateTransaction,
+        commitment: InputUtxoContext,
+    }
+
+    fn signed_sol_withdrawal_fixture() -> SignedSolWithdrawalFixture {
+        let payer = Keypair::new();
+        let sender = ShieldedKeypair::new().expect("sender");
+        let tree = Address::new_from_array([6u8; 32]);
+        let wallet = wallet_with_tree(sender.clone(), tree, 10);
+        let recipient = Pubkey::new_unique();
+        let input = SppProofInputUtxo::new(
+            wallet.utxos.first().expect("funded utxo").utxo.clone(),
+            &sender,
+        );
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().expect("shielded address"),
+            vec![input],
+            payer.pubkey(),
+        );
+        transfer
+            .withdraw(
+                SOL_MINT,
+                4,
+                WithdrawalTarget::Sol {
+                    user_sol_account: recipient,
+                },
+            )
+            .expect("withdraw");
+        let proof_inputs = transfer
+            .sign(&sender, &AssetRegistry::default())
+            .expect("sign");
+        let shielded = SignedPrivateTransaction {
+            transaction: proof_inputs,
+            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+            tree,
+        };
+        let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);
+        SignedSolWithdrawalFixture {
+            payer,
+            tree,
+            shielded,
+            commitment,
+        }
+    }
 
     fn state_proof(tree: Address, leaf: [u8; 32]) -> MerkleProof {
         MerkleProof {
@@ -1516,7 +1566,7 @@ mod tests {
             path: vec![[0u8; 32]; crate::rpc::NULLIFIER_TREE_HEIGHT],
             low_element: [0u8; 32],
             low_element_index: 0,
-            high_element: MOCK_HIGH_ELEMENT,
+            high_element: BN254_SCALAR_MAX_BE,
             high_element_index: 1,
             root: [4u8; 32],
             root_seq: 1,
@@ -1634,7 +1684,7 @@ mod tests {
                 "path": vec![encode_hash([0u8; 32]); crate::rpc::NULLIFIER_TREE_HEIGHT],
                 "low_element": encode_hash([0u8; 32]),
                 "low_element_index": 0,
-                "high_element": encode_hash(MOCK_HIGH_ELEMENT),
+                "high_element": encode_hash(BN254_SCALAR_MAX_BE),
                 "high_element_index": 1,
                 "root": encode_hash([4u8; 32]),
                 "root_seq": 1,

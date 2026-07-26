@@ -1,7 +1,8 @@
 # CI red: `tests / sdk-libs` and `tests / client integration`
 
-Both jobs failed on the same unit test for the same reason. Fixing the mock
-brought both recipes green locally (`just test-sdk-libs`,
+Both jobs failed on the same unit test for the same reason. This was the whole
+cause of both reds; they do not have separate roots. Fixing the mock brought
+both recipes green locally (`just test-sdk-libs`,
 `just test-client-integration`). Clippy on `zolana-client` with
 `--features indexer-api` is clean.
 
@@ -17,19 +18,32 @@ matches TypeScript `bytesField`. The mock nullifier response still used
 `high_element: [u8::MAX; 32]`, which sits above Fr and is refused before the
 dummy prove callback runs.
 
-The same mock value lived in the in-memory `nullifier_proof` helper. That helper
-feeds `validate_spend_proofs` today and did not trip this failure, but it would
-have broken the next assemble-path test that reused it.
+The JSON form at the old line 1634 is on the path that fails: finish fetches
+spend proofs from the mock indexer, then `assemble` runs `checked_be` on
+`high_element`. The in-memory `nullifier_proof` helper at the old line 1516
+carried the same out-of-range value. That helper feeds `validate_spend_proofs`
+today and did not trip this failure, but it would have broken the next
+assemble-path test that reused it, so it got the same field-valid treatment.
 
 ## What changed
 
-In `sdk-libs/client/src/client.rs` the mock high element is now a field-valid
-`[1u8; 32]`, shared as `MOCK_HIGH_ELEMENT` by the JSON nullifier response and
-the in-memory helper. Updating the test is the right fix: the production check
-is correct, and the old fixture was valid while Rust silently accepted non-field
-bytes that TypeScript already rejected.
+`BN254_SCALAR_MAX_BE` (`modulus - 1`, test-only) is defined in
+`prover/field.rs` and used as the mock `high_element` in both the JSON
+nullifier response and the in-memory helper. `[u8::MAX; 32]` stays in two
+dedicated rejection tests:
+`checked_be_accepts_below_modulus_and_refuses_at_and_above` for the unit check,
+and `assemble_refuses_out_of_range_nullifier_high_element` for the finish /
+assemble path that CI hit. `checked_be` itself was not weakened.
 
 No production code changed. No TypeScript files were touched.
+
+## Other fixtures
+
+No other `sdk-libs/client` mock that `checked_be` reaches still carries an
+out-of-range field value. Indexer mapping tests use small `bytes32(N)` patterns;
+oracle helpers use `field_byte(...)` or `[1u8; 32]`. The field-alignment oracle
+still pins unchecked `be` on `[0xff; 32]` as a length/value case, which is not
+an assemble path.
 
 ## Checked and not the cause
 
