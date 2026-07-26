@@ -3,15 +3,15 @@
 Branch `port/rereview`. The nine rows were adverse because nobody had gone back
 to check work that had already landed, not because nine things were broken.
 
-**Result: six rows close, three do not.** `K11`, `K12`, `K13`, `K14`, `I37` and
-`W04` close at `PARITY`. `X01` closes as `PARITY` against its port target and
-leaves a documentation residue that no SDK change can clear. `C06` and `C21`
-stay `DIVERGENT`, each on a difference that is real, reachable, and fixable only
-in Rust.
+**Result: seven rows close, two do not.** `K11`, `K12`, `K13`, `K14`, `I37` and
+`W04` close at `PARITY`, `W04` only after a fix. `X01` closes at `PARITY`
+against its port target and leaves a documentation residue that no SDK change
+can clear. `C06` and `C21` stay `DIVERGENT`, each on a difference that is real,
+reachable, and fixable only in Rust.
 
 Nothing in this batch was taken on a previous worker's report. Every claim below
 was re-read at this HEAD, and three of them turned out to be stale in the
-report's favour and one in the opposite direction:
+report's favour and two in the opposite direction:
 
 - `K12`'s blocker, Rust's secret-returning `nullifier_key()`, is gone from the
   Rust trait.
@@ -20,20 +20,23 @@ report's favour and one in the opposite direction:
   left concrete are the three Rust also declares concrete.
 - `C06`'s recorded reason for tolerating its one divergence does not hold. The
   divergence is reachable, and this batch has the failing case.
+- `W04` was reported as needing nothing. Its merge path named the wrong
+  rejection for an unknown input hash and dropped details Rust carries, which
+  the row's four clauses did not reach.
 
 ## 1. What changed in this batch
 
 | Change | Why |
 | --- | --- |
+| `transaction/src/instructions/transact.ts`, `transaction/src/instructions/builders.ts` | The four keypair-rail builders reached through `viewingKey()` and `nullifierKey()` for material the capability surface hands over directly. `K11`/`K12`. |
+| `wallet/src/submit.ts`, `wallet/src/actions.ts` | Merge input selection rejected in a different order from Rust and dropped error details Rust carries. `W04`. |
 | `client/test/vectors/field-alignment.test.ts` | A new case reaches the `C06` divergence through `assemble`, and the comment that argued it was unreachable is replaced by the reason it is not. |
-| `sdk-libs/ts/reports/inventory.json` | Regenerated for the two inventory rows amended earlier in this branch. `ts-fixtures --check` byte-compares this file, so an inventory edit that skips it turns the fixture gate red. |
+| `sdk-libs/ts/reports/inventory.json` | Regenerated for the two inventory rows amended in this batch. `ts-fixtures --check` byte-compares this file, so an inventory edit that skips it turns the fixture gate red. |
 
-Two inventory amendments landed earlier on this branch and are described under
-their rows: `14bb9267` (`K14`) and `be5c3804` (`C06`).
+Two inventory amendments are described under their rows: `14bb9267` (`K14`) and
+`be5c3804` (`C06`).
 
 No file under `programs/`, `program-libs/`, `prover/` or `xtask/` was touched.
-Two files in the worktree, `wallet/src/actions.ts` and `wallet/src/submit.ts`,
-carry edits that are not this batch's and were left alone.
 
 ## 2. K11 `sdk-libs/keypair/src/traits/view_key.rs` -> PARITY
 
@@ -232,7 +235,7 @@ the TypeScript side then needs no change at all.
 **Also still open**, and out of this batch's scope: `fixtures/client/client.json`
 does not exist, and generating it is `xtask` work.
 
-## 8. W04 `sdk-libs/wallet/src/actions/transaction.rs` -> PARITY
+## 8. W04 `sdk-libs/wallet/src/actions/transaction.rs` -> PARITY, after a fix
 
 The four original clauses hold at this HEAD, verified against Rust rather than
 against the report: `applyP256Signature` reads the rail off the authority's own
@@ -241,6 +244,26 @@ compares tree, commitment, nullifier, `dataHash`, `zoneDataHash` and the whole
 note through `sameUtxo` (`:41-50,58-75`), which is the field set Rust's derived
 `PartialEq` compares. The substitution oracle from the `stragglers` work replays
 eleven single-field substitutions through `signPrivateTransaction`.
+
+**The report was clean on the clauses it checked and silent on the merge path,
+which was not at parity.** `create_merge` resolves the spend tree before it
+looks at balances: for named inputs `named_input_tree` reads the tree off the
+first named hash and fails `InputUtxoUnavailable` if that hash is unknown
+(`sdk-libs/wallet/src/actions/transaction.rs:811-828`), and for an auto-sweep
+`resolve_spend_tree` filters to plain UTXOs first and reports `AmbiguousTree`
+with the asset and the tree count (`:830-882`). The port collected candidates
+first and let an unknown hash fall through to `NOTHING_TO_MERGE`, so the same
+input named a different error; several rejections also carried no details where
+Rust carries the asset, the hash or the requested and available amounts.
+`wallet/src/submit.ts` now mirrors that order through `namedInputTree` and
+`sweepTree`, and `wallet/src/actions.ts:335,355` supplies the two missing detail
+payloads on `WALLET_INPUT_UTXO_UNAVAILABLE` and `WALLET_INSUFFICIENT_BALANCE`.
+
+`wallet/test/wallet.test.ts`, `names the merge rejection Rust names for each way
+the inputs are wrong`, walks the six rejections with their details. It is
+control-tested in both directions: stubbing the named-input tree to fall back to
+the sweep tree fails it, and collapsing the insufficient-balance raise into
+`WALLET_NOTHING_TO_MERGE` fails it, so the test cannot pass on a coincidence.
 
 The row's residue was that the rail rule itself is not observable through the
 public TypeScript surface. **That is correct, and I confirmed the direction
@@ -374,7 +397,8 @@ and live-Photon evidence needs a running indexer.
 
 ## 11. Verification
 
-Run in this tree at `59e6f095`, all green:
+Re-run in this tree at `034f5f11`, the last commit carrying code on this branch,
+after `npm run build`. All green:
 
 | Command | Result |
 | --- | --- |
