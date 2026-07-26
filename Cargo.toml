@@ -91,7 +91,9 @@ zolana-bloom-filter = { path = "program-libs/bloom-filter", version = "0.6.0" }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 light-poseidon = "0.4.0"
-light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", branch = "mollusk-0.14" }
+# Pinned to the head of the mollusk-0.14 PR (Lightprotocol/light-program-profiler#1).
+# Switch back to a released version once that lands upstream.
+light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", rev = "8afb60d66842e5428e562d468a5e4a891c031cbf" }
 light-sparse-merkle-tree = "0.3.0"
 
 # Mollusk test harness. Tracks the workspace's agave 4.1 wire crates.
