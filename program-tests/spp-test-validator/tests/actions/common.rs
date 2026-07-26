@@ -1,4 +1,4 @@
-//! Background setup steps: the precondition marker and the eddsa-rail opt-in.
+//! Shared harness setup: the precondition marker and the eddsa-rail opt-in.
 
 use anyhow::Result;
 

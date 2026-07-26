@@ -1,7 +1,7 @@
-use mollusk_solana_account::Account;
-use mollusk_solana_instruction::{AccountMeta, Instruction};
-use mollusk_solana_pubkey::Pubkey;
 use mollusk_svm::Mollusk;
+use solana_account::Account;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_pubkey::Pubkey;
 use swap_program::{
     instructions::{
         cancel::{CancelIxData, CancelProof},
@@ -50,7 +50,7 @@ impl Wrapper {
 }
 
 pub fn setup_mollusk() -> (Mollusk, Pubkey) {
-    zolana_mollusk_harness::mollusk_with_program(
+    zolana_test_utils::mollusk::mollusk_with_program(
         SBF_DIR,
         *swap_program::ID.as_array(),
         "swap_program",
@@ -110,6 +110,13 @@ pub fn wrapper_data(wrapper: Wrapper) -> Vec<u8> {
     } else {
         Vec::new()
     });
+    wrapper_data_with(wrapper, transact)
+}
+
+/// Serialize a wrapper body around a caller-customized transact payload, so
+/// negatives can tamper with individual transact fields while staying
+/// wire-valid.
+pub fn wrapper_data_with(wrapper: Wrapper, transact: TransactIxData) -> Vec<u8> {
     let body = match wrapper {
         Wrapper::Make => wincode::serialize(&MakeIxData {
             proof: MakeProof {

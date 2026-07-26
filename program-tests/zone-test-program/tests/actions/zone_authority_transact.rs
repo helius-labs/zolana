@@ -86,12 +86,11 @@ impl ZoneHarness {
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let signature = send_transaction(
             &mut self.rpc,
-            &[compute_budget, transfer_ix.clone()],
+            &[compute_budget, transfer_ix],
             &payer.pubkey(),
             &[&payer],
         )?;
         self.commit_zone_authority_spend(name, &consumed_input, consumed_hash)?;
-        self.last_transact = Some((signature, transfer_ix));
 
         // The recipient actor's confidential view tag is the first output's inline
         // owner tag (zone flows resolve owner tags inline); Photon indexes the

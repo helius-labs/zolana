@@ -173,7 +173,11 @@ impl SolDepositOracle {
             "modeled output count"
         );
 
-        let indexed = &program_test.indexer().utxos()[self.initial.indexed_outputs..];
+        let indexed = program_test
+            .indexer()
+            .utxos()
+            .get(self.initial.indexed_outputs..)
+            .expect("indexer holds at least the initially indexed outputs");
         assert_eq!(
             indexed.len(),
             self.accepted.len(),

@@ -3,7 +3,7 @@ use solana_system_interface::error::SystemError;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::assert_custom;
 
-use crate::support::Pool;
+use shielded_pool_tests::support::fixtures::Pool;
 
 #[test]
 fn sol_deposit_rejects_insufficient_lamports_without_changing_root() {

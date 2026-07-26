@@ -32,6 +32,7 @@ fn p256_transfers_cover_sol_and_spl_assets() -> Result<()> {
     harness.sync("recipient")?;
     harness.assert_utxos("sender")?;
     harness.assert_utxos("recipient")?;
+    harness.assert_no_utxos("bystander")?;
 
     for _ in 0..2 {
         harness.deposit_spl("sender", 1_000_000_000)?;
@@ -145,7 +146,21 @@ fn eddsa_transfers_cover_spl_mixed_single_input_and_change_only() -> Result<()> 
     harness.assert_utxos("eddsa-sender")?;
     harness.assert_utxos("recipient")?;
 
+    harness.deposit_spl("eddsa-sender", 1_000_000_000)?;
+    harness.transfer_single("eddsa-sender", "recipient", spl, 600_000_000)?;
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
+    harness.sync("eddsa-sender")?;
+    harness.sync("recipient")?;
+    harness.assert_utxos("eddsa-sender")?;
+    harness.assert_utxos("recipient")?;
+
     harness.consolidate("eddsa-sender", spl)?;
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
+    harness.sync("eddsa-sender")?;
+    harness.assert_utxos("eddsa-sender")?;
+
+    harness.deposit_sol("eddsa-sender", 1_000_000_000)?;
+    harness.consolidate("eddsa-sender", SOL_MINT)?;
     assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     harness.sync("eddsa-sender")?;
     harness.assert_utxos("eddsa-sender")?;
@@ -232,6 +247,26 @@ fn eddsa_merge_rejects_an_owner_that_has_not_opted_in() -> Result<()> {
         harness.deposit_sol("disabled-eddsa-owner", 1_000_000_000)?;
     }
     harness.merge_expect_disabled("disabled-eddsa-owner", &owner, SOL_MINT, 3)
+}
+
+/// A merge proof binds the owner's registered signing and viewing keys (read
+/// from the `user_record`). Submitting a proof bound to one owner with a
+/// different, also-merge-enabled owner's `user_record` must fail proof
+/// verification: the program derives the owner public inputs from the passed
+/// record, so they no longer match the proof.
+#[test]
+#[serial]
+fn merge_rejects_a_proof_bound_to_a_foreign_user_record() -> Result<()> {
+    let mut harness = LifecycleHarness::new()?;
+    // Alice is the real merge owner: funded, merge-enabled, and the identity the
+    // proof is bound to.
+    let _alice = harness.register_merge_owner("alice", true)?;
+    // Bob is a second merge-enabled owner whose registry record is substituted in.
+    let bob = harness.register_merge_owner("bob", true)?;
+    for _ in 0..3 {
+        harness.deposit_sol("alice", 1_000_000_000)?;
+    }
+    harness.merge_expect_foreign_record_rejected("alice", &bob, SOL_MINT, 3)
 }
 
 #[test]

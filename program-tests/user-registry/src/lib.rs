@@ -72,7 +72,12 @@ impl UserRegistryTestRig {
     }
 
     pub fn record(&self, owner: &Pubkey) -> UserRecord {
-        fetch_user_record(&self.svm, owner).expect("user record must exist")
+        let (pda, _bump) = user_record_pda(owner);
+        let account = self
+            .svm
+            .get_account(&pda)
+            .expect("user record account must exist");
+        UserRecord::try_from_account_data(&account.data).expect("user record account must decode")
     }
 }
 

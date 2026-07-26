@@ -1,21 +1,25 @@
-use mollusk_solana_program_error::ProgramError;
-use mollusk_solana_pubkey::Pubkey;
+use solana_program_error::ProgramError;
+use solana_pubkey::Pubkey;
 use swap_program::{
     error::SwapError,
     instructions::make::{MakeIxData, MakeProof, MARKER_PLACEHOLDER},
     tag,
 };
 use zolana_account_checks::AccountError;
-use zolana_mollusk_harness::{expect_err_atomic, sweep_account_matrix, AccountMutation, Expected};
+use zolana_test_utils::mollusk::{
+    expect_err_exact, sweep_account_matrix, AccountMutation, Expected,
+};
 
-use crate::common::{account, fixture, marker, setup_mollusk, transact, wrapper_data, Wrapper};
+use crate::common::{
+    account, fixture, marker, setup_mollusk, transact, wrapper_data, wrapper_data_with, Wrapper,
+};
 
 #[test]
-fn truncated_instruction_data_is_rejected_exactly_and_atomically() {
+fn truncated_instruction_data_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let (mut instruction, accounts) = fixture(Wrapper::Make);
     instruction.data = vec![Wrapper::Make.tag(), 1, 2, 3];
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,
@@ -40,11 +44,11 @@ fn assert_marker_messages(
     .expect("serialize make");
     instruction.data = vec![tag::MAKE];
     instruction.data.extend_from_slice(&body);
-    expect_err_atomic(&mollusk, &instruction, &accounts, expected);
+    expect_err_exact(&mollusk, &instruction, &accounts, expected);
 }
 
 #[test]
-fn missing_marker_message_is_rejected_exactly_and_atomically() {
+fn missing_marker_message_is_rejected_exactly() {
     assert_marker_messages(
         Vec::new(),
         ProgramError::Custom(SwapError::InvalidMarkerMessage as u32),
@@ -52,7 +56,7 @@ fn missing_marker_message_is_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn duplicate_marker_messages_are_rejected_exactly_and_atomically() {
+fn duplicate_marker_messages_are_rejected_exactly() {
     assert_marker_messages(
         vec![
             marker(MARKER_PLACEHOLDER.to_vec()),
@@ -63,7 +67,7 @@ fn duplicate_marker_messages_are_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn non_placeholder_marker_bytes_are_rejected_exactly_and_atomically() {
+fn non_placeholder_marker_bytes_are_rejected_exactly() {
     assert_marker_messages(
         vec![marker(vec![1; MARKER_PLACEHOLDER.len()])],
         ProgramError::Custom(SwapError::InvalidMarkerPlaceholder as u32),
@@ -71,7 +75,7 @@ fn non_placeholder_marker_bytes_are_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn wrong_length_marker_placeholder_is_rejected_exactly_and_atomically() {
+fn wrong_length_marker_placeholder_is_rejected_exactly() {
     assert_marker_messages(
         vec![marker(vec![0; 1])],
         ProgramError::Custom(SwapError::InvalidMarkerPlaceholder as u32),
@@ -79,13 +83,13 @@ fn wrong_length_marker_placeholder_is_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn wrong_shielded_pool_program_is_rejected_exactly_and_atomically() {
+fn wrong_shielded_pool_program_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let (mut instruction, mut accounts) = fixture(Wrapper::Make);
     let wrong_program = Pubkey::new_from_array([31; 32]);
     instruction.accounts.last_mut().expect("SPP meta").pubkey = wrong_program;
     *accounts.last_mut().expect("SPP account") = (wrong_program, account(1));
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,
@@ -94,11 +98,68 @@ fn wrong_shielded_pool_program_is_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn non_executable_shielded_pool_program_is_rejected_exactly_and_atomically() {
+fn single_output_make_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let (mut instruction, accounts) = fixture(Wrapper::Make);
+    // Wire-valid transact with one output: the order output lives at index 1,
+    // so the shape branch must reject before any marker handling.
+    let mut data = transact(vec![marker(MARKER_PLACEHOLDER.to_vec())]);
+    data.outputs.truncate(1);
+    instruction.data = wrapper_data_with(Wrapper::Make, data);
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        ProgramError::Custom(SwapError::InvalidInstructionData as u32),
+    );
+}
+
+#[test]
+fn writable_shielded_pool_program_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let (mut instruction, accounts) = fixture(Wrapper::Make);
+    instruction
+        .accounts
+        .last_mut()
+        .expect("SPP meta")
+        .is_writable = true;
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        ProgramError::Custom(u32::from(AccountError::AccountMutable)),
+    );
+}
+
+#[test]
+fn one_and_two_account_shapes_are_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    // One account: the payer parses, but the CPI account list is empty.
+    let (mut instruction, accounts) = fixture(Wrapper::Make);
+    instruction.accounts.truncate(1);
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
+    );
+    // Two accounts: the CPI payer slot resolves, but the tree slot is absent.
+    let (mut instruction, accounts) = fixture(Wrapper::Make);
+    instruction.accounts.truncate(2);
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
+    );
+}
+
+#[test]
+fn non_executable_shielded_pool_program_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let (instruction, mut accounts) = fixture(Wrapper::Make);
     accounts.last_mut().expect("SPP account").1.executable = false;
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,
@@ -107,14 +168,14 @@ fn non_executable_shielded_pool_program_is_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn missing_accounts_are_rejected_exactly_and_atomically() {
+fn missing_accounts_are_rejected_exactly() {
     let (mollusk, program_id) = setup_mollusk();
-    let instruction = mollusk_solana_instruction::Instruction {
+    let instruction = solana_instruction::Instruction {
         program_id,
         accounts: Vec::new(),
         data: wrapper_data(Wrapper::Make),
     };
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &[],
@@ -133,7 +194,7 @@ fn make_rejects_every_account_privilege_downgrade() {
     // account check passing and the run fails only at the fixture's
     // placeholder proof. Tree mutability and the trailing SPP meta have
     // stable named errors; the remaining removals shift the account shape,
-    // so only deterministic atomic rejection is pinned.
+    // so only deterministic rejection is pinned.
     sweep_account_matrix(
         &mollusk,
         &instruction,
@@ -155,7 +216,7 @@ fn make_rejects_every_account_privilege_downgrade() {
 }
 
 #[test]
-fn readonly_payer_is_rejected_exactly_and_atomically() {
+fn readonly_payer_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let (mut instruction, accounts) = fixture(Wrapper::Make);
     instruction
@@ -169,7 +230,7 @@ fn readonly_payer_is_rejected_exactly_and_atomically() {
         .get_mut(1)
         .expect("maker meta")
         .is_writable = false;
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,
@@ -178,7 +239,7 @@ fn readonly_payer_is_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn unsigned_payer_is_rejected_exactly_and_atomically() {
+fn unsigned_payer_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let (mut instruction, accounts) = fixture(Wrapper::Make);
     instruction
@@ -191,7 +252,7 @@ fn unsigned_payer_is_rejected_exactly_and_atomically() {
         .get_mut(1)
         .expect("maker meta")
         .is_signer = false;
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,

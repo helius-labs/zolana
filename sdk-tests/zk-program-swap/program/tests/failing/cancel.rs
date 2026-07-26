@@ -1,17 +1,51 @@
-use mollusk_solana_program_error::ProgramError;
-use mollusk_solana_pubkey::Pubkey;
+use solana_program_error::ProgramError;
+use solana_pubkey::Pubkey;
 use swap_program::error::SwapError;
 use zolana_account_checks::AccountError;
-use zolana_mollusk_harness::{expect_err_atomic, sweep_account_matrix, AccountMutation, Expected};
+use zolana_test_utils::mollusk::{
+    expect_err_exact, sweep_account_matrix, AccountMutation, Expected,
+};
 
-use crate::common::{account, fixture, setup_mollusk, Wrapper};
+use crate::common::{account, fixture, setup_mollusk, transact, wrapper_data_with, Wrapper};
 
 #[test]
-fn truncated_instruction_data_is_rejected_exactly_and_atomically() {
+fn unexpired_order_cancel_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let (instruction, accounts) = fixture(Wrapper::Cancel);
+    // The fixture commits `order_expiry = 0` and Mollusk's default clock is 0:
+    // cancel requires `now > order_expiry`, so the window check fires exactly.
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        ProgramError::Custom(SwapError::NotYetExpired as u32),
+    );
+}
+
+#[test]
+fn oversized_cancel_private_tx_hash_fails_hashing_exactly() {
+    let (mut mollusk, _) = setup_mollusk();
+    let (mut instruction, accounts) = fixture(Wrapper::Cancel);
+    // Move past the order expiry so the cancel window passes and the
+    // over-modulus public input is what fails.
+    mollusk.sysvars.clock.unix_timestamp = 1;
+    let mut data = transact(Vec::new());
+    data.private_tx_hash = [0xFF; 32];
+    instruction.data = wrapper_data_with(Wrapper::Cancel, data);
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        ProgramError::Custom(SwapError::HashingFailed as u32),
+    );
+}
+
+#[test]
+fn truncated_instruction_data_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let (mut instruction, accounts) = fixture(Wrapper::Cancel);
     instruction.data = vec![Wrapper::Cancel.tag(), 1, 2, 3];
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,
@@ -20,13 +54,13 @@ fn truncated_instruction_data_is_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn wrong_shielded_pool_program_is_rejected_exactly_and_atomically() {
+fn wrong_shielded_pool_program_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let (mut instruction, mut accounts) = fixture(Wrapper::Cancel);
     let wrong_program = Pubkey::new_from_array([31; 32]);
     instruction.accounts.last_mut().expect("SPP meta").pubkey = wrong_program;
     *accounts.last_mut().expect("SPP account") = (wrong_program, account(1));
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,
@@ -35,11 +69,11 @@ fn wrong_shielded_pool_program_is_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn non_executable_shielded_pool_program_is_rejected_exactly_and_atomically() {
+fn non_executable_shielded_pool_program_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let (instruction, mut accounts) = fixture(Wrapper::Cancel);
     accounts.last_mut().expect("SPP account").1.executable = false;
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,
@@ -48,7 +82,7 @@ fn non_executable_shielded_pool_program_is_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn wrong_order_authority_is_rejected_exactly_and_atomically() {
+fn wrong_order_authority_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let (mut instruction, mut accounts) = fixture(Wrapper::Cancel);
     let authority_index = instruction.accounts.len() - 2;
@@ -61,7 +95,7 @@ fn wrong_order_authority_is_rejected_exactly_and_atomically() {
     *accounts
         .get_mut(authority_index)
         .expect("order authority account") = (wrong, account(1_000_000_000));
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,
@@ -70,7 +104,7 @@ fn wrong_order_authority_is_rejected_exactly_and_atomically() {
 }
 
 #[test]
-fn writable_order_authority_is_rejected_exactly_and_atomically() {
+fn writable_order_authority_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let (mut instruction, accounts) = fixture(Wrapper::Cancel);
     let authority_index = instruction.accounts.len() - 2;
@@ -79,7 +113,7 @@ fn writable_order_authority_is_rejected_exactly_and_atomically() {
         .get_mut(authority_index)
         .expect("order authority meta")
         .is_writable = true;
-    expect_err_atomic(
+    expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,
@@ -99,7 +133,7 @@ fn cancel_rejects_every_account_privilege_downgrade() {
     // passing and the run fails only at the fixture's unexpired order
     // window. The maker signer, tree mutability, order-authority, and
     // trailing SPP cells have stable named errors; the remaining removals
-    // shift the account shape, so only deterministic atomic rejection is
+    // shift the account shape, so only deterministic rejection is
     // pinned.
     sweep_account_matrix(
         &mollusk,

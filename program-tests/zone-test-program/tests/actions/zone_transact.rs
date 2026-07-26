@@ -49,7 +49,7 @@ const P256_OWNED_SIGNER: u8 = 255;
 /// Default eddsa signer account index for a Solana-owned input (the fee payer).
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
 
-/// The output hashes a zone transfer produced, so the step can confirm
+/// The output hashes a zone transfer produced, so the caller can confirm
 /// `Wallet::sync` rediscovers each one.
 #[derive(Default)]
 struct DiscoveredOutputs {
@@ -96,7 +96,7 @@ impl ZoneHarness {
     /// Zone-withdraw `amount` of SOL from `from`'s zone UTXOs to a fresh external
     /// Solana account: the public SOL amount leaves the pool while `from` keeps the
     /// change as a zone UTXO. Eddsa rail. Returns the withdrawal recipient so the
-    /// step can assert the lamports landed.
+    /// caller can assert the lamports landed.
     pub(crate) fn zone_withdraw(
         &mut self,
         from: &str,
@@ -114,7 +114,7 @@ impl ZoneHarness {
 
     /// Build, prove (`zone_transact` rail), send, and verify a zone transfer or
     /// withdrawal. `withdrawal` is `Some(recipient)` for a public-amount SOL
-    /// withdrawal; `None` for a pure shielded transfer. Records `last_transact` and
+    /// withdrawal; `None` for a pure shielded transfer. Records
     /// `last_rail`, pushes the indexed transaction, tracks the recipient / change
     /// UTXOs, and marks consumed inputs spent — mirroring the default-zone
     /// `transact` flow.
@@ -328,7 +328,6 @@ impl ZoneHarness {
             &fee_payer.pubkey(),
             &[&fee_payer],
         )?;
-        self.last_transact = Some((signature, transfer_ix));
 
         // A change-only transfer/withdrawal has no recipient slot, so locate the
         // indexed transaction by the sender's view tag instead.

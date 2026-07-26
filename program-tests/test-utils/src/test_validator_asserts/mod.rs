@@ -290,9 +290,20 @@ pub fn wait_for_non_inclusion_proof<I: Rpc>(
 pub fn wait_for_nullifier_present<I: Rpc>(indexer: &I, tree: Address, leaf: [u8; 32]) {
     wait_for("nullifier present in tree", || {
         match indexer.get_non_inclusion_proofs(tree, vec![leaf], None) {
+            // Photon refuses a non-inclusion proof for a nullifier that is
+            // used or queued ("Nullifier leaf .. is already used or queued",
+            // get_non_inclusion_proofs.rs); that specific refusal is the
+            // positive signal. Any other error (transport, indexer restart)
+            // retries until the deadline instead of silently counting as
+            // success, and both non-terminal states surface as the "last
+            // indexer error" on timeout.
+            Err(error) if format!("{error:?}").contains("already used or queued") => Ok(Some(())),
             Ok(response) if response.proofs.is_empty() => Ok(Some(())),
-            Ok(_) => Ok(None),
-            Err(_) => Ok(Some(())),
+            Ok(response) => Err(ClientError::Rpc(format!(
+                "non-inclusion proof still served ({} proofs)",
+                response.proofs.len()
+            ))),
+            Err(error) => Err(error),
         }
     });
 }

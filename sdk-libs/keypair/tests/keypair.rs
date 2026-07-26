@@ -2,7 +2,9 @@ mod cases;
 
 use std::collections::HashMap;
 
-use zolana_keypair::{P256Pubkey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::{
+    KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
+};
 
 #[derive(Default)]
 pub struct KeypairWorld {
@@ -13,7 +15,7 @@ pub struct KeypairWorld {
     pub parsed_pubkey: Option<P256Pubkey>,
     pub tagged: HashMap<String, PublicKey>,
     pub sigs: HashMap<String, [u8; 64]>,
-    pub last_error: bool,
+    pub last_error: Option<KeypairError>,
 }
 
 impl KeypairWorld {
@@ -98,9 +100,9 @@ fn public_key_encodings_are_typed_and_canonical() {
     cases::pubkey::last_byte_zero(&mut world, "eddsa".into());
     cases::pubkey::read_as_p256_fails(&mut world, "eddsa".into());
     cases::pubkey::parse_public_key_bad_prefix(&mut world, 9);
-    cases::pubkey::public_key_parse_fails(&mut world);
+    cases::pubkey::public_key_parse_fails(&mut world, KeypairError::InvalidSignatureType(9));
     cases::pubkey::parse_ed25519_nonzero_pad(&mut world);
-    cases::pubkey::public_key_parse_fails(&mut world);
+    cases::pubkey::public_key_parse_fails(&mut world, KeypairError::InvalidPublicKey);
 }
 
 #[test]

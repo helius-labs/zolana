@@ -1,20 +1,35 @@
 use mollusk_svm::result::Check;
+use solana_account::Account;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::UpdateProtocolConfigData,
+    instruction::{CreateTree, UpdateProtocolConfigData},
     pda,
-    state::{discriminator::ZONE_CONFIG, ProtocolConfig, ZoneConfig},
+    state::{
+        discriminator::{TREE_ACCOUNT_DISCRIMINATOR, ZONE_CONFIG},
+        ProtocolConfig, ZoneConfig,
+    },
+    PROGRAM_ID_PUBKEY,
 };
 use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
+use zolana_test_utils::mollusk::snapshot_instruction_accounts;
+use zolana_tree::{INITIALIZED, PAUSED};
 
-use crate::{
-    common::{program_test, tree_account_size},
-    mollusk::{pause_tree_fixture, protocol_config_fixture},
-    support::Pool,
+use shielded_pool_tests::support::{
+    fixtures::Pool,
+    mollusk::{pause_tree_fixture, protocol_config_fixture, setup_mollusk},
+    runtime::{program_test, tree_account_size},
 };
+
+fn account_named<'a>(accounts: &'a [(Pubkey, Account)], key: &Pubkey) -> &'a Account {
+    &accounts
+        .iter()
+        .find(|(account_key, _)| account_key == key)
+        .expect("account present in set")
+        .1
+}
 
 #[derive(Debug, PartialEq, Eq)]
 struct ZoneConfigState {
@@ -43,6 +58,11 @@ fn protocol_config_creation_initializes_complete_state() {
         .create_protocol_config(&authority)
         .expect("create protocol config");
     litesvm_assert_protocol_config(&rpc, &config, &authority.pubkey());
+    let account = rpc.svm.get_account(&config).expect("config account");
+    assert_eq!(
+        account.owner, rpc.program_id,
+        "config account owner must be the shielded-pool program"
+    );
 }
 
 #[test]
@@ -55,6 +75,121 @@ fn protocol_config_fixture_executes_successfully_before_mutation() {
 fn pause_tree_fixture_executes_successfully_before_mutation() {
     let (mollusk, instruction, accounts) = pause_tree_fixture();
     mollusk.process_and_validate_instruction(&instruction, &accounts, &[Check::success()]);
+}
+
+#[test]
+fn protocol_config_creation_changes_only_the_config_and_fee_payer() {
+    let (mollusk, instruction, accounts) = protocol_config_fixture();
+    let result =
+        mollusk.process_and_validate_instruction(&instruction, &accounts, &[Check::success()]);
+
+    let fee_payer = instruction.accounts.first().expect("fee payer meta").pubkey;
+    let config = instruction.accounts.get(1).expect("config meta").pubkey;
+    let system = instruction.accounts.get(2).expect("system meta").pubkey;
+
+    // The only account besides the config and the fee payer is byte-for-byte
+    // unchanged.
+    assert_eq!(
+        account_named(&result.resulting_accounts, &system),
+        account_named(&accounts, &system),
+        "system program account must be unchanged"
+    );
+
+    // The fee payer only funds rent: data and owner unchanged, and the removed
+    // lamports are exactly the created config account's balance.
+    let payer_before = account_named(&accounts, &fee_payer);
+    let payer_after = account_named(&result.resulting_accounts, &fee_payer);
+    assert_eq!(payer_after.data, payer_before.data);
+    assert_eq!(payer_after.owner, payer_before.owner);
+    let config_after = account_named(&result.resulting_accounts, &config);
+    assert_eq!(
+        payer_before.lamports - payer_after.lamports,
+        config_after.lamports,
+        "fee payer lamports must move exactly into the config account"
+    );
+    assert_eq!(config_after.data.len(), ProtocolConfig::SIZE);
+}
+
+#[test]
+fn tree_creation_changes_only_the_tree_account() {
+    let mut test = program_test();
+    let authority = Keypair::new();
+    test.create_protocol_config(&authority)
+        .expect("create protocol config");
+    let tree = Keypair::new();
+    let ix = CreateTree {
+        authority: authority.pubkey(),
+        tree: tree.pubkey(),
+        owner: authority.pubkey(),
+    }
+    .instruction();
+    let (mollusk, program_id) = setup_mollusk();
+    let mut accounts =
+        snapshot_instruction_accounts(&ix, (&PROGRAM_ID_PUBKEY, program_id), |key| {
+            test.svm.get_account(key)
+        });
+    // The client pre-allocates the tree account: program-owned, zeroed, exact
+    // canonical size.
+    *accounts.get_mut(2).expect("tree account slot") = (
+        tree.pubkey(),
+        Account {
+            lamports: 10_000_000_000,
+            data: vec![0u8; tree_account_size() as usize],
+            owner: PROGRAM_ID_PUBKEY,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let result = mollusk.process_and_validate_instruction(&ix, &accounts, &[Check::success()]);
+
+    // Frame: the authority and the protocol config are byte-for-byte unchanged.
+    for key in [authority.pubkey(), pda::protocol_config()] {
+        assert_eq!(
+            account_named(&result.resulting_accounts, &key),
+            account_named(&accounts, &key),
+            "create_tree must not change account {key}"
+        );
+    }
+    // The tree is initialized in place: lamports untouched, discriminator and
+    // state stamped.
+    let tree_before = account_named(&accounts, &tree.pubkey());
+    let tree_after = account_named(&result.resulting_accounts, &tree.pubkey());
+    assert_eq!(tree_after.lamports, tree_before.lamports);
+    assert_eq!(tree_after.data.first(), Some(&TREE_ACCOUNT_DISCRIMINATOR));
+    assert_eq!(tree_after.data.get(1), Some(&INITIALIZED));
+}
+
+#[test]
+fn pause_tree_changes_only_the_tree_state_byte() {
+    let (mollusk, instruction, accounts) = pause_tree_fixture();
+    let result =
+        mollusk.process_and_validate_instruction(&instruction, &accounts, &[Check::success()]);
+
+    let authority = instruction.accounts.first().expect("authority meta").pubkey;
+    let config = instruction.accounts.get(1).expect("config meta").pubkey;
+    let tree = instruction.accounts.get(2).expect("tree meta").pubkey;
+
+    for key in [authority, config] {
+        assert_eq!(
+            account_named(&result.resulting_accounts, &key),
+            account_named(&accounts, &key),
+            "pause_tree must not change account {key}"
+        );
+    }
+
+    let tree_before = account_named(&accounts, &tree);
+    let tree_after = account_named(&result.resulting_accounts, &tree);
+    assert_eq!(tree_after.lamports, tree_before.lamports);
+    assert_eq!(tree_after.owner, tree_before.owner);
+    // TreeAccountLayout: discriminator at byte 0, state at byte 1.
+    assert_eq!(tree_before.data.get(1), Some(&INITIALIZED));
+    let mut expected = tree_before.data.clone();
+    *expected.get_mut(1).expect("state byte") = PAUSED;
+    assert_eq!(
+        tree_after.data, expected,
+        "pause_tree must change only the tree state byte"
+    );
 }
 
 #[test]

@@ -5,11 +5,14 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::merge_zone::MergeZoneProver, ProverClient, SpendProof, TransferSpendInput,
+    prover::merge_zone::MergeZoneProver, MergeProver, ProverClient, SpendProof, TransferSpendInput,
 };
-use zolana_interface::instruction::{
-    instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT},
-    MergeZone,
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::{
+        instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT},
+        MergeZone,
+    },
 };
 use zolana_keypair::{
     merge::{merge_dummy_nullifier, merge_output_blinding},
@@ -23,7 +26,7 @@ use zolana_test_utils::test_validator_asserts::{
 use zolana_transaction::{Data, SppProofOutputUtxo, Utxo};
 
 use crate::{
-    localnet::{pack_proof, send_transaction, ZERO},
+    localnet::{pack_proof, send_transaction, SECOND_ZONE_TEST_PROGRAM_ID, ZERO},
     support::MergeZoneRecord,
     ZoneHarness,
 };
@@ -44,6 +47,61 @@ impl ZoneHarness {
         asset: Address,
         count: usize,
     ) -> Result<solana_signature::Signature> {
+        self.merge_zone_inner(name, asset, count, false, None, false, false)?
+            .ok_or_else(|| anyhow!("zone merge unexpectedly rejected"))
+    }
+
+    /// Execute a valid zone merge and then replay its exact SPP instruction.
+    /// The second transaction uses a distinct compute-budget instruction so it
+    /// has a fresh signature while reusing the same nullifiers and
+    /// `merge_view_tag`.
+    pub(crate) fn merge_zone_replay_rejected(
+        &mut self,
+        name: &str,
+        asset: Address,
+        count: usize,
+    ) -> Result<()> {
+        self.merge_zone_inner(name, asset, count, true, None, false, false)?;
+        Ok(())
+    }
+
+    pub(crate) fn merge_zone_foreign_program_rejected(
+        &mut self,
+        name: &str,
+        asset: Address,
+        count: usize,
+    ) -> Result<()> {
+        let foreign = solana_pubkey::Pubkey::new_from_array(SECOND_ZONE_TEST_PROGRAM_ID);
+        let authority = self.payer.pubkey().to_bytes().into();
+        self.create_zone_config_for(foreign, &authority, true)?;
+        self.merge_zone_inner(name, asset, count, false, Some(foreign), true, false)?;
+        Ok(())
+    }
+
+    pub(crate) fn merge_transact_proof_replayed_as_zone_rejected(
+        &mut self,
+        name: &str,
+        asset: Address,
+        count: usize,
+    ) -> Result<()> {
+        self.merge_zone_inner(name, asset, count, false, None, true, true)?;
+        Ok(())
+    }
+
+    fn merge_zone_inner(
+        &mut self,
+        name: &str,
+        asset: Address,
+        count: usize,
+        assert_replay: bool,
+        submit_zone: Option<solana_pubkey::Pubkey>,
+        expect_proof_rejection: bool,
+        prove_for_default_merge: bool,
+    ) -> Result<Option<solana_signature::Signature>> {
+        // TODO(pr164-port): PR164 removed `merge_view_tag` and changed the
+        // default-merge prover shape; the `prove_for_default_merge` path is not
+        // ported and the flag is currently ignored (zone-merge rail only).
+        let _ = prove_for_default_merge;
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
@@ -157,25 +215,46 @@ impl ZoneHarness {
         let proof = ProverClient::local().prove_merge_zone(&result.inputs)?;
 
         let data = result.zone_instruction_data(pack_proof(&proof)?, ZERO);
+        let output_hash = result.output_hash;
+        let input_nullifiers = result.nullifiers.clone();
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let payer = self.payer.insecure_clone();
         let merge_ix = MergeZone {
             input_tree: self.tree,
             output_tree: self.tree,
-            zone_program_id: self.zone_program_id,
+            zone_program_id: submit_zone.unwrap_or(self.zone_program_id),
             payer: payer.pubkey(),
             data: data.merge.clone(),
             output_zone_data_hash: data.output_zone_data_hash,
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let sig = send_transaction(
+        let send_result = send_transaction(
             &mut self.rpc,
-            &[compute_budget, merge_ix],
+            &[compute_budget, merge_ix.clone()],
             &payer.pubkey(),
             &[&payer],
-        )?;
+        );
+        if expect_proof_rejection {
+            match send_result {
+                Ok(_) => return Err(anyhow!("foreign-zone merge unexpectedly succeeded")),
+                Err(error) => {
+                    assert_eq!(
+                        assert_custom_program_error(
+                            &error,
+                            ShieldedPoolError::TransactProofVerificationFailed as u32,
+                        ),
+                        1,
+                        "foreign-zone proof must fail in the SPP instruction"
+                    );
+                    assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
+                    self.actor_mut(name).spendable.extend(inputs);
+                    return Ok(None);
+                }
+            }
+        }
+        let sig = send_result?;
 
         let indexed = wait_for_indexed_transaction(&self.indexer, first_nullifier, sig);
 
@@ -190,8 +269,8 @@ impl ZoneHarness {
             &self.indexer,
             MergeZoneAssertArgs {
                 tree: &self.tree,
-                output_hash: result.output_hash,
-                input_nullifiers: &result.nullifiers,
+                output_hash,
+                input_nullifiers: &input_nullifiers,
                 tree_before: &tree_before,
             },
         )?;
@@ -201,9 +280,36 @@ impl ZoneHarness {
 
         self.last_merge = Some(MergeZoneRecord {
             actor: name.to_string(),
-            output_hash: result.output_hash,
+            output_hash,
         });
-        Ok(sig)
+
+        if assert_replay {
+            // The only writable instruction accounts are the fee payer and the
+            // tree. Capturing the post-success tree therefore covers every
+            // non-fee-payer account that a rejected replay could mutate.
+            let tree_after_success = fetch_account(&self.rpc, &self.tree)?;
+            let replay_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_399_999);
+            match send_transaction(
+                &mut self.rpc,
+                &[replay_budget, merge_ix],
+                &payer.pubkey(),
+                &[&payer],
+            ) {
+                Ok(_) => return Err(anyhow!("replayed zone merge unexpectedly succeeded")),
+                Err(error) => {
+                    assert_eq!(
+                        assert_custom_program_error(
+                            &error,
+                            ShieldedPoolError::NullifierTreeUpdateFailed as u32,
+                        ),
+                        1,
+                        "zone merge replay must fail in the SPP instruction"
+                    );
+                    assert_account_unchanged(&self.rpc, &self.tree, &tree_after_success)?;
+                }
+            }
+        }
+        Ok(Some(sig))
     }
 
     /// Confirm the consolidated zone output is present on-chain: the inclusion +
@@ -243,7 +349,7 @@ impl ZoneHarness {
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
 
         // Borrow (do not consume) `count` spendable UTXOs: a rejected merge spends
-        // nothing, so the inputs must remain available for any later step.
+        // nothing, so the inputs must remain available for any later operation.
         let inputs: Vec<Utxo> = {
             let actor = self.actor(name);
             let mut taken = Vec::with_capacity(count);
@@ -344,7 +450,7 @@ impl ZoneHarness {
         let merge_ix = MergeZone {
             input_tree: self.tree,
             output_tree: self.tree,
-            zone_program_id: self.zone_program_id,
+            zone_program_id: submit_zone.unwrap_or(self.zone_program_id),
             payer: payer.pubkey(),
             data: data.merge.clone(),
             output_zone_data_hash: data.output_zone_data_hash,

@@ -20,13 +20,13 @@ Regenerate with `just bench-swap`.
 
 | Function                                |   Total CU |     Net CU |
 | --------------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed`               |    152,167 |    152,167 |
-| `process_cancel_ix`                     |    251,929 |     99,762 |
+| `cpi_spp_transact_signed`               |    151,880 |    151,880 |
+| `process_cancel_ix`                     |    251,626 |     99,746 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total |
 | ------------------ | ------------------ | ----- |
-|              59 ms |              17 ms | 77 ms |
+|              63 ms |              18 ms | 81 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx | v0 + ALT Tx |
@@ -37,13 +37,13 @@ Regenerate with `just bench-swap`.
 
 | Function                                |   Total CU |     Net CU |
 | --------------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact`                      |    163,013 |    163,013 |
-| `process_make_ix`                       |    258,113 |     95,100 |
+| `cpi_spp_transact`                      |    162,713 |    162,713 |
+| `process_make_ix`                       |    257,789 |     95,076 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             118 ms |              17 ms | 135 ms |
+|             112 ms |              19 ms | 132 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
@@ -54,13 +54,13 @@ Regenerate with `just bench-swap`.
 
 | Function                                |   Total CU |     Net CU |
 | --------------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed`               |    161,558 |    161,558 |
-| `process_take_ix`                       |    260,343 |     98,785 |
+| `cpi_spp_transact_signed`               |    161,259 |    161,259 |
+| `process_take_ix`                       |    260,024 |     98,765 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             104 ms |              26 ms | 130 ms |
+|             113 ms |              29 ms | 142 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
@@ -71,13 +71,13 @@ Regenerate with `just bench-swap`.
 
 | Function                                |   Total CU |     Net CU |
 | --------------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed`               |    161,550 |    161,550 |
-| `process_take_verifiable_encryption_ix` |    394,553 |    233,003 |
+| `cpi_spp_transact_signed`               |    161,251 |    161,251 |
+| `process_take_verifiable_encryption_ix` |    394,199 |    232,948 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             108 ms |             120 ms | 229 ms |
+|             111 ms |             134 ms | 245 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |

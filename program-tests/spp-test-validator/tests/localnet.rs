@@ -1,7 +1,6 @@
 //! Localnet orchestration and proof helpers shared by the Harness. Indexer polling
 //! lives in `zolana_test_utils::test_validator_asserts`.
 
-use anyhow::Result;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_message::Message;

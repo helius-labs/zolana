@@ -41,7 +41,7 @@ pub(crate) struct MergeRecord {
 
 impl LifecycleHarness {
     /// Register `name` on the user-registry under a fresh Solana keypair and opt the
-    /// record into merging. Returns the registering Solana keypair so the merge step
+    /// record into merging. Returns the registering Solana keypair so the merge helper
     /// can derive the `user_record` PDA the program reads. `enable_merge` gates the
     /// `set_merging_enabled` opt-in so the disabled path can be exercised.
     pub(crate) fn register_merge_owner(
@@ -219,11 +219,14 @@ impl LifecycleHarness {
         // the same way the prover bound `external_data_hash`, so they agree on-chain.
         let data = result.instruction_data(pack_proof(&proof)?);
 
+        let user_record = user_record_pda(&owner_solana.pubkey()).0;
+        let payer_before = fetch_account(&self.rpc, &self.merge_vault)?;
+        let user_record_before = fetch_account(&self.rpc, &user_record)?;
         let merge_ix = MergeTransact {
             input_tree: self.tree,
             output_tree: self.tree,
             payer: self.merge_vault,
-            user_record: user_record_pda(&owner_solana.pubkey()).0,
+            user_record,
             data,
         }
         .instruction();
@@ -241,6 +244,8 @@ impl LifecycleHarness {
             &merge_key.pubkey(),
             &[&merge_key],
         )?;
+        assert_account_unchanged(&self.rpc, &self.merge_vault, &payer_before)?;
+        assert_account_unchanged(&self.rpc, &user_record, &user_record_before)?;
 
         // Only commit the fixture's spendable set after the validator accepted the
         // transaction. Rejected merges leave both chain and harness state intact.
@@ -390,8 +395,50 @@ impl LifecycleHarness {
             }
         }
     }
+
+    /// Prove a merge bound to `name`'s registered signing / viewing keys but
+    /// submit it with `record_owner`'s `user_record`. The program derives the
+    /// owner public inputs from the passed record, so the recomputed
+    /// public-input hash no longer matches the proof and verification fails.
+    /// Asserts the exact `TransactProofVerificationFailed` rejection with the
+    /// tree account and the fixture's spendable set left unchanged.
+    pub(crate) fn merge_expect_foreign_record_rejected(
+        &mut self,
+        name: &str,
+        record_owner: &Keypair,
+        asset: Address,
+        count: usize,
+    ) -> Result<()> {
+        let tree_before = fetch_account(&self.rpc, &self.tree)?;
+        let spendable_before = self.actor(name).spendable.clone();
+        match self.merge(name, record_owner, asset, count) {
+            Ok(_) => Err(anyhow!(
+                "merge unexpectedly succeeded with a foreign user_record"
+            )),
+            Err(error) => {
+                let client_error = error
+                    .downcast_ref::<zolana_client::ClientError>()
+                    .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
+                assert_eq!(
+                    assert_custom_program_error(client_error, TRANSACT_PROOF_VERIFICATION_FAILED),
+                    1
+                );
+                assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
+                assert_eq!(
+                    self.actor(name).spendable,
+                    spendable_before,
+                    "rejected merge changed fixture spendable UTXOs"
+                );
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Custom program error code for an owner that has not enabled merging
 /// (`ShieldedPoolError::MergeDisabled`).
 const MERGE_DISABLED: u32 = 7017;
+
+/// Custom program error code for a merge proof whose recomputed public input
+/// does not match (`ShieldedPoolError::TransactProofVerificationFailed`).
+const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;

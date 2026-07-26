@@ -1,4 +1,4 @@
-//! `withdraw` (unshield) steps and the Harness withdrawal operation. A withdrawal
+//! `withdraw` (unshield) helpers and the Harness withdrawal operation. A withdrawal
 //! spends the sender's SOL UTXOs and moves the public SOL amount out of the pool
 //! to an external recipient account, keeping a SOL change UTXO for the sender.
 //! Mirrors `execute_transfer` except it calls `transfer.withdraw(..)` instead of

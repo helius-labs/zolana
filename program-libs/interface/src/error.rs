@@ -16,6 +16,7 @@ pub enum InterfaceError {
     /// mapping reports `InvalidProtocolConfig` (7012) rather than the
     /// SPL-registry code.
     InvalidProtocolConfigData,
+    AlreadyInitialized,
 }
 
 /// Program errors surfaced on-chain as `ProgramError::Custom(code)`.
@@ -131,6 +132,9 @@ impl From<InterfaceError> for ShieldedPoolError {
             InterfaceError::Unauthorized => ShieldedPoolError::UnauthorizedCaller,
             InterfaceError::InvalidAccountData => ShieldedPoolError::InvalidSplAssetRegistry,
             InterfaceError::InvalidProtocolConfigData => ShieldedPoolError::InvalidProtocolConfig,
+            InterfaceError::AlreadyInitialized => {
+                ShieldedPoolError::SplAssetCounterAlreadyInitialized
+            }
         }
     }
 }

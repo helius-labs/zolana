@@ -20,24 +20,24 @@ Regenerate with `just bench-dynamic-swap`.
 
 | Function                        |   Total CU |     Net CU |
 | ------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact`              |    166,422 |    166,422 |
-| `process_create_escrow_ix`      |    271,556 |    105,134 |
+| `cpi_spp_transact`              |    166,335 |    166,335 |
+| `process_create_escrow_ix`      |    275,928 |    109,593 |
 
 **Proving Time**
 | SPP transfer proof | Dynamic-swap circuit proof | Total  |
 | ------------------ | -------------------------- | ------ |
-|             112 ms |                      92 ms | 204 ms |
+|             116 ms |                      90 ms | 206 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
 | ---------------- | -------- | ---------- | ----------- |
-|        819 bytes |        9 | 1294 bytes |  1175 bytes |
+|        861 bytes |        9 | 1336 bytes |  1217 bytes |
 
 ## 2. Create Pair
 
 | Function                        |   Total CU |     Net CU |
 | ------------------------------- | ---------- | ---------- |
-| `process_create_pair_ix`        |      3,148 |      3,148 |
+| `process_create_pair_ix`        |      9,094 |      9,094 |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx | v0 + ALT Tx |
@@ -48,13 +48,13 @@ Regenerate with `just bench-dynamic-swap`.
 
 | Function                        |   Total CU |     Net CU |
 | ------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed_multi` |    166,954 |    166,954 |
-| `process_settle_ix`             |    269,638 |    102,684 |
+| `cpi_spp_transact_signed_multi` |    166,851 |    166,851 |
+| `process_settle_ix`             |    266,535 |     99,684 |
 
 **Proving Time**
 | SPP transfer proof | Dynamic-swap circuit proof | Total  |
 | ------------------ | -------------------------- | ------ |
-|             112 ms |                     127 ms | 240 ms |
+|             116 ms |                     132 ms | 249 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |

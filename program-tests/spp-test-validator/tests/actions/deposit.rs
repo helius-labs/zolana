@@ -1,4 +1,4 @@
-//! `deposit` (proofless shield) steps for SOL and SPL, the Harness operations, and
+//! `deposit` (proofless shield) operations for SOL and SPL, and
 //! the shared assert that dispatches on the deposit's asset.
 
 use anyhow::{anyhow, Result};
@@ -23,7 +23,7 @@ use crate::{
 
 impl LifecycleHarness {
     /// Deposit SOL to an actor through the client SDK's `Deposit` action. Records
-    /// the returned UTXO as spendable and the deposit details for the assert step.
+    /// the returned UTXO as spendable and the deposit details for the assert helper.
     pub(crate) fn deposit_sol(&mut self, name: &str, amount: u64) -> Result<()> {
         self.ensure_actor(name)?;
         let payer = self.payer.insecure_clone();

@@ -11,6 +11,8 @@
 pub mod backend;
 pub mod litesvm_asserts;
 pub mod localnet;
+#[cfg(feature = "mollusk")]
+pub mod mollusk;
 pub mod prover;
 pub mod smart_account;
 pub mod spl;

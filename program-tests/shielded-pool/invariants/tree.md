@@ -1,0 +1,214 @@
+# Tree Invariants
+
+Covers `CreateTree` (tag 5), `BatchUpdateNullifierTree` (tag 51), `PauseTree` (tag 8).
+Shared invariants (pause semantics across write paths, rollback) live in
+`cross-cutting.md`.
+
+SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously stated UTXO tree height 26
+and omitted `batch_update_nullifier_tree` from the instruction table; `docs/spec.md`
+now states H=32 and lists tag 51.
+
+## CreateTree
+
+### Authorization
+
+- [x] **INV-CREATE-TREE-01: authority must sign**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_an_unsigned_authority`
+  - Kind: precondition
+  - Statement: `create_tree` can only succeed when the first account (`authority`) is a signer.
+  - Location: `programs/shielded-pool/src/instructions/create_tree.rs:16` (`fn process_create_tree`)
+  - Error: account-checks signer error
+  - Severity: High
+  - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-CREATE-TREE-02: non-permissionless creation requires the tree-creation authority**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_unconfigured_authority`
+  - Kind: precondition
+  - Statement: when `protocol_config.tree_creation_is_permissionless` is exactly 0, `create_tree` returns Err for every signer whose address differs from `protocol_config.tree_creation_authority`.
+  - Location: `programs/shielded-pool/src/instructions/create_tree.rs:20-27` (`fn process_create_tree`)
+  - Error: `ShieldedPoolError::UnauthorizedCaller = 7003`
+  - Severity: High
+  - Suggested test: negative + positive (permissionless flag set); harness: mollusk unit
+
+### Account Constraints
+
+- [x] **INV-CREATE-TREE-03: tree account must be owned by the program**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_an_account_not_owned_by_the_pool`
+  - Kind: precondition
+  - Statement: `create_tree` returns Err whenever the tree account is not owned by the shielded-pool program (the account is pre-allocated by the client; the program only initializes it).
+  - Location: `programs/shielded-pool/src/instructions/create_tree.rs:29` (`fn process_create_tree`)
+  - Error: account-checks owner error
+  - Severity: High
+  - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-CREATE-TREE-04: tree account length must equal the canonical layout size**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `undersized_tree_creation_is_rejected`, `oversized_tree_creation_is_rejected`
+  - Kind: precondition
+  - Statement: `create_tree` returns Err whenever the tree account's `data_len` differs from exactly `TreeAccount::account_size()`.
+  - Location: `programs/shielded-pool/src/instructions/create_tree.rs:31-33` (`fn process_create_tree`)
+  - Error: `ShieldedPoolError::InvalidTreeAccounts = 7001`
+  - Severity: High
+  - Suggested test: negative (both shorter and longer); harness: mollusk unit
+
+### Instruction Data Validation
+
+- [x] **INV-CREATE-TREE-05: malformed or trailing instruction data is rejected**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_trailing_instruction_bytes`
+  - Kind: precondition
+  - Statement: `create_tree` returns Err for every payload where `CreateTreeData` fails to parse, where the optional `InitAddressTreeAccountsInstructionData` fails to parse, or where bytes remain after both.
+  - Location: `programs/shielded-pool/src/instructions/create_tree.rs:52-74` (`fn parse_create_tree_data`)
+  - Error: `ShieldedPoolError::InvalidInstructionData = 7000`
+  - Severity: Medium
+  - Suggested test: negative + fuzz; harness: mollusk unit
+
+- [x] **INV-CREATE-TREE-06: non-canonical nullifier parameters are rejected**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_non_canonical_nullifier_params`
+  - Kind: precondition
+  - Statement: `create_tree` returns Err whenever the supplied nullifier parameters have `root_history_capacity` different from the canonical capacity or a `input_queue_batch_size / input_queue_zkp_batch_size` ratio different from the canonical ZKP batch count.
+  - Location: `program-libs/tree/src/lib.rs:120-129` (`fn TreeAccount::init`), `programs/shielded-pool/src/instructions/create_tree.rs:40-48`
+  - Error: `ShieldedPoolError::InvalidTreeAccounts = 7001`
+  - Severity: High
+  - Suggested test: negative; harness: mollusk unit
+
+### Success Postconditions
+
+- [x] **INV-CREATE-TREE-07: initialization stamps discriminator and state exactly once**
+  - Covered by: `program-libs/tree/tests/init.rs` `init_then_reload` (extended to assert `state == INITIALIZED`)
+  - Kind: postcondition
+  - Statement: after a successful `create_tree`, the tree account's first byte is exactly `TREE_ACCOUNT_DISCRIMINATOR` (1), its state byte is exactly `INITIALIZED` (1), the UTXO tree's `next_index` is exactly 0, and the nullifier tree is initialized with the supplied owner.
+  - Location: `programs/shielded-pool/src/instructions/create_tree.rs:40-48` (`fn process_create_tree`), `program-libs/tree/src/lib.rs:112-159`
+  - Severity: High
+  - Suggested test: positive; harness: mollusk unit (exists: `program-libs/tree/tests/init.rs`)
+
+- [x] **INV-CREATE-TREE-08: re-initialization is impossible**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_double_initialization`
+  - Kind: precondition
+  - Statement: `create_tree` on an account whose state byte is not exactly `UNINITIALIZED` (0) returns Err and leaves the account unchanged.
+  - Location: `program-libs/tree/src/lib.rs:136-138` (`fn TreeAccount::init`)
+  - Error: `ShieldedPoolError::InvalidTreeAccounts = 7001`
+  - Severity: Critical (tree reset would erase nullifiers)
+  - Suggested test: negative; harness: mollusk unit
+
+### Frame Conditions
+
+- [x] **INV-CREATE-TREE-09: only the tree account changes**
+  - Covered by: `program-tests/shielded-pool/tests/admin/functional.rs` `tree_creation_changes_only_the_tree_account`
+  - Kind: frame
+  - Statement: after a successful `create_tree`, every account other than the tree account has unchanged data and unchanged lamports (the protocol config is read-only; no lamports move).
+  - Location: `programs/shielded-pool/src/instructions/create_tree.rs:13-50` (`fn process_create_tree`)
+  - Severity: Medium
+  - Suggested test: positive; harness: mollusk unit
+
+## BatchUpdateNullifierTree
+
+### Authorization
+
+- [x] **INV-BATCH-NULL-01: authority must sign**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/batch.rs` `batch_update_rejects_an_unsigned_authority`
+  - Kind: precondition
+  - Statement: `batch_update_nullifier_tree` can only succeed when the first account (`authority`) is a signer.
+  - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:21` (`fn process_batch_update_nullifier_tree`)
+  - Error: account-checks signer error
+  - Severity: High
+  - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-BATCH-NULL-02: only the forester authority may update**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/batch.rs` `batch_update_rejects_a_non_forester_authority`
+  - Kind: precondition
+  - Statement: `batch_update_nullifier_tree` returns Err for every signer whose address differs from `protocol_config.forester_authority`; there is no permissionless flag for this instruction.
+  - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:25-29` (`fn process_batch_update_nullifier_tree`)
+  - Error: `ShieldedPoolError::UnauthorizedCaller = 7003`
+  - Severity: High
+  - Suggested test: negative; harness: mollusk unit
+
+### Instruction Data Validation
+
+- [x] **INV-BATCH-NULL-03: malformed borsh payload is rejected**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/batch.rs` `batch_update_rejects_malformed_instruction_data`
+  - Kind: precondition
+  - Statement: every payload that `BatchUpdateNullifierTreeData::try_from_slice` fails to parse makes the instruction return Err.
+  - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:18-19` (`fn process_batch_update_nullifier_tree`)
+  - Error: `ShieldedPoolError::InvalidInstructionData = 7000`
+  - Severity: Medium
+  - Suggested test: negative + fuzz; harness: mollusk unit
+
+### Success Postconditions
+
+- [ ] **INV-BATCH-NULL-04: an invalid batch proof leaves the tree root unchanged**
+  - Partial coverage: `program-tests/shielded-pool/tests/nullifier/batch.rs` `batch_update_rejects_a_proof_for_an_unready_zkp_batch` (unready batch and out-of-range zkp_batch_index both return exact 7002 with a full tree-bytes rollback compare; the tampered-proof-on-a-full-batch direction needs 250 queued nullifiers and remains covered only by `localnet/photon/forester.rs`)
+  - Kind: rollback
+  - Statement: when the batched-tree update rejects the supplied ZKP (wrong proof, wrong batch), the instruction returns Err and the nullifier tree root, sequence number, and queue state are unchanged.
+  - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:34-37` (`fn process_batch_update_nullifier_tree`)
+  - Error: `ShieldedPoolError::NullifierTreeUpdateFailed = 7002`
+  - Severity: Critical (forged tree roots)
+  - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
+
+- [ ] **INV-BATCH-NULL-05: a successful update emits the batch event exactly when one is produced**
+  - Partial coverage: `program-tests/shielded-pool/tests/localnet/photon/forester.rs` `nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer` (nullifier root advances via the forester; the `EmitEvent` self-CPI itself is not asserted)
+  - Kind: postcondition
+  - Statement: after a successful `batch_update_nullifier_tree` that produced a `BatchAddressAppendEvent`, exactly one self-CPI `EmitEvent` inner instruction carrying that event is recorded; when the update produces no event, no self-CPI occurs.
+  - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:39-43` (`fn process_batch_update_nullifier_tree`)
+  - Severity: Medium (forester/indexer sync)
+  - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
+
+### Frame Conditions
+
+- [ ] **INV-BATCH-NULL-06: only the tree account changes**
+  - Partial coverage: `program-tests/shielded-pool/tests/nullifier/batch.rs` `batch_update_rejects_a_proof_for_an_unready_zkp_batch` (failing-path frame asserted; no positive batch-update path is feasible off localnet for the success-path frame)
+  - Kind: frame
+  - Statement: after a successful `batch_update_nullifier_tree`, every account other than the tree account has unchanged data and unchanged lamports.
+  - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:14-44`
+  - Severity: Medium
+  - Suggested test: positive; harness: mollusk unit
+
+## PauseTree
+
+### Authorization
+
+- [x] **INV-PAUSE-TREE-01: only the protocol authority may pause or unpause**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `pause_tree_rejects_wrong_authority_exactly`
+  - Kind: precondition
+  - Statement: `pause_tree` returns Err for every signer whose address differs from `protocol_config.protocol_authority`.
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/pause_tree.rs:19` (`fn process_pause_tree`), `protocol_config/loader.rs:56-68`
+  - Error: `ShieldedPoolError::UnauthorizedCaller = 7003` (non-signer authority: `InvalidProtocolConfig = 7012`)
+  - Severity: Critical (freeze power)
+  - Suggested test: negative; harness: mollusk unit
+
+### Instruction Data Validation
+
+- [x] **INV-PAUSE-TREE-02: payload must be exactly one byte**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `pause_tree_rejects_a_payload_that_is_not_exactly_one_byte`
+  - Kind: precondition
+  - Statement: every payload whose length differs from exactly `size_of::<PauseTreeData>()` (1 byte) makes `pause_tree` return Err.
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/pause_tree.rs:12-13` (`fn process_pause_tree`)
+  - Error: `ShieldedPoolError::InvalidInstructionData = 7000`
+  - Severity: Medium
+  - Suggested test: negative; harness: mollusk unit
+
+### Success Postconditions
+
+- [x] **INV-PAUSE-TREE-03: the state byte follows the paused flag exactly**
+  - Covered by: `program-tests/shielded-pool/tests/tree/contract.rs` `pause_blocks_tree_mutation_and_unpause_restores_it` (extended to read the state byte: exactly 2 when paused, exactly 1 after unpause)
+  - Kind: postcondition
+  - Statement: after a successful `pause_tree`, the tree's state byte is exactly `PAUSED` (2) when `data.paused != 0` and exactly `INITIALIZED` (1) when `data.paused == 0`.
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/pause_tree.rs:21-28` (`fn process_pause_tree`), `program-libs/tree/src/lib.rs:264-266` (`fn set_paused`)
+  - Severity: High
+  - Suggested test: positive both directions; harness: mollusk unit
+
+- [x] **INV-PAUSE-TREE-04: a paused tree can always be unpaused**
+  - Covered by: `program-tests/shielded-pool/tests/tree/contract.rs` `pause_blocks_tree_mutation_and_unpause_restores_it`
+  - Kind: reachability
+  - Statement: for every paused tree, a `pause_tree` instruction with `paused = 0` signed by the protocol authority succeeds (the loader used here accepts paused trees, unlike every other write path).
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/pause_tree.rs:21-26` (`from_account_view_mut_allow_paused`), `program-libs/tree/src/lib.rs:189-195`
+  - Severity: Critical (permanent freeze prevention)
+  - Suggested test: positive (pause then unpause then transact); harness: program-tests integration (`cargo test-sbf`)
+
+### Frame Conditions
+
+- [x] **INV-PAUSE-TREE-05: only the state byte changes**
+  - Covered by: `program-tests/shielded-pool/tests/admin/functional.rs` `pause_tree_changes_only_the_tree_state_byte`
+  - Kind: frame
+  - Statement: after a successful `pause_tree`, every byte of the tree account other than the state byte is unchanged, and every other account is unchanged.
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/pause_tree.rs:21-28` (`fn process_pause_tree`)
+  - Severity: High
+  - Suggested test: positive; harness: mollusk unit (full data compare)

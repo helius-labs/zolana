@@ -1,5 +1,5 @@
 //! `create_zone_config` / `update_zone_config` / `update_zone_config_owner` admin
-//! steps, the Harness operations, and the full-struct state assert.
+//! helpers, the Harness operations, and the full-struct state assert.
 
 use anyhow::{anyhow, Result};
 use solana_address::Address;
@@ -37,7 +37,7 @@ struct ZoneConfigState {
 
 impl ZoneHarness {
     /// Create an enabled zone config under a fresh authority keypair, tracking that
-    /// keypair as `self.zone_authority` for the later update/rotate steps.
+    /// keypair as `self.zone_authority` for the later update/rotate operations.
     pub(crate) fn create_enabled_zone_config(&mut self) -> Result<()> {
         let authority = Keypair::new();
         self.create_zone_config(

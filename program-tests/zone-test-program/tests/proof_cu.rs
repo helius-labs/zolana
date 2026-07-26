@@ -16,12 +16,14 @@ use zolana_transaction::SOL_MINT;
 use harness::ZoneHarness;
 use support::Rail;
 
-// Local-validator baselines: EdDSA 2x3 = 162,831; P256 2x3 = 295,162;
-// withdrawal = 165,260; zone-authority 1x1 = 150,839; merge-zone 8x1 = 310,527.
-const ZONE_EDDSA_TRANSACTION_CU_LIMIT: u64 = 225_000;
+// Local-validator baselines (measured 2026-07-22): EdDSA 2x3 = 162,830;
+// P256 2x3 = 293,129; withdrawal = 165,260; zone-authority 1x1 = 150,839;
+// merge-zone 8x1 = 310,385. Each ceiling sits at roughly 20% over its own
+// baseline so a consumption regression trips its variant's assert.
+const ZONE_EDDSA_TRANSACTION_CU_LIMIT: u64 = 196_000;
 const ZONE_P256_TRANSACTION_CU_LIMIT: u64 = 350_000;
-const ZONE_WITHDRAWAL_CU_LIMIT: u64 = 225_000;
-const ZONE_AUTHORITY_TRANSACTION_CU_LIMIT: u64 = 225_000;
+const ZONE_WITHDRAWAL_CU_LIMIT: u64 = 199_000;
+const ZONE_AUTHORITY_TRANSACTION_CU_LIMIT: u64 = 182_000;
 const ZONE_MERGE_TRANSACTION_CU_LIMIT: u64 = 375_000;
 
 #[test]

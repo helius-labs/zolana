@@ -1,8 +1,8 @@
 # Tree -- CU Benchmark
 
-Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, and end-to-end nullifier insert (bloom + hash chain + non-inclusion).
+Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, end-to-end nullifier insert (bloom + hash chain + non-inclusion), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.
 
-See `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1).
+See `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update).
 
 Regenerate with `just bench-tree`.
 
@@ -24,50 +24,49 @@ Regenerate with `just bench-tree`.
 
 ## 1. Address tree batch update x120
 
-| Function                         |   Total CU |     Net CU |
-| -------------------------------- | ---------- | ---------- |
-| `apply_cached_changelog_updates` |     36,429 |     36,429 |
-| `bench_batch_address_update`     |    132,722 |     96,293 |
+| Function                     |   Total CU |     Net CU |
+| ---------------------------- | ---------- | ---------- |
+| `bench_batch_address_update` |    126,664 |    126,664 |
 
 ## 2. Deserialize
 
-| Function                         |   Total CU |     Net CU |
-| -------------------------------- | ---------- | ---------- |
-| `bench_deserialize`              |         48 |         48 |
+| Function                     |   Total CU |     Net CU |
+| ---------------------------- | ---------- | ---------- |
+| `bench_deserialize`          |         48 |         48 |
 
 ## 3. Nullifier insert x1
 
-| Function                         |   Total CU |     Net CU |
-| -------------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`         |        595 |        595 |
+| Function                     |   Total CU |     Net CU |
+| ---------------------------- | ---------- | ---------- |
+| `bench_nullifier_insert`     |        588 |        588 |
 
 ## 4. Nullifier insert x10
 
-| Function                         |   Total CU |     Net CU |
-| -------------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`         |     13,402 |     13,402 |
+| Function                     |   Total CU |     Net CU |
+| ---------------------------- | ---------- | ---------- |
+| `bench_nullifier_insert`     |     13,341 |     13,341 |
 
 ## 5. Tree init
 
-| Function                         |   Total CU |     Net CU |
-| -------------------------------- | ---------- | ---------- |
-| `bench_init`                     |        954 |        954 |
+| Function                     |   Total CU |     Net CU |
+| ---------------------------- | ---------- | ---------- |
+| `bench_init`                 |        757 |        757 |
 
 ## 6. Utxo append x1
 
-| Function                         |   Total CU |     Net CU |
-| -------------------------------- | ---------- | ---------- |
-| `bench_append`                   |     22,647 |     22,647 |
+| Function                     |   Total CU |     Net CU |
+| ---------------------------- | ---------- | ---------- |
+| `bench_append`               |     27,881 |     27,881 |
 
 ## 7. Utxo append x10
 
-| Function                         |   Total CU |     Net CU |
-| -------------------------------- | ---------- | ---------- |
-| `bench_append`                   |    226,212 |    226,212 |
+| Function                     |   Total CU |     Net CU |
+| ---------------------------- | ---------- | ---------- |
+| `bench_append`               |    278,552 |    278,552 |
 
 ## 8. Utxo append Batch x10
 
-| Function                         |   Total CU |     Net CU |
-| -------------------------------- | ---------- | ---------- |
-| `bench_append_batch`             |     29,392 |     29,392 |
+| Function                     |   Total CU |     Net CU |
+| ---------------------------- | ---------- | ---------- |
+| `bench_append_batch`         |     34,646 |     34,646 |
 

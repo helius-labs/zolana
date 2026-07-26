@@ -47,6 +47,10 @@ pub fn litesvm_assert_zone_deposit<A: SyncWalletAuthority + ?Sized>(
     assert_eq!(event.output.blinding, data.deposit.blinding, "blinding");
     assert_eq!(event.view_tag, data.deposit.view_tag, "view tag");
     assert_eq!(
+        event.output.memo, data.memo,
+        "event memo mirrors instruction data"
+    );
+    assert_eq!(
         event.output.zone_program_id,
         Some(expected_zone_program_id),
         "UTXO is owned by the zone program"

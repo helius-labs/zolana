@@ -10,7 +10,6 @@ members = [
     "program-libs/interface",
     "program-libs/user-registry-interface",
     "program-libs/tree",
-    "program-tests/mollusk-harness",
     "program-tests/shielded-pool",
     "program-tests/spp-test-validator",
     "program-tests/test-utils",
@@ -92,21 +91,24 @@ zolana-bloom-filter = { path = "program-libs/bloom-filter", version = "0.6.0" }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 light-poseidon = "0.4.0"
-light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", rev = "862df52dd8c6099c11f795553514c654f3c2c459" }
+light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", branch = "mollusk-0.14" }
 light-sparse-merkle-tree = "0.3.0"
 
+# Mollusk test harness. Tracks the workspace's agave 4.1 wire crates.
+mollusk-svm = "0.14.0"
+
 # Solana and SPL.
-anchor-lang = "1.0.2"
-anchor-spl = "1.0.2"
+anchor-lang = "1.1"
+anchor-spl = "1.1"
 borsh = { version = "1.5", default-features = false, features = ["derive"] }
-solana-account = "3.4"
+solana-account = "4.3"
 solana-account-info = "3.1"
 solana-account-view = "2.0"
-solana-account-decoder = "=4.0.0-rc.0"
-solana-account-decoder-client-types = "=4.0.0-rc.0"
+solana-account-decoder = "4.1"
+solana-account-decoder-client-types = "4.1"
 solana-address = { version = "2.6", features = ["atomic", "borsh", "bytemuck", "copy", "decode", "wincode"] }
 solana-address-lookup-table-interface = { version = "3.0", features = ["bytemuck", "bincode"] }
-solana-banks-client = { version = "=4.0.0-rc.0", features = ["agave-unstable-api"] }
+solana-banks-client = { version = "4.1", features = ["agave-unstable-api"] }
 solana-bn254 = "3.2.1"
 solana-clock = "3.0"
 solana-commitment-config = "3.1"
@@ -114,33 +116,36 @@ solana-compute-budget = "3.1"
 solana-compute-budget-interface = "3.0"
 solana-cpi = "3.1"
 solana-epoch-info = "3.1"
-solana-hash = "4.3"
+solana-hash = "=4.5.0"
 solana-instruction = "3.4"
 solana-instruction-error = "2.4"
 solana-keypair = "3.1.2"
 solana-loader-v3-interface = "8.0"
-solana-message = "3.1"
+solana-message = "4.2"
 solana-msg = { version = "3.1", default-features = false }
 solana-program = "4.0"
 solana-program-error = "3.0"
 solana-program-pack = "3.1"
 solana-pubkey = { version = "4.2", features = ["curve25519"] }
 solana-rent = "4.2"
-solana-rpc-client = "=4.0.0-rc.0"
-solana-rpc-client-api = "=4.0.0-rc.0"
+# Pin solana-reward-info to 6.2.0: 6.3.0 pulls in wincode 0.6.0, which conflicts
+# with the wincode 0.5.x used by the rest of the agave 4.1 graph.
+solana-reward-info = "=6.2.0"
+solana-rpc-client = "4.1"
+solana-rpc-client-api = "4.1"
 solana-security-txt = "1.1.2"
 solana-secp256r1-program = "3.0"
-solana-sdk = "3.0"
+solana-sdk = "4.0"
 solana-signature = "3.4"
 solana-signer = "3.0"
 solana-system-interface = { version = "3.2", features = ["bincode"] }
 solana-sysvar = { version = "4.0", features = ["bincode"] }
-solana-transaction = "3.1"
+solana-transaction = "4.1"
 solana-transaction-error = "3.0"
-solana-transaction-status = "=4.0.0-rc.0"
-solana-transaction-status-client-types = "=4.0.0-rc.0"
+solana-transaction-status = "4.1"
+solana-transaction-status-client-types = "4.1"
 spl-token = "9.0"
-spl-token-2022 = { version = "10.0", features = ["no-entrypoint"] }
+spl-token-2022 = { version = "11.0", features = ["no-entrypoint"] }
 spl-token-2022-interface = "2.0"
 spl-pod = "0.7"
 pinocchio = "0.11"
@@ -156,6 +161,7 @@ async-trait = "0.1.82"
 arrayvec = "0.7"
 base64 = "0.22.1"
 bb8 = "0.8.6"
+bindgen = "0.70"
 bincode = { version = "2.0.1", features = ["serde"] }
 bitvec = { version = "1.0.1", default-features = false }
 bs58 = "0.5.1"
@@ -180,7 +186,7 @@ jsonwebtoken = "10.4.0"
 jsonrpsee = { version = "0.26.0", features = ["server", "macros"] }
 lazy_static = "1.5.0"
 log = "0.4"
-litesvm = "0.12"
+litesvm = "0.15"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 once_cell = "1.21.4"

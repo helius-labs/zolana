@@ -3,20 +3,27 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::pda;
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use zolana_event::{general_event_from_indexed, DepositWithdraw};
+use zolana_interface::{
+    instruction::{Deposit, UtxoData},
+    pda,
+};
+use zolana_keypair::{
+    constants::BLINDING_LEN, hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair,
+};
 use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_deposit, litesvm_assert_zone_deposit, DepositAssertArgs, SolDepositOracle,
     ZoneDepositAssertArgs,
 };
 use zolana_transaction::{
-    owner_utxo_hash, AssetRegistry, LocalWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
+    owner_utxo_hash, AssetRegistry, Data, LocalWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW,
+    SOL_MINT,
 };
 
-use crate::{
+use shielded_pool_tests::support::{
+    fixtures::{register_mint, spl_depositor, Pool},
     mollusk::deposit_fixture,
-    support::{register_mint, spl_depositor, Pool},
 };
 
 #[test]
@@ -72,6 +79,154 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
 fn deposit_fixture_executes_successfully_before_mutation() {
     let (mollusk, instruction, accounts) = deposit_fixture();
     mollusk.process_and_validate_instruction(&instruction, &accounts, &[Check::success()]);
+}
+
+#[test]
+fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
+    const AMOUNT: u64 = 1_000_000;
+    let mut pool = Pool::initialized();
+    let depositor = pool.funded_signer(2_000_000_000);
+    let tree = pool.tree.pubkey();
+    let data = ZolanaProgramTest::sol_shield_data(AMOUNT, [9u8; 32], [9u8; 31]);
+    let ix = Deposit {
+        tree,
+        depositor: depositor.pubkey(),
+        spl: None,
+        view_tag: data.view_tag,
+        owner: data.owner,
+        blinding: data.blinding,
+        amount: data.amount,
+        utxo_data: data.utxo_data.clone(),
+        memo: data.memo.clone(),
+    }
+    .instruction();
+
+    let outcome = pool
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[&depositor])
+        .expect("SOL deposit");
+    assert_eq!(
+        outcome.events.len(),
+        1,
+        "exactly one EmitEvent self-CPI must be recorded"
+    );
+    let event = general_event_from_indexed(outcome.events.first().expect("deposit event"))
+        .expect("decoded GeneralEvent");
+    assert_eq!(
+        event.deposit_withdraw,
+        Some(DepositWithdraw {
+            is_deposit: true,
+            amount: AMOUNT,
+            asset: None,
+        }),
+        "SOL deposit_withdraw carries the amount and no asset"
+    );
+    assert!(event.inputs.is_empty(), "deposit spends no inputs");
+    assert_eq!(event.outputs.len(), 1, "deposit appends exactly one output");
+}
+
+/// INV-DEPOSIT-17 frame: a successful SOL deposit changes only the tree and
+/// the settlement pair (depositor, sol_interface); every other account keeps
+/// its exact data and lamports.
+#[test]
+fn sol_deposit_modifies_only_the_tree_and_the_settlement_pair() {
+    const AMOUNT: u64 = 1_000_000;
+    let (mollusk, instruction, accounts) = deposit_fixture();
+    let tree = instruction.accounts.first().expect("tree meta").pubkey;
+    let depositor = instruction.accounts.get(1).expect("depositor meta").pubkey;
+    let sol_interface = instruction
+        .accounts
+        .get(3)
+        .expect("sol_interface meta")
+        .pubkey;
+
+    let result = mollusk.process_instruction(&instruction, &accounts);
+    assert!(
+        result.raw_result.is_ok(),
+        "fixture deposit must succeed: {:?}",
+        result.raw_result
+    );
+    for (key, before) in &accounts {
+        let after = result
+            .resulting_accounts
+            .iter()
+            .find(|(result_key, _)| result_key == key)
+            .map(|(_, account)| account)
+            .expect("input account present in result");
+        if *key == tree {
+            assert_ne!(after.data, before.data, "tree data must change");
+            assert_eq!(after.lamports, before.lamports, "tree lamports unchanged");
+        } else if *key == depositor {
+            assert_eq!(
+                after.lamports,
+                before.lamports - AMOUNT,
+                "depositor pays exactly the amount"
+            );
+            assert_eq!(after.data, before.data, "depositor data unchanged");
+        } else if *key == sol_interface {
+            assert_eq!(
+                after.lamports,
+                before.lamports + AMOUNT,
+                "sol_interface receives exactly the amount"
+            );
+            assert_eq!(after.data, before.data, "sol_interface data unchanged");
+        } else {
+            assert_eq!(after, before, "account outside the frame must be untouched");
+        }
+    }
+}
+
+/// The `Some(utxo_data)` deposit arm: the supplied `data_hash` must be
+/// committed into the on-chain UTXO hash exactly as the canonical client
+/// hash computes it, and must change the hash relative to the plain arm.
+#[test]
+fn sol_deposit_with_utxo_data_commits_the_data_hash() {
+    const AMOUNT: u64 = 250_000_000;
+    let mut pool = Pool::initialized();
+    let depositor = pool.funded_signer(5_000_000_000);
+    let blinding: [u8; BLINDING_LEN] = [7u8; BLINDING_LEN];
+    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
+    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pk");
+    let owner_pk = PublicKey::from_ed25519(&depositor.pubkey().to_bytes());
+    let owner_field = owner_hash(&owner_pk, &nullifier_pk).expect("owner field");
+    let utxo = Utxo {
+        owner: owner_pk,
+        asset: SOL_MINT,
+        amount: AMOUNT,
+        blinding,
+        zone_program_id: None,
+        data: Data::default(),
+    };
+
+    let mut data_hash = [0u8; 32];
+    if let Some(last) = data_hash.last_mut() {
+        *last = 42;
+    }
+    let mut data = ZolanaProgramTest::sol_shield_data(AMOUNT, owner_field, blinding);
+    data.utxo_data = Some(UtxoData {
+        data_hash,
+        data: vec![1, 2, 3],
+    });
+
+    let tree = pool.tree.pubkey();
+    let event = pool
+        .rpc
+        .deposit(&tree, &depositor, &data)
+        .expect("SOL deposit with utxo data");
+
+    let zero = [0u8; 32];
+    assert_eq!(
+        event.utxo_hash,
+        utxo.hash(&nullifier_pk, &data_hash, &zero)
+            .expect("hash with data"),
+        "on-chain utxo hash must commit the supplied data_hash"
+    );
+    assert_ne!(
+        event.utxo_hash,
+        utxo.hash(&nullifier_pk, &zero, &zero)
+            .expect("hash without data"),
+        "the data-carrying arm must produce a different commitment than the plain arm"
+    );
 }
 
 #[test]
@@ -233,6 +388,45 @@ fn zone_sol_deposit_settles_and_indexes_the_exact_output() {
         },
     );
     assert_eq!(recipient.utxos.len(), 1);
+}
+
+#[test]
+fn zone_deposit_event_carries_the_zone_data_preimage_verbatim() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .load_zone_test_program()
+        .expect("load zone test program");
+    let zone_authority = pool.authority.insecure_clone();
+    pool.rpc
+        .create_zone_config(&zone_authority, &zone_authority.pubkey(), true)
+        .expect("create zone config");
+    let tree = pool.tree.pubkey();
+    let depositor = pool.funded_signer(2_000_000_000);
+    let mut data = pool
+        .rpc
+        .zone_sol_shield_data(1_000_000, [4u8; 32], [4u8; 31]);
+    data.zone_data_hash = [6u8; 32];
+    data.zone_data = vec![11, 22, 33, 44, 55];
+
+    let event = pool
+        .rpc
+        .zone_deposit(&tree, &depositor, &data)
+        .expect("zone SOL deposit");
+    assert_eq!(
+        event.output.zone_data,
+        Some(data.zone_data.clone()),
+        "emitted ProoflessOutput carries the zone_data preimage verbatim"
+    );
+    assert_eq!(
+        event.output.zone_data_hash,
+        Some(data.zone_data_hash),
+        "emitted ProoflessOutput carries the instruction's zone_data_hash"
+    );
+    assert_eq!(
+        event.output.zone_program_id,
+        Some(ZONE_TEST_PROGRAM_ID),
+        "emitted ProoflessOutput carries the signing zone's program id"
+    );
 }
 
 #[test]

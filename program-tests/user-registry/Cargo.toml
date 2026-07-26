@@ -13,6 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 borsh = { workspace = true }
 litesvm = { workspace = true, features = ["precompiles"] }
+solana-account = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }

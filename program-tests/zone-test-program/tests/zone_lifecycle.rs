@@ -64,6 +64,28 @@ fn eddsa_zone_transfer_updates_recipient_wallet() -> Result<()> {
 // (`zone_transfer_p256` is gone; `Variant::P256` now errors), so the
 // `p256_zone_transfer_updates_recipient_wallet` case was dropped.
 
+/// INV-ZONE-TRANSACT-07: `zone_transact` does not require the zone's
+/// `zone_authority_transact_is_enabled` flag — a valid zone transfer succeeds
+/// end-to-end while the flag is 0 (the flag gates only
+/// `zone_authority_transact`).
+#[test]
+#[serial]
+fn zone_transact_succeeds_while_zone_authority_transact_is_disabled() -> Result<()> {
+    let mut harness = ZoneHarness::new()?;
+    harness.create_enabled_zone_config()?;
+    harness.update_zone_config(false)?;
+    harness.assert_zone_config(false)?;
+    harness.make_eddsa_actor("alice")?;
+    for _ in 0..2 {
+        harness.zone_shield_sol("alice", 1_000_000_000)?;
+    }
+    harness.zone_transfer("alice", "bob", SOL_MINT, 300_000_000)?;
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
+    harness.sync("bob")?;
+    harness.assert_utxos("bob")?;
+    Ok(())
+}
+
 #[test]
 #[serial]
 fn zone_merge_consolidates_inputs() -> Result<()> {
@@ -75,6 +97,41 @@ fn zone_merge_consolidates_inputs() -> Result<()> {
     harness.merge_zone("gary", SOL_MINT, 2)?;
     harness.assert_merged_zone("gary")?;
     Ok(())
+}
+
+#[test]
+#[serial]
+fn zone_merge_view_tag_replay_is_rejected_atomically() -> Result<()> {
+    let mut harness = ZoneHarness::new()?;
+    harness.create_enabled_zone_config()?;
+    for _ in 0..2 {
+        harness.zone_shield_sol("merge-replay", 1_000_000_000)?;
+    }
+    harness.merge_zone_replay_rejected("merge-replay", SOL_MINT, 2)?;
+    harness.assert_merged_zone("merge-replay")?;
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn zone_merge_rejects_a_proof_bound_to_another_zone() -> Result<()> {
+    let mut harness = ZoneHarness::new()?;
+    harness.create_enabled_zone_config()?;
+    for _ in 0..2 {
+        harness.zone_shield_sol("cross-zone-merge", 1_000_000_000)?;
+    }
+    harness.merge_zone_foreign_program_rejected("cross-zone-merge", SOL_MINT, 2)
+}
+
+#[test]
+#[serial]
+fn zone_merge_rejects_a_default_merge_proof() -> Result<()> {
+    let mut harness = ZoneHarness::new()?;
+    harness.create_enabled_zone_config()?;
+    for _ in 0..2 {
+        harness.shield_default_sol("cross-instruction-merge", 1_000_000_000)?;
+    }
+    harness.merge_transact_proof_replayed_as_zone_rejected("cross-instruction-merge", SOL_MINT, 2)
 }
 
 #[test]

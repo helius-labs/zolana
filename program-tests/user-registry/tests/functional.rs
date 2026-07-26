@@ -56,6 +56,104 @@ fn register_supports_a_prefunded_pda_and_an_absent_p256_key() {
     assert_eq!(record.nullifier_pubkey, value.nullifier);
     assert_eq!(record.viewing_pubkey, value.viewing);
     assert_eq!(record.owner, owner.pubkey());
+    assert_eq!(record.bump, user_record_pda(&owner.pubkey()).1);
+    assert_eq!(record.sync_delegate, None);
+    assert!(record.entries.is_empty());
+    assert!(!record.merging_enabled);
+    assert_eq!(record.sender_viewing_pubkey(), value.viewing);
+
+    let account = rig
+        .svm
+        .get_account(&user_record_pda(&owner.pubkey()).0)
+        .expect("record account");
+    assert_eq!(account.owner, user_registry_program_id());
+    assert_eq!(account.data.len(), UserRecord::space_for(0));
+}
+
+/// Clearing the P256 key (`owner_p256: Some -> None`) shortens the borsh body
+/// by the 33-byte key while the account allocation stays fixed. `write_record`
+/// does not zero the vacated tail, so this pins the exact stale bytes left
+/// behind and proves an on-chain re-parse still yields the cleared record;
+/// the record then regrows correctly when a key is registered again.
+#[test]
+fn update_keys_clears_and_restores_the_p256_key() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let value = keys(18);
+    register(&mut rig, &owner, value);
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let account_before = rig.svm.get_account(&record_address).expect("record");
+    let body_before = borsh::to_vec(&rig.record(&owner.pubkey()))
+        .expect("serialize pre-update record")
+        .len();
+
+    // Some -> None.
+    rig.send(
+        build_update_keys_ix(&owner.pubkey(), None, value.nullifier, value.viewing),
+        &[&owner],
+    )
+    .expect("clear the P256 key");
+
+    let account = rig.svm.get_account(&record_address).expect("record");
+    assert_eq!(
+        account.data.len(),
+        UserRecord::space_for(0),
+        "the allocation must not shrink"
+    );
+    let cleared = rig.record(&owner.pubkey());
+    assert_eq!(cleared.owner_p256, None, "re-parsed record is cleared");
+    assert_eq!(cleared.nullifier_pubkey, value.nullifier);
+    assert_eq!(cleared.viewing_pubkey, value.viewing);
+    assert_eq!(cleared.owner, owner.pubkey());
+
+    // The borsh body is exactly 33 bytes (the vacated key) shorter than the
+    // pre-update body, and the vacated tail keeps the previous encoding's
+    // bytes at those offsets: `write_record` does not zero them.
+    let body_len = borsh::to_vec(&cleared)
+        .expect("serialize cleared record")
+        .len();
+    assert_eq!(
+        body_len + 33,
+        body_before,
+        "clearing the key must shorten the serialized body by the key length"
+    );
+    let needed = UserRecord::DISCRIMINATOR_LEN + body_len;
+    assert_eq!(
+        account.data.get(needed..),
+        account_before.data.get(needed..),
+        "the vacated tail keeps the pre-update bytes (write_record does not zero)"
+    );
+
+    // None -> Some regrow with a fresh key.
+    let regrown_key = test_p256_pubkey(0xD1);
+    rig.send(
+        build_update_keys_ix(
+            &owner.pubkey(),
+            Some(regrown_key),
+            value.nullifier,
+            value.viewing,
+        ),
+        &[&owner],
+    )
+    .expect("restore a P256 key");
+
+    let restored = rig.record(&owner.pubkey());
+    assert_eq!(restored.owner_p256, Some(regrown_key));
+    assert_eq!(restored.nullifier_pubkey, value.nullifier);
+    assert_eq!(restored.viewing_pubkey, value.viewing);
+    let account = rig.svm.get_account(&record_address).expect("record");
+    assert_eq!(
+        account.data.len(),
+        UserRecord::space_for(0),
+        "regrowth fits the original allocation"
+    );
+    let restored_body_len = borsh::to_vec(&restored)
+        .expect("serialize restored record")
+        .len();
+    assert_eq!(
+        restored_body_len, body_before,
+        "the regrown body matches the original full-key encoding length"
+    );
 }
 
 #[test]

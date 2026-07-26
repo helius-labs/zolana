@@ -52,11 +52,19 @@ impl ZolanaProgramTest {
             .instructions
             .iter()
             .map(|compiled| InstructionTrace {
-                program_id: message.account_keys[compiled.program_id_index as usize],
+                program_id: *message
+                    .account_keys
+                    .get(compiled.program_id_index as usize)
+                    .expect("compiled program id index points into the message keys"),
                 accounts: compiled
                     .accounts
                     .iter()
-                    .map(|index| message.account_keys[*index as usize])
+                    .map(|index| {
+                        *message
+                            .account_keys
+                            .get(*index as usize)
+                            .expect("compiled account index points into the message keys")
+                    })
                     .collect(),
                 data_len: compiled.data.len(),
                 discriminator: compiled.data.iter().take(8).copied().collect(),

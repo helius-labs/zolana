@@ -7,7 +7,6 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
@@ -199,7 +198,6 @@ impl ZoneHarness {
             indexed: Vec::new(),
             spls: Vec::new(),
             last_rail: None,
-            last_transact: None,
             last_merge: None,
             protocol_settings: accounts.protocol_settings,
             protocol_vault: accounts.protocol_vault,
@@ -212,15 +210,26 @@ impl ZoneHarness {
     /// caller owns the authority keypair and is responsible for setting
     /// `self.zone_authority` if it wants to track it.
     pub(crate) fn create_zone_config(&mut self, authority: &Address, enabled: bool) -> Result<()> {
+        let zone_auth = self.create_zone_config_for(self.zone_program_id, authority, enabled)?;
+        self.zone_config = Some(zone_auth);
+        Ok(())
+    }
+
+    pub(crate) fn create_zone_config_for(
+        &mut self,
+        program_id: Pubkey,
+        authority: &Address,
+        enabled: bool,
+    ) -> Result<Pubkey> {
         let payer = self.payer.insecure_clone();
-        let (zone_auth, _) = pda::zone_auth(&self.zone_program_id);
+        let (zone_auth, _) = pda::zone_auth(&program_id);
         let data = CreateZoneConfigData {
-            program_id: ZONE_TEST_PROGRAM_ID.into(),
+            program_id: program_id.to_bytes().into(),
             authority: *authority,
             zone_authority_transact_is_enabled: enabled,
         };
         let ix = Instruction {
-            program_id: self.zone_program_id,
+            program_id,
             accounts: vec![
                 AccountMeta::new(payer.pubkey(), true),
                 AccountMeta::new_readonly(pda::protocol_config(), false),
@@ -231,8 +240,7 @@ impl ZoneHarness {
             data: encode_instruction(tag::CREATE_ZONE_CONFIG, &data),
         };
         send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
-        self.zone_config = Some(zone_auth);
-        Ok(())
+        Ok(zone_auth)
     }
 
     pub(crate) fn ensure_actor(&mut self, name: &str) -> Result<()> {

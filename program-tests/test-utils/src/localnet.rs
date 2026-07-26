@@ -38,17 +38,6 @@ impl WorkspaceArtifacts {
         self.root.join(relative).to_string_lossy().into_owned()
     }
 
-    #[track_caller]
-    pub fn required_file(&self, label: &str, relative: impl AsRef<Path>) -> String {
-        let path = self.root.join(relative);
-        assert!(
-            path.is_file(),
-            "required {label} is missing at {}; build it before running this test",
-            path.display()
-        );
-        path.to_string_lossy().into_owned()
-    }
-
     /// The prover creates this directory and lazily downloads keys into it. Its
     /// parent is validated here so a bad workspace root fails before startup.
     #[track_caller]

@@ -8,7 +8,7 @@
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use zolana_interface::state::tree_account_size;
-use zolana_program_test::{ProgramTestError, TransactionTrace, ZolanaProgramTest};
+use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
 
 pub struct LiteSvmPoolBackend {
     pub rpc: ZolanaProgramTest,
@@ -29,8 +29,8 @@ impl LiteSvmPoolBackend {
         })
     }
 
-    /// Compatibility constructor for test fixtures whose setup failure should
-    /// abort immediately with the standard SBF build hint.
+    /// Constructor for test fixtures whose setup failure should abort
+    /// immediately with the standard SBF build hint.
     pub fn initialized() -> Self {
         Self::new().expect(
             "boot shielded-pool backend; run `cargo build-sbf -p shielded-pool-program` first",
@@ -43,13 +43,5 @@ impl LiteSvmPoolBackend {
             .airdrop(&signer.pubkey(), lamports)
             .expect("fund workflow signer");
         signer
-    }
-
-    pub fn journal(&self) -> &[TransactionTrace] {
-        self.rpc.transaction_traces()
-    }
-
-    pub fn last_transaction(&self) -> Option<&TransactionTrace> {
-        self.rpc.last_transaction_trace()
     }
 }

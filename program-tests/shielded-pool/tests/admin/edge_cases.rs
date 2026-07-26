@@ -3,7 +3,7 @@ use solana_signer::Signer;
 use zolana_interface::pda;
 use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
 
-use crate::common::program_test;
+use shielded_pool_tests::support::runtime::program_test;
 
 #[test]
 fn protocol_config_creation_succeeds_for_prefunded_pda() {

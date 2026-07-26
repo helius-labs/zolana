@@ -18,7 +18,7 @@ Regenerate with `just bench-bloom-filter`.
 
 | Function              |   Total CU |     Net CU |
 | --------------------- | ---------- | ---------- |
-| `bench_insert`        |        300 |        300 |
+| `bench_insert`        |        295 |        295 |
 | `bench_contains_hit`  |        248 |        248 |
 | `bench_contains_miss` |        140 |        140 |
 
@@ -26,7 +26,7 @@ Regenerate with `just bench-bloom-filter`.
 
 | Function              |   Total CU |     Net CU |
 | --------------------- | ---------- | ---------- |
-| `bench_insert`        |      2,874 |      2,874 |
+| `bench_insert`        |      2,869 |      2,869 |
 | `bench_contains_hit`  |      2,381 |      2,381 |
 | `bench_contains_miss` |      1,328 |      1,328 |
 

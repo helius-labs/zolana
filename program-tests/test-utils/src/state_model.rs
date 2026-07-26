@@ -34,6 +34,10 @@ pub enum ExecutionRail {
         owner: ActorId,
         zone: ActorId,
     },
+    /// Threshold/timelock authorization in the style of the external Squads
+    /// smart-account program. The SPP program has no such rail: this variant
+    /// exists only in the reference model (exercised by
+    /// `authorization_contract`) and asserts nothing about on-chain behavior.
     SmartAccount {
         owner: ActorId,
         members: BTreeSet<ActorId>,
@@ -324,7 +328,11 @@ impl ProtocolState {
                     return Err(ModelError::InsufficientFunds);
                 }
                 let amount = selected.iter().try_fold(0u64, |sum, index| {
-                    sum.checked_add(self.utxos[*index].amount)
+                    let utxo = self
+                        .utxos
+                        .get(*index)
+                        .expect("selected indices come from enumerate");
+                    sum.checked_add(utxo.amount)
                         .ok_or(ModelError::ArithmeticOverflow)
                 })?;
                 self.consume(&selected);
@@ -379,7 +387,7 @@ impl ProtocolState {
             .take(plan.nullifiers.len())
             .copied()
             .collect();
-        if expected != plan.nullifiers || expected.len() != plan.nullifiers.len() {
+        if expected != plan.nullifiers {
             return Err(ModelError::InvalidBatch);
         }
         for nullifier in &plan.nullifiers {
@@ -483,7 +491,10 @@ impl ProtocolState {
 
     fn consume(&mut self, selected: &[usize]) {
         for index in selected {
-            let utxo = &mut self.utxos[*index];
+            let utxo = self
+                .utxos
+                .get_mut(*index)
+                .expect("selected indices come from enumerate");
             utxo.spent = true;
             self.queued_nullifiers.push_back(utxo.id);
         }
@@ -515,14 +526,26 @@ impl ProtocolState {
         for utxo in &self.utxos {
             assert!(ids.insert(utxo.id), "duplicate UTXO id {}", utxo.id);
             if !utxo.spent {
-                *live_by_asset.entry(utxo.asset).or_default() += utxo.amount;
+                let entry = live_by_asset.entry(utxo.asset).or_default();
+                *entry = entry
+                    .checked_add(utxo.amount)
+                    .expect("invariant checker overflow: live shielded value exceeds u64");
             }
         }
+        // Bidirectional check: every custody entry equals the live UTXO total for
+        // that asset, and every asset with live UTXOs has a matching custody entry.
         for (asset, custody) in &self.custody {
             assert_eq!(
                 live_by_asset.get(asset).copied().unwrap_or_default(),
                 *custody,
                 "live shielded value must equal custody for asset {asset}"
+            );
+        }
+        for (asset, live) in &live_by_asset {
+            assert_eq!(
+                self.custody.get(asset).copied().unwrap_or_default(),
+                *live,
+                "custody entry must match live shielded value for asset {asset}"
             );
         }
         let queued: BTreeSet<u64> = self.queued_nullifiers.iter().copied().collect();

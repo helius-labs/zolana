@@ -4,7 +4,7 @@ use zolana_interface::error::ShieldedPoolError;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::{assert_pool_error, SolDepositOracle, SolDepositSnapshot};
 
-use crate::support::Pool;
+use shielded_pool_tests::support::fixtures::Pool;
 
 #[derive(Clone, Debug)]
 enum Action {

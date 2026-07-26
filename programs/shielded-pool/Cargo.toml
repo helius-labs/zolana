@@ -37,6 +37,7 @@ zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 zolana-account-checks = { workspace = true, features = ["test-only"] }
 
 [lints.rust.unexpected_cfgs]

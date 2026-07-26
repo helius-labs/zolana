@@ -1,6 +1,6 @@
 use zolana_keypair::{
     constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
-    P256Pubkey, PublicKey, SignatureType, ViewingKey,
+    KeypairError, P256Pubkey, PublicKey, SignatureType, ViewingKey,
 };
 
 use crate::KeypairWorld;
@@ -13,25 +13,25 @@ pub(crate) fn parse_p256_bytes(world: &mut KeypairWorld, name: String) {
     let bytes = *world.pubkey(&name).as_bytes();
     match P256Pubkey::from_bytes(bytes) {
         Ok(parsed) => {
-            world.last_error = false;
+            world.last_error = None;
             world.parsed_pubkey = Some(parsed);
         }
-        Err(_) => world.last_error = true,
+        Err(error) => world.last_error = Some(error),
     }
 }
 
 pub(crate) fn parse_p256_bad_prefix(world: &mut KeypairWorld, prefix: u8) {
     let mut bytes = [0u8; P256_PUBKEY_LEN];
     bytes[0] = prefix;
-    world.last_error = P256Pubkey::from_bytes(bytes).is_err();
+    world.last_error = P256Pubkey::from_bytes(bytes).err();
 }
 
 pub(crate) fn parse_succeeds(world: &mut KeypairWorld) {
-    assert!(!world.last_error);
+    assert_eq!(world.last_error, None);
 }
 
 pub(crate) fn parse_fails(world: &mut KeypairWorld) {
-    assert!(world.last_error);
+    assert_eq!(world.last_error, Some(KeypairError::InvalidPublicKey));
 }
 
 pub(crate) fn parsed_equals(world: &mut KeypairWorld, name: String) {
@@ -88,16 +88,16 @@ pub(crate) fn last_byte_zero(world: &mut KeypairWorld, name: String) {
 pub(crate) fn parse_public_key_bad_prefix(world: &mut KeypairWorld, prefix: u8) {
     let mut bytes = [0u8; PUBLIC_KEY_LEN];
     bytes[0] = prefix;
-    world.last_error = PublicKey::from_bytes(bytes).is_err();
+    world.last_error = PublicKey::from_bytes(bytes).err();
 }
 
 pub(crate) fn parse_ed25519_nonzero_pad(world: &mut KeypairWorld) {
     let mut bytes = *PublicKey::from_ed25519(&[7u8; 32]).as_bytes();
     assert!(PublicKey::from_bytes(bytes).is_ok());
     bytes[PUBLIC_KEY_LEN - 1] = 1;
-    world.last_error = PublicKey::from_bytes(bytes).is_err();
+    world.last_error = PublicKey::from_bytes(bytes).err();
 }
 
-pub(crate) fn public_key_parse_fails(world: &mut KeypairWorld) {
-    assert!(world.last_error);
+pub(crate) fn public_key_parse_fails(world: &mut KeypairWorld, expected: KeypairError) {
+    assert_eq!(world.last_error, Some(expected));
 }

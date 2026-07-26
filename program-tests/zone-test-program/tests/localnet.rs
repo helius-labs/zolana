@@ -1,7 +1,6 @@
 //! Localnet orchestration and proof helpers shared by the Harness. Indexer polling
 //! lives in `zolana_test_utils::test_validator_asserts`.
 
-use anyhow::Result;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -19,6 +18,7 @@ use zolana_test_utils::localnet::start_shielded_pool_localnet;
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub(crate) const ZERO: [u8; 32] = [0u8; 32];
+pub(crate) const SECOND_ZONE_TEST_PROGRAM_ID: [u8; 32] = [42u8; 32];
 // Blinding positions in the fixed-position output layout
 // `[spl_change, sol_change, recipients...]`.
 pub(crate) const SPL_CHANGE_POSITION: u8 = 0;
@@ -47,9 +47,13 @@ pub(crate) fn p256_transact_proof(proof: &Proof) -> Result<(TransactProof, Bsb22
 /// persistent prover server untouched so its proving keys stay loaded.
 pub(crate) fn restart_localnet() {
     let zone_program_id = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID).to_string();
+    let second_zone_program_id = Pubkey::new_from_array(SECOND_ZONE_TEST_PROGRAM_ID).to_string();
     start_shielded_pool_localnet(
         "zolana-zone",
-        &[(zone_program_id, "target/deploy/zone_test_program.so")],
+        &[
+            (zone_program_id, "target/deploy/zone_test_program.so"),
+            (second_zone_program_id, "target/deploy/zone_test_program.so"),
+        ],
     );
 }
 

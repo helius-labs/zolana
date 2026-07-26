@@ -7,7 +7,8 @@ use crate::localnet::WorkspaceArtifacts;
 /// Start the workspace prover once per process, or reuse an already-healthy
 /// server so its lazily loaded proving keys stay warm across test binaries.
 /// The `zolana` CLI is resolved from `ZOLANA_CLI_BIN` or the workspace debug
-/// build, and the prover is pointed at the committed proving-key cache.
+/// build, and the prover is pointed at the workspace key cache; missing keys
+/// download pinned by the committed lockfile.
 ///
 /// Panics on startup failure. The once-guard is only set on success, so a
 /// later caller retries after a transient failure instead of inheriting it.

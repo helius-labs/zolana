@@ -29,12 +29,12 @@ zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
-mollusk-svm = "0.3.0"
-zolana-mollusk-harness = { path = "../../../program-tests/mollusk-harness" }
-mollusk-solana-account = { package = "solana-account", version = "2.2" }
-mollusk-solana-instruction = { package = "solana-instruction", version = "2.2" }
-mollusk-solana-program-error = { package = "solana-program-error", version = "2.2" }
-mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
+mollusk-svm = { workspace = true }
+zolana-test-utils = { workspace = true, features = ["mollusk"] }
+solana-account = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-program-error = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

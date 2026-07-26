@@ -193,7 +193,8 @@ impl OutputAssertions<'_> {
                 .sum()
         };
         let change = |asset: Asset| -> u64 {
-            (input_sum(asset) + net_public(asset) - send_sum(asset)) as u64
+            u64::try_from(input_sum(asset) + net_public(asset) - send_sum(asset))
+                .expect("plan balances")
         };
 
         // Every output position carries its own ciphertext sealed to that output's

@@ -398,6 +398,148 @@ fn non_owner_cannot_toggle_merging_atomically() {
     assert_eq!(rig.svm.get_account(&record_address), Some(before));
 }
 
+/// Unsign the signer meta (index 1: record is 0, signer is 1 in every
+/// record-mutating instruction) so the program's `is_signer()` gate is the
+/// check that fires.
+fn unsign_signer_meta(ix: &mut Instruction) {
+    ix.accounts
+        .get_mut(1)
+        .expect("signer account meta")
+        .is_signer = false;
+}
+
+#[test]
+fn set_sync_delegate_requires_owner_signature() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let delegate = funded_keypair(&mut rig);
+    register(&mut rig, &owner, keys(21));
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let before = rig.svm.get_account(&record_address).expect("record");
+
+    let mut ix = build_set_sync_delegate_ix(
+        &owner.pubkey(),
+        delegate.pubkey(),
+        test_p256_pubkey(0xB1),
+        test_p256_pubkey(0xB2),
+    );
+    unsign_signer_meta(&mut ix);
+
+    assert_error(
+        rig.send(ix, &[]),
+        InstructionError::MissingRequiredSignature,
+    );
+    assert_eq!(rig.svm.get_account(&record_address), Some(before));
+}
+
+#[test]
+fn rotate_sync_delegate_key_requires_delegate_signature() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let delegate = funded_keypair(&mut rig);
+    register(&mut rig, &owner, keys(22));
+    rig.send(
+        build_set_sync_delegate_ix(
+            &owner.pubkey(),
+            delegate.pubkey(),
+            test_p256_pubkey(0xB3),
+            test_p256_pubkey(0xB4),
+        ),
+        &[&owner],
+    )
+    .expect("set delegate");
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let before = rig.svm.get_account(&record_address).expect("record");
+
+    let mut ix = build_rotate_sync_delegate_key_ix(
+        &owner.pubkey(),
+        &delegate.pubkey(),
+        test_p256_pubkey(0xB5),
+        test_p256_pubkey(0xB6),
+    );
+    unsign_signer_meta(&mut ix);
+
+    assert_error(
+        rig.send(ix, &[]),
+        InstructionError::MissingRequiredSignature,
+    );
+    assert_eq!(rig.svm.get_account(&record_address), Some(before));
+}
+
+#[test]
+fn revoke_sync_delegate_requires_a_signature() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let delegate = funded_keypair(&mut rig);
+    register(&mut rig, &owner, keys(23));
+    rig.send(
+        build_set_sync_delegate_ix(
+            &owner.pubkey(),
+            delegate.pubkey(),
+            test_p256_pubkey(0xB7),
+            test_p256_pubkey(0xB8),
+        ),
+        &[&owner],
+    )
+    .expect("set delegate");
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let before = rig.svm.get_account(&record_address).expect("record");
+
+    let mut ix = build_revoke_sync_delegate_ix(&owner.pubkey(), &owner.pubkey());
+    unsign_signer_meta(&mut ix);
+
+    assert_error(
+        rig.send(ix, &[]),
+        InstructionError::MissingRequiredSignature,
+    );
+    assert_eq!(rig.svm.get_account(&record_address), Some(before));
+}
+
+#[test]
+fn set_merging_enabled_requires_owner_signature() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    register(&mut rig, &owner, keys(24));
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let before = rig.svm.get_account(&record_address).expect("record");
+
+    let mut ix = build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true);
+    unsign_signer_meta(&mut ix);
+
+    assert_error(
+        rig.send(ix, &[]),
+        InstructionError::MissingRequiredSignature,
+    );
+    assert_eq!(rig.svm.get_account(&record_address), Some(before));
+}
+
+#[test]
+fn update_keys_requires_owner_signature() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    register(&mut rig, &owner, keys(25));
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let before = rig.svm.get_account(&record_address).expect("record");
+    let updated = keys(26);
+
+    let mut ix = instruction::update_keys(
+        record_address,
+        owner.pubkey(),
+        UpdateKeysData {
+            owner_p256: Some(updated.owner_p256),
+            nullifier_pubkey: updated.nullifier,
+            viewing_pubkey: updated.viewing,
+        },
+    );
+    unsign_signer_meta(&mut ix);
+
+    assert_error(
+        rig.send(ix, &[]),
+        InstructionError::MissingRequiredSignature,
+    );
+    assert_eq!(rig.svm.get_account(&record_address), Some(before));
+}
+
 #[test]
 fn dispatch_rejects_empty_data_exactly() {
     let mut rig = UserRegistryTestRig::new();
@@ -446,6 +588,195 @@ fn dispatch_rejects_malformed_register_data_exactly() {
     );
 }
 
+/// Every borsh-parsing dispatch arm rejects a truncated/trailing payload with
+/// the exact instruction-data error, before any account is touched.
+#[test]
+fn dispatch_rejects_malformed_payloads_for_every_parsing_arm() {
+    let mut rig = UserRegistryTestRig::new();
+    for tag in [
+        discriminator::SET_SYNC_DELEGATE,
+        discriminator::ROTATE_SYNC_DELEGATE_KEY,
+        discriminator::SET_MERGING_ENABLED,
+        discriminator::UPDATE_KEYS,
+    ] {
+        assert_registry_error(
+            rig.send(
+                Instruction {
+                    program_id: user_registry_program_id(),
+                    accounts: vec![],
+                    data: vec![tag, 1, 2, 3],
+                },
+                &[],
+            ),
+            UserRegistryError::InvalidInstructionData,
+        );
+    }
+}
+
+/// REVOKE carries no payload by contract; the dispatcher's hand-written
+/// strictness check must reject any trailing byte.
+#[test]
+fn dispatch_rejects_a_non_empty_revoke_payload_exactly() {
+    let mut rig = UserRegistryTestRig::new();
+    assert_registry_error(
+        rig.send(
+            Instruction {
+                program_id: user_registry_program_id(),
+                accounts: vec![],
+                data: vec![discriminator::REVOKE_SYNC_DELEGATE, 1],
+            },
+            &[],
+        ),
+        UserRegistryError::InvalidInstructionData,
+    );
+}
+
+/// Privilege separation: an ACTIVE delegate may rotate its keys and revoke
+/// itself, but merging is owner-only. A delegate signer must be rejected
+/// exactly like a stranger.
+#[test]
+fn an_active_delegate_cannot_toggle_merging() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let delegate = funded_keypair(&mut rig);
+    register(&mut rig, &owner, keys(31));
+    rig.send(
+        build_set_sync_delegate_ix(
+            &owner.pubkey(),
+            delegate.pubkey(),
+            test_p256_pubkey(0xE1),
+            test_p256_pubkey(0xE2),
+        ),
+        &[&owner],
+    )
+    .expect("set delegate");
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let before = rig.svm.get_account(&record_address).expect("record");
+
+    assert_registry_error(
+        rig.send(
+            build_set_merging_enabled_ix(&owner.pubkey(), &delegate.pubkey(), true),
+            &[&delegate],
+        ),
+        UserRegistryError::UnauthorizedSigner,
+    );
+    assert_eq!(rig.svm.get_account(&record_address), Some(before));
+}
+
+/// Static-key updates are owner-only as well: the active delegate must not
+/// rotate the owner's registered shielded keys.
+#[test]
+fn an_active_delegate_cannot_update_keys() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let delegate = funded_keypair(&mut rig);
+    register(&mut rig, &owner, keys(32));
+    rig.send(
+        build_set_sync_delegate_ix(
+            &owner.pubkey(),
+            delegate.pubkey(),
+            test_p256_pubkey(0xE3),
+            test_p256_pubkey(0xE4),
+        ),
+        &[&owner],
+    )
+    .expect("set delegate");
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let before = rig.svm.get_account(&record_address).expect("record");
+    let attempted = keys(33);
+
+    assert_registry_error(
+        rig.send(
+            instruction::update_keys(
+                record_address,
+                delegate.pubkey(),
+                UpdateKeysData {
+                    owner_p256: Some(attempted.owner_p256),
+                    nullifier_pubkey: attempted.nullifier,
+                    viewing_pubkey: attempted.viewing,
+                },
+            ),
+            &[&delegate],
+        ),
+        UserRegistryError::OwnerMismatch,
+    );
+    assert_eq!(rig.svm.get_account(&record_address), Some(before));
+}
+
+/// A record account that is unowned, uninitialized, readonly, or carries a
+/// wrong discriminator must be rejected by every record-mutating instruction's
+/// loader with the exact record error.
+#[test]
+fn record_mutation_rejects_invalid_record_accounts() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    register(&mut rig, &owner, keys(34));
+
+    // Unowned: a funded system account in the record slot.
+    let unowned = Pubkey::new_unique();
+    rig.fund(&unowned, 1_000_000);
+    let mut ix = build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true);
+    ix.accounts.first_mut().expect("record meta").pubkey = unowned;
+    assert_registry_error(
+        rig.send(ix, &[&owner]),
+        UserRegistryError::InvalidRecordAccount,
+    );
+
+    // Uninitialized: registry-owned but zero-length data.
+    let uninitialized = Pubkey::new_unique();
+    rig.svm
+        .set_account(
+            uninitialized,
+            solana_account::Account {
+                lamports: 1_000_000,
+                data: Vec::new(),
+                owner: user_registry_program_id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("write uninitialized record");
+    let mut ix = build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true);
+    ix.accounts.first_mut().expect("record meta").pubkey = uninitialized;
+    assert_registry_error(
+        rig.send(ix, &[&owner]),
+        UserRegistryError::InvalidRecordAccount,
+    );
+
+    // Wrong discriminator: registry-owned with a corrupt first byte.
+    let wrong_discriminator = Pubkey::new_unique();
+    rig.svm
+        .set_account(
+            wrong_discriminator,
+            solana_account::Account {
+                lamports: 1_000_000,
+                data: vec![0xAA; 16],
+                owner: user_registry_program_id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("write wrong-discriminator record");
+    let mut ix = build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true);
+    ix.accounts.first_mut().expect("record meta").pubkey = wrong_discriminator;
+    assert_registry_error(
+        rig.send(ix, &[&owner]),
+        UserRegistryError::InvalidRecordAccount,
+    );
+
+    // Readonly: the real record with the writable flag stripped.
+    let mut ix = build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true);
+    ix.accounts.first_mut().expect("record meta").is_writable = false;
+    assert_registry_error(
+        rig.send(ix, &[&owner]),
+        UserRegistryError::InvalidRecordAccount,
+    );
+    assert!(
+        !rig.record(&owner.pubkey()).merging_enabled,
+        "no rejected mutation may have toggled merging"
+    );
+}
+
 #[test]
 fn register_rejects_readonly_record() {
     let mut rig = UserRegistryTestRig::new();
@@ -471,6 +802,8 @@ fn register_rejects_readonly_record() {
     );
 }
 
+// `InstructionError::NotEnoughAccountKeys` is `#[deprecated]` in
+// solana-instruction-error, but the runtime still returns it for this shape.
 #[allow(deprecated)]
 #[test]
 fn register_rejects_too_few_accounts() {

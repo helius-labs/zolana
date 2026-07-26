@@ -66,6 +66,36 @@ impl ZoneHarness {
         ))
     }
 
+    pub(crate) fn shield_default_sol(&mut self, name: &str, amount: u64) -> Result<()> {
+        self.ensure_actor(name)?;
+        let depositor = Keypair::new();
+        self.rpc.airdrop(&depositor.pubkey(), 5_000_000_000)?;
+        let data = self.zone_deposit_data(name, amount)?;
+        let ix = Deposit {
+            tree: self.tree,
+            depositor: depositor.pubkey(),
+            spl: None,
+            view_tag: data.view_tag,
+            owner: data.owner,
+            blinding: data.blinding,
+            amount: data.amount,
+            utxo_data: data.utxo_data.clone(),
+            memo: None,
+        }
+        .instruction();
+        send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
+        let owner = self.actor(name).keypair.signing_pubkey();
+        self.actor_mut(name).spendable.push(Utxo {
+            owner,
+            asset: SOL_MINT,
+            amount,
+            blinding: data.blinding,
+            zone_program_id: None,
+            data: Data::default(),
+        });
+        Ok(())
+    }
+
     /// Zone-shield SOL to a fresh recipient `name` through the fixture program.
     /// Requires a zone config to exist (creates an enabled one if absent).
     pub(crate) fn zone_shield_sol(&mut self, name: &str, amount: u64) -> Result<()> {
@@ -90,7 +120,7 @@ impl ZoneHarness {
         let signature = send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
 
         // Make the zone-owned UTXO spendable for `name` so later zone_transact /
-        // merge_zone steps can consume it (its zone_program_id is the zone the
+        // merge_zone operations can consume it (its zone_program_id is the zone the
         // ZoneConfig binds).
         let owner = self.actor(name).keypair.signing_pubkey();
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
