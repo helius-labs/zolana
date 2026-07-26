@@ -2203,6 +2203,36 @@ dedicated wrong-tree diagnostic is preserved: with a selector available, a
 mixed-tree explicit-hash request is a caller error worth naming precisely rather
 than a limitation to apologise for.
 
+## The example branch carries the target client surface
+
+`ts-example-deposit-transfer-withdraw` was never merged. One hunk from it was
+adopted by hand — the `compressG2` fix, which is byte-for-byte identical on both
+branches — and the two local-stack fixes arrived behaviourally equivalent with
+their comment placed differently. Six commits remain unmerged, and they hold more
+than an example.
+
+`0d5f3c1d`, "give the client the instruction-level surface Rust already has", is
+the substantive one: 34 files, roughly 437 insertions against 430 deletions,
+spanning `interface`, `transaction`, `client`, `wallet`, and `test-kit`. It adds
+`interface/src/signers.ts` and `transaction/src/wallet/state.ts`, gives the client
+a `compileTransaction` entry point, and deletes 55 lines of `test-kit/src/base58.ts`
+and 223 of `test-kit/src/native.ts` by moving those primitives into the production
+packages where they belong. That last part is register finding `F106` closing
+itself as a side effect.
+
+The two branches grew a client surface for the same job independently and do not
+agree: this branch exports `ZolanaClient` with `createAndSendTransaction`, the
+example branch exports `ZolanaClient` with `compileTransaction`.
+
+The owner ruled that the example branch carries the surface we want, so this
+branch yields to it, and that the reconciliation happens after the four gate
+workers land rather than beside them. The ordering matters for a specific reason:
+the surface change moves exports across five packages, so the export-ledger gate,
+the `module-surface` and `crate-root-exports` vector tests, and every package
+gate that rests on an export census must be re-run against the reconciled
+surface. Measuring those gates against a surface that is about to change would
+produce evidence for a shape we are not shipping.
+
 ## Register tail: swept after the cryptographic phase
 
 Roughly 26 findings remain below the commitment-affecting tier, mostly duplicated

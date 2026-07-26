@@ -70,6 +70,12 @@ production-ready:
 3. `port/gate-prover`, a live proof per shape per rail from the same-revision prover, and the clean-checkout command list
 4. `port/gate-ledger`, the cross-package boundary, Photon contract, fixture rejection-and-tamper, and export-ledger lines
 
+Queued behind them, and deliberately not started in parallel: reconciling this
+branch's client surface onto the one `ts-example-deposit-transfer-withdraw`
+carries, which the owner ruled is the target. It moves exports across five
+packages, so it has to land after the gate evidence rather than under it. See
+[authority-rulings.md](authority-rulings.md#the-example-branch-carries-the-target-client-surface).
+
 Every remaining gate line now has an owner. Merged and closed: `port/gate12-pkg`
 (the eleven-package census, `G9-4`, `G6-2`, `F041`), `port/gate6-photon` (a live
 Photon contract suite of eleven tests against a same-revision indexer, which
