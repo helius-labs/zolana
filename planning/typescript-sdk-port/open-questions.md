@@ -56,7 +56,7 @@ puts it inside `owner_hash`; the circuit, the program, both Rust SDK crates and
 both TypeScript packages use a parity-free form for owner identity and reserve
 the parity-inclusive form for viewing keys, so nine implementations agree with
 each other and disagree with the document
-([`authority-rulings.md`](authority-rulings.md#open-owner-hash-encoding-g7-1)
+([`authority-rulings.md`](authority-rulings.md#ruled-owner-hash-encoding-g7-1)
 lists all nine).
 
 **Light:** never meets it. Light publishes no protocol specification that an
@@ -448,6 +448,10 @@ four square ones, and the keys on disk match it. So the SDKs are the diverging
 side and narrowing them is conformance, not the port tightening past its
 original.
 
+**Ruled** 2026-07-26: narrow both SDKs to the four shapes the specification lists
+and for which keys exist, and do not generate the six missing keys.
+[Ledger](authority-rulings.md#q16-zone-authority-shapes-c18).
+
 **Not implemented here**, deliberately. The row update
 [`row-updates/zone-authority-shape-narrowing.md`](row-updates/zone-authority-shape-narrowing.md)
 assigns this to the client batch behind C08 and T23, it needs the matching change
@@ -455,7 +459,10 @@ in the Rust crate to avoid becoming a divergence, and both files are owned by a
 worker running now. The smallest change is a four-element accepted set on each
 side with a named error stating which shapes the rail supports, plus a shared
 vector; the cost is breaking a caller passing a non-square shape, which the
-standing pre-1.0 ruling permits.
+standing pre-1.0 ruling permits. One line of that row update no longer holds:
+question 5 ruled that a zone authority can move value out through a public leg,
+so the four shapes cannot be justified by saying it cannot. They rest on the
+specification and the keys on disk.
 
 ---
 
@@ -487,14 +494,19 @@ Applied here, that says `ViewingKeyLike` should return `T` rather than
 `T | Promise<T>` for its derivation operations, which keeps the three call sites
 synchronous and still admits a backend that holds key material in process.
 
+**Ruled** 2026-07-26: an out-of-process viewing-key backend is not a supported
+deployment, so the interface narrows and K11 closes without the call sites
+becoming async. Signing is unaffected: `ShieldedKeypairLike` keeps its
+`T | Promise<T>` returns.
+[Ledger](authority-rulings.md#q17-an-out-of-process-viewing-key-backend-k11).
+
 **Not implemented.** Narrowing the return type is a change to a published
 interface in `@zolana/keypair`, owned by the hashers batch, and it removes the
 one capability the interface was added for: an HSM that answers over a wire
-cannot satisfy a synchronous signature. The smallest change that settles it is a
-sentence from the owner about whether an out-of-process viewing-key backend is a
-supported deployment. If it is, the call sites go async and Light's arrangement
-does not transfer; if it is not, the interface narrows and K11 closes without
-touching them.
+cannot satisfy a synchronous signature. It also stops `RemoteBackend` in
+`keypair/test/api-surface.test.ts` from satisfying `ViewingKeyLike`, so that case
+keeps its async proof for the keypair interface and drops it for the viewing
+half.
 
 ## 18. `ShieldedKeypair.fromEd25519` takes a different argument in each language
 
@@ -523,6 +535,11 @@ transaction's slot or a timeout expires
 at the end of every confirmation (`send-and-confirm.ts:106-107`), so there is no
 path through Light's SDK that returns before the indexer has caught up. The
 timeout is 10 seconds against a local endpoint and 20 otherwise.
+
+**Ruled** 2026-07-26, against the recommendation below: the split is deliberate
+and stays, and documenting it is now owed work, because the absence of any
+explanation is what made it look like a defect.
+[Ledger](authority-rulings.md#q19-sync_wallet-against-sync_wallet_async).
 
 **Not implemented, and it should not be implemented from here.** The port
 currently matches Rust and must keep matching Rust whichever way this goes;
@@ -586,6 +603,11 @@ one without the other.
 state types, the program layouts and the actions together, and Light ships three
 published packages against Zolana's ten.
 
+**Ruled** 2026-07-26, against the recommendation below: keep them separate. The
+merge case is all cost and no correctness, and the owner accepts the cost.
+Question 14 now needs a shared home for the wire helpers that does not rest on
+this merge. [Ledger](authority-rulings.md#q22-merging-zolanaapi-and-zolanaindexer-api-f10).
+
 **Not implemented.** Merging them removes a package, a build step, a typecheck
 step and six test configurations, and it touches two `exports` maps and every
 cross-package import. It is also the natural moment to settle question 14, since
@@ -627,10 +649,10 @@ else in `js/src`; the real style is `throw new Error(...)`, twenty-three of them
 in `rpc.ts` alone. So the mature lineage has no error taxonomy to copy, and
 Zolana's is better in kind.
 
-**Not implemented, and the recommendation is to close the row without a mapping.**
-The row's behavioural half compares outcomes rather than error names, and it is
-already satisfied by the replayed Rust traces. A mapping asserted without evidence
-is worth less than the absence of one.
+**Ruled** 2026-07-26: close the row without a mapping. The row's behavioural half
+compares outcomes rather than error names, and it is already satisfied by the
+replayed Rust traces. A mapping asserted without evidence is worth less than the
+absence of one. [Ledger](authority-rulings.md#q24-merkle-tree-error-code-mapping-m02).
 
 ## 25. Rust classifies two malformed indexer bodies differently by accident
 
@@ -668,12 +690,19 @@ checked by reading all three manifests, not inferred from one. So a shipped SDK
 with real users in this ecosystem publishes no browser matrix at all and lets the
 consumer's bundler decide.
 
+**Ruled** 2026-07-26: publish under the `@zolana` scope, state a Browserslist,
+and do not gate on it. The scope confirms what every manifest already assumes and
+leaves registry access as an operational task. The Browserslist documents the
+target and does not become a second gate: a manifest field tests nothing, and
+proving a bundle runs in those browsers needs a real browser run.
+[Ledger](authority-rulings.md#q26-publishing).
+
 **Not implemented, and only half of it should be.** The scope default needs
 registry access rather than a code change. On the matrix, Light's answer argues
 for dropping the requirement rather than filling it in, but Zolana's browser gate
 is a stronger property than Light holds and the packages already declare
 `engines.node`, so publishing the Browserslist the gate implies is cheap and
-keeps the claim honest. Recommend stating it and not gating on it.
+keeps the claim honest.
 
 ---
 
