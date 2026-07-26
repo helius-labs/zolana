@@ -446,7 +446,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut C
         payer: maker_payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transact,
     }
     .instruction();

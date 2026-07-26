@@ -3,7 +3,9 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{
-        builders::transact::{append_public_leg_accounts, TransactLegAccounts},
+        builders::transact::{
+            append_interface_transfer_accounts, TransactInterfaceTransferAccounts,
+        },
         tag, TransactIxData,
     },
     pda, PROGRAM_ID_PUBKEY,
@@ -22,7 +24,7 @@ pub struct ZoneTransact {
     pub output_tree: Pubkey,
     /// Calling zone program; its `ZoneConfig` (canonical `zone_auth` PDA) signs.
     pub zone_program_id: Pubkey,
-    pub legs: Vec<TransactLegAccounts>,
+    pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     pub data: TransactIxData,
 }
 
@@ -57,7 +59,11 @@ impl ZoneTransact {
             AccountMeta::new(self.output_tree, false),
             AccountMeta::new_readonly(zone_config, auth_signer),
         ];
-        append_public_leg_accounts(&mut accounts, &self.data.public_legs, &self.legs);
+        append_interface_transfer_accounts(
+            &mut accounts,
+            &self.data.interface_transfers,
+            &self.interface_transfer_accounts,
+        );
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Instruction {
@@ -85,7 +91,7 @@ mod tests {
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
             inputs: Vec::new(),
-            public_legs: Vec::new(),
+            interface_transfers: Vec::new(),
             data_hash: None,
             zone_data_hash: None,
             outputs: Vec::new(),
@@ -105,7 +111,7 @@ mod tests {
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
             zone_program_id,
-            legs: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
             data: empty_data(),
         };
 
@@ -141,7 +147,7 @@ mod tests {
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
             zone_program_id,
-            legs: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
             data: empty_data(),
         };
 

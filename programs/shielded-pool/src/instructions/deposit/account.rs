@@ -16,7 +16,7 @@ use crate::instructions::{
     hash::solana_pk_hash,
     settlement::{
         read_token_account, validate_sol_interface, Settlement, SettlementAccountsSol,
-        SettlementAccountsSpl,
+        SplDepositAccounts,
     },
     zone_config::loader::load_zone_config,
 };
@@ -118,11 +118,10 @@ impl<'a> DepositAccounts<'a> {
                     DepositAssetGroup {
                         asset: mint,
                         asset_field: solana_pk_hash(&mint)?,
-                        settlement: Settlement::Spl(SettlementAccountsSpl {
-                            cpi_authority: None,
+                        settlement: Settlement::SplDeposit(SplDepositAccounts {
                             mint,
                             vault,
-                            recipient: depositor,
+                            depositor,
                             user_token_account: user_token,
                             token_program,
                         }),

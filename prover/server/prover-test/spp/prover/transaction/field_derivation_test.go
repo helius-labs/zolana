@@ -20,18 +20,18 @@ type fieldDerivationVector struct {
 }
 
 type externalDataHashVector struct {
-	InstructionDiscriminator uint8             `json:"instruction_discriminator"`
-	SenderViewTag            string            `json:"sender_view_tag"`
-	ExpiryUnixTs             uint64            `json:"expiry_unix_ts"`
-	PublicLegs               []publicLegVector `json:"public_legs"`
-	DataHash                 string            `json:"data_hash"`
-	ZoneDataHash             string            `json:"zone_data_hash"`
-	OutputHashes             []string          `json:"output_hashes"`
-	EncryptedUtxos           string            `json:"encrypted_utxos"`
-	Hash                     string            `json:"hash"`
+	InstructionDiscriminator uint8                     `json:"instruction_discriminator"`
+	SenderViewTag            string                    `json:"sender_view_tag"`
+	ExpiryUnixTs             uint64                    `json:"expiry_unix_ts"`
+	InterfaceTransfers       []interfaceTransferVector `json:"interface_transfers"`
+	DataHash                 string                    `json:"data_hash"`
+	ZoneDataHash             string                    `json:"zone_data_hash"`
+	OutputHashes             []string                  `json:"output_hashes"`
+	EncryptedUtxos           string                    `json:"encrypted_utxos"`
+	Hash                     string                    `json:"hash"`
 }
 
-type publicLegVector struct {
+type interfaceTransferVector struct {
 	IsSpl       bool   `json:"is_spl"`
 	IsDeposit   bool   `json:"is_deposit"`
 	Asset       string `json:"asset"`
@@ -56,9 +56,9 @@ type u64FieldVector struct {
 }
 
 type publicSlotsVector struct {
-	Name        string            `json:"name"`
-	PublicLegs  []publicLegVector `json:"public_legs"`
-	SlotAmounts []string          `json:"slot_amounts"`
+	Name               string                    `json:"name"`
+	InterfaceTransfers []interfaceTransferVector `json:"interface_transfers"`
+	SlotAmounts        []string                  `json:"slot_amounts"`
 }
 
 func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
@@ -77,7 +77,7 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 	gotExternal := externalDataFieldHash(externalDataPreimage{
 		InstructionDiscriminator: external.InstructionDiscriminator,
 		ExpiryUnixTs:             external.ExpiryUnixTs,
-		PublicLegs:               vectorResolvedPublicLegs(t, external.PublicLegs),
+		InterfaceTransfers:       vectorResolvedInterfaceTransfers(t, external.InterfaceTransfers),
 		DataHash:                 mustFieldBytes(t, external.DataHash),
 		ZoneDataHash:             mustFieldBytes(t, external.ZoneDataHash),
 		Outputs:                  outputs,
@@ -109,7 +109,7 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 
 	for _, item := range vector.PublicSlots {
 		slots, err := derivePublicSlots(ProofTransactionRequest{
-			PublicLegs: vectorPublicLegRequests(item.PublicLegs),
+			InterfaceTransfers: vectorInterfaceTransferRequests(item.InterfaceTransfers),
 		})
 		if err != nil {
 			t.Fatalf("public slots %s: %v", item.Name, err)
@@ -138,33 +138,33 @@ func vectorFieldValues(t *testing.T, values []string) []*big.Int {
 	return out
 }
 
-func vectorPublicLegRequests(legs []publicLegVector) []PublicLegRequest {
-	out := make([]PublicLegRequest, 0, len(legs))
-	for _, leg := range legs {
-		out = append(out, PublicLegRequest{
-			IsSpl:       leg.IsSpl,
-			IsDeposit:   leg.IsDeposit,
-			Asset:       leg.Asset,
-			Amount:      leg.Amount,
-			UserAccount: leg.UserAccount,
-			PoolAccount: leg.PoolAccount,
+func vectorInterfaceTransferRequests(transfers []interfaceTransferVector) []InterfaceTransferRequest {
+	out := make([]InterfaceTransferRequest, 0, len(transfers))
+	for _, transfer := range transfers {
+		out = append(out, InterfaceTransferRequest{
+			IsSpl:       transfer.IsSpl,
+			IsDeposit:   transfer.IsDeposit,
+			Asset:       transfer.Asset,
+			Amount:      transfer.Amount,
+			UserAccount: transfer.UserAccount,
+			PoolAccount: transfer.PoolAccount,
 		})
 	}
 	return out
 }
 
-func vectorResolvedPublicLegs(t *testing.T, legs []publicLegVector) []resolvedPublicLeg {
+func vectorResolvedInterfaceTransfers(t *testing.T, transfers []interfaceTransferVector) []resolvedInterfaceTransfer {
 	t.Helper()
-	out := make([]resolvedPublicLeg, 0, len(legs))
-	for _, leg := range legs {
-		resolved := resolvedPublicLeg{
-			isSpl:       leg.IsSpl,
-			isDeposit:   leg.IsDeposit,
-			amount:      leg.Amount,
-			userAccount: mustHex32(t, leg.UserAccount),
+	out := make([]resolvedInterfaceTransfer, 0, len(transfers))
+	for _, transfer := range transfers {
+		resolved := resolvedInterfaceTransfer{
+			isSpl:       transfer.IsSpl,
+			isDeposit:   transfer.IsDeposit,
+			amount:      transfer.Amount,
+			userAccount: mustHex32(t, transfer.UserAccount),
 		}
-		if leg.IsSpl {
-			resolved.poolAccount = mustHex32(t, leg.PoolAccount)
+		if transfer.IsSpl {
+			resolved.poolAccount = mustHex32(t, transfer.PoolAccount)
 		}
 		out = append(out, resolved)
 	}

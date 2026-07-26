@@ -254,7 +254,7 @@ fn transact_sends_valid_proof() {
         payer,
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
@@ -292,7 +292,7 @@ fn transact_spends_from_input_tree_and_appends_to_output_tree() {
         payer,
         input_tree: env.tree.pubkey(),
         output_tree: output_tree.pubkey(),
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
@@ -345,7 +345,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
         payer,
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
@@ -394,7 +394,7 @@ fn transact_rejects_mismatched_circuit_selector() {
             payer,
             input_tree: env.tree.pubkey(),
             output_tree: env.tree.pubkey(),
-            legs: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
             data,
         }
         .instruction();
@@ -433,7 +433,7 @@ fn transact_rejects_tampered_output_view_tag() {
         payer,
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();

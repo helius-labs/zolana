@@ -20,7 +20,9 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction as SolanaTransaction};
 use solana_transaction_status_client_types::TransactionStatus;
-use zolana_interface::instruction::{PublicLeg, Transact, TransactIxData, TransactLegAccounts};
+use zolana_interface::instruction::{
+    InterfaceTransfer, Transact, TransactInterfaceTransferAccounts, TransactIxData,
+};
 use zolana_keypair::hash::sha256_be;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 
@@ -45,7 +47,7 @@ use crate::{
 /// [`ZolanaClient`]'s submission helpers.
 pub struct SignedPrivateTransaction {
     pub transaction: SppProofInputs,
-    pub settlement_legs: Vec<TransactLegAccounts>,
+    pub settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
     pub input_tree: Address,
 }
 
@@ -243,7 +245,7 @@ impl<R: Rpc> ZolanaClient<R> {
                 input_tree: signed.input_tree,
                 output_tree: self.output_tree,
             },
-            signed.settlement_legs.clone(),
+            signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
         )
@@ -281,7 +283,7 @@ impl<R: Rpc> ZolanaClient<R> {
                 input_tree: signed.input_tree,
                 output_tree: self.output_tree,
             },
-            signed.settlement_legs.clone(),
+            signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
         )
@@ -338,7 +340,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
                 input_tree: signed.input_tree,
                 output_tree: self.output_tree,
             },
-            signed.settlement_legs.clone(),
+            signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
         )
@@ -848,16 +850,16 @@ fn build_unsigned_solana_transaction(
     cu_price_micro_lamports: Option<u64>,
     fee_payer: Pubkey,
     trees: TransactTrees,
-    settlement_legs: Vec<TransactLegAccounts>,
+    settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
     transact_data: zolana_interface::instruction::instruction_data::transact::TransactIxData,
     recent_blockhash: Hash,
 ) -> Result<SolanaTransaction, ClientError> {
-    validate_settlement_legs(&transact_data.public_legs, &settlement_legs)?;
+    validate_settlement_transfers(&transact_data.interface_transfers, &settlement_transfers)?;
     let transact_ix = Transact {
         payer: fee_payer,
         input_tree: trees.input_tree,
         output_tree: trees.output_tree,
-        legs: settlement_legs,
+        interface_transfer_accounts: settlement_transfers,
         data: transact_data,
     }
     .instruction();
@@ -867,23 +869,35 @@ fn build_unsigned_solana_transaction(
     Ok(SolanaTransaction::new_unsigned(message))
 }
 
-fn validate_settlement_legs(
-    public_legs: &[PublicLeg],
-    settlement_legs: &[TransactLegAccounts],
+fn validate_settlement_transfers(
+    interface_transfers: &[InterfaceTransfer],
+    settlement_transfers: &[TransactInterfaceTransferAccounts],
 ) -> Result<(), ClientError> {
-    if public_legs.len() != settlement_legs.len() {
-        return Err(ClientError::SettlementLegCountMismatch {
-            public_legs: public_legs.len(),
-            settlement_legs: settlement_legs.len(),
+    if interface_transfers.len() != settlement_transfers.len() {
+        return Err(ClientError::SettlementTransferCountMismatch {
+            interface_transfers: interface_transfers.len(),
+            account_groups: settlement_transfers.len(),
         });
     }
-    for (index, (leg, accounts)) in public_legs.iter().zip(settlement_legs).enumerate() {
+    for (index, (transfer, accounts)) in interface_transfers
+        .iter()
+        .zip(settlement_transfers)
+        .enumerate()
+    {
         if !matches!(
-            (leg, accounts),
-            (PublicLeg::Sol { .. }, TransactLegAccounts::Sol(_))
-                | (PublicLeg::Spl { .. }, TransactLegAccounts::Spl(_))
+            (transfer, accounts),
+            (
+                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. },
+                TransactInterfaceTransferAccounts::Sol(_)
+            ) | (
+                InterfaceTransfer::SplDeposit { .. },
+                TransactInterfaceTransferAccounts::SplDeposit(_)
+            ) | (
+                InterfaceTransfer::SplWithdrawal { .. },
+                TransactInterfaceTransferAccounts::SplWithdrawal(_)
+            )
         ) {
-            return Err(ClientError::SettlementLegTypeMismatch { index });
+            return Err(ClientError::SettlementTransferTypeMismatch { index });
         }
     }
     Ok(())
@@ -1157,7 +1171,8 @@ mod tests {
         rpc::{MerkleContext, MerkleProof, NonInclusionProof},
     };
     use zolana_interface::instruction::{
-        PublicLeg, TransactLegAccounts, TransactSolLeg, TransactSplLeg,
+        InterfaceTransfer, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        TransactSplDepositAccounts,
     };
     use zolana_transaction::instructions::{
         transact::{ConfidentialTransfer, SettlementTarget},
@@ -1183,69 +1198,55 @@ mod tests {
 
     #[test]
     fn settlement_accounts_accept_duplicate_sol_recipients_and_mixed_directions() {
-        let spl = TransactSplLeg {
+        let spl = TransactSplDepositAccounts {
             vault: Pubkey::new_unique(),
-            recipient: Pubkey::new_unique(),
+            depositor: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
             token_program: Pubkey::new_unique(),
         };
-        let public_legs = [
-            PublicLeg::Sol {
-                is_deposit: false,
-                amount: 7,
-            },
-            PublicLeg::Spl {
-                is_deposit: true,
+        let interface_transfers = [
+            InterfaceTransfer::SolWithdrawal { amount: 7 },
+            InterfaceTransfer::SplDeposit {
                 amount: 11,
                 vault_bump: 42,
             },
-            PublicLeg::Sol {
-                is_deposit: false,
-                amount: 3,
-            },
+            InterfaceTransfer::SolWithdrawal { amount: 3 },
         ];
-        let settlement_legs = [
-            TransactLegAccounts::Sol(TransactSolLeg {
+        let settlement_transfers = [
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
                 recipient: Pubkey::new_unique(),
             }),
-            TransactLegAccounts::Spl(spl),
-            TransactLegAccounts::Sol(TransactSolLeg {
+            TransactInterfaceTransferAccounts::SplDeposit(spl),
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
                 recipient: Pubkey::new_unique(),
             }),
         ];
 
-        validate_settlement_legs(&public_legs, &settlement_legs)
+        validate_settlement_transfers(&interface_transfers, &settlement_transfers)
             .expect("ordered duplicate-asset account groups are valid");
     }
 
     #[test]
     fn settlement_accounts_reject_count_and_type_mismatches() {
-        let sol_accounts = TransactLegAccounts::Sol(TransactSolLeg {
+        let sol_accounts = TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
             recipient: Pubkey::new_unique(),
         });
         assert!(matches!(
-            validate_settlement_legs(
-                &[PublicLeg::Sol {
-                    is_deposit: false,
-                    amount: 1,
-                }],
-                &[],
-            ),
-            Err(ClientError::SettlementLegCountMismatch {
-                public_legs: 1,
-                settlement_legs: 0,
+            validate_settlement_transfers(&[InterfaceTransfer::SolWithdrawal { amount: 1 }], &[],),
+            Err(ClientError::SettlementTransferCountMismatch {
+                interface_transfers: 1,
+                account_groups: 0,
             })
         ));
         assert!(matches!(
-            validate_settlement_legs(
-                &[PublicLeg::Spl {
-                    is_deposit: false,
+            validate_settlement_transfers(
+                &[InterfaceTransfer::SplWithdrawal {
                     amount: 1,
                     vault_bump: 42,
                 }],
                 &[sol_accounts],
             ),
-            Err(ClientError::SettlementLegTypeMismatch { index: 0 })
+            Err(ClientError::SettlementTransferTypeMismatch { index: 0 })
         ));
     }
 
@@ -1279,7 +1280,9 @@ mod tests {
             .expect("sign");
         let shielded = SignedPrivateTransaction {
             transaction: proof_inputs,
-            settlement_legs: vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })],
+            settlement_transfers: vec![TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts { recipient },
+            )],
             input_tree: tree,
         };
         let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);

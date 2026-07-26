@@ -19,8 +19,9 @@ use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{PublicLeg, ResolvedPublicLeg},
-        Deposit, Transact, TransactLegAccounts, TransactSolLeg, TransactSplLeg,
+        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
+        Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        TransactSplWithdrawalAccounts,
     },
     pda, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
@@ -453,7 +454,7 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
@@ -549,23 +550,19 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
             eddsa_input_utxo(nullifier, 1),
             eddsa_input_utxo(dummy_nullifier, 1),
         ],
-        vec![PublicLeg::Sol {
-            is_deposit: false,
-            amount: AMOUNT,
-        }],
+        vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
         None,
     );
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
-    let resolved_legs = [ResolvedPublicLeg::Sol {
-        is_deposit: false,
+    let resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
         amount: AMOUNT,
         recipient: recipient.to_bytes(),
     }];
     let external_data_hash =
-        external_data_hash(&transact_ix_data, &resolved_legs).expect("external data hash");
+        external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
     let private_tx =
         PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
             .hash()
@@ -607,7 +604,9 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
-        legs: vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })],
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts { recipient },
+        )],
         data: transact_ix_data,
     }
     .instruction();
@@ -724,8 +723,7 @@ fn bench_withdrawal_spl(
             eddsa_input_utxo(nullifier, 1),
             eddsa_input_utxo(dummy_nullifier, 1),
         ],
-        vec![PublicLeg::Spl {
-            is_deposit: false,
+        vec![InterfaceTransfer::SplWithdrawal {
             amount: AMOUNT,
             vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
         }],
@@ -782,12 +780,13 @@ fn bench_withdrawal_spl(
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
-        legs: vec![TransactLegAccounts::Spl(TransactSplLeg {
-            vault,
-            recipient: payer.pubkey(),
-            user_token_account: user_token,
-            token_program: ZolanaProgramTest::token_program_id(),
-        })],
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+            TransactSplWithdrawalAccounts {
+                vault,
+                user_token_account: user_token,
+                token_program: ZolanaProgramTest::token_program_id(),
+            },
+        )],
         data: transact_ix_data,
     }
     .instruction();

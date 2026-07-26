@@ -2,7 +2,7 @@
 //! spends the sender's SOL UTXOs and moves the public SOL amount out of the pool
 //! to an external recipient account, keeping a SOL change UTXO for the sender.
 //! Mirrors `execute_transfer` except it calls `transfer.withdraw(..)` instead of
-//! `transfer.send(..)` and adds a SOL settlement leg to the `Transact` builder, so
+//! `transfer.send(..)` and adds a SOL interface transfer to the `Transact` builder, so
 //! the builder appends the `sol_interface` custody PDA and the recipient account.
 
 use anyhow::{anyhow, Result};
@@ -15,7 +15,9 @@ use solana_signer::Signer;
 use zolana_client::{
     assemble, ConfidentialTransfer, ProverClient, ProverInputs, SpendProof, SppProofInputUtxo,
 };
-use zolana_interface::instruction::{Transact, TransactLegAccounts, TransactSolLeg};
+use zolana_interface::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+};
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
@@ -128,9 +130,11 @@ impl LifecycleWorld {
             payer: fee_payer.pubkey(),
             input_tree: self.tree,
             output_tree: self.tree,
-            legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
-                recipient: recipient.pubkey(),
-            })],
+            interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts {
+                    recipient: recipient.pubkey(),
+                },
+            )],
             data: ix_data,
         }
         .instruction();

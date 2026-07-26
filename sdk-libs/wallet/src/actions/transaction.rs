@@ -2,10 +2,13 @@ use std::collections::BTreeSet;
 
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{TransactLegAccounts, TransactSolLeg, TransactSplLeg},
+    instruction::{
+        TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        TransactSplWithdrawalAccounts,
+    },
     pda,
     shape::Shape,
-    MAX_WIRE_PUBLIC_LEGS, SPL_TOKEN_PROGRAM_ID,
+    MAX_INTERFACE_TRANSFERS, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair, SignatureType,
@@ -54,7 +57,7 @@ pub enum TransferRecipient {
     Registered(ResolvedAddress),
     PublicWithdrawal {
         recipient: Pubkey,
-        settlement_legs: Vec<TransactLegAccounts>,
+        settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
     },
 }
 
@@ -70,12 +73,13 @@ impl TransferRecipient {
         matches!(self, Self::PublicWithdrawal { .. })
     }
 
-    pub fn settlement_legs(&self) -> &[TransactLegAccounts] {
+    pub fn settlement_transfers(&self) -> &[TransactInterfaceTransferAccounts] {
         match self {
             Self::Registered(_) => &[],
             Self::PublicWithdrawal {
-                settlement_legs, ..
-            } => settlement_legs,
+                settlement_transfers,
+                ..
+            } => settlement_transfers,
         }
     }
 }
@@ -83,7 +87,7 @@ impl TransferRecipient {
 #[derive(Clone)]
 pub struct CreatedWithdrawal {
     pub transaction: UnsignedPrivateTransaction,
-    pub settlement_legs: Vec<TransactLegAccounts>,
+    pub settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
 }
 
 #[derive(Clone)]
@@ -92,7 +96,7 @@ pub struct UnsignedPrivateTransaction {
     tree: Address,
     inputs: Vec<UnsignedSpendInput>,
     action: PrivateTransactionAction,
-    settlement_legs: Vec<TransactLegAccounts>,
+    settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
     approval_summary: String,
 }
 
@@ -109,8 +113,8 @@ impl UnsignedPrivateTransaction {
         self.inputs.len()
     }
 
-    pub fn settlement_legs(&self) -> &[TransactLegAccounts] {
-        &self.settlement_legs
+    pub fn settlement_transfers(&self) -> &[TransactInterfaceTransferAccounts] {
+        &self.settlement_transfers
     }
 }
 
@@ -202,7 +206,7 @@ fn create_transfer_with_recipient<R>(
             transaction: withdrawal.transaction,
             recipient: TransferRecipient::PublicWithdrawal {
                 recipient: request.recipient,
-                settlement_legs: withdrawal.settlement_legs,
+                settlement_transfers: withdrawal.settlement_transfers,
             },
         });
     };
@@ -217,7 +221,7 @@ fn create_transfer_with_recipient<R>(
                 asset: request.asset,
                 amount: request.amount,
             },
-            settlement_legs: Vec::new(),
+            settlement_transfers: Vec::new(),
             approval_summary: format!(
                 "private transaction transfer of {} to {}",
                 request.amount, request.recipient
@@ -232,7 +236,7 @@ pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdra
     let required = aggregate_withdrawal_amounts(&request.legs)?;
     let (tree, inputs) = select_withdrawal_inputs(request.wallet, &required)?;
     let mut action_legs = Vec::with_capacity(request.legs.len());
-    let mut settlement_legs = Vec::with_capacity(request.legs.len());
+    let mut settlement_transfers = Vec::with_capacity(request.legs.len());
     for leg in &request.legs {
         let (target, accounts) = withdrawal_target(leg.recipient, leg.asset);
         action_legs.push(UnsignedWithdrawalLeg {
@@ -240,7 +244,7 @@ pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdra
             amount: leg.amount,
             target,
         });
-        settlement_legs.push(accounts);
+        settlement_transfers.push(accounts);
     }
     let approval_summary = request
         .legs
@@ -254,10 +258,10 @@ pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdra
             tree,
             inputs,
             action: PrivateTransactionAction::Withdrawal { legs: action_legs },
-            settlement_legs: settlement_legs.clone(),
+            settlement_transfers: settlement_transfers.clone(),
             approval_summary: format!("private transaction withdrawal of {approval_summary}"),
         },
-        settlement_legs,
+        settlement_transfers,
     })
 }
 
@@ -315,7 +319,7 @@ pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientErro
                 num_outputs,
                 per_output_amount,
             },
-            settlement_legs: Vec::new(),
+            settlement_transfers: Vec::new(),
             approval_summary: format!(
                 "private transaction split into {num_outputs} utxos of {per_output_amount}"
             ),
@@ -721,7 +725,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     };
     Ok(SignedPrivateTransaction {
         transaction: signed,
-        settlement_legs: transaction.settlement_legs,
+        settlement_transfers: transaction.settlement_transfers,
         input_tree: transaction.tree,
     })
 }
@@ -800,13 +804,16 @@ async fn apply_p256_signature<A: WalletAuthority + ?Sized>(
     Ok(())
 }
 
-fn withdrawal_target(recipient: Pubkey, asset: Address) -> (SettlementTarget, TransactLegAccounts) {
+fn withdrawal_target(
+    recipient: Pubkey,
+    asset: Address,
+) -> (SettlementTarget, TransactInterfaceTransferAccounts) {
     if asset == SOL_MINT {
         return (
             SettlementTarget::Sol {
                 user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
-            TransactLegAccounts::Sol(TransactSolLeg { recipient }),
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient }),
         );
     }
 
@@ -818,9 +825,8 @@ fn withdrawal_target(recipient: Pubkey, asset: Address) -> (SettlementTarget, Tr
             user_spl_token: Address::new_from_array(user_spl_token.to_bytes()),
             spl_token_interface: Address::new_from_array(vault.to_bytes()),
         },
-        TransactLegAccounts::Spl(TransactSplLeg {
+        TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
             vault,
-            recipient,
             user_token_account: user_spl_token,
             token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
         }),
@@ -829,18 +835,18 @@ fn withdrawal_target(recipient: Pubkey, asset: Address) -> (SettlementTarget, Tr
 
 fn validate_withdrawal_legs(legs: &[WithdrawalLeg]) -> Result<(), ClientError> {
     if legs.is_empty() {
-        return Err(TransactionError::NoPublicLegs.into());
+        return Err(TransactionError::NoInterfaceTransfers.into());
     }
-    if legs.len() > MAX_WIRE_PUBLIC_LEGS {
-        return Err(TransactionError::TooManyPublicLegs {
+    if legs.len() > MAX_INTERFACE_TRANSFERS {
+        return Err(TransactionError::TooManyInterfaceTransfers {
             got: legs.len(),
-            max: MAX_WIRE_PUBLIC_LEGS,
+            max: MAX_INTERFACE_TRANSFERS,
         }
         .into());
     }
     for leg in legs {
         if leg.amount == 0 {
-            return Err(TransactionError::ZeroPublicLegAmount.into());
+            return Err(TransactionError::ZeroInterfaceTransferAmount.into());
         }
     }
     Ok(())
@@ -869,7 +875,7 @@ fn select_withdrawal_inputs(
     let (first_asset, _) = required
         .first()
         .copied()
-        .ok_or(TransactionError::NoPublicLegs)?;
+        .ok_or(TransactionError::NoInterfaceTransfers)?;
     let tree = resolve_spend_tree(wallet, first_asset, |_| true)?;
     let mut inputs = Vec::new();
 
@@ -1005,7 +1011,7 @@ mod tests {
     use solana_account::Account;
     use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{
-        instructions::transact::SettlementLeg, Data, DataRecord, Utxo, WalletUtxo,
+        instructions::transact::SettlementTransfer, Data, DataRecord, Utxo, WalletUtxo,
     };
     use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
@@ -1135,7 +1141,7 @@ mod tests {
             result.recipient,
             TransferRecipient::Registered(resolved) if resolved.owner == owner
         ));
-        assert!(result.recipient.settlement_legs().is_empty());
+        assert!(result.recipient.settlement_transfers().is_empty());
     }
 
     #[tokio::test]
@@ -1206,10 +1212,12 @@ mod tests {
             result.recipient,
             TransferRecipient::PublicWithdrawal {
                 recipient: pubkey,
-                settlement_legs,
+                settlement_transfers,
             } if pubkey == recipient
-                && settlement_legs == vec![
-                    TransactLegAccounts::Sol(TransactSolLeg { recipient })
+                && settlement_transfers == vec![
+                    TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                        recipient
+                    })
                 ]
         ));
     }
@@ -1235,13 +1243,14 @@ mod tests {
         .expect("public withdrawal fallback");
 
         assert_eq!(
-            result.recipient.settlement_legs(),
-            &[TransactLegAccounts::Spl(TransactSplLeg {
-                vault: pda::spl_asset_vault(&mint),
-                recipient,
-                user_token_account: token_account,
-                token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
-            })]
+            result.recipient.settlement_transfers(),
+            &[TransactInterfaceTransferAccounts::SplWithdrawal(
+                TransactSplWithdrawalAccounts {
+                    vault: pda::spl_asset_vault(&mint),
+                    user_token_account: token_account,
+                    token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+                }
+            )]
         );
     }
 
@@ -1266,18 +1275,19 @@ mod tests {
         .expect("withdrawal");
 
         assert_eq!(
-            result.settlement_legs,
-            vec![TransactLegAccounts::Spl(TransactSplLeg {
-                vault: pda::spl_asset_vault(&mint),
-                recipient,
-                user_token_account: token_account,
-                token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
-            })]
+            result.settlement_transfers,
+            vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+                TransactSplWithdrawalAccounts {
+                    vault: pda::spl_asset_vault(&mint),
+                    user_token_account: token_account,
+                    token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+                }
+            )]
         );
     }
 
     #[test]
-    fn create_withdrawal_rejects_invalid_wire_count_and_zero_amounts() {
+    fn create_withdrawal_rejects_invalid_count_and_zero_amounts() {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_sol(sender, 10);
         let payer = Address::default();
@@ -1289,13 +1299,13 @@ mod tests {
         }));
         assert!(matches!(
             empty,
-            ClientError::Transaction(TransactionError::NoPublicLegs)
+            ClientError::Transaction(TransactionError::NoInterfaceTransfers)
         ));
 
         let too_many = withdrawal_error(create_withdrawal(WithdrawalParams {
             wallet: &wallet,
             payer,
-            legs: (0..=MAX_WIRE_PUBLIC_LEGS)
+            legs: (0..=MAX_INTERFACE_TRANSFERS)
                 .map(|_| WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
@@ -1305,10 +1315,10 @@ mod tests {
         }));
         assert!(matches!(
             too_many,
-            ClientError::Transaction(TransactionError::TooManyPublicLegs {
+            ClientError::Transaction(TransactionError::TooManyInterfaceTransfers {
                 got,
                 max
-            }) if got == MAX_WIRE_PUBLIC_LEGS + 1 && max == MAX_WIRE_PUBLIC_LEGS
+            }) if got == MAX_INTERFACE_TRANSFERS + 1 && max == MAX_INTERFACE_TRANSFERS
         ));
 
         let zero = withdrawal_error(create_withdrawal(WithdrawalParams {
@@ -1322,7 +1332,7 @@ mod tests {
         }));
         assert!(matches!(
             zero,
-            ClientError::Transaction(TransactionError::ZeroPublicLegAmount)
+            ClientError::Transaction(TransactionError::ZeroInterfaceTransferAmount)
         ));
     }
 
@@ -1345,7 +1355,7 @@ mod tests {
         })
         .expect("same-asset legs above the old five-leg cap");
 
-        assert_eq!(created.settlement_legs.len(), 12);
+        assert_eq!(created.settlement_transfers.len(), 12);
     }
 
     #[test]
@@ -1369,8 +1379,8 @@ mod tests {
         let signed =
             sign_shielded_transaction_sync(created.transaction, &wallet, &authority).unwrap();
         assert_eq!(
-            signed.transaction.external_data.public_legs.first(),
-            Some(&SettlementLeg::Sol {
+            signed.transaction.external_data.interface_transfers.first(),
+            Some(&SettlementTransfer::Sol {
                 is_deposit: false,
                 amount: u64::MAX,
                 user_sol_account: Address::new_from_array(recipient.to_bytes()),
@@ -1405,23 +1415,27 @@ mod tests {
         .expect("two-recipient withdrawal");
 
         assert_eq!(
-            created.settlement_legs,
+            created.settlement_transfers,
             vec![
-                TransactLegAccounts::Sol(TransactSolLeg { recipient: user }),
-                TransactLegAccounts::Sol(TransactSolLeg { recipient: relayer }),
+                TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                    recipient: user
+                }),
+                TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                    recipient: relayer
+                }),
             ]
         );
         let signed =
             sign_shielded_transaction_sync(created.transaction, &wallet, &authority).unwrap();
         assert_eq!(
-            signed.transaction.external_data.public_legs,
+            signed.transaction.external_data.interface_transfers,
             vec![
-                SettlementLeg::Sol {
+                SettlementTransfer::Sol {
                     is_deposit: false,
                     amount: 6,
                     user_sol_account: Address::new_from_array(user.to_bytes()),
                 },
-                SettlementLeg::Sol {
+                SettlementTransfer::Sol {
                     is_deposit: false,
                     amount: 2,
                     user_sol_account: Address::new_from_array(relayer.to_bytes()),
@@ -1456,11 +1470,11 @@ mod tests {
         .expect("repeated SPL mint");
 
         assert_eq!(created.transaction.input_count(), 1);
-        assert_eq!(created.settlement_legs.len(), 2);
-        assert!(created
-            .settlement_legs
-            .iter()
-            .all(|leg| matches!(leg, TransactLegAccounts::Spl(_))));
+        assert_eq!(created.settlement_transfers.len(), 2);
+        assert!(created.settlement_transfers.iter().all(|transfer| matches!(
+            transfer,
+            TransactInterfaceTransferAccounts::SplWithdrawal(_)
+        )));
     }
 
     #[test]
@@ -1497,12 +1511,12 @@ mod tests {
 
         assert_eq!(created.transaction.input_count(), 2);
         assert!(matches!(
-            created.settlement_legs.first(),
-            Some(TransactLegAccounts::Sol(_))
+            created.settlement_transfers.first(),
+            Some(TransactInterfaceTransferAccounts::Sol(_))
         ));
         assert!(matches!(
-            created.settlement_legs.get(1),
-            Some(TransactLegAccounts::Spl(_))
+            created.settlement_transfers.get(1),
+            Some(TransactInterfaceTransferAccounts::SplWithdrawal(_))
         ));
     }
 

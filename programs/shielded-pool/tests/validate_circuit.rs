@@ -35,7 +35,7 @@ fn validate(
                 eddsa_signer_index: signer_index,
             })
             .collect(),
-        public_legs: Vec::new(),
+        interface_transfers: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         outputs: (0..actual_outputs)

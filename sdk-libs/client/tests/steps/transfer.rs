@@ -18,7 +18,7 @@ use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, Public
 use zolana_transaction::{
     instructions::transact::{
         spp_proof_inputs::{asset_field, signed_to_field},
-        SettlementLeg, SENDER_SLOT_COUNT,
+        SettlementTransfer, SENDER_SLOT_COUNT,
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::derive_blinding,
@@ -334,13 +334,13 @@ fn assert_outputs(
     // everything else defaulted; the random ciphertext is passed through.
     let sol_public = net_public(Asset::Sol);
     let spl_public = net_public(Asset::Spl);
-    let public_legs = match &plan.withdraw {
-        Some(w) if w.asset == Asset::Sol => vec![SettlementLeg::Sol {
+    let interface_transfers = match &plan.withdraw {
+        Some(w) if w.asset == Asset::Sol => vec![SettlementTransfer::Sol {
             is_deposit: sol_public >= 0,
             amount: u64::try_from(sol_public.unsigned_abs()).expect("public magnitude fits u64"),
             user_sol_account: Address::new_from_array([7u8; 32]),
         }],
-        Some(_) => vec![SettlementLeg::Spl {
+        Some(_) => vec![SettlementTransfer::Spl {
             mint: spl_mint(),
             is_deposit: spl_public >= 0,
             amount: u64::try_from(spl_public.unsigned_abs()).expect("public magnitude fits u64"),
@@ -354,7 +354,7 @@ fn assert_outputs(
         &ExternalData {
             instruction_discriminator: 0,
             expiry_unix_ts: u64::MAX,
-            public_legs,
+            interface_transfers,
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: external_data.tx_viewing_pk,

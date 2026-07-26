@@ -18,7 +18,7 @@ use super::{
 };
 use crate::instructions::{
     hash::{field_from_u64, solana_pk_hash, UTXO_DOMAIN_FIELD},
-    settlement::{settle_sol, settle_spl, Settlement},
+    settlement::{settle_sol, settle_spl_deposit, Settlement},
 };
 
 pub(crate) struct ZoneData {
@@ -184,15 +184,18 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
                     asset: None,
                 });
             }
-            Settlement::Spl(spl) => {
+            Settlement::SplDeposit(spl) => {
                 if *total > 0 {
-                    settle_spl(spl, *total)?;
+                    settle_spl_deposit(spl, *total)?;
                 }
                 movements.push(Movement {
                     is_deposit: true,
                     amount: *total,
                     asset: Some(group.asset),
                 });
+            }
+            Settlement::SplWithdrawal(_) => {
+                return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
             }
         }
     }

@@ -9,7 +9,7 @@ use zolana_interface::{
     SPL_TOKEN_TRANSFER_DISCRIMINATOR,
 };
 
-use super::account::SettlementAccountsSpl;
+use super::account::{SplDepositAccounts, SplWithdrawalAccounts};
 
 pub struct SplTransferCpi<'a> {
     pub token_program: &'a AccountView,
@@ -45,31 +45,32 @@ impl SplTransferCpi<'_> {
 
 #[inline(never)]
 #[profile]
-pub fn settle_spl(settlement: &SettlementAccountsSpl<'_>, amount: u64) -> ProgramResult {
-    match settlement.cpi_authority {
-        Some(cpi_authority) => {
-            let bump = [SHIELDED_POOL_CPI_AUTHORITY_BUMP];
-            let seeds = [
-                Seed::from(SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED),
-                Seed::from(&bump),
-            ];
-            let signer = Signer::from(&seeds);
-            SplTransferCpi {
-                token_program: settlement.token_program,
-                from: settlement.vault,
-                to: settlement.user_token_account,
-                authority: cpi_authority,
-                amount,
-            }
-            .invoke_signed(core::slice::from_ref(&signer))
-        }
-        None => SplTransferCpi {
-            token_program: settlement.token_program,
-            from: settlement.user_token_account,
-            to: settlement.vault,
-            authority: settlement.recipient,
-            amount,
-        }
-        .invoke(),
+pub fn settle_spl_deposit(settlement: &SplDepositAccounts<'_>, amount: u64) -> ProgramResult {
+    SplTransferCpi {
+        token_program: settlement.token_program,
+        from: settlement.user_token_account,
+        to: settlement.vault,
+        authority: settlement.depositor,
+        amount,
     }
+    .invoke()
+}
+
+#[inline(never)]
+#[profile]
+pub fn settle_spl_withdrawal(settlement: &SplWithdrawalAccounts<'_>, amount: u64) -> ProgramResult {
+    let bump = [SHIELDED_POOL_CPI_AUTHORITY_BUMP];
+    let seeds = [
+        Seed::from(SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED),
+        Seed::from(&bump),
+    ];
+    let signer = Signer::from(&seeds);
+    SplTransferCpi {
+        token_program: settlement.token_program,
+        from: settlement.vault,
+        to: settlement.user_token_account,
+        authority: settlement.cpi_authority,
+        amount,
+    }
+    .invoke_signed(core::slice::from_ref(&signer))
 }

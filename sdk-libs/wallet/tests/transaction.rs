@@ -35,7 +35,7 @@ use zolana_interface::instruction::instruction_data::transact::{
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, ViewingKey};
 use zolana_transaction::{
     instructions::transact::{
-        spp_proof_inputs::signed_to_field, SettlementLeg, Shape, SENDER_SLOT_COUNT,
+        spp_proof_inputs::signed_to_field, SettlementTransfer, Shape, SENDER_SLOT_COUNT,
     },
     serialization::{
         confidential::{Confidential, ConfidentialOutputPlaintext},
@@ -344,7 +344,7 @@ fn transfer_round_trip_outputs_and_slots() {
         ExternalData {
             instruction_discriminator: 0,
             expiry_unix_ts: u64::MAX,
-            public_legs: Vec::new(),
+            interface_transfers: Vec::new(),
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
@@ -501,7 +501,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
     assert_ne!(dummy.nullifier_hash, first_nullifier);
 
     // A pure transfer moves no public value.
-    assert!(ix.public_legs.is_empty());
+    assert!(ix.interface_transfers.is_empty());
 
     // Output 0 is the sender's change slot. The P256-owned sender carries the
     // shared signing key tag, resolved on-chain from `p256_signing_pk_x` (the
@@ -657,7 +657,7 @@ fn withdrawal_sets_external_data_and_change() {
         ExternalData {
             instruction_discriminator: 0,
             expiry_unix_ts: u64::MAX,
-            public_legs: vec![SettlementLeg::Sol {
+            interface_transfers: vec![SettlementTransfer::Sol {
                 is_deposit: false,
                 amount: 30,
                 user_sol_account: dest,
@@ -918,7 +918,7 @@ fn repeated_withdrawals_are_preserved() {
                 user_sol_account: Address::default(),
             },
         )
-        .expect("second public leg");
+        .expect("second interface transfer");
     assert_eq!(transfer.public_movements.len(), 2);
 }
 

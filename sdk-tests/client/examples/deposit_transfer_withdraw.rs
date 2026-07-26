@@ -3,7 +3,8 @@ use client_example::{setup, SetupContext};
 use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
 use zolana_interface::instruction::{
-    AssetDeposit, Deposit, DepositAsset, Transact, TransactLegAccounts, TransactSolLeg,
+    AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
+    TransactSolTransferAccounts,
 };
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
@@ -108,7 +109,7 @@ fn main() -> Result<()> {
             payer: alice_solana_keypair.pubkey(),
             input_tree: tree,
             output_tree: tree,
-            legs: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
             data: transfer_data,
         }
         .instruction();
@@ -192,9 +193,11 @@ fn main() -> Result<()> {
             payer: alice_solana_keypair.pubkey(),
             input_tree: tree,
             output_tree: tree,
-            legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
-                recipient: alice_solana_keypair.pubkey(),
-            })],
+            interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts {
+                    recipient: alice_solana_keypair.pubkey(),
+                },
+            )],
             data: withdrawal_data,
         }
         .instruction();

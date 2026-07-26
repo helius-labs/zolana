@@ -95,16 +95,18 @@ pub enum ShieldedPoolError {
     UnreferencedDepositAsset = 7033,
     #[error("deposit batch exceeds the maximum number of assets")]
     TooManyDepositAssets = 7034,
-    #[error("transact public settlement leg count exceeds the u8 wire encoding")]
-    TooManyPublicLegs = 7035,
-    #[error("transact public settlement legs must have nonzero amounts")]
-    ZeroPublicLegAmount = 7036,
+    #[error("transact interface transfer count exceeds the u8 wire encoding")]
+    TooManyInterfaceTransfers = 7035,
+    #[error("transact interface transfers must have nonzero amounts")]
+    ZeroInterfaceTransferAmount = 7036,
     #[error("transact exceeds the maximum number of distinct public assets")]
     TooManyPublicAssets = 7037,
     #[error("transact public settlement amounts overflow while aggregating an asset")]
     PublicAssetAmountOverflow = 7038,
     #[error("circuit selector type does not match the dispatched instruction")]
     MismatchedCircuitType = 7039,
+    #[error("SPL deposit authority must sign")]
+    SplDepositorMustSign = 7040,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -176,11 +178,12 @@ mod tests {
             (DepositAmountOverflow as u32, 7032),
             (UnreferencedDepositAsset as u32, 7033),
             (TooManyDepositAssets as u32, 7034),
-            (TooManyPublicLegs as u32, 7035),
-            (ZeroPublicLegAmount as u32, 7036),
+            (TooManyInterfaceTransfers as u32, 7035),
+            (ZeroInterfaceTransferAmount as u32, 7036),
             (TooManyPublicAssets as u32, 7037),
             (PublicAssetAmountOverflow as u32, 7038),
             (MismatchedCircuitType as u32, 7039),
+            (SplDepositorMustSign as u32, 7040),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

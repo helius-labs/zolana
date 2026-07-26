@@ -144,7 +144,7 @@ func TestProveShieldWithAllDummyInputs(t *testing.T) {
 		InstructionDiscriminator: 1,
 		ExpiryUnixTs:             123,
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
-		PublicLegs: []PublicLegRequest{{
+		InterfaceTransfers: []InterfaceTransferRequest{{
 			IsDeposit:   true,
 			Amount:      100,
 			UserAccount: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
@@ -161,7 +161,7 @@ func TestProveShieldWithAllDummyInputs(t *testing.T) {
 	proveAndVerify(t, shape, tx, payerHash)
 }
 
-func TestProveMixedDirectionPublicLegs(t *testing.T) {
+func TestProveMixedDirectionInterfaceTransfers(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
@@ -173,7 +173,7 @@ func TestProveMixedDirectionPublicLegs(t *testing.T) {
 	tx.Outputs[0].Amount = proofFieldInput(big.NewInt(25))
 	tx.Outputs[1].Amount = proofFieldInput(big.NewInt(13))
 	refreshStateEntry(t, &tx, 1)
-	tx.PublicLegs = []PublicLegRequest{
+	tx.InterfaceTransfers = []InterfaceTransferRequest{
 		{
 			IsSpl:       true,
 			Asset:       testMintA,
@@ -191,7 +191,7 @@ func TestProveMixedDirectionPublicLegs(t *testing.T) {
 	proveAndVerify(t, shape, tx, payerHash)
 }
 
-func TestProveSixSameAssetPublicLegs(t *testing.T) {
+func TestProveSixSameAssetInterfaceTransfers(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
@@ -205,7 +205,7 @@ func TestProveSixSameAssetPublicLegs(t *testing.T) {
 	tx.Outputs[0].Amount = proofFieldInput(big.NewInt(13))
 	tx.Outputs[1].Amount = proofFieldInput(big.NewInt(9))
 	refreshStateEntry(t, &tx, 0)
-	tx.PublicLegs = []PublicLegRequest{
+	tx.InterfaceTransfers = []InterfaceTransferRequest{
 		{
 			IsSpl:       true,
 			IsDeposit:   true,
@@ -272,7 +272,7 @@ func TestProveThreeDistinctPublicAssets(t *testing.T) {
 	tx.Outputs[2].Amount = proofFieldInput(big.NewInt(32))
 	refreshStateEntry(t, &tx, 1)
 	refreshStateEntry(t, &tx, 2)
-	tx.PublicLegs = []PublicLegRequest{
+	tx.InterfaceTransfers = []InterfaceTransferRequest{
 		{IsDeposit: true, Amount: 5, UserAccount: stringsOfByte(0x21)},
 		{
 			IsSpl:       true,

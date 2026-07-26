@@ -16,7 +16,7 @@ use super::{
     shape::{resolve_shape, Shape},
     slots::encode_confidential_slots,
     spp_proof_inputs::{first_nullifier, inputs_require_p256, SppProofInputs},
-    ExternalData, SettlementLeg, SppProofOutputUtxo,
+    ExternalData, SettlementTransfer, SppProofOutputUtxo,
 };
 use crate::{
     data::Data,
@@ -45,7 +45,7 @@ pub struct PreparedTransfer {
     pub first_nullifier: [u8; 32],
     pub shape: Shape,
     pub payer_pubkey_hash: [u8; 32],
-    pub public_legs: Vec<SettlementLeg>,
+    pub interface_transfers: Vec<SettlementTransfer>,
 }
 
 pub struct Recipient {
@@ -145,19 +145,19 @@ impl ConfidentialTransfer {
         target: SettlementTarget,
     ) -> Result<&mut Self, TransactionError> {
         if amount == 0 {
-            return Err(TransactionError::ZeroPublicLegAmount);
+            return Err(TransactionError::ZeroInterfaceTransferAmount);
         }
         validate_settlement_target(asset, target)?;
         let next_len = self.public_movements.len().checked_add(1).ok_or(
-            TransactionError::TooManyPublicLegs {
+            TransactionError::TooManyInterfaceTransfers {
                 got: usize::MAX,
-                max: zolana_interface::MAX_WIRE_PUBLIC_LEGS,
+                max: zolana_interface::MAX_INTERFACE_TRANSFERS,
             },
         )?;
-        if next_len > zolana_interface::MAX_WIRE_PUBLIC_LEGS {
-            return Err(TransactionError::TooManyPublicLegs {
+        if next_len > zolana_interface::MAX_INTERFACE_TRANSFERS {
+            return Err(TransactionError::TooManyInterfaceTransfers {
                 got: next_len,
-                max: zolana_interface::MAX_WIRE_PUBLIC_LEGS,
+                max: zolana_interface::MAX_INTERFACE_TRANSFERS,
             });
         }
         self.public_movements.push(PublicMovementRequest {
@@ -201,10 +201,10 @@ impl ConfidentialTransfer {
     }
 
     pub fn prepare(self) -> Result<PreparedTransfer, TransactionError> {
-        if self.public_movements.len() > zolana_interface::MAX_WIRE_PUBLIC_LEGS {
-            return Err(TransactionError::TooManyPublicLegs {
+        if self.public_movements.len() > zolana_interface::MAX_INTERFACE_TRANSFERS {
+            return Err(TransactionError::TooManyInterfaceTransfers {
                 got: self.public_movements.len(),
-                max: zolana_interface::MAX_WIRE_PUBLIC_LEGS,
+                max: zolana_interface::MAX_INTERFACE_TRANSFERS,
             });
         }
         if self
@@ -212,7 +212,7 @@ impl ConfidentialTransfer {
             .iter()
             .any(|movement| movement.amount == 0)
         {
-            return Err(TransactionError::ZeroPublicLegAmount);
+            return Err(TransactionError::ZeroInterfaceTransferAmount);
         }
         for movement in &self.public_movements {
             validate_settlement_target(movement.asset, movement.target)?;
@@ -273,11 +273,11 @@ impl ConfidentialTransfer {
 
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
         let first_nullifier = first_nullifier(&self.inputs)?;
-        let public_legs = self
+        let interface_transfers = self
             .public_movements
             .iter()
             .copied()
-            .map(PublicMovementRequest::settlement_leg)
+            .map(PublicMovementRequest::settlement_transfer)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(PreparedTransfer {
@@ -287,7 +287,7 @@ impl ConfidentialTransfer {
             first_nullifier,
             shape,
             payer_pubkey_hash: self.payer_pubkey_hash,
-            public_legs,
+            interface_transfers,
         })
     }
 
@@ -362,10 +362,10 @@ impl ConfidentialTransfer {
 }
 
 impl PublicMovementRequest {
-    fn settlement_leg(self) -> Result<SettlementLeg, TransactionError> {
+    fn settlement_transfer(self) -> Result<SettlementTransfer, TransactionError> {
         validate_settlement_target(self.asset, self.target)?;
         match self.target {
-            SettlementTarget::Sol { user_sol_account } => Ok(SettlementLeg::Sol {
+            SettlementTarget::Sol { user_sol_account } => Ok(SettlementTransfer::Sol {
                 is_deposit: self.is_deposit,
                 amount: self.amount,
                 user_sol_account,
@@ -373,7 +373,7 @@ impl PublicMovementRequest {
             SettlementTarget::Spl {
                 user_spl_token,
                 spl_token_interface,
-            } => Ok(SettlementLeg::Spl {
+            } => Ok(SettlementTransfer::Spl {
                 mint: self.asset,
                 is_deposit: self.is_deposit,
                 amount: self.amount,
@@ -412,7 +412,7 @@ impl PreparedTransfer {
             mut outputs,
             shape,
             payer_pubkey_hash,
-            public_legs,
+            interface_transfers,
             ..
         } = self;
 
@@ -509,7 +509,7 @@ impl PreparedTransfer {
             resolved_owner_tags,
             vec![],
         )
-        .with_public_legs(public_legs)?;
+        .with_interface_transfers(interface_transfers)?;
 
         Ok(SppProofInputs {
             input_utxos: inputs,
@@ -728,11 +728,11 @@ mod tests {
     }
 
     #[test]
-    fn transfer_accepts_more_than_five_same_asset_settlements_up_to_wire_limit() {
+    fn transfer_accepts_many_same_asset_settlements_up_to_limit() {
         let owner = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
         let mut transfer = ConfidentialTransfer::new(owner, vec![], Address::default());
-        for seed in 1..=zolana_interface::MAX_WIRE_PUBLIC_LEGS {
-            let address_seed = u8::try_from(seed).expect("wire leg index fits u8");
+        for seed in 1..=zolana_interface::MAX_INTERFACE_TRANSFERS {
+            let address_seed = u8::try_from(seed).expect("interface transfer index fits u8");
             transfer
                 .withdraw(
                     SOL_MINT,
@@ -745,7 +745,7 @@ mod tests {
         }
         assert_eq!(
             transfer.public_movements.len(),
-            zolana_interface::MAX_WIRE_PUBLIC_LEGS
+            zolana_interface::MAX_INTERFACE_TRANSFERS
         );
         assert!(matches!(
             transfer.withdraw(
@@ -755,11 +755,11 @@ mod tests {
                     user_sol_account: Address::default(),
                 },
             ),
-            Err(TransactionError::TooManyPublicLegs {
+            Err(TransactionError::TooManyInterfaceTransfers {
                 got,
                 max
-            }) if got == zolana_interface::MAX_WIRE_PUBLIC_LEGS + 1
-                && max == zolana_interface::MAX_WIRE_PUBLIC_LEGS
+            }) if got == zolana_interface::MAX_INTERFACE_TRANSFERS + 1
+                && max == zolana_interface::MAX_INTERFACE_TRANSFERS
         ));
     }
 
@@ -787,7 +787,7 @@ mod tests {
                     user_sol_account: Address::default(),
                 },
             ),
-            Err(TransactionError::ZeroPublicLegAmount)
+            Err(TransactionError::ZeroInterfaceTransferAmount)
         ));
         transfer
             .withdraw(

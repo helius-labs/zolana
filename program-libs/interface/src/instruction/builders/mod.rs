@@ -22,7 +22,10 @@ pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, Deposi
 pub use merge_transact::MergeTransact;
 pub use merge_zone::MergeZone;
 pub use protocol_config::{CreateProtocolConfig, PauseTree, UpdateProtocolConfig};
-pub use transact::{Transact, TransactLegAccounts, TransactSolLeg, TransactSplLeg};
+pub use transact::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+};
 pub use zone_authority_transact::ZoneAuthorityTransact;
 pub use zone_config::{CreateZoneConfig, UpdateZoneConfig, UpdateZoneConfigOwner};
 pub use zone_deposit::{ZoneAssetDeposit, ZoneDeposit};

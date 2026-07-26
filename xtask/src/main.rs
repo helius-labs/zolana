@@ -334,7 +334,7 @@ fn tx_size(args: Vec<String>) {
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
     use zolana_interface::{
         instruction::{
-            tag, CircuitId, InputUtxo, OwnerTag, P256Proof, PublicLeg, TransactIxData,
+            tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, P256Proof, TransactIxData,
             TransactOutput, TransactProof,
         },
         N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -404,7 +404,7 @@ fn tx_size(args: Vec<String>) {
     // length (`None` = a covered position carrying `data: None`). Since outputs
     // now fold the utxo hash, owner tag, and ciphertext into one `TransactOutput`,
     // this descriptor is all a shape needs.
-    let build_ix_data = |public_legs: Vec<PublicLeg>,
+    let build_ix_data = |interface_transfers: Vec<InterfaceTransfer>,
                          n: usize,
                          p256_signing_pk_x: Option<[u8; 32]>,
                          proof: TransactProof,
@@ -437,7 +437,7 @@ fn tx_size(args: Vec<String>) {
             ),
             p256_signing_pk_x,
             inputs,
-            public_legs,
+            interface_transfers,
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: [0u8; 33],
@@ -549,8 +549,7 @@ fn tx_size(args: Vec<String>) {
      -> (usize, usize, usize, usize, usize) {
         let transfer_data = build_ix_data(Vec::new(), n, p256_signing_pk_x, proof, outputs_spec);
         let shield_data = build_ix_data(
-            vec![PublicLeg::Spl {
-                is_deposit: true,
+            vec![InterfaceTransfer::SplDeposit {
                 amount: 1000,
                 vault_bump: 0,
             }],
@@ -790,7 +789,11 @@ fn tx_size(args: Vec<String>) {
     );
     println!(
         "| {:>11} | {:>17} | {:>16} | {:>17} | {:>16} |",
-        "public legs", "EdDSA ix data (B)", "EdDSA tx (B)", "P256 ix data (B)", "P256 tx (B)",
+        "interface transfers",
+        "EdDSA ix data (B)",
+        "EdDSA tx (B)",
+        "P256 ix data (B)",
+        "P256 tx (B)",
     );
     println!(
         "|{:-<13}|{:-<19}|{:-<18}|{:-<19}|{:-<18}|",
@@ -803,22 +806,21 @@ fn tx_size(args: Vec<String>) {
         OPT_RECIPIENT_DATA_LEN,
     );
     for leg_count in [0usize, 1, 5] {
-        let public_legs = (0..leg_count)
-            .map(|_| PublicLeg::Spl {
-                is_deposit: false,
+        let interface_transfers = (0..leg_count)
+            .map(|_| InterfaceTransfer::SplWithdrawal {
                 amount: 1,
                 vault_bump: 0,
             })
             .collect::<Vec<_>>();
         let eddsa_data = build_ix_data(
-            public_legs.clone(),
+            interface_transfers.clone(),
             3,
             None,
             TransactProof::zeroed_eddsa(),
             &spec,
         );
         let p256_data = build_ix_data(
-            public_legs,
+            interface_transfers,
             3,
             None,
             TransactProof::P256(P256Proof::zeroed()),

@@ -1,16 +1,17 @@
 use pinocchio::{error::ProgramError, AccountView};
+use zolana_account_checks::checks::check_signer;
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{PublicLeg, TransactIxDataRef},
-        validate_public_legs,
+        instruction_data::transact::{InterfaceTransfer, TransactIxDataRef},
+        validate_interface_transfers,
     },
 };
 
 use crate::instructions::settlement::{
     validate_cpi_authority, validate_sol_interface, validate_spl_settlement, Settlement,
-    SettlementAccountsSol, SettlementAccountsSpl,
+    SettlementAccountsSol, SplDepositAccounts, SplWithdrawalAccounts,
 };
 use crate::instructions::zone_config::loader::load_zone_config;
 
@@ -44,24 +45,15 @@ impl<'a> TransactAccounts<'a> {
         output_tree: &'a mut AccountView,
     ) -> Result<Self, ProgramError> {
         // Check no zero amounts and less than 255.
-        validate_public_legs(&ix.public_legs)?;
+        validate_interface_transfers(&ix.interface_transfers)?;
 
-        let mut settlements = Vec::with_capacity(ix.public_legs.len());
-        for leg in &ix.public_legs {
-            let settlement = match leg {
-                PublicLeg::Spl {
-                    is_deposit,
-                    vault_bump,
-                    ..
-                } => {
-                    let cpi_authority = if *is_deposit {
-                        None
-                    } else {
-                        // Withdrawals move funds spl interface -> user, program cpi authority pda needs to sign.
-                        Some(validate_cpi_authority(iter.next_account("cpi_authority")?)?)
-                    };
+        let mut settlements = Vec::with_capacity(ix.interface_transfers.len());
+        for transfer in &ix.interface_transfers {
+            let settlement = match transfer {
+                InterfaceTransfer::SplDeposit { vault_bump, .. } => {
                     let vault = iter.next_account("vault")?;
-                    let recipient = iter.next_account("recipient")?;
+                    let depositor = iter.next_account("depositor")?;
+                    check_signer(depositor).map_err(|_| ShieldedPoolError::SplDepositorMustSign)?;
                     let user_token_account = iter.next_account("user_token_account")?;
                     let token_program = iter.next_account("token_program")?;
                     let mint = validate_spl_settlement(
@@ -71,16 +63,36 @@ impl<'a> TransactAccounts<'a> {
                         token_program,
                         *vault_bump,
                     )?;
-                    Settlement::Spl(SettlementAccountsSpl {
-                        cpi_authority,
+                    Settlement::SplDeposit(SplDepositAccounts {
                         mint,
                         vault,
-                        recipient,
+                        depositor,
                         user_token_account,
                         token_program,
                     })
                 }
-                PublicLeg::Sol { .. } => {
+                InterfaceTransfer::SplWithdrawal { vault_bump, .. } => {
+                    let cpi_authority =
+                        validate_cpi_authority(iter.next_account("cpi_authority")?)?;
+                    let vault = iter.next_account("vault")?;
+                    let user_token_account = iter.next_account("user_token_account")?;
+                    let token_program = iter.next_account("token_program")?;
+                    let mint = validate_spl_settlement(
+                        &crate::ID,
+                        vault,
+                        user_token_account,
+                        token_program,
+                        *vault_bump,
+                    )?;
+                    Settlement::SplWithdrawal(SplWithdrawalAccounts {
+                        cpi_authority,
+                        mint,
+                        vault,
+                        user_token_account,
+                        token_program,
+                    })
+                }
+                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => {
                     let sol_interface = iter.next_account("sol_interface")?;
                     let sol_interface_bump = validate_sol_interface(sol_interface)?;
                     let recipient = iter.next_account("recipient")?;
@@ -93,7 +105,10 @@ impl<'a> TransactAccounts<'a> {
             };
             settlements.push(settlement);
         }
-        let system_program = iter.next_account("system_program")?; // TODO: move before loop
+        // Keep the System Program in the transaction account keys even when no
+        // SOL transfer is present: the SVM resolves the forester-fee Transfer
+        // CPI callee against those keys.
+        let system_program = iter.next_account("system_program")?;
         if !pinocchio_system::check_id(system_program.address()) {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
         }

@@ -2,20 +2,21 @@ use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_interface::instruction::{
     instruction_data::transact::{
-        ExternalDataHash, PublicLeg, ResolvedOutput, ResolvedPublicLeg, TransactOutput,
+        ExternalDataHash, InterfaceTransfer, ResolvedInterfaceTransfer, ResolvedOutput,
+        TransactOutput,
     },
     tag,
 };
 use zolana_interface::pda;
-use zolana_interface::MAX_WIRE_PUBLIC_LEGS;
+use zolana_interface::MAX_INTERFACE_TRANSFERS;
 
 use crate::{error::TransactionError, SOL_MINT};
 
-/// One ordered public settlement leg, including the accounts committed by the
+/// One ordered interface transfer, including the accounts committed by the
 /// canonical external-data hash. SPL legs retain their mint so proof public
 /// movements can be derived without inspecting private inputs or outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SettlementLeg {
+pub enum SettlementTransfer {
     Sol {
         is_deposit: bool,
         amount: u64,
@@ -30,7 +31,7 @@ pub enum SettlementLeg {
     },
 }
 
-impl SettlementLeg {
+impl SettlementTransfer {
     pub const fn amount(self) -> u64 {
         match self {
             Self::Sol { amount, .. } | Self::Spl { amount, .. } => amount,
@@ -50,47 +51,73 @@ impl SettlementLeg {
         }
     }
 
-    pub fn public_leg(self) -> PublicLeg {
+    pub fn interface_transfer(self) -> InterfaceTransfer {
         match self {
             Self::Sol {
                 is_deposit, amount, ..
-            } => PublicLeg::Sol { is_deposit, amount },
+            } => {
+                if is_deposit {
+                    InterfaceTransfer::SolDeposit { amount }
+                } else {
+                    InterfaceTransfer::SolWithdrawal { amount }
+                }
+            }
             Self::Spl {
                 mint,
                 is_deposit,
                 amount,
                 ..
-            } => PublicLeg::Spl {
-                is_deposit,
-                amount,
-                vault_bump: pda::spl_asset_vault_bump(mint.as_array()),
-            },
+            } => {
+                let vault_bump = pda::spl_asset_vault_bump(mint.as_array());
+                if is_deposit {
+                    InterfaceTransfer::SplDeposit { amount, vault_bump }
+                } else {
+                    InterfaceTransfer::SplWithdrawal { amount, vault_bump }
+                }
+            }
         }
     }
 
-    fn resolved(self) -> ResolvedPublicLeg {
+    fn resolved(self) -> ResolvedInterfaceTransfer {
         match self {
             Self::Sol {
                 is_deposit,
                 amount,
                 user_sol_account,
-            } => ResolvedPublicLeg::Sol {
-                is_deposit,
-                amount,
-                recipient: *user_sol_account.as_array(),
-            },
+            } => {
+                if is_deposit {
+                    ResolvedInterfaceTransfer::SolDeposit {
+                        amount,
+                        recipient: *user_sol_account.as_array(),
+                    }
+                } else {
+                    ResolvedInterfaceTransfer::SolWithdrawal {
+                        amount,
+                        recipient: *user_sol_account.as_array(),
+                    }
+                }
+            }
             Self::Spl {
                 is_deposit,
                 amount,
                 user_spl_token,
                 spl_token_interface,
                 ..
-            } => ResolvedPublicLeg::Spl {
-                is_deposit,
-                amount,
-                user_token_account: *user_spl_token.as_array(),
-                vault: *spl_token_interface.as_array(),
-            },
+            } => {
+                if is_deposit {
+                    ResolvedInterfaceTransfer::SplDeposit {
+                        amount,
+                        user_token_account: *user_spl_token.as_array(),
+                        vault: *spl_token_interface.as_array(),
+                    }
+                } else {
+                    ResolvedInterfaceTransfer::SplWithdrawal {
+                        amount,
+                        user_token_account: *user_spl_token.as_array(),
+                        vault: *spl_token_interface.as_array(),
+                    }
+                }
+            }
         }
     }
 }
@@ -105,7 +132,7 @@ impl SettlementLeg {
 pub struct ExternalData {
     pub instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
-    pub public_legs: Vec<SettlementLeg>,
+    pub interface_transfers: Vec<SettlementTransfer>,
     /// Optional transaction-level UTXO- and zone-specific external data
     /// digests folded into `external_data_hash`; `None` for a default-zone
     /// `transact`.
@@ -135,7 +162,7 @@ impl ExternalData {
         Self {
             instruction_discriminator: tag::TRANSACT,
             expiry_unix_ts: u64::MAX, // default no expiry, not necessary for confidential transfers
-            public_legs: Vec::new(),
+            interface_transfers: Vec::new(),
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk,
@@ -146,33 +173,34 @@ impl ExternalData {
         }
     }
 
-    pub fn with_public_leg(mut self, leg: SettlementLeg) -> Result<Self, TransactionError> {
-        validate_settlement_legs(&self.public_legs)?;
-        validate_settlement_leg(leg)?;
-        let len =
-            self.public_legs
-                .len()
-                .checked_add(1)
-                .ok_or(TransactionError::TooManyPublicLegs {
-                    got: usize::MAX,
-                    max: MAX_WIRE_PUBLIC_LEGS,
-                })?;
-        if len > MAX_WIRE_PUBLIC_LEGS {
-            return Err(TransactionError::TooManyPublicLegs {
+    pub fn with_interface_transfer(
+        mut self,
+        transfer: SettlementTransfer,
+    ) -> Result<Self, TransactionError> {
+        validate_settlement_transfers(&self.interface_transfers)?;
+        validate_settlement_transfer(transfer)?;
+        let len = self.interface_transfers.len().checked_add(1).ok_or(
+            TransactionError::TooManyInterfaceTransfers {
+                got: usize::MAX,
+                max: MAX_INTERFACE_TRANSFERS,
+            },
+        )?;
+        if len > MAX_INTERFACE_TRANSFERS {
+            return Err(TransactionError::TooManyInterfaceTransfers {
                 got: len,
-                max: MAX_WIRE_PUBLIC_LEGS,
+                max: MAX_INTERFACE_TRANSFERS,
             });
         }
-        self.public_legs.push(leg);
+        self.interface_transfers.push(transfer);
         Ok(self)
     }
 
-    pub fn with_public_legs(
+    pub fn with_interface_transfers(
         mut self,
-        public_legs: Vec<SettlementLeg>,
+        interface_transfers: Vec<SettlementTransfer>,
     ) -> Result<Self, TransactionError> {
-        validate_settlement_legs(&public_legs)?;
-        self.public_legs = public_legs;
+        validate_settlement_transfers(&interface_transfers)?;
+        self.interface_transfers = interface_transfers;
         Ok(self)
     }
 
@@ -193,7 +221,7 @@ impl ExternalData {
     /// Builds [`ResolvedOutput`]s from the outputs paired with their resolved
     /// owner tags, so the client and program hash the identical preimage.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        validate_settlement_legs(&self.public_legs)?;
+        validate_settlement_transfers(&self.interface_transfers)?;
         if self.outputs.len() != self.resolved_owner_tags.len() {
             return Err(TransactionError::Hash(
                 "resolved owner tags do not pair 1:1 with outputs".to_string(),
@@ -209,16 +237,16 @@ impl ExternalData {
                 data: output.data.as_deref(),
             })
             .collect();
-        let public_legs: Vec<_> = self
-            .public_legs
+        let interface_transfers: Vec<_> = self
+            .interface_transfers
             .iter()
             .copied()
-            .map(SettlementLeg::resolved)
+            .map(SettlementTransfer::resolved)
             .collect();
         ExternalDataHash {
             spp_instruction_discriminator: self.instruction_discriminator,
             expiry_unix_ts: self.expiry_unix_ts,
-            public_legs: &public_legs,
+            interface_transfers: &interface_transfers,
             data_hash: self.data_hash,
             zone_data_hash: self.zone_data_hash,
             outputs: &resolved,
@@ -229,24 +257,24 @@ impl ExternalData {
     }
 }
 
-fn validate_settlement_legs(legs: &[SettlementLeg]) -> Result<(), TransactionError> {
-    if legs.len() > MAX_WIRE_PUBLIC_LEGS {
-        return Err(TransactionError::TooManyPublicLegs {
-            got: legs.len(),
-            max: MAX_WIRE_PUBLIC_LEGS,
+fn validate_settlement_transfers(transfers: &[SettlementTransfer]) -> Result<(), TransactionError> {
+    if transfers.len() > MAX_INTERFACE_TRANSFERS {
+        return Err(TransactionError::TooManyInterfaceTransfers {
+            got: transfers.len(),
+            max: MAX_INTERFACE_TRANSFERS,
         });
     }
-    for leg in legs {
-        validate_settlement_leg(*leg)?;
+    for transfer in transfers {
+        validate_settlement_transfer(*transfer)?;
     }
     Ok(())
 }
 
-fn validate_settlement_leg(leg: SettlementLeg) -> Result<(), TransactionError> {
-    if leg.amount() == 0 {
-        return Err(TransactionError::ZeroPublicLegAmount);
+fn validate_settlement_transfer(transfer: SettlementTransfer) -> Result<(), TransactionError> {
+    if transfer.amount() == 0 {
+        return Err(TransactionError::ZeroInterfaceTransferAmount);
     }
-    if matches!(leg, SettlementLeg::Spl { mint, .. } if mint == SOL_MINT) {
+    if matches!(transfer, SettlementTransfer::Spl { mint, .. } if mint == SOL_MINT) {
         return Err(TransactionError::SettlementTargetMismatch { asset: SOL_MINT });
     }
     Ok(())

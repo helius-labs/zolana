@@ -64,14 +64,14 @@ pub enum TransactionError {
     #[error("transaction has no inputs")]
     NoInputs,
 
-    #[error("too many public settlement legs: got {got}, max {max}")]
-    TooManyPublicLegs { got: usize, max: usize },
+    #[error("too many interface transfers: got {got}, max {max}")]
+    TooManyInterfaceTransfers { got: usize, max: usize },
 
-    #[error("public settlement requires at least one leg")]
-    NoPublicLegs,
+    #[error("public settlement requires at least one interface transfer")]
+    NoInterfaceTransfers,
 
-    #[error("public settlement leg amount must be nonzero")]
-    ZeroPublicLegAmount,
+    #[error("interface transfer amount must be nonzero")]
+    ZeroInterfaceTransferAmount,
 
     #[error("settlement target type does not match asset {asset}")]
     SettlementTargetMismatch { asset: Address },

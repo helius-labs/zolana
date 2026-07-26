@@ -10,8 +10,9 @@ use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataHash, InputUtxo, OwnerTag, PublicLeg, ResolvedOutput,
-            ResolvedPublicLeg, TransactIxData, TransactOutput, TransactProof,
+            CircuitId, ExternalDataHash, InputUtxo, InterfaceTransfer, OwnerTag,
+            ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData, TransactOutput,
+            TransactProof,
         },
         tag,
     },
@@ -206,7 +207,7 @@ pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> 
 
 pub fn new_transact_ix_data(
     inputs: Vec<InputUtxo>,
-    public_legs: Vec<PublicLeg>,
+    interface_transfers: Vec<InterfaceTransfer>,
     outputs: Vec<TransactOutput>,
     p256_signing_pk_x: Option<[u8; 32]>,
 ) -> TransactIxData {
@@ -222,7 +223,7 @@ pub fn new_transact_ix_data(
         circuit,
         p256_signing_pk_x,
         inputs,
-        public_legs,
+        interface_transfers,
         data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
@@ -234,13 +235,13 @@ pub fn new_transact_ix_data(
 
 pub fn external_data_hash(
     transact_ix_data: &TransactIxData,
-    public_legs: &[ResolvedPublicLeg],
+    interface_transfers: &[ResolvedInterfaceTransfer],
 ) -> Result<[u8; 32]> {
     let outputs = resolve_outputs(transact_ix_data)?;
     Ok(ExternalDataHash {
         spp_instruction_discriminator: tag::TRANSACT,
         expiry_unix_ts: transact_ix_data.expiry_unix_ts,
-        public_legs,
+        interface_transfers,
         data_hash: None,
         zone_data_hash: None,
         outputs: &outputs,

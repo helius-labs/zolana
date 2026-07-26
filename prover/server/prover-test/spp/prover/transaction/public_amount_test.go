@@ -28,7 +28,7 @@ func TestDerivePublicSlotsKeepsEmptySlotsIdle(t *testing.T) {
 
 func TestDerivePublicSlotsSingleSplUsesSlotZero(t *testing.T) {
 	slots, err := derivePublicSlots(ProofTransactionRequest{
-		PublicLegs: []PublicLegRequest{{
+		InterfaceTransfers: []InterfaceTransferRequest{{
 			IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 17,
 		}},
 	})
@@ -43,7 +43,7 @@ func TestDerivePublicSlotsSingleSplUsesSlotZero(t *testing.T) {
 
 func TestDerivePublicSlotsAggregatesMixedDirectionsByFirstAppearance(t *testing.T) {
 	slots, err := derivePublicSlots(ProofTransactionRequest{
-		PublicLegs: []PublicLegRequest{
+		InterfaceTransfers: []InterfaceTransferRequest{
 			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 11},
 			{Amount: 8},
 			{IsSpl: true, Asset: testMintA, Amount: 6},
@@ -64,7 +64,7 @@ func TestDerivePublicSlotsAggregatesMixedDirectionsByFirstAppearance(t *testing.
 
 func TestDerivePublicSlotsAcceptsSixSameAssetLegs(t *testing.T) {
 	slots, err := derivePublicSlots(ProofTransactionRequest{
-		PublicLegs: []PublicLegRequest{
+		InterfaceTransfers: []InterfaceTransferRequest{
 			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 10},
 			{IsSpl: true, Asset: testMintA, Amount: 2},
 			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 7},
@@ -82,26 +82,26 @@ func TestDerivePublicSlotsAcceptsSixSameAssetLegs(t *testing.T) {
 	expectIdleSlot(t, slots, 2)
 }
 
-func TestDerivePublicSlotsAcceptsU8LegCountBoundary(t *testing.T) {
-	legs := make([]PublicLegRequest, MaxEncodedPublicLegs)
-	for i := range legs {
-		legs[i] = PublicLegRequest{IsDeposit: true, Amount: 1}
+func TestDerivePublicSlotsAcceptsU8TransferCountBoundary(t *testing.T) {
+	transfers := make([]InterfaceTransferRequest, MaxInterfaceTransfers)
+	for i := range transfers {
+		transfers[i] = InterfaceTransferRequest{IsDeposit: true, Amount: 1}
 	}
-	slots, err := derivePublicSlots(ProofTransactionRequest{PublicLegs: legs})
+	slots, err := derivePublicSlots(ProofTransactionRequest{InterfaceTransfers: transfers})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if slots.assets[0].Cmp(protocol.SolAsset()) != 0 {
 		t.Fatalf("SOL asset = %s", slots.assets[0])
 	}
-	expectSignedAmount(t, slots.amounts[0], true, MaxEncodedPublicLegs)
+	expectSignedAmount(t, slots.amounts[0], true, MaxInterfaceTransfers)
 	expectIdleSlot(t, slots, 1)
 	expectIdleSlot(t, slots, 2)
 }
 
 func TestDerivePublicSlotsAcceptsThreeDistinctAssets(t *testing.T) {
 	slots, err := derivePublicSlots(ProofTransactionRequest{
-		PublicLegs: []PublicLegRequest{
+		InterfaceTransfers: []InterfaceTransferRequest{
 			{IsSpl: true, Asset: testMintB, Amount: 9},
 			{IsDeposit: true, Amount: 4},
 			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 7},
@@ -122,7 +122,7 @@ func TestDerivePublicSlotsAcceptsThreeDistinctAssets(t *testing.T) {
 
 func TestDerivePublicSlotsNetZeroAssetsDoNotConsumeSlots(t *testing.T) {
 	slots, err := derivePublicSlots(ProofTransactionRequest{
-		PublicLegs: []PublicLegRequest{
+		InterfaceTransfers: []InterfaceTransferRequest{
 			{IsDeposit: true, Amount: 5},
 			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 2},
 			{IsSpl: true, IsDeposit: true, Asset: testMintB, Amount: 3},
@@ -143,7 +143,7 @@ func TestDerivePublicSlotsNetZeroAssetsDoNotConsumeSlots(t *testing.T) {
 
 func TestDerivePublicSlotsSupportsFullU64Bounds(t *testing.T) {
 	slots, err := derivePublicSlots(ProofTransactionRequest{
-		PublicLegs: []PublicLegRequest{
+		InterfaceTransfers: []InterfaceTransferRequest{
 			{IsDeposit: true, Amount: math.MaxUint64},
 			{IsSpl: true, Asset: testMintA, Amount: math.MaxUint64},
 		},
@@ -158,24 +158,24 @@ func TestDerivePublicSlotsSupportsFullU64Bounds(t *testing.T) {
 
 func TestDerivePublicSlotsRejectsAggregateOverflow(t *testing.T) {
 	tests := []struct {
-		name string
-		legs []PublicLegRequest
+		name      string
+		transfers []InterfaceTransferRequest
 	}{
 		{
 			name: "positive",
-			legs: []PublicLegRequest{
+			transfers: []InterfaceTransferRequest{
 				{IsDeposit: true, Amount: math.MaxUint64},
 				{IsDeposit: true, Amount: 1},
 			},
 		},
 		{
-			name: "negative",
-			legs: []PublicLegRequest{{Amount: math.MaxUint64}, {Amount: 1}},
+			name:      "negative",
+			transfers: []InterfaceTransferRequest{{Amount: math.MaxUint64}, {Amount: 1}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := derivePublicSlots(ProofTransactionRequest{PublicLegs: tt.legs})
+			_, err := derivePublicSlots(ProofTransactionRequest{InterfaceTransfers: tt.transfers})
 			if err == nil || !strings.Contains(err.Error(), "aggregate magnitude exceeds u64") {
 				t.Fatalf("error = %v", err)
 			}
@@ -185,7 +185,7 @@ func TestDerivePublicSlotsRejectsAggregateOverflow(t *testing.T) {
 
 func TestDerivePublicSlotsChecksFinalNetMagnitude(t *testing.T) {
 	slots, err := derivePublicSlots(ProofTransactionRequest{
-		PublicLegs: []PublicLegRequest{
+		InterfaceTransfers: []InterfaceTransferRequest{
 			{IsDeposit: true, Amount: math.MaxUint64},
 			{IsDeposit: true, Amount: math.MaxUint64},
 			{Amount: math.MaxUint64},
@@ -197,39 +197,39 @@ func TestDerivePublicSlotsChecksFinalNetMagnitude(t *testing.T) {
 	expectSignedAmount(t, slots.amounts[0], true, math.MaxUint64)
 }
 
-func TestDerivePublicSlotsRejectsInvalidLegs(t *testing.T) {
-	tooManyEncodedLegs := make([]PublicLegRequest, MaxEncodedPublicLegs+1)
-	for i := range tooManyEncodedLegs {
-		tooManyEncodedLegs[i].Amount = 1
+func TestDerivePublicSlotsRejectsInvalidInterfaceTransfers(t *testing.T) {
+	tooManyTransfers := make([]InterfaceTransferRequest, MaxInterfaceTransfers+1)
+	for i := range tooManyTransfers {
+		tooManyTransfers[i].Amount = 1
 	}
 	tests := []struct {
-		name    string
-		legs    []PublicLegRequest
-		wantErr string
+		name      string
+		transfers []InterfaceTransferRequest
+		wantErr   string
 	}{
 		{
-			name:    "u8 leg count overflow",
-			legs:    tooManyEncodedLegs,
-			wantErr: "public_legs length 256 exceeds u8 encoding maximum 255",
+			name:      "u8 transfer count overflow",
+			transfers: tooManyTransfers,
+			wantErr:   "interface_transfers length 256 exceeds u8 encoding maximum 255",
 		},
 		{
-			name:    "zero amount",
-			legs:    []PublicLegRequest{{Amount: 0}},
-			wantErr: "public_legs[0].amount must be nonzero",
+			name:      "zero amount",
+			transfers: []InterfaceTransferRequest{{Amount: 0}},
+			wantErr:   "interface_transfers[0].amount must be nonzero",
 		},
 		{
-			name:    "missing SPL asset",
-			legs:    []PublicLegRequest{{IsSpl: true, Amount: 1}},
-			wantErr: "public_legs[0].asset",
+			name:      "missing SPL asset",
+			transfers: []InterfaceTransferRequest{{IsSpl: true, Amount: 1}},
+			wantErr:   "interface_transfers[0].asset",
 		},
 		{
-			name:    "SOL asset",
-			legs:    []PublicLegRequest{{Asset: testMintA, Amount: 1}},
-			wantErr: "asset must be empty for SOL",
+			name:      "SOL asset",
+			transfers: []InterfaceTransferRequest{{Asset: testMintA, Amount: 1}},
+			wantErr:   "asset must be empty for SOL",
 		},
 		{
 			name: "four distinct nonzero assets",
-			legs: []PublicLegRequest{
+			transfers: []InterfaceTransferRequest{
 				{Amount: 1},
 				{IsSpl: true, Asset: testMintA, Amount: 2},
 				{IsSpl: true, Asset: testMintB, Amount: 3},
@@ -240,7 +240,7 @@ func TestDerivePublicSlotsRejectsInvalidLegs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := derivePublicSlots(ProofTransactionRequest{PublicLegs: tt.legs})
+			_, err := derivePublicSlots(ProofTransactionRequest{InterfaceTransfers: tt.transfers})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error = %v, want %q", err, tt.wantErr)
 			}

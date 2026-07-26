@@ -230,7 +230,7 @@ impl LifecycleWorld {
             payer: fee_payer.pubkey(),
             input_tree: self.tree,
             output_tree: self.tree,
-            legs: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
         .instruction();

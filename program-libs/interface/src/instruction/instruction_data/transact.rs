@@ -3,7 +3,7 @@ pub use zolana_event::{MessageData, OutputUtxo};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 pub use crate::verifying_keys::CircuitId;
-use crate::{error::ShieldedPoolError, MAX_WIRE_PUBLIC_LEGS};
+use crate::{error::ShieldedPoolError, MAX_INTERFACE_TRANSFERS};
 
 /// The BSB22-committed Groth16 proof of the P256 rail: `a || b || c ||
 /// commitment || commitment_pok`, 192 bytes on the wire (compressed points,
@@ -89,43 +89,52 @@ pub struct InputUtxo {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u8")]
-pub enum PublicLeg {
-    Sol {
-        is_deposit: bool,
+pub enum InterfaceTransfer {
+    SolDeposit {
         amount: u64,
     },
-    Spl {
-        is_deposit: bool,
+    SolWithdrawal {
+        amount: u64,
+    },
+    SplDeposit {
+        amount: u64,
+        /// Canonical bump of the initialized per-mint vault PDA.
+        vault_bump: u8,
+    },
+    SplWithdrawal {
         amount: u64,
         /// Canonical bump of the initialized per-mint vault PDA.
         vault_bump: u8,
     },
 }
 
-impl PublicLeg {
+impl InterfaceTransfer {
     pub const fn amount(self) -> u64 {
         match self {
-            Self::Sol { amount, .. } | Self::Spl { amount, .. } => amount,
+            Self::SolDeposit { amount }
+            | Self::SolWithdrawal { amount }
+            | Self::SplDeposit { amount, .. }
+            | Self::SplWithdrawal { amount, .. } => amount,
         }
     }
 
     pub const fn is_spl(self) -> bool {
-        matches!(self, Self::Spl { .. })
+        matches!(self, Self::SplDeposit { .. } | Self::SplWithdrawal { .. })
     }
 
     pub const fn is_deposit(self) -> bool {
-        match self {
-            Self::Sol { is_deposit, .. } | Self::Spl { is_deposit, .. } => is_deposit,
-        }
+        matches!(self, Self::SolDeposit { .. } | Self::SplDeposit { .. })
     }
 }
 
-pub fn validate_public_legs(legs: &[PublicLeg]) -> Result<(), ShieldedPoolError> {
-    if legs.len() > MAX_WIRE_PUBLIC_LEGS {
-        return Err(ShieldedPoolError::TooManyPublicLegs);
+pub fn validate_interface_transfers(
+    transfers: &[InterfaceTransfer],
+) -> Result<(), ShieldedPoolError> {
+    if transfers.len() > MAX_INTERFACE_TRANSFERS {
+        return Err(ShieldedPoolError::TooManyInterfaceTransfers);
     }
-    if legs.iter().any(|leg| leg.amount() == 0) {
-        return Err(ShieldedPoolError::ZeroPublicLegAmount);
+    if transfers.iter().any(|transfer| transfer.amount() == 0) {
+        return Err(ShieldedPoolError::ZeroInterfaceTransferAmount);
     }
     Ok(())
 }
@@ -180,8 +189,8 @@ pub struct TransactIxData {
     pub proof: TransactProof,
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
     pub inputs: Vec<InputUtxo>,
-    #[wincode(with = "containers::Vec<PublicLeg, FixIntLen<u8>>")]
-    pub public_legs: Vec<PublicLeg>,
+    #[wincode(with = "containers::Vec<InterfaceTransfer, FixIntLen<u8>>")]
+    pub interface_transfers: Vec<InterfaceTransfer>,
     /// Optional transaction-level application- and zone-specific external data
     /// digests folded into `external_data_hash`; `None` (`[0; 32]`) for a
     /// default-zone `transact`. Distinct from the per-UTXO `data_hash` /
@@ -253,8 +262,8 @@ pub struct TransactIxDataRef<'a> {
     pub proof: TransactProof,
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
     pub inputs: Vec<InputUtxo>,
-    #[wincode(with = "containers::Vec<PublicLeg, FixIntLen<u8>>")]
-    pub public_legs: Vec<PublicLeg>, // TODO: rename interface transfers
+    #[wincode(with = "containers::Vec<InterfaceTransfer, FixIntLen<u8>>")]
+    pub interface_transfers: Vec<InterfaceTransfer>,
     pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     #[wincode(with = "containers::Vec<TransactOutputRef<'a>, FixIntLen<u8>>")]
@@ -364,14 +373,21 @@ impl OutputDataBytes for OutputDataRef<'_> {
 /// never `private_tx_hash` (which already commits this hash) or the input UTXOs
 /// (bound through `private_tx_hash`). Used in both the program and the client.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ResolvedPublicLeg {
-    Sol {
-        is_deposit: bool,
+pub enum ResolvedInterfaceTransfer {
+    SolDeposit {
         amount: u64,
         recipient: [u8; 32],
     },
-    Spl {
-        is_deposit: bool,
+    SolWithdrawal {
+        amount: u64,
+        recipient: [u8; 32],
+    },
+    SplDeposit {
+        amount: u64,
+        user_token_account: [u8; 32],
+        vault: [u8; 32],
+    },
+    SplWithdrawal {
         amount: u64,
         user_token_account: [u8; 32],
         vault: [u8; 32],
@@ -381,7 +397,7 @@ pub enum ResolvedPublicLeg {
 pub struct ExternalDataHash<'a, M: OutputDataBytes> {
     pub spp_instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
-    pub public_legs: &'a [ResolvedPublicLeg],
+    pub interface_transfers: &'a [ResolvedInterfaceTransfer],
     /// Zk programs can commit their data to the external data hash.
     pub data_hash: Option<[u8; 32]>,
     /// Zone programs can commit their data to the external data hash.
@@ -395,28 +411,42 @@ impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
         let mut preimage = Vec::new();
         preimage.push(self.spp_instruction_discriminator);
         preimage.extend_from_slice(&self.expiry_unix_ts.to_be_bytes());
-        preimage
-            .push(u8::try_from(self.public_legs.len()).map_err(|_| HasherError::IntegerOverflow)?);
-        for leg in self.public_legs {
-            match leg {
-                ResolvedPublicLeg::Sol {
-                    is_deposit,
-                    amount,
-                    recipient, // TODO: rename recipient to sender_or_recipient
-                } => {
+        preimage.push(
+            u8::try_from(self.interface_transfers.len())
+                .map_err(|_| HasherError::IntegerOverflow)?,
+        );
+        for transfer in self.interface_transfers {
+            match transfer {
+                ResolvedInterfaceTransfer::SolDeposit { amount, recipient } => {
                     preimage.push(0);
-                    preimage.push(u8::from(*is_deposit));
+                    preimage.push(1);
                     preimage.extend_from_slice(&amount.to_be_bytes());
                     preimage.extend_from_slice(recipient);
                 }
-                ResolvedPublicLeg::Spl {
-                    is_deposit,
+                ResolvedInterfaceTransfer::SolWithdrawal { amount, recipient } => {
+                    preimage.push(0);
+                    preimage.push(0);
+                    preimage.extend_from_slice(&amount.to_be_bytes());
+                    preimage.extend_from_slice(recipient);
+                }
+                ResolvedInterfaceTransfer::SplDeposit {
                     amount,
                     user_token_account,
                     vault,
                 } => {
                     preimage.push(1);
-                    preimage.push(u8::from(*is_deposit));
+                    preimage.push(1);
+                    preimage.extend_from_slice(&amount.to_be_bytes());
+                    preimage.extend_from_slice(user_token_account);
+                    preimage.extend_from_slice(vault);
+                }
+                ResolvedInterfaceTransfer::SplWithdrawal {
+                    amount,
+                    user_token_account,
+                    vault,
+                } => {
+                    preimage.push(1);
+                    preimage.push(0);
                     preimage.extend_from_slice(&amount.to_be_bytes());
                     preimage.extend_from_slice(user_token_account);
                     preimage.extend_from_slice(vault);
@@ -547,13 +577,9 @@ mod tests {
                 utxo_tree_root_index: 3,
                 eddsa_signer_index: 0,
             }],
-            public_legs: vec![
-                PublicLeg::Sol {
-                    is_deposit: false,
-                    amount: 5,
-                },
-                PublicLeg::Spl {
-                    is_deposit: true,
+            interface_transfers: vec![
+                InterfaceTransfer::SolWithdrawal { amount: 5 },
+                InterfaceTransfer::SplDeposit {
                     amount: 7,
                     vault_bump: 42,
                 },
@@ -581,7 +607,7 @@ mod tests {
         assert_eq!(view.salt, &owned.salt);
         assert_eq!(view.proof, owned.proof);
         assert_eq!(view.inputs, owned.inputs);
-        assert_eq!(view.public_legs, owned.public_legs);
+        assert_eq!(view.interface_transfers, owned.interface_transfers);
         assert_eq!(view.data_hash, owned.data_hash);
         assert_eq!(view.zone_data_hash, owned.zone_data_hash);
         assert_eq!(view.outputs.len(), owned.outputs.len());
@@ -629,18 +655,32 @@ mod tests {
     }
 
     #[test]
-    fn public_leg_wire_sizes_and_helpers_are_stable() {
-        let sol = PublicLeg::Sol {
-            is_deposit: false,
-            amount: u64::MAX,
-        };
-        let spl = PublicLeg::Spl {
-            is_deposit: true,
+    fn interface_transfer_sizes_and_helpers_are_stable() {
+        let sol = InterfaceTransfer::SolWithdrawal { amount: u64::MAX };
+        let spl = InterfaceTransfer::SplDeposit {
             amount: 9,
             vault_bump: 42,
         };
-        assert_eq!(wincode::serialize(&sol).unwrap().len(), 10);
-        assert_eq!(wincode::serialize(&spl).unwrap().len(), 11);
+        let variants = [
+            InterfaceTransfer::SolDeposit { amount: 1 },
+            InterfaceTransfer::SolWithdrawal { amount: 1 },
+            InterfaceTransfer::SplDeposit {
+                amount: 1,
+                vault_bump: 42,
+            },
+            InterfaceTransfer::SplWithdrawal {
+                amount: 1,
+                vault_bump: 42,
+            },
+        ];
+        for (expected_tag, transfer) in variants.into_iter().enumerate() {
+            assert_eq!(
+                wincode::serialize(&transfer).unwrap()[0],
+                expected_tag as u8
+            );
+        }
+        assert_eq!(wincode::serialize(&sol).unwrap().len(), 9);
+        assert_eq!(wincode::serialize(&spl).unwrap().len(), 10);
         assert_eq!(sol.amount(), u64::MAX);
         assert_eq!(spl.amount(), 9);
         assert!(!sol.is_spl());
@@ -650,61 +690,45 @@ mod tests {
     }
 
     #[test]
-    fn public_leg_validation_accepts_many_legs_up_to_wire_limit() {
-        let repeated = vec![
-            PublicLeg::Sol {
-                is_deposit: true,
-                amount: 1,
-            };
-            MAX_WIRE_PUBLIC_LEGS
-        ];
-        assert_eq!(validate_public_legs(&repeated), Ok(()));
+    fn interface_transfer_validation_accepts_many_transfers_up_to_limit() {
+        let repeated = vec![InterfaceTransfer::SolDeposit { amount: 1 }; MAX_INTERFACE_TRANSFERS];
+        assert_eq!(validate_interface_transfers(&repeated), Ok(()));
 
         let too_many = vec![
-            PublicLeg::Spl {
-                is_deposit: false,
+            InterfaceTransfer::SplWithdrawal {
                 amount: 1,
                 vault_bump: 42,
             };
-            MAX_WIRE_PUBLIC_LEGS + 1
+            MAX_INTERFACE_TRANSFERS + 1
         ];
         assert_eq!(
-            validate_public_legs(&too_many),
-            Err(ShieldedPoolError::TooManyPublicLegs)
+            validate_interface_transfers(&too_many),
+            Err(ShieldedPoolError::TooManyInterfaceTransfers)
         );
         assert_eq!(
-            validate_public_legs(&[PublicLeg::Sol {
-                is_deposit: true,
-                amount: 0,
-            }]),
-            Err(ShieldedPoolError::ZeroPublicLegAmount)
+            validate_interface_transfers(&[InterfaceTransfer::SolDeposit { amount: 0 }]),
+            Err(ShieldedPoolError::ZeroInterfaceTransferAmount)
         );
     }
 
     #[test]
-    fn public_leg_wire_count_rejects_256_during_serialization_and_hashing() {
+    fn interface_transfer_count_rejects_256_during_serialization_and_hashing() {
         let mut data = ix_data(eddsa_proof());
-        data.public_legs = vec![
-            PublicLeg::Sol {
-                is_deposit: true,
-                amount: 1,
-            };
-            MAX_WIRE_PUBLIC_LEGS + 1
-        ];
+        data.interface_transfers =
+            vec![InterfaceTransfer::SolDeposit { amount: 1 }; MAX_INTERFACE_TRANSFERS + 1];
         assert!(data.serialize().is_err());
 
         let resolved = vec![
-            ResolvedPublicLeg::Sol {
-                is_deposit: true,
+            ResolvedInterfaceTransfer::SolDeposit {
                 amount: 1,
                 recipient: [1u8; 32],
             };
-            MAX_WIRE_PUBLIC_LEGS + 1
+            MAX_INTERFACE_TRANSFERS + 1
         ];
         let result = ExternalDataHash::<MessageData> {
             spp_instruction_discriminator: 2,
             expiry_unix_ts: 3,
-            public_legs: &resolved,
+            interface_transfers: &resolved,
             data_hash: None,
             zone_data_hash: None,
             outputs: &[],
@@ -782,7 +806,7 @@ mod tests {
         ExternalDataHash {
             spp_instruction_discriminator: 0,
             expiry_unix_ts: 0,
-            public_legs: &[],
+            interface_transfers: &[],
             data_hash: None,
             zone_data_hash: None,
             outputs,
@@ -792,11 +816,11 @@ mod tests {
         .unwrap()
     }
 
-    fn hash_with_legs(public_legs: &[ResolvedPublicLeg]) -> [u8; 32] {
+    fn hash_with_transfers(interface_transfers: &[ResolvedInterfaceTransfer]) -> [u8; 32] {
         ExternalDataHash::<MessageData> {
             spp_instruction_discriminator: 2,
             expiry_unix_ts: 3,
-            public_legs,
+            interface_transfers,
             data_hash: None,
             zone_data_hash: None,
             outputs: &[],
@@ -807,61 +831,69 @@ mod tests {
     }
 
     #[test]
-    fn external_data_hash_binds_leg_count_order_tags_and_accounts() {
-        let sol = ResolvedPublicLeg::Sol {
-            is_deposit: false,
+    fn external_data_hash_binds_transfer_count_order_tags_and_accounts() {
+        let sol = ResolvedInterfaceTransfer::SolWithdrawal {
             amount: u64::MAX,
             recipient: [1u8; 32],
         };
-        let spl = ResolvedPublicLeg::Spl {
-            is_deposit: false,
+        let spl = ResolvedInterfaceTransfer::SplWithdrawal {
             amount: u64::MAX,
             user_token_account: [1u8; 32],
             vault: [2u8; 32],
         };
-        assert_ne!(hash_with_legs(&[sol]), hash_with_legs(&[sol, sol]));
-        assert_ne!(hash_with_legs(&[sol, spl]), hash_with_legs(&[spl, sol]));
-        assert_ne!(hash_with_legs(&[sol]), hash_with_legs(&[spl]));
+        assert_ne!(
+            hash_with_transfers(&[sol]),
+            hash_with_transfers(&[sol, sol])
+        );
+        assert_ne!(
+            hash_with_transfers(&[sol, spl]),
+            hash_with_transfers(&[spl, sol])
+        );
+        assert_ne!(hash_with_transfers(&[sol]), hash_with_transfers(&[spl]));
 
-        let other_recipient = ResolvedPublicLeg::Sol {
-            is_deposit: false,
+        let other_recipient = ResolvedInterfaceTransfer::SolWithdrawal {
             amount: u64::MAX,
             recipient: [3u8; 32],
         };
-        let other_vault = ResolvedPublicLeg::Spl {
-            is_deposit: false,
+        let other_vault = ResolvedInterfaceTransfer::SplWithdrawal {
             amount: u64::MAX,
             user_token_account: [1u8; 32],
             vault: [3u8; 32],
         };
-        let opposite_direction = ResolvedPublicLeg::Sol {
-            is_deposit: true,
+        let opposite_direction = ResolvedInterfaceTransfer::SolDeposit {
             amount: u64::MAX,
             recipient: [1u8; 32],
         };
-        assert_ne!(hash_with_legs(&[sol]), hash_with_legs(&[other_recipient]));
-        assert_ne!(hash_with_legs(&[spl]), hash_with_legs(&[other_vault]));
         assert_ne!(
-            hash_with_legs(&[sol]),
-            hash_with_legs(&[opposite_direction])
+            hash_with_transfers(&[sol]),
+            hash_with_transfers(&[other_recipient])
+        );
+        assert_ne!(
+            hash_with_transfers(&[spl]),
+            hash_with_transfers(&[other_vault])
+        );
+        assert_ne!(
+            hash_with_transfers(&[sol]),
+            hash_with_transfers(&[opposite_direction])
         );
     }
 
     #[test]
-    fn external_data_hash_leg_fields_have_fixed_boundaries() {
-        let first = ResolvedPublicLeg::Spl {
-            is_deposit: true,
+    fn external_data_hash_transfer_fields_have_fixed_boundaries() {
+        let first = ResolvedInterfaceTransfer::SplDeposit {
             amount: 1,
             user_token_account: [2u8; 32],
             vault: [3u8; 32],
         };
-        let second = ResolvedPublicLeg::Spl {
-            is_deposit: true,
+        let second = ResolvedInterfaceTransfer::SplDeposit {
             amount: 2,
             user_token_account: [1u8; 32],
             vault: [3u8; 32],
         };
-        assert_ne!(hash_with_legs(&[first]), hash_with_legs(&[second]));
+        assert_ne!(
+            hash_with_transfers(&[first]),
+            hash_with_transfers(&[second])
+        );
     }
 
     #[test]
@@ -890,14 +922,12 @@ mod tests {
                 data: None,
             },
         ];
-        let legs = [
-            ResolvedPublicLeg::Sol {
-                is_deposit: false,
+        let transfers = [
+            ResolvedInterfaceTransfer::SolWithdrawal {
                 amount: 1_234_567_890,
                 recipient: sol_recipient,
             },
-            ResolvedPublicLeg::Spl {
-                is_deposit: true,
+            ResolvedInterfaceTransfer::SplDeposit {
                 amount: 987_654_321,
                 user_token_account: spl_user,
                 vault: spl_vault,
@@ -906,7 +936,7 @@ mod tests {
         let got = ExternalDataHash::<MessageData> {
             spp_instruction_discriminator: 0,
             expiry_unix_ts: 1_234_567_890,
-            public_legs: &legs,
+            interface_transfers: &transfers,
             data_hash: None,
             zone_data_hash: None,
             outputs: &outputs,

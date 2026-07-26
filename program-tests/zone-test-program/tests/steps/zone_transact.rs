@@ -40,7 +40,7 @@ use zolana_client::{
 use zolana_interface::instruction::{
     instruction_data::transact::{CircuitId, InputUtxo, TransactIxData, TransactProof},
     tag::ZONE_TRANSACT,
-    TransactLegAccounts, TransactSolLeg, ZoneTransact,
+    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, ZoneTransact,
 };
 use zolana_keypair::SignatureType;
 use zolana_test_utils::test_validator_asserts::{
@@ -308,8 +308,12 @@ impl ZoneLifecycleWorld {
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
         let data = self.prove_and_assemble(&proof_inputs, zone, rail)?;
 
-        let legs = withdrawal
-            .map(|recipient| vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })])
+        let interface_transfer_accounts = withdrawal
+            .map(|recipient| {
+                vec![TransactInterfaceTransferAccounts::Sol(
+                    TransactSolTransferAccounts { recipient },
+                )]
+            })
             .unwrap_or_default();
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
@@ -318,7 +322,7 @@ impl ZoneLifecycleWorld {
             input_tree: self.tree,
             output_tree: self.tree,
             zone_program_id: self.zone_program_id,
-            legs,
+            interface_transfer_accounts,
             data: data.clone(),
         }
         .instruction();
@@ -599,7 +603,7 @@ impl ZoneLifecycleWorld {
             input_tree: self.tree,
             output_tree: self.tree,
             zone_program_id: self.zone_program_id,
-            legs: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
             data,
         }
         .instruction();
@@ -696,10 +700,10 @@ fn assemble_ix_data(
         },
         p256_signing_pk_x,
         inputs,
-        public_legs: external
-            .public_legs
+        interface_transfers: external
+            .interface_transfers
             .iter()
-            .map(|leg| leg.public_leg())
+            .map(|transfer| transfer.interface_transfer())
             .collect(),
         data_hash: external.data_hash,
         zone_data_hash: external.zone_data_hash,

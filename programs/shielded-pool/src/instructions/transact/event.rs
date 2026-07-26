@@ -64,15 +64,16 @@ pub fn build_transact_event(
         .collect();
 
     let interface_transfers = ix
-        .public_legs
+        .interface_transfers
         .iter()
         .zip(settlements.iter())
-        .map(|(leg, settlement)| Movement {
-            is_deposit: leg.is_deposit(),
-            amount: leg.amount(),
+        .map(|(transfer, settlement)| Movement {
+            is_deposit: transfer.is_deposit(),
+            amount: transfer.amount(),
             asset: match settlement {
                 Settlement::Sol(_) => None,
-                Settlement::Spl(spl) => Some(spl.mint),
+                Settlement::SplDeposit(spl) => Some(spl.mint),
+                Settlement::SplWithdrawal(spl) => Some(spl.mint),
             },
         })
         .collect();

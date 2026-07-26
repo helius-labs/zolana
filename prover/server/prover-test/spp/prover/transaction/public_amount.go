@@ -8,10 +8,10 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 )
 
-// MaxEncodedPublicLegs is the wire-format ceiling: external_data_hash encodes
-// the ordered public-leg count in one byte. Solana transaction size and account
+// MaxInterfaceTransfers is the encoding ceiling: external_data_hash encodes
+// the ordered interface-transfer count in one byte. Solana transaction size and account
 // limits impose a much lower practical bound for real transactions.
-const MaxEncodedPublicLegs = 1<<8 - 1
+const MaxInterfaceTransfers = 1<<8 - 1
 
 type publicSlots struct {
 	assets  [protocol.NPublicSlots]*big.Int
@@ -24,27 +24,27 @@ type aggregatedPublicAsset struct {
 }
 
 func derivePublicSlots(tx ProofTransactionRequest) (publicSlots, error) {
-	if len(tx.PublicLegs) > MaxEncodedPublicLegs {
+	if len(tx.InterfaceTransfers) > MaxInterfaceTransfers {
 		return publicSlots{}, fmt.Errorf(
-			"spp: public_legs length %d exceeds u8 encoding maximum %d",
-			len(tx.PublicLegs),
-			MaxEncodedPublicLegs,
+			"spp: interface_transfers length %d exceeds u8 encoding maximum %d",
+			len(tx.InterfaceTransfers),
+			MaxInterfaceTransfers,
 		)
 	}
 
-	aggregates := make([]*aggregatedPublicAsset, 0, len(tx.PublicLegs))
-	for position, leg := range tx.PublicLegs {
-		if leg.Amount == 0 {
-			return publicSlots{}, fmt.Errorf("spp: public_legs[%d].amount must be nonzero", position)
+	aggregates := make([]*aggregatedPublicAsset, 0, len(tx.InterfaceTransfers))
+	for position, transfer := range tx.InterfaceTransfers {
+		if transfer.Amount == 0 {
+			return publicSlots{}, fmt.Errorf("spp: interface_transfers[%d].amount must be nonzero", position)
 		}
-		asset, err := publicLegAsset(leg, position)
+		asset, err := interfaceTransferAsset(transfer, position)
 		if err != nil {
 			return publicSlots{}, err
 		}
 		found := false
 		for _, aggregate := range aggregates {
 			if aggregate.asset.Cmp(asset) == 0 {
-				aggregate.amount.Add(aggregate.amount, signedPublicLegAmount(leg))
+				aggregate.amount.Add(aggregate.amount, signedInterfaceTransferAmount(transfer))
 				found = true
 				break
 			}
@@ -52,7 +52,7 @@ func derivePublicSlots(tx ProofTransactionRequest) (publicSlots, error) {
 		if !found {
 			aggregates = append(aggregates, &aggregatedPublicAsset{
 				asset:  asset,
-				amount: signedPublicLegAmount(leg),
+				amount: signedInterfaceTransferAmount(transfer),
 			})
 		}
 	}
@@ -65,7 +65,7 @@ func derivePublicSlots(tx ProofTransactionRequest) (publicSlots, error) {
 	}
 	if activeCount > protocol.NPublicSlots {
 		return publicSlots{}, fmt.Errorf(
-			"spp: public legs aggregate to more than %d distinct nonzero assets",
+			"spp: interface transfers aggregate to more than %d distinct nonzero assets",
 			protocol.NPublicSlots,
 		)
 	}
@@ -76,7 +76,7 @@ func derivePublicSlots(tx ProofTransactionRequest) (publicSlots, error) {
 			continue
 		}
 		if new(big.Int).Abs(new(big.Int).Set(aggregate.amount)).BitLen() > 64 {
-			return publicSlots{}, fmt.Errorf("spp: public leg aggregate magnitude exceeds u64")
+			return publicSlots{}, fmt.Errorf("spp: interface transfer aggregate magnitude exceeds u64")
 		}
 		assets = append(assets, aggregate.asset)
 		amounts = append(amounts, protocol.SignedToField(aggregate.amount))
@@ -91,28 +91,28 @@ func derivePublicSlots(tx ProofTransactionRequest) (publicSlots, error) {
 	return slots, nil
 }
 
-func signedPublicLegAmount(leg PublicLegRequest) *big.Int {
-	amount := new(big.Int).SetUint64(leg.Amount)
-	if !leg.IsDeposit {
+func signedInterfaceTransferAmount(transfer InterfaceTransferRequest) *big.Int {
+	amount := new(big.Int).SetUint64(transfer.Amount)
+	if !transfer.IsDeposit {
 		amount.Neg(amount)
 	}
 	return amount
 }
 
-func publicLegAsset(leg PublicLegRequest, index int) (*big.Int, error) {
-	if !leg.IsSpl {
-		if leg.Asset != "" {
-			return nil, fmt.Errorf("public_legs[%d].asset must be empty for SOL", index)
+func interfaceTransferAsset(transfer InterfaceTransferRequest, index int) (*big.Int, error) {
+	if !transfer.IsSpl {
+		if transfer.Asset != "" {
+			return nil, fmt.Errorf("interface_transfers[%d].asset must be empty for SOL", index)
 		}
 		return protocol.SolAsset(), nil
 	}
-	mint, err := parse.Hex32(leg.Asset)
+	mint, err := parse.Hex32(transfer.Asset)
 	if err != nil {
-		return nil, fmt.Errorf("public_legs[%d].asset: %w", index, err)
+		return nil, fmt.Errorf("interface_transfers[%d].asset: %w", index, err)
 	}
 	asset, err := protocol.SolanaPkField(mint)
 	if err != nil {
-		return nil, fmt.Errorf("public_legs[%d].asset: %w", index, err)
+		return nil, fmt.Errorf("interface_transfers[%d].asset: %w", index, err)
 	}
 	return asset, nil
 }

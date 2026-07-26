@@ -34,7 +34,7 @@ pub struct GeneralEvent {
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
     /// Per-asset public movements: empty for a shielded transfer, one entry per
-    /// settled public leg. A batched `deposit` carries one entry per deposited
+    /// settled interface transfer. A batched `deposit` carries one entry per deposited
     /// asset.
     pub movements: Vec<Movement>,
     /// The single-use merge nonce, present on merge events only. The wallet

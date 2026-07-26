@@ -247,7 +247,7 @@ fn zone_external_data(n_out: usize) -> ExternalData {
     ExternalData {
         instruction_discriminator: ZONE_TRANSACT,
         expiry_unix_ts: 0,
-        public_legs: Vec::new(),
+        interface_transfers: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],

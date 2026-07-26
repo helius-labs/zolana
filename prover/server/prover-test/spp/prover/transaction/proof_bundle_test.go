@@ -99,7 +99,7 @@ func TestBuildProofAssignmentAcceptsDistinctNullifierSecrets(t *testing.T) {
 	solveAssignment(t, shape, built)
 }
 
-func TestBuildProofAssignmentRejectsBadPublicLegRequests(t *testing.T) {
+func TestBuildProofAssignmentRejectsBadInterfaceTransferRequests(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
 	tests := []struct {
@@ -108,47 +108,47 @@ func TestBuildProofAssignmentRejectsBadPublicLegRequests(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "leg count exceeds u8 encoding",
+			name: "transfer count exceeds u8 encoding",
 			mutate: func(tx *ProofTransactionRequest) {
-				tx.PublicLegs = make([]PublicLegRequest, MaxEncodedPublicLegs+1)
-				for i := range tx.PublicLegs {
-					tx.PublicLegs[i].Amount = 1
+				tx.InterfaceTransfers = make([]InterfaceTransferRequest, MaxInterfaceTransfers+1)
+				for i := range tx.InterfaceTransfers {
+					tx.InterfaceTransfers[i].Amount = 1
 				}
 			},
-			wantErr: "public_legs length 256 exceeds u8 encoding maximum 255",
+			wantErr: "interface_transfers length 256 exceeds u8 encoding maximum 255",
 		},
 		{
 			name: "zero amount",
 			mutate: func(tx *ProofTransactionRequest) {
-				tx.PublicLegs = []PublicLegRequest{{Amount: 0}}
+				tx.InterfaceTransfers = []InterfaceTransferRequest{{Amount: 0}}
 			},
-			wantErr: "public_legs[0].amount must be nonzero",
+			wantErr: "interface_transfers[0].amount must be nonzero",
 		},
 		{
 			name: "missing spl mint",
 			mutate: func(tx *ProofTransactionRequest) {
-				tx.PublicLegs = []PublicLegRequest{{IsSpl: true, Amount: 1}}
+				tx.InterfaceTransfers = []InterfaceTransferRequest{{IsSpl: true, Amount: 1}}
 			},
-			wantErr: "public_legs[0].asset",
+			wantErr: "interface_transfers[0].asset",
 		},
 		{
 			name: "missing user account",
 			mutate: func(tx *ProofTransactionRequest) {
-				tx.PublicLegs = []PublicLegRequest{{Amount: 1}}
+				tx.InterfaceTransfers = []InterfaceTransferRequest{{Amount: 1}}
 			},
-			wantErr: "public_legs[0].user_account",
+			wantErr: "interface_transfers[0].user_account",
 		},
 		{
 			name: "missing SPL pool account",
 			mutate: func(tx *ProofTransactionRequest) {
-				tx.PublicLegs = []PublicLegRequest{{
+				tx.InterfaceTransfers = []InterfaceTransferRequest{{
 					IsSpl:       true,
 					Asset:       testMintA,
 					Amount:      1,
 					UserAccount: strings.Repeat("11", 32),
 				}}
 			},
-			wantErr: "public_legs[0].pool_account",
+			wantErr: "interface_transfers[0].pool_account",
 		},
 	}
 
@@ -256,12 +256,12 @@ func TestProofUtxoJSONUsesZoneFields(t *testing.T) {
 
 func TestExternalDataFieldHashMatchesVector(t *testing.T) {
 	// Known-answer vector for the canonical Rust ExternalDataHash layout:
-	// counted direction-tagged legs, fixed zero zone hashes, counted resolved
+	// counted direction-tagged transfers, fixed zero zone hashes, counted resolved
 	// outputs with Some/None data, and an empty counted message section.
 	data := externalDataPreimage{
 		InstructionDiscriminator: 0x0d,
 		ExpiryUnixTs:             0x1122334455667788,
-		PublicLegs: []resolvedPublicLeg{
+		InterfaceTransfers: []resolvedInterfaceTransfer{
 			{amount: 0x0102030405060708},
 			{isSpl: true, isDeposit: true, amount: 0x1112131415161718},
 		},
@@ -271,9 +271,9 @@ func TestExternalDataFieldHashMatchesVector(t *testing.T) {
 		},
 	}
 	for i := range data.Outputs[0].ownerTag {
-		data.PublicLegs[0].userAccount[i] = byte(0x20 + i)
-		data.PublicLegs[1].userAccount[i] = byte(0x40 + i)
-		data.PublicLegs[1].poolAccount[i] = byte(0x60 + i)
+		data.InterfaceTransfers[0].userAccount[i] = byte(0x20 + i)
+		data.InterfaceTransfers[1].userAccount[i] = byte(0x40 + i)
+		data.InterfaceTransfers[1].poolAccount[i] = byte(0x60 + i)
 		data.Outputs[0].utxoHash[i] = byte(i)
 		data.Outputs[0].ownerTag[i] = byte(0x80 + i)
 		data.Outputs[1].utxoHash[i] = byte(0xa0 + i)
@@ -295,12 +295,12 @@ func TestExternalDataFieldHashMatchesVector(t *testing.T) {
 	}
 }
 
-func TestExternalDataFieldHashBindsOrderedTaggedLegs(t *testing.T) {
+func TestExternalDataFieldHashBindsOrderedTaggedInterfaceTransfers(t *testing.T) {
 	userA := [32]byte{1}
 	userB := [32]byte{2}
 	pool := [32]byte{3}
 	base := externalDataPreimage{
-		PublicLegs: []resolvedPublicLeg{
+		InterfaceTransfers: []resolvedInterfaceTransfer{
 			{amount: 5, userAccount: userA},
 			{isSpl: true, isDeposit: true, amount: 7, userAccount: userB, poolAccount: pool},
 		},
@@ -308,37 +308,49 @@ func TestExternalDataFieldHashBindsOrderedTaggedLegs(t *testing.T) {
 	baseHash := externalDataFieldHash(base)
 
 	reordered := base
-	reordered.PublicLegs = []resolvedPublicLeg{base.PublicLegs[1], base.PublicLegs[0]}
+	reordered.InterfaceTransfers = []resolvedInterfaceTransfer{
+		base.InterfaceTransfers[1],
+		base.InterfaceTransfers[0],
+	}
 	if externalDataFieldHash(reordered).Cmp(baseHash) == 0 {
-		t.Fatal("external_data_hash did not bind public leg order")
+		t.Fatal("external_data_hash did not bind interface transfer order")
 	}
 
-	oneLeg := base
-	oneLeg.PublicLegs = base.PublicLegs[:1]
-	if externalDataFieldHash(oneLeg).Cmp(baseHash) == 0 {
-		t.Fatal("external_data_hash did not bind public leg count")
+	oneTransfer := base
+	oneTransfer.InterfaceTransfers = base.InterfaceTransfers[:1]
+	if externalDataFieldHash(oneTransfer).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash did not bind interface transfer count")
 	}
 
 	differentTag := base
-	differentTag.PublicLegs = append([]resolvedPublicLeg(nil), base.PublicLegs...)
-	differentTag.PublicLegs[0].isSpl = true
-	differentTag.PublicLegs[0].poolAccount = pool
+	differentTag.InterfaceTransfers = append(
+		[]resolvedInterfaceTransfer(nil),
+		base.InterfaceTransfers...,
+	)
+	differentTag.InterfaceTransfers[0].isSpl = true
+	differentTag.InterfaceTransfers[0].poolAccount = pool
 	if externalDataFieldHash(differentTag).Cmp(baseHash) == 0 {
-		t.Fatal("external_data_hash did not bind public leg tag")
+		t.Fatal("external_data_hash did not bind interface transfer tag")
 	}
 
 	differentDirection := base
-	differentDirection.PublicLegs = append([]resolvedPublicLeg(nil), base.PublicLegs...)
-	differentDirection.PublicLegs[0].isDeposit = true
+	differentDirection.InterfaceTransfers = append(
+		[]resolvedInterfaceTransfer(nil),
+		base.InterfaceTransfers...,
+	)
+	differentDirection.InterfaceTransfers[0].isDeposit = true
 	if externalDataFieldHash(differentDirection).Cmp(baseHash) == 0 {
-		t.Fatal("external_data_hash did not bind public leg direction")
+		t.Fatal("external_data_hash did not bind interface transfer direction")
 	}
 
 	differentRecipient := base
-	differentRecipient.PublicLegs = append([]resolvedPublicLeg(nil), base.PublicLegs...)
-	differentRecipient.PublicLegs[0].userAccount[0] ^= 1
+	differentRecipient.InterfaceTransfers = append(
+		[]resolvedInterfaceTransfer(nil),
+		base.InterfaceTransfers...,
+	)
+	differentRecipient.InterfaceTransfers[0].userAccount[0] ^= 1
 	if externalDataFieldHash(differentRecipient).Cmp(baseHash) == 0 {
-		t.Fatal("external_data_hash did not bind public leg recipient")
+		t.Fatal("external_data_hash did not bind interface transfer recipient")
 	}
 }
 
@@ -406,21 +418,21 @@ func TestInstructionOutputHashesExcludeCircuitPadding(t *testing.T) {
 	}
 }
 
-func TestPublicLegRequestJSONSupportsFullU64(t *testing.T) {
-	var leg PublicLegRequest
-	if err := json.Unmarshal([]byte(`{"is_deposit":true,"amount":18446744073709551615}`), &leg); err != nil {
+func TestInterfaceTransferRequestJSONSupportsFullU64(t *testing.T) {
+	var transfer InterfaceTransferRequest
+	if err := json.Unmarshal([]byte(`{"is_deposit":true,"amount":18446744073709551615}`), &transfer); err != nil {
 		t.Fatal(err)
 	}
-	if !leg.IsDeposit || leg.Amount != math.MaxUint64 {
-		t.Fatalf("decoded leg = %+v", leg)
+	if !transfer.IsDeposit || transfer.Amount != math.MaxUint64 {
+		t.Fatalf("decoded interface transfer = %+v", transfer)
 	}
-	if err := json.Unmarshal([]byte(`{"amount":-1}`), &leg); err == nil {
-		t.Fatal("negative public-leg magnitude must be rejected")
+	if err := json.Unmarshal([]byte(`{"amount":-1}`), &transfer); err == nil {
+		t.Fatal("negative interface-transfer magnitude must be rejected")
 	}
 }
 
-func TestSameAssetLegsRemainSeparateInHashAndBundleOutput(t *testing.T) {
-	requests := []PublicLegRequest{
+func TestSameAssetTransfersRemainSeparateInHashAndBundleOutput(t *testing.T) {
+	requests := []InterfaceTransferRequest{
 		{
 			IsSpl:       true,
 			IsDeposit:   true,
@@ -437,23 +449,23 @@ func TestSameAssetLegsRemainSeparateInHashAndBundleOutput(t *testing.T) {
 			PoolAccount: strings.Repeat("62", 32),
 		},
 	}
-	normalized, err := normalizedPublicLegs(requests)
+	normalized, err := normalizedInterfaceTransfers(requests)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(normalized) != 2 ||
 		normalized[0].UserAccount == normalized[1].UserAccount ||
 		normalized[0].PoolAccount == normalized[1].PoolAccount {
-		t.Fatalf("normalized public legs lost settlement identity: %+v", normalized)
+		t.Fatalf("normalized interface transfers lost settlement identity: %+v", normalized)
 	}
 
-	resolved, err := resolvePublicLegs(requests)
+	resolved, err := resolveInterfaceTransfers(requests)
 	if err != nil {
 		t.Fatal(err)
 	}
-	separateHash := externalDataFieldHash(externalDataPreimage{PublicLegs: resolved})
+	separateHash := externalDataFieldHash(externalDataPreimage{InterfaceTransfers: resolved})
 	aggregatedHash := externalDataFieldHash(externalDataPreimage{
-		PublicLegs: []resolvedPublicLeg{{
+		InterfaceTransfers: []resolvedInterfaceTransfer{{
 			isSpl:       true,
 			isDeposit:   true,
 			amount:      5,
@@ -462,7 +474,7 @@ func TestSameAssetLegsRemainSeparateInHashAndBundleOutput(t *testing.T) {
 		}},
 	})
 	if separateHash.Cmp(aggregatedHash) == 0 {
-		t.Fatal("external_data_hash collapsed separate same-asset legs")
+		t.Fatal("external_data_hash collapsed separate same-asset interface transfers")
 	}
 }
 

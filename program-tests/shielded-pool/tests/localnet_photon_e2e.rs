@@ -35,8 +35,9 @@ use zolana_event::OutputDataEncoding;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{PublicLeg, ResolvedPublicLeg},
-        CreateProtocolConfig, CreateTree, Deposit, Transact, TransactLegAccounts, TransactSolLeg,
+        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
+        CreateProtocolConfig, CreateTree, Deposit, Transact, TransactInterfaceTransferAccounts,
+        TransactSolTransferAccounts,
     },
     pda,
     state::{
@@ -369,7 +370,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
     .instruction();
@@ -469,8 +470,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
             eddsa_input_utxo(recipient_nullifier, recipient_state_proof.root_index),
             eddsa_input_utxo(withdraw_dummy_nullifier, recipient_state_proof.root_index),
         ],
-        vec![PublicLeg::Sol {
-            is_deposit: false,
+        vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],
         inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
@@ -483,12 +483,12 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &withdraw_owner_pk_hashes,
         &[zero, zero, zero],
     );
-    let withdraw_resolved_legs = [ResolvedPublicLeg::Sol {
-        is_deposit: false,
+    let withdraw_resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
         amount: TRANSFER_AMOUNT,
         recipient: public_recipient.to_bytes(),
     }];
-    let withdraw_external_hash = external_data_hash(&withdraw_ix_data, &withdraw_resolved_legs)?;
+    let withdraw_external_hash =
+        external_data_hash(&withdraw_ix_data, &withdraw_resolved_transfers)?;
     let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[zero, zero, zero],
@@ -539,10 +539,13 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
 
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
-        tree: tree_pubkey,
-        legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
-            recipient: public_recipient,
-        })],
+        input_tree: tree_pubkey,
+        output_tree: tree_pubkey,
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts {
+                recipient: public_recipient,
+            },
+        )],
         data: withdraw_ix_data,
     }
     .instruction();
@@ -972,7 +975,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         let tx_ix = Transact {
             payer: payer.pubkey(),
             tree: tree_pubkey,
-            legs: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
         .instruction();
@@ -1653,7 +1656,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: ix_data,
     }
     .instruction();

@@ -58,15 +58,15 @@ pub enum ClientError {
     AddressResolution(String),
 
     #[error(
-        "public legs and settlement account groups must have equal lengths: {public_legs} legs, {settlement_legs} account groups"
+        "interface transfers and settlement account groups must have equal lengths: {interface_transfers} transfers, {account_groups} account groups"
     )]
-    SettlementLegCountMismatch {
-        public_legs: usize,
-        settlement_legs: usize,
+    SettlementTransferCountMismatch {
+        interface_transfers: usize,
+        account_groups: usize,
     },
 
-    #[error("public leg {index} does not match its settlement account group type")]
-    SettlementLegTypeMismatch { index: usize },
+    #[error("interface transfer {index} does not match its settlement account group type")]
+    SettlementTransferTypeMismatch { index: usize },
 
     #[error("user registry record not found for {owner}: {record}")]
     UserRegistryRecordNotFound { owner: Pubkey, record: Pubkey },

@@ -1,6 +1,6 @@
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_interface::{MAX_WIRE_PUBLIC_LEGS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
+use zolana_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 use zolana_keypair::{
     hash::{hash_field, sha256, sha256_be},
     ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
@@ -80,7 +80,7 @@ pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
     Ok(keypair.get_transaction_viewing_key(&first_nullifier)?)
 }
 
-/// Uniform public movement slots: ordered settlement legs are accumulated per
+/// Uniform public movement slots: ordered interface transfers are accumulated per
 /// asset in first-appearance order. Once assigned, a slot remains occupied even
 /// if its net amount returns to zero; only never-assigned slots are `(0, 0)`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -149,25 +149,25 @@ impl SppProofInputs {
     }
 
     pub fn public_movements(&self) -> Result<PublicMovements, TransactionError> {
-        if self.external_data.public_legs.len() > MAX_WIRE_PUBLIC_LEGS {
-            return Err(TransactionError::TooManyPublicLegs {
-                got: self.external_data.public_legs.len(),
-                max: MAX_WIRE_PUBLIC_LEGS,
+        if self.external_data.interface_transfers.len() > MAX_INTERFACE_TRANSFERS {
+            return Err(TransactionError::TooManyInterfaceTransfers {
+                got: self.external_data.interface_transfers.len(),
+                max: MAX_INTERFACE_TRANSFERS,
             });
         }
 
         let mut aggregated: Vec<(Address, i128)> = Vec::new();
-        for leg in &self.external_data.public_legs {
-            let asset = leg.asset();
-            let amount = leg.amount();
+        for transfer in &self.external_data.interface_transfers {
+            let asset = transfer.asset();
+            let amount = transfer.amount();
             if amount == 0 {
-                return Err(TransactionError::ZeroPublicLegAmount);
+                return Err(TransactionError::ZeroInterfaceTransferAmount);
             }
-            if leg.public_leg().is_spl() && asset == SOL_MINT {
+            if transfer.interface_transfer().is_spl() && asset == SOL_MINT {
                 return Err(TransactionError::SettlementTargetMismatch { asset });
             }
             let magnitude = i128::from(amount);
-            let signed = if leg.is_deposit() {
+            let signed = if transfer.is_deposit() {
                 magnitude
             } else {
                 -magnitude

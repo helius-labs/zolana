@@ -1,4 +1,4 @@
-//! Real-proof coverage for transactions with multiple ordered public legs.
+//! Real-proof coverage for transactions with multiple ordered interface transfers.
 
 #[path = "../common/setup.rs"]
 mod common;
@@ -15,8 +15,11 @@ use zolana_event::{general_event_from_indexed, Movement};
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{PublicLeg, ResolvedPublicLeg, TransactIxData},
-        Transact, TransactLegAccounts, TransactSolLeg, TransactSplLeg,
+        instruction_data::transact::{
+            InterfaceTransfer, ResolvedInterfaceTransfer, TransactIxData,
+        },
+        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
     },
     pda, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
@@ -285,8 +288,8 @@ fn public_slots(
 fn prove_spend(
     env: &TransactEnv,
     note: SpendNote,
-    public_legs: Vec<PublicLeg>,
-    resolved_legs: &[ResolvedPublicLeg],
+    interface_transfers: Vec<InterfaceTransfer>,
+    resolved_transfers: &[ResolvedInterfaceTransfer],
     public_movements: impl IntoIterator<Item = ([u8; 32], i64)>,
     mut witness_outputs: Vec<WitnessOutput>,
 ) -> TransactIxData {
@@ -305,7 +308,7 @@ fn prove_spend(
             eddsa_input_utxo(note.nullifier, 1),
             eddsa_input_utxo(note.dummy_nullifier, 1),
         ],
-        public_legs,
+        interface_transfers,
         inline_outputs(&output_hashes, &view_tags),
         None,
     );
@@ -325,7 +328,8 @@ fn prove_spend(
         &nullifier_pks,
     );
 
-    let external_hash = external_data_hash(&ix_data, resolved_legs).expect("external data hash");
+    let external_hash =
+        external_data_hash(&ix_data, resolved_transfers).expect("external data hash");
     let private_tx = PrivateTxHash::new(
         &[note.utxo_hash, [0u8; 32]],
         &output_private_hashes,
@@ -385,24 +389,20 @@ fn sol_split_case(reorder_recipients: bool) {
     let vault = pda::sol_interface();
     let vault_before = env.rpc.svm.get_balance(&vault).unwrap_or(0);
 
-    let public_legs = vec![
-        PublicLeg::Sol {
-            is_deposit: false,
+    let interface_transfers = vec![
+        InterfaceTransfer::SolWithdrawal {
             amount: user_amount,
         },
-        PublicLeg::Sol {
-            is_deposit: false,
+        InterfaceTransfer::SolWithdrawal {
             amount: relayer_amount,
         },
     ];
-    let resolved_legs = [
-        ResolvedPublicLeg::Sol {
-            is_deposit: false,
+    let resolved_transfers = [
+        ResolvedInterfaceTransfer::SolWithdrawal {
             amount: user_amount,
             recipient: user.to_bytes(),
         },
-        ResolvedPublicLeg::Sol {
-            is_deposit: false,
+        ResolvedInterfaceTransfer::SolWithdrawal {
             amount: relayer_amount,
             recipient: relayer.to_bytes(),
         },
@@ -410,8 +410,8 @@ fn sol_split_case(reorder_recipients: bool) {
     let data = prove_spend(
         &env,
         note,
-        public_legs,
-        &resolved_legs,
+        interface_transfers,
+        &resolved_transfers,
         [
             (SOL_ASSET_FIELD, -(user_amount as i64)),
             (SOL_ASSET_FIELD, -(relayer_amount as i64)),
@@ -422,9 +422,11 @@ fn sol_split_case(reorder_recipients: bool) {
         payer: payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
-        legs: vec![
-            TransactLegAccounts::Sol(TransactSolLeg { recipient: user }),
-            TransactLegAccounts::Sol(TransactSolLeg { recipient: relayer }),
+        interface_transfer_accounts: vec![
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: user }),
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                recipient: relayer,
+            }),
         ],
         data,
     }
@@ -522,27 +524,23 @@ fn repeated_same_mint_spl_withdrawals_settle_independently() {
     let vault_before = env.rpc.token_balance(&vault).expect("vault balance");
     let mint_field = zolana_keypair::hash::hash_field(&mint.to_bytes()).expect("mint field");
     let vault_bump = pda::spl_asset_vault_with_bump(&mint).1;
-    let public_legs = vec![
-        PublicLeg::Spl {
-            is_deposit: false,
+    let interface_transfers = vec![
+        InterfaceTransfer::SplWithdrawal {
             amount: first_amount,
             vault_bump,
         },
-        PublicLeg::Spl {
-            is_deposit: false,
+        InterfaceTransfer::SplWithdrawal {
             amount: second_amount,
             vault_bump,
         },
     ];
-    let resolved_legs = [
-        ResolvedPublicLeg::Spl {
-            is_deposit: false,
+    let resolved_transfers = [
+        ResolvedInterfaceTransfer::SplWithdrawal {
             amount: first_amount,
             user_token_account: first_token.to_bytes(),
             vault: vault.to_bytes(),
         },
-        ResolvedPublicLeg::Spl {
-            is_deposit: false,
+        ResolvedInterfaceTransfer::SplWithdrawal {
             amount: second_amount,
             user_token_account: second_token.to_bytes(),
             vault: vault.to_bytes(),
@@ -551,18 +549,17 @@ fn repeated_same_mint_spl_withdrawals_settle_independently() {
     let data = prove_spend(
         &env,
         note,
-        public_legs,
-        &resolved_legs,
+        interface_transfers,
+        &resolved_transfers,
         [
             (mint_field, -(first_amount as i64)),
             (mint_field, -(second_amount as i64)),
         ],
         dummy_outputs(),
     );
-    let spl_leg = |user_token_account| {
-        TransactLegAccounts::Spl(TransactSplLeg {
+    let spl_transfer = |user_token_account| {
+        TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
             vault,
-            recipient: payer.pubkey(),
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
         })
@@ -571,7 +568,7 @@ fn repeated_same_mint_spl_withdrawals_settle_independently() {
         payer: payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
-        legs: vec![spl_leg(first_token), spl_leg(second_token)],
+        interface_transfer_accounts: vec![spl_transfer(first_token), spl_transfer(second_token)],
         data,
     }
     .instruction();
@@ -651,36 +648,30 @@ fn three_distinct_assets_support_opposite_public_directions() {
         ),
         dummy_outputs().into_iter().next().expect("dummy output"),
     ];
-    let public_legs = vec![
-        PublicLeg::Spl {
-            is_deposit: false,
+    let interface_transfers = vec![
+        InterfaceTransfer::SplWithdrawal {
             amount: SPL_SPLIT_TOTAL,
             vault_bump: pda::spl_asset_vault_with_bump(&withdraw_mint).1,
         },
-        PublicLeg::Sol {
-            is_deposit: true,
+        InterfaceTransfer::SolDeposit {
             amount: sol_deposit_amount,
         },
-        PublicLeg::Spl {
-            is_deposit: true,
+        InterfaceTransfer::SplDeposit {
             amount: spl_deposit_amount,
             vault_bump: pda::spl_asset_vault_with_bump(&deposit_mint).1,
         },
     ];
-    let resolved_legs = [
-        ResolvedPublicLeg::Spl {
-            is_deposit: false,
+    let resolved_transfers = [
+        ResolvedInterfaceTransfer::SplWithdrawal {
             amount: SPL_SPLIT_TOTAL,
             user_token_account: withdraw_token.to_bytes(),
             vault: withdraw_vault.to_bytes(),
         },
-        ResolvedPublicLeg::Sol {
-            is_deposit: true,
+        ResolvedInterfaceTransfer::SolDeposit {
             amount: sol_deposit_amount,
             recipient: payer.pubkey().to_bytes(),
         },
-        ResolvedPublicLeg::Spl {
-            is_deposit: true,
+        ResolvedInterfaceTransfer::SplDeposit {
             amount: spl_deposit_amount,
             user_token_account: deposit_token.to_bytes(),
             vault: deposit_vault.to_bytes(),
@@ -693,8 +684,8 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let data = prove_spend(
         &env,
         note,
-        public_legs,
-        &resolved_legs,
+        interface_transfers,
+        &resolved_transfers,
         [
             (withdraw_field, -(SPL_SPLIT_TOTAL as i64)),
             (SOL_ASSET_FIELD, sol_deposit_amount as i64),
@@ -702,10 +693,17 @@ fn three_distinct_assets_support_opposite_public_directions() {
         ],
         outputs,
     );
-    let spl_leg = |vault, user_token_account| {
-        TransactLegAccounts::Spl(TransactSplLeg {
+    let spl_withdrawal = |vault, user_token_account| {
+        TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
             vault,
-            recipient: payer.pubkey(),
+            user_token_account,
+            token_program: ZolanaProgramTest::token_program_id(),
+        })
+    };
+    let spl_deposit = |vault, user_token_account| {
+        TransactInterfaceTransferAccounts::SplDeposit(TransactSplDepositAccounts {
+            vault,
+            depositor: payer.pubkey(),
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
         })
@@ -716,12 +714,12 @@ fn three_distinct_assets_support_opposite_public_directions() {
         payer: payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
-        legs: vec![
-            spl_leg(withdraw_vault, withdraw_token),
-            TransactLegAccounts::Sol(TransactSolLeg {
+        interface_transfer_accounts: vec![
+            spl_withdrawal(withdraw_vault, withdraw_token),
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
                 recipient: payer.pubkey(),
             }),
-            spl_leg(deposit_vault, deposit_token),
+            spl_deposit(deposit_vault, deposit_token),
         ],
         data,
     }

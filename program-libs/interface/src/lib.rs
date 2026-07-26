@@ -23,14 +23,14 @@ pub const ADDRESS_DOMAIN: u16 = 2;
 pub const UTXO_DOMAIN: u16 = 3;
 
 /// Number of distinct public asset movement slots in every SPP transaction
-/// circuit. Ordered settlement legs are aggregated by resolved asset before
+/// circuit. Ordered interface transfers are aggregated by resolved asset before
 /// filling these slots.
 pub const N_PUBLIC_SLOTS: usize = 3;
 
-/// Largest public-leg count representable by the instruction's
+/// Largest interface-transfer count representable by the instruction's
 /// `FixIntLen<u8>` wire prefix. This is an encoding bound, not a protocol
 /// transaction-shape limit; Solana's transaction size is normally tighter.
-pub const MAX_WIRE_PUBLIC_LEGS: usize = u8::MAX as usize;
+pub const MAX_INTERFACE_TRANSFERS: usize = u8::MAX as usize;
 
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The

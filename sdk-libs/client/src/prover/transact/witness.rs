@@ -240,7 +240,7 @@ pub fn assemble_with_dummy_policy(
 
     let zolana_transaction::ExternalData {
         expiry_unix_ts,
-        public_legs,
+        interface_transfers,
         data_hash,
         zone_data_hash,
         tx_viewing_pk,
@@ -249,10 +249,10 @@ pub fn assemble_with_dummy_policy(
         messages,
         ..
     } = proof_inputs.external_data.clone();
-    let public_legs = public_legs
+    let interface_transfers = interface_transfers
         .iter()
         .copied()
-        .map(zolana_transaction::instructions::transact::SettlementLeg::public_leg)
+        .map(zolana_transaction::instructions::transact::SettlementTransfer::interface_transfer)
         .collect();
 
     let circuit_id = CircuitId::ConfidentialEddsa(
@@ -339,7 +339,7 @@ pub fn assemble_with_dummy_policy(
         circuit: circuit_id,
         p256_signing_pk_x,
         inputs,
-        public_legs,
+        interface_transfers,
         data_hash,
         zone_data_hash,
         tx_viewing_pk,
@@ -360,7 +360,7 @@ mod tests {
     use solana_address::Address;
     use zolana_transaction::{
         instructions::{
-            transact::{spp_proof_inputs::asset_field, SettlementLeg, SppProofInputs},
+            transact::{spp_proof_inputs::asset_field, SettlementTransfer, SppProofInputs},
             types::SppProofInputUtxo,
         },
         ExternalData, SppProofOutputUtxo,
@@ -388,7 +388,7 @@ mod tests {
         let mint = Address::new_from_array([41u8; 32]);
         let external_data =
             ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new())
-                .with_public_leg(SettlementLeg::Spl {
+                .with_interface_transfer(SettlementTransfer::Spl {
                     mint,
                     is_deposit: false,
                     amount: 9,

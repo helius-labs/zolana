@@ -87,9 +87,9 @@ name = "shield_withdraw"
 path = "tests/transact/shield_withdraw.rs"
 
 [[test]]
-name = "public_legs"
-path = "tests/transact/public_legs.rs"
+name = "interface_transfers"
+path = "tests/transact/interface_transfers.rs"
 
 [[test]]
-name = "mixed_legs"
-path = "tests/transact/mixed_legs.rs"
+name = "mixed_interface_transfers"
+path = "tests/transact/mixed_interface_transfers.rs"

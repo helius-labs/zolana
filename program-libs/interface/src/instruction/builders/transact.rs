@@ -2,78 +2,101 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, PublicLeg, TransactIxData},
-    MAX_WIRE_PUBLIC_LEGS, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
+    instruction::{tag, InterfaceTransfer, TransactIxData},
+    MAX_INTERFACE_TRANSFERS, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
     SOL_INTERFACE_PUBKEY,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TransactSolLeg {
+pub struct TransactSolTransferAccounts {
     pub recipient: Pubkey,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TransactSplLeg {
+pub struct TransactSplDepositAccounts {
     pub vault: Pubkey,
-    pub recipient: Pubkey,
+    pub depositor: Pubkey,
     pub user_token_account: Pubkey,
     pub token_program: Pubkey,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TransactLegAccounts {
-    Sol(TransactSolLeg),
-    Spl(TransactSplLeg),
+pub struct TransactSplWithdrawalAccounts {
+    pub vault: Pubkey,
+    pub user_token_account: Pubkey,
+    pub token_program: Pubkey,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransactInterfaceTransferAccounts {
+    Sol(TransactSolTransferAccounts),
+    SplDeposit(TransactSplDepositAccounts),
+    SplWithdrawal(TransactSplWithdrawalAccounts),
 }
 
 /// Builder for the `transact` instruction. The account layout mirrors the
 /// program loader (`TransactAccounts::validate_and_parse`): `payer`,
-/// `input_tree`, `output_tree`, the ordered public-leg account groups, and the
+/// `input_tree`, `output_tree`, the ordered interface-transfer account groups, and the
 /// program account last for the `emit_event` self-CPI.
 pub struct Transact {
     pub payer: Pubkey,
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,
-    pub legs: Vec<TransactLegAccounts>,
+    pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     pub data: TransactIxData,
 }
 
-pub(super) fn append_public_leg_accounts(
+pub(super) fn append_interface_transfer_accounts(
     accounts: &mut Vec<AccountMeta>,
-    public_legs: &[PublicLeg],
-    leg_accounts: &[TransactLegAccounts],
+    interface_transfers: &[InterfaceTransfer],
+    transfer_accounts: &[TransactInterfaceTransferAccounts],
 ) {
     assert!(
-        public_legs.len() <= MAX_WIRE_PUBLIC_LEGS,
-        "public settlement leg count exceeds the u8 wire encoding"
+        interface_transfers.len() <= MAX_INTERFACE_TRANSFERS,
+        "interface transfer count exceeds the u8 wire encoding"
     );
     assert_eq!(
-        public_legs.len(),
-        leg_accounts.len(),
-        "public legs and settlement account groups must have equal lengths"
+        interface_transfers.len(),
+        transfer_accounts.len(),
+        "interface transfers and settlement account groups must have equal lengths"
     );
 
-    for (leg, leg_accounts) in public_legs.iter().zip(leg_accounts) {
-        match (leg, leg_accounts) {
-            (PublicLeg::Sol { is_deposit, .. }, TransactLegAccounts::Sol(sol)) => {
+    for (transfer, transfer_accounts) in interface_transfers.iter().zip(transfer_accounts) {
+        match (transfer, transfer_accounts) {
+            (InterfaceTransfer::SolDeposit { .. }, TransactInterfaceTransferAccounts::Sol(sol)) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
-                accounts.push(AccountMeta::new(sol.recipient, *is_deposit));
+                accounts.push(AccountMeta::new(sol.recipient, true));
             }
-            (PublicLeg::Spl { is_deposit, .. }, TransactLegAccounts::Spl(spl)) => {
-                if !*is_deposit {
-                    accounts.push(AccountMeta::new_readonly(
-                        SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
-                        false,
-                    ));
-                }
+            (
+                InterfaceTransfer::SolWithdrawal { .. },
+                TransactInterfaceTransferAccounts::Sol(sol),
+            ) => {
+                accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
+                accounts.push(AccountMeta::new(sol.recipient, false));
+            }
+            (
+                InterfaceTransfer::SplDeposit { .. },
+                TransactInterfaceTransferAccounts::SplDeposit(spl),
+            ) => {
                 accounts.push(AccountMeta::new(spl.vault, false));
-                accounts.push(AccountMeta::new(spl.recipient, *is_deposit));
+                accounts.push(AccountMeta::new_readonly(spl.depositor, true));
                 accounts.push(AccountMeta::new(spl.user_token_account, false));
                 accounts.push(AccountMeta::new_readonly(spl.token_program, false));
             }
-            (PublicLeg::Sol { .. }, TransactLegAccounts::Spl(_))
-            | (PublicLeg::Spl { .. }, TransactLegAccounts::Sol(_)) => {
-                panic!("public leg type must match its settlement account group");
+            (
+                InterfaceTransfer::SplWithdrawal { .. },
+                TransactInterfaceTransferAccounts::SplWithdrawal(spl),
+            ) => {
+                accounts.push(AccountMeta::new_readonly(
+                    SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
+                    false,
+                ));
+                accounts.push(AccountMeta::new(spl.vault, false));
+                accounts.push(AccountMeta::new(spl.user_token_account, false));
+                accounts.push(AccountMeta::new_readonly(spl.token_program, false));
+            }
+            _ => {
+                panic!("interface transfer type must match its settlement account group");
             }
         }
     }
@@ -98,7 +121,11 @@ impl Transact {
             AccountMeta::new(self.input_tree, false),
             AccountMeta::new(self.output_tree, false),
         ];
-        append_public_leg_accounts(&mut accounts, &self.data.public_legs, &self.legs);
+        append_interface_transfer_accounts(
+            &mut accounts,
+            &self.data.interface_transfers,
+            &self.interface_transfer_accounts,
+        );
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Instruction {
@@ -114,7 +141,7 @@ mod tests {
     use super::*;
     use crate::instruction::instruction_data::transact::{CircuitId, TransactProof};
 
-    fn empty_data(public_legs: Vec<PublicLeg>) -> TransactIxData {
+    fn empty_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
         TransactIxData {
             proof: TransactProof::zeroed_eddsa(),
             expiry_unix_ts: u64::MAX,
@@ -124,7 +151,7 @@ mod tests {
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
             inputs: Vec::new(),
-            public_legs,
+            interface_transfers,
             data_hash: None,
             zone_data_hash: None,
             outputs: Vec::new(),
@@ -139,11 +166,10 @@ mod tests {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
-            legs: vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })],
-            data: empty_data(vec![PublicLeg::Sol {
-                is_deposit: false,
-                amount: 7,
-            }]),
+            interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts { recipient },
+            )],
+            data: empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 7 }]),
         };
 
         let ix = builder.instruction();
@@ -165,9 +191,8 @@ mod tests {
 
     #[test]
     fn single_spl_withdrawal_preserves_account_indices() {
-        let spl = TransactSplLeg {
+        let spl = TransactSplWithdrawalAccounts {
             vault: Pubkey::new_unique(),
-            recipient: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
             token_program: Pubkey::new_unique(),
         };
@@ -175,9 +200,10 @@ mod tests {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
-            legs: vec![TransactLegAccounts::Spl(spl)],
-            data: empty_data(vec![PublicLeg::Spl {
-                is_deposit: false,
+            interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+                spl,
+            )],
+            data: empty_data(vec![InterfaceTransfer::SplWithdrawal {
                 amount: 7,
                 vault_bump: 42,
             }]),
@@ -193,7 +219,6 @@ mod tests {
                 builder.output_tree,
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
                 spl.vault,
-                spl.recipient,
                 spl.user_token_account,
                 spl.token_program,
                 Pubkey::default(),
@@ -203,11 +228,10 @@ mod tests {
     }
 
     #[test]
-    fn ordered_mixed_legs_share_one_system_program() {
+    fn ordered_mixed_transfers_share_one_system_program() {
         let sol_depositor = Pubkey::new_unique();
-        let spl = TransactSplLeg {
+        let spl = TransactSplWithdrawalAccounts {
             vault: Pubkey::new_unique(),
-            recipient: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
             token_program: Pubkey::new_unique(),
         };
@@ -216,29 +240,22 @@ mod tests {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
-            legs: vec![
-                TransactLegAccounts::Sol(TransactSolLeg {
+            interface_transfer_accounts: vec![
+                TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
                     recipient: sol_depositor,
                 }),
-                TransactLegAccounts::Spl(spl),
-                TransactLegAccounts::Sol(TransactSolLeg {
+                TransactInterfaceTransferAccounts::SplWithdrawal(spl),
+                TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
                     recipient: sol_recipient,
                 }),
             ],
             data: empty_data(vec![
-                PublicLeg::Sol {
-                    is_deposit: true,
-                    amount: 3,
-                },
-                PublicLeg::Spl {
-                    is_deposit: false,
+                InterfaceTransfer::SolDeposit { amount: 3 },
+                InterfaceTransfer::SplWithdrawal {
                     amount: 5,
                     vault_bump: 42,
                 },
-                PublicLeg::Sol {
-                    is_deposit: false,
-                    amount: 2,
-                },
+                InterfaceTransfer::SolWithdrawal { amount: 2 },
             ]),
         };
 
@@ -254,7 +271,6 @@ mod tests {
                 sol_depositor,
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
                 spl.vault,
-                spl.recipient,
                 spl.user_token_account,
                 spl.token_program,
                 SOL_INTERFACE_PUBKEY,
@@ -265,14 +281,14 @@ mod tests {
         );
         assert!(ix.accounts[4].is_signer);
         assert!(!ix.accounts[7].is_signer);
-        assert!(!ix.accounts[11].is_signer);
+        assert!(!ix.accounts[10].is_signer);
     }
 
     #[test]
-    fn spl_deposit_omits_cpi_authority_and_marks_recipient_signer() {
-        let spl = TransactSplLeg {
+    fn spl_deposit_omits_cpi_authority_and_marks_depositor_signer() {
+        let spl = TransactSplDepositAccounts {
             vault: Pubkey::new_unique(),
-            recipient: Pubkey::new_unique(),
+            depositor: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
             token_program: Pubkey::new_unique(),
         };
@@ -280,9 +296,8 @@ mod tests {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
-            legs: vec![TransactLegAccounts::Spl(spl)],
-            data: empty_data(vec![PublicLeg::Spl {
-                is_deposit: true,
+            interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(spl)],
+            data: empty_data(vec![InterfaceTransfer::SplDeposit {
                 amount: 7,
                 vault_bump: 42,
             }]),
@@ -290,38 +305,36 @@ mod tests {
 
         let ix = builder.instruction();
         assert_eq!(ix.accounts[3].pubkey, spl.vault);
-        assert_eq!(ix.accounts[4].pubkey, spl.recipient);
+        assert_eq!(ix.accounts[4].pubkey, spl.depositor);
         assert!(ix.accounts[4].is_signer);
     }
 
     #[test]
     #[should_panic(expected = "equal lengths")]
-    fn rejects_leg_account_count_mismatch() {
+    fn rejects_transfer_account_count_mismatch() {
         Transact {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
-            legs: Vec::new(),
-            data: empty_data(vec![PublicLeg::Sol {
-                is_deposit: false,
-                amount: 1,
-            }]),
+            interface_transfer_accounts: Vec::new(),
+            data: empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 1 }]),
         }
         .instruction();
     }
 
     #[test]
-    #[should_panic(expected = "public leg type")]
-    fn rejects_leg_account_tag_mismatch() {
+    #[should_panic(expected = "interface transfer type")]
+    fn rejects_transfer_account_tag_mismatch() {
         Transact {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
-            legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
-                recipient: Pubkey::new_unique(),
-            })],
-            data: empty_data(vec![PublicLeg::Spl {
-                is_deposit: false,
+            interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts {
+                    recipient: Pubkey::new_unique(),
+                },
+            )],
+            data: empty_data(vec![InterfaceTransfer::SplWithdrawal {
                 amount: 1,
                 vault_bump: 42,
             }]),

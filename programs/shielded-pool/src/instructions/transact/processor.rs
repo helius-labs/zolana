@@ -20,7 +20,7 @@ use zolana_tree::TreeAccount;
 use super::{
     account::{TransactAccounts, ZoneTransactAccounts},
     event::{build_transact_event, resolve_outputs},
-    interface_transfer::{process_public_legs, resolve_public_legs},
+    interface_transfer::{process_interface_transfers, resolve_interface_transfers},
     tree::{apply_input_tree, apply_output_tree, tree_error},
 };
 use crate::instructions::{
@@ -63,13 +63,14 @@ pub fn process_transact_ix(
         }
     };
 
-    process_public_legs(
-        &ix.public_legs,
+    process_interface_transfers(
+        &ix.interface_transfers,
         &transact_accounts.settlements,
         &mut proof_inputs,
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
-    let resolved_public_legs = resolve_public_legs(&ix, &transact_accounts.settlements)?;
+    let resolved_interface_transfers =
+        resolve_interface_transfers(&ix, &transact_accounts.settlements)?;
 
     let (inputs, zkp_batch_size) = {
         let input_tree_address = transact_accounts.input_tree.address().to_bytes();
@@ -97,7 +98,7 @@ pub fn process_transact_ix(
     proof_inputs.external_data_hash = ExternalDataHash {
         spp_instruction_discriminator: instruction as u8,
         expiry_unix_ts: ix.expiry_unix_ts,
-        public_legs: &resolved_public_legs,
+        interface_transfers: &resolved_interface_transfers,
         data_hash: ix.data_hash,
         zone_data_hash: ix.zone_data_hash,
         outputs: &resolved_outputs,

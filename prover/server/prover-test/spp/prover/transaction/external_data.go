@@ -12,14 +12,14 @@ import (
 type externalDataPreimage struct {
 	InstructionDiscriminator uint8
 	ExpiryUnixTs             uint64
-	PublicLegs               []resolvedPublicLeg
+	InterfaceTransfers       []resolvedInterfaceTransfer
 	DataHash                 [32]byte
 	ZoneDataHash             [32]byte
 	Outputs                  []resolvedOutput
 	Messages                 []resolvedMessage
 }
 
-type resolvedPublicLeg struct {
+type resolvedInterfaceTransfer struct {
 	isSpl       bool
 	isDeposit   bool
 	amount      uint64
@@ -74,7 +74,7 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 	if err != nil {
 		return externalValues{}, err
 	}
-	publicLegs, err := resolvePublicLegs(tx.PublicLegs)
+	interfaceTransfers, err := resolveInterfaceTransfers(tx.InterfaceTransfers)
 	if err != nil {
 		return externalValues{}, err
 	}
@@ -112,7 +112,7 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 		hash: externalDataFieldHash(externalDataPreimage{
 			InstructionDiscriminator: tx.InstructionDiscriminator,
 			ExpiryUnixTs:             tx.ExpiryUnixTs,
-			PublicLegs:               publicLegs,
+			InterfaceTransfers:       interfaceTransfers,
 			DataHash:                 dataHashBytes,
 			ZoneDataHash:             zoneDataHashBytes,
 			Outputs:                  outputs,
@@ -153,29 +153,29 @@ func resolveOutputs(outputHashes []*big.Int, ownerTag [32]byte, encryptedUtxos [
 	return outputs, nil
 }
 
-func resolvePublicLegs(legs []PublicLegRequest) ([]resolvedPublicLeg, error) {
-	resolved := make([]resolvedPublicLeg, 0, len(legs))
-	for position, leg := range legs {
-		userAccount, err := parse.Hex32(leg.UserAccount)
+func resolveInterfaceTransfers(transfers []InterfaceTransferRequest) ([]resolvedInterfaceTransfer, error) {
+	resolved := make([]resolvedInterfaceTransfer, 0, len(transfers))
+	for position, transfer := range transfers {
+		userAccount, err := parse.Hex32(transfer.UserAccount)
 		if err != nil {
-			return nil, fmt.Errorf("public_legs[%d].user_account: %w", position, err)
+			return nil, fmt.Errorf("interface_transfers[%d].user_account: %w", position, err)
 		}
-		publicLeg := resolvedPublicLeg{
-			isSpl:       leg.IsSpl,
-			isDeposit:   leg.IsDeposit,
-			amount:      leg.Amount,
+		interfaceTransfer := resolvedInterfaceTransfer{
+			isSpl:       transfer.IsSpl,
+			isDeposit:   transfer.IsDeposit,
+			amount:      transfer.Amount,
 			userAccount: userAccount,
 		}
-		if leg.IsSpl {
-			poolAccount, err := parse.Hex32(leg.PoolAccount)
+		if transfer.IsSpl {
+			poolAccount, err := parse.Hex32(transfer.PoolAccount)
 			if err != nil {
-				return nil, fmt.Errorf("public_legs[%d].pool_account: %w", position, err)
+				return nil, fmt.Errorf("interface_transfers[%d].pool_account: %w", position, err)
 			}
-			publicLeg.poolAccount = poolAccount
-		} else if leg.PoolAccount != "" {
-			return nil, fmt.Errorf("public_legs[%d].pool_account must be empty for SOL", position)
+			interfaceTransfer.poolAccount = poolAccount
+		} else if transfer.PoolAccount != "" {
+			return nil, fmt.Errorf("interface_transfers[%d].pool_account must be empty for SOL", position)
 		}
-		resolved = append(resolved, publicLeg)
+		resolved = append(resolved, interfaceTransfer)
 	}
 	return resolved, nil
 }
@@ -183,8 +183,8 @@ func resolvePublicLegs(legs []PublicLegRequest) ([]resolvedPublicLeg, error) {
 func externalDataFieldHash(data externalDataPreimage) *big.Int {
 	var expiry [8]byte
 	binary.BigEndian.PutUint64(expiry[:], data.ExpiryUnixTs)
-	legSection := []byte{byte(len(data.PublicLegs))}
-	for _, leg := range data.PublicLegs {
+	legSection := []byte{byte(len(data.InterfaceTransfers))}
+	for _, leg := range data.InterfaceTransfers {
 		tag := byte(0)
 		if leg.isSpl {
 			tag = 1

@@ -18,7 +18,7 @@ fn transact_data(circuit: CircuitId) -> TransactIxData {
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         inputs: Vec::new(),
-        public_legs: Vec::new(),
+        interface_transfers: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         outputs: Vec::new(),
@@ -65,7 +65,7 @@ fn every_spend_builder_has_explicit_input_and_output_tree_slots() {
         payer,
         input_tree,
         output_tree,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ConfidentialEddsa(0, 0, 3)),
     }
     .instruction();
@@ -76,7 +76,7 @@ fn every_spend_builder_has_explicit_input_and_output_tree_slots() {
         input_tree,
         output_tree,
         zone_program_id,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ZoneEddsa(0, 0, 3)),
     }
     .cpi_instruction();
@@ -87,7 +87,7 @@ fn every_spend_builder_has_explicit_input_and_output_tree_slots() {
         input_tree,
         output_tree,
         zone_program_id,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ZoneAuthority(0, 0, 3)),
     }
     .cpi_instruction();
@@ -122,7 +122,7 @@ fn same_pubkey_is_valid_in_both_tree_slots() {
         payer: Pubkey::new_unique(),
         input_tree: tree,
         output_tree: tree,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ConfidentialEddsa(0, 0, 3)),
     }
     .instruction();

@@ -21,7 +21,7 @@ use zolana_client::{
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::instruction::instruction_data::transact::{
-    ResolvedPublicLeg, TransactIxData,
+    ResolvedInterfaceTransfer, TransactIxData,
 };
 use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey};
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
@@ -125,19 +125,24 @@ pub fn external_data_hash_spl(
     user_spl_token_account: &[u8; 32],
     spl_token_interface: &[u8; 32],
 ) -> Result<[u8; 32]> {
-    let leg = transact_ix_data
-        .public_legs
+    let transfer = transact_ix_data
+        .interface_transfers
         .first()
-        .context("external_data_hash_spl requires one public SPL leg")?;
-    external_data_hash(
-        transact_ix_data,
-        &[ResolvedPublicLeg::Spl {
-            is_deposit: leg.is_deposit(),
-            amount: leg.amount(),
+        .context("external_data_hash_spl requires one SPL interface transfer")?;
+    let resolved = if transfer.is_deposit() {
+        ResolvedInterfaceTransfer::SplDeposit {
+            amount: transfer.amount(),
             user_token_account: *user_spl_token_account,
             vault: *spl_token_interface,
-        }],
-    )
+        }
+    } else {
+        ResolvedInterfaceTransfer::SplWithdrawal {
+            amount: transfer.amount(),
+            user_token_account: *user_spl_token_account,
+            vault: *spl_token_interface,
+        }
+    };
+    external_data_hash(transact_ix_data, &[resolved])
 }
 
 pub fn nullifier_tree() -> Result<IndexedMerkleTree<Poseidon, usize>> {

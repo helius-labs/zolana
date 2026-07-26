@@ -17,26 +17,26 @@ type ProofBundleRequest struct {
 }
 
 type ProofTransactionRequest struct {
-	Name                     string              `json:"name"`
-	InstructionDiscriminator uint8               `json:"instruction_discriminator"`
-	ExpiryUnixTs             uint64              `json:"expiry_unix_ts"`
-	SenderViewTag            string              `json:"sender_view_tag"`
-	PublicLegs               []PublicLegRequest  `json:"public_legs"`
-	EncryptedUtxos           string              `json:"encrypted_utxos"`
-	StateEntries             []ProofStateEntry   `json:"state_entries"`
-	Inputs                   []ProofInputRequest `json:"inputs"`
-	Outputs                  []ProofUtxoRequest  `json:"outputs"`
-	UtxoTreeRootIndex        []uint16            `json:"utxo_tree_root_index"`
-	NullifierTreeRootIndex   []uint16            `json:"nullifier_tree_root_index"`
-	NullifierEntries         []string            `json:"nullifier_entries"`
-	DataHash                 string              `json:"data_hash"`
-	ZoneDataHash             string              `json:"zone_data_hash"`
-	P256OwnerPubkey          string              `json:"p256_owner_pubkey,omitempty"`
-	P256SignatureR           string              `json:"p256_signature_r,omitempty"`
-	P256SignatureS           string              `json:"p256_signature_s,omitempty"`
+	Name                     string                     `json:"name"`
+	InstructionDiscriminator uint8                      `json:"instruction_discriminator"`
+	ExpiryUnixTs             uint64                     `json:"expiry_unix_ts"`
+	SenderViewTag            string                     `json:"sender_view_tag"`
+	InterfaceTransfers       []InterfaceTransferRequest `json:"interface_transfers"`
+	EncryptedUtxos           string                     `json:"encrypted_utxos"`
+	StateEntries             []ProofStateEntry          `json:"state_entries"`
+	Inputs                   []ProofInputRequest        `json:"inputs"`
+	Outputs                  []ProofUtxoRequest         `json:"outputs"`
+	UtxoTreeRootIndex        []uint16                   `json:"utxo_tree_root_index"`
+	NullifierTreeRootIndex   []uint16                   `json:"nullifier_tree_root_index"`
+	NullifierEntries         []string                   `json:"nullifier_entries"`
+	DataHash                 string                     `json:"data_hash"`
+	ZoneDataHash             string                     `json:"zone_data_hash"`
+	P256OwnerPubkey          string                     `json:"p256_owner_pubkey,omitempty"`
+	P256SignatureR           string                     `json:"p256_signature_r,omitempty"`
+	P256SignatureS           string                     `json:"p256_signature_s,omitempty"`
 }
 
-type PublicLegRequest struct {
+type InterfaceTransferRequest struct {
 	IsSpl       bool   `json:"is_spl"`
 	IsDeposit   bool   `json:"is_deposit"`
 	Asset       string `json:"asset"`
@@ -77,20 +77,20 @@ type ProofBundle struct {
 }
 
 type ProofTransaction struct {
-	Name                   string             `json:"name"`
-	ExpiryUnixTs           uint64             `json:"expiry_unix_ts"`
-	SenderViewTag          string             `json:"sender_view_tag"`
-	Proof                  *common.Proof      `json:"proof"`
-	Nullifiers             []string           `json:"nullifiers"`
-	OutputUtxoHashes       []string           `json:"output_utxo_hashes"`
-	UtxoTreeRootIndex      []uint16           `json:"utxo_tree_root_index"`
-	NullifierTreeRootIndex []uint16           `json:"nullifier_tree_root_index"`
-	PrivateTxHash          string             `json:"private_tx_hash"`
-	PublicLegs             []PublicLegRequest `json:"public_legs"`
-	EncryptedUtxos         string             `json:"encrypted_utxos"`
-	RequiresP256           bool               `json:"requires_p256"`
-	PublicInputHash        string             `json:"public_input_hash"`
-	ExternalDataHash       string             `json:"external_data_hash"`
+	Name                   string                     `json:"name"`
+	ExpiryUnixTs           uint64                     `json:"expiry_unix_ts"`
+	SenderViewTag          string                     `json:"sender_view_tag"`
+	Proof                  *common.Proof              `json:"proof"`
+	Nullifiers             []string                   `json:"nullifiers"`
+	OutputUtxoHashes       []string                   `json:"output_utxo_hashes"`
+	UtxoTreeRootIndex      []uint16                   `json:"utxo_tree_root_index"`
+	NullifierTreeRootIndex []uint16                   `json:"nullifier_tree_root_index"`
+	PrivateTxHash          string                     `json:"private_tx_hash"`
+	InterfaceTransfers     []InterfaceTransferRequest `json:"interface_transfers"`
+	EncryptedUtxos         string                     `json:"encrypted_utxos"`
+	RequiresP256           bool                       `json:"requires_p256"`
+	PublicInputHash        string                     `json:"public_input_hash"`
+	ExternalDataHash       string                     `json:"external_data_hash"`
 
 	SolanaOwnerPubkeys      []string            `json:"solana_owner_pubkeys"`
 	OutputUtxos             []ProofUtxoResponse `json:"output_utxos"`
@@ -232,7 +232,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 	if err != nil {
 		return ProofTransaction{}, err
 	}
-	publicLegs, err := normalizedPublicLegs(tx.PublicLegs)
+	interfaceTransfers, err := normalizedInterfaceTransfers(tx.InterfaceTransfers)
 	if err != nil {
 		return ProofTransaction{}, err
 	}
@@ -254,7 +254,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 		UtxoTreeRootIndex:       utxoRootIndices,
 		NullifierTreeRootIndex:  nullifierTreeRootIndices,
 		PrivateTxHash:           parse.FieldHex(publicInputs.PrivateTxHash),
-		PublicLegs:              publicLegs,
+		InterfaceTransfers:      interfaceTransfers,
 		EncryptedUtxos:          parse.HexString(tx.EncryptedUtxos),
 		RequiresP256:            false,
 		PublicInputHash:         parse.FieldHex(publicInputHash),
@@ -268,34 +268,34 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 	}, nil
 }
 
-func normalizedPublicLegs(legs []PublicLegRequest) ([]PublicLegRequest, error) {
-	out := make([]PublicLegRequest, 0, len(legs))
-	for position, leg := range legs {
-		userAccount, err := parse.Hex32(leg.UserAccount)
+func normalizedInterfaceTransfers(transfers []InterfaceTransferRequest) ([]InterfaceTransferRequest, error) {
+	out := make([]InterfaceTransferRequest, 0, len(transfers))
+	for position, transfer := range transfers {
+		userAccount, err := parse.Hex32(transfer.UserAccount)
 		if err != nil {
-			return nil, fmt.Errorf("public_legs[%d].user_account: %w", position, err)
+			return nil, fmt.Errorf("interface_transfers[%d].user_account: %w", position, err)
 		}
-		normalized := PublicLegRequest{
-			IsSpl:       leg.IsSpl,
-			IsDeposit:   leg.IsDeposit,
-			Amount:      leg.Amount,
+		normalized := InterfaceTransferRequest{
+			IsSpl:       transfer.IsSpl,
+			IsDeposit:   transfer.IsDeposit,
+			Amount:      transfer.Amount,
 			UserAccount: parse.BytesHex(userAccount[:]),
 		}
-		if leg.IsSpl {
-			asset, err := parse.Hex32(leg.Asset)
+		if transfer.IsSpl {
+			asset, err := parse.Hex32(transfer.Asset)
 			if err != nil {
-				return nil, fmt.Errorf("public_legs[%d].asset: %w", position, err)
+				return nil, fmt.Errorf("interface_transfers[%d].asset: %w", position, err)
 			}
-			poolAccount, err := parse.Hex32(leg.PoolAccount)
+			poolAccount, err := parse.Hex32(transfer.PoolAccount)
 			if err != nil {
-				return nil, fmt.Errorf("public_legs[%d].pool_account: %w", position, err)
+				return nil, fmt.Errorf("interface_transfers[%d].pool_account: %w", position, err)
 			}
 			normalized.Asset = parse.BytesHex(asset[:])
 			normalized.PoolAccount = parse.BytesHex(poolAccount[:])
-		} else if leg.Asset != "" {
-			return nil, fmt.Errorf("public_legs[%d].asset must be empty for SOL", position)
-		} else if leg.PoolAccount != "" {
-			return nil, fmt.Errorf("public_legs[%d].pool_account must be empty for SOL", position)
+		} else if transfer.Asset != "" {
+			return nil, fmt.Errorf("interface_transfers[%d].asset must be empty for SOL", position)
+		} else if transfer.PoolAccount != "" {
+			return nil, fmt.Errorf("interface_transfers[%d].pool_account must be empty for SOL", position)
 		}
 		out = append(out, normalized)
 	}

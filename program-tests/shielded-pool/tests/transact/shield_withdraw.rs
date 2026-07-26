@@ -26,8 +26,8 @@ use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{PublicLeg, ResolvedPublicLeg},
-        Transact, TransactLegAccounts, TransactSolLeg,
+        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
+        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     pda,
 };
@@ -192,10 +192,7 @@ fn shield_then_withdraw_sol() {
             eddsa_input_utxo(nullifier, 1),
             eddsa_input_utxo(dummy_nullifier, 1),
         ],
-        vec![PublicLeg::Sol {
-            is_deposit: false,
-            amount: AMOUNT,
-        }],
+        vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
         None,
     );
@@ -206,13 +203,12 @@ fn shield_then_withdraw_sol() {
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
-    let resolved_legs = [ResolvedPublicLeg::Sol {
-        is_deposit: false,
+    let resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
         amount: AMOUNT,
         recipient: recipient.to_bytes(),
     }];
     let external_data_hash =
-        external_data_hash(&transact_ix_data, &resolved_legs).expect("external data hash");
+        external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
 
     // private_tx_hash uses the real input's utxo hash; the dummy input and all
     // outputs contribute zero.
@@ -261,7 +257,9 @@ fn shield_then_withdraw_sol() {
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
-        legs: vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })],
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts { recipient },
+        )],
         data: transact_ix_data,
     }
     .instruction();
@@ -477,7 +475,7 @@ fn shield_transfer_then_withdraw_sol() {
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
     .instruction();
@@ -578,8 +576,7 @@ fn shield_transfer_then_withdraw_sol() {
             eddsa_input_utxo(recipient_nullifier, 2),
             eddsa_input_utxo(withdraw_dummy_nullifier, 2),
         ],
-        vec![PublicLeg::Sol {
-            is_deposit: false,
+        vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],
         inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
@@ -592,13 +589,13 @@ fn shield_transfer_then_withdraw_sol() {
         &withdraw_owner_pk_hashes,
         &[zero, zero, zero],
     );
-    let withdraw_resolved_legs = [ResolvedPublicLeg::Sol {
-        is_deposit: false,
+    let withdraw_resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
         amount: TRANSFER_AMOUNT,
         recipient: public_recipient.to_bytes(),
     }];
-    let withdraw_external_hash = external_data_hash(&withdraw_ix_data, &withdraw_resolved_legs)
-        .expect("withdraw external data hash");
+    let withdraw_external_hash =
+        external_data_hash(&withdraw_ix_data, &withdraw_resolved_transfers)
+            .expect("withdraw external data hash");
     let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[zero, zero, zero],
@@ -645,9 +642,11 @@ fn shield_transfer_then_withdraw_sol() {
         payer: recipient_owner.pubkey(),
         input_tree: tree,
         output_tree: tree,
-        legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
-            recipient: public_recipient,
-        })],
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts {
+                recipient: public_recipient,
+            },
+        )],
         data: withdraw_ix_data,
     }
     .instruction();

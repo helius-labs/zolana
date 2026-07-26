@@ -135,7 +135,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 payer: user_solana.pubkey(),
                 input_tree: env.tree,
                 output_tree: env.tree,
-                legs: Vec::new(),
+                interface_transfer_accounts: Vec::new(),
                 data: split_transact,
             }
             .instruction();

@@ -93,7 +93,7 @@ impl ZoneLifecycleWorld {
             input_tree: tree,
             output_tree: tree,
             zone_program_id: self.zone_program_id,
-            legs: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
             data: ix_data.clone(),
         }
         .instruction();
@@ -274,7 +274,7 @@ impl ZoneLifecycleWorld {
         let external_data = ExternalData {
             instruction_discriminator: ZONE_AUTHORITY_TRANSACT,
             expiry_unix_ts: u64::MAX,
-            public_legs: Vec::new(),
+            interface_transfers: Vec::new(),
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: *tx.pubkey().as_bytes(),
@@ -334,10 +334,10 @@ impl ZoneLifecycleWorld {
             ),
             p256_signing_pk_x: None,
             inputs,
-            public_legs: external_data
-                .public_legs
+            interface_transfers: external_data
+                .interface_transfers
                 .iter()
-                .map(|leg| leg.public_leg())
+                .map(|transfer| transfer.interface_transfer())
                 .collect(),
             data_hash: external_data.data_hash,
             zone_data_hash: external_data.zone_data_hash,
@@ -380,7 +380,7 @@ impl ZoneLifecycleWorld {
             input_tree: self.tree,
             output_tree: self.tree,
             zone_program_id: self.zone_program_id,
-            legs: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
         .instruction();
@@ -424,7 +424,7 @@ impl ZoneLifecycleWorld {
             input_tree: self.tree,
             output_tree: self.tree,
             zone_program_id: self.zone_program_id,
-            legs: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
         .instruction();

@@ -20,8 +20,9 @@ use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{PublicLeg, ResolvedPublicLeg},
-        tag, CreateProtocolConfig, Deposit, Transact, TransactLegAccounts, TransactSolLeg,
+        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
+        tag, CreateProtocolConfig, Deposit, Transact, TransactInterfaceTransferAccounts,
+        TransactSolTransferAccounts,
     },
     pda,
     state::tree_account_size,
@@ -283,7 +284,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
     .instruction();
@@ -369,8 +370,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
             eddsa_input_utxo(recipient_nullifier, 4),
             eddsa_input_utxo(withdraw_dummy_nullifier, 4),
         ],
-        vec![PublicLeg::Sol {
-            is_deposit: false,
+        vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],
         inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
@@ -383,12 +383,12 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         &withdraw_owner_pk_hashes,
         &[zero, zero, zero],
     );
-    let withdraw_resolved_legs = [ResolvedPublicLeg::Sol {
-        is_deposit: false,
+    let withdraw_resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
         amount: TRANSFER_AMOUNT,
         recipient: public_recipient.to_bytes(),
     }];
-    let withdraw_external_hash = external_data_hash(&withdraw_ix_data, &withdraw_resolved_legs)?;
+    let withdraw_external_hash =
+        external_data_hash(&withdraw_ix_data, &withdraw_resolved_transfers)?;
     let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[zero, zero, zero],
@@ -431,10 +431,13 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
 
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
-        tree: tree_pubkey,
-        legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
-            recipient: public_recipient,
-        })],
+        input_tree: tree_pubkey,
+        output_tree: tree_pubkey,
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts {
+                recipient: public_recipient,
+            },
+        )],
         data: withdraw_ix_data,
     }
     .instruction();

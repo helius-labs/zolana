@@ -92,7 +92,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
         payer: maker_solana.pubkey(),
         input_tree: tree,
         output_tree: tree,
-        legs: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
         data,
     }
     .instruction();
