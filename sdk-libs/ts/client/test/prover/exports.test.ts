@@ -4,9 +4,10 @@ import * as prover from "../../src/prover/index.js";
 
 /// Frozen runtime surface of `@zolana/client/prover`. A dropped or added name
 /// fails here, which is the only evidence that catches an accidental change to
-/// the subpath. The three zone assemblers joined it when the ruling of
-/// 2026-07-25 withdrew their deferral; the forester's address-append entry
-/// point stays absent, because TypeScript ships no forester to call it.
+/// the subpath. The three zone assemblers and the zone-authority witness bridge
+/// joined it when the ruling of 2026-07-25 withdrew their deferral; the
+/// forester's address-append entry point stays absent, because TypeScript ships
+/// no forester to call it.
 const EXPORTS = [
   "DEFAULT_ASYNC_POLL_CONFIG",
   "PROVE_PATH",
@@ -17,6 +18,7 @@ const EXPORTS = [
   "assemble",
   "assembleZone",
   "assembleZoneAuthority",
+  "assembleZoneAuthorityWitness",
   "assembleZoneP256",
   "canonicalShape",
   "compressProof",
