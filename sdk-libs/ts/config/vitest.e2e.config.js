@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-import { poseidonSetupFile } from "./setup-files.js";
+import { groth16VerifyGlobalSetupFile, poseidonSetupFile } from "./setup-files.js";
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 
@@ -22,6 +22,9 @@ export function defineE2eConfig(include) {
   return defineConfig({
     test: {
       fileParallelism: false,
+      // prove-to-chain (and hybrid P5) shell out to the Rust groth16-verify
+      // oracle; build it once before any e2e file runs.
+      globalSetup: [groth16VerifyGlobalSetupFile],
       hookTimeout: timeoutFromEnvironment("ZOLANA_E2E_HOOK_TIMEOUT_MS"),
       include: [include],
       pool: "forks",

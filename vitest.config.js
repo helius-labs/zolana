@@ -1,9 +1,15 @@
 import { defineConfig } from "vitest/config";
 
-import { poseidonSetupFile } from "./sdk-libs/ts/config/setup-files.js";
+import {
+  groth16VerifyGlobalSetupFile,
+  poseidonSetupFile,
+} from "./sdk-libs/ts/config/setup-files.js";
 
 export default defineConfig({
   test: {
+    // Root `test:unit` includes client vector suites that call the Rust
+    // groth16-verify oracle; build it once before any test executes.
+    globalSetup: [groth16VerifyGlobalSetupFile],
     include: ["sdk-libs/ts/**/test/**/*.test.ts"],
     passWithNoTests: true,
     pool: "forks",
