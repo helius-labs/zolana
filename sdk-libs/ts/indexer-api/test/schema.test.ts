@@ -212,6 +212,57 @@ describe("indexer schema", () => {
     );
   });
 
+  it("decodes a u64 above the safe-integer bound carried as a decimal string", () => {
+    const rootSeq = (1n << 60n) + 7n;
+    const leafIndex = (1n << 53n) + 1n;
+    const decoded = getMerkleProofsMethod.decodeResponse({
+      context: CONTEXT,
+      proofs: [
+        {
+          ...PROOF,
+          leaf_index: leafIndex.toString(),
+          root_seq: rootSeq.toString(),
+        },
+      ],
+    });
+
+    expect(decoded.proofs[0]?.leafIndex).toBe(leafIndex);
+    expect(decoded.proofs[0]?.rootSeq).toBe(rootSeq);
+  });
+
+  it("rejects a decimal string outside the field's range or in a non-canonical form", () => {
+    for (const [seq, path] of [
+      [(1n << 64n).toString(), "$.proofs[0].root_seq"],
+      ["-1", "$.proofs[0].root_seq"],
+      ["007", "$.proofs[0].root_seq"],
+      ["1.0", "$.proofs[0].root_seq"],
+      [" 1", "$.proofs[0].root_seq"],
+      ["", "$.proofs[0].root_seq"],
+    ] as const) {
+      expectSchemaError(
+        () =>
+          getMerkleProofsMethod.decodeResponse({
+            context: CONTEXT,
+            proofs: [{ ...PROOF, root_seq: seq }],
+          }),
+        "INDEXER_SCHEMA_INVALID_INTEGER",
+        path,
+      );
+    }
+  });
+
+  it("rejects a JSON number that lost precision before it reached the decoder", () => {
+    expectSchemaError(
+      () =>
+        getMerkleProofsMethod.decodeResponse({
+          context: CONTEXT,
+          proofs: [{ ...PROOF, root_seq: 2 ** 53 }],
+        }),
+      "INDEXER_SCHEMA_INVALID_INTEGER",
+      "$.proofs[0].root_seq",
+    );
+  });
+
   it("rejects malformed non-inclusion neighbors", () => {
     expectSchemaError(
       () =>

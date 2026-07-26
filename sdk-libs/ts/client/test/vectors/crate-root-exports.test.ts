@@ -142,6 +142,8 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   Field: "the branded BN254 field element the prover payload carries",
   GetByTagsRequest: "the by-tags request Rust passes as separate arguments",
   HasherErrorCode: "the wrapped hasher codes ClientError::Hasher carries",
+  MAX_TRANSACTION_SIZE:
+    "the runtime packet limit, which Rust reads from solana-transaction and TypeScript compiles without",
   MergeMaterialInput: "the merge key material ZolanaClient.proveMerge requires",
   PollUntilOptions: "the pollUntil parameters Rust passes as separate arguments",
   ProvedMerge: "the merge proof result ZolanaClient.proveMerge returns",
@@ -160,6 +162,8 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   pollUntil: "the retry loop Rust inlines into each caller",
   retryCause: "ClientError::retry_cause as a free function",
   validatePollConfig: "IndexerPollConfig invariant validation",
+  transactionSize:
+    "measures a compiled transaction, which Rust gets from solana-transaction's own serializer",
   waitForIndexer: "the indexer catch-up loop Rust inlines into each caller",
 };
 

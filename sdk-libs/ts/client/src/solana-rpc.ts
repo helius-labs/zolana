@@ -11,6 +11,7 @@ import {
 import type { InputUtxoContext } from "@zolana/transaction";
 
 import { ClientError } from "./error.js";
+import { compactU16 } from "./wire.js";
 import {
   addressBytes,
   composeSignal,
@@ -622,21 +623,6 @@ function compareBytes(left: Uint8Array, right: Uint8Array): number {
     if (difference !== 0) return difference;
   }
   return left.length - right.length;
-}
-
-function compactU16(value: number): Uint8Array {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff) {
-    throw new ClientError("CLIENT_INVALID_INTEGER");
-  }
-  const bytes: number[] = [];
-  let remaining = value;
-  do {
-    let byte = remaining & 0x7f;
-    remaining >>>= 7;
-    if (remaining !== 0) byte |= 0x80;
-    bytes.push(byte);
-  } while (remaining !== 0);
-  return Uint8Array.from(bytes);
 }
 
 function concat(...parts: readonly Uint8Array[]): Uint8Array {

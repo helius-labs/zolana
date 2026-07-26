@@ -65,11 +65,23 @@ function boolean(value: unknown, path: string): boolean {
   return value;
 }
 
+const DECIMAL_INTEGER = /^-?(?:0|[1-9][0-9]*)$/u;
+
+/**
+ * A JSON number outside the double-precision safe range has already lost
+ * precision by the time it reaches here, so it is refused rather than read. The
+ * transport quotes such literals before parsing, which is why the string form
+ * is accepted: it is the only lossless carrier for the upper half of `u64`.
+ */
 function wireInteger(value: unknown, path: string, minimum: bigint, maximum: bigint): bigint {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+  let integer: bigint;
+  if (typeof value === "number" && Number.isSafeInteger(value)) {
+    integer = BigInt(value);
+  } else if (typeof value === "string" && DECIMAL_INTEGER.test(value)) {
+    integer = BigInt(value);
+  } else {
     return schemaFailure("INDEXER_SCHEMA_INVALID_INTEGER", path, "a safe JSON integer", value);
   }
-  const integer = BigInt(value);
   if (integer < minimum || integer > maximum) {
     return schemaFailure(
       "INDEXER_SCHEMA_INVALID_INTEGER",
