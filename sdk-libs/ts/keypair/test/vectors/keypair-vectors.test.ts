@@ -28,7 +28,7 @@ import {
   SHIELDED_PUBLIC_KEY_LENGTH,
 } from "../../src/constants.js";
 import { KeypairError } from "../../src/error.js";
-import { hashField, pack33, sha256Be, sha256Bytes, splitBigEndian128 } from "../../src/hash.js";
+import { pack33, sha256Be, sha256Bytes, splitBigEndian128 } from "../../src/hash.js";
 import {
   NullifierKey,
   P256PublicKey,
@@ -254,10 +254,15 @@ describe("frozen Rust keypair fixtures", () => {
     const [low, high] = splitBigEndian128(digest);
     expectHex(low, hashFixture.expected.splitLowBytes);
     expectHex(high, hashFixture.expected.splitHighBytes);
-    expectHex(
-      hashField(asBytes32(pubkeyFixture.expected.p256ConfidentialViewTagBytes)),
-      hashFixture.expected.p256OwnerFieldBytes,
-    );
+    // Poseidon fields recompute from the published test-only secrets alone.
+    const ed25519 = SigningKey.fromEd25519Bytes(
+      asBytes32(hashFixture.inputs.ed25519SecretBytes),
+    ).publicKey();
+    expectHex(ed25519.hash(), hashFixture.expected.ed25519PublicHashBytes);
+    expectHex(ed25519.ownerPublicKeyField(), hashFixture.expected.ed25519OwnerFieldBytes);
+    const p256 = SigningKey.fromBytes(asBytes32(hashFixture.inputs.p256SecretBytes)).publicKey();
+    expectHex(p256.hash(), hashFixture.expected.p256PublicHashBytes);
+    expectHex(p256.ownerPublicKeyField(), hashFixture.expected.p256OwnerFieldBytes);
   });
 
   it("matches nullifier derivation and binding", () => {

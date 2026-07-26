@@ -11,6 +11,8 @@
   },
   "id": "fx-p00-keypair-hash-v1",
   "inputs": {
+    "ed25519SecretBytes": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    "p256SecretBytes": "0000000000000000000000000000000000000000000000000000000000000001",
     "preimageBytes": "73616d65",
     "testOnlySecret": true
   },
