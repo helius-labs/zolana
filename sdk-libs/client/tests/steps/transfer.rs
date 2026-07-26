@@ -23,7 +23,7 @@ use zolana_transaction::{
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::derive_blinding,
-    AssetRegistry, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+    AssetRegistry, ExternalData, OutputData, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
 use crate::{
@@ -81,7 +81,7 @@ impl TransferWorld {
                     amount: input.amount,
                     blinding: random_blinding(&mut rng),
                     zone_program_id: None,
-                    data: Data::default(),
+                    data: OutputData::default(),
                 };
                 match input.owner {
                     crate::world::Owner::P256 => SppProofInputUtxo::new(utxo, &sender),
@@ -121,7 +121,7 @@ impl TransferWorld {
         if let Some(withdraw) = &plan.withdraw {
             let target = match withdraw.asset {
                 Asset::Sol => WithdrawalTarget::Sol {
-                    user_sol_account: Address::new_from_array([7u8; 32]),
+                    recipient: Address::new_from_array([7u8; 32]),
                 },
                 Asset::Spl => WithdrawalTarget::Spl {
                     user_spl_token: Address::new_from_array([8u8; 32]),
@@ -383,7 +383,7 @@ fn assert_outputs(
             amount: change(Asset::Spl),
             blinding: derive_blinding(&seed, 0),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         });
     }
     if change(Asset::Sol) > 0 {
@@ -392,7 +392,7 @@ fn assert_outputs(
             amount: change(Asset::Sol),
             blinding: derive_blinding(&seed, 1),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         });
     }
     assert_eq!(sender_change, expected_change);
@@ -412,7 +412,7 @@ fn assert_outputs(
                     amount: send.amount,
                     blinding: derive_blinding(&seed, 2 + i as u8),
                     zone_program_id: None,
-                    data: Data::default(),
+                    data: OutputData::default(),
                 },
             )
         })

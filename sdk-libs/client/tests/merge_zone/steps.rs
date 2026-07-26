@@ -9,13 +9,13 @@ use cucumber::{given, then};
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{
-    prover::merge_zone::MergeZoneProver, spawn_prover, MergeZone, MergeZoneWitness, ProverClient,
-    Rpc, SppProofInputUtxo, MERGE_INPUTS,
+    prover::merge_zone::MergeZoneProver, spawn_prover, MergeZone, MergeZoneProofInputs,
+    ProverClient, Rpc, SppProofInputUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_zone_8_1;
 use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::spp_proof_inputs::asset_field, Data, SppProofOutputUtxo, Utxo,
+    instructions::transact::spp_proof_inputs::asset_field, OutputData, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{test_indexer::TestIndexer, world::MergeZoneWorld};
@@ -75,7 +75,7 @@ impl MergeZoneWorld {
                 amount,
                 blinding: random_blinding(),
                 zone_program_id: Some(zone),
-                data: Data::default(),
+                data: OutputData::default(),
             };
             let utxo_hash = utxo
                 .hash(&nullifier_pk, &[0u8; 32], &zone_data_hash)
@@ -85,7 +85,7 @@ impl MergeZoneWorld {
         }
 
         // The plan derives the merged zone-owned output and owner identity; preparing
-        // it pads to MERGE_INPUTS, and the MergeZoneWitness folds in the owner
+        // it pads to MERGE_INPUTS, and the MergeZoneProofInputs folds in the owner
         // nullifier key and the proofs. The prover never sees the high-level plan.
         let mut output_zone_data_hash = [0u8; 32];
         output_zone_data_hash[31] = 0xd2;
@@ -97,7 +97,7 @@ impl MergeZoneWorld {
         let proofs = indexer
             .get_input_merkle_proofs(&commitments, None)
             .expect("merkle proofs");
-        let result = MergeZoneProver::try_from(MergeZoneWitness {
+        let result = MergeZoneProver::try_from(MergeZoneProofInputs {
             prepared,
             nullifier_key: sender.nullifier_key.clone(),
             proofs,
@@ -151,7 +151,7 @@ impl MergeZoneWorld {
             zone_data_hash: Some(output_zone_data_hash),
             data_hash: None,
             owner_tag: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         assert_eq!(
             reconstructed.hash().expect("reconstructed utxo hash"),

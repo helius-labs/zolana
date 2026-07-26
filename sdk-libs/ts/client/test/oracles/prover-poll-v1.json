@@ -1,0 +1,483 @@
+{
+  "cases": [
+    {
+      "jobId": "job-1",
+      "name": "completed with the proof nested under result",
+      "outcome": "proof",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "proof": {
+        "a": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "b": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "c": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "hasCommitment": false
+      },
+      "responses": [
+        {
+          "body": "{\"result\":{\"proof\":{\"ar\":[\"0x0\",\"0x0\"],\"bs\":[[\"0x0\",\"0x0\"],[\"0x0\",\"0x0\"]],\"krs\":[\"0x0\",\"0x0\"]},\"proof_duration_ms\":7},\"status\":\"completed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "jobId": "job-1",
+      "name": "completed with the proof at the top level",
+      "outcome": "proof",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "proof": {
+        "a": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "b": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "c": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "hasCommitment": false
+      },
+      "responses": [
+        {
+          "body": "{\"proof\":{\"ar\":[\"0x0\",\"0x0\"],\"bs\":[[\"0x0\",\"0x0\"],[\"0x0\",\"0x0\"]],\"krs\":[\"0x0\",\"0x0\"]},\"status\":\"completed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "jobId": "job-1",
+      "name": "queued once, then completed",
+      "outcome": "proof",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1",
+        "/prove/status?job_id=job-1"
+      ],
+      "proof": {
+        "a": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "b": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "c": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "hasCommitment": false
+      },
+      "responses": [
+        {
+          "body": "{\"status\":\"queued\"}",
+          "status": 200
+        },
+        {
+          "body": "{\"result\":{\"proof\":{\"ar\":[\"0x0\",\"0x0\"],\"bs\":[[\"0x0\",\"0x0\"],[\"0x0\",\"0x0\"]],\"krs\":[\"0x0\",\"0x0\"]}},\"status\":\"completed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 2
+    },
+    {
+      "arm": "timeout",
+      "jobId": "job-1",
+      "message": "prover server error: async proof timed out after 1s (job job-1)",
+      "name": "queued past the wait budget",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"status\":\"queued\"}",
+          "status": 200
+        },
+        {
+          "body": "{\"status\":\"processing\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 2
+    },
+    {
+      "arm": "timeout",
+      "jobId": "job-1",
+      "message": "prover server error: async proof timed out after 1s (job job-1)",
+      "name": "an unrecognised status keeps polling",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"status\":\"reticulating\"}",
+          "status": 200
+        },
+        {
+          "body": "{\"status\":\"pending\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 2
+    },
+    {
+      "arm": "timeout",
+      "jobId": "job-1",
+      "message": "prover server error: async proof timed out after 1s (job job-1)",
+      "name": "a body with no status field keeps polling",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"note\":\"still here\"}",
+          "status": 200
+        },
+        {
+          "body": "{}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 2
+    },
+    {
+      "arm": "failed",
+      "jobId": "job-1",
+      "message": "prover server error: async proof failed (job job-1): {\"message\":\"prover rejected witness\",\"status\":\"failed\"}",
+      "name": "failed",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"message\":\"prover rejected witness\",\"status\":\"failed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "arm": "httpStatus",
+      "jobId": "job-1",
+      "message": "prover server error: status 400 Bad Request: {\"error\":\"bad job\"}",
+      "name": "400 is final",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"error\":\"bad job\"}",
+          "status": 400
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "arm": "httpStatus",
+      "jobId": "job-1",
+      "message": "prover server error: status 404 Not Found: {\"error\":\"no such job\"}",
+      "name": "404 is final",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"error\":\"no such job\"}",
+          "status": 404
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "jobId": "job-1",
+      "name": "500 is transient, then completed",
+      "outcome": "proof",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1",
+        "/prove/status?job_id=job-1"
+      ],
+      "proof": {
+        "a": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "b": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "c": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "hasCommitment": false
+      },
+      "responses": [
+        {
+          "body": "{\"error\":\"overloaded\"}",
+          "status": 500
+        },
+        {
+          "body": "{\"result\":{\"proof\":{\"ar\":[\"0x0\",\"0x0\"],\"bs\":[[\"0x0\",\"0x0\"],[\"0x0\",\"0x0\"]],\"krs\":[\"0x0\",\"0x0\"]}},\"status\":\"completed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 2
+    },
+    {
+      "arm": "timeout",
+      "jobId": "job-1",
+      "message": "prover server error: async proof timed out after 1s (job job-1)",
+      "name": "500 past the wait budget",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"error\":\"overloaded\"}",
+          "status": 500
+        },
+        {
+          "body": "{\"error\":\"still overloaded\"}",
+          "status": 503
+        }
+      ],
+      "statusRequests": 2
+    },
+    {
+      "jobId": "job-1",
+      "name": "a dropped connection is transient, then completed",
+      "outcome": "proof",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1",
+        "/prove/status?job_id=job-1"
+      ],
+      "proof": {
+        "a": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "b": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "c": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "hasCommitment": false
+      },
+      "responses": [
+        {
+          "disconnect": true
+        },
+        {
+          "body": "{\"result\":{\"proof\":{\"ar\":[\"0x0\",\"0x0\"],\"bs\":[[\"0x0\",\"0x0\"],[\"0x0\",\"0x0\"]],\"krs\":[\"0x0\",\"0x0\"]}},\"status\":\"completed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 2
+    },
+    {
+      "arm": "timeout",
+      "jobId": "job-1",
+      "message": "prover server error: async proof timed out after 1s (job job-1)",
+      "name": "a dropped connection past the wait budget",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "disconnect": true
+        },
+        {
+          "disconnect": true
+        }
+      ],
+      "statusRequests": 2
+    },
+    {
+      "arm": "invalidJson",
+      "jobId": "job-1",
+      "message": "proof parse error: invalid status JSON: expected ident at line 1 column 2",
+      "name": "a body that is not JSON is final",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "not json",
+          "status": 200
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "arm": "invalidJson",
+      "jobId": "job-1",
+      "message": "proof parse error: invalid status JSON: EOF while parsing a value at line 1 column 0",
+      "name": "an empty body is final",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "",
+          "status": 200
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "arm": "nullProof",
+      "jobId": "job-1",
+      "message": "prover server error: server returned a null proof",
+      "name": "completed with a null result",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"result\":null,\"status\":\"completed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "arm": "unparsableProof",
+      "jobId": "job-1",
+      "message": "proof parse error: could not parse proof: {\"result\":\"done\",\"status\":\"completed\"}",
+      "name": "completed with a result that is not an object",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"result\":\"done\",\"status\":\"completed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "arm": "unparsableProof",
+      "jobId": "job-1",
+      "message": "proof parse error: could not parse proof: {\"status\":\"completed\"}",
+      "name": "completed with no proof anywhere",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"status\":\"completed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "arm": "nullProof",
+      "jobId": "job-1",
+      "message": "prover server error: server returned a null proof",
+      "name": "completed with a null proof",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"result\":{\"proof\":null},\"status\":\"completed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 1
+    },
+    {
+      "arm": "unparsableProof",
+      "jobId": "job-1",
+      "message": "proof parse error: could not parse proof: {\"result\":{\"proof\":{\"ar\":[\"nope\"]}},\"status\":\"completed\"}",
+      "name": "completed with a proof the parser rejects",
+      "outcome": "error",
+      "paths": [
+        "/prove",
+        "/prove/status?job_id=job-1"
+      ],
+      "responses": [
+        {
+          "body": "{\"result\":{\"proof\":{\"ar\":[\"nope\"]}},\"status\":\"completed\"}",
+          "status": 200
+        }
+      ],
+      "statusRequests": 1
+    }
+  ],
+  "config": {
+    "maxWaitSecs": 1,
+    "pollIntervalSecs": 1
+  },
+  "jobIds": [
+    {
+      "accepted": true,
+      "arm": "timeout",
+      "jobId": "job-1",
+      "name": "plain",
+      "statusRequests": 2
+    },
+    {
+      "accepted": true,
+      "arm": "timeout",
+      "jobId": "job_42",
+      "name": "underscore and digits",
+      "statusRequests": 2
+    },
+    {
+      "accepted": false,
+      "arm": "jobId",
+      "jobId": "",
+      "name": "empty",
+      "statusRequests": 0
+    },
+    {
+      "accepted": false,
+      "arm": "jobId",
+      "jobId": "job&x=1",
+      "name": "query separator",
+      "statusRequests": 0
+    },
+    {
+      "accepted": false,
+      "arm": "jobId",
+      "jobId": "job/../secret",
+      "name": "path separator",
+      "statusRequests": 0
+    },
+    {
+      "accepted": false,
+      "arm": "jobId",
+      "jobId": "job%2f",
+      "name": "percent escape",
+      "statusRequests": 0
+    },
+    {
+      "accepted": false,
+      "arm": "jobId",
+      "jobId": "job 1",
+      "name": "whitespace",
+      "statusRequests": 0
+    },
+    {
+      "accepted": false,
+      "arm": "jobId",
+      "jobId": "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj",
+      "name": "too long",
+      "statusRequests": 0
+    }
+  ]
+}

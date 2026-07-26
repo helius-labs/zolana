@@ -133,34 +133,69 @@ pub(crate) struct GnarkProofJson {
 fn g1_from_hex_pair(pair: &[String]) -> Option<[u8; 64]> {
     let [x, y] = pair else { return None };
     let mut out = [0u8; 64];
-    out[..32].copy_from_slice(&hex_to_be_32(x));
-    out[32..].copy_from_slice(&hex_to_be_32(y));
+    out[..32].copy_from_slice(&hex_to_be_32(x)?);
+    out[32..].copy_from_slice(&hex_to_be_32(y)?);
     Some(out)
 }
 
-fn hex_to_be_32(hex_str: &str) -> [u8; 32] {
-    let trimmed = hex_str.trim_start_matches("0x");
-    let big_int = num_bigint::BigInt::from_str_radix(trimmed, 16).unwrap_or_default();
-    let bytes = big_int.to_bytes_be().1;
-    let mut result = [0u8; 32];
-    if bytes.len() <= 32 {
-        result[32 - bytes.len()..].copy_from_slice(&bytes);
-    } else {
-        result.copy_from_slice(&bytes[bytes.len() - 32..]);
+/// BN254's base field modulus, big-endian. A coordinate is an element of that
+/// field, so a value at or above the modulus is not one.
+const BN254_BASE_MODULUS_BE: [u8; 32] = [
+    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+    0x97, 0x81, 0x6a, 0x91, 0x68, 0x71, 0xca, 0x8d, 0x3c, 0x20, 0x8c, 0x16, 0xd8, 0x7c, 0xfd, 0x47,
+];
+
+/// Read one gnark coordinate as a canonical field element.
+///
+/// The previous reader accepted several spellings of the same number and one
+/// spelling of a different one. `trim_start_matches("0x")` strips the prefix
+/// repeatedly, so `0x0x1` read as 1; `to_bytes_be().1` discards the sign, so
+/// `-1` read as 1; `unwrap_or_default` turned an unparsable string into zero,
+/// which is a valid point coordinate rather than an error; and a value wider
+/// than 32 bytes was truncated to its low half. Each of those makes the encoding
+/// non-canonical, so two byte strings mean one field element and code that
+/// compares bytes rather than values can be misled. The absent range check was
+/// the same problem at the top of the field: a coordinate at or above the
+/// modulus is congruent to one below it.
+fn hex_to_be_32(hex_str: &str) -> Option<[u8; 32]> {
+    let digits = hex_str
+        .strip_prefix("0x")
+        .or_else(|| hex_str.strip_prefix("0X"))
+        .unwrap_or(hex_str);
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
     }
-    result
+    let bytes = num_bigint::BigUint::from_str_radix(digits, 16)
+        .ok()?
+        .to_bytes_be();
+    if bytes.len() > 32 {
+        return None;
+    }
+    let mut result = [0u8; 32];
+    result[32 - bytes.len()..].copy_from_slice(&bytes);
+    if result >= BN254_BASE_MODULUS_BE {
+        return None;
+    }
+    Some(result)
 }
 
 /// Parse a gnark proof JSON (`{ar, bs, krs, proof_commitment?, proof_commitment_pok?}`)
-/// into an uncompressed [`Proof`] with `proof_a` negated. The commitment is `Some`
-/// only when both commitment fields are present (P256 rail).
-pub(crate) fn proof_from_gnark_json(json_str: &str) -> Option<Proof> {
+/// into an uncompressed [`Proof`] with `proof_a` negated.
+///
+/// `committed` is the rail the caller asked to prove on, not a guess from the
+/// response: the P256 rails carry a BSB22 commitment and the eddsa rails do not.
+/// Inferring it from field presence meant an eddsa request answered with a
+/// commitment-bearing proof was packed as `TransactProof::P256`, which cannot
+/// verify, and the caller learned that from a verification failure on chain
+/// rather than from the parse.
+pub(crate) fn proof_from_gnark_json(json_str: &str, committed: bool) -> Option<Proof> {
     let json: GnarkProofJson = serde_json::from_str(json_str).ok()?;
 
     let a = negate_g1_be(&g1_from_hex_pair(&json.ar)?);
     let c = g1_from_hex_pair(&json.krs)?;
 
-    // proof_b is a G2 point: bs[0] = (x.a0, x.a1), bs[1] = (y.a0, y.a1).
+    // proof_b is G2 in gnark WriteRawTo / EIP-197 order: bs[0] = (x.a1, x.a0),
+    // bs[1] = (y.a1, y.a0). Packed bytes are what `alt_bn128_g2_compress_be` expects.
     let [bx, by] = json.bs.as_slice() else {
         return None;
     };
@@ -170,13 +205,17 @@ pub(crate) fn proof_from_gnark_json(json_str: &str) -> Option<Proof> {
     b[..64].copy_from_slice(&bx);
     b[64..].copy_from_slice(&by);
 
-    let commitment = if json.proof_commitment.is_empty() && json.proof_commitment_pok.is_empty() {
-        None
-    } else {
+    let present = !json.proof_commitment.is_empty() || !json.proof_commitment_pok.is_empty();
+    if present != committed {
+        return None;
+    }
+    let commitment = if committed {
         Some(Commitments {
             commitment: g1_from_hex_pair(&json.proof_commitment)?,
             commitment_pok: g1_from_hex_pair(&json.proof_commitment_pok)?,
         })
+    } else {
+        None
     };
 
     Some(Proof {

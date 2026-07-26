@@ -415,17 +415,17 @@ pub(crate) fn right_align(bytes: &[u8; 31]) -> [u8; 32] {
 /// ready to fold into a [`MergeProver`]. The nullifier key is the secret the merge
 /// circuit proves ownership from; it is not carried on [`PreparedMerge`], so the
 /// caller supplies it from the keypair.
-pub struct MergeWitness {
+pub struct MergeProofInputs {
     pub prepared: PreparedMerge,
     pub nullifier_key: NullifierKey,
     pub proofs: Vec<SpendProof>,
 }
 
-impl TryFrom<MergeWitness> for MergeProver {
+impl TryFrom<MergeProofInputs> for MergeProver {
     type Error = ClientError;
 
-    fn try_from(witness: MergeWitness) -> Result<Self, Self::Error> {
-        let MergeWitness {
+    fn try_from(witness: MergeProofInputs) -> Result<Self, Self::Error> {
+        let MergeProofInputs {
             prepared,
             nullifier_key,
             proofs,

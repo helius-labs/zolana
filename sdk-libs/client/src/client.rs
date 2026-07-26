@@ -817,7 +817,7 @@ fn submit_instructions(
 /// Resolve the spend proof (state inclusion + nullifier non-inclusion) for each
 /// input commitment on `tree`, in commitment order. Batches both indexer lookups
 /// so a multi-input spend costs two round trips, not two per input.
-fn fetch_spend_proofs(
+pub(crate) fn fetch_spend_proofs(
     indexer: &ZolanaIndexer,
     tree: Address,
     commitments: &[InputUtxoContext],
@@ -918,9 +918,7 @@ fn wait_for_rpc_confirmation<R: Rpc>(
             return Ok(());
         }
     }
-    Err(ClientError::Rpc(format!(
-        "signature not confirmed: {signature}"
-    )))
+    Err(ClientError::ConfirmationTimeout)
 }
 
 async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
@@ -936,9 +934,7 @@ async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
             return Ok(());
         }
     }
-    Err(ClientError::Rpc(format!(
-        "signature not confirmed: {signature}"
-    )))
+    Err(ClientError::ConfirmationTimeout)
 }
 
 /// Poll the indexer until the sent transaction is visible under any output
@@ -952,9 +948,7 @@ fn wait_for_indexed_transaction(
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
     if tags.is_empty() {
-        return Err(ClientError::Rpc(
-            "confirmed TRANSACT instruction has no output view tags".into(),
-        ));
+        return Err(ClientError::MissingOutput);
     }
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
@@ -980,9 +974,7 @@ async fn wait_for_indexed_transaction_async(
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
     if tags.is_empty() {
-        return Err(ClientError::Rpc(
-            "confirmed TRANSACT instruction has no output view tags".into(),
-        ));
+        return Err(ClientError::MissingOutput);
     }
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
@@ -1015,11 +1007,11 @@ mod tests {
     use solana_keypair::Keypair;
     use solana_signer::Signer;
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{AssetRegistry, Data, Utxo, Wallet, WalletUtxo, SOL_MINT};
+    use zolana_transaction::{AssetRegistry, OutputData, Utxo, Wallet, WalletUtxo, SOL_MINT};
 
     use super::*;
     use crate::{
-        prover::CompressedCommitments,
+        prover::{field::BN254_SCALAR_MAX_BE, CompressedCommitments},
         rpc::{MerkleContext, MerkleProof, NonInclusionProof},
     };
     use zolana_interface::instruction::{TransactSolWithdrawal, TransactWithdrawal};
@@ -1047,42 +1039,11 @@ mod tests {
 
     #[test]
     fn confirm_private_transaction_sync_waits_for_indexer() {
-        let payer = Keypair::new();
-        let sender = ShieldedKeypair::new().expect("sender");
-        let tree = Address::new_from_array([6u8; 32]);
-        let wallet = wallet_with_tree(sender.clone(), tree, 10);
-        let recipient = Pubkey::new_unique();
-        let input = SppProofInputUtxo::new(
-            wallet.utxos.first().expect("funded utxo").utxo.clone(),
-            &sender,
-        );
-        let mut transfer = ConfidentialTransfer::new(
-            sender.shielded_address().expect("shielded address"),
-            vec![input],
-            payer.pubkey(),
-        );
-        transfer
-            .withdraw(
-                SOL_MINT,
-                4,
-                WithdrawalTarget::Sol {
-                    user_sol_account: recipient,
-                },
-            )
-            .expect("withdraw");
-        let proof_inputs = transfer
-            .sign(&sender, &AssetRegistry::default())
-            .expect("sign");
-        let shielded = SignedPrivateTransaction {
-            transaction: proof_inputs,
-            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
-            tree,
-        };
-        let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);
+        let fixture = signed_sol_withdrawal_fixture();
         let signature = Signature::from([5u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
-            merkle_response(tree, commitment.utxo_hash),
-            nullifier_response(tree, commitment.nullifier),
+            merkle_response(fixture.tree, fixture.commitment.utxo_hash),
+            nullifier_response(fixture.tree, fixture.commitment.nullifier),
             indexed_transaction_response(signature),
         ]);
         let rpc = MockSubmitRpc::new(signature);
@@ -1093,26 +1054,31 @@ mod tests {
             ProverClient::new("http://unused.invalid".to_string()),
             AsyncZolanaIndexer::new(server.url()),
             AsyncProverClient::new("http://unused.invalid".to_string()),
-            tree,
+            fixture.tree,
         )
         .with_compute_unit_price(25_000);
 
         let blockhash = Hash::default();
         let mut transaction = client
-            .finish_submission_unsigned_sync_with(&shielded, payer.pubkey(), blockhash, |_| {
-                Ok(ProofCompressed {
-                    a: [0u8; 32],
-                    b: [0u8; 64],
-                    c: [0u8; 32],
-                    commitment: Some(CompressedCommitments {
-                        commitment: [0u8; 32],
-                        commitment_pok: [0u8; 32],
-                    }),
-                })
-            })
+            .finish_submission_unsigned_sync_with(
+                &fixture.shielded,
+                fixture.payer.pubkey(),
+                blockhash,
+                |_| {
+                    Ok(ProofCompressed {
+                        a: [0u8; 32],
+                        b: [0u8; 64],
+                        c: [0u8; 32],
+                        commitment: Some(CompressedCommitments {
+                            commitment: [0u8; 32],
+                            commitment_pok: [0u8; 32],
+                        }),
+                    })
+                },
+            )
             .expect("finish");
         transaction
-            .try_sign(&[&payer], blockhash)
+            .try_sign(&[&fixture.payer], blockhash)
             .expect("sign native transaction");
         let result = client.rpc().send_transaction(&transaction).expect("send");
         client
@@ -1132,6 +1098,289 @@ mod tests {
                 "/get_shielded_transactions_by_tags",
             ]
         );
+    }
+
+    #[test]
+    fn assemble_refuses_out_of_range_nullifier_high_element() {
+        let fixture = signed_sol_withdrawal_fixture();
+        let mut above_modulus = nullifier_response(fixture.tree, fixture.commitment.nullifier);
+        above_modulus["result"]["proofs"][0]["high_element"] = json!(encode_hash([u8::MAX; 32]));
+        let server = MockIndexerServer::respond_with(vec![
+            merkle_response(fixture.tree, fixture.commitment.utxo_hash),
+            above_modulus,
+        ]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(Signature::from([5u8; 64])),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            fixture.tree,
+        );
+        let error = client
+            .finish_submission_unsigned_sync_with(
+                &fixture.shielded,
+                fixture.payer.pubkey(),
+                Hash::default(),
+                |_| panic!("prove must not run when high_element is out of range"),
+            )
+            .expect_err("out-of-range high_element");
+        let _ = server.requests();
+        assert!(matches!(error, ClientError::InvalidField));
+    }
+
+    /// Emits the account order `Message::new` produces for a SOL withdrawal, so
+    /// the TypeScript port can be compared against it rather than against a
+    /// hand-written expectation. The existing frozen legacy-message vectors only
+    /// cover `withdrawal: None`, where every privilege class holds at most two
+    /// accounts that already happen to be in ascending order, so they cannot
+    /// discriminate `CompiledKeys`'s address ordering from first-appearance
+    /// ordering. Regenerate with `ZOLANA_WRITE_ORACLES=1`.
+    #[test]
+    fn legacy_message_account_order_oracle() {
+        const ORACLE: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../ts/client/test/oracles/legacy-message-order-v1.json",
+        );
+
+        let fee_payer = Pubkey::new_from_array([9u8; 32]);
+        let tree = Address::new_from_array([6u8; 32]);
+        let recipient = Pubkey::new_from_array([3u8; 32]);
+        let blockhash = Hash::new_from_array([4u8; 32]);
+
+        let cases = [
+            ("sol-withdrawal-with-price", Some(25_000u64)),
+            ("sol-withdrawal-limit-only", None),
+        ]
+        .into_iter()
+        .map(|(name, price)| {
+            let transaction = build_unsigned_solana_transaction(
+                DEFAULT_TRANSACT_CU_LIMIT,
+                price,
+                fee_payer,
+                tree,
+                Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+                oracle_transact_data(),
+                blockhash,
+            )
+            .expect("build unsigned transaction");
+            let message = transaction.message;
+            json!({
+                "name": name,
+                "input": {
+                    "feePayer": fee_payer.to_string(),
+                    "tree": bs58::encode(tree.to_bytes()).into_string(),
+                    "recipient": recipient.to_string(),
+                    "recentBlockhash": blockhash.to_string(),
+                    "computeUnitLimit": DEFAULT_TRANSACT_CU_LIMIT,
+                    "computeUnitPriceMicroLamports": price.map(|price| price.to_string()),
+                    "withdrawal": "sol",
+                },
+                "expected": {
+                    "numRequiredSignatures": message.header.num_required_signatures,
+                    "numReadonlySignedAccounts": message.header.num_readonly_signed_accounts,
+                    "numReadonlyUnsignedAccounts": message.header.num_readonly_unsigned_accounts,
+                    "accountKeys": message
+                        .account_keys
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>(),
+                    "instructions": message
+                        .instructions
+                        .iter()
+                        .map(|instruction| json!({
+                            "programIdIndex": instruction.program_id_index,
+                            "accounts": instruction.accounts,
+                        }))
+                        .collect::<Vec<_>>(),
+                },
+            })
+        })
+        .collect::<Vec<_>>();
+
+        let oracle = json!({
+            "source": "sdk-libs/client/src/client.rs::build_unsigned_solana_transaction",
+            "generator": "cargo test -p zolana-client --lib client::tests::legacy_message_account_order_oracle",
+            "note": "Account keys and compiled indexes only; the instruction data bytes belong to the interface rows.",
+            "cases": cases,
+        });
+        let rendered = format!("{}\n", serde_json::to_string_pretty(&oracle).unwrap());
+
+        if std::env::var_os("ZOLANA_WRITE_ORACLES").is_some() {
+            std::fs::create_dir_all(std::path::Path::new(ORACLE).parent().unwrap())
+                .expect("create oracle directory");
+            std::fs::write(ORACLE, &rendered).expect("write oracle");
+            return;
+        }
+        let committed = std::fs::read_to_string(ORACLE).expect("committed oracle");
+        assert_eq!(
+            committed, rendered,
+            "legacy-message oracle is stale; regenerate with ZOLANA_WRITE_ORACLES=1"
+        );
+    }
+
+    /// The merge counterpart of `legacy_message_account_order_oracle`. The
+    /// instruction list mirrors `sdk-libs/wallet/src/actions/submit.rs`, whose
+    /// `create_and_send_transaction` compiles through the same `Message::new`.
+    /// The merge account set is what actually discriminates the two orderings:
+    /// its writable non-signers are the tree and the user record, which are not
+    /// in first-appearance order once `CompiledKeys` sorts them.
+    /// Regenerate with `ZOLANA_WRITE_ORACLES=1`.
+    #[test]
+    fn merge_message_account_order_oracle() {
+        use zolana_interface::instruction::{MergeTransact, MergeZone};
+
+        const ORACLE: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../ts/client/test/oracles/merge-message-order-v1.json",
+        );
+        /// `MERGE_CU_LIMIT` in `sdk-libs/wallet/src/actions/submit.rs`.
+        const MERGE_CU_LIMIT: u32 = 1_400_000;
+
+        // The same addresses `sdk-libs/ts/client/test/merge.test.ts` uses, so
+        // the two sides order an identical account set.
+        let tree = Pubkey::from_str_const("4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm");
+        let payer = Pubkey::from_str_const("4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4");
+        let user_record = Pubkey::new_from_array([17u8; 32]);
+        let blockhash = Hash::new_from_array([53u8; 32]);
+
+        let zone_program = Pubkey::new_from_array([3u8; 32]);
+        let merge_ix = MergeTransact {
+            tree,
+            payer,
+            user_record,
+            data: oracle_merge_data(),
+        }
+        .instruction();
+        let zone_ix = MergeZone {
+            tree,
+            zone_program_id: zone_program,
+            payer,
+            data: oracle_merge_data(),
+            merge_view_tag: [7u8; 32],
+        }
+        .instruction();
+
+        let compile = |instruction: Instruction| {
+            let instructions = [
+                solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+                    MERGE_CU_LIMIT,
+                ),
+                instruction,
+            ];
+            let mut message = Message::new(&instructions, Some(&payer));
+            message.recent_blockhash = blockhash;
+            json!({
+                "numRequiredSignatures": message.header.num_required_signatures,
+                "numReadonlySignedAccounts": message.header.num_readonly_signed_accounts,
+                "numReadonlyUnsignedAccounts": message.header.num_readonly_unsigned_accounts,
+                "accountKeys": message
+                    .account_keys
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                "instructions": message
+                    .instructions
+                    .iter()
+                    .map(|instruction| json!({
+                        "programIdIndex": instruction.program_id_index,
+                        "accounts": instruction.accounts,
+                    }))
+                    .collect::<Vec<_>>(),
+            })
+        };
+
+        let oracle = json!({
+            "source": "solana_message::Message::new over sdk-libs/wallet/src/actions/submit.rs's instruction list",
+            "generator": "cargo test -p zolana-client --lib --features client client::tests::merge_message_account_order_oracle",
+            "note": "Account keys and compiled indexes only; the instruction data bytes belong to the interface rows.",
+            "input": {
+                "tree": tree.to_string(),
+                "payer": payer.to_string(),
+                "userRecord": user_record.to_string(),
+                "zoneProgram": zone_program.to_string(),
+                "zoneAuthority": zolana_interface::pda::zone_auth(&zone_program).0.to_string(),
+                "recentBlockhash": blockhash.to_string(),
+                "computeUnitLimit": MERGE_CU_LIMIT,
+            },
+            "expected": compile(merge_ix),
+            "expectedZone": compile(zone_ix),
+        });
+        let rendered = format!("{}\n", serde_json::to_string_pretty(&oracle).unwrap());
+
+        if std::env::var_os("ZOLANA_WRITE_ORACLES").is_some() {
+            std::fs::create_dir_all(std::path::Path::new(ORACLE).parent().unwrap())
+                .expect("create oracle directory");
+            std::fs::write(ORACLE, &rendered).expect("write oracle");
+            return;
+        }
+        let committed = std::fs::read_to_string(ORACLE).expect("committed oracle");
+        assert_eq!(
+            committed, rendered,
+            "merge-message oracle is stale; regenerate with ZOLANA_WRITE_ORACLES=1"
+        );
+    }
+
+    /// Minimal shape-valid merge data for the ordering oracle. Only its length
+    /// reaches the compiled message, never the account order.
+    fn oracle_merge_data() -> zolana_interface::instruction::MergeTransactIxData {
+        use zolana_interface::instruction::{
+            instruction_data::transact::P256Proof, MergeTransactIxData,
+        };
+
+        MergeTransactIxData {
+            expiry_unix_ts: 42,
+            proof: P256Proof {
+                a: [0u8; 32],
+                b: [0u8; 64],
+                c: [0u8; 32],
+                commitment: [0u8; 32],
+                commitment_pok: [0u8; 32],
+            },
+            output_utxo_hash: [9u8; 32],
+            nullifiers: (0..8u8).map(|index| [index; 32]).collect(),
+            utxo_tree_root_index: (0..8u16).collect(),
+            nullifier_tree_root_index: (10..18u16).collect(),
+            private_tx_hash: [3u8; 32],
+            encrypted_utxo: {
+                let mut blob = vec![0u8; 110];
+                blob[0] = 2;
+                blob
+            },
+            eddsa_owner: false,
+        }
+    }
+
+    /// Minimal well-formed `transact` data for the ordering oracle. Only its
+    /// length reaches the compiled message, never the account order.
+    fn oracle_transact_data(
+    ) -> zolana_interface::instruction::instruction_data::transact::TransactIxData {
+        use zolana_interface::instruction::instruction_data::transact::{
+            InputUtxo, TransactIxData,
+        };
+
+        TransactIxData {
+            proof: zolana_interface::instruction::instruction_data::transact::TransactProof::zeroed_eddsa(),
+            expiry_unix_ts: 0,
+            relayer_fee: 0,
+            private_tx_hash: [0u8; 32],
+            p256_signing_pk_x: None,
+            inputs: vec![InputUtxo {
+                nullifier_hash: [1u8; 32],
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+                tree_index: 0,
+                eddsa_signer_index: 0,
+            }],
+            public_sol_amount: Some(4),
+            public_spl_amount: None,
+            data_hash: None,
+            zone_data_hash: None,
+            tx_viewing_pk: [2u8; 33],
+            salt: [0u8; 16],
+            outputs: Vec::new(),
+            messages: Vec::new(),
+        }
     }
 
     #[test]
@@ -1248,6 +1497,48 @@ mod tests {
         assert!(matches!(error, ClientError::IndexerTimeout));
     }
 
+    struct SignedSolWithdrawalFixture {
+        payer: Keypair,
+        tree: Address,
+        shielded: SignedPrivateTransaction,
+        commitment: InputUtxoContext,
+    }
+
+    fn signed_sol_withdrawal_fixture() -> SignedSolWithdrawalFixture {
+        let payer = Keypair::new();
+        let sender = ShieldedKeypair::new().expect("sender");
+        let tree = Address::new_from_array([6u8; 32]);
+        let wallet = wallet_with_tree(sender.clone(), tree, 10);
+        let recipient = Pubkey::new_unique();
+        let input = SppProofInputUtxo::new(
+            wallet.utxos.first().expect("funded utxo").utxo.clone(),
+            &sender,
+        );
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().expect("shielded address"),
+            vec![input],
+            payer.pubkey(),
+        );
+        transfer
+            .withdraw(SOL_MINT, 4, WithdrawalTarget::Sol { recipient })
+            .expect("withdraw");
+        let proof_inputs = transfer
+            .sign(&sender, &AssetRegistry::default())
+            .expect("sign");
+        let shielded = SignedPrivateTransaction {
+            transaction: proof_inputs,
+            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+            tree,
+        };
+        let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);
+        SignedSolWithdrawalFixture {
+            payer,
+            tree,
+            shielded,
+            commitment,
+        }
+    }
+
     fn state_proof(tree: Address, leaf: [u8; 32]) -> MerkleProof {
         MerkleProof {
             leaf,
@@ -1267,7 +1558,7 @@ mod tests {
             path: vec![[0u8; 32]; crate::rpc::NULLIFIER_TREE_HEIGHT],
             low_element: [0u8; 32],
             low_element_index: 0,
-            high_element: [u8::MAX; 32],
+            high_element: BN254_SCALAR_MAX_BE,
             high_element_index: 1,
             root: [4u8; 32],
             root_seq: 1,
@@ -1287,7 +1578,7 @@ mod tests {
             amount,
             blinding: [7u8; 31],
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let nullifier_key = &keypair.nullifier_key;
         let nullifier_pubkey = nullifier_key.pubkey().expect("nullifier pubkey");
@@ -1385,7 +1676,7 @@ mod tests {
                 "path": vec![encode_hash([0u8; 32]); crate::rpc::NULLIFIER_TREE_HEIGHT],
                 "low_element": encode_hash([0u8; 32]),
                 "low_element_index": 0,
-                "high_element": encode_hash([u8::MAX; 32]),
+                "high_element": encode_hash(BN254_SCALAR_MAX_BE),
                 "high_element_index": 1,
                 "root": encode_hash([4u8; 32]),
                 "root_seq": 1,

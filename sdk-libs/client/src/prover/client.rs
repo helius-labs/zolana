@@ -157,38 +157,38 @@ impl ProverClient {
     /// Prove a P256-rail transfer, returning the uncompressed negated proof. Use
     /// `ProofCompressed::try_from` for the wire format.
     pub fn prove_transfer_p256(&self, inputs: &TransferP256Inputs) -> Result<Proof, ClientError> {
-        self.send(to_json_p256(inputs))
+        self.send(to_json_p256(inputs), true)
     }
 
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs))
+        self.send(to_json(inputs), false)
     }
 
     /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs))
+        self.send(to_json_merge(inputs), true)
     }
 
     /// Prove a zone-authority transfer (anonymous, no signature), returning the
     /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
     /// call [`Proof::compress`] for the wire format.
     pub fn prove_zone_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_zone_authority(inputs))
+        self.send(to_json_zone_authority(inputs), false)
     }
 
     /// Prove a policy-zone merge (`merge-zone`), returning the uncompressed negated
     /// proof. Reuses the [`MergeInputs`] witness; call [`Proof::compress`] for the
     /// wire format.
     pub fn prove_merge_zone(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_zone(inputs))
+        self.send(to_json_merge_zone(inputs), true)
     }
 
     /// Prove an eddsa anonymous policy-zone transfer (`transfer-zone`).
     pub fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_zone(inputs))
+        self.send(to_json_zone(inputs), false)
     }
 
     /// Prove a P256 anonymous policy-zone transfer (`transfer-p256-zone`).
@@ -196,7 +196,7 @@ impl ProverClient {
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_zone(inputs))
+        self.send(to_json_p256_zone(inputs), true)
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the
@@ -206,10 +206,12 @@ impl ProverClient {
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_batch_address_append(inputs))
+        self.send(to_json_batch_address_append(inputs), false)
     }
 
-    fn send(&self, body: String) -> Result<Proof, ClientError> {
+    /// Visible to the `prover` module so `ts_poll_oracle` can drive the real
+    /// poll loop rather than a copy of it.
+    pub(super) fn send(&self, body: String, committed: bool) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
         let mut attempt = 0;
         let response = loop {
@@ -252,14 +254,15 @@ impl ProverClient {
         // proof directly (plain gnark JSON or a `{ proof, .. }` envelope).
         if value.get("proof").is_none() {
             if let Some(job_id) = value.get("job_id").and_then(|v| v.as_str()) {
-                return self.poll_async(job_id);
+                return self.poll_async(job_id, committed);
             }
         }
-        Self::proof_from_value(&value, &text)
+        Self::proof_from_value(&value, &text, committed)
     }
 
     /// Poll the async job status endpoint until the queued proof completes.
-    fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
+    fn poll_async(&self, job_id: &str, committed: bool) -> Result<Proof, ClientError> {
+        let job_id = checked_job_id(job_id)?;
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
         let poll_interval = self.async_poll.poll_interval_secs.max(1);
         let max_wait = self.async_poll.max_wait_secs;
@@ -302,7 +305,7 @@ impl ProverClient {
                 // nested under `result`.
                 Some("completed") => {
                     let result = value.get("result").map_or(&value, |result| result);
-                    return Self::proof_from_value(result, &text);
+                    return Self::proof_from_value(result, &text, committed);
                 }
                 Some("failed") => {
                     return Err(ClientError::ProverServer(format!(
@@ -319,7 +322,11 @@ impl ProverClient {
 
     /// Extract and parse a gnark proof from a proof value, accepting either a
     /// plain proof object or a `{ proof, .. }` envelope.
-    fn proof_from_value(value: &serde_json::Value, raw: &str) -> Result<Proof, ClientError> {
+    fn proof_from_value(
+        value: &serde_json::Value,
+        raw: &str,
+        committed: bool,
+    ) -> Result<Proof, ClientError> {
         let proof_value = value.get("proof").unwrap_or(value);
         if proof_value.is_null() {
             return Err(ClientError::ProverServer(
@@ -328,8 +335,25 @@ impl ProverClient {
         }
         let proof_json = serde_json::to_string(proof_value)
             .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
-        proof_from_gnark_json(&proof_json)
+        proof_from_gnark_json(&proof_json, committed)
             .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
+    }
+}
+
+/// The job handle comes from the prover server and is interpolated into the
+/// status URL, so anything outside `[A-Za-z0-9_-]` could rewrite the query or
+/// the path. Same charset and bound the TypeScript client enforces.
+fn checked_job_id(job_id: &str) -> Result<&str, ClientError> {
+    let valid = (1..=256).contains(&job_id.len())
+        && job_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+    if valid {
+        Ok(job_id)
+    } else {
+        Err(ClientError::ProverServer(
+            "prover returned a malformed job id".into(),
+        ))
     }
 }
 
@@ -377,49 +401,49 @@ impl AsyncProverClient {
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256(inputs)).await
+        self.send(to_json_p256(inputs), true).await
     }
 
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs)).await
+        self.send(to_json(inputs), false).await
     }
 
     pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs)).await
+        self.send(to_json_merge(inputs), true).await
     }
 
     pub async fn prove_zone_authority(
         &self,
         inputs: &TransferInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_zone_authority(inputs)).await
+        self.send(to_json_zone_authority(inputs), false).await
     }
 
     pub async fn prove_merge_zone(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_zone(inputs)).await
+        self.send(to_json_merge_zone(inputs), true).await
     }
 
     pub async fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_zone(inputs)).await
+        self.send(to_json_zone(inputs), false).await
     }
 
     pub async fn prove_transfer_p256_zone(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_zone(inputs)).await
+        self.send(to_json_p256_zone(inputs), true).await
     }
 
     pub async fn prove_batch_address_append(
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_batch_address_append(inputs)).await
+        self.send(to_json_batch_address_append(inputs), false).await
     }
 
-    async fn send(&self, body: String) -> Result<Proof, ClientError> {
+    async fn send(&self, body: String, committed: bool) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
         let mut attempt = 0;
         loop {
@@ -448,10 +472,10 @@ impl AsyncProverClient {
                     })?;
                     if value.get("proof").is_none() {
                         if let Some(job_id) = value.get("job_id").and_then(|v| v.as_str()) {
-                            return self.poll_async(job_id).await;
+                            return self.poll_async(job_id, committed).await;
                         }
                     }
-                    return ProverClient::proof_from_value(&value, &text);
+                    return ProverClient::proof_from_value(&value, &text, committed);
                 }
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
@@ -465,7 +489,8 @@ impl AsyncProverClient {
         }
     }
 
-    async fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
+    async fn poll_async(&self, job_id: &str, committed: bool) -> Result<Proof, ClientError> {
+        let job_id = checked_job_id(job_id)?;
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
         let poll_interval = self.async_poll.poll_interval_secs.max(1);
         let max_wait = self.async_poll.max_wait_secs;
@@ -506,7 +531,7 @@ impl AsyncProverClient {
             match value.get("status").and_then(|v| v.as_str()) {
                 Some("completed") => {
                     let result = value.get("result").map_or(&value, |result| result);
-                    return ProverClient::proof_from_value(result, &text);
+                    return ProverClient::proof_from_value(result, &text, committed);
                 }
                 Some("failed") => {
                     return Err(ClientError::ProverServer(format!(
@@ -739,7 +764,7 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), false)
             .expect("queued proof should complete");
         let requests = server.requests();
 
@@ -770,7 +795,7 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), false)
             .expect_err("failed async status should surface");
         let requests = server.requests();
 
@@ -788,7 +813,7 @@ mod tests {
             MockResponse::json(200, json!({ "status": "processing" })),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), false)
             .expect_err("slow async proof should time out");
         let requests = server.requests();
 
@@ -810,12 +835,38 @@ mod tests {
             MockResponse::text(200, "not json"),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), false)
             .expect_err("malformed status body should fail");
         let requests = server.requests();
 
         assert_paths(&requests, ["/prove", "/prove/status?job_id=job-bad-json"]);
         assert!(err.to_string().contains("invalid status JSON"));
+    }
+
+    #[test]
+    fn poll_async_rejects_job_id_that_could_rewrite_the_status_url() {
+        let server = MockServer::respond_with(vec![MockResponse::json(
+            202,
+            json!({ "job_id": "job-1&job_id=other" }),
+        )]);
+        let err = queued_prover_client(server.url())
+            .send("{}".to_string(), false)
+            .expect_err("a job id with query characters must be rejected");
+        let requests = server.requests();
+
+        assert_paths(&requests, ["/prove"]);
+        assert!(err.to_string().contains("malformed job id"));
+    }
+
+    #[test]
+    fn checked_job_id_accepts_only_url_safe_handles() {
+        assert!(checked_job_id("job-1_A").is_ok());
+        assert!(checked_job_id(&"a".repeat(256)).is_ok());
+        assert!(checked_job_id("").is_err());
+        assert!(checked_job_id(&"a".repeat(257)).is_err());
+        assert!(checked_job_id("job/1").is_err());
+        assert!(checked_job_id("job 1").is_err());
+        assert!(checked_job_id("job#1").is_err());
     }
 
     #[test]
@@ -831,7 +882,7 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), false)
             .expect_err("404 status should fail immediately");
         let requests = server.requests();
 
@@ -858,7 +909,7 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), false)
             .expect("transient poll error should be retried");
         let requests = server.requests();
 
@@ -890,7 +941,7 @@ mod tests {
             ),
         ]);
         let proof = async_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), false)
             .await
             .expect("queued async proof should complete");
         let requests = server.requests();
@@ -922,7 +973,7 @@ mod tests {
             ),
         ]);
         async_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), false)
             .await
             .expect("transient async poll error should be retried");
         let requests = server.requests();

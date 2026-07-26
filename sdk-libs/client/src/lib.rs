@@ -24,20 +24,23 @@ pub mod solana_rpc;
 
 #[cfg(feature = "indexer-api")]
 pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
-pub use error::ClientError;
+pub use error::{ClientError, RetryErrorCause};
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{
     canonical_shape,
-    merge::MergeWitness,
+    merge::MergeProofInputs,
     resolve_shape, spawn_prover,
-    transact::{assemble, into_prover, AssembledTransfer, CircuitType, ProverInputs, SpendProof},
+    transact::{
+        assemble, attach_input_proofs, into_prover, AssembledTransfer, CircuitType, ProverInputs,
+        SpendProof,
+    },
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
-    CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness,
+    CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProofInputs, MergeZoneProver,
     P256Owner, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicAmounts, Shape,
     TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, TransferP256ProofResult,
     TransferP256Prover, TransferProofResult, TransferProver, TransferSpendInput,
-    ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness,
+    ZoneAuthorityProofInputs, ZoneAuthorityProofResult, ZoneAuthorityProver,
     ZoneTransferP256ProofResult, ZoneTransferP256Prover, ZoneTransferProofResult,
     ZoneTransferProver, SPP_SUPPORTED_SHAPES,
 };
