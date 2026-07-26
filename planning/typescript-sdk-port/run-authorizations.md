@@ -128,6 +128,19 @@ Both halves are pinned by tests that fail if the address is normalized later.
 [`authority-rulings.md`](authority-rulings.md#q10-an-explicitly-passed-zero-at-a-zone-binding-t28)
 carries the reasoning.
 
+**A third clause was briefly circulated and is withdrawn.** A coordinator task
+sent on 2026-07-26 told a worker that the one thing left on T28 was refusing a
+zone data hash at or above the BN254 modulus. Do not implement that. Both
+languages already refuse such a hash by deferring to the Poseidon range check
+rather than validating up front: Rust maps `light_poseidon` failures to
+`TransactionError::Poseidon` in `sdk-libs/transaction/src/utxo.rs:12-18`, and
+TypeScript reaches the same category through `commitmentPoseidon` in
+`ts/transaction/src/internal.ts:114-115`. Adding an early refusal to TypeScript
+alone would move the rejection earlier while Rust stayed put, manufacturing the
+"TypeScript stricter than Rust" divergence this port has already been caught by
+once on the zone read path. The clause is Rust-first or simultaneous, and Rust is
+out of scope.
+
 ## Build before you run the suite
 
 `npm run build`, then the tests. Packages resolve each other through their
@@ -171,3 +184,26 @@ was committed under a message naming the wrong author. Nothing was lost, but the
 history is now wrong in two places. A quiet transcript is not evidence of death:
 confirm against branch activity first, and prefer leaving work uncommitted to
 committing it on someone else's behalf.
+
+## Do not relaunch a worker on a transcript reading alone
+
+Later the same day the coordinator made the sharper version of that mistake.
+Three workers showed one assistant record each and no growth for forty minutes,
+their branches carried no commits, and their trees were clean. Read together
+those look conclusive. They were not: the transcripts were lagging behind
+processes that were reading files and about to commit. Interrupting produced a
+second instance of each worker in the same worktree, on the same branch, racing
+the first.
+
+One of the three detected it and stopped without editing, which is the behaviour
+to copy. It noticed files changing underneath it mid-read, checked the branch
+rather than assuming a stale buffer, found three commits it had not made at
+roughly two-minute intervals, and reasoned that the agent it was told had hung
+was in fact alive. Its read survives as
+[row-updates/transaction-independent-read.md](row-updates/transaction-independent-read.md).
+
+The tell that separates a lagging transcript from a dead process is not in the
+transcript. Interrupt only when the branch has also been still, and when the
+worktree has no staged or modified files, and prefer waiting another interval to
+acting on the first quiet reading. An interrupt is not free: it costs a duplicate
+that has to notice its own redundancy before it damages something.
