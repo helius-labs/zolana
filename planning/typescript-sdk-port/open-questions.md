@@ -351,10 +351,14 @@ fails if anyone later turns the measurement into a guard.
 `compactU16` exists five times and the legacy message compiler three, and the
 README already records what happened the last time duplicated arithmetic drifted.
 
-**Light answers it**: one implementation, from `@solana/web3.js`, plus one
-deliberate second for estimation that counts bytes rather than emitting them
-(`estimate-tx-size.ts:40-44`). Its whole transaction builder is thirteen lines
-(`js/stateless.js/src/utils/send-and-confirm.ts:26-39`).
+**Light answers it**: it writes the encoder zero times. Searching its TypeScript
+for `compactU16`, `encodeLength` and `shortvec` returns one function,
+`compactU16Size` (`js/compressed-token/src/v3/utils/estimate-tx-size.ts:40-44`),
+and that one counts bytes rather than emitting them. The emitting encoder is
+never in Light's source; it arrives inside the web3.js serializer that
+`compileToV0Message` feeds. So the only compact-u16 arithmetic Light hand-writes
+is the one thing its dependency cannot do for it. Its whole transaction builder
+is thirteen lines (`js/stateless.js/src/utils/send-and-confirm.ts:26-39`).
 
 Zolana cannot take the dependency without settling question 7, but the count is
 not a consequence of that: nothing required the same arithmetic to be written

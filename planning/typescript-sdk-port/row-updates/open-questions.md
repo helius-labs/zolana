@@ -159,11 +159,13 @@ character-identical implementations differing in one variable name. The size
 measurement needed the same arithmetic, which would have made a sixth. Both now
 read one function in the new `client/src/wire.ts`.
 
-Light's answer here is one implementation, taken from `@solana/web3.js`, plus one
-deliberate second that counts bytes rather than emitting them
-(`estimate-tx-size.ts:40-44`). Zolana cannot take that dependency without
-settling the `@solana/kit` question, but nothing required the arithmetic to be
-written five times inside one repository, and that is independent of the
+Light writes this encoder zero times. Searching its TypeScript for `compactU16`,
+`encodeLength` and `shortvec` returns a single function, `compactU16Size`
+(`js/compressed-token/src/v3/utils/estimate-tx-size.ts:40-44`), and it counts
+bytes rather than emitting them; the emitter arrives inside the web3.js
+serializer that `compileToV0Message` feeds. Zolana cannot take that dependency
+without settling the `@solana/kit` question, but nothing required the arithmetic
+to be written five times inside one repository, and that is independent of the
 dependency decision.
 
 The copies in `wallet/src/internal.ts:105` and
