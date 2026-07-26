@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +23,7 @@ const sourceFiles = [
   "program-libs/hasher/Cargo.toml",
   "sdk-libs/hasher-wasm/Cargo.lock",
   "sdk-libs/hasher-wasm/Cargo.toml",
+  "sdk-libs/ts/scripts/poseidon-wasm.mjs",
 ];
 const sourceDirectories = ["program-libs/hasher/src", "sdk-libs/hasher-wasm/src"];
 
@@ -53,6 +55,13 @@ async function sourceHash() {
 }
 
 function compile() {
+  const cargoHome = process.env.CARGO_HOME ?? path.join(os.homedir(), ".cargo");
+  const environment = { ...process.env };
+  delete environment.RUSTFLAGS;
+  environment.CARGO_ENCODED_RUSTFLAGS = [
+    `--remap-path-prefix=${repositoryRoot}=/zolana`,
+    `--remap-path-prefix=${cargoHome}=/cargo`,
+  ].join("\u001f");
   execFileSync(
     "cargo",
     [
@@ -64,7 +73,7 @@ function compile() {
       "--target-dir",
       targetDirectory,
     ],
-    { cwd: crateRoot, stdio: "inherit" },
+    { cwd: crateRoot, env: environment, stdio: "inherit" },
   );
 }
 
