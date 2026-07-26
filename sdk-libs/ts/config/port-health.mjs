@@ -241,7 +241,13 @@ const noteTouch = (file, branch, uncommitted) => {
   touched.set(file, branches);
 };
 
-for (const { branch } of behind) {
+// Only a branch someone is sitting in can be edited, and every agent here works
+// in its own worktree. A branch with unmerged commits and no worktree is parked
+// on purpose -- work set aside to be replayed after something else lands -- and
+// reporting it as a rival claim describes the arrangement that avoided the
+// collision as if it were the collision.
+const occupied = new Set(trees.map((tree) => tree.branch));
+for (const { branch } of behind.filter((entry) => occupied.has(entry.branch))) {
   const changed = await git("diff", "--name-only", `ts-sdk-port...${branch}`);
   for (const file of changed.split("\n").filter(Boolean)) noteTouch(file, branch, false);
 }
@@ -387,8 +393,11 @@ const stamp = readme.match(/Last update: (\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
 if (!stamp) {
   problems.push("the plan's status block has no timestamp, so its numbers cannot be dated");
 } else {
+  // The stamp is UTC, as the line beside it says. Without the `Z` the platform
+  // reads it as local time, so on a machine two hours ahead every fresh update
+  // is born two hours stale and the check reports a plan that was just written.
   const planAge = Math.round(
-    (Date.now() - new Date(stamp[1].replace(" ", "T")).getTime()) / 60_000,
+    (Date.now() - new Date(`${stamp[1].replace(" ", "T")}Z`).getTime()) / 60_000,
   );
   const tipAge = minutesSince(Number(await git("log", "-1", "--format=%ct", "ts-sdk-port")));
   // Age alone means nothing during a quiet spell. The plan is stale when the
