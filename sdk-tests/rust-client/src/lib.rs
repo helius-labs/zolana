@@ -21,8 +21,8 @@ pub struct SetupContext {
     pub indexer_url: String,
     pub prover_url: String,
     pub tree: Pubkey,
-    pub alice: ShieldedKeypair,
-    pub bob: ShieldedKeypair,
+    pub sender: ShieldedKeypair,
+    pub recipient: ShieldedKeypair,
 }
 
 pub fn setup() -> Result<SetupContext> {
@@ -156,16 +156,16 @@ pub fn setup() -> Result<SetupContext> {
     )?;
     let tree = tree.pubkey();
 
-    let alice = new_wallet(&mut rpc)?;
-    let bob = new_wallet(&mut rpc)?;
+    let sender = new_wallet(&mut rpc)?;
+    let recipient = new_wallet(&mut rpc)?;
 
     Ok(SetupContext {
         rpc_url,
         indexer_url,
         prover_url,
         tree,
-        alice,
-        bob,
+        sender,
+        recipient,
     })
 }
 

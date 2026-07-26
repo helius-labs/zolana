@@ -17,33 +17,33 @@ const DEPOSIT_AMOUNT: u64 = 1_000_000_000;
 const TRANSFER_AMOUNT: u64 = 300_000_000;
 const WITHDRAW_AMOUNT: u64 = 300_000_000;
 
-// 1. Alice deposits SOL into her confidential balance.
-// 2. Alice transfers SOL to Bob's confidential balance.
-// 3. Alice withdraws the remaining SOL back to her own Solana account.
+// 1. The sender deposits SOL into their confidential balance.
+// 2. The sender transfers SOL to the recipient's confidential balance.
+// 3. The sender withdraws the remaining SOL back to their own Solana account.
 fn main() -> Result<()> {
     let SetupContext {
         rpc_url,
         indexer_url,
         prover_url,
         tree,
-        alice: alice_keypair,
-        bob: bob_keypair,
+        sender: sender_keypair,
+        recipient: recipient_keypair,
     } = setup()?;
 
     let client = ZolanaClient::from_urls(SolanaRpc::new(rpc_url), &indexer_url, prover_url, tree);
     let assets = AssetRegistry::default();
 
-    let alice_solana_keypair = alice_keypair.to_solana_keypair()?;
-    let alice_shielded_address = alice_keypair.shielded_address()?;
+    let sender_solana_keypair = sender_keypair.to_solana_keypair()?;
+    let sender_shielded_address = sender_keypair.shielded_address()?;
 
-    // 1. Alice deposits DEPOSIT_AMOUNT SOL to her confidential balance.
-    let alice_balances_after_deposit = {
+    // 1. The sender deposits DEPOSIT_AMOUNT SOL to their confidential balance.
+    let sender_balances_after_deposit = {
         let deposit_ix = Deposit {
             tree,
-            depositor: alice_solana_keypair.pubkey(),
+            depositor: sender_solana_keypair.pubkey(),
             spl: None,
-            view_tag: alice_shielded_address.confidential_view_tag()?,
-            owner: alice_shielded_address.owner_hash()?,
+            view_tag: sender_shielded_address.confidential_view_tag()?,
+            owner: sender_shielded_address.owner_hash()?,
             blinding: random_blinding(),
             amount: DEPOSIT_AMOUNT,
             utxo_data: None,
@@ -52,55 +52,55 @@ fn main() -> Result<()> {
         .instruction();
         client.create_and_send_transaction(
             &[deposit_ix],
-            alice_solana_keypair.pubkey(),
-            &[&alice_solana_keypair],
+            sender_solana_keypair.pubkey(),
+            &[&sender_solana_keypair],
         )?;
 
-        let alice_tag = alice_shielded_address.confidential_view_tag()?;
+        let sender_tag = sender_shielded_address.confidential_view_tag()?;
         let response = client.get_shielded_transactions_by_tags(
-            vec![alice_tag],
+            vec![sender_tag],
             None,
             Some(50),
             Some(IndexerRpcConfig::wait()),
         )?;
 
-        let balances = decrypt_transactions(&alice_keypair, &response.transactions, &assets)
-            .map_err(|e| anyhow!("decrypt alice transactions: {e:?}"))?;
+        let balances = decrypt_transactions(&sender_keypair, &response.transactions, &assets)
+            .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
 
         let balance = balances
             .get_balance(SOL_MINT)
-            .expect("failed to fetch alice's utxo");
+            .expect("failed to fetch sender's utxo");
         assert_eq!(balance.amount, DEPOSIT_AMOUNT);
         assert_eq!(balance.utxos.len(), 1);
 
         balances
     };
 
-    // 2. Alice transfers TRANSFER_AMOUNT SOL to Bob's confidential balance.
-    let alice_balances_after_transfer = {
+    // 2. The sender transfers TRANSFER_AMOUNT SOL to the recipient's confidential balance.
+    let sender_balances_after_transfer = {
         // 2.1. Fetch and deserialize (deposits are not encrypted).
-        let utxo = alice_balances_after_deposit
+        let utxo = sender_balances_after_deposit
             .get_balance(SOL_MINT)
             .expect("failed to fetch deposited utxo")
             .utxos[0]
             .clone();
 
-        // 2.2. Build the confidential transfer to Bob and sign it.
-        let input_utxo = SppProofInputUtxo::new(utxo, &alice_keypair);
-        let bob_address = bob_keypair.shielded_address()?;
+        // 2.2. Build the confidential transfer to the recipient and sign it.
+        let input_utxo = SppProofInputUtxo::new(utxo, &sender_keypair);
+        let recipient_address = recipient_keypair.shielded_address()?;
         let mut transfer = ConfidentialTransfer::new(
-            alice_shielded_address,
+            sender_shielded_address,
             vec![input_utxo],
-            alice_solana_keypair.pubkey(),
+            sender_solana_keypair.pubkey(),
         );
-        transfer.send(&bob_address, SOL_MINT, TRANSFER_AMOUNT)?;
-        let proof_inputs = transfer.sign(&alice_keypair, &assets)?;
+        transfer.send(&recipient_address, SOL_MINT, TRANSFER_AMOUNT)?;
+        let proof_inputs = transfer.sign(&sender_keypair, &assets)?;
 
         // 2.3. Prove the transaction and send the transact instruction.
         let transfer_data = client.prove_transact(proof_inputs, Some(IndexerRpcConfig::wait()))?;
 
         let transfer_ix = Transact {
-            payer: alice_solana_keypair.pubkey(),
+            payer: sender_solana_keypair.pubkey(),
             tree,
             withdrawal: None,
             data: transfer_data,
@@ -108,74 +108,79 @@ fn main() -> Result<()> {
         .instruction();
         let signature = client.create_and_send_transaction(
             &[transfer_ix],
-            alice_solana_keypair.pubkey(),
-            &[&alice_solana_keypair],
+            sender_solana_keypair.pubkey(),
+            &[&sender_solana_keypair],
         )?;
         client.confirm_private_transaction_sync(signature)?;
 
-        // 2.4. Fetch and decrypt Bob's balance to confirm the transfer landed.
-        let bob_tag = bob_address.confidential_view_tag()?;
+        // 2.4. Fetch and decrypt the recipient's balance to confirm the transfer landed.
+        let recipient_tag = recipient_address.confidential_view_tag()?;
         let response = client.get_shielded_transactions_by_tags(
-            vec![bob_tag],
+            vec![recipient_tag],
             None,
             None,
             Some(IndexerRpcConfig::wait()),
         )?;
 
-        let bob_balances = decrypt_transactions(&bob_keypair, &response.transactions, &assets)
-            .map_err(|e| anyhow!("decrypt bob transactions: {e:?}"))?;
-        let bob_balance = bob_balances
+        let recipient_balances =
+            decrypt_transactions(&recipient_keypair, &response.transactions, &assets)
+                .map_err(|e| anyhow!("decrypt recipient transactions: {e:?}"))?;
+        let recipient_balance = recipient_balances
             .get_balance(SOL_MINT)
-            .expect("failed to fetch bob's utxo");
-        assert_eq!(bob_balance.amount, TRANSFER_AMOUNT);
-        assert_eq!(bob_balance.utxos.len(), 1);
-        println!("transfer bob_balance={} tx={signature}", bob_balance.amount);
+            .expect("failed to fetch recipient's utxo");
+        assert_eq!(recipient_balance.amount, TRANSFER_AMOUNT);
+        assert_eq!(recipient_balance.utxos.len(), 1);
+        println!(
+            "transfer recipient_balance={} tx={signature}",
+            recipient_balance.amount
+        );
 
-        // 2.5. Fetch and decrypt Alice's remaining balance after the transfer.
-        let alice_tag = alice_shielded_address.confidential_view_tag()?;
+        // 2.5. Fetch and decrypt the sender's remaining balance after the transfer.
+        let sender_tag = sender_shielded_address.confidential_view_tag()?;
         let response = client.get_shielded_transactions_by_tags(
-            vec![alice_tag],
+            vec![sender_tag],
             None,
             Some(50),
             Some(IndexerRpcConfig::wait()),
         )?;
-        let alice_balances = decrypt_transactions(&alice_keypair, &response.transactions, &assets)
-            .map_err(|e| anyhow!("decrypt alice transactions: {e:?}"))?;
-        let alice_balance = alice_balances
+        let sender_balances =
+            decrypt_transactions(&sender_keypair, &response.transactions, &assets)
+                .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
+        let sender_balance = sender_balances
             .get_balance(SOL_MINT)
-            .expect("failed to fetch alice's utxo");
-        assert_eq!(alice_balance.amount, DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
-        assert_eq!(alice_balance.utxos.len(), 1);
+            .expect("failed to fetch sender's utxo");
+        assert_eq!(sender_balance.amount, DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
+        assert_eq!(sender_balance.utxos.len(), 1);
 
-        alice_balances
+        sender_balances
     };
 
-    // 3. Alice withdraws WITHDRAW_AMOUNT SOL from her confidential balance back
-    // to her own Solana account.
+    // 3. The sender withdraws WITHDRAW_AMOUNT SOL from their confidential balance back
+    // to their own Solana account.
     {
-        // 3.1. Use Alice's remaining SOL utxo from the transfer step.
-        let utxo = alice_balances_after_transfer
+        // 3.1. Use the sender's remaining SOL utxo from the transfer step.
+        let utxo = sender_balances_after_transfer
             .get_balance(SOL_MINT)
             .and_then(|balance| balance.utxos.first())
-            .expect("failed to fetch alice's utxo")
+            .expect("failed to fetch sender's utxo")
             .clone();
 
-        // 3.2. Build the withdrawal to Alice's own Solana account and sign it.
-        let input_utxo = SppProofInputUtxo::new(utxo, &alice_keypair);
+        // 3.2. Build the withdrawal to the sender's own Solana account and sign it.
+        let input_utxo = SppProofInputUtxo::new(utxo, &sender_keypair);
 
         let mut withdrawal = ConfidentialTransfer::new(
-            alice_shielded_address,
+            sender_shielded_address,
             vec![input_utxo],
-            alice_solana_keypair.pubkey(),
+            sender_solana_keypair.pubkey(),
         );
         withdrawal.withdraw(
             SOL_MINT,
             WITHDRAW_AMOUNT,
             WithdrawalTarget::Sol {
-                user_sol_account: alice_solana_keypair.pubkey(),
+                user_sol_account: sender_solana_keypair.pubkey(),
             },
         )?;
-        let proof_inputs = withdrawal.sign(&alice_keypair, &assets)?;
+        let proof_inputs = withdrawal.sign(&sender_keypair, &assets)?;
 
         // 3.3. Prove the transaction and send the transact instruction, this time
         // with the withdrawal accounts attached.
@@ -183,43 +188,44 @@ fn main() -> Result<()> {
             client.prove_transact(proof_inputs, Some(IndexerRpcConfig::wait()))?;
 
         let withdraw_ix = Transact {
-            payer: alice_solana_keypair.pubkey(),
+            payer: sender_solana_keypair.pubkey(),
             tree,
             withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
-                recipient: alice_solana_keypair.pubkey(),
+                recipient: sender_solana_keypair.pubkey(),
             })),
             data: withdrawal_data,
         }
         .instruction();
         let signature = client.create_and_send_transaction(
             &[withdraw_ix],
-            alice_solana_keypair.pubkey(),
-            &[&alice_solana_keypair],
+            sender_solana_keypair.pubkey(),
+            &[&sender_solana_keypair],
         )?;
         client.confirm_private_transaction_sync(signature)?;
 
-        // 3.4. Fetch and decrypt Alice's remaining confidential balance after the
+        // 3.4. Fetch and decrypt the sender's remaining confidential balance after the
         // withdrawal.
-        let alice_tag = alice_shielded_address.confidential_view_tag()?;
+        let sender_tag = sender_shielded_address.confidential_view_tag()?;
         let response = client.get_shielded_transactions_by_tags(
-            vec![alice_tag],
+            vec![sender_tag],
             None,
             Some(50),
             Some(IndexerRpcConfig::wait()),
         )?;
-        let alice_balances = decrypt_transactions(&alice_keypair, &response.transactions, &assets)
-            .map_err(|e| anyhow!("decrypt alice transactions: {e:?}"))?;
-        let alice_balance = alice_balances
+        let sender_balances =
+            decrypt_transactions(&sender_keypair, &response.transactions, &assets)
+                .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
+        let sender_balance = sender_balances
             .get_balance(SOL_MINT)
-            .expect("failed to fetch alice's utxo");
+            .expect("failed to fetch sender's utxo");
         assert_eq!(
-            alice_balance.amount,
+            sender_balance.amount,
             DEPOSIT_AMOUNT - TRANSFER_AMOUNT - WITHDRAW_AMOUNT
         );
-        assert_eq!(alice_balance.utxos.len(), 1);
+        assert_eq!(sender_balance.utxos.len(), 1);
 
-        // 3.5. Confirm the withdrawn amount landed in Alice's Solana balance.
-        let solana_balance = client.get_balance(alice_solana_keypair.pubkey())?;
+        // 3.5. Confirm the withdrawn amount landed in the sender's Solana balance.
+        let solana_balance = client.get_balance(sender_solana_keypair.pubkey())?;
         println!("withdraw solana_balance={solana_balance} tx={signature}");
     }
     Ok(())
