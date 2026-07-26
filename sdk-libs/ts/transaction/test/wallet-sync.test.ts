@@ -16,8 +16,10 @@ import {
   Utxo,
   Wallet,
   decryptTransactions,
+  type CounterpartyCounter,
   type PrivateTransaction,
   type SyncReport,
+  type ViewingKeyEntry,
 } from "../src/index.js";
 import type { WalletAuthority, WalletSyncMaterial } from "../src/wallet/authority.js";
 import { decryptTransactionsWorkerEquivalent } from "../src/wallet/sync.js";
@@ -114,6 +116,25 @@ function historyRow(entry: Readonly<Record<string, unknown>>): PrivateTransactio
           counterpartyViewingPublicKey: P256PublicKey.fromBytes(hexBytes(counterparty) as Bytes33),
         }
       : {}),
+  };
+}
+
+/**
+ * One viewing key's scan position in the shape the Rust generator writes it:
+ * counterparty counters sorted by viewing pubkey, because Rust holds them in a
+ * hash map whose order is not the wallet's.
+ */
+function scanCounters(entry: ViewingKeyEntry): Readonly<Record<string, unknown>> {
+  const counters = (rows: readonly CounterpartyCounter[]): readonly unknown[] =>
+    rows
+      .map((row) => ({ viewingPkBytes: hex(row.counterparty.toBytes()), count: String(row.count) }))
+      .sort((left, right) => left.viewingPkBytes.localeCompare(right.viewingPkBytes));
+  return {
+    viewingPkBytes: hex(entry.viewingPublicKey.toBytes()),
+    txCount: String(entry.txCount),
+    requestCount: String(entry.requestCount),
+    knownSenders: counters(entry.knownSenders),
+    knownRecipients: counters(entry.knownRecipients),
   };
 }
 
@@ -379,6 +400,11 @@ describe("manifest-verified wallet behavior", () => {
       expect(report).toEqual(reportRow(step.report));
       expect(wallet.privateTransactions()).toEqual(
         fixtureArray(step, "rows").map((entry) => historyRow(fixtureObject(entry, "history row"))),
+      );
+      expect(wallet.viewingKeyHistory.map(scanCounters)).toEqual(
+        fixtureArray(step, "viewingKeyHistory").map((entry) =>
+          fixtureObject(entry, "viewing key entry"),
+        ),
       );
     }
 

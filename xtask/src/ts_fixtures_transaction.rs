@@ -3,7 +3,7 @@ use serde_json::{json, Map, Value};
 use zolana_interface::instruction::instruction_data::transact::InputUtxo as WireInputUtxo;
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
-    NullifierKey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
+    NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
 };
 use zolana_transaction::{
     instructions::{
@@ -1924,6 +1924,40 @@ fn wallet_history_transactions(
     ])
 }
 
+/// Counterparty counters, ordered by viewing pubkey because Rust holds them in
+/// a hash map and the fixture has to be byte-reproducible.
+fn counter_rows<'a>(counters: impl Iterator<Item = (&'a P256Pubkey, &'a u64)>) -> Value {
+    let mut rows = counters
+        .map(|(pubkey, count)| (hex(pubkey.as_bytes()), count.to_string()))
+        .collect::<Vec<_>>();
+    rows.sort();
+    Value::Array(
+        rows.into_iter()
+            .map(|(pubkey, count)| json!({"viewingPkBytes": pubkey, "count": count}))
+            .collect(),
+    )
+}
+
+/// How far each tag family of each viewing key has been scanned. A sync resumes
+/// from these, so they are the part of the wallet a later sync reads back.
+fn viewing_key_counters_json(wallet: &Wallet) -> Value {
+    Value::Array(
+        wallet
+            .viewing_key_history
+            .iter()
+            .map(|entry| {
+                json!({
+                    "viewingPkBytes": hex(entry.viewing_pubkey.as_bytes()),
+                    "txCount": entry.tx_count.to_string(),
+                    "requestCount": entry.request_count.to_string(),
+                    "knownSenders": counter_rows(entry.known_senders.iter()),
+                    "knownRecipients": counter_rows(entry.known_recipients.iter())
+                })
+            })
+            .collect(),
+    )
+}
+
 /// Sync the scenario one transaction at a time and record the report and the
 /// full history after each, so the fixture pins both the rows each recording
 /// path writes and the order the wallet keeps them in.
@@ -1951,7 +1985,8 @@ fn wallet_history_vectors(
             )?;
             Ok(json!({
                 "report": sync_report_json(&report),
-                "rows": wallet.private_transactions().iter().map(transaction_json).collect::<Vec<_>>()
+                "rows": wallet.private_transactions().iter().map(transaction_json).collect::<Vec<_>>(),
+                "viewingKeyHistory": viewing_key_counters_json(&wallet)
             }))
         })
         .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;

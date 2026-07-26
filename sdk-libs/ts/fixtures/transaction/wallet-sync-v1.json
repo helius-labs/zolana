@@ -36,6 +36,15 @@
               "kind": "Deposit",
               "status": "Confirmed"
             }
+          ],
+          "viewingKeyHistory": [
+            {
+              "knownRecipients": [],
+              "knownSenders": [],
+              "requestCount": "0",
+              "txCount": "0",
+              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+            }
           ]
         },
         {
@@ -71,6 +80,20 @@
               },
               "kind": "PrivateTransfer",
               "status": "Confirmed"
+            }
+          ],
+          "viewingKeyHistory": [
+            {
+              "knownRecipients": [],
+              "knownSenders": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "requestCount": "0",
+              "txCount": "0",
+              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
             }
           ]
         },
@@ -120,6 +143,25 @@
               },
               "kind": "PrivateTransfer",
               "status": "Confirmed"
+            }
+          ],
+          "viewingKeyHistory": [
+            {
+              "knownRecipients": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "knownSenders": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "requestCount": "0",
+              "txCount": "1",
+              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
             }
           ]
         },
@@ -182,6 +224,25 @@
               },
               "kind": "PrivateTransfer",
               "status": "Confirmed"
+            }
+          ],
+          "viewingKeyHistory": [
+            {
+              "knownRecipients": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "knownSenders": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "requestCount": "0",
+              "txCount": "1",
+              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
             }
           ]
         },
@@ -257,6 +318,25 @@
               },
               "kind": "PublicWithdrawal",
               "status": "Confirmed"
+            }
+          ],
+          "viewingKeyHistory": [
+            {
+              "knownRecipients": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "knownSenders": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "requestCount": "0",
+              "txCount": "1",
+              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
             }
           ]
         },
@@ -345,6 +425,25 @@
               },
               "kind": "Split",
               "status": "Confirmed"
+            }
+          ],
+          "viewingKeyHistory": [
+            {
+              "knownRecipients": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "knownSenders": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "requestCount": "0",
+              "txCount": "1",
+              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
             }
           ]
         },
@@ -446,6 +545,25 @@
               },
               "kind": "Merge",
               "status": "Confirmed"
+            }
+          ],
+          "viewingKeyHistory": [
+            {
+              "knownRecipients": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "knownSenders": [
+                {
+                  "count": "0",
+                  "viewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+                }
+              ],
+              "requestCount": "0",
+              "txCount": "1",
+              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
             }
           ]
         }
