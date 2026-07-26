@@ -15,9 +15,13 @@ export function proverUrlFromEnv(): URL {
 async function portFree(port: number): Promise<boolean> {
   return await new Promise((resolve) => {
     const server = createServer();
-    server.once("error", () => resolve(false));
+    server.once("error", () => {
+      resolve(false);
+    });
     server.listen(port, "127.0.0.1", () => {
-      server.close(() => resolve(true));
+      server.close(() => {
+        resolve(true);
+      });
     });
   });
 }
@@ -83,7 +87,9 @@ export async function ensureLocalProver(): Promise<OwnedProver> {
         stop: async () => {
           child.kill("SIGTERM");
           await new Promise<void>((resolve) => {
-            child.once("exit", () => resolve());
+            child.once("exit", () => {
+              resolve();
+            });
             setTimeout(resolve, 2_000);
           });
         },

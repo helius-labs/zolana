@@ -45,12 +45,6 @@ const fixture = proverFixtureJson as ProverShapesFixture;
 const TREE = encodeBase58(new Uint8Array(32).fill(45)) as Address;
 const AMOUNT = 100n;
 
-function fieldByte(value: number): Bytes32 {
-  const result = new Uint8Array(32);
-  result[31] = value;
-  return result as Bytes32;
-}
-
 function payerHash(): Bytes32 {
   const digest = new Uint8Array(sha256(new Uint8Array(32).fill(44)));
   digest[0] = 0;

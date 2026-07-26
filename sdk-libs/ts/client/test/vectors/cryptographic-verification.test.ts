@@ -211,7 +211,11 @@ describe.skipIf(!LIVE)("P4 live TypeScript prove → groth16-solana verify", () 
       const artifact = await proveMergeCase(client);
       expect(callGroth16Verify(artifact.request)).toEqual({ ok: true });
       assertCoreRejections(artifact);
-      const { commitment: _c, commitmentPok: _p, ...bare } = artifact.request.proof;
+      const bare = {
+        a: artifact.request.proof.a,
+        b: artifact.request.proof.b,
+        c: artifact.request.proof.c,
+      };
       expectFail({ ...artifact.request, proof: bare }, ["rail_mismatch"]);
       expectFail({ ...artifact.request, family: "merge_zone" }, [
         "verification_failure",
@@ -316,13 +320,13 @@ function compressForSuite(proof: Proof): Readonly<{
   }
 }
 
-async function certifyArtifact(
+function certifyArtifact(
   family: VerifyRequest["family"],
   rail: VerifyRail | undefined,
   shape: Readonly<{ inputs: number; outputs: number }>,
   publicInputHash: Uint8Array,
   proof: Proof,
-): Promise<Artifact> {
+): Artifact {
   const uncompressedRequest: VerifyRequest = {
     family,
     ...(rail === undefined ? {} : { rail }),
@@ -404,7 +408,7 @@ function assertCoreRejections(artifact: Artifact): void {
     );
   }
   if (request.rail === "p256" || request.family === "merge" || request.family === "merge_zone") {
-    const { commitment: _c, commitmentPok: _p, ...bare } = request.proof;
+    const bare = { a: request.proof.a, b: request.proof.b, c: request.proof.c };
     expectFail({ ...request, proof: bare }, ["rail_mismatch"]);
     if (compressed.commitment !== undefined) {
       expectFail(
