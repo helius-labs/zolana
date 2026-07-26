@@ -67,10 +67,10 @@ use zolana_transaction::{
 use zolana_tree::TreeAccount;
 
 use zolana_test_utils::transact::{
-    assemble_eddsa_transfer_proof_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
+    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
-    pack_proof, prove_and_verify_transfer, public_sol_field, real_output, set_output_owner_tags,
-    transfer_output, EddsaTransferProofArgs,
+    pack_proof, prove_and_verify_transfer, public_input_hash, public_sol_field, real_output,
+    set_output_owner_tags, transfer_output, PublicInputHashArgs, TransferProverInputsArgs,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";

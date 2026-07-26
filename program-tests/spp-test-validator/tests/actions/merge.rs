@@ -221,6 +221,7 @@ impl LifecycleHarness {
 
         let user_record = user_record_pda(&owner_solana.pubkey()).0;
         let payer_before = fetch_account(&self.rpc, &self.merge_vault)?;
+        let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let user_record_before = fetch_account(&self.rpc, &user_record)?;
         let merge_ix = MergeTransact {
             input_tree: self.tree,
@@ -244,7 +245,21 @@ impl LifecycleHarness {
             &merge_key.pubkey(),
             &[&merge_key],
         )?;
-        assert_account_unchanged(&self.rpc, &self.merge_vault, &payer_before)?;
+        // A successful merge collects the forester fee from the inner payer: one
+        // 20-lamport share per inserted nullifier, transferred into the tree.
+        let forester_fee = MERGE_INPUT_COUNT as u64 * 20;
+        let payer_after = fetch_account(&self.rpc, &self.merge_vault)?;
+        assert_eq!(
+            payer_before.lamports - payer_after.lamports,
+            forester_fee,
+            "merge must charge the payer one forester share per nullifier"
+        );
+        let tree_after = fetch_account(&self.rpc, &self.tree)?;
+        assert_eq!(
+            tree_after.lamports - tree_before.lamports,
+            forester_fee,
+            "merge forester fee must accrue to the tree"
+        );
         assert_account_unchanged(&self.rpc, &user_record, &user_record_before)?;
 
         // Only commit the fixture's spendable set after the validator accepted the
