@@ -67,7 +67,8 @@ pub struct SubmitMergeTransaction<'a, R: Rpc, I: Rpc + ?Sized> {
     pub owner: Pubkey,
     pub payer: &'a Keypair,
     pub material: &'a MergeMaterial,
-    pub tree: Pubkey,
+    pub input_tree: Pubkey,
+    pub output_tree: Pubkey,
     pub prover_url: &'a str,
     pub prepared: PreparedMerge,
 }
@@ -91,7 +92,8 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         owner,
         payer,
         material,
-        tree,
+        input_tree,
+        output_tree,
         prover_url,
         prepared,
     } = request;
@@ -105,8 +107,8 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
     // merkle context, checked against the ix tree before paying for a proof that
     // could never verify on-chain.
     let commitments = prepared.input_utxo_hashes()?;
-    let proofs = indexer.get_input_merkle_proofs(&commitments, None)?;
-    ensure_proofs_match_submit_tree(&proofs, Address::new_from_array(tree.to_bytes()))?;
+    let proofs = indexer.get_input_merkle_proofs_for_tree(input_tree, &commitments, None)?;
+    ensure_proofs_match_input_tree(&proofs, input_tree)?;
 
     let result = MergeProver::try_from(MergeWitness {
         prepared,
@@ -120,7 +122,8 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
     let data = result.instruction_data(packed);
 
     let merge_ix = MergeTransact {
-        tree,
+        input_tree,
+        output_tree,
         payer: payer.pubkey(),
         user_record: user_record_pda(&owner).0,
         data,
@@ -145,19 +148,19 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
 /// Reject spend proofs resolved against a different tree than the submit ix
 /// targets: a merge proof only verifies against the tree its input proofs were
 /// fetched from, so a mismatch would fail on-chain after proving.
-fn ensure_proofs_match_submit_tree(
+fn ensure_proofs_match_input_tree(
     proofs: &[SpendProof],
-    submit_tree: Address,
+    input_tree: Address,
 ) -> Result<(), ClientError> {
     for proof in proofs {
         for proof_tree in [
             proof.state.merkle_context.tree,
             proof.nullifier.merkle_context.tree,
         ] {
-            if proof_tree != submit_tree {
-                return Err(ClientError::MergeTreeMismatch {
+            if proof_tree != input_tree {
+                return Err(ClientError::MergeInputTreeMismatch {
                     proof_tree: proof_tree.to_bytes(),
-                    submit_tree: submit_tree.to_bytes(),
+                    input_tree: input_tree.to_bytes(),
                 });
             }
         }
@@ -330,11 +333,11 @@ mod tests {
     }
 
     #[test]
-    fn proofs_on_the_submit_tree_pass_the_tree_check() {
+    fn proofs_on_the_input_tree_pass_the_tree_check() {
         let tree = Address::new_from_array([7u8; 32]);
 
-        ensure_proofs_match_submit_tree(&[spend_proof_on(tree, tree)], tree)
-            .expect("proofs on the submit tree");
+        ensure_proofs_match_input_tree(&[spend_proof_on(tree, tree)], tree)
+            .expect("proofs on the input tree");
     }
 
     #[test]
@@ -342,17 +345,15 @@ mod tests {
         let submit_tree = Address::new_from_array([7u8; 32]);
         let other_tree = Address::new_from_array([8u8; 32]);
 
-        let error = ensure_proofs_match_submit_tree(
-            &[spend_proof_on(other_tree, submit_tree)],
-            submit_tree,
-        )
-        .expect_err("state proof tree mismatch");
+        let error =
+            ensure_proofs_match_input_tree(&[spend_proof_on(other_tree, submit_tree)], submit_tree)
+                .expect_err("state proof tree mismatch");
 
         assert!(matches!(
             error,
-            ClientError::MergeTreeMismatch {
+            ClientError::MergeInputTreeMismatch {
                 proof_tree,
-                submit_tree: got,
+                input_tree: got,
             } if proof_tree == other_tree.to_bytes() && got == submit_tree.to_bytes()
         ));
     }
@@ -362,17 +363,15 @@ mod tests {
         let submit_tree = Address::new_from_array([7u8; 32]);
         let other_tree = Address::new_from_array([8u8; 32]);
 
-        let error = ensure_proofs_match_submit_tree(
-            &[spend_proof_on(submit_tree, other_tree)],
-            submit_tree,
-        )
-        .expect_err("nullifier proof tree mismatch");
+        let error =
+            ensure_proofs_match_input_tree(&[spend_proof_on(submit_tree, other_tree)], submit_tree)
+                .expect_err("nullifier proof tree mismatch");
 
         assert!(matches!(
             error,
-            ClientError::MergeTreeMismatch {
+            ClientError::MergeInputTreeMismatch {
                 proof_tree,
-                submit_tree: got,
+                input_tree: got,
             } if proof_tree == other_tree.to_bytes() && got == submit_tree.to_bytes()
         ));
     }

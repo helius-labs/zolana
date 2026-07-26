@@ -11,14 +11,15 @@ use crate::{
 
 /// Builder for the `zone_transact` instruction, the anonymous policy-zone analog
 /// of [`super::transact::Transact`]. The account layout mirrors the program
-/// loader (`ZoneTransactAccounts::validate_and_parse`): `payer`, `tree`, the
-/// `ZoneConfig` account (the zone's `zone_auth` PDA), the optional public-amount
-/// accounts, then the program account last for the `emit_event` self-CPI. The
-/// zone identity is read from the `ZoneConfig`, so it is not part of the
-/// instruction data.
+/// loader (`ZoneTransactAccounts::validate_and_parse`): `payer`, `input_tree`,
+/// `output_tree`, the `ZoneConfig` account (the zone's `zone_auth` PDA), the
+/// optional public-amount accounts, then the program account last for the
+/// `emit_event` self-CPI. The zone identity is read from the `ZoneConfig`, so it
+/// is not part of the instruction data.
 pub struct ZoneTransact {
     pub payer: Pubkey,
-    pub tree: Pubkey,
+    pub input_tree: Pubkey,
+    pub output_tree: Pubkey,
     /// Calling zone program; its `ZoneConfig` (canonical `zone_auth` PDA) signs.
     pub zone_program_id: Pubkey,
     pub legs: Vec<TransactLegAccounts>,
@@ -52,7 +53,8 @@ impl ZoneTransact {
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.tree, false),
+            AccountMeta::new(self.input_tree, false),
+            AccountMeta::new(self.output_tree, false),
             AccountMeta::new_readonly(zone_config, auth_signer),
         ];
         append_public_leg_accounts(&mut accounts, &self.data.public_legs, &self.legs);
@@ -91,15 +93,17 @@ mod tests {
         }
     }
 
-    /// A pure shielded `zone_transact` lays out `payer`, `tree`, the
-    /// `ZoneConfig` (canonical `zone_auth` PDA), the System Program, and the
-    /// program account, and tags the instruction data with `ZONE_TRANSACT`.
+    /// A pure shielded `zone_transact` lays out `payer`, `input_tree`,
+    /// `output_tree`, the `ZoneConfig` (canonical `zone_auth` PDA), the System
+    /// Program, and the program account, and tags the instruction data with
+    /// `ZONE_TRANSACT`.
     #[test]
     fn instruction_account_order_and_zone_config() {
         let zone_program_id = Pubkey::new_unique();
         let builder = ZoneTransact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             zone_program_id,
             legs: Vec::new(),
             data: empty_data(),
@@ -115,7 +119,8 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                builder.tree,
+                builder.input_tree,
+                builder.output_tree,
                 zone_config,
                 Pubkey::default(),
                 PROGRAM_ID_PUBKEY
@@ -123,7 +128,7 @@ mod tests {
         );
         // `.instruction()` targets the zone program, so the `zone_auth` PDA is not
         // a transaction-level signer.
-        assert!(!ix.accounts[2].is_signer);
+        assert!(!ix.accounts[3].is_signer);
         assert!(ix.accounts[0].is_signer);
     }
 
@@ -133,7 +138,8 @@ mod tests {
         let zone_program_id = Pubkey::new_unique();
         let builder = ZoneTransact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             zone_program_id,
             legs: Vec::new(),
             data: empty_data(),
@@ -141,7 +147,7 @@ mod tests {
 
         let ix = builder.cpi_instruction();
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
-        assert_eq!(ix.accounts[2].pubkey, pda::zone_auth(&zone_program_id).0);
-        assert!(ix.accounts[2].is_signer);
+        assert_eq!(ix.accounts[3].pubkey, pda::zone_auth(&zone_program_id).0);
+        assert!(ix.accounts[3].is_signer);
     }
 }

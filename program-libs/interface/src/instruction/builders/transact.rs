@@ -27,12 +27,13 @@ pub enum TransactLegAccounts {
 }
 
 /// Builder for the `transact` instruction. The account layout mirrors the
-/// program loader (`TransactAccounts::validate_and_parse`): `payer`, `tree`, the
-/// ordered public-leg account groups, and the program account last for the
-/// `emit_event` self-CPI.
+/// program loader (`TransactAccounts::validate_and_parse`): `payer`,
+/// `input_tree`, `output_tree`, the ordered public-leg account groups, and the
+/// program account last for the `emit_event` self-CPI.
 pub struct Transact {
     pub payer: Pubkey,
-    pub tree: Pubkey,
+    pub input_tree: Pubkey,
+    pub output_tree: Pubkey,
     pub legs: Vec<TransactLegAccounts>,
     pub data: TransactIxData,
 }
@@ -94,7 +95,8 @@ impl Transact {
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.tree, false),
+            AccountMeta::new(self.input_tree, false),
+            AccountMeta::new(self.output_tree, false),
         ];
         append_public_leg_accounts(&mut accounts, &self.data.public_legs, &self.legs);
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
@@ -135,7 +137,8 @@ mod tests {
         let recipient = Pubkey::new_unique();
         let builder = Transact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             legs: vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })],
             data: empty_data(vec![PublicLeg::Sol {
                 is_deposit: false,
@@ -149,14 +152,15 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                builder.tree,
+                builder.input_tree,
+                builder.output_tree,
                 SOL_INTERFACE_PUBKEY,
                 recipient,
                 Pubkey::default(),
                 PROGRAM_ID_PUBKEY,
             ]
         );
-        assert!(!ix.accounts[3].is_signer);
+        assert!(!ix.accounts[4].is_signer);
     }
 
     #[test]
@@ -169,7 +173,8 @@ mod tests {
         };
         let builder = Transact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             legs: vec![TransactLegAccounts::Spl(spl)],
             data: empty_data(vec![PublicLeg::Spl {
                 is_deposit: false,
@@ -184,7 +189,8 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                builder.tree,
+                builder.input_tree,
+                builder.output_tree,
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
                 spl.vault,
                 spl.recipient,
@@ -208,7 +214,8 @@ mod tests {
         let sol_recipient = Pubkey::new_unique();
         let builder = Transact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             legs: vec![
                 TransactLegAccounts::Sol(TransactSolLeg {
                     recipient: sol_depositor,
@@ -241,7 +248,8 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                builder.tree,
+                builder.input_tree,
+                builder.output_tree,
                 SOL_INTERFACE_PUBKEY,
                 sol_depositor,
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
@@ -255,9 +263,9 @@ mod tests {
                 PROGRAM_ID_PUBKEY,
             ]
         );
-        assert!(ix.accounts[3].is_signer);
-        assert!(!ix.accounts[6].is_signer);
-        assert!(!ix.accounts[10].is_signer);
+        assert!(ix.accounts[4].is_signer);
+        assert!(!ix.accounts[7].is_signer);
+        assert!(!ix.accounts[11].is_signer);
     }
 
     #[test]
@@ -270,7 +278,8 @@ mod tests {
         };
         let builder = Transact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             legs: vec![TransactLegAccounts::Spl(spl)],
             data: empty_data(vec![PublicLeg::Spl {
                 is_deposit: true,
@@ -280,9 +289,9 @@ mod tests {
         };
 
         let ix = builder.instruction();
-        assert_eq!(ix.accounts[2].pubkey, spl.vault);
-        assert_eq!(ix.accounts[3].pubkey, spl.recipient);
-        assert!(ix.accounts[3].is_signer);
+        assert_eq!(ix.accounts[3].pubkey, spl.vault);
+        assert_eq!(ix.accounts[4].pubkey, spl.recipient);
+        assert!(ix.accounts[4].is_signer);
     }
 
     #[test]
@@ -290,7 +299,8 @@ mod tests {
     fn rejects_leg_account_count_mismatch() {
         Transact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             legs: Vec::new(),
             data: empty_data(vec![PublicLeg::Sol {
                 is_deposit: false,
@@ -305,7 +315,8 @@ mod tests {
     fn rejects_leg_account_tag_mismatch() {
         Transact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
                 recipient: Pubkey::new_unique(),
             })],

@@ -5,10 +5,12 @@ use zolana_user_registry_interface::{state::UserRecord, USER_REGISTRY_PROGRAM_ID
 
 use crate::instructions::hash::solana_pk_hash;
 
-/// Validated accounts for `merge_transact`, in loader order: `tree` (writable),
-/// `payer` (signer, pays fees), `user_record` (read-only).
+/// Validated accounts for `merge_transact`, in loader order: `input_tree` and
+/// `output_tree` (writable), `payer` (signer, pays fees), `user_record`
+/// (read-only).
 pub struct MergeTransactAccounts<'a> {
-    pub tree: &'a mut AccountView,
+    pub input_tree: &'a mut AccountView,
+    pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
 }
@@ -19,7 +21,8 @@ impl<'a> MergeTransactAccounts<'a> {
         accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
-        let tree = iter.next_mut("tree")?;
+        let input_tree = iter.next_mut("input_tree")?;
+        let output_tree = iter.next_mut("output_tree")?;
         let payer = iter.next_signer("payer")?;
         let user_record = iter.next_account("user_record")?;
         let system_program = iter.next_account("system_program")?;
@@ -27,7 +30,8 @@ impl<'a> MergeTransactAccounts<'a> {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
         }
         Ok(Self {
-            tree,
+            input_tree,
+            output_tree,
             payer,
             user_record,
         })
@@ -97,9 +101,10 @@ mod tests {
     fn rejects_invalid_system_program_with_specific_error() {
         let mut accounts = [
             get_account_view([1; 32], crate::ID.to_bytes(), false, true, false, vec![]),
-            get_account_view([2; 32], [0; 32], true, true, false, vec![]),
-            get_account_view([3; 32], [0; 32], false, false, false, vec![]),
-            get_account_view([4; 32], [0; 32], false, false, true, vec![]),
+            get_account_view([2; 32], crate::ID.to_bytes(), false, true, false, vec![]),
+            get_account_view([3; 32], [0; 32], true, true, false, vec![]),
+            get_account_view([4; 32], [0; 32], false, false, false, vec![]),
+            get_account_view([5; 32], [0; 32], false, false, true, vec![]),
         ];
 
         let error = match MergeTransactAccounts::validate_and_parse(&crate::ID, &mut accounts) {

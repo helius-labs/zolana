@@ -58,7 +58,8 @@ pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     // `zone_data_hash` is published in the event so the wallet can reconstruct
     // the zone output.
     process_merge_core(
-        merge_accounts.tree,
+        merge_accounts.input_tree,
+        merge_accounts.output_tree,
         merge_accounts.payer,
         merge,
         external_data_hash,

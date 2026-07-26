@@ -1256,7 +1256,7 @@ Usage by instruction:
 
 **Accounts**
 
-Public settlement groups follow `payer` and `tree_account` in
+Public settlement groups follow `payer`, `input_tree`, and `output_tree` in
 `public_legs` order. A SOL group is `(sol_interface, recipient)`. An SPL deposit
 group is `(vault, authority, user_token_account, token_program)`, where
 `authority` MUST sign; an SPL withdrawal prepends the canonical
@@ -1277,7 +1277,8 @@ aggregate into one proof slot.
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | payer |   | x | user, or an optional relayer (transfer/withdraw) |
-| 2 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
+| 2 | input_tree | x |   | supplies historical roots and receives input nullifiers |
+| 3 | output_tree | x |   | receives output UTXO commitments; may equal `input_tree` |
 | .. | public-leg groups |   |   | one group per `u8`-counted entry in `public_legs`, in order, using the layouts above |
 | .. | system_program |   |   | present once after all groups iff any leg is SOL |
 | n | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
@@ -1294,8 +1295,6 @@ struct InputUtxo {
     nullifier_tree_root_index: u16,
     /// Index into the root cache of the input's UTXO tree.
     utxo_tree_root_index: u16,
-    /// Account index of the input's tree; 255 means the output tree.
-    tree_index: u8,
     /// Account index of the input's Ed25519 signer; 255 when P256-owned. The
     /// variant itself is selected by `TransactIxData.circuit`, not this index.
     eddsa_signer_index: u8,
@@ -1389,13 +1388,24 @@ Total transaction size by circuit shape. Computed by `cargo run -p xtask -- tx-s
 
 | Circuit | N | M | ix data (B) | transfer, no ALT (B) | transfer, ALT (B) | deposit / withdraw, no ALT (B) | deposit / withdraw, ALT (B) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2 in 2 out | 2 | 2 | 432 | — | — | 779 | 722 |
-| 1 in 2 out | 1 | 2 | 394 | — | — | 741 | 684 |
-| 3 in 3 out | 3 | 3 | 586 | 791 | 796 | 933 | 876 |
-| 5 in 3 out | 5 | 3 | 662 | 867 | 872 | 1009 | 952 |
-| 1 in 8 out | 1 | 8 | 1090\* | 1295\* | 1300\* | 1437\* | 1380\* |
+| 2 in 2 out | 2 | 2 | 435 | — | — | 784 | 727 |
+| 1 in 2 out | 1 | 2 | 398 | — | — | 747 | 690 |
+| 3 in 3 out | 3 | 3 | 588 | 794 | 799 | 937 | 880 |
+| 5 in 3 out | 5 | 3 | 662 | 868 | 873 | 1011 | 954 |
+| 1 in 8 out | 1 | 8 | 1094\* | 1300\* | 1305\* | 1443\* | 1386\* |
 
-"no ALT" = Solana legacy transaction (all accounts inline). "ALT" = Solana v0 transaction with one ALT loaded before the transaction containing `tree_account` (writable), and for deposit additionally `vault` and `recipient` (writable). The program account (`program_id`) is always inline because Solana requires instruction program IDs in the static account list. A pure transfer with only one writable account moved to the ALT gains 32 B but pays 37 B (1 B v0 version prefix + 36 B ALT section), so v0+ALT is 5 B larger than legacy for transfers. Deposit moves three writable accounts and gains 57 B net (3 × 32 B saved − 39 B ALT overhead). — = shape has no recipient slots (R = M − 2 = 0) and is used only for deposit / merge, not transfer.
+"no ALT" = Solana legacy transaction (all accounts inline). "ALT" = Solana v0
+transaction with one ALT loaded before the transaction containing the tree
+account (writable), and for deposit additionally `vault` and `recipient`
+(writable). These measurements pass the same pubkey for `input_tree` and
+`output_tree`; using a distinct output tree adds one 32-byte account key to a
+legacy message. The program account (`program_id`) is always inline because
+Solana requires instruction program IDs in the static account list. A pure
+same-tree transfer with only one writable key moved to the ALT gains 32 B but
+pays 37 B (1 B v0 version prefix + 36 B ALT section), so v0+ALT is 5 B larger
+than legacy for transfers. Deposit moves three writable accounts and gains 57 B
+net (3 × 32 B saved − 39 B ALT overhead). — = shape has no recipient slots
+(R = M − 2 = 0) and is used only for deposit / merge, not transfer.
 
 \* The 1-in-8-out row uses [UTXO Split](#utxo-split), which has a distinct ciphertext layout. The sizes shown use the standard transfer ciphertext structure with R = 6 recipients and do not reflect the actual UTXO Split encoding.
 
@@ -1404,9 +1414,9 @@ Public legs add both instruction data and settlement account groups. For a
 
 | Public legs | EdDSA ix data (B) | EdDSA transaction (B) | P256 ix data (B) | P256 transaction (B) |
 | --- | --- | --- | --- | --- |
-| 0 | 586 | 791 | 650 | 855 |
-| 1 | 596 | 966 | 660 | 1030 |
-| 5 | 636 | 1282 | 700 | 1346 |
+| 0 | 588 | 794 | 652 | 858 |
+| 1 | 599 | 970 | 663 | 1034 |
+| 5 | 643 | 1290 | 707 | 1354 |
 
 Five legs in this table are a transaction-size datapoint, not a protocol
 maximum. Every transaction still has to fit Solana's 1232-byte packet limit.
@@ -1422,11 +1432,11 @@ one proof slot does not remove their individual account metas.
    (`ZeroPublicLegAmount`). Duplicate settlement-leg assets are valid.
 3. Parse exactly one settlement account group per leg, in order, and validate its kind, custody account, mint, authority, and token program. Reordering a group changes `external_data_hash`.
 4. Aggregate each resolved asset in `i128`, adding deposits and subtracting withdrawals while preserving first-appearance order. Reject a final net magnitude above `u64::MAX`. Drop zero-net groups; reject more than `N_PUBLIC_SLOTS` remaining distinct assets. Pad the remaining pairwise-distinct `(asset, net_amount)` proof slots with `(0, 0)`.
-5. Each input's `utxo_tree_root_index` and `nullifier_tree_root_index` reference a non-stale root.
-6. `tree_account` is not paused.
+5. Each input's `utxo_tree_root_index` and `nullifier_tree_root_index` reference a non-stale root in `input_tree`.
+6. Both tree accounts permit their respective writes: nullifier insertion in `input_tree` and UTXO append in `output_tree`.
 7. Proof verifies against the three aggregated public slots.
-8. Append each `outputs[i].utxo_hash` (in order) to the UTXO sparse Merkle tree.
-9. Insert each input's `nullifier_hash` into the nullifier queue.
+8. Append each `outputs[i].utxo_hash` (in order) to `output_tree`'s UTXO sparse Merkle tree.
+9. Insert each input's `nullifier_hash` into `input_tree`'s nullifier queue.
 10. The sender bundle needs no nullifier-tree insertion: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
 11. Settle every original leg independently using its full `u64` amount: `is_deposit = true` moves SOL/SPL from the public account into custody, while `false` moves value from custody to the named public account. Aggregation affects proof inputs only; account resolution, settlement, the external-data hash, and event movements retain leg order.
 12. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
@@ -1443,8 +1453,7 @@ GeneralEvent {
         .iter()
         .zip(input_queue_seqs) // assigned at nullifier queue insert
         .map(|(input, input_queue_seq)| Input {
-            // tree_index 255 means the output tree.
-            tree: input_tree(input.tree_index),
+            tree: input_tree,
             input_queue_seq,
             nullifier: input.nullifier_hash,
         })
@@ -1466,7 +1475,7 @@ GeneralEvent {
     tx_viewing_pk: instruction_data.tx_viewing_pk,
     salt: instruction_data.salt,
     first_output_leaf_index,
-    output_tree: tree_account,
+    output_tree,
     // One entry per public leg, in leg order; empty for a shielded transfer.
     movements: resolved_public_legs
         .iter()
@@ -1479,7 +1488,9 @@ GeneralEvent {
 }
 ```
 
-`input_queue_seqs` and `first_output_leaf_index` are assigned when the nullifiers and output hashes are inserted; `input_tree` resolves a `tree_index` to its account (`255` = the output tree); `mint` comes from the SPL accounts; and `is_deposit` is the public-amount direction proven by the proof (`true` for a deposit).
+`input_queue_seqs` come from `input_tree`; `first_output_leaf_index` comes from
+`output_tree`. `mint` comes from the SPL accounts, and `is_deposit` is the
+public-amount direction proven by the proof (`true` for a deposit).
 
 ### `deposit`
 
@@ -1756,9 +1767,10 @@ Every entry's `blinding` is a fresh CSPRNG value sent in the clear, as in
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
-| 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
-| 2 | payer |   | x | fee payer; any account may run the merge |
-| 3 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and binds the proof's signing / viewing `pk_field`s to it |
+| 1 | input_tree | x |   | supplies historical roots and receives input nullifiers and the replay tag |
+| 2 | output_tree | x |   | receives the merged output commitment; may equal `input_tree` |
+| 3 | payer |   | x | fee payer; any account may run the merge |
+| 4 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and binds the proof's signing / viewing `pk_field`s to it |
 
 **Instruction data**
 
@@ -1796,12 +1808,12 @@ struct MergeTransactIxData {
 
 1. `current_unix_ts <= expiry_unix_ts`.
 2. Each `utxo_tree_root_index[i]` references a non-stale UTXO-tree root, and each `nullifier_tree_root_index[i]` references a non-stale nullifier-tree root.
-3. `tree_account` is not paused.
+3. Both tree accounts permit their respective writes.
 4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
 5. SPP derives `pk_field(user_record.viewing_pubkey)` and, by the `eddsa_owner` flag, the signing `pk_field` (from `owner_p256` or the registry account `owner`), and uses them as the proof's owner public inputs, so the proof verifies only if it encrypted the output to the owner's registered viewing key. The merged output is tagged in the [`GeneralEvent`](#general-event) by the owner's signing pubkey — the confidential [default-zone](#default-zone) owner-pubkey tag — so the owner finds it on sync; the proof binds that signing `pk_field` to the output.
 6. Proof verifies against public inputs (`ciphertext_hash` recomputed from `encrypted_utxo`).
-7. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
-8. Insert each input nullifier into the nullifier queue. Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of a single-use view tag. SPP does not parse `encrypted_utxo` beyond hashing it; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.
+7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
+8. Insert each input nullifier into `input_tree`'s nullifier queue. Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of a single-use view tag. SPP does not parse `encrypted_utxo` beyond hashing it; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.
 
 Serialized body: `380 + 36·N` bytes (`192`-byte proof, `110`-byte encrypted output).
 With discriminator, `N = 8`: `669 B`; with `~206 B` transaction overhead: `~875 B`.
@@ -1818,9 +1830,10 @@ The ciphertext omits `zone_data`; the zone supplies any output `zone_data` preim
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
-| 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
-| 2 | zone_config |   | x | the zone's `zone_auth` PDA; signs. SPP reads its `program_id` and checks inputs/output `zone_program_id` against it. See [Zone Accounts](#zone-accounts) |
-| 3 | payer |   | x | fee payer |
+| 1 | input_tree | x |   | supplies historical roots and receives input nullifiers and the replay tag |
+| 2 | output_tree | x |   | receives the merged output commitment; may equal `input_tree` |
+| 3 | zone_config |   | x | the zone's `zone_auth` PDA; signs. SPP reads its `program_id` and checks inputs/output `zone_program_id` against it. See [Zone Accounts](#zone-accounts) |
+| 4 | payer |   | x | fee payer |
 
 **Instruction data**
 
@@ -1834,12 +1847,12 @@ cleanliness and output-well-formed rules.
 
 **Checks**
 
-1. The `zone_config` account (account #2) must sign; SPP loads it by owner + discriminator and reads its `program_id`.
-2. `current_unix_ts <= expiry_unix_ts`; each root index is non-stale; `tree_account` is not paused (`merge_transact` checks 1–3). Authorization is the zone program's responsibility; SPP does not check the registry `merging_enabled` flag here.
+1. The `zone_config` account (account #3) must sign; SPP loads it by owner + discriminator and reads its `program_id`.
+2. `current_unix_ts <= expiry_unix_ts`; each root index is non-stale in `input_tree`; both tree accounts permit their respective writes (`merge_transact` checks 1–3). Authorization is the zone program's responsibility; SPP does not check the registry `merging_enabled` flag here.
 3. Proof verifies against public inputs (the policy-zone variant: inputs share `zone_program_id` = `zone_config.program_id`; output preserves it; `data_hash = 0` on every non-dummy input and on the output).
-4. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
-5. Insert each input nullifier into the nullifier queue.
-6. Insert `merge_view_tag` into the nullifier queue, single-use (rejects on duplicate).
+4. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
+5. Insert each input nullifier into `input_tree`'s nullifier queue.
+6. Insert `merge_view_tag` into `input_tree`'s nullifier queue, single-use (rejects on duplicate).
 
 # Zone Program Interface
 

@@ -51,12 +51,6 @@ pub enum ClientError {
         tree_count: usize,
     },
 
-    #[error("private transaction targets tree {transaction_tree:?}, but the client uses {client_tree:?}")]
-    TreeMismatch {
-        transaction_tree: [u8; 32],
-        client_tree: [u8; 32],
-    },
-
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },
 
@@ -121,10 +115,12 @@ pub enum ClientError {
     #[error("merging keypair viewing key does not match the registry record for {owner}")]
     MergeViewingKeyMismatch { owner: Pubkey },
 
-    #[error("merge proof was fetched for tree {proof_tree:?}, but the submit ix targets {submit_tree:?}")]
-    MergeTreeMismatch {
+    #[error(
+        "merge proof was fetched for tree {proof_tree:?}, but the input tree is {input_tree:?}"
+    )]
+    MergeInputTreeMismatch {
         proof_tree: [u8; 32],
-        submit_tree: [u8; 32],
+        input_tree: [u8; 32],
     },
 
     #[error("split amount {amount} is not divisible into {parts} equal parts")]

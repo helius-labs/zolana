@@ -1,5 +1,4 @@
 use anyhow::Result;
-use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
 use zolana_transaction::Address;
@@ -194,7 +193,8 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         owner: ctx.material.funding.pubkey(),
         payer: &ctx.material.funding,
         material: &material,
-        tree: Pubkey::new_from_array(tree.to_bytes()),
+        input_tree: tree,
+        output_tree: tree,
         prover_url: &network.prover_url,
         prepared: created.prepared,
     })?;

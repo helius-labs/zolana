@@ -420,7 +420,8 @@ fn sol_split_case(reorder_recipients: bool) {
     );
     let mut ix = Transact {
         payer: payer.pubkey(),
-        tree: env.tree.pubkey(),
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
         legs: vec![
             TransactLegAccounts::Sol(TransactSolLeg { recipient: user }),
             TransactLegAccounts::Sol(TransactSolLeg { recipient: relayer }),
@@ -568,7 +569,8 @@ fn repeated_same_mint_spl_withdrawals_settle_independently() {
     };
     let ix = Transact {
         payer: payer.pubkey(),
-        tree: env.tree.pubkey(),
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
         legs: vec![spl_leg(first_token), spl_leg(second_token)],
         data,
     }
@@ -712,7 +714,8 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let sol_vault_before = env.rpc.svm.get_balance(&sol_vault).unwrap_or(0);
     let ix = Transact {
         payer: payer.pubkey(),
-        tree: env.tree.pubkey(),
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
         legs: vec![
             spl_leg(withdraw_vault, withdraw_token),
             TransactLegAccounts::Sol(TransactSolLeg {

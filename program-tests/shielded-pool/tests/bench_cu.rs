@@ -451,7 +451,8 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
 
     let ix = Transact {
         payer: payer.pubkey(),
-        tree,
+        input_tree: tree,
+        output_tree: tree,
         legs: Vec::new(),
         data: transact_ix_data,
     }
@@ -604,7 +605,8 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
 
     let ix = Transact {
         payer: payer.pubkey(),
-        tree,
+        input_tree: tree,
+        output_tree: tree,
         legs: vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })],
         data: transact_ix_data,
     }
@@ -778,7 +780,8 @@ fn bench_withdrawal_spl(
 
     let ix = Transact {
         payer: payer.pubkey(),
-        tree,
+        input_tree: tree,
+        output_tree: tree,
         legs: vec![TransactLegAccounts::Spl(TransactSplLeg {
             vault,
             recipient: payer.pubkey(),

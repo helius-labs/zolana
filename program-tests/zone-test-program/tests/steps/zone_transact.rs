@@ -70,9 +70,6 @@ const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;
 /// `P256_OWNED_SIGNER` in the shielded-pool program and `witness.rs`.
 const P256_OWNED_SIGNER: u8 = 255;
 
-/// Default output-tree slot for every input (`tree_index` 0), as in `witness.rs`.
-const DEFAULT_TREE_INDEX: u8 = 0;
-
 /// Default eddsa signer account index for a Solana-owned input (the fee payer).
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
 
@@ -318,7 +315,8 @@ impl ZoneLifecycleWorld {
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let transfer_ix = ZoneTransact {
             payer: fee_payer.pubkey(),
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             zone_program_id: self.zone_program_id,
             legs,
             data: data.clone(),
@@ -598,7 +596,8 @@ impl ZoneLifecycleWorld {
 
         let transfer_ix = ZoneTransact {
             payer: fee_payer.pubkey(),
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             zone_program_id: self.zone_program_id,
             legs: Vec::new(),
             data,
@@ -678,7 +677,6 @@ fn assemble_ix_data(
             nullifier_hash,
             nullifier_tree_root_index,
             utxo_tree_root_index,
-            tree_index: DEFAULT_TREE_INDEX,
             eddsa_signer_index,
         });
     }

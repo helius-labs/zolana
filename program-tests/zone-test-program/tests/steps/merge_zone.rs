@@ -165,7 +165,8 @@ impl ZoneLifecycleWorld {
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let payer = self.payer.insecure_clone();
         let merge_ix = MergeZone {
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             zone_program_id: self.zone_program_id,
             payer: payer.pubkey(),
             data: data.merge.clone(),
@@ -339,7 +340,8 @@ impl ZoneLifecycleWorld {
 
         let payer = self.payer.insecure_clone();
         let merge_ix = MergeZone {
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             zone_program_id: self.zone_program_id,
             payer: payer.pubkey(),
             data: data.merge.clone(),

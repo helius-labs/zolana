@@ -21,7 +21,7 @@ use super::{
     account::{TransactAccounts, ZoneTransactAccounts},
     event::{build_transact_event, resolve_outputs},
     interface_transfer::{process_public_legs, resolve_public_legs},
-    tree::{apply_tree, tree_error},
+    tree::{apply_input_tree, apply_output_tree, tree_error},
 };
 use crate::instructions::{
     event::emit_general_event,
@@ -71,18 +71,27 @@ pub fn process_transact_ix(
     )?;
     let resolved_public_legs = resolve_public_legs(&ix, &transact_accounts.settlements)?;
 
-    let (tree_write, zkp_batch_size) = {
-        let output_tree = transact_accounts.tree.address().to_bytes();
-        // Note currently only one tree is supported for the entire protocol
-        let mut tree = TreeAccount::from_account_view_mut(
-            &mut *transact_accounts.tree,
+    let (inputs, zkp_batch_size) = {
+        let input_tree_address = transact_accounts.input_tree.address().to_bytes();
+        let mut input_tree = TreeAccount::from_account_view_mut(
+            &mut *transact_accounts.input_tree,
             &crate::ID,
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
-        let tree_write = apply_tree(&mut tree, &ix, output_tree, &mut proof_inputs)?;
-        let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
-        (tree_write, zkp_batch_size)
+        let inputs = apply_input_tree(&mut input_tree, &ix, input_tree_address, &mut proof_inputs)?;
+        let zkp_batch_size = input_tree.nullifer_tree().queue_batches.zkp_batch_size;
+        (inputs, zkp_batch_size)
+    };
+    let tree_write = {
+        let output_tree_address = transact_accounts.output_tree.address().to_bytes();
+        let mut output_tree = TreeAccount::from_account_view_mut(
+            &mut *transact_accounts.output_tree,
+            &crate::ID,
+            TREE_ACCOUNT_DISCRIMINATOR,
+        )
+        .map_err(tree_error)?;
+        apply_output_tree(&mut output_tree, &ix, output_tree_address, inputs)?
     };
 
     proof_inputs.external_data_hash = ExternalDataHash {
@@ -104,7 +113,7 @@ pub fn process_transact_ix(
 
     collect_forester_fee(
         transact_accounts.payer,
-        transact_accounts.tree,
+        transact_accounts.input_tree,
         ix.inputs.len() as u64,
         zkp_batch_size,
     )?;

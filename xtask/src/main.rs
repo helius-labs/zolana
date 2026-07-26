@@ -415,7 +415,6 @@ fn tx_size(args: Vec<String>) {
                 nullifier_hash: [0u8; 32],
                 nullifier_tree_root_index: 0,
                 utxo_tree_root_index: 0,
-                tree_index: 0,
                 eddsa_signer_index: 255,
             })
             .collect();
@@ -495,6 +494,7 @@ fn tx_size(args: Vec<String>) {
 
         let mut accounts = vec![
             AccountMeta::new(payer_pk, true),
+            AccountMeta::new(tree_pk, false),
             AccountMeta::new(tree_pk, false),
         ];
         for index in 0..leg_count {
@@ -854,6 +854,7 @@ fn transfer_accounts(
     vec![
         AccountMeta::new(payer, true),
         AccountMeta::new(tree, false),
+        AccountMeta::new(tree, false),
         AccountMeta::new_readonly(spp, false),
     ]
 }
@@ -871,6 +872,7 @@ fn shield_accounts(
     use solana_instruction::AccountMeta;
     vec![
         AccountMeta::new(payer, true),
+        AccountMeta::new(tree, false),
         AccountMeta::new(tree, false),
         AccountMeta::new(vault, false),
         AccountMeta::new(recipient, false),

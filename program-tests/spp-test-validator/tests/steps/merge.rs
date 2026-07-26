@@ -209,7 +209,8 @@ impl LifecycleWorld {
         let data = result.instruction_data(pack_proof(&proof)?);
 
         let merge_ix = MergeTransact {
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             payer: self.merge_vault,
             user_record: user_record_pda(&owner_solana.pubkey()).0,
             data,

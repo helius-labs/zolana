@@ -444,7 +444,8 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut C
 
     let mut ix = Transact {
         payer: maker_payer.pubkey(),
-        tree,
+        input_tree: tree,
+        output_tree: tree,
         legs: Vec::new(),
         data: transact,
     }

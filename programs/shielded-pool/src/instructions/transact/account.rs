@@ -16,7 +16,8 @@ use crate::instructions::zone_config::loader::load_zone_config;
 
 pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
-    pub tree: &'a mut AccountView,
+    pub input_tree: &'a mut AccountView,
+    pub output_tree: &'a mut AccountView,
     pub settlements: Vec<Settlement<'a>>,
 }
 
@@ -28,9 +29,10 @@ impl<'a> TransactAccounts<'a> {
         let mut iter = AccountIterator::new(accounts);
 
         let payer: &AccountView = iter.next_signer("payer")?;
-        let tree = iter.next_mut("tree")?;
+        let input_tree = iter.next_mut("input_tree")?;
+        let output_tree = iter.next_mut("output_tree")?;
 
-        Self::from_iter(iter, ix, payer, tree)
+        Self::from_iter(iter, ix, payer, input_tree, output_tree)
     }
 
     /// 1. Validate spl interface transfers.
@@ -38,7 +40,8 @@ impl<'a> TransactAccounts<'a> {
         mut iter: AccountIterator<'a>,
         ix: &TransactIxDataRef<'_>,
         payer: &'a AccountView,
-        tree: &'a mut AccountView,
+        input_tree: &'a mut AccountView,
+        output_tree: &'a mut AccountView,
     ) -> Result<Self, ProgramError> {
         // Check no zero amounts and less than 255.
         validate_public_legs(&ix.public_legs)?;
@@ -97,7 +100,8 @@ impl<'a> TransactAccounts<'a> {
 
         Ok(Self {
             payer,
-            tree,
+            input_tree,
+            output_tree,
             settlements,
         })
     }
@@ -107,11 +111,12 @@ pub struct ZoneTransactAccounts;
 
 impl ZoneTransactAccounts {
     /// Parse the accounts shared by `zone_transact` and `zone_authority_transact`:
-    /// `payer`, `tree`, the `ZoneConfig` account (the zone's `zone_auth` PDA), then
-    /// the cpi-signer / settlement accounts shared with `transact`. Returns the
-    /// parsed transact accounts and the zone's `program_id`, read from the validated
-    /// `ZoneConfig` (never re-derived; the create-time `zone_auth` derivation
-    /// already bound it). `require_enabled` additionally requires
+    /// `payer`, `input_tree`, `output_tree`, the `ZoneConfig` account (the zone's
+    /// `zone_auth` PDA), then the cpi-signer / settlement accounts shared with
+    /// `transact`. Returns the parsed transact accounts and the zone's
+    /// `program_id`, read from the validated `ZoneConfig` (never re-derived; the
+    /// create-time `zone_auth` derivation already bound it). `require_enabled`
+    /// additionally requires
     /// `zone_authority_transact_is_enabled` (only `zone_authority_transact` sets it).
     pub fn validate_and_parse<'a>(
         accounts: &'a mut [AccountView],
@@ -120,7 +125,8 @@ impl ZoneTransactAccounts {
     ) -> Result<(TransactAccounts<'a>, [u8; 32]), ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let payer: &AccountView = iter.next_signer("payer")?;
-        let tree = iter.next_mut("tree")?;
+        let input_tree = iter.next_mut("input_tree")?;
+        let output_tree = iter.next_mut("output_tree")?;
         // The `zone_config` must sign (only the zone program can sign for its
         // `zone_auth` PDA); validate owner / discriminator and read the bound zone
         // `program_id`.
@@ -132,7 +138,8 @@ impl ZoneTransactAccounts {
         if require_enabled && !enabled {
             return Err(ShieldedPoolError::ZoneAuthorityTransactDisabled.into());
         }
-        let transact_accounts = TransactAccounts::from_iter(iter, ix, payer, tree)?;
+        let transact_accounts =
+            TransactAccounts::from_iter(iter, ix, payer, input_tree, output_tree)?;
         Ok((transact_accounts, zone_program_id))
     }
 }

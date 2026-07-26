@@ -101,11 +101,13 @@ fn main() -> Result<()> {
         let proof_inputs = transfer.sign(&alice_keypair, &assets)?;
 
         // 2.3. Prove the transaction and send the transact instruction.
-        let transfer_data = client.prove_transact(proof_inputs, Some(IndexerRpcConfig::wait()))?;
+        let transfer_data =
+            client.prove_transact(tree, proof_inputs, Some(IndexerRpcConfig::wait()))?;
 
         let transfer_ix = Transact {
             payer: alice_solana_keypair.pubkey(),
-            tree,
+            input_tree: tree,
+            output_tree: tree,
             legs: Vec::new(),
             data: transfer_data,
         }
@@ -184,11 +186,12 @@ fn main() -> Result<()> {
         // 3.3. Prove the transaction and send the transact instruction, this time
         // with the withdrawal accounts attached.
         let withdrawal_data =
-            client.prove_transact(proof_inputs, Some(IndexerRpcConfig::wait()))?;
+            client.prove_transact(tree, proof_inputs, Some(IndexerRpcConfig::wait()))?;
 
         let withdraw_ix = Transact {
             payer: alice_solana_keypair.pubkey(),
-            tree,
+            input_tree: tree,
+            output_tree: tree,
             legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
                 recipient: alice_solana_keypair.pubkey(),
             })],

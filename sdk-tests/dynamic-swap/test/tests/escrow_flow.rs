@@ -133,7 +133,8 @@ fn create_pair_escrow_and_settle() -> Result<()> {
 
             let split_ix = Transact {
                 payer: user_solana.pubkey(),
-                tree: env.tree,
+                input_tree: env.tree,
+                output_tree: env.tree,
                 legs: Vec::new(),
                 data: split_transact,
             }

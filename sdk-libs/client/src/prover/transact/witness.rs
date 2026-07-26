@@ -79,9 +79,6 @@ pub struct BuiltCircuit {
     pub circuit: ProverVariant,
 }
 
-/// Default output-tree slot every input is placed at (`tree_index` 0).
-const DEFAULT_TREE_INDEX: u8 = 0;
-
 /// Default eddsa signer account index for a Solana-owned input.
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
 
@@ -331,7 +328,6 @@ pub fn assemble_with_dummy_policy(
             nullifier_hash,
             nullifier_tree_root_index,
             utxo_tree_root_index,
-            tree_index: DEFAULT_TREE_INDEX,
             eddsa_signer_index,
         });
     }

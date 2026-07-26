@@ -14,7 +14,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetBalance, Data, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
+    Address, AssetBalance, Data, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_wallet::sync_wallet;
 
@@ -77,7 +77,11 @@ fn cosigned_rfq_settlement() -> Result<()> {
     );
 
     let mut data = client
-        .prove_transact(proof_inputs, Some(IndexerRpcConfig::wait()))
+        .prove_transact(
+            Address::new_from_array(tree.to_bytes()),
+            proof_inputs,
+            Some(IndexerRpcConfig::wait()),
+        )
         .map_err(|e| anyhow!("prove transact: {e:?}"))?;
     data.inputs
         .get_mut(1)
@@ -86,7 +90,8 @@ fn cosigned_rfq_settlement() -> Result<()> {
 
     let mut ix = Transact {
         payer: maker_solana.pubkey(),
-        tree,
+        input_tree: tree,
+        output_tree: tree,
         legs: Vec::new(),
         data,
     }

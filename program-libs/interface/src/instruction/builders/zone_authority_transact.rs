@@ -12,13 +12,14 @@ use crate::{
 /// Builder for the `zone_authority_transact` instruction: a zone-authority state
 /// transition (freeze, thaw, permanent-delegate transfer) over zone-owned UTXOs.
 /// The account layout matches `zone_transact` (the loader reuses
-/// `ZoneTransactAccounts`): `payer`, `tree`, the `ZoneConfig` (the zone's
-/// `zone_auth` PDA, which must have `zone_authority_transact_is_enabled` set),
-/// the optional public-amount accounts, then the program account last for the
-/// `emit_event` self-CPI.
+/// `ZoneTransactAccounts`): `payer`, `input_tree`, `output_tree`, the
+/// `ZoneConfig` (the zone's `zone_auth` PDA, which must have
+/// `zone_authority_transact_is_enabled` set), the optional public-amount
+/// accounts, then the program account last for the `emit_event` self-CPI.
 pub struct ZoneAuthorityTransact {
     pub payer: Pubkey,
-    pub tree: Pubkey,
+    pub input_tree: Pubkey,
+    pub output_tree: Pubkey,
     /// Calling zone program; its `ZoneConfig` (canonical `zone_auth` PDA) signs.
     pub zone_program_id: Pubkey,
     pub legs: Vec<TransactLegAccounts>,
@@ -51,7 +52,8 @@ impl ZoneAuthorityTransact {
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.tree, false),
+            AccountMeta::new(self.input_tree, false),
+            AccountMeta::new(self.output_tree, false),
             AccountMeta::new_readonly(zone_config, auth_signer),
         ];
         append_public_leg_accounts(&mut accounts, &self.data.public_legs, &self.legs);
@@ -95,7 +97,8 @@ mod tests {
         let zone_program_id = Pubkey::new_unique();
         let builder = ZoneAuthorityTransact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             zone_program_id,
             legs: Vec::new(),
             data: empty_data(),
@@ -111,13 +114,14 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                builder.tree,
+                builder.input_tree,
+                builder.output_tree,
                 zone_config,
                 Pubkey::default(),
                 PROGRAM_ID_PUBKEY
             ]
         );
-        assert!(!ix.accounts[2].is_signer);
+        assert!(!ix.accounts[3].is_signer);
     }
 
     #[test]
@@ -125,7 +129,8 @@ mod tests {
         let zone_program_id = Pubkey::new_unique();
         let builder = ZoneAuthorityTransact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             zone_program_id,
             legs: Vec::new(),
             data: empty_data(),
@@ -133,7 +138,7 @@ mod tests {
 
         let ix = builder.cpi_instruction();
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
-        assert_eq!(ix.accounts[2].pubkey, pda::zone_auth(&zone_program_id).0);
-        assert!(ix.accounts[2].is_signer);
+        assert_eq!(ix.accounts[3].pubkey, pda::zone_auth(&zone_program_id).0);
+        assert!(ix.accounts[3].is_signer);
     }
 }

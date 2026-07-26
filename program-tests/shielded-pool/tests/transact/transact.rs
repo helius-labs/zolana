@@ -58,10 +58,19 @@ fn tree_lamports(rpc: &ZolanaProgramTest, tree: &Pubkey) -> u64 {
     rpc.svm.get_account(tree).expect("tree account").lamports
 }
 
+fn tree_indices(rpc: &ZolanaProgramTest, tree: &Pubkey) -> (u64, u64) {
+    let mut data = rpc.account_data(tree).expect("tree account");
+    let mut account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
+    let output_index = account.utxo_tree().next_index();
+    let nullifier_index = account.nullifer_tree().queue_batches.next_index;
+    (output_index, nullifier_index)
+}
+
 /// Boot a program-test environment with a protocol config and one pool tree,
 /// the shared precondition for every `transact` scenario.
 struct TransactEnv {
     rpc: ZolanaProgramTest,
+    authority: Keypair,
     tree: Keypair,
 }
 
@@ -76,7 +85,11 @@ impl TransactEnv {
         let tree = rpc
             .create_tree(common::tree_account_size(), &authority)
             .expect("create tree");
-        Some(Self { rpc, tree })
+        Some(Self {
+            rpc,
+            authority,
+            tree,
+        })
     }
 
     /// Move only the nullifier queue cursor so it has one fewer free leaf than
@@ -239,7 +252,8 @@ fn transact_sends_valid_proof() {
     // for the single forester-fee CPI.
     let ix = Transact {
         payer,
-        tree: env.tree.pubkey(),
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
         legs: Vec::new(),
         data: transact_ix_data,
     }
@@ -258,6 +272,67 @@ fn transact_sends_valid_proof() {
 }
 
 #[test]
+fn transact_spends_from_input_tree_and_appends_to_output_tree() {
+    let Some(mut env) = TransactEnv::boot() else {
+        return;
+    };
+
+    let output_tree = env
+        .rpc
+        .create_tree(common::tree_account_size(), &env.authority)
+        .expect("create output tree");
+    let payer = env.rpc.payer.pubkey();
+    let transact_ix_data = build_valid_transact_ix(&env);
+    let input_before = tree_indices(&env.rpc, &env.tree.pubkey());
+    let output_before = tree_indices(&env.rpc, &output_tree.pubkey());
+    let input_balance_before = tree_lamports(&env.rpc, &env.tree.pubkey());
+    let output_balance_before = tree_lamports(&env.rpc, &output_tree.pubkey());
+
+    let ix = Transact {
+        payer,
+        input_tree: env.tree.pubkey(),
+        output_tree: output_tree.pubkey(),
+        legs: Vec::new(),
+        data: transact_ix_data,
+    }
+    .instruction();
+    env.rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect("cross-tree transact");
+
+    let input_after = tree_indices(&env.rpc, &env.tree.pubkey());
+    let output_after = tree_indices(&env.rpc, &output_tree.pubkey());
+    assert_eq!(
+        input_after.0, input_before.0,
+        "input UTXO tree is unchanged"
+    );
+    assert_eq!(
+        input_after.1,
+        input_before.1 + 2,
+        "input nullifier queue receives both inputs"
+    );
+    assert_eq!(
+        output_after.0,
+        output_before.0 + 3,
+        "output UTXO tree receives all outputs"
+    );
+    assert_eq!(
+        output_after.1, output_before.1,
+        "output nullifier queue is unchanged"
+    );
+    assert_eq!(
+        tree_lamports(&env.rpc, &env.tree.pubkey()) - input_balance_before,
+        40,
+        "forester fees accrue to the input tree"
+    );
+    assert_eq!(
+        tree_lamports(&env.rpc, &output_tree.pubkey()),
+        output_balance_before,
+        "output tree receives no nullifier forester fee"
+    );
+}
+
+#[test]
 fn transact_rejects_dummy_inputs_after_capacity_threshold() {
     let Some(mut env) = TransactEnv::boot() else {
         return;
@@ -268,7 +343,8 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
     let transact_ix_data = build_valid_transact_ix(&env);
     let ix = Transact {
         payer,
-        tree: env.tree.pubkey(),
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
         legs: Vec::new(),
         data: transact_ix_data,
     }
@@ -316,7 +392,8 @@ fn transact_rejects_mismatched_circuit_selector() {
         data.circuit = circuit;
         let ix = Transact {
             payer,
-            tree: env.tree.pubkey(),
+            input_tree: env.tree.pubkey(),
+            output_tree: env.tree.pubkey(),
             legs: Vec::new(),
             data,
         }
@@ -354,7 +431,8 @@ fn transact_rejects_tampered_output_view_tag() {
 
     let ix = Transact {
         payer,
-        tree: env.tree.pubkey(),
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
         legs: Vec::new(),
         data: transact_ix_data,
     }

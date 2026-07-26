@@ -200,7 +200,6 @@ pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> 
         nullifier_hash,
         nullifier_tree_root_index: 0,
         utxo_tree_root_index,
-        tree_index: 0,
         eddsa_signer_index: 0,
     }
 }

@@ -32,7 +32,6 @@ fn validate(
                 nullifier_hash: [0u8; 32],
                 nullifier_tree_root_index: 0,
                 utxo_tree_root_index: 0,
-                tree_index: 0,
                 eddsa_signer_index: signer_index,
             })
             .collect(),

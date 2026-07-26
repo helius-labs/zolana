@@ -62,7 +62,8 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     // The `merge_view_tag` is single-use on both rails: inserting it into the
     // nullifier queue rejects a reused tag.
     process_merge_core(
-        merge_accounts.tree,
+        merge_accounts.input_tree,
+        merge_accounts.output_tree,
         merge_accounts.payer,
         &ix,
         external_data_hash,
@@ -82,7 +83,8 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 #[inline(never)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn process_merge_core(
-    tree_account: &mut AccountView,
+    input_tree_account: &mut AccountView,
+    output_tree_account: &mut AccountView,
     payer: &AccountView,
     ix: &MergeTransactIxDataRef<'_>,
     external_data_hash: [u8; 32],
@@ -91,10 +93,10 @@ pub(crate) fn process_merge_core(
     single_use_tag: Option<[u8; 32]>,
     output_data: Vec<u8>,
 ) -> ProgramResult {
-    let (tree_write, derived, zkp_batch_size) = {
-        let output_tree = tree_account.address().to_bytes();
+    let (inputs, derived, zkp_batch_size) = {
+        let input_tree = input_tree_account.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
-            &mut *tree_account,
+            &mut *input_tree_account,
             &crate::ID,
             TREE_ACCOUNT_DISCRIMINATOR,
         )
@@ -113,16 +115,26 @@ pub(crate) fn process_merge_core(
             allow_dummy_inputs: bool_field(allow_dummy_inputs),
             owner_binding,
         };
-        let tree_write = apply_tree(&mut tree, ix, output_tree, &mut derived, single_use_tag)?;
+        let inputs = apply_input_tree(&mut tree, ix, input_tree, &mut derived, single_use_tag)?;
         let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
-        (tree_write, derived, zkp_batch_size)
+        (inputs, derived, zkp_batch_size)
+    };
+    let tree_write = {
+        let output_tree = output_tree_account.address().to_bytes();
+        let mut tree = TreeAccount::from_account_view_mut(
+            &mut *output_tree_account,
+            &crate::ID,
+            TREE_ACCOUNT_DISCRIMINATOR,
+        )
+        .map_err(tree_error)?;
+        apply_output_tree(&mut tree, ix, output_tree, inputs)?
     };
 
     let event = build_merge_event(ix, tree_write, output_view_tag, output_data);
     MergeProof::new(ix, derived).verify()?;
     collect_forester_fee(
         payer,
-        tree_account,
+        input_tree_account,
         MERGE_INPUT_COUNT as u64 + u64::from(single_use_tag.is_some()),
         zkp_batch_size,
     )?;
@@ -130,13 +142,13 @@ pub(crate) fn process_merge_core(
 }
 
 #[inline(never)]
-fn apply_tree(
+fn apply_input_tree(
     tree: &mut TreeAccount<'_>,
     ix: &MergeTransactIxDataRef<'_>,
-    output_tree: [u8; 32],
+    input_tree: [u8; 32],
     derived: &mut MergeProofInputs,
     single_use_tag: Option<[u8; 32]>,
-) -> Result<MergeTreeWrite, ProgramError> {
+) -> Result<Vec<Input>, ProgramError> {
     let shape = ShieldedPoolError::InvalidMergeShape;
     let nullifier_seq_base = tree.nullifer_tree().queue_batches.next_index;
     let mut inputs = Vec::with_capacity(MERGE_INPUT_COUNT);
@@ -155,7 +167,7 @@ fn apply_tree(
             .insert_address_into_queue(nullifier)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
-            tree: output_tree,
+            tree: input_tree,
             input_queue_seq: nullifier_seq_base + i as u64,
             nullifier: *nullifier,
         });
@@ -169,11 +181,19 @@ fn apply_tree(
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
     }
 
+    Ok(inputs)
+}
+
+fn apply_output_tree(
+    tree: &mut TreeAccount<'_>,
+    ix: &MergeTransactIxDataRef<'_>,
+    output_tree: [u8; 32],
+    inputs: Vec<Input>,
+) -> Result<MergeTreeWrite, ProgramError> {
     let output_leaf_index = tree.utxo_tree().next_index();
     tree.utxo_tree()
         .append(*ix.output_utxo_hash)
         .map_err(tree_error)?;
-
     Ok(MergeTreeWrite {
         inputs,
         output_leaf_index,

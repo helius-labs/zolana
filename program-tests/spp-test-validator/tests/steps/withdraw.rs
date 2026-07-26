@@ -126,7 +126,8 @@ impl LifecycleWorld {
 
         let withdraw_ix = Transact {
             payer: fee_payer.pubkey(),
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
                 recipient: recipient.pubkey(),
             })],

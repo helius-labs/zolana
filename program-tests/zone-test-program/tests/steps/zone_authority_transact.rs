@@ -60,9 +60,6 @@ const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;
 /// (`prepare_proof_inputs::<_, true>` does not run `check_input_signers`), so this
 /// index is never read; it stays at the default 0.
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
-/// Output-tree slot every input is placed at (`tree_index` 0).
-const DEFAULT_TREE_INDEX: u8 = 0;
-
 impl ZoneLifecycleWorld {
     /// Run a zone-authority permanent-delegate transfer over one of `name`'s
     /// zone-owned UTXOs: re-own its full value to the TRACKED actor `recipient` as a
@@ -93,7 +90,8 @@ impl ZoneLifecycleWorld {
 
         let transfer_ix = ZoneAuthorityTransact {
             payer: payer.pubkey(),
-            tree,
+            input_tree: tree,
+            output_tree: tree,
             zone_program_id: self.zone_program_id,
             legs: Vec::new(),
             data: ix_data.clone(),
@@ -322,7 +320,6 @@ impl ZoneLifecycleWorld {
             nullifier_hash,
             nullifier_tree_root_index,
             utxo_tree_root_index,
-            tree_index: DEFAULT_TREE_INDEX,
             eddsa_signer_index: DEFAULT_EDDSA_SIGNER_INDEX,
         }];
 
@@ -380,7 +377,8 @@ impl ZoneLifecycleWorld {
         let payer = self.payer.insecure_clone();
         let transfer_ix = ZoneAuthorityTransact {
             payer: payer.pubkey(),
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             zone_program_id: self.zone_program_id,
             legs: Vec::new(),
             data: ix_data,
@@ -423,7 +421,8 @@ impl ZoneLifecycleWorld {
         let payer = self.payer.insecure_clone();
         let transfer_ix = ZoneAuthorityTransact {
             payer: payer.pubkey(),
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             zone_program_id: self.zone_program_id,
             legs: Vec::new(),
             data: ix_data,

@@ -31,7 +31,6 @@ fn input(nullifier_hash: [u8; 32]) -> InputUtxo {
         nullifier_hash,
         nullifier_tree_root_index: 0,
         utxo_tree_root_index: 0,
-        tree_index: 0,
         eddsa_signer_index: 0,
     }
 }
@@ -97,7 +96,8 @@ fn assert_rejected_without_sol_movement(public_legs: Vec<PublicLeg>, expected_er
         .collect();
     let ix = Transact {
         payer: payer.pubkey(),
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         legs,
         data: ix_data(public_legs),
     }
@@ -134,7 +134,8 @@ fn six_same_asset_public_legs_reach_proof_verification() {
     ];
     let ix = Transact {
         payer: payer.pubkey(),
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         legs: vec![
             TransactLegAccounts::Sol(TransactSolLeg {
                 recipient: payer.pubkey(),
@@ -213,7 +214,8 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
     let vault_bump = pda::spl_asset_vault_with_bump(&mint).1;
     let ix = Transact {
         payer: payer.pubkey(),
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         legs: vec![spl_leg(), spl_leg(), spl_leg()],
         data: ix_data(vec![
             PublicLeg::Spl {
@@ -270,7 +272,8 @@ fn spl_settlement_rejects_noncanonical_vault_bump() {
     let canonical_bump = pda::spl_asset_vault_with_bump(&mint).1;
     let ix = Transact {
         payer: payer.pubkey(),
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         legs: vec![TransactLegAccounts::Spl(TransactSplLeg {
             vault,
             recipient: payer.pubkey(),
@@ -344,7 +347,8 @@ fn four_distinct_public_assets_are_rejected() {
         .collect();
     let ix = Transact {
         payer: payer.pubkey(),
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         legs,
         data: ix_data(public_legs),
     }

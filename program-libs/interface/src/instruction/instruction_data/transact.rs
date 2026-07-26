@@ -84,7 +84,6 @@ pub struct InputUtxo {
     pub nullifier_hash: [u8; 32],
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
-    pub tree_index: u8,
     pub eddsa_signer_index: u8,
 }
 
@@ -546,7 +545,6 @@ mod tests {
                 nullifier_hash: [1u8; 32],
                 nullifier_tree_root_index: 2,
                 utxo_tree_root_index: 3,
-                tree_index: 0,
                 eddsa_signer_index: 0,
             }],
             public_legs: vec![

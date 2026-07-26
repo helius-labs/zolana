@@ -722,7 +722,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     Ok(SignedPrivateTransaction {
         transaction: signed,
         settlement_legs: transaction.settlement_legs,
-        tree: transaction.tree,
+        input_tree: transaction.tree,
     })
 }
 

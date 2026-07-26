@@ -259,7 +259,8 @@ fn shield_then_withdraw_sol() {
     // Transfer CPI) and the program (emit_event self-CPI).
     let ix = Transact {
         payer: payer.pubkey(),
-        tree,
+        input_tree: tree,
+        output_tree: tree,
         legs: vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })],
         data: transact_ix_data,
     }
@@ -474,7 +475,8 @@ fn shield_transfer_then_withdraw_sol() {
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),
-        tree,
+        input_tree: tree,
+        output_tree: tree,
         legs: Vec::new(),
         data: transfer_ix_data,
     }
@@ -641,7 +643,8 @@ fn shield_transfer_then_withdraw_sol() {
 
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
-        tree,
+        input_tree: tree,
+        output_tree: tree,
         legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
             recipient: public_recipient,
         })],
