@@ -92,12 +92,14 @@ export function createMerge(params: MergeParams): CreatedMerge {
   const eligible = params.wallet
     .utxos()
     .filter((entry) => !entry.spent && entry.utxo.asset === params.asset);
-  const selected = selectMergeEntries(eligible, params.inputs);
-  const tree = selected[0]?.outputContext.tree;
-  if (tree === undefined) throw new WalletError("WALLET_NOTHING_TO_MERGE");
-  if (selected.some((entry) => entry.outputContext.tree !== tree)) {
-    throw new WalletError("WALLET_INPUT_UTXO_TREE_MISMATCH");
-  }
+  // Named inputs bind the spend to the first named utxo's tree and the rest
+  // must match it; an auto-sweep resolves the tree over the plain utxos. Rust
+  // settles the tree before it counts the named hashes, so a single unknown
+  // hash reports the utxo and not the input count.
+  const first = params.inputs?.[0];
+  const tree =
+    first === undefined ? sweepTree(eligible, params.asset) : namedInputTree(eligible, first);
+  const selected = selectMergeEntries(eligible, tree, params.asset, params.inputs);
   const nullifierKey = params.keypair.nullifierKey();
   const inputs = selected.map(
     (entry) =>
@@ -126,36 +128,71 @@ function isPlain(entry: WalletUtxo): boolean {
   );
 }
 
+function namedInputTree(entries: readonly WalletUtxo[], hash: Bytes32): Address {
+  const entry = entries.find((candidate) => equalBytes(candidate.outputContext.hash, hash));
+  if (entry === undefined) {
+    throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE", { details: { hash } });
+  }
+  return entry.outputContext.tree;
+}
+
+function sweepTree(entries: readonly WalletUtxo[], asset: Address): Address {
+  const trees = new Set(entries.filter(isPlain).map((entry) => entry.outputContext.tree));
+  if (trees.size === 0) {
+    throw new WalletError("WALLET_INSUFFICIENT_BALANCE", {
+      details: { requested: "1", available: "0" },
+    });
+  }
+  if (trees.size !== 1) {
+    throw new WalletError("WALLET_MULTIPLE_INPUT_TREES", {
+      details: { asset, treeCount: trees.size },
+    });
+  }
+  return [...trees][0] as Address;
+}
+
 function selectMergeEntries(
   entries: readonly WalletUtxo[],
+  tree: Address,
+  asset: Address,
   hashes: readonly Bytes32[] | undefined,
 ): readonly WalletUtxo[] {
   if (hashes !== undefined) {
-    if (hashes.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE");
     if (hashes.length > 8) {
       throw new WalletError("WALLET_TOO_MANY_INPUTS", {
         details: { got: hashes.length, max: 8 },
       });
     }
+    if (hashes.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE", { details: { asset } });
     const seen = new Set<string>();
     return hashes.map((hash) => {
       const key = bytesKey(hash);
-      if (seen.has(key)) throw new WalletError("WALLET_DUPLICATE_INPUT_UTXO");
+      if (seen.has(key)) {
+        throw new WalletError("WALLET_DUPLICATE_INPUT_UTXO", { details: { hash } });
+      }
       seen.add(key);
       const entry = entries.find((candidate) => equalBytes(candidate.outputContext.hash, hash));
-      if (entry === undefined) throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE");
+      if (entry === undefined) {
+        throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE", { details: { hash } });
+      }
+      // A named utxo on another tree is a mismatch, not an unknown hash: the
+      // owner can see it in their own listing.
+      if (entry.outputContext.tree !== tree) {
+        throw new WalletError("WALLET_INPUT_UTXO_TREE_MISMATCH", {
+          details: { hash, utxoTree: entry.outputContext.tree, spendTree: tree },
+        });
+      }
       return entry;
     });
   }
-  const plain = entries.filter(isPlain);
-  const trees = new Set(plain.map((entry) => entry.outputContext.tree));
-  if (trees.size > 1) throw new WalletError("WALLET_MULTIPLE_INPUT_TREES");
-  const selected = [...plain]
+  // Smallest first: a sweep clears dust and leaves large utxos intact.
+  const selected = entries
+    .filter((entry) => entry.outputContext.tree === tree && isPlain(entry))
     .sort((left, right) =>
       left.utxo.amount < right.utxo.amount ? -1 : left.utxo.amount > right.utxo.amount ? 1 : 0,
     )
     .slice(0, 8);
-  if (selected.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE");
+  if (selected.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE", { details: { asset } });
   return selected;
 }
 

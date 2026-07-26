@@ -332,7 +332,7 @@ export function createSplit(params: SplitParams): CreatedSplit {
     ? entries.find((entry) => equalBytes(entry.outputContext.hash, params.input as Bytes32))
     : undefined;
   if (params.input !== undefined && named === undefined) {
-    throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE");
+    throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE", { details: { hash: params.input } });
   }
   const tree = named ? named.outputContext.tree : spendTree(params.wallet, params.asset, plain);
   const candidates = entries.filter((entry) => entry.outputContext.tree === tree && plain(entry));
@@ -352,7 +352,9 @@ export function createSplit(params: SplitParams): CreatedSplit {
         details: { amount: largest.utxo.amount.toString(), parts: params.parts },
       });
     }
-    throw new WalletError("WALLET_INSUFFICIENT_BALANCE");
+    throw new WalletError("WALLET_INSUFFICIENT_BALANCE", {
+      details: { requested: "1", available: "0" },
+    });
   }
   const hash = selected.outputContext.hash;
   if (selected.utxo.zoneProgramId !== undefined) {
