@@ -2547,8 +2547,12 @@ fn revision_compatibility() -> Value {
             "compatibility": "Stamp for merkle-tree/paths-v1.json. That fixture's sourceRevision must equal this pin. Independent of baseline, client, and frozenCommit.",
             "regenerationTrigger": "Regenerate when sdk-libs/merkle-tree or hasher sources change path fixture bytes."
         },
+        "driftReview": {
+            "compatibility": "Reviewed regeneration against current working-tree Rust. finding must be no-body-drift or a named body-change finding with an accepted disposition. Does not move frozenCommit.",
+            "regenerationTrigger": "Re-run ts-fixtures --check (and --current-client --check) whenever sdk-libs or program-libs sources that feed fixtures change; update reviewedAgainst/reviewedAt/finding."
+        },
         "frozenCommit": {
-            "compatibility": "Historical inventory, spec, and proving-key pin. Must equal historicalBaselineCommit and photonSchemaRevision. api/transport-v1.json sourceRevision must equal this pin.",
+            "compatibility": "Historical inventory, spec, and proving-key pin. Must equal historicalBaselineCommit and photonSchemaRevision. api/transport-v1.json sourceRevision must equal this pin. Staleness relative to tip is expected; body freshness is enforced by generator --check plus driftReview.",
             "mustAgreeWith": ["historicalBaselineCommit", "photonSchemaRevision"],
             "regenerationTrigger": "Change only when deliberately re-pinning the historical evidence set."
         },
@@ -2581,46 +2585,63 @@ fn write_manifest(root: &Path, fixtures: &Path, client_revision: &str) -> Result
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let rustc = command_text(root, "rustup", &["run", "1.97.0", "rustc", "--version"])
         .unwrap_or_else(|_| "rustc 1.97.0 (workspace pinned)".to_string());
-    write_json(
-        &fixtures.join("manifest.json"),
-        &json!({
-            "files":entries.into_iter().map(|(path, sha256)| json!({"path":path,"sha256":sha256})).collect::<Vec<_>>(),
-            "canonicalSourceRevisions":{
-                "baseline":BASELINE_SHA,
-                "client":client_revision,
-                "interface":INTERFACE_SHA,
-                "merkleTree":MERKLE_SHA
-            },
-            "frozenCommit":HISTORICAL_BASELINE_SHA,
-            "generatorCommand":GENERATOR_COMMAND,
-            "historicalBaselineCommit":HISTORICAL_BASELINE_SHA,
-            "photonSchemaRevision":HISTORICAL_BASELINE_SHA,
-            "provingKeyRelease":{
-                "lockPath":lock_path,
-                "lockSha256":sha256(&proving_lock)
-            },
-            "revisionCompatibility": revision_compatibility(),
-            "rust":{
-                "packages":[
-                    {"features":["default","solana-rpc"],"name":"zolana-client"},
-                    {"features":["poseidon","sha256","keccak"],"name":"zolana-hasher"},
-                    {"features":["default"],"name":"zolana-indexer-api"},
-                    {"features":["default","tree","verifying-keys"],"name":"zolana-interface"},
-                    {"features":["default"],"name":"zolana-keypair"},
-                    {"features":["default"],"name":"zolana-merkle-tree"},
-                    {"features":["default"],"name":"zolana-program-test"},
-                    {"features":[],"name":"zolana-test-utils"},
-                    {"features":["parallel"],"name":"zolana-transaction"},
-                    {"features":["default"],"name":"zolana-wallet"},
-                    {"features":["default"],"name":"zolana-api"}
-                ],
-                "toolchain":rustc.trim()
-            },
-            "schema":FIXTURE_SCHEMA,
-            "specSha256":sha256(&spec),
-            "version":"1"
-        }),
-    )
+    // driftReview is authored by the fixture-freshness review, not regenerated
+    // from Rust sources. Preserve the committed object so --check does not
+    // erase a reviewed finding when every fixture body still matches.
+    let drift_review = committed_drift_review(root)?;
+    let mut manifest = json!({
+        "files":entries.into_iter().map(|(path, sha256)| json!({"path":path,"sha256":sha256})).collect::<Vec<_>>(),
+        "canonicalSourceRevisions":{
+            "baseline":BASELINE_SHA,
+            "client":client_revision,
+            "interface":INTERFACE_SHA,
+            "merkleTree":MERKLE_SHA
+        },
+        "frozenCommit":HISTORICAL_BASELINE_SHA,
+        "generatorCommand":GENERATOR_COMMAND,
+        "historicalBaselineCommit":HISTORICAL_BASELINE_SHA,
+        "photonSchemaRevision":HISTORICAL_BASELINE_SHA,
+        "provingKeyRelease":{
+            "lockPath":lock_path,
+            "lockSha256":sha256(&proving_lock)
+        },
+        "revisionCompatibility": revision_compatibility(),
+        "rust":{
+            "packages":[
+                {"features":["default","solana-rpc"],"name":"zolana-client"},
+                {"features":["poseidon","sha256","keccak"],"name":"zolana-hasher"},
+                {"features":["default"],"name":"zolana-indexer-api"},
+                {"features":["default","tree","verifying-keys"],"name":"zolana-interface"},
+                {"features":["default"],"name":"zolana-keypair"},
+                {"features":["default"],"name":"zolana-merkle-tree"},
+                {"features":["default"],"name":"zolana-program-test"},
+                {"features":[],"name":"zolana-test-utils"},
+                {"features":["parallel"],"name":"zolana-transaction"},
+                {"features":["default"],"name":"zolana-wallet"},
+                {"features":["default"],"name":"zolana-api"}
+            ],
+            "toolchain":rustc.trim()
+        },
+        "schema":FIXTURE_SCHEMA,
+        "specSha256":sha256(&spec),
+        "version":"1"
+    });
+    if let Some(review) = drift_review {
+        manifest
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("manifest is not an object"))?
+            .insert("driftReview".to_string(), review);
+    }
+    write_json(&fixtures.join("manifest.json"), &manifest)
+}
+
+fn committed_drift_review(root: &Path) -> Result<Option<Value>> {
+    let path = root.join("sdk-libs/ts/fixtures/manifest.json");
+    let Ok(bytes) = fs::read(&path) else {
+        return Ok(None);
+    };
+    let manifest: Value = serde_json::from_slice(&bytes)?;
+    Ok(manifest.get("driftReview").cloned())
 }
 
 fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {

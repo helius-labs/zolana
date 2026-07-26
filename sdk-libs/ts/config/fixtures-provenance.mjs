@@ -22,6 +22,7 @@ const REQUIRED_REVISION_KEYS = [
   "photonSchemaRevision",
   "specSha256",
   "provingKeyRelease",
+  "driftReview",
 ];
 
 /** Fixture path → manifest revision key its sourceRevision must equal. */
@@ -64,7 +65,40 @@ function pinValue(manifest, key) {
   if (key === "frozenCommit") return manifest.frozenCommit;
   if (key === "historicalBaselineCommit") return manifest.historicalBaselineCommit;
   if (key === "photonSchemaRevision") return manifest.photonSchemaRevision;
+  if (key === "driftReview") return manifest.driftReview?.reviewedAgainst;
   return manifest.canonicalSourceRevisions?.[key];
+}
+
+function checkDriftReview(manifest) {
+  const review = manifest.driftReview;
+  if (review === undefined || typeof review !== "object" || Array.isArray(review)) {
+    throw new Error("manifest.json lacks driftReview");
+  }
+  for (const field of ["reviewedAt", "reviewedAgainst", "finding", "notes"]) {
+    if (typeof review[field] !== "string" || review[field].length === 0) {
+      throw new Error(`driftReview.${field} is missing`);
+    }
+  }
+  if (!/^[0-9a-f]{40}$/u.test(review.reviewedAgainst)) {
+    throw new Error("driftReview.reviewedAgainst is not a 40-char commit sha");
+  }
+  if (!Array.isArray(review.generators) || review.generators.length === 0) {
+    throw new Error("driftReview.generators must name the generators that were run");
+  }
+  if (
+    review.finding !== "no-body-drift" &&
+    !review.finding.startsWith("body-change:")
+  ) {
+    throw new Error(
+      `driftReview.finding must be no-body-drift or body-change:<path> (got ${review.finding})`,
+    );
+  }
+  if (
+    typeof review.commitsSinceFrozenTouchingFixtureSources !== "number" ||
+    review.commitsSinceFrozenTouchingFixtureSources < 0
+  ) {
+    throw new Error("driftReview.commitsSinceFrozenTouchingFixtureSources is missing");
+  }
 }
 
 function checkRevisionCompatibility(manifest) {
@@ -159,5 +193,6 @@ function checkProofVerifyingKeys() {
 
 const manifest = readJson("manifest.json");
 checkRevisionCompatibility(manifest);
+checkDriftReview(manifest);
 checkProofVerifyingKeys();
 console.log("fixture provenance ok");
