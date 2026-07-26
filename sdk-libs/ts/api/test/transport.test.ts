@@ -175,35 +175,39 @@ describe("abort and timeout composition", () => {
     expect(JSON.stringify(error)).not.toContain(secret);
   });
 
-  it("reads a u64 above the safe-integer bound without losing precision", async () => {
-    const rootSeq = (1n << 60n) + 7n;
-    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":0,"root":"${HASH}","root_seq":${rootSeq.toString()},"root_index":0}]}}`;
-    const api = new ZolanaApi({
+});
+
+// The transport rewrites before parsing and the codec decides afterwards, so
+// these two have to agree per field about which ones can carry a string. The
+// bodies are raw text because `JSON.stringify` would round the literal under
+// test before the transport ever saw it.
+describe("integers past the safe-integer bound", () => {
+  function respondWith(body: string): ZolanaApi {
+    return new ZolanaApi({
       url: "https://rpc.example.test",
       fetch: () =>
         Promise.resolve(
-          new Response(body, {
-            headers: { "content-type": "application/json; charset=utf-8" },
-          }),
+          new Response(body, { headers: { "content-type": "application/json; charset=utf-8" } }),
         ),
     });
+  }
+
+  function merkleProofsBody(leafIndex: string, rootSeq: string): string {
+    return `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":${leafIndex},"root":"${HASH}","root_seq":${rootSeq},"root_index":0}]}}`;
+  }
+
+  it("reads a u64 above the safe-integer bound without losing precision", async () => {
+    const rootSeq = (1n << 60n) + 7n;
+    const api = respondWith(merkleProofsBody("0", rootSeq.toString()));
 
     const response = await api.getMerkleProofs(REQUEST);
 
     expect(response.proofs[0]?.rootSeq).toBe(rootSeq);
   });
 
-  it("leaves a safe integer, a quoted string, and a fractional number as they were sent", async () => {
+  it("leaves a safe integer and a negative block time as they were sent", async () => {
     const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":-1700000000},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":9007199254740991,"root":"${HASH}","root_seq":0,"root_index":0}]}}`;
-    const api = new ZolanaApi({
-      url: "https://rpc.example.test",
-      fetch: () =>
-        Promise.resolve(
-          new Response(body, {
-            headers: { "content-type": "application/json; charset=utf-8" },
-          }),
-        ),
-    });
+    const api = respondWith(body);
 
     const response = await api.getMerkleProofs(REQUEST);
 
@@ -211,18 +215,18 @@ describe("abort and timeout composition", () => {
     expect(response.context.blockTime).toBe(-1_700_000_000n);
   });
 
+  it("refuses an oversized value on a field the tree height caps, quoted or not", async () => {
+    const api = respondWith(merkleProofsBody((1n << 60n).toString(), "0"));
+
+    const error = await expectApiError(api.getMerkleProofs(REQUEST), "API_INVALID_RESULT");
+
+    expect(error.details?.["path"]).toBe("$.proofs[0].leaf_index");
+  });
+
   it("does not rewrite a digit run inside a string payload", async () => {
     const payload = "99999999999999999999";
     const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0},"matches":[{"slot":0,"tx_signature":"${SIGNATURE}","output_slot":{"view_tag":"${HASH}","output_context":{"hash":"${HASH}","tree":"${HASH}","leaf_index":0},"payload":"${payload}"}}]}}`;
-    const api = new ZolanaApi({
-      url: "https://rpc.example.test",
-      fetch: () =>
-        Promise.resolve(
-          new Response(body, {
-            headers: { "content-type": "application/json; charset=utf-8" },
-          }),
-        ),
-    });
+    const api = respondWith(body);
 
     const response = await api.getEncryptedUtxosByTags({ tags: [HASH] } as never);
 
