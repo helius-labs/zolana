@@ -284,8 +284,43 @@ const claimEpoch = async (branch, file) => {
   return info ? info.mtimeMs / 1000 : Date.now() / 1000;
 };
 
+// Which lines a branch actually changed, taken from the hunk headers of a
+// zero-context diff. Two agents in one file is the cheap signal and it is wrong
+// about half the time: a large module has room for two people, and the port has
+// several files every batch touches for unrelated reasons. What is never fine is
+// two agents in the same lines, which is both the duplicated-work case and the
+// one that loses somebody's edit at the merge.
+const changedLines = async (branch, file, uncommitted) => {
+  const dir = trees.find((tree) => tree.branch === branch)?.dir;
+  const diff = uncommitted
+    ? await gitIn(dir ?? repoRoot, "diff", "-U0", "HEAD", "--", file).catch(() => "")
+    : await git("diff", "-U0", `ts-sdk-port...${branch}`, "--", file).catch(() => "");
+
+  const ranges = [];
+  for (const hunk of diff.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const start = Number(hunk[1]);
+    const length = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    // A pure deletion reports zero lines at the line it deleted from, which is
+    // still a claim on that point in the file.
+    ranges.push([start, start + Math.max(length, 1)]);
+  }
+  return ranges;
+};
+
+// Git resolves a merge with three lines of context, so edits that near each
+// other conflict even without touching the same line.
+const CONTEXT_LINES = 3;
+const rangesIntersect = (left, right) =>
+  left.some(([leftStart, leftEnd]) =>
+    right.some(
+      ([rightStart, rightEnd]) =>
+        leftStart - CONTEXT_LINES < rightEnd && rightStart - CONTEXT_LINES < leftEnd,
+    ),
+  );
+
 const collisions = [];
 let sharedQuietly = 0;
+let separateRegions = 0;
 for (const [file, branches] of touched) {
   if (branches.size < 2) continue;
   if (!worthReporting(file)) {
@@ -297,8 +332,28 @@ for (const [file, branches] of touched) {
       branch,
       uncommitted,
       epoch: await claimEpoch(branch, file),
+      lines: await changedLines(branch, file, uncommitted),
     })),
   );
+
+  // Report the file only if some pair of branches claims overlapping lines. A
+  // branch whose ranges could not be read counts as overlapping everything,
+  // because silence about an unreadable diff would read as a clean bill.
+  const contested = claims.some((left, index) =>
+    claims
+      .slice(index + 1)
+      .some(
+        (right) =>
+          left.lines.length === 0 ||
+          right.lines.length === 0 ||
+          rangesIntersect(left.lines, right.lines),
+      ),
+  );
+  if (!contested) {
+    separateRegions += 1;
+    continue;
+  }
+
   const minutes = minutesSince(Math.max(...claims.map((claim) => claim.epoch)));
   collisions.push({ file, minutes, branches: claims.sort((a, b) => a.epoch - b.epoch) });
 }
@@ -312,13 +367,14 @@ for (const { file, minutes, branches } of collisions.sort((a, b) => b.minutes - 
     .map((claim) => (claim.uncommitted ? `${claim.branch} (uncommitted)` : claim.branch))
     .join(", ");
   problems.push(
-    `${file} has been changed on ${branches.length} live branches for ${minutes} min ` +
+    `${file} has overlapping edits on ${branches.length} live branches for ${minutes} min ` +
       `(${named}); either one agent is repeating the other's work, or one of them ` +
       "loses it at the merge without being told",
   );
 }
 report.push(
-  `overlap: ${collisions.length} file(s) claimed by more than one branch` +
+  `overlap: ${collisions.length} file(s) with contested lines` +
+    (separateRegions > 0 ? `, ${separateRegions} shared but in separate regions` : "") +
     (sharedQuietly > 0 ? `, ${sharedQuietly} shared plan/lock file(s) left unreported` : ""),
 );
 

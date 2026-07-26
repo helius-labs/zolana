@@ -75,15 +75,16 @@ describe("K2 P256 signing and verification", () => {
   });
 
   /**
-   * A prehash at or above `n` is the one input class where the two signers
-   * disagree byte for byte, and the disagreement is pinned from both sides so
-   * it cannot change unnoticed. TypeScript follows RFC 6979 section 2.3.4 and
-   * seeds the nonce with the digest reduced modulo `n`; the Rust `ecdsa` crate
-   * passes the unreduced digest to `rfc6979::generate_k`, whose own contract
-   * asks for a reduced one. Both signatures are valid and each side verifies
-   * the other's, so this costs byte determinism rather than authorization.
+   * A prehash at or above `n` was the one input class where the two signers
+   * disagreed byte for byte. RFC 6979 section 2.3.4 seeds the nonce with the
+   * digest reduced modulo `n`, which TypeScript has always done and which the
+   * Rust `ecdsa` crate does not: it hands `rfc6979::generate_k` the unreduced
+   * digest, against that crate's own contract. `zolana-keypair` now reduces
+   * before it calls the crate, so these cases assert agreement. The pin still
+   * holds from both sides, because whichever language stopped reducing would
+   * fail here.
    */
-  it("diverges from Rust only on a prehash at or above the group order", () => {
+  it("agrees with Rust byte for byte on a prehash at or above the group order", () => {
     const signer = key();
     const above = recorded.digestBoundaries.filter((entry) => !entry.belowOrder);
     expect(above.length).toBeGreaterThan(0);
@@ -91,17 +92,36 @@ describe("K2 P256 signing and verification", () => {
       const digest = fromHex(entry.digestBytes);
       const reduced = fromHex(entry.reducedDigestBytes);
       const rust = fromHex(entry.signatureBytes) as Bytes64;
+      // Reduction has to be observable, or the case is not above the order.
+      expect(entry.reducedDigestBytes, `${entry.name}: reduces`).not.toBe(entry.digestBytes);
+
+      expectHex(signer.sign(digest), entry.signatureBytes);
+      expect(entry.matchesReducedDigestSignature, `${entry.name}: Rust reduces`).toBe(true);
+      expectHex(signer.sign(digest), toHex(signer.sign(reduced)));
 
       expect(signer.verify(digest, rust), `${entry.name}: interoperates`).toBe(entry.verified);
       expect(signer.verify(reduced, rust)).toBe(entry.verifiedUnderReducedDigest);
       expect(signer.verify(digest, signer.sign(digest))).toBe(true);
+    }
+  });
 
-      expect(entry.matchesReducedDigestSignature, `${entry.name}: Rust does not reduce`).toBe(
-        false,
-      );
-      expectHex(signer.sign(digest), toHex(signer.sign(reduced)));
-      expect(toHex(signer.sign(digest)), `${entry.name}: bytes differ from Rust`).not.toBe(
-        entry.signatureBytes,
+  /**
+   * The same reduction read out of the corpus alone, without either signer:
+   * a prehash at or above `n` must be recorded with the signature Rust gave the
+   * digest it reduces to. This is what a TypeScript replay cannot show, since
+   * a replay that reduced the same way twice would agree either way.
+   */
+  it("records one signature for a prehash and its reduction", () => {
+    const byDigest = new Map(
+      recorded.digestBoundaries.map((entry) => [entry.digestBytes, entry.signatureBytes]),
+    );
+    const twins = recorded.digestBoundaries.filter(
+      (entry) => !entry.belowOrder && byDigest.has(entry.reducedDigestBytes),
+    );
+    expect(twins.length).toBeGreaterThan(0);
+    for (const entry of twins) {
+      expect(entry.signatureBytes, `${entry.name}: signs as its reduction`).toBe(
+        byDigest.get(entry.reducedDigestBytes),
       );
     }
   });

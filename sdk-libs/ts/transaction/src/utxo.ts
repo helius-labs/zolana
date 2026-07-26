@@ -72,6 +72,19 @@ function commitmentFields(
   ];
 }
 
+/**
+ * An all-zero zone data hash reaches the commitment as the same field an absent
+ * one does, so the two spellings must not survive as distinct stored values.
+ * This normalizes the hash only; the zone address is deliberately left alone,
+ * because a zero `zoneProgramId` commits to `pk_field(0)`, a non-zero field the
+ * circuit reads as zone-bound.
+ */
+function normalizeZoneDataHash(zoneDataHash?: Bytes32): Bytes32 | undefined {
+  if (zoneDataHash === undefined) return undefined;
+  const value = checked<Bytes32>(zoneDataHash, 32, "zone data hash");
+  return isZero(value) ? undefined : value;
+}
+
 function bigintToU64(value: bigint): Uint8Array {
   const output = new Uint8Array(8);
   new DataView(output.buffer).setBigUint64(0, checkU64(value, "amount"), false);
@@ -211,8 +224,9 @@ export class ProofInputUtxo {
     if (input.dataHash) {
       this.dataHash = checked<Bytes32>(input.dataHash, 32, "data hash");
     }
-    if (input.zoneDataHash) {
-      this.zoneDataHash = checked<Bytes32>(input.zoneDataHash, 32, "zone data hash");
+    const zoneDataHash = normalizeZoneDataHash(input.zoneDataHash);
+    if (zoneDataHash !== undefined) {
+      this.zoneDataHash = zoneDataHash;
     }
     this.checkCanonicalDummy();
   }
@@ -349,7 +363,15 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
   const blinding = checked<Bytes31>(input.blinding ?? random31(), 31, "output blinding");
   const amount = checkU64(input.amount, "output amount");
   const data = new Data((input.data ?? new Data()).records());
-  const init: ProofOutputInit = { ...input, amount, blinding, data };
+  const { zoneDataHash: suppliedZoneDataHash, ...rest } = input;
+  const zoneDataHash = normalizeZoneDataHash(suppliedZoneDataHash);
+  const init: ProofOutputInit = {
+    ...rest,
+    amount,
+    blinding,
+    data,
+    ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
+  };
   const ownerHash = (): Bytes32 =>
     input.ownerAddress ? input.ownerAddress.ownerHash() : copy(ZERO_32);
   return Object.freeze({
@@ -365,7 +387,7 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
         amount,
         blinding,
         ...(input.dataHash === undefined ? {} : { dataHash: input.dataHash }),
-        ...(input.zoneDataHash === undefined ? {} : { zoneDataHash: input.zoneDataHash }),
+        ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
         ...(input.zoneProgramId === undefined ? {} : { zoneProgramId: input.zoneProgramId }),
       });
     },

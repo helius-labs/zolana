@@ -338,6 +338,38 @@ mod tests {
     fn a_non_zero_zone_data_hash_is_kept() {
         assert_eq!(zone_output([3u8; 32]).zone_data_hash, Some([3u8; 32]));
     }
+
+    /// `with_zone_data` sets the same option as `with_zone_data_hash` and has
+    /// to fold the explicit zero the same way, or a zone carrying policy bytes
+    /// and an empty digest prepares a value the commitment cannot express.
+    #[test]
+    fn the_zone_data_builder_normalizes_the_explicit_zero_too() {
+        let output = SppProofOutputUtxo::default().with_zone_data(
+            Address::new_from_array([9u8; 32]),
+            vec![1, 2],
+            [0u8; 32],
+        );
+
+        assert_eq!(output.zone_data_hash, None);
+        assert_eq!(output.data.zone_data(), Some(&vec![1, 2][..]));
+    }
+
+    /// The output-side half of the T28 split, matching
+    /// `the_zero_zone_address_stays_bound_rather_than_normalizing` in
+    /// `crate::instructions::types`: the zone data hash folds to absence and the
+    /// zero zone address keeps committing to `pk_field(0)`. This fails if anyone
+    /// normalizes the address alongside the hash.
+    #[test]
+    fn the_zero_zone_address_stays_bound_rather_than_normalizing() {
+        let zero_zone = SppProofOutputUtxo::default().with_zone_program_id(Address::default());
+
+        assert_eq!(
+            ProofInputUtxo::try_from(&zero_zone)
+                .expect("proof input")
+                .zone_program_id,
+            zolana_keypair::hash::hash_field(&[0u8; 32]).expect("pk_field(0)")
+        );
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
