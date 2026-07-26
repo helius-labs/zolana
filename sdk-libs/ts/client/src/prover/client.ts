@@ -354,6 +354,82 @@ export function proverRequest(
   });
 }
 
+/// Validate a prover request object against the key set Rust's serializer emits
+/// for that circuit. Unknown keys, missing keys, explicit nulls, and non-hex
+/// field strings fail with `CLIENT_INVALID_FIELD`. The key set comes from a
+/// Rust-generated fixture so a hand-authored allow-list cannot drift from the
+/// wire format.
+export function checkedProverRequest(
+  value: unknown,
+  knownKeys: readonly string[],
+): Readonly<Record<string, unknown>> {
+  if (!isObject(value)) {
+    throw new ClientError("CLIENT_INVALID_FIELD", {
+      details: { field: "$", value: Array.isArray(value) ? "array" : String(value) },
+    });
+  }
+  const keys = Object.keys(value);
+  for (const key of keys) {
+    if (!knownKeys.includes(key)) {
+      throw new ClientError("CLIENT_INVALID_FIELD", {
+        details: { field: key, value: "unknown" },
+      });
+    }
+  }
+  for (const key of knownKeys) {
+    if (!Object.hasOwn(value, key)) {
+      throw new ClientError("CLIENT_INVALID_FIELD", {
+        details: { field: key, value: "missing" },
+      });
+    }
+  }
+  // Serde never emits null for these structs; an explicit null is a wire-format
+  // break, not an omitted optional.
+  for (const key of knownKeys) {
+    if (value[key] === null) {
+      throw new ClientError("CLIENT_INVALID_FIELD", {
+        details: { field: key, value: "null" },
+      });
+    }
+  }
+  checkFieldLeaves(value, "$");
+  return Object.freeze({ ...value });
+}
+
+function checkFieldLeaves(value: unknown, path: string): void {
+  if (typeof value === "string") {
+    // Wire hex only: P256 coordinates and signatures are secp256r1 integers and
+    // routinely exceed the BN254 modulus, so a field-range check belongs in
+    // assembly, not request validation.
+    if (!/^0x[0-9a-fA-F]+$/u.test(value)) {
+      throw new ClientError("CLIENT_INVALID_FIELD", {
+        details: { field: path, value },
+      });
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      checkFieldLeaves(item, `${path}[${String(index)}]`);
+    }
+    return;
+  }
+  if (isObject(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      if (key === "circuitType" || key === "nInputs" || key === "nOutputs") continue;
+      if (
+        key === "stateTreeHeight" ||
+        key === "treeHeight" ||
+        key === "batchSize" ||
+        key === "startIndex"
+      ) {
+        continue;
+      }
+      checkFieldLeaves(child, path === "$" ? key : `${path}.${key}`);
+    }
+  }
+}
+
 function inputJson(input: TransferInput): Readonly<Record<string, unknown>> {
   return Object.freeze({
     utxo: utxoJson(input),
