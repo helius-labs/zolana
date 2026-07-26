@@ -423,8 +423,18 @@ describe("transaction core", () => {
     });
     expect(error.details).toEqual({
       variant: "FutureVariant",
-      payload: { index: 2, payload: { value: 7 } },
+      index: 2,
     });
     expect(JSON.stringify(error)).not.toContain("hidden");
+  });
+
+  it("drops a non-allow-listed detail on TransactionError", () => {
+    const error = new TransactionError("TRANSACTION_INSUFFICIENT_BALANCE", {
+      requested: "11",
+      available: "10",
+      ciphertext: "deadbeef",
+    });
+    expect(error.details).toEqual({ requested: "11", available: "10" });
+    expect(JSON.stringify(error)).not.toContain("deadbeef");
   });
 });
