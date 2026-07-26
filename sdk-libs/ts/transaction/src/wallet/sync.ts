@@ -218,15 +218,28 @@ class CounterpartyCounters {
   }
 
   entries(): readonly CounterpartyCounter[] {
-    return [...this.#counters.values()].map((entry) => Object.freeze({ ...entry }));
+    return this.#sorted().map((entry) => Object.freeze({ ...entry }));
   }
 
   advance(scan: (counterparty: P256PublicKey, count: bigint) => bigint | undefined): void {
     // Snapshotted before the walk: a counterparty discovered by one shared-tag
     // scan is only scanned on the next sync, as it is in Rust.
-    for (const entry of [...this.#counters.values()]) {
+    for (const entry of this.#sorted()) {
       entry.count = nextCount(entry.count, scan(entry.counterparty, entry.count));
     }
+  }
+
+  /**
+   * Counterparty order by pubkey bytes, the only order Rust specifies: its
+   * parallel sync sorts these keys before probing, while its serial sync walks
+   * a `HashMap` and so orders decoded UTXOs differently between processes once
+   * two counterparties both hit. Keys are hex of a fixed-width encoding, so
+   * text order is byte order.
+   */
+  #sorted(): { counterparty: P256PublicKey; count: bigint }[] {
+    return [...this.#counters.entries()]
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([, entry]) => entry);
   }
 }
 
