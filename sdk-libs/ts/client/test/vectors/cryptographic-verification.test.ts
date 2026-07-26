@@ -61,7 +61,7 @@ const FAST_CONFIDENTIAL: readonly {
 describe("P4 cryptographic verification oracle (always on)", () => {
   it("self-checks every embedded verifying key and rejects garbage", () => {
     groth16VerifySelfCheck();
-  }, 120_000);
+  });
 
   it("classifies commitment-on-eddsa as rail_mismatch", () => {
     const result = callGroth16Verify({
@@ -110,26 +110,22 @@ describe("P4 cryptographic verification oracle (always on)", () => {
     expect(result).toEqual({ ok: false, code: "unknown_vk" });
   });
 
-  it(
-    "rejects zero points against a real zone verifying key",
-    () => {
-      const result = callGroth16Verify({
-        family: "zone",
-        rail: "eddsa",
-        shape: { inputs: 1, outputs: 1 },
-        publicInputHashBytes: "00".repeat(32),
-        proof: {
-          a: "00".repeat(32),
-          b: "00".repeat(64),
-          c: "00".repeat(32),
-        },
-      });
-      expect(result.ok).toBe(false);
-      if (result.ok) throw new Error("unreachable");
-      expect(["encoding", "verification_failure"]).toContain(result.code);
-    },
-    120_000,
-  );
+  it("rejects zero points against a real zone verifying key", () => {
+    const result = callGroth16Verify({
+      family: "zone",
+      rail: "eddsa",
+      shape: { inputs: 1, outputs: 1 },
+      publicInputHashBytes: "00".repeat(32),
+      proof: {
+        a: "00".repeat(32),
+        b: "00".repeat(64),
+        c: "00".repeat(32),
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(["encoding", "verification_failure"]).toContain(result.code);
+  });
 });
 
 describe.skipIf(!LIVE)("P4 live TypeScript prove → groth16-solana verify", () => {

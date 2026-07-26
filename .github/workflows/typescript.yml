@@ -176,6 +176,11 @@ jobs:
         run: tar -xzf ts-dist.tar.gz
       - name: Refuse a stale hasher artifact
         run: node sdk-libs/ts/hasher/scripts/build-hooks.mjs
+      # Suites shell out to this xtask oracle (groth16-verify). Pre-build it so
+      # vitest never pays a cold `cargo run` compile against the 30s default
+      # timeout; the helper fails immediately if the binary is missing.
+      - name: Pre-build TypeScript suite Rust oracles
+        run: cargo build -p xtask --bin groth16-verify
       - run: npm run check:suites
 
   packaging:
