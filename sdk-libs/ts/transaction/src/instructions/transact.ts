@@ -316,14 +316,20 @@ type ExternalDataFields = Omit<
 >;
 
 export function createExternalData(input: ExternalDataInit): ExternalData {
+  // Settlement accounts travel with their public amounts. Rust's Transfer
+  // finalize only calls `with_public_sol` / `with_public_spl` when the amount is
+  // `Some`, so a flat object that names a recipient without an amount must not
+  // hash that recipient — the preimage keeps the unset defaults instead.
+  const hasSol = input.publicSolAmount !== undefined;
+  const hasSpl = input.publicSplAmount !== undefined;
   const snapshot: ExternalDataFields = {
     ...input,
     instructionDiscriminator: input.instructionDiscriminator ?? TRANSACT_DISCRIMINATOR,
     expiryUnixTs: input.expiryUnixTs ?? NO_EXPIRY,
     relayerFee: input.relayerFee ?? 0,
-    userSolAccount: input.userSolAccount ?? UNSET_ACCOUNT,
-    userSplToken: input.userSplToken ?? UNSET_ACCOUNT,
-    splTokenInterface: input.splTokenInterface ?? UNSET_ACCOUNT,
+    userSolAccount: hasSol ? (input.userSolAccount ?? UNSET_ACCOUNT) : UNSET_ACCOUNT,
+    userSplToken: hasSpl ? (input.userSplToken ?? UNSET_ACCOUNT) : UNSET_ACCOUNT,
+    splTokenInterface: hasSpl ? (input.splTokenInterface ?? UNSET_ACCOUNT) : UNSET_ACCOUNT,
     salt: checked<Bytes16>(input.salt, 16, "salt"),
     // The hash closes over these arrays, so freezing them is what keeps a
     // holder of the returned value from changing the preimage under it.
@@ -905,25 +911,31 @@ function finalizeTransfer(
       resolved.push(tag);
     }
   }
-  const externalData = createExternalData({
+  // Same gating as Rust `PreparedTransfer::finalize`: start from `ExternalData::new`
+  // defaults, then bind each settlement leg only when its public amount is set.
+  let externalData = createExternalData({
     instructionDiscriminator: 0,
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
     relayerFee: 0,
-    ...(prepared.publicSolAmount === undefined
-      ? {}
-      : { publicSolAmount: prepared.publicSolAmount }),
-    ...(prepared.publicSplAmount === undefined
-      ? {}
-      : { publicSplAmount: prepared.publicSplAmount }),
-    userSolAccount: prepared.userSolAccount,
-    userSplToken: prepared.userSplToken,
-    splTokenInterface: prepared.splTokenInterface,
     txViewingPublicKey: encrypted.txViewingPublicKey,
     salt: encrypted.salt,
     outputs,
     resolvedOwnerTags: resolved,
     messages: [],
   });
+  if (prepared.publicSolAmount !== undefined) {
+    externalData = externalData.withPublicSol(
+      prepared.publicSolAmount,
+      prepared.userSolAccount,
+    );
+  }
+  if (prepared.publicSplAmount !== undefined) {
+    externalData = externalData.withPublicSpl(
+      prepared.publicSplAmount,
+      prepared.userSplToken,
+      prepared.splTokenInterface,
+    );
+  }
   return new SppProofInputs({
     payerPublicKeyHash: prepared.payerPublicKeyHash,
     inputUtxos,

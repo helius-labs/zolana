@@ -575,11 +575,62 @@ fn dummy_ciphertext_len(
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::{ShieldedKeypair, SigningKey};
+    use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 
     use super::*;
+    use crate::{data::Data, utxo::Utxo};
 
     const SPL_MINT: Address = Address::new_from_array([4u8; 32]);
+
+    /// A zero-amount withdrawal keeps the recipient on `PreparedTransfer` but
+    /// finalize must not fold that account into `external_data_hash`: the public
+    /// amount is `None`, so `with_public_sol` is never called.
+    #[test]
+    fn zero_amount_withdrawal_leaves_settlement_accounts_unset_on_finalize() {
+        let keypair = ShieldedKeypair::from_ed25519(
+            &[9u8; 32],
+            ViewingKey::from_seed(&[10u8; 32], 0).unwrap(),
+        )
+        .unwrap();
+        let owner = keypair.shielded_address().unwrap();
+        let recipient = Address::new_from_array([20u8; 32]);
+        let mut transfer = ConfidentialTransfer::new(
+            owner,
+            vec![SppProofInputUtxo::new(
+                Utxo {
+                    owner: keypair.signing_pubkey(),
+                    asset: SOL_MINT,
+                    amount: 100,
+                    blinding: derive_blinding(&[11u8; 31], 0),
+                    zone_program_id: None,
+                    data: Data::default(),
+                },
+                &keypair,
+            )],
+            Address::default(),
+        );
+        transfer
+            .withdraw(
+                SOL_MINT,
+                0,
+                WithdrawalTarget::Sol {
+                    user_sol_account: recipient,
+                },
+            )
+            .unwrap();
+        let prepared = transfer.prepare().unwrap();
+        assert!(prepared.public_sol_amount.is_none());
+        assert_eq!(prepared.user_sol_account, recipient);
+
+        let tx = keypair
+            .get_transaction_viewing_key(&prepared.first_nullifier)
+            .unwrap();
+        let signed = prepared
+            .finalize(tx.pubkey(), [0u8; SALT_LEN], Vec::new())
+            .unwrap();
+        assert!(signed.external_data.public_sol_amount.is_none());
+        assert_eq!(signed.external_data.user_sol_account, Address::default());
+    }
 
     /// The public leg the program debits is chosen by the asset while the account
     /// it credits is chosen by the target, so a crossed pair pays the wrong rail.

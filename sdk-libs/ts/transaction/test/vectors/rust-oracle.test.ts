@@ -1817,6 +1817,94 @@ describe("the Rust oracle and TypeScript agree at the external-data prefix bound
       expect(hex(base.hash())).toBe(defaults?.hashHex);
     });
   });
+
+  describe("and refuses to hash settlement accounts without a public amount", () => {
+    const binding = external.settlementBinding as Readonly<{
+      readonly outputs: number;
+      readonly outputDataLength: number;
+      readonly solAmount: string;
+      readonly splAmount: string;
+      readonly solAccount: string;
+      readonly splToken: string;
+      readonly splTokenInterface: string;
+      readonly unsetHashHex: string;
+      readonly withPublicSolHashHex: string;
+      readonly withPublicSplHashHex: string;
+      readonly orphanSolAccountHashHex: string;
+      readonly orphanSplAccountHashHex: string;
+    }>;
+
+    const shaped = (): ExternalData =>
+      createExternalData({
+        txViewingPublicKey,
+        salt,
+        outputs: Array.from({ length: binding.outputs }, (_unused, index) => ({
+          utxoHash: indexed(index, true),
+          ownerTag: { kind: "p256SigningKey" as const },
+          data: new Uint8Array(binding.outputDataLength).fill(external.outputDataByte),
+        })),
+        resolvedOwnerTags: Array.from({ length: binding.outputs }, (_unused, index) =>
+          indexed(index, false),
+        ),
+        messages: [],
+      });
+
+    it("matches Rust unset defaults when a flat object names an orphan SOL account", () => {
+      const hash = createExternalData({
+        txViewingPublicKey,
+        salt,
+        userSolAccount: binding.solAccount as Address,
+        outputs: Array.from({ length: binding.outputs }, (_unused, index) => ({
+          utxoHash: indexed(index, true),
+          ownerTag: { kind: "p256SigningKey" as const },
+          data: new Uint8Array(binding.outputDataLength).fill(external.outputDataByte),
+        })),
+        resolvedOwnerTags: Array.from({ length: binding.outputs }, (_unused, index) =>
+          indexed(index, false),
+        ),
+        messages: [],
+      }).hash();
+      expect(hex(hash)).toBe(binding.unsetHashHex);
+      expect(hex(hash)).not.toBe(binding.orphanSolAccountHashHex);
+    });
+
+    it("matches Rust unset defaults when a flat object names orphan SPL accounts", () => {
+      const hash = createExternalData({
+        txViewingPublicKey,
+        salt,
+        userSplToken: binding.splToken as Address,
+        splTokenInterface: binding.splTokenInterface as Address,
+        outputs: Array.from({ length: binding.outputs }, (_unused, index) => ({
+          utxoHash: indexed(index, true),
+          ownerTag: { kind: "p256SigningKey" as const },
+          data: new Uint8Array(binding.outputDataLength).fill(external.outputDataByte),
+        })),
+        resolvedOwnerTags: Array.from({ length: binding.outputs }, (_unused, index) =>
+          indexed(index, false),
+        ),
+        messages: [],
+      }).hash();
+      expect(hex(hash)).toBe(binding.unsetHashHex);
+      expect(hex(hash)).not.toBe(binding.orphanSplAccountHashHex);
+    });
+
+    it("keeps the real accounts when withPublicSol / withPublicSpl bind them", () => {
+      expect(
+        hex(shaped().withPublicSol(BigInt(binding.solAmount), binding.solAccount as Address).hash()),
+      ).toBe(binding.withPublicSolHashHex);
+      expect(
+        hex(
+          shaped()
+            .withPublicSpl(
+              BigInt(binding.splAmount),
+              binding.splToken as Address,
+              binding.splTokenInterface as Address,
+            )
+            .hash(),
+        ),
+      ).toBe(binding.withPublicSplHashHex);
+    });
+  });
 });
 
 describe("the Rust oracle and TypeScript agree on public-input field encodings", () => {
