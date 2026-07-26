@@ -48,10 +48,10 @@ use crate::{
             zone_eddsa::ZoneTransferProver,
             zone_p256::ZoneTransferP256Prover,
         },
-        zone_authority::ZoneAuthorityProver,
+        zone_authority::{ZoneAuthorityProver, SUPPORTED_SHAPES as ZONE_AUTHORITY_SHAPES},
         TransferInputs, TransferP256Inputs,
     },
-    MerkleContext, MerkleProof, NonInclusionProof, SpendProof,
+    ClientError, MerkleContext, MerkleProof, NonInclusionProof, SpendProof,
 };
 
 /// Shared with `sdk-libs/ts/client/test/vectors/zone-oracle.test.ts`; the two
@@ -394,13 +394,13 @@ fn zone_p256_case(shape: (usize, usize)) -> Value {
     })
 }
 
-fn zone_authority_case(shape: (usize, usize)) -> Value {
+fn zone_authority_prover(shape: (usize, usize)) -> ZoneAuthorityProver {
     let owner = keypair(false);
     let inputs = proof_inputs(&owner, shape.0, shape.1);
     let proofs = spend_proofs(&inputs);
     let spends =
         attach_input_proofs(inputs.input_utxos.clone(), &proofs).expect("attach input proofs");
-    let result = ZoneAuthorityProver {
+    ZoneAuthorityProver {
         inputs: spends,
         outputs: inputs.output_utxos.clone(),
         external_data: inputs.external_data.clone(),
@@ -409,8 +409,12 @@ fn zone_authority_case(shape: (usize, usize)) -> Value {
         zone_program_id: Some(zone()),
         shape: None,
     }
-    .build()
-    .expect("zone authority proof");
+}
+
+fn zone_authority_case(shape: (usize, usize)) -> Value {
+    let result = zone_authority_prover(shape)
+        .build()
+        .expect("zone authority proof");
     json!({
         "shape": {"inputs": shape.0, "outputs": shape.1},
         "requestBodyJson": to_json_zone_authority(&result.inputs),
@@ -424,6 +428,26 @@ fn zone_authority_case(shape: (usize, usize)) -> Value {
             .map(|(utxo, nullifier)| json!([utxo, nullifier]))
             .collect::<Vec<_>>(),
         "chain": chain_json(&result.inputs, &result.nullifiers, &result.output_hashes),
+    })
+}
+
+/// The six non-square members of [`SPP_SUPPORTED_SHAPES`]. Four zone-authority
+/// verifying keys exist and `docs/spec.md` lists four supported shapes, so a
+/// request in any of these is unprovable and both languages must refuse it at
+/// assembly rather than at proving time. The rejection is generated here rather
+/// than asserted twice, so a TypeScript refusal on a different shape or with a
+/// different code fails.
+fn zone_authority_rejection_case(shape: (usize, usize)) -> Value {
+    let error = zone_authority_prover(shape)
+        .build()
+        .expect_err("a non-square zone-authority shape is unprovable");
+    let ClientError::UnsupportedZoneAuthorityShape { n_in, n_out } = error else {
+        panic!("expected an unsupported zone-authority shape rejection, got {error:?}");
+    };
+    json!({
+        "shape": {"inputs": shape.0, "outputs": shape.1},
+        "errorCode": "CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE",
+        "details": {"nIn": n_in, "nOut": n_out},
     })
 }
 
@@ -462,6 +486,15 @@ fn shapes() -> Vec<(usize, usize)> {
         .collect()
 }
 
+/// Taken from the client's own constant, so the oracle cannot claim a shape set
+/// the rail does not enforce.
+fn zone_authority_shapes() -> Vec<(usize, usize)> {
+    ZONE_AUTHORITY_SHAPES
+        .iter()
+        .map(|shape| (shape.n_inputs(), shape.n_outputs()))
+        .collect()
+}
+
 fn oracle_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ts/client/test/oracles/zone-v1.json")
 }
@@ -491,9 +524,14 @@ fn ts_zone_oracle_is_current() {
             "zeroP256MessageElementBytes": hex(&hash_field(&[0u8; 32]).expect("zero element")),
             "transferZone": shapes().into_iter().map(zone_case).collect::<Vec<_>>(),
             "transferP256Zone": shapes().into_iter().map(zone_p256_case).collect::<Vec<_>>(),
-            "transferZoneAuthority": shapes()
+            "transferZoneAuthority": zone_authority_shapes()
                 .into_iter()
                 .map(zone_authority_case)
+                .collect::<Vec<_>>(),
+            "transferZoneAuthorityRejected": shapes()
+                .into_iter()
+                .filter(|shape| !zone_authority_shapes().contains(shape))
+                .map(zone_authority_rejection_case)
                 .collect::<Vec<_>>(),
             "otherZone": other_zone_case(),
         }

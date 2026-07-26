@@ -240,6 +240,63 @@ describe("SolanaRpc", () => {
     vi.useRealTimers();
   });
 
+  // `fetch_confirmed_transaction` waits out every failure until the
+  // confirmation deadline, so a validator that drops one request does not fail
+  // the fetch. Retrying only the unknown-transaction answer gave up where Rust
+  // returns the transaction.
+  it("waits out a failed request while fetching a confirmed transaction", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      confirmationTimeoutMs: 60_000,
+      fetch: vi.fn((_url: URL | RequestInfo, init?: RequestInit) => {
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as { id: number };
+        calls++;
+        if (calls === 1) return Promise.resolve(new Response("", { status: 503 }));
+        if (calls === 2) return Promise.resolve(rpcResult(body.id, null));
+        return Promise.resolve(rpcResult(body.id, { slot: 7 }));
+      }),
+    });
+
+    const pending = rpc.getConfirmedTransaction(ZERO_SIGNATURE);
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toEqual({ slot: 7 });
+    expect(calls).toBe(3);
+    vi.useRealTimers();
+  });
+
+  it("reports the last failure once the confirmation deadline passes", async () => {
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      confirmationTimeoutMs: 0,
+      fetch: vi.fn(() => Promise.resolve(new Response("", { status: 503 }))),
+    });
+
+    const failure = await expectCode(
+      rpc.getConfirmedTransaction(ZERO_SIGNATURE),
+      "CLIENT_RPC_HTTP",
+    );
+    expect(failure.details).toEqual({ method: "getTransaction", status: 503 });
+  });
+
+  it("stops fetching a confirmed transaction when the caller aborts", async () => {
+    const controller = new AbortController();
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      confirmationTimeoutMs: 60_000,
+      fetch: vi.fn(() => {
+        controller.abort();
+        return Promise.reject(new DOMException("aborted", "AbortError"));
+      }),
+    });
+
+    await expectCode(
+      rpc.getConfirmedTransaction(ZERO_SIGNATURE, { signal: controller.signal }),
+      "CLIENT_ABORTED",
+    );
+  });
+
   it("airdrops and asserts executability against confirmed state", async () => {
     const responses: Record<string, unknown> = {
       requestAirdrop: ZERO_SIGNATURE,

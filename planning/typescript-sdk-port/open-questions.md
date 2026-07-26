@@ -452,17 +452,17 @@ original.
 and for which keys exist, and do not generate the six missing keys.
 [Ledger](authority-rulings.md#q16-zone-authority-shapes-c18).
 
-**Not implemented here**, deliberately. The row update
+**Implemented** in both languages at `71f7f319`, which refuses the six non-square
+shapes with a named error naming the supported set. It was not implemented on the
+branch this entry was written on, deliberately, because it needed the matching
+Rust change to avoid becoming a divergence and both files were owned by a worker
+running at the time.
+
+One line of
 [`row-updates/zone-authority-shape-narrowing.md`](row-updates/zone-authority-shape-narrowing.md)
-assigns this to the client batch behind C08 and T23, it needs the matching change
-in the Rust crate to avoid becoming a divergence, and both files are owned by a
-worker running now. The smallest change is a four-element accepted set on each
-side with a named error stating which shapes the rail supports, plus a shared
-vector; the cost is breaking a caller passing a non-square shape, which the
-standing pre-1.0 ruling permits. One line of that row update no longer holds:
-question 5 ruled that a zone authority can move value out through a public leg,
-so the four shapes cannot be justified by saying it cannot. They rest on the
-specification and the keys on disk.
+no longer holds: question 5 ruled that a zone authority can move value out
+through a public leg, so the four shapes cannot be justified by saying it cannot.
+They rest on the specification and the keys on disk.
 
 ---
 
