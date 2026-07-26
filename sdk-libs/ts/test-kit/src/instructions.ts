@@ -19,7 +19,7 @@ export function systemCreateAccountInstruction(
   const data = new Uint8Array(52);
   writeU64(data, 4, input.lamports, "lamports");
   writeU64(data, 12, input.space, "space");
-  data.set(decodeBase58(input.owner ?? SHIELDED_POOL_PROGRAM_ID), 20);
+  data.set(decodeBase58Address(input.owner ?? SHIELDED_POOL_PROGRAM_ID, "owner"), 20);
   return Object.freeze({
     programAddress: "11111111111111111111111111111111" as Address,
     accounts: Object.freeze([
@@ -77,13 +77,13 @@ function writeU64(bytes: Uint8Array, offset: number, value: bigint, field: strin
   new DataView(bytes.buffer).setBigUint64(offset, value, true);
 }
 
-function decodeBase58(value: string): Uint8Array {
+/** Decode a 32-byte Solana address from base58; refuse invalid alphabet, empty, and wrong length. */
+export function decodeBase58Address(value: string, field: string): Uint8Array {
   const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   const bytes = [0];
   for (const character of value) {
     let carry = alphabet.indexOf(character);
-    if (carry < 0)
-      throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field: "owner" } });
+    if (carry < 0) throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field } });
     for (let index = 0; index < bytes.length; index++) {
       const next = (bytes[index] ?? 0) * 58 + carry;
       bytes[index] = next & 0xff;
@@ -98,7 +98,7 @@ function decodeBase58(value: string): Uint8Array {
   const result = Uint8Array.from(bytes.reverse());
   if (result.length !== 32) {
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
-      details: { field: "owner", expected: 32, actual: result.length },
+      details: { field, expected: 32, actual: result.length },
     });
   }
   return result;

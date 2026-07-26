@@ -16,6 +16,7 @@ import {
   createStandardAccountInstructions,
   createTestProver,
   createTreeInstructions,
+  decodeBase58Address,
   depositSolInstruction,
   groupInstructions,
   localStackUrls,
@@ -48,6 +49,25 @@ function bytes31(value: number): Bytes31 {
 }
 
 describe("public test-kit contract", () => {
+  it("refuses malformed base58 addresses instead of inventing bytes", () => {
+    expect(() => decodeBase58Address("", "account")).toThrow(
+      expect.objectContaining({
+        code: "TEST_KIT_INVALID_CONFIG",
+        details: { field: "account", expected: 32, actual: 1 },
+      }),
+    );
+    expect(() => decodeBase58Address("0", "account")).toThrow(
+      expect.objectContaining({ code: "TEST_KIT_INVALID_CONFIG", details: { field: "account" } }),
+    );
+    expect(() => decodeBase58Address("2", "account")).toThrow(
+      expect.objectContaining({
+        code: "TEST_KIT_INVALID_CONFIG",
+        details: { field: "account", expected: 32, actual: 1 },
+      }),
+    );
+    expect(decodeBase58Address(address, "account")).toEqual(new Uint8Array(32));
+  });
+
   it("loads only manifest-pinned fixtures and verifies their hash", async () => {
     const bytes = await fixtureBytes("test-kit/standard-accounts-v1");
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(
