@@ -265,10 +265,10 @@ describe("ClientError", () => {
     const fixtureBytes = await readFile(
       path.join(repositoryRoot, "sdk-libs/ts/fixtures/client/errors-v1.json"),
     );
-    expect(manifestJson.frozenCommit).toBe("43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f");
-    // ts-fixtures pins the revision; the manifest must describe the shipped bytes.
-    // Assert the shape first: both sides read `undefined` when the stamp is
-    // dropped, which would let the equality below hold with nothing pinned.
+    // Manifest is the machine-readable baseline; ts-fixtures owns the pin.
+    expect(manifestJson.frozenCommit).toMatch(/^[0-9a-f]{40}$/u);
+    expect(manifestJson.historicalBaselineCommit).toBe(manifestJson.frozenCommit);
+    // Shape first: missing stamps would make the equality below hold vacuously.
     expect(fixtureJson.sourceRevision).toMatch(/^[0-9a-f]{40}$/u);
     expect(manifestJson.canonicalSourceRevisions.client).toBe(fixtureJson.sourceRevision);
     expect(manifestJson.files).toContainEqual({

@@ -96,6 +96,7 @@
       "ZoneTransferProofResult",
       "ZoneTransferProver",
       "assemble",
+      "attach_input_proofs",
       "canonical_shape",
       "into_prover",
       "resolve_shape",
@@ -112,6 +113,6 @@
   "rustPath": "sdk-libs/client/src/lib.rs",
   "rustSymbol": "pub mod; pub use",
   "schema": "zolana-ts-fixtures-v1",
-  "sourceRevision": "9b541b7083070abe35ec79f06874cd78dc0a9649",
+  "sourceRevision": "2ca98d82543f5aa8610fc3b37cb1bcae4c5f8e47",
   "version": "1"
 }
