@@ -960,9 +960,10 @@ export function encryptConfidential(
   salt: Bytes16,
   slotIndex: number,
 ): Uint8Array {
+  const body = encodeConfidential(value);
   return concat(
     recipient.toBytes(),
-    tx.encryptSlot(recipient, encodeConfidential(value), salt, slotIndex),
+    inTransactionCategory(() => tx.encryptSlot(recipient, body, salt, slotIndex)),
   );
 }
 
@@ -973,7 +974,7 @@ export function encryptAnonymous(
   salt: Bytes16,
   slotIndex: number,
 ): Uint8Array {
-  return tx.encryptSlot(recipient, plaintext, salt, slotIndex);
+  return inTransactionCategory(() => tx.encryptSlot(recipient, plaintext, salt, slotIndex));
 }
 
 export function decryptAnonymous(
@@ -983,7 +984,9 @@ export function decryptAnonymous(
   salt: Bytes16,
   slotIndex: number,
 ): Uint8Array {
-  return key.decryptUtxo(ciphertext, txViewingPublicKey, salt, slotIndex);
+  return inTransactionCategory(() =>
+    key.decryptUtxo(ciphertext, txViewingPublicKey, salt, slotIndex),
+  );
 }
 
 export const encryptSplit = encryptAnonymous;

@@ -15,8 +15,10 @@ import {
   decodePlaintextTransfer,
   decodeProofless,
   decodeSplitBundle,
+  decryptAnonymous,
   decryptConfidential,
   decryptMerge,
+  decryptSplit,
   encodeAnonymousRecipient,
   encodeAnonymousSender,
   encodeConfidential,
@@ -382,6 +384,49 @@ describe("manifest-verified transaction serialization", () => {
         details: { field: "recipientViewingPublicKeys", maximum: 0xff, actual: 256 },
       }),
     );
+  });
+
+  /**
+   * Rust reaches the cipher through `?` on every rail (`anonymous.rs:135-143`,
+   * `:175-179`; `confidential.rs:139-147`), so a key or cipher failure arrives
+   * as `TransactionError::Keypair`. The trigger below is a destroyed key
+   * because a typed TypeScript caller cannot build the off-curve key that
+   * reaches Rust's own refusal; the category the caller sees is the point.
+   */
+  it("reports a cipher failure in Rust's category on every rail", () => {
+    const fixture = load();
+    const inputs = section(fixture, "inputs");
+    const { recipient, tx } = keys(inputs);
+    const salt = hexBytes(fixtureString(inputs, "saltBytes")) as Bytes16;
+    const seed = hexBytes(fixtureString(inputs, "blindingSeedBytes")) as Bytes31;
+    const spent = ViewingKey.fromSeed(hexBytes(fixtureString(inputs, "viewingSeedBytes")), 0);
+    const recipientPublicKey = recipient.viewingPublicKey();
+    const txPublicKey = tx.publicKey();
+    spent.destroy();
+
+    const calls = [
+      () => encryptAnonymous(spent, recipientPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
+      () => encryptSplit(spent, recipientPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
+      () => decryptAnonymous(spent, txPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
+      () => decryptSplit(spent, txPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
+      () =>
+        encryptConfidential(
+          spent,
+          recipientPublicKey,
+          { assetId: 1n, amount: 55n, blinding: deriveBlinding(seed, 1), data: new Data() },
+          salt,
+          0,
+        ),
+    ];
+    for (const call of calls) {
+      expect(call).toThrow(
+        expect.objectContaining({
+          name: "TransactionError",
+          code: "TRANSACTION_KEYPAIR",
+          details: { keypair: "KEYPAIR_INVALID_SECRET_KEY" },
+        }),
+      );
+    }
   });
 
   it("rejects every malformed fixture family", () => {

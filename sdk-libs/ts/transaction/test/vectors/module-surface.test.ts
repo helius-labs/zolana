@@ -453,6 +453,10 @@ const ENTRY_POINT_SPECIFIERS: Readonly<Record<string, string>> = {
  * declarations promise. Both read the build rather than the sources beside it,
  * so they need `npm run build` first, as every suite in this workspace does.
  */
+async function builtModule(specifier: string): Promise<Readonly<Record<string, unknown>>> {
+  return (await import(specifier)) as Readonly<Record<string, unknown>>;
+}
+
 describe("built entry-point surface", () => {
   for (const [entryPoint, specifier] of Object.entries(ENTRY_POINT_SPECIFIERS)) {
     const stem = entryPoint === "." ? "index" : `${entryPoint.slice(2)}/index`;
@@ -461,8 +465,7 @@ describe("built entry-point surface", () => {
       const file = ENTRY_POINT_SOURCES[entryPoint];
       if (file === undefined) throw new Error(`no barrel recorded for ${entryPoint}`);
       const barrel = declaredExports(await readFile(path.join(sourceRoot, file), "utf8"));
-      const module: Readonly<Record<string, unknown>> = await import(specifier);
-      expect(Object.keys(module).sort()).toEqual(valueNames(barrel));
+      expect(Object.keys(await builtModule(specifier)).sort()).toEqual(valueNames(barrel));
     });
 
     it(`${entryPoint} ships declarations for exactly its barrel's names`, async () => {
@@ -486,8 +489,7 @@ describe("built entry-point surface", () => {
   it("binds a name two entry points share to one value", async () => {
     const modules = await Promise.all(
       Object.entries(ENTRY_POINT_SPECIFIERS).map(
-        async ([entryPoint, specifier]) =>
-          [entryPoint, (await import(specifier)) as Readonly<Record<string, unknown>>] as const,
+        async ([entryPoint, specifier]) => [entryPoint, await builtModule(specifier)] as const,
       ),
     );
     const owners = new Map<string, readonly [string, unknown]>();
