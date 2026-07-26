@@ -5,12 +5,8 @@ use thiserror::Error;
 pub enum UserRegistryError {
     #[error("invalid instruction data")]
     InvalidInstructionData,
-    #[error("no sync delegate is currently set")]
-    SyncDelegateNotSet,
-    #[error("signer is not the owner or active sync delegate")]
+    #[error("signer is not the record owner")]
     UnauthorizedSigner,
-    #[error("signer does not match the active sync delegate")]
-    InvalidSyncDelegate,
     #[error("user record account does not match the expected PDA")]
     InvalidRecordPda,
     #[error("record owner does not match the owner account")]
@@ -25,9 +21,7 @@ impl UserRegistryError {
     pub const fn name(self) -> &'static str {
         match self {
             Self::InvalidInstructionData => "InvalidInstructionData",
-            Self::SyncDelegateNotSet => "SyncDelegateNotSet",
             Self::UnauthorizedSigner => "UnauthorizedSigner",
-            Self::InvalidSyncDelegate => "InvalidSyncDelegate",
             Self::InvalidRecordPda => "InvalidRecordPda",
             Self::OwnerMismatch => "OwnerMismatch",
             Self::InvalidRecordAccount => "InvalidRecordAccount",

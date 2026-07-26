@@ -1,10 +1,9 @@
-use borsh::BorshDeserialize;
 use pinocchio::{
     cpi::{invoke, invoke_signed, Seed, Signer},
     error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
     sysvars::{rent::Rent, Sysvar},
-    AccountView, Address, ProgramResult, Resize,
+    AccountView, Address, ProgramResult,
 };
 use zolana_user_registry_interface::{UserRecord, USER_RECORD_SEED};
 
@@ -57,20 +56,18 @@ pub fn read_record(record: &AccountView, program_id: &Address) -> Result<UserRec
         return Err(fail(UserRegistryError::InvalidRecordAccount));
     }
     let data = record.try_borrow()?;
-    match data.split_first() {
-        Some((&UserRecord::DISCRIMINATOR, body)) => UserRecord::deserialize(&mut &*body)
-            .map_err(|_| fail(UserRegistryError::InvalidRecordAccount)),
-        _ => Err(fail(UserRegistryError::InvalidRecordAccount)),
-    }
+    UserRecord::try_from_account_data(&data)
+        .map_err(|_| fail(UserRegistryError::InvalidRecordAccount))
 }
 
 pub fn write_record(record: &mut AccountView, state: &UserRecord) -> ProgramResult {
     let body = borsh::to_vec(state).map_err(|_| ProgramError::InvalidAccountData)?;
     let needed = UserRecord::DISCRIMINATOR_LEN + body.len();
     let mut data = record.try_borrow_mut()?;
-    if data.len() < needed {
-        return Err(ProgramError::AccountDataTooSmall);
+    if data.len() != UserRecord::SIZE || needed > data.len() {
+        return Err(fail(UserRegistryError::InvalidRecordAccount));
     }
+    data.fill(0);
     data[0] = UserRecord::DISCRIMINATOR;
     data[1..needed].copy_from_slice(&body);
     Ok(())
@@ -135,17 +132,4 @@ pub fn system_transfer(from: &AccountView, to: &AccountView, lamports: u64) -> P
         data: &data,
     };
     invoke::<2, _>(&instruction, &[from, to])
-}
-
-pub fn grow_record(
-    record: &mut AccountView,
-    payer: &AccountView,
-    new_space: usize,
-) -> ProgramResult {
-    let required = Rent::get()?.try_minimum_balance(new_space)?;
-    let top_up = required.saturating_sub(record.lamports());
-    if top_up > 0 {
-        system_transfer(payer, record, top_up)?;
-    }
-    record.resize(new_space)
 }

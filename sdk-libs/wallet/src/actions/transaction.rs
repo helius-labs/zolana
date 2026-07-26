@@ -936,6 +936,7 @@ mod tests {
     fn account_data(record: &UserRecord) -> Vec<u8> {
         let mut data = vec![UserRecord::DISCRIMINATOR];
         data.extend_from_slice(&to_vec(record).expect("serialize user record"));
+        data.resize(UserRecord::SIZE, 0);
         data
     }
 
@@ -996,8 +997,6 @@ mod tests {
             owner_p256: Some(*recipient.signing_pubkey().as_p256().unwrap().as_bytes()),
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
-            sync_delegate: None,
-            entries: Vec::new(),
             merging_enabled: false,
         };
         let rpc = MockRpc {
@@ -1043,8 +1042,6 @@ mod tests {
             owner_p256: Some(*recipient.signing_pubkey().as_p256().unwrap().as_bytes()),
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
-            sync_delegate: None,
-            entries: Vec::new(),
             merging_enabled: false,
         };
         let rpc = MockRpc {

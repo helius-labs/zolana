@@ -1,10 +1,9 @@
 // Package merge implements the SPP Merge Proof (spec: Merge Proof - Merge ZK
 // Proof). It consolidates up to 8 input UTXOs of a single owner and single asset
 // into one output UTXO of the same owner, asset, and total amount, and
-// verifiably encrypts the merged output to the owner's viewing key. The proof
-// takes no wallet secret beyond the values a sync delegate holds; ownership is
+// verifiably encrypts the merged output to the owner's viewing key. Ownership is
 // proven by recomputing the owner hash from the witnessed P256 signing point and
-// pinning the shared nullifier secret.
+// pinning the nullifier secret.
 package merge
 
 import (

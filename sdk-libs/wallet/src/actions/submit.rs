@@ -229,8 +229,6 @@ mod tests {
             owner_p256: None,
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
-            sync_delegate: None,
-            entries: Vec::new(),
             merging_enabled,
         }
     }

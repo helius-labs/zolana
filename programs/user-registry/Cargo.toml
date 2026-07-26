@@ -1,7 +1,7 @@
 [package]
 name = "zolana-user-registry"
 version = "0.1.0"
-description = "On-chain user registry: Solana pubkey to shielded payment keys and sync delegate"
+description = "On-chain user registry: Solana pubkey to shielded payment keys"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -20,7 +20,7 @@ test-sbf = []
 
 [dependencies]
 borsh = { workspace = true }
-pinocchio = { workspace = true, features = ["cpi", "account-resize"] }
+pinocchio = { workspace = true, features = ["cpi"] }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-msg = { workspace = true, default-features = false }
 thiserror = { workspace = true }
