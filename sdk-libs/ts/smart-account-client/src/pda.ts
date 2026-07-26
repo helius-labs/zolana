@@ -1,8 +1,8 @@
 import type { Address } from "@zolana/interface";
+import { sha256 } from "@noble/hashes/sha2.js";
 
 import { decodeAddress, encodeAddress } from "./base58.js";
 import { SmartAccountClientError, invalidInteger } from "./error.js";
-import { sha256 } from "./sha256.js";
 
 export const SMART_ACCOUNT_PROGRAM_ID_VALUE =
   "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG" as Address;
