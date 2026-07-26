@@ -186,7 +186,7 @@ describe("wallet deposit vector", () => {
     });
     expect(() =>
       createDeposit({ recipient, asset: mint, amount: BigInt(fixture.inputs.amount) }),
-    ).toThrowError(expect.objectContaining({ code: "WALLET_MISSING_SPL_TOKEN_ACCOUNT" }));
+    ).toThrow(expect.objectContaining({ code: "WALLET_MISSING_SPL_TOKEN_ACCOUNT" }));
     expect(fixture.expected.spl.missingTokenAccountError.code).toBe("MissingSplTokenAccount");
   });
 

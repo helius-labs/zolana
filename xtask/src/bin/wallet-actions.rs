@@ -26,9 +26,13 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use zolana_keypair::shielded::ShieldedKeypair;
-use zolana_transaction::{AssetRegistry, Data, OutputContext, Utxo, Wallet, WalletUtxo, SOL_MINT};
-use zolana_wallet::{create_split, create_withdrawal, SplitParams, WithdrawalParams};
+use zolana_keypair::{shielded::ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_transaction::{
+    AssetRegistry, Data, LocalWalletAuthority, OutputContext, Utxo, Wallet, WalletUtxo, SOL_MINT,
+};
+use zolana_wallet::{
+    create_split, create_withdrawal, sign_shielded_transaction_sync, SplitParams, WithdrawalParams,
+};
 
 const FIXTURE: &str = "sdk-libs/ts/vectors/wallet-actions-v1.json";
 
@@ -166,7 +170,176 @@ fn build() -> Result<Value> {
         "wallets": Value::Object(described),
         "withdrawals": withdrawals()?,
         "splits": splits()?,
+        "rails": rails()?,
+        "substitutions": substitutions()?,
     }))
+}
+
+/// Which rail `apply_p256_signature` reads. It consults the authority's own
+/// shielded address and never the notes being spent, so the two mixed cases are
+/// what discriminate that rule from reading the rail off the inputs: they are
+/// the only ones the two rules answer differently. Rust accepts an input owned
+/// by a key other than the spending authority, which is what makes them
+/// buildable at all.
+fn rails() -> Result<Value> {
+    [
+        ("p256", "p256", true),
+        ("ed25519", "ed25519", true),
+        ("p256", "ed25519", false),
+        ("ed25519", "p256", false),
+    ]
+    .into_iter()
+    .map(|(authority_rail, note_rail, same_key)| {
+        let authority_keypair = rail_keypair(authority_rail, 61)?;
+        let note_keypair = if same_key {
+            rail_keypair(authority_rail, 61)?
+        } else {
+            rail_keypair(note_rail, 62)?
+        };
+        let wallet = rail_wallet(&authority_keypair, &note_keypair)?;
+        let outcome = sign_once(&wallet, &authority_keypair)
+            .map(|signed| json!({ "p256Signature": signed.transaction.p256_signature.is_some() }))
+            .map_err(|error| format!("{error:?}"));
+        Ok(json!({
+            "authorityRail": authority_rail,
+            "noteRail": note_rail,
+            "sameKey": same_key,
+            "outcome": arm(outcome),
+        }))
+    })
+    .collect::<Result<Vec<_>>>()
+    .map(Value::Array)
+}
+
+/// Which single-field substitution between build and sign `validate_unsigned_inputs`
+/// rejects. It compares the whole `Utxo` alongside the four context fields, so
+/// every entry here but `none` is a refusal; a re-check narrowed to the
+/// commitment, nullifier, asset, amount, and blinding would let the rest pass.
+fn substitutions() -> Result<Value> {
+    const CASES: [&str; 12] = [
+        "none",
+        "spent",
+        "tree",
+        "commitment",
+        "nullifier",
+        "dataHash",
+        "zoneDataHash",
+        "utxo.owner",
+        "utxo.asset",
+        "utxo.amount",
+        "utxo.blinding",
+        "utxo.zoneProgramId",
+    ];
+
+    CASES
+        .into_iter()
+        .map(|substitution| {
+            let keypair = rail_keypair("ed25519", 63)?;
+            let mut wallet = rail_wallet(&keypair, &keypair)?;
+            let unsigned = create_withdrawal(WithdrawalParams {
+                wallet: &wallet,
+                payer: Address::default(),
+                recipient: Pubkey::new_from_array([5u8; 32]),
+                asset: SOL_MINT,
+                amount: 5,
+            })?
+            .transaction;
+            substitute(&mut wallet, substitution)?;
+            let authority = LocalWalletAuthority::new(Address::default(), &keypair);
+            let outcome = sign_shielded_transaction_sync(unsigned, &wallet, &authority)
+                .map(|_| json!({}))
+                .map_err(|error| format!("{error:?}"));
+            Ok(json!({
+                "substitution": substitution,
+                "outcome": arm(outcome),
+            }))
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(Value::Array)
+}
+
+/// Replace one field of the wallet's only note, leaving every other field as the
+/// unsigned transaction recorded it.
+fn substitute(wallet: &mut Wallet, substitution: &str) -> Result<()> {
+    let entry = wallet.utxos.first_mut().context("wallet has no note")?;
+    match substitution {
+        "none" => {}
+        "spent" => entry.spent = true,
+        "tree" => entry.output_context.tree = SECONDARY_TREE,
+        "commitment" => entry.output_context.hash = [99u8; 32],
+        "nullifier" => entry.nullifier = [99u8; 32],
+        "dataHash" => entry.data_hash = Some([99u8; 32]),
+        "zoneDataHash" => entry.zone_data_hash = Some([99u8; 32]),
+        "utxo.owner" => entry.utxo.owner = rail_keypair("ed25519", 64)?.signing_pubkey(),
+        "utxo.asset" => entry.utxo.asset = SECONDARY_TREE,
+        "utxo.amount" => entry.utxo.amount += 1,
+        "utxo.blinding" => entry.utxo.blinding = [9u8; 31],
+        "utxo.zoneProgramId" => entry.utxo.zone_program_id = Some(ZONE_PROGRAM),
+        other => bail!("no substitution named {other}"),
+    }
+    Ok(())
+}
+
+/// A keypair on `rail`, seeded so the fixture is reproducible run to run. The
+/// port builds its own keypairs on the same rails rather than these bytes: only
+/// the rail is load-bearing for either family of cases.
+fn rail_keypair(rail: &str, seed: u8) -> Result<ShieldedKeypair> {
+    let viewing = ViewingKey::from_seed(&[seed; 32], 0).context("viewing key")?;
+    match rail {
+        "p256" => ShieldedKeypair::from_keys(
+            SigningKey::from_bytes(&[seed; 32]).context("p256 signing key")?,
+            viewing,
+        )
+        .context("p256 keypair"),
+        "ed25519" => ShieldedKeypair::from_ed25519(&[seed; 32], viewing).context("ed25519 keypair"),
+        other => bail!("no rail named {other}"),
+    }
+}
+
+/// A wallet whose identity is `authority`'s shielded address holding one plain
+/// note owned by `note_owner`, so the two rails can be set independently.
+fn rail_wallet(authority: &ShieldedKeypair, note_owner: &ShieldedKeypair) -> Result<Wallet> {
+    let mut wallet = Wallet::new(
+        authority.shielded_address().context("shielded address")?,
+        AssetRegistry::new(Vec::new()).context("asset registry")?,
+    )
+    .context("wallet")?;
+    wallet.utxos.push(WalletUtxo {
+        utxo: Utxo {
+            owner: note_owner.signing_pubkey(),
+            asset: SOL_MINT,
+            amount: 10,
+            blinding: [1u8; 31],
+            zone_program_id: None,
+            data: Data::new(Vec::new()),
+        },
+        output_context: OutputContext {
+            hash: note_hash(0),
+            tree: PRIMARY_TREE,
+            leaf_index: 0,
+        },
+        nullifier: [20u8; 32],
+        data_hash: None,
+        zone_data_hash: None,
+        spent: false,
+    });
+    Ok(wallet)
+}
+
+fn sign_once(
+    wallet: &Wallet,
+    keypair: &ShieldedKeypair,
+) -> Result<zolana_client::SignedPrivateTransaction, zolana_client::error::ClientError> {
+    let unsigned = create_withdrawal(WithdrawalParams {
+        wallet,
+        payer: Address::default(),
+        recipient: Pubkey::new_from_array([5u8; 32]),
+        asset: SOL_MINT,
+        amount: 5,
+    })?
+    .transaction;
+    let authority = LocalWalletAuthority::new(Address::default(), keypair);
+    sign_shielded_transaction_sync(unsigned, wallet, &authority)
 }
 
 /// `create_withdrawal` has no amount guard, so the accepted amounts are exactly

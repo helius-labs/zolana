@@ -1,10 +1,16 @@
-import type { Address, Bytes32 } from "@zolana/interface";
+import type { Rpc, SignedPrivateTransaction, ZolanaClient } from "@zolana/client";
+import type { Address, Bytes32, Transaction } from "@zolana/interface";
 import { ShieldedKeypair } from "@zolana/keypair";
 import { AssetRegistry, Data, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
 import { describe, expect, it } from "vitest";
 
 import fixture from "../../../vectors/wallet-actions-v1.json" with { type: "json" };
-import { createSplit, createWithdrawal } from "../../src/index.js";
+import {
+  LocalWalletAuthority,
+  createSplit,
+  createWithdrawal,
+  signPrivateTransaction,
+} from "../../src/index.js";
 
 type WalletId = keyof typeof fixture.wallets;
 
@@ -25,6 +31,7 @@ const REJECTIONS: Readonly<Record<string, string>> = {
   SplitInputHasData: "WALLET_SPLIT_INPUT_HAS_DATA",
   SplitInputZoneMismatch: "WALLET_SPLIT_INPUT_ZONE_MISMATCH",
   SplitNotDivisible: "WALLET_SPLIT_NOT_DIVISIBLE",
+  UnsignedInputUnavailable: "WALLET_UNSIGNED_INPUT_UNAVAILABLE",
   "Transaction(SplitInvalidPartCount": "WALLET_SPLIT_INVALID_PART_COUNT",
 };
 
@@ -135,6 +142,229 @@ describe("withdrawal input selection against the Rust wallet", () => {
     });
   }
 });
+
+function railKeypair(rail: string, seed: number): ShieldedKeypair {
+  return rail === "p256"
+    ? ShieldedKeypair.generate()
+    : ShieldedKeypair.fromEd25519(filled(seed), 0);
+}
+
+/**
+ * A wallet whose identity is `authority`'s shielded address holding one plain
+ * note owned by `noteOwner`, so the two rails can be set independently. Only the
+ * rails are load-bearing, so the port builds its own keys rather than replaying
+ * the generator's bytes.
+ */
+function railWallet(authority: ShieldedKeypair, noteOwner: ShieldedKeypair): Wallet {
+  const wallet = new Wallet({
+    identity: authority.shieldedAddress(),
+    registry: new AssetRegistry([]),
+  });
+  wallet._replace({
+    utxos: [
+      {
+        utxo: new Utxo({
+          owner: noteOwner.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 10n,
+          blinding: new Uint8Array(31).fill(1),
+          data: new Data(),
+        }),
+        outputContext: { hash: filled(1), tree: tree("primary"), leafIndex: 0n },
+        nullifier: filled(20),
+        spent: false,
+      },
+    ],
+    transactions: [],
+    nullifiers: new Set(),
+  });
+  return wallet;
+}
+
+/**
+ * Drive the wallet through `signPrivateTransaction` and hand back the shielded
+ * transaction the client was asked to submit, which carries the field Rust
+ * records: whether `apply_p256_signature` attached a signature.
+ */
+async function signCapturing(
+  wallet: Wallet,
+  keypair: ShieldedKeypair,
+): Promise<SignedPrivateTransaction> {
+  let captured: SignedPrivateTransaction | undefined;
+  const native: Transaction = { messageBytes: Uint8Array.of(1), signatures: [undefined] };
+  const client = {
+    rpc: {
+      getLatestBlockhash: () => Promise.resolve({ blockhash: PAYER, lastValidBlockHeight: 1n }),
+    } as unknown as Rpc,
+    finishSubmissionUnsigned: (input: Readonly<{ signed: SignedPrivateTransaction }>) => {
+      captured = input.signed;
+      return Promise.resolve(native);
+    },
+  } as unknown as ZolanaClient;
+  await signPrivateTransaction({
+    transaction: createWithdrawal({
+      wallet,
+      payer: PAYER,
+      recipient: RECIPIENT,
+      asset: SOL_MINT,
+      amount: 5n,
+    }).transaction,
+    wallet,
+    authority: new LocalWalletAuthority({ solanaPublicKey: PAYER, keypair }),
+    client,
+    feePayer: { address: PAYER, signNativeTransaction: (value) => Promise.resolve(value) },
+  });
+  if (captured === undefined) throw new Error("the client was never asked to submit");
+  return captured;
+}
+
+describe("signing rail selection against the Rust wallet", () => {
+  // `apply_p256_signature` reads the rail off the authority's own shielded
+  // address and never off the notes. The two `sameKey` cases are where the port
+  // has to agree with that outcome; the two mixed ones are where the rule would
+  // show, and TypeScript refuses them a step earlier (below).
+  for (const entry of fixture.rails.filter((candidate) => candidate.sameKey)) {
+    const outcome = entry.outcome as Outcome;
+    it(`a ${entry.authorityRail} authority spending its own notes`, async () => {
+      const authority = railKeypair(entry.authorityRail, 61);
+      expect(authority.shieldedAddress().signingPublicKey.signatureType()).toBe(
+        entry.authorityRail,
+      );
+      const wallet = railWallet(authority, authority);
+      expect(
+        await observeAsync(outcome, async () => {
+          const signed = await signCapturing(wallet, authority);
+          return { p256Signature: signed.transaction.p256Signature() !== undefined };
+        }),
+      ).toEqual(expected(outcome));
+    });
+  }
+
+  // Rust signs or declines purely on the authority's rail, so it builds both of
+  // these. TypeScript cannot be driven to either: `ConfidentialTransfer` rejects
+  // an input owned by another key first, which is the recorded TypeScript-only
+  // `TRANSACTION_INPUT_OWNER_MISMATCH` guard. The rail rule is therefore not
+  // discriminable through the public TypeScript surface, and both candidate
+  // rules agree everywhere it can be driven. Pinned rather than fixed: the
+  // refusal is the safer side and closing the gap belongs to Rust.
+  for (const entry of fixture.rails.filter((candidate) => !candidate.sameKey)) {
+    it(`refuses a ${entry.authorityRail} authority spending ${entry.noteRail} notes that Rust builds`, async () => {
+      expect(entry.outcome.arm).toBe("ok");
+      const authority = railKeypair(entry.authorityRail, 61);
+      const noteOwner = railKeypair(entry.noteRail, 62);
+      expect(noteOwner.signingPublicKey().signatureType()).toBe(entry.noteRail);
+      await expect(signCapturing(railWallet(authority, noteOwner), authority)).rejects.toThrow(
+        expect.objectContaining({ causeCode: "TRANSACTION_INPUT_OWNER_MISMATCH" }),
+      );
+    });
+  }
+});
+
+describe("unsigned input substitution against the Rust wallet", () => {
+  // `validate_unsigned_inputs` compares the whole `Utxo` alongside the four
+  // context fields, so every substitution but `none` is refused. A re-check
+  // narrowed to the commitment, nullifier, asset, amount, and blinding would let
+  // the owner, zone program, and note payload cases through.
+  for (const entry of fixture.substitutions) {
+    const outcome = entry.outcome as Outcome;
+    it(`substituting ${entry.substitution}`, async () => {
+      const keypair = ShieldedKeypair.fromEd25519(filled(63), 0);
+      const wallet = railWallet(keypair, keypair);
+      const original = wallet.utxos()[0];
+      if (original === undefined) throw new Error("the wallet holds no note");
+      const observed = await observeAsync(outcome, async () => {
+        const transaction = createWithdrawal({
+          wallet,
+          payer: PAYER,
+          recipient: RECIPIENT,
+          asset: SOL_MINT,
+          amount: 5n,
+        }).transaction;
+        wallet._replace({
+          utxos: [substituted(original, entry.substitution)],
+          transactions: [],
+          nullifiers: new Set(),
+        });
+        const client = {
+          rpc: {
+            getLatestBlockhash: () =>
+              Promise.resolve({ blockhash: PAYER, lastValidBlockHeight: 1n }),
+          } as unknown as Rpc,
+          finishSubmissionUnsigned: () =>
+            Promise.resolve({ messageBytes: Uint8Array.of(1), signatures: [undefined] }),
+        } as unknown as ZolanaClient;
+        await signPrivateTransaction({
+          transaction,
+          wallet,
+          authority: new LocalWalletAuthority({ solanaPublicKey: PAYER, keypair }),
+          client,
+          feePayer: { address: PAYER, signNativeTransaction: (value) => Promise.resolve(value) },
+        });
+        return {};
+      });
+      expect(observed).toEqual(expected(outcome));
+    });
+  }
+});
+
+type WalletEntry = ReturnType<Wallet["utxos"]>[number];
+
+function substituted(entry: WalletEntry, substitution: string): WalletEntry {
+  const utxo = (overrides: Partial<ConstructorParameters<typeof Utxo>[0]>): WalletEntry => ({
+    ...entry,
+    utxo: new Utxo({
+      owner: entry.utxo.owner,
+      asset: entry.utxo.asset,
+      amount: entry.utxo.amount,
+      blinding: entry.utxo.blinding,
+      data: entry.utxo.data,
+      ...overrides,
+    }),
+  });
+  switch (substitution) {
+    case "none":
+      return entry;
+    case "spent":
+      return { ...entry, spent: true };
+    case "tree":
+      return { ...entry, outputContext: { ...entry.outputContext, tree: tree("secondary") } };
+    case "commitment":
+      return { ...entry, outputContext: { ...entry.outputContext, hash: filled(99) } };
+    case "nullifier":
+      return { ...entry, nullifier: filled(99) };
+    case "dataHash":
+      return { ...entry, dataHash: filled(99) };
+    case "zoneDataHash":
+      return { ...entry, zoneDataHash: filled(99) };
+    case "utxo.owner":
+      return utxo({ owner: ShieldedKeypair.fromEd25519(filled(64), 0).signingPublicKey() });
+    case "utxo.asset":
+      return utxo({ asset: tree("secondary") });
+    case "utxo.amount":
+      return utxo({ amount: entry.utxo.amount + 1n });
+    case "utxo.blinding":
+      return utxo({ blinding: new Uint8Array(31).fill(9) });
+    case "utxo.zoneProgramId":
+      return utxo({ zoneProgramId: fixture.zoneProgram as Address });
+    default:
+      throw new Error(`no substitution named ${substitution}`);
+  }
+}
+
+async function observeAsync(
+  outcome: Outcome,
+  act: () => Promise<Readonly<Record<string, unknown>>>,
+): Promise<unknown> {
+  if (outcome.arm === "ok") {
+    return { arm: "ok", value: await act() };
+  }
+  try {
+    await act();
+  } catch (cause) {
+    return { arm: "err", code: (cause as { causeCode?: unknown; code?: unknown }).code };
+  }
+  throw new Error(`expected ${outcome.error} but the call succeeded`);
+}
 
 describe("split selection against the Rust wallet", () => {
   for (const [position, entry] of fixture.splits.entries()) {
