@@ -87,7 +87,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
       const recipientKeypair = ShieldedKeypair.fromEd25519(recipientSeed, 0);
 
       const harness = createE2eHarness(stack, tree);
-      const evidence: Record<string, string> = {};
       try {
         for (const [address, lamports] of [
           [authority.address, 2_000_000_000n],
@@ -105,7 +104,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
           sign: (transaction) => signTestTransaction(transaction, [authority]),
         });
         await confirm(harness.rpc, configSig);
-        evidence.protocolConfig = configSig;
 
         const treeIxs = await createTreeInstructions(harness.rpc, {
           payer: payer.address,
@@ -122,7 +120,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
         });
         await confirm(harness.rpc, treeSig);
         await waitForAccount(harness.rpc, tree);
-        evidence.poolTree = treeSig;
 
         // --- registration ---
         expect(await isWalletRegistered({ rpc: harness.rpc, owner: ownerSigner.address })).toBe(
@@ -135,7 +132,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
         });
         expect(registration).toBeTypeOf("string");
         await confirm(harness.rpc, registration as Signature);
-        evidence.registration = registration as string;
         expect(await isWalletRegistered({ rpc: harness.rpc, owner: ownerSigner.address })).toBe(
           true,
         );
@@ -154,7 +150,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
         });
         expect(recipientRegistration).toBeTypeOf("string");
         await confirm(harness.rpc, recipientRegistration as Signature);
-        evidence.recipientRegistration = recipientRegistration as string;
 
         const merging = await enableMerging({
           rpc: harness.rpc,
@@ -180,7 +175,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
             }),
           });
           await confirm(harness.rpc, depositSig);
-          evidence[`deposit${index}`] = depositSig;
         }
 
         // --- sync ---
@@ -255,7 +249,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
         });
         const splitSig = await harness.rpc.sendTransaction(splitSigned);
         await harness.client.confirmPrivateTransaction(splitSig);
-        evidence.split = splitSig;
         await syncUntil(
           {
             wallet: owner.wallet,
@@ -301,7 +294,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
           prepared: createdMerge.prepared,
         });
         await confirm(harness.rpc, submitted.signature);
-        evidence.merge = submitted.signature;
         expect(submitted.outputHash).toEqual(createdMerge.prepared.output.hash());
         await syncUntil(
           {
@@ -346,7 +338,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
         });
         const transferSig = await harness.rpc.sendTransaction(transferSigned);
         await harness.client.confirmPrivateTransaction(transferSig);
-        evidence.privateTransfer = transferSig;
 
         await syncUntil(
           {
@@ -387,8 +378,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
           owner.wallet.utxos().some((entry) => !entry.spent && entry.utxo.amount === PER_PART),
         ).toBe(true);
       } finally {
-        // eslint-disable-next-line no-console -- gate evidence for the row-update report
-        console.log("gate3-flow-signatures", JSON.stringify(evidence));
         await harness.stop();
       }
       await expect(fetch(stack.rpcUrl)).rejects.toThrow();

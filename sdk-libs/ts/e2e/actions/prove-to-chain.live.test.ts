@@ -334,8 +334,6 @@ async function runSettlement(
   });
   const transferSig = await input.harness.rpc.sendTransaction(signedTransfer);
   await input.harness.client.confirmPrivateTransaction(transferSig);
-  // eslint-disable-next-line no-console -- gate evidence for the row-update report
-  console.log("p5-transfer-signature", transferSig);
 
   await syncUntil(
     {
@@ -428,8 +426,6 @@ async function runSettlement(
   });
   const withdrawSig = await input.harness.rpc.sendTransaction(signedWithdraw);
   await input.harness.client.confirmPrivateTransaction(withdrawSig);
-  // eslint-disable-next-line no-console -- gate evidence for the row-update report
-  console.log("p5-withdraw-signature", withdrawSig);
   const publicAfter = await input.harness.rpc.getBalance(input.withdrawSigner.address);
   expect(publicAfter - publicBefore).toBe(WITHDRAW_AMOUNT);
 
