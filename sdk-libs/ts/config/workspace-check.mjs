@@ -251,6 +251,8 @@ async function checkScaffold() {
     "transaction",
     "indexer-api",
     "api",
+    "client",
+    "wallet",
     "merkle-tree",
     "smart-account-client",
   ];
