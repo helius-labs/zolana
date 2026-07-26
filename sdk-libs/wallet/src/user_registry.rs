@@ -804,7 +804,6 @@ mod tests {
             })
             .expect("serialize user record"),
         );
-        account.data.resize(UserRecord::SIZE, 0);
 
         let err = decode_user_record_account(&account).expect_err("bad discriminator");
 
