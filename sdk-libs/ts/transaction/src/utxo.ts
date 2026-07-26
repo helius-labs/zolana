@@ -27,6 +27,24 @@ export interface UtxoInit {
   readonly zoneProgramId?: Address;
 }
 
+/**
+ * The zone binding a reconstructed UTXO carries, given the id its reader was
+ * configured with. A reader that supplies none cannot bind zone data to a
+ * policy nobody can enforce, so a payload carrying zone data is refused; a
+ * payload carrying none drops the id rather than committing to a zone the
+ * plaintext never mentioned. Mirrors Rust `resolve_zone_program_id`.
+ */
+export function resolveZoneProgramId(
+  zoneProgramId: Address | undefined,
+  data: Data,
+): Address | undefined {
+  if (!data.zoneData()) return undefined;
+  if (zoneProgramId === undefined) {
+    throw new TransactionError("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
+  }
+  return zoneProgramId;
+}
+
 export function deriveBlinding(seed: Bytes31, position: number): Blinding {
   const checkedSeed = checked<Bytes31>(seed, 31, "blinding seed");
   if (!Number.isInteger(position) || position < 0 || position > 0xff) {
@@ -143,9 +161,6 @@ export class Utxo {
     this.blinding = checked<Blinding>(input.blinding, 31, "blinding");
     this.data = new Data((input.data ?? new Data()).records());
     if (input.zoneProgramId !== undefined) this.zoneProgramId = input.zoneProgramId;
-    if (this.data.zoneData() && !this.zoneProgramId) {
-      throw new TransactionError("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
-    }
   }
 
   proofInput(
