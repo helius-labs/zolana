@@ -120,6 +120,7 @@ rather than bookkeeping after it.
 | Step | Closes | Start after |
 | --- | --- | --- |
 | A | Whether the SDK needs versioned transactions, and the size check it turned up | runs alongside, blocks nothing |
+| B | The rebase onto PR #158, which the owner ruled lands first | PR #158 merging |
 | 1 | Criterion 4, the red pull request | now |
 | 2 | `I08` `I09` `I20` `I21`, decided and fixed, waiting to merge | now |
 | 3 | Wallet, `W02` and `W04` | now |
@@ -170,15 +171,33 @@ ciphertext format, which is already specified. Versioned transactions and lookup
 tables cost 5 bytes on a pure transfer and save 57 on an SPL withdrawal, so they
 are not the remedy for the size problem.
 
-**Done when** the owner has accepted or rejected two recommendations: that v0 is
-not scheduled for the size problem, and that the transaction compiler gets a
-size check. The second one is the urgent half. The SDK builds transactions that
-cannot be sent and reports the result as a confirmation timeout, so a caller
-hitting one of the three unsendable shapes today sees the wrong diagnosis.
+**Both recommendations are answered.** v0 is not scheduled for the size problem,
+and the size check is ruled into this pull request rather than deferred
+([ledger](authority-rulings.md#the-transaction-size-check)). What is left is
+landing it.
 
-**Check.** [`versioned-transactions.md`](versioned-transactions.md) carries a
-recommendation the owner has answered, and the size check exists in
-`compileLegacyTransaction` or has been declined on the record.
+`0e26c397` on `port/open-questions` adds `MAX_TRANSACTION_SIZE` and
+`transactionSize`, cross-checked against the bytes `SolanaRpc` submits at five
+signature counts including the 128 where the compact-u16 count grows a byte, and
+it folds two copies of compact-u16 into one. It measures and does not refuse,
+following where Light draws that line: Light's measurement is public and its
+refusal reaches only batches Light assembles itself, whose error says the
+oversized transaction indicates a bug in batch assembly. Zolana's compiler is
+the generic builder, where an oversized transaction is the caller's shape.
+
+**Measuring is not the whole of what this step asked for.** The urgent half was
+the diagnosis: a caller hitting one of the three unsendable shapes gets a
+confirmation timeout, which names the wrong cause, and a measurement nothing on
+the submit path reads does not change that. Landing the branch closes the
+measurement; the submit path still has to use it.
+
+**Done when** `0e26c397` is merged and a caller submitting a transaction over
+`MAX_TRANSACTION_SIZE` learns the size is why, at the point of submission,
+rather than through a confirmation timeout.
+
+**Check.** A test drives one of the three oversized shapes through submission
+and asserts the error names the size. Apply a control edit that shrinks the
+transaction under the limit and watch the assertion fail.
 
 This is out of scope for the parity work and it is not part of the cryptographic
 phase, which is why it carries a letter rather than a number.
@@ -188,6 +207,37 @@ link resolves once `port/versioned-tx` merges; until then read it from that
 branch. It also corrects two claims in finding F1 of
 [`light-protocol-comparison.md`](light-protocol-comparison.md), so read F1
 second and treat the study as the later word where they disagree.
+
+## Step B. Rebase onto PR #158
+
+**Not yet, and nobody owns it.** The owner ruled that PR #158 lands first and
+this port rebases onto it
+([ledger](authority-rulings.md#merge-order-against-pr-158)). #158 is five
+commits against an unmoved `43fde8e4` where this branch is several hundred, and
+the port is not verified enough to hold up a focused change. It is still open,
+so this step waits; assign it the hour it merges, because the port keeps moving
+and the rebase gets harder.
+
+The port then owes #158 one method, three wire types, two error variants, and a
+rename: the TypeScript `indexer-api` already exports `IndexedShieldedTransaction`
+for a different type than #158 claims the name for.
+
+**Read [`row-updates/pr-158-impact.md`](row-updates/pr-158-impact.md) before
+starting.** The rebase has one visible conflict, in `indexer_error` in
+`sdk-libs/client/src/indexer.rs`, and one hazard that matters more because
+nothing marks it: `error.rs` merges cleanly into a type holding both error
+representations, after which `should_retry` matches `IndexerUnavailable`, a
+variant this branch's `indexer_error` no longer produces. The result compiles,
+passes, and leaves the confirmation path unable to retry. Three of #158's tests
+also call the single-argument `indexer_error` from outside the conflicted
+region, so resolving the marked lines leaves three call sites broken.
+
+**Done when** the rebase is on `ts-sdk-port`, `should_retry` is proven to retry
+against the `Indexer { method, retryable }` variant this branch produces, and
+the name collision is resolved in one direction with both types still reachable.
+
+**Check.** `cargo test -p zolana-client` passes, and a test drives a retryable
+indexer failure through the confirmation path and observes a retry.
 
 ## Step 1. Get the pull request's checks green
 
@@ -337,11 +387,14 @@ against the intuition, each in a different direction:
   through a `u16` cast; raising an error disagrees with it. The owner ruled for
   the loud disagreement, because the trigger is more than 65,535 outputs or
   messages in one transaction and a Solana transaction has no room to carry
-  that. The work is to give the Rust SDK the `TRANSACTION_TOO_MANY_OUTPUTS`
-  guard TypeScript already has, and to add the boundary vector neither language
-  holds, `0xffff` outputs accepted and hashed against `0x10000` refused.
-  Removing the TypeScript guard alone would restore quiet truncation in one
-  language, which is the state the ruling exists to end.
+  that. **The work is done and the row needs its evidence recorded, not a fix.**
+  `8ded1d7a` gave the Rust SDK the guard TypeScript already had and generated
+  the boundary vector the ruling called owed: `maxOutputs` at 65,535 hashes and
+  `oneOutputPastMax` at 65,536 raises `TRANSACTION_TOO_MANY_OUTPUTS`, written
+  from Rust by `sdk-libs/transaction/tests/ts_oracle.rs:2757-2762` and replayed
+  in `transaction/test/vectors/rust-oracle.test.ts`. Do not remove the
+  TypeScript guard on its own; that restores quiet truncation in one language,
+  which is the state the ruling exists to end.
 - `T23` was fixed on the Rust side and is waiting to be recorded. Rust's
   `hex_to_be_32` read several spellings of one number and one spelling of a
   different one: a repeated `0x` prefix, a discarded minus sign, an unparsable
@@ -378,8 +431,8 @@ carries a live defect from the quality audit: the codecs use a local
 have no consumer, so a wire-format change has to be made in three places and two
 of them are silent.
 
-**Done when** each of the fifteen reaches `done` with `PARITY`. Fourteen need
-work; `T23` needs its evidence recorded in the table.
+**Done when** each of the fifteen reaches `done` with `PARITY`. Thirteen need
+work; `T21` and `T23` need their evidence recorded in the table.
 
 **Check.** The transaction package gate block has no adverse row, and each
 verdict rests on a Rust-generated oracle replayed by a TypeScript test rather
@@ -492,10 +545,30 @@ and drop the residue from the three rows. `M02`'s export surface is pinned by
 `c96ff2e4` on the same branch.
 
 **Done when** `port/interface-b` merges, the surface gates for `M02` are rerun
-against a named commit, and the stale pack-check residue is removed with
-evidence.
+against a named commit, the stale pack-check residue is removed with evidence,
+and packet 7a below has landed.
 
 **Check.** The keypair and merkle-tree package gate blocks have no adverse row.
+
+### Packet 7a. Accept a viewing-key backend at the three call sites
+
+Owner: unassigned, and it must not run while step 5 does. The owner ruled `K11`
+answered rather than open: the design half is settled and what is left is
+sequenced work
+([ledger](authority-rulings.md#ruled-least-powerful-capability-at-the-call-sites-k11)).
+Three call sites still bind the concrete `ViewingKey`, so no consumer can pass
+the async backend `ViewingKeyLike` was widened for, even though one typechecks.
+
+`transaction/src/wallet/sync.ts`, `transaction/src/serialization/codecs.ts` and
+`wallet/src/sync.ts` take `ViewingKeyLike` instead. Because the interface
+returns `T | Promise<T>`, those functions become `async` and the signature
+change propagates across `@zolana/transaction` and `@zolana/wallet`. That
+propagation is the whole cost of the packet and the reason it was deferred: it
+collides with any worker editing those two packages.
+
+**Done when** a test passes an async backend that holds no key material through
+each of the three call sites and gets the same result the concrete `ViewingKey`
+gives, and the public surface snapshot records the `async` signatures.
 
 **Read.** [`row-updates/hashers-b.md`](row-updates/hashers-b.md) and
 [`row-updates/poseidon-parity.md`](row-updates/poseidon-parity.md).
