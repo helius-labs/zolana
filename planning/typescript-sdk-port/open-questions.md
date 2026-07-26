@@ -11,6 +11,12 @@ are the list that decides when this port finishes. Fifteen were answerable from
 Light's source; five of those are implemented on this branch and the rest are
 recorded with the smallest change that would settle them.
 
+All eleven of Part 1 are now ruled, along with six from Parts 2 and 3, on
+2026-07-25 and 2026-07-26. Each question's status line names its ruling and
+links to the entry in [`authority-rulings.md`](authority-rulings.md) that
+carries the evidence and the reasoning. The question text above each status line
+is left as it was written, so a reader can see what the ruling was made against.
+
 ## How each answer is classified
 
 The owner's instruction was to find what Light does and adopt it rather than
@@ -40,7 +46,8 @@ stops.
 
 # Part 1: the owner's list
 
-Eleven questions. No amount of SDK work moves any of them.
+Eleven questions. No amount of SDK work moves any of them. All eleven are ruled;
+question 10 is ruled in part, and its status line says which part.
 
 ## 1. Owner-hash encoding includes y-parity in the specification and omits it everywhere else (G7-1)
 
@@ -61,10 +68,10 @@ no third artifact to fall out of step. Zolana has a real specification, which is
 worth more than Light's arrangement and is also why Zolana has this class of
 question at all.
 
-**Status:** waiting on the owner. Option 1 in the ledger, amending the
-specification to describe two encodings, changes no code and breaks nothing;
-Option 2 is a hard fork of the owner commitment that makes existing UTXOs
-unspendable.
+**Ruled** 2026-07-26: Option 1. Amend the specification to match the
+implementations, and restate the collision argument at line 278 on the
+parity-free form rather than delete it. No code moves and no key rotates.
+[Ledger](authority-rulings.md#ruled-owner-hash-encoding-g7-1).
 
 ## 2. The specification states the confidential owner tag two ways that contradict each other (T23)
 
@@ -76,9 +83,10 @@ and the four implementations agree with the circuit.
 **Light:** never meets it, for the reason in question 1, and additionally has one
 ownership rail where Zolana has two.
 
-**Status:** waiting on the owner. Amending the text costs nothing; either code
-direction regenerates twenty or twenty-four verifying keys and rotates the
-proving keys.
+**Ruled** 2026-07-26: amend the specification to the variant split, the zero
+sentinel for the anonymous and zone-authority rails and the equality form for
+the confidential one. Landed in `25b13fa2`; no verifying key was regenerated.
+[Ledger](authority-rulings.md#ruled-confidential-owner-tag-t23).
 
 ## 3. The response context field is `slot` in the specification and `block_time` in all three implementations (C04, first half)
 
@@ -90,8 +98,9 @@ proving keys.
 (`js/stateless.js/src/rpc.ts:1692-1700`) as a plain method rather than a field on
 a response wrapper, so there is nothing to disagree about.
 
-**Status:** waiting on the owner. The second half of C04, the integer domain, is
-question 12 and is settled.
+**Ruled** 2026-07-26: amend the specification to `block_time: i64`, matching the
+three implementations. The second half of C04, the integer domain, is question 12
+and is settled. [Ledger](authority-rulings.md#ruled-the-u64-integer-domain-c04).
 
 ## 4. Three artifacts define the indexer schema and two of them are outside the SDK (X01)
 
@@ -105,9 +114,12 @@ Photon and the SDK read the same Rust structs, which is exactly Zolana's
 arrangement minus the third document. So Light's arrangement is the state Zolana
 reaches by amending the specification, not by changing code.
 
-**Status:** waiting on the owner to name which of the three is authoritative.
-Two smaller residues on this row were fixed by the interface batch and are
-closed.
+**Ruled** 2026-07-26: where Rust, the port and Photon already agree, that
+agreement is authoritative and the specification is the stale artifact. The port
+is correct as it stands, and `get_nullifier_queue_elements` needs a specification
+entry rather than removal. Two smaller residues on this row were fixed by the
+interface batch and are closed.
+[Ledger](authority-rulings.md#ruled-indexer-api-schema-authority-x01).
 
 ## 5. A zone authority can move value out of a zone in the program and cannot in the specification
 
@@ -123,10 +135,11 @@ matches the program.
 [`light-protocol-comparison.md`](light-protocol-comparison.md) already records
 under differences rooted in the protocols.
 
-**Status:** waiting on the owner, and the evidence that would settle it is
-named: a `program-tests` scenario submitting a zone-authority transaction with a
-negative `public_sol_amount` and a real proof, to see whether the validator
-settles it. That test is outside SDK scope.
+**Ruled** 2026-07-26: amend the specification to match the program, on the same
+principle as G7-1 and X01. No SDK code moves; the guard is already gone. The
+`program-tests` scenario submitting a negative `public_sol_amount` with a real
+proof is still worth having, as confirmation rather than as a precondition.
+[Ledger](authority-rulings.md#q5-a-zone-authority-moving-value-out-of-a-zone).
 
 ## 6. The frozen-source gate fails on Rust SDK fixes that cannot change a fixture
 
@@ -144,8 +157,12 @@ that produced it. The mature lineage's answer to this class of drift is not a
 source hash, which argues for narrowing the frozen set to files whose bytes feed
 a fixture rather than scheduling work around the gate.
 
-**Status:** waiting on the owner. The one-line change is `BASELINE_SHA` in
-`xtask/src/bin/ts-fixtures.rs`, and `xtask` is outside the scope rule.
+**Ruled** 2026-07-26: drop the source-hash gate entirely, as Light does. This
+went further than the recommendation above, which was to narrow the frozen set.
+The change is `assert_frozen_sources` and its constants in
+`xtask/src/bin/ts-fixtures.rs`, which is outside the scope rule. Fixture drift is
+then caught only by the fixtures' own regenerate-and-compare run.
+[Ledger](authority-rulings.md#q6-the-frozen-source-gate).
 
 ## 7. Whether to take `@solana/kit`, and with it versioned transactions
 
@@ -168,9 +185,10 @@ instructions and converts them at the boundary, compiling no transactions with
 kit and keeping web3.js as a peer dependency. "Light adopted kit, so should we"
 is not an argument its code supports.
 
-**Status:** waiting on the owner, and it is a decision about the wallet ecosystem
-rather than about size. The signing path does not move either way: a v0 message
-is still bytes and `Transaction` is still `{ messageBytes, signatures }`.
+**Ruled** 2026-07-26: stay on legacy messages, and revisit when a second pool
+tree ships. The signing path does not move either way, a v0 message being still
+bytes, which is what makes the deferral cheap.
+[Ledger](authority-rulings.md#q7-solanakit-and-versioned-transactions).
 
 ## 8. Whether the ciphertext format change is scheduled
 
@@ -182,9 +200,10 @@ rests on that change arriving.
 **Light:** never meets it. Light's compressed accounts are public, so it has no
 ciphertext in a transaction at all.
 
-**Status:** waiting on a date or an owner. If it slips, narrowing
-`SPP_SUPPORTED_SHAPES` stops being bookkeeping. Question 13 gives the SDK a way
-to see the problem in the meantime.
+**Ruled** 2026-07-26: not scheduled, so plan as though it is not coming. The
+conditional above fires and narrowing `SPP_SUPPORTED_SHAPES` is necessary work.
+Question 7's answer no longer rests on this change arriving; it rests on the size
+measurement. [Ledger](authority-rulings.md#q8-the-ciphertext-format-change).
 
 ## 9. Whether a second pool tree is planned, and when
 
@@ -199,8 +218,9 @@ toward Zolana later rather than now. Light's account list grows with input count
 because it names a tree and a queue per input; Zolana's `InputUtxo` carries a
 `tree_index: u8`, so five inputs add 38 bytes and no accounts.
 
-**Status:** waiting on whoever owns tree rollover. No roadmap statement exists
-either way.
+**Ruled** 2026-07-26: no plan currently, so proceed on the one-tree assumption
+and write it as an assumption with a named dependency rather than as a fact.
+Question 7's answer rests on it. [Ledger](authority-rulings.md#q9-a-second-pool-tree).
 
 ## 10. Two Rust changes that must be ruled on before either language can move
 
@@ -239,9 +259,13 @@ independent decoders plus a clean negative.
 
 For S01 there is a partial answer, in question 13.
 
-**Status:** waiting on the owner. T28's third clause is safe on its own, relabels
-a deferred Poseidon failure rather than refusing anything new, and could be taken
-alone in both languages.
+**Partly ruled** 2026-07-26: an explicitly-passed zero at a zone binding is
+normalized to absent rather than refused, which reshapes T28's first two clauses
+and goes against the recommendation for the first. T28's third clause and S01 are
+untouched; the third clause is safe on its own, relabels a deferred Poseidon
+failure rather than refusing anything new, and could be taken alone in both
+languages.
+[Ledger](authority-rulings.md#q10-an-explicitly-passed-zero-at-a-zone-binding-t28).
 
 ## 11. Two program defects that need their own pull requests
 
@@ -253,9 +277,11 @@ bind its `user_record` to the owner whose UTXOs are merged.
 **Light:** not applicable. These are Zolana circuit and program defects with
 executed reproductions, and no SDK change reaches either.
 
-**Status:** PD-2 has its branch and PR #160, which is open rather than merged and
-whose commit is not an ancestor of `main`. PD-1 has no branch. Both are outside
-`sdk-libs/**` by construction.
+**Ruled** 2026-07-26: each gets its own pull request against the program, tracked
+outside this port, and neither blocks the port from landing. PD-2 has its branch
+and PR #160, which is open rather than merged and whose commit is not an ancestor
+of `main`. PD-1 has no branch. Both are outside `sdk-libs/**` by construction.
+[Ledger](authority-rulings.md#q11-the-two-program-defects).
 
 ---
 
