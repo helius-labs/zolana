@@ -1,0 +1,14 @@
+{
+  "extends": "./sdk-libs/ts/config/tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "sourceMap": false
+  },
+  "include": [
+    "sdk-libs/ts/*/src/**/*.ts",
+    "sdk-libs/ts/*/test/**/*.ts",
+    "sdk-tests/typescript-client/**/*.ts"
+  ]
+}

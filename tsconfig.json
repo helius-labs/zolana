@@ -1,0 +1,4 @@
+{
+  "extends": "./sdk-libs/ts/config/tsconfig.base.json",
+  "files": []
+}
