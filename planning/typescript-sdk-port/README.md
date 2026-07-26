@@ -38,7 +38,7 @@ entries wrote the local `+02:00` clock and labelled it UTC.
 | Phase | 3 of 4: cryptographic certification. The parity phase closed and the remediation phase closed with it |
 | Certification suites | Key-handling `K1`-`K10` and proof suites `P1`-`P5` all landed. `PKP-08`, the closing evidence package, is in flight |
 | Full SDK completion gates | The binding constraint. All seven substantive lines are open or partial, and none was ever evidenced; four workers hold them |
-| Branch | Fully green at `f964d7a2`: unit suite 2229 passing, `check:static` clean for the first time, no fixture drift, `check:packaging` passing |
+| Branch | Fully green at `51206ec0`: unit suite 2284 passing, `check:static` clean, no fixture drift, `check:packaging` and `check:scope` passing |
 
 The release blocker is closed. `P3` had reported pure-TypeScript G2 compression
 refusing points a live prover produced while Rust's `alt_bn128_g2_compress_be`
@@ -60,17 +60,20 @@ No worker holds a checklist row, because none is open. The four in flight hold
 the full SDK completion gates, which the pull request must close to be
 production-ready:
 
-1. `port/gate-ci`, the pull-request merge tier (`G9-1`, `G9-2`) and fixture-provenance gates (`G8-1`, `G8-2`)
-2. `port/gate-shapes`, shape and rail coverage for EdDSA and P256, plus named zone and merge-zone rejection coverage
-3. `port/gate1-walk`, the per-package evidence walk across all eleven packages that closes package gate 1
-4. `port/gate-submit`, landing the four spend-flow submissions on chain now that the G2 wall is down
+1. `port/gate1-walk`, the per-package evidence walk across all eleven packages that closes package gate 1
+2. `port/gate-submit`, landing the four spend-flow submissions on chain now that the G2 wall is down
+3. `port/gate-prover`, a live proof per shape per rail from the same-revision prover, and the clean-checkout command list
+4. `port/gate-ledger`, the cross-package boundary, Photon contract, fixture rejection-and-tamper, and export-ledger lines
 
-Merged and closed: `port/gate12-pkg` (the eleven-package census, `G9-4`, `G6-2`,
-`F041`), `port/gate6-photon` (a live Photon contract suite of eleven tests against
-a same-revision indexer, which found no field-shape disagreement),
-`port/gate3-flows` (all eight named flows now carry real-stack or real-prover
-evidence, and no flow rests on a mock alone), and `port/g2` (the compression
-defect above).
+Every remaining gate line now has an owner. Merged and closed: `port/gate12-pkg`
+(the eleven-package census, `G9-4`, `G6-2`, `F041`), `port/gate6-photon` (a live
+Photon contract suite of eleven tests against a same-revision indexer, which
+found no field-shape disagreement), `port/gate3-flows` (all eight named flows
+carry real-stack or real-prover evidence, and no flow rests on a mock alone),
+`port/g2` (the compression defect above), `port/gate-ci` (`G9-1`, `G9-2`, `G8-1`,
+`G8-2`, and an honest `check:scope`), and `port/gate-shapes` (the authoritative
+ten-shape set, no drift across the four duplicated lists, and named zone
+rejections).
 
 Two overlaps between them are known and benign. Each new suite registers an
 `xtask` binary in `xtask/Cargo.toml` and a generator name in
