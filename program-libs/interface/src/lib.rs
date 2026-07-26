@@ -5,7 +5,6 @@ pub mod merge_utils;
 pub mod pda;
 pub mod shape;
 pub mod state;
-#[cfg(feature = "verifying-keys")]
 pub mod verifying_keys;
 
 /// Decode a base58 program id into a `[u8; 32]` const at compile time.

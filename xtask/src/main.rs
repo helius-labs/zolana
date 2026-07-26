@@ -334,10 +334,10 @@ fn tx_size(args: Vec<String>) {
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
     use zolana_interface::{
         instruction::{
-            tag, CircuitId, CircuitVariant, InputUtxo, OwnerTag, P256Proof, PublicLeg,
-            TransactIxData, TransactOutput, TransactProof,
+            tag, CircuitId, InputUtxo, OwnerTag, P256Proof, PublicLeg, TransactIxData,
+            TransactOutput, TransactProof,
         },
-        SHIELDED_POOL_PROGRAM_ID,
+        N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
     use zolana_transaction::instructions::transact::SENDER_SLOT_COUNT;
 
@@ -419,7 +419,7 @@ fn tx_size(args: Vec<String>) {
                 eddsa_signer_index: 255,
             })
             .collect();
-        let outputs = outputs_spec
+        let outputs: Vec<TransactOutput> = outputs_spec
             .iter()
             .map(|(owner_tag, data_len)| TransactOutput {
                 utxo_hash: [0u8; 32],
@@ -431,11 +431,11 @@ fn tx_size(args: Vec<String>) {
             proof,
             expiry_unix_ts: 0,
             private_tx_hash: [0u8; 32],
-            circuit: CircuitId::confidential(if p256_signing_pk_x.is_some() {
-                CircuitVariant::P256
-            } else {
-                CircuitVariant::Eddsa
-            }),
+            circuit: CircuitId::ConfidentialEddsa(
+                n as u8,
+                outputs.len() as u8,
+                N_PUBLIC_SLOTS as u8,
+            ),
             p256_signing_pk_x,
             inputs,
             public_legs,

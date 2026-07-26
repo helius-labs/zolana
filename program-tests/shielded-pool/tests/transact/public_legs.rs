@@ -16,7 +16,7 @@ use zolana_interface::{
         },
         Transact, TransactLegAccounts, TransactSolLeg, TransactSplLeg,
     },
-    pda,
+    pda, N_PUBLIC_SLOTS,
 };
 use zolana_program_test::ZolanaProgramTest;
 
@@ -49,7 +49,7 @@ fn ix_data(public_legs: Vec<PublicLeg>) -> TransactIxData {
         proof: TransactProof::zeroed_eddsa(),
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
-        circuit: CircuitId::ConfidentialEddsa,
+        circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         p256_signing_pk_x: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],

@@ -12,6 +12,7 @@ use crate::instructions::settlement::{
     validate_cpi_authority, validate_sol_interface, validate_spl_settlement, Settlement,
     SettlementAccountsSol, SettlementAccountsSpl,
 };
+use crate::instructions::zone_config::loader::load_zone_config;
 
 pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
@@ -99,5 +100,39 @@ impl<'a> TransactAccounts<'a> {
             tree,
             settlements,
         })
+    }
+}
+
+pub struct ZoneTransactAccounts;
+
+impl ZoneTransactAccounts {
+    /// Parse the accounts shared by `zone_transact` and `zone_authority_transact`:
+    /// `payer`, `tree`, the `ZoneConfig` account (the zone's `zone_auth` PDA), then
+    /// the cpi-signer / settlement accounts shared with `transact`. Returns the
+    /// parsed transact accounts and the zone's `program_id`, read from the validated
+    /// `ZoneConfig` (never re-derived; the create-time `zone_auth` derivation
+    /// already bound it). `require_enabled` additionally requires
+    /// `zone_authority_transact_is_enabled` (only `zone_authority_transact` sets it).
+    pub fn validate_and_parse<'a>(
+        accounts: &'a mut [AccountView],
+        ix: &TransactIxDataRef<'_>,
+        require_enabled: bool,
+    ) -> Result<(TransactAccounts<'a>, [u8; 32]), ProgramError> {
+        let mut iter = AccountIterator::new(accounts);
+        let payer: &AccountView = iter.next_signer("payer")?;
+        let tree = iter.next_mut("tree")?;
+        // The `zone_config` must sign (only the zone program can sign for its
+        // `zone_auth` PDA); validate owner / discriminator and read the bound zone
+        // `program_id`.
+        let zone_config = iter.next_signer("zone_config")?;
+        let (zone_program_id, enabled) = {
+            let config = load_zone_config(zone_config)?;
+            (config.program_id.to_bytes(), config.enabled())
+        };
+        if require_enabled && !enabled {
+            return Err(ShieldedPoolError::ZoneAuthorityTransactDisabled.into());
+        }
+        let transact_accounts = TransactAccounts::from_iter(iter, ix, payer, tree)?;
+        Ok((transact_accounts, zone_program_id))
     }
 }

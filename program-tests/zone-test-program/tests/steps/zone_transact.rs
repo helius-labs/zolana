@@ -38,9 +38,7 @@ use zolana_client::{
     TransferSpendInput, ZoneTransferProver,
 };
 use zolana_interface::instruction::{
-    instruction_data::transact::{
-        CircuitId, CircuitVariant, InputUtxo, TransactIxData, TransactProof,
-    },
+    instruction_data::transact::{CircuitId, InputUtxo, TransactIxData, TransactProof},
     tag::ZONE_TRANSACT,
     TransactLegAccounts, TransactSolLeg, ZoneTransact,
 };
@@ -690,10 +688,14 @@ fn assemble_ix_data(
         proof,
         expiry_unix_ts: external.expiry_unix_ts,
         private_tx_hash,
-        circuit: CircuitId::zone(match rail {
-            Variant::P256 => CircuitVariant::P256,
-            Variant::Eddsa => CircuitVariant::Eddsa,
-        }),
+        circuit: match rail {
+            Variant::P256 => return Err(anyhow!("the P256 transact rail was removed")),
+            Variant::Eddsa => CircuitId::ZoneEddsa(
+                n_inputs as u8,
+                external.outputs.len() as u8,
+                zolana_interface::N_PUBLIC_SLOTS as u8,
+            ),
+        },
         p256_signing_pk_x,
         inputs,
         public_legs: external

@@ -10,8 +10,8 @@ use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            CircuitId, CircuitVariant, ExternalDataHash, InputUtxo, OwnerTag, PublicLeg,
-            ResolvedOutput, ResolvedPublicLeg, TransactIxData, TransactOutput, TransactProof,
+            CircuitId, ExternalDataHash, InputUtxo, OwnerTag, PublicLeg, ResolvedOutput,
+            ResolvedPublicLeg, TransactIxData, TransactOutput, TransactProof,
         },
         tag,
     },
@@ -211,15 +211,16 @@ pub fn new_transact_ix_data(
     outputs: Vec<TransactOutput>,
     p256_signing_pk_x: Option<[u8; 32]>,
 ) -> TransactIxData {
+    let circuit = CircuitId::ConfidentialEddsa(
+        inputs.len() as u8,
+        outputs.len() as u8,
+        N_PUBLIC_SLOTS as u8,
+    );
     TransactIxData {
         proof: TransactProof::zeroed_eddsa(),
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
-        circuit: CircuitId::confidential(if p256_signing_pk_x.is_some() {
-            CircuitVariant::P256
-        } else {
-            CircuitVariant::Eddsa
-        }),
+        circuit,
         p256_signing_pk_x,
         inputs,
         public_legs,

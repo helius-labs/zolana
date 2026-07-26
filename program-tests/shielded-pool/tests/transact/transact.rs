@@ -29,6 +29,7 @@ use zolana_interface::{
         instruction_data::transact::{CircuitId, OwnerTag, TransactIxData},
         Transact,
     },
+    N_PUBLIC_SLOTS,
 };
 use zolana_keypair::hash::hash_field;
 use zolana_program_test::ZolanaProgramTest;
@@ -288,9 +289,8 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
 }
 
 /// The declared circuit selector is checked before proof verification: a
-/// selector whose type belongs to another instruction, or whose variant
-/// contradicts `p256_signing_pk_x`, is rejected even with an otherwise valid
-/// proof.
+/// selector whose type belongs to another instruction or whose shape is not
+/// supported is rejected even with an otherwise valid proof.
 #[test]
 fn transact_rejects_mismatched_circuit_selector() {
     let Some(mut env) = TransactEnv::boot() else {
@@ -303,13 +303,13 @@ fn transact_rejects_mismatched_circuit_selector() {
     for (circuit, error) in [
         // A zone selector on the default-zone `transact` instruction.
         (
-            CircuitId::ZoneEddsa,
+            CircuitId::ZoneEddsa(2, 3, N_PUBLIC_SLOTS as u8),
             ShieldedPoolError::MismatchedCircuitType,
         ),
-        // The P256 variant without a `p256_signing_pk_x`.
+        // A confidential selector for which no key exists.
         (
-            CircuitId::ConfidentialP256,
-            ShieldedPoolError::MismatchedCircuitVariant,
+            CircuitId::ConfidentialEddsa(6, 6, N_PUBLIC_SLOTS as u8),
+            ShieldedPoolError::InvalidTransactShape,
         ),
     ] {
         let mut data = valid.clone();

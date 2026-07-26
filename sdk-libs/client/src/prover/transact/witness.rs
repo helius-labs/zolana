@@ -1,9 +1,12 @@
-use zolana_interface::instruction::instruction_data::transact::{
-    CircuitId, CircuitVariant, InputUtxo, TransactIxData, TransactProof,
+use zolana_interface::{
+    instruction::instruction_data::transact::{
+        CircuitId, InputUtxo, TransactIxData, TransactProof,
+    },
+    N_PUBLIC_SLOTS,
 };
 use zolana_keypair::SignatureType;
 use zolana_transaction::instructions::{
-    transact::{inputs_proof_variant, SppProofInputs},
+    transact::{inputs_require_p256, SppProofInputs},
     types::SppProofInputUtxo,
 };
 
@@ -12,7 +15,7 @@ use crate::{
     prover::{
         transact::{
             eddsa::TransferProver,
-            p256_and_eddsa::{P256Owner, TransferP256Prover, TransferSpendInput},
+            p256_and_eddsa::{TransferP256Prover, TransferSpendInput},
         },
         ProofCompressed, ProverClient, TransferInputs, TransferP256Inputs,
     },
@@ -75,12 +78,6 @@ pub enum ProverVariant {
 pub struct BuiltCircuit {
     pub circuit: ProverVariant,
 }
-
-/// Sentinel `eddsa_signer_index` marking a P256-owned input: it routes the
-/// input to the transaction's shared P256 signing key and skips the eddsa
-/// signer check. Valid only when the declared circuit selector is a P256
-/// variant. Mirrors `P256_OWNED_SIGNER` in the shielded-pool program.
-const P256_OWNED_SIGNER: u8 = 255;
 
 /// Default output-tree slot every input is placed at (`tree_index` 0).
 const DEFAULT_TREE_INDEX: u8 = 0;
@@ -151,32 +148,6 @@ impl ProverClient {
     }
 }
 
-/// Recover the [`P256Owner`] witness from the stored 64-byte signature and the
-/// first P256-owned input's signing pubkey. The transaction crate keeps only the
-/// raw `r || s` bytes; the pubkey comes from the owner of a real P256 input.
-fn p256_owner(proof_inputs: &SppProofInputs) -> Result<P256Owner, ClientError> {
-    let signature = proof_inputs
-        .p256_signature
-        .ok_or(ClientError::MissingP256Signature)?;
-    let pubkey = proof_inputs
-        .input_utxos
-        .iter()
-        .filter(|spend| !spend.is_dummy())
-        .map(|spend| spend.utxo.owner)
-        .find(|owner| matches!(owner.signature_type(), Ok(SignatureType::P256)))
-        .ok_or(ClientError::MissingP256Signature)?
-        .as_p256()?;
-    let mut sig_r = [0u8; 32];
-    let mut sig_s = [0u8; 32];
-    sig_r.copy_from_slice(&signature[..32]);
-    sig_s.copy_from_slice(&signature[32..]);
-    Ok(P256Owner {
-        pubkey,
-        sig_r,
-        sig_s,
-    })
-}
-
 pub fn into_prover(
     proof_inputs: SppProofInputs,
     input_merkle_proofs: &[SpendProof],
@@ -204,14 +175,9 @@ pub fn into_prover_with_dummy_policy(
     {
         return Err(ClientError::DummyInputsNotAllowed);
     }
-    // Derived here, once: the variant drives the prover witness below and the
-    // `circuit` selector stamped by `assemble`, so they agree by construction.
-    let variant = inputs_proof_variant(&proof_inputs.input_utxos)?;
-    let p256_owner = if variant == CircuitVariant::P256 {
-        Some(p256_owner(&proof_inputs)?)
-    } else {
-        None
-    };
+    if inputs_require_p256(&proof_inputs.input_utxos)? {
+        return Err(ClientError::P256IsUnimplemented);
+    }
     let shape = proof_inputs.check_shape()?;
     let public_movements = proof_inputs.public_movements()?;
     let SppProofInputs {
@@ -224,29 +190,15 @@ pub fn into_prover_with_dummy_policy(
 
     let spends = attach_input_proofs(inputs, input_merkle_proofs, dummy_nullifier_proofs)?;
 
-    let circuit = if variant == CircuitVariant::P256 {
-        let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
-        ProverVariant::P256(TransferP256Prover {
-            inputs: spends,
-            outputs,
-            external_data,
-            public_movements,
-            payer_pubkey_hash,
-            allow_dummy_inputs,
-            p256_owner,
-            shape: Some(shape),
-        })
-    } else {
-        ProverVariant::Eddsa(TransferProver {
-            inputs: spends,
-            outputs,
-            external_data,
-            public_movements,
-            payer_pubkey_hash,
-            allow_dummy_inputs,
-            shape: Some(shape),
-        })
-    };
+    let circuit = ProverVariant::Eddsa(TransferProver {
+        inputs: spends,
+        outputs,
+        external_data,
+        public_movements,
+        payer_pubkey_hash,
+        allow_dummy_inputs,
+        shape: Some(shape),
+    });
     Ok(BuiltCircuit { circuit })
 }
 
@@ -272,6 +224,9 @@ pub fn assemble_with_dummy_policy(
     allow_dummy_inputs: bool,
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
+    if inputs_require_p256(&proof_inputs.input_utxos)? {
+        return Err(ClientError::P256IsUnimplemented);
+    }
 
     // Signer indices for the real inputs only; dummies (zero owner) inherit the
     // first real input's signer below. A zero owner reads as P256, so it must
@@ -282,12 +237,8 @@ pub fn assemble_with_dummy_policy(
         .iter()
         .filter(|spend| !spend.is_dummy())
     {
-        let signer = if spend.utxo.owner.signature_type()? == SignatureType::P256 {
-            P256_OWNED_SIGNER
-        } else {
-            DEFAULT_EDDSA_SIGNER_INDEX
-        };
-        real_signer_indices.push(signer);
+        debug_assert_ne!(spend.utxo.owner.signature_type()?, SignatureType::P256);
+        real_signer_indices.push(DEFAULT_EDDSA_SIGNER_INDEX);
     }
 
     let zolana_transaction::ExternalData {
@@ -307,10 +258,11 @@ pub fn assemble_with_dummy_policy(
         .map(zolana_transaction::instructions::transact::SettlementLeg::public_leg)
         .collect();
 
-    // The circuit selector derives from the same variant decision as the prover
-    // witness: the spending key material, never a user choice. `assemble` only
-    // builds default-zone `transact` data, so the type is always confidential.
-    let circuit_id = CircuitId::confidential(inputs_proof_variant(&proof_inputs.input_utxos)?);
+    let circuit_id = CircuitId::ConfidentialEddsa(
+        shape.n_inputs() as u8,
+        shape.n_outputs() as u8,
+        N_PUBLIC_SLOTS as u8,
+    );
 
     let BuiltCircuit { circuit } = into_prover_with_dummy_policy(
         proof_inputs,

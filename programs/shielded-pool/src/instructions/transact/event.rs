@@ -1,4 +1,7 @@
+use arrayvec::ArrayVec;
+use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
+    error::ShieldedPoolError,
     event::{GeneralEvent, Input, MessageData, Movement},
     instruction::{
         instruction_data::transact::{ResolvedOutput, TransactIxDataRef},
@@ -6,12 +9,30 @@ use zolana_interface::{
     },
 };
 
+use super::verify::MAX_OUTPUTS;
 use crate::instructions::settlement::Settlement;
 
 pub struct TreeWrite {
     pub inputs: Vec<Input>,
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
+}
+
+#[inline(never)]
+pub(crate) fn resolve_outputs<'a>(
+    accounts: &[AccountView],
+    ix: &TransactIxDataRef<'a>,
+) -> Result<ArrayVec<ResolvedOutput<'a>, MAX_OUTPUTS>, ProgramError> {
+    let mut outputs = ArrayVec::new(); // TODO: check whether we really need this allocation.
+    for output in &ix.outputs {
+        let resolved = output.into_resolved(ix.p256_signing_pk_x.as_ref(), |i| {
+            accounts.get(usize::from(i)).map(|a| a.address().to_bytes())
+        })?;
+        outputs
+            .try_push(resolved)
+            .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
+    }
+    Ok(outputs)
 }
 
 /// Build the emitted [`GeneralEvent`] from the instruction. Outputs map 1:1 to
