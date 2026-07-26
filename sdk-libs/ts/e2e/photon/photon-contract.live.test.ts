@@ -3,11 +3,13 @@
 /**
  * Gate 6 — same-revision live Photon contract.
  *
- * Boots `startLocalStack` Photon's binary at `target/debug/photon` (offset 800)
- * and drives every production indexer method through `@zolana/api` /
- * `ZolanaIndexer`. Assertions require the client's decoder to accept the live
- * payload and the wire fields the decoder depends on to arrive in the types
- * Photon actually emits (not a recorded fixture).
+ * Boots `startLocalStack` Photon's binary (offset 800) and drives every
+ * production indexer method through `@zolana/api` / `ZolanaIndexer`. The stack
+ * reads `CARGO_TARGET_DIR` (else `<repo>/target`) for the same-revision
+ * `debug/photon` and `deploy/*.so` that CI builds with `just build-photon` /
+ * `just build-programs`. Assertions require the client's decoder to accept the
+ * live payload and the wire fields the decoder depends on to arrive in the
+ * types Photon actually emits (not a recorded fixture).
  *
  * Light's precedent is `js/stateless.js/tests/e2e/rpc-interop.test.ts`: live
  * Photon, production SDK client, field-level checks after real chain activity.

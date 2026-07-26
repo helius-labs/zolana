@@ -19,7 +19,12 @@ export class TestKitError extends Error {
       cause?: unknown;
     }> = {},
   ) {
-    super(code, { cause: options.cause });
+    // Include details in the message so a missing binary path is visible when
+    // a runner only prints `error.message`.
+    super(
+      options.details === undefined ? code : `${code} ${JSON.stringify(options.details)}`,
+      { cause: options.cause },
+    );
     this.name = "TestKitError";
     this.code = code;
     this.details = options.details;

@@ -29,6 +29,10 @@
         "kind": "type"
       },
       {
+        "name": "cargoTargetDir",
+        "kind": "value"
+      },
+      {
         "name": "confirm",
         "kind": "value"
       },
