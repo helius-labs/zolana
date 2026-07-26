@@ -32,25 +32,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       # The jobs below split `npm run check` by the services each part needs. A
       # sub-script added to `check` without a job here would leave the merge gate
-      # narrower than the script it claims to run.
+      # narrower than the script it claims to run. check:scope prints that split
+      # and fails when package.json drifts from the documented composition.
       - name: Assert the jobs cover every part of npm run check
-        run: |
-          node --input-type=module -e '
-          import { readFile } from "node:fs/promises";
-          const { scripts } = JSON.parse(await readFile("package.json", "utf8"));
-          const jobs = [
-            "check:static",
-            "check:suites",
-            "check:packaging",
-            "check:browser-runtime",
-            "check:fixtures",
-            "check:e2e",
-          ];
-          const expected = jobs.map((name) => `npm run ${name}`).join(" && ");
-          if (scripts.check !== expected) {
-            throw new Error(`package.json check runs "${scripts.check}"; this workflow runs "${expected}"`);
-          }
-          '
+        run: npm run check:scope
 
   # Deliberately outside `npm run check`, which gates shipped code. This gates the
   # review checklist, needs no install, and runs in seconds, so it stays a job of
