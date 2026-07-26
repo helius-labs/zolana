@@ -1,5 +1,7 @@
 //! Shared wire contract for the Zolana indexer JSON-RPC API.
 
+mod integer;
+
 use std::{fmt, str::FromStr};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -475,6 +477,7 @@ impl<'de> Deserialize<'de> for Limit {
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Context {
+    #[serde(deserialize_with = "integer::deserialize_i64")]
     pub block_time: i64,
 }
 
@@ -493,6 +496,7 @@ pub struct GetRingsByTagsRequest {
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct EncryptedUtxoMatch {
+    #[serde(deserialize_with = "integer::deserialize_u64")]
     pub slot: u64,
     pub tx_signature: SerializableSignature,
     pub output_slot: RingsOutputSlot,
@@ -541,6 +545,7 @@ pub struct RingsMessage {
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ShieldedTransaction {
+    #[serde(deserialize_with = "integer::deserialize_u64")]
     pub slot: u64,
     pub tx_signature: SerializableSignature,
     pub tx_viewing_pk: Option<Base64String>,
@@ -587,7 +592,7 @@ pub struct GetMerkleProofsResponse {
 pub struct GetNullifierQueueElementsRequest {
     pub tree_account: SerializablePubkey,
     /// Return elements with `input_queue_seq >= start_seq` (default 0).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "integer::deserialize_u64")]
     pub start_seq: u64,
     /// Maximum number of elements to return.
     pub limit: Limit,
@@ -606,6 +611,7 @@ pub struct GetNullifierQueueElementsResponse {
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NullifierQueueElement {
+    #[serde(deserialize_with = "integer::deserialize_u64")]
     pub seq: u64,
     pub value: Hash,
 }
@@ -627,6 +633,7 @@ pub struct MerkleProof {
     pub path: Vec<Hash>,
     pub leaf_index: u64,
     pub root: Hash,
+    #[serde(deserialize_with = "integer::deserialize_u64")]
     pub root_seq: u64,
     pub root_index: u16,
 }
@@ -659,6 +666,7 @@ pub struct NonInclusionProof {
     pub high_element: Hash,
     pub high_element_index: u64,
     pub root: Hash,
+    #[serde(deserialize_with = "integer::deserialize_u64")]
     pub root_seq: u64,
     pub root_index: u16,
 }
@@ -723,5 +731,74 @@ mod tests {
             "limit": PAGE_LIMIT + 1,
         });
         assert!(serde_json::from_value::<GetNullifierQueueElementsRequest>(invalid).is_err());
+    }
+
+    #[test]
+    fn unbounded_fields_accept_a_decimal_string() {
+        let past_safe = 9007199254740993u64;
+        let from_number = serde_json::from_value::<Context>(serde_json::json!({
+            "block_time": past_safe as i64,
+        }))
+        .unwrap();
+        let from_string = serde_json::from_value::<Context>(serde_json::json!({
+            "block_time": past_safe.to_string(),
+        }))
+        .unwrap();
+        assert_eq!(from_number, from_string);
+
+        let tree = SerializablePubkey::from([3; 32]);
+        let from_number =
+            serde_json::from_value::<GetNullifierQueueElementsRequest>(serde_json::json!({
+                "tree_account": tree.to_string(),
+                "start_seq": past_safe,
+                "limit": 1,
+            }))
+            .unwrap();
+        let from_string =
+            serde_json::from_value::<GetNullifierQueueElementsRequest>(serde_json::json!({
+                "tree_account": tree.to_string(),
+                "start_seq": past_safe.to_string(),
+                "limit": 1,
+            }))
+            .unwrap();
+        assert_eq!(from_number.start_seq, from_string.start_seq);
+        assert_eq!(from_number.start_seq, past_safe);
+    }
+
+    #[test]
+    fn bounded_fields_still_refuse_a_decimal_string() {
+        let err = serde_json::from_value::<MerkleProof>(serde_json::json!({
+            "leaf": Hash::from([1; 32]).to_string(),
+            "merkle_context": {
+                "tree_type": 1,
+                "tree": SerializablePubkey::from([2; 32]).to_string(),
+            },
+            "path": [],
+            "leaf_index": "7",
+            "root": Hash::from([3; 32]).to_string(),
+            "root_seq": 1,
+            "root_index": 0,
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("leaf_index") || err.contains("invalid type"));
+    }
+
+    #[test]
+    fn unbounded_fields_still_serialize_as_numbers() {
+        let json = serde_json::to_value(Context {
+            block_time: 9007199254740993,
+        })
+        .unwrap();
+        assert!(json["block_time"].is_number());
+        assert!(!json["block_time"].is_string());
+
+        let json = serde_json::to_value(NullifierQueueElement {
+            seq: 9007199254740993,
+            value: Hash::from([9; 32]),
+        })
+        .unwrap();
+        assert!(json["seq"].is_number());
+        assert!(!json["seq"].is_string());
     }
 }
