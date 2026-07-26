@@ -343,10 +343,6 @@
         "kind": "type"
       },
       {
-        "name": "SyncWalletAuthority",
-        "kind": "type"
-      },
-      {
         "name": "syncWalletWithAuthority",
         "kind": "value"
       },
@@ -416,6 +412,10 @@
       },
       {
         "name": "WalletAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "WalletSyncAuthority",
         "kind": "type"
       },
       {
@@ -1051,10 +1051,6 @@
         "kind": "type"
       },
       {
-        "name": "SyncWalletAuthority",
-        "kind": "type"
-      },
-      {
         "name": "syncWalletWithAuthority",
         "kind": "value"
       },
@@ -1076,6 +1072,10 @@
       },
       {
         "name": "WalletAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "WalletSyncAuthority",
         "kind": "type"
       },
       {

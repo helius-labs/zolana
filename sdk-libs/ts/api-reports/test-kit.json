@@ -29,6 +29,10 @@
         "kind": "type"
       },
       {
+        "name": "confirm",
+        "kind": "value"
+      },
+      {
         "name": "copyOutput",
         "kind": "value"
       },
@@ -121,6 +125,10 @@
         "kind": "type"
       },
       {
+        "name": "minimumBalanceForRentExemption",
+        "kind": "value"
+      },
+      {
         "name": "mintToInstruction",
         "kind": "value"
       },
@@ -145,7 +153,15 @@
         "kind": "value"
       },
       {
+        "name": "requestAirdrop",
+        "kind": "value"
+      },
+      {
         "name": "rotateProtocolAuthorityInstructions",
+        "kind": "value"
+      },
+      {
+        "name": "sendAndConfirm",
         "kind": "value"
       },
       {

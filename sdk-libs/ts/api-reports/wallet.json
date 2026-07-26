@@ -59,6 +59,10 @@
         "kind": "value"
       },
       {
+        "name": "createSolanaSigner",
+        "kind": "value"
+      },
+      {
         "name": "createSplit",
         "kind": "value"
       },
@@ -211,10 +215,6 @@
         "kind": "value"
       },
       {
-        "name": "SyncWalletAuthority",
-        "kind": "type"
-      },
-      {
         "name": "SyncWalletConfig",
         "kind": "type"
       },
@@ -267,6 +267,10 @@
         "kind": "type"
       },
       {
+        "name": "WalletSyncAuthority",
+        "kind": "type"
+      },
+      {
         "name": "WalletSyncMaterial",
         "kind": "type"
       },
@@ -305,11 +309,11 @@
         "kind": "type"
       },
       {
-        "name": "SyncWalletAuthority",
+        "name": "WalletAuthority",
         "kind": "type"
       },
       {
-        "name": "WalletAuthority",
+        "name": "WalletSyncAuthority",
         "kind": "type"
       },
       {
@@ -426,6 +430,10 @@
       },
       {
         "name": "createMerge",
+        "kind": "value"
+      },
+      {
+        "name": "createSolanaSigner",
         "kind": "value"
       },
       {
