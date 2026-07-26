@@ -706,7 +706,12 @@ impl SyncCtx<'_> {
                 self.report.undecryptable_candidates += 1;
                 return Ok(outcome);
             };
-            matched.push((wallet_utxo.utxo.asset, wallet_utxo.utxo.amount, wallet_utxo.utxo.blinding, wallet_utxo.utxo.zone_program_id));
+            matched.push((
+                wallet_utxo.utxo.asset,
+                wallet_utxo.utxo.amount,
+                wallet_utxo.utxo.blinding,
+                wallet_utxo.utxo.zone_program_id,
+            ));
         }
         let Some(&(asset, _, first_blinding, zone_program_id)) = matched.first() else {
             self.report.undecryptable_candidates += 1;

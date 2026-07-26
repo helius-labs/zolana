@@ -46,7 +46,7 @@ use zolana_client::{
 use zolana_hasher::Poseidon;
 use zolana_keypair::{hash::owner_hash, shielded::ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::ZolanaProgramTest;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_transaction::{AssetRegistry, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
@@ -100,7 +100,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     // the spend selects the confidential P256 rail.
     let sender = ShieldedKeypair::new().expect("sender keypair");
     let sender_nullifier_pk = sender.nullifier_key.pubkey().expect("sender nullifier pk");
-    let blinding: [u8; 31] = [7u8; 31];
+    let blinding = test_blinding(7);
     let utxo = Utxo {
         owner: sender.signing_pubkey(),
         asset: SOL_MINT,

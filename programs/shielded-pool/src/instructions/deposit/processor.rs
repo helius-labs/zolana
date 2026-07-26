@@ -105,11 +105,9 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
             Some(utxo_data) => utxo_data.data_hash,
             None => zero,
         };
-        let owner_utxo_hash = Poseidon::hashv(&[
-            deposit.owner.as_slice(),
-            deposit.blinding.as_slice(),
-        ])
-        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+        let owner_utxo_hash =
+            Poseidon::hashv(&[deposit.owner.as_slice(), deposit.blinding.as_slice()])
+                .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
         let zone_data_hash = match &zone {
             Some(zone) => zone.data_hash,
             None => zero,

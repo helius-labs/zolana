@@ -3,7 +3,7 @@ use swap_program::instructions::{shared::u64_right_align, take::TakePublicInput}
 use swap_prover::{
     OrderTermsProofInput, TakeProofInputs, DESTINATION_BLINDING_DOMAIN, TAKE_MODE_DERIVED,
 };
-use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon};
+use zolana_keypair::hash::poseidon;
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
     utxo::Blinding,

@@ -1,10 +1,7 @@
 use std::collections::HashSet;
 
 use cucumber::then;
-use zolana_keypair::{
-    constants::{BLINDING_LEN, SALT_LEN},
-    ViewingKey,
-};
+use zolana_keypair::{constants::SALT_LEN, ViewingKey};
 use zolana_transaction::{
     data::{Data, DataRecord},
     serialization::{

@@ -51,9 +51,9 @@ use zolana_wallet::{
     TransferParams, WalletAuthority, WithdrawalLeg, WithdrawalParams,
 };
 
-fn blinding(rng: &mut ThreadRng) -> [u8; 31] {
-    let mut b = [0u8; 31];
-    rng.fill_bytes(&mut b);
+fn blinding(rng: &mut ThreadRng) -> [u8; 32] {
+    let mut b = [0u8; 32];
+    rng.fill_bytes(&mut b[1..]);
     b
 }
 
@@ -693,7 +693,11 @@ fn rail_follows_input_owner_type() {
         zone_program_id: None,
         data: Data::default(),
     };
-    let ed_input = SppProofInputUtxo::new(ed_utxo, NullifierKey::from_secret(blinding(&mut rng)));
+    let secret = blinding(&mut rng);
+    let ed_input = SppProofInputUtxo::new(
+        ed_utxo,
+        NullifierKey::from_secret(secret[1..].try_into().expect("31-byte nullifier secret")),
+    );
     let ed_transfer = ConfidentialTransfer::new(
         sender.shielded_address().unwrap(),
         vec![ed_input],
@@ -981,7 +985,11 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
         owner: sender.signing_pubkey(),
         asset: SOL_MINT,
         amount: 10,
-        blinding: [7u8; 31],
+        blinding: {
+            let mut blinding = [7u8; 32];
+            blinding[0] = 0;
+            blinding
+        },
         zone_program_id: None,
         data: Data::default(),
     };

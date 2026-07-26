@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use borsh::BorshDeserialize;
 use cucumber::{then, when};
-use zolana_keypair::{viewing_key::random_salt};
+use zolana_keypair::viewing_key::random_salt;
 use zolana_transaction::{
     data::{Data, DataRecord},
     serialization::{

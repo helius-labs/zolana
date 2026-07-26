@@ -45,8 +45,8 @@ fn fe(byte: u8) -> [u8; 32] {
 }
 
 fn blinding(byte: u8) -> Blinding {
-    let mut out = [0u8; 31];
-    out[30] = byte;
+    let mut out = [0u8; 32];
+    out[31] = byte;
     out
 }
 

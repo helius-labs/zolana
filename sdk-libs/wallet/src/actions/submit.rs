@@ -209,8 +209,7 @@ mod tests {
     use super::*;
 
     fn ed25519_owner() -> (Pubkey, ShieldedKeypair) {
-        let mut seed = [0u8; 32];
-        seed[1..].copy_from_slice(&zolana_keypair::random_blinding());
+        let seed = zolana_keypair::random_blinding();
         let keypair =
             ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("ed25519 keypair");
         let owner = Pubkey::new_from_array(

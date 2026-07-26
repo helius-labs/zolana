@@ -329,7 +329,7 @@ impl LifecycleWorld {
         owner: PublicKey,
         asset: Address,
         amount: u64,
-        blinding: [u8; 31],
+        blinding: [u8; 32],
         tx: &ShieldedTransaction,
     ) -> Result<WalletUtxo> {
         let keypair = &self.actor(name).keypair;
@@ -365,7 +365,7 @@ pub(crate) fn decode_output_blinding(
     viewing_key: &zolana_keypair::ViewingKey,
     indexed: &ShieldedTransaction,
     slot_index: u32,
-) -> Result<[u8; 31]> {
+) -> Result<[u8; 32]> {
     let first_nullifier = indexed
         .nullifiers
         .first()

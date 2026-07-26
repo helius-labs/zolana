@@ -15,7 +15,7 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::random_blinding;
-use zolana_program_test::{deposit_output_from_event, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{deposit_output_from_event, test_blinding, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::{
     spl::mint_to,
     test_validator_asserts::{assert_zone_deposit, fetch_account, ZoneDepositAssertArgs},
@@ -220,7 +220,7 @@ impl ZoneLifecycleWorld {
                     asset: DepositAsset::Sol,
                     view_tag: [0u8; 32],
                     owner: [3u8; 32],
-                    blinding: [4u8; 31],
+                    blinding: test_blinding(4),
                     amount: 1_000_000,
                     utxo_data: None,
                     memo: None,

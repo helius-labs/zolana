@@ -173,7 +173,7 @@ const ESCROW_NOTE_LEN: usize = 8 + BLINDING_LEN;
 pub fn encode_escrow_note(max_price: u64, reservation_blinding: &Blinding) -> Vec<u8> {
     let mut note = Vec::with_capacity(ESCROW_NOTE_LEN);
     note.extend_from_slice(&max_price.to_le_bytes());
-    note.extend_from_slice(reservation_blinding);
+    note.extend_from_slice(&reservation_blinding[1..]);
     note
 }
 
@@ -200,9 +200,8 @@ pub fn decode_escrow_note(data: &Data) -> Result<(u64, Blinding)> {
             .try_into()
             .map_err(|_| anyhow!("escrow note max_price length"))?,
     );
-    let reservation_blinding: Blinding = blinding_bytes
-        .try_into()
-        .map_err(|_| anyhow!("escrow note reservation blinding length"))?;
+    let mut reservation_blinding = [0u8; 32];
+    reservation_blinding[1..].copy_from_slice(blinding_bytes);
     Ok((max_price, reservation_blinding))
 }
 
@@ -214,7 +213,8 @@ mod tests {
 
     #[test]
     fn escrow_note_round_trips() {
-        let reservation_blinding = [7u8; BLINDING_LEN];
+        let mut reservation_blinding = [7u8; 32];
+        reservation_blinding[0] = 0;
         let note = encode_escrow_note(5, &reservation_blinding);
         assert_eq!(note.len(), ESCROW_NOTE_LEN);
 

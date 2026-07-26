@@ -123,8 +123,8 @@ fn real_input() -> TransferSpendInput {
     let mut rng = rand::thread_rng();
     let mut owner_bytes = [0u8; 32];
     rng.fill_bytes(&mut owner_bytes);
-    let mut blinding = [0u8; 31];
-    rng.fill_bytes(&mut blinding);
+    let mut blinding = [0u8; 32];
+    rng.fill_bytes(&mut blinding[1..]);
     let mut secret = [0u8; 31];
     rng.fill_bytes(&mut secret);
     let nullifier_key = NullifierKey::from_secret(secret);
@@ -176,8 +176,8 @@ fn real_input() -> TransferSpendInput {
 /// for its own nullifier comes from a fresh tree (the circuit checks
 /// non-inclusion per slot against the slot's own root).
 fn dummy_input() -> TransferSpendInput {
-    let mut blinding = [0u8; 31];
-    rand::thread_rng().fill_bytes(&mut blinding);
+    let mut blinding = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut blinding[1..]);
     let utxo = Utxo {
         owner: PublicKey::zeroed(),
         asset: SOL_MINT,
@@ -202,8 +202,8 @@ fn dummy_input() -> TransferSpendInput {
 
 /// A padding output: zero owner hash, random blinding.
 fn dummy_output() -> SppProofOutputUtxo {
-    let mut blinding = [0u8; 31];
-    rand::thread_rng().fill_bytes(&mut blinding);
+    let mut blinding = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut blinding[1..]);
     SppProofOutputUtxo {
         blinding,
         ..Default::default()
@@ -244,6 +244,7 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         external_data: dummy_external_data(),
         public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
+        allow_dummy_inputs: true,
         shape: Some(Shape::new(n_in, n_out)),
     };
     let result = prover
@@ -301,6 +302,7 @@ fn dummy_transfer_2_3_proof_verifies() {
         external_data: dummy_external_data(),
         public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
+        allow_dummy_inputs: true,
         shape: Some(Shape::new(2, 3)),
     };
 

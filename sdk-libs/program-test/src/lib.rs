@@ -54,6 +54,14 @@ mod spl;
 mod wallet_data;
 mod zone;
 
+/// Build the canonical 32-byte field representation of a repeated legacy
+/// 31-byte test blinding.
+pub fn test_blinding(byte: u8) -> [u8; 32] {
+    let mut blinding = [byte; 32];
+    blinding[0] = 0;
+    blinding
+}
+
 #[derive(Debug, Error)]
 pub enum ProgramTestError {
     #[error("missing program binary at {0:?}; run `cargo build-sbf -p shielded-pool-program`")]

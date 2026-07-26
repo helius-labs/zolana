@@ -300,6 +300,7 @@ impl ZoneLifecycleWorld {
             external_data: external_data.clone(),
             public_movements: PublicMovements::default(),
             payer_pubkey_hash: sha256_be(&self.payer.pubkey().to_bytes()),
+            allow_dummy_inputs: true,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(1, 1)),
         }

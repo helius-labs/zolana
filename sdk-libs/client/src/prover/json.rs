@@ -563,20 +563,15 @@ mod merge_tests {
                 owner_pk_hash: BigUint::ZERO,
                 nullifier_pk: BigUint::ZERO,
             },
-            p256_pub_x: BigUint::from(1u8),
-            p256_pub_y: BigUint::from(2u8),
             owner_pk_hash: BigUint::ZERO,
             user_nullifier_pk: BigUint::from(3u8),
             user_nullifier_secret: BigUint::from(4u8),
-            tx_viewing_sk: BigUint::from(5u8),
-            user_viewing_pubkey: (0..65u32).map(BigUint::from).collect(),
-            tx_viewing_pk_lo: BigUint::from(9u8),
-            tx_viewing_pk_hi: BigUint::from(10u8),
-            ciphertext_hash: BigUint::from(11u8),
-            user_viewing_pk_hash: BigUint::from(12u8),
+            merge_view_tag: BigUint::from(5u8),
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
+            allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: BigUint::from(8u8),
+            output_zone_data_hash: BigUint::ZERO,
             zone_program_id: BigUint::ZERO,
         };
 
@@ -586,26 +581,20 @@ mod merge_tests {
             "inputs",
             "output",
             "asset",
-            "p256PubX",
-            "p256PubY",
             "ownerPkHash",
             "userNullifierPk",
             "userNullifierSecret",
-            "txViewingSk",
-            "userViewingPubkey",
-            "txViewingPkLo",
-            "txViewingPkHi",
-            "ctHash",
-            "userViewingPkHash",
+            "mergeViewTag",
             "externalDataHash",
             "privateTxHash",
+            "allowDummyInputs",
             "publicInputHash",
+            "outputZoneDataHash",
             "zoneProgramId",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }
         assert_eq!(value["inputs"].as_array().unwrap().len(), 8);
-        assert_eq!(value["userViewingPubkey"].as_array().unwrap().len(), 65);
         let in0 = &value["inputs"][0];
         for key in [
             "domain",
@@ -624,7 +613,10 @@ mod merge_tests {
         ] {
             assert!(!in0[key].is_null(), "missing input key {key}");
         }
-        assert_eq!(value["output"]["blinding"], "0x7");
+        assert!(
+            value["output"]["blinding"].is_null(),
+            "merge output blinding is derived in-circuit"
+        );
         assert_eq!(value["output"]["zoneDataHash"], "0x0");
         assert_eq!(value["output"]["hash"], "0xabc");
         assert!(
@@ -668,6 +660,7 @@ mod merge_tests {
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             zone_program_id: BigUint::from(0x55u8),
             payer_pubkey_hash: BigUint::from(8u8),
+            allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: BigUint::from(9u8),
         };
 
@@ -685,6 +678,7 @@ mod merge_tests {
             "publicAmounts",
             "zoneProgramId",
             "payerPubkeyHash",
+            "allowDummyInputs",
             "publicInputHash",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");

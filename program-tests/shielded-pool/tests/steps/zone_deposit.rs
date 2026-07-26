@@ -9,8 +9,8 @@ use zolana_interface::{
     instruction::{AssetDeposit, UtxoData, ZoneAssetDeposit, ZoneDeposit},
     pda,
 };
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
+use zolana_keypair::ShieldedKeypair;
+use zolana_program_test::{test_blinding, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_zone_deposit;
 use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, Wallet};
 
@@ -62,7 +62,7 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     )
     .expect("wallet");
 
-    let seed = [5u8; BLINDING_LEN];
+    let seed = test_blinding(5);
     let mut data =
         ZolanaProgramTest::wallet_zone_sol_shield_data(amount, &recipient.identity, &seed, 0)
             .expect("wallet zone deposit data");
@@ -107,7 +107,7 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     )
     .expect("wallet");
 
-    let seed = [9u8; BLINDING_LEN];
+    let seed = test_blinding(9);
     let mut data = ZolanaProgramTest::wallet_zone_spl_shield_data(
         amount,
         mint,
@@ -171,7 +171,8 @@ fn zone_batch_shield_sol(world: &mut ShieldedPoolWorld, count: u64, amount: u64)
     let deposits = (0..count)
         .map(|index| {
             let seed = u8::try_from(index + 1).expect("small batch");
-            let mut deposit = ZolanaProgramTest::sol_shield_data(amount, [seed; 32], [seed; 31]);
+            let mut deposit =
+                ZolanaProgramTest::sol_shield_data(amount, [seed; 32], test_blinding(seed));
             deposit.utxo_data = Some(UtxoData {
                 data_hash: [seed.wrapping_add(20); 32],
                 data: vec![seed; 2],
@@ -228,15 +229,21 @@ fn zone_batch_shield_mixed(world: &mut ShieldedPoolWorld, lamports: u64, tokens:
 
     let deposits = vec![
         zone_entry(
-            ZolanaProgramTest::sol_shield_data(lamports, [1; 32], [1; 31]),
+            ZolanaProgramTest::sol_shield_data(lamports, [1; 32], test_blinding(1)),
             11,
         ),
         zone_entry(
-            ZolanaProgramTest::spl_shield_data(tokens, [2; 32], [2; 31], &mint, &user_token),
+            ZolanaProgramTest::spl_shield_data(
+                tokens,
+                [2; 32],
+                test_blinding(2),
+                &mint,
+                &user_token,
+            ),
             12,
         ),
         zone_entry(
-            ZolanaProgramTest::sol_shield_data(lamports, [3; 32], [3; 31]),
+            ZolanaProgramTest::sol_shield_data(lamports, [3; 32], test_blinding(3)),
             13,
         ),
     ];
@@ -300,7 +307,7 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
 
     let data = world
         .rpc()
-        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 31]);
+        .zone_sol_shield_data(1_000_000, [3u8; 32], test_blinding(4));
     let mut ix = ZoneDeposit {
         tree,
         depositor: depositor.pubkey(),

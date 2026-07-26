@@ -11,8 +11,8 @@ use zolana_interface::{
     instruction::UpdateProtocolConfigData, pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_program_test::ZolanaProgramTest;
+use zolana_keypair::ShieldedKeypair;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit,
 };
@@ -213,7 +213,7 @@ fn spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         AssetRegistry::default(),
     )
     .expect("wallet");
-    let seed = [7u8; BLINDING_LEN];
+    let seed = test_blinding(7);
     let data = ZolanaProgramTest::wallet_spl_shield_data(
         amount,
         &recipient.identity,
@@ -275,7 +275,13 @@ fn spl_shield_foreign_token(world: &mut ShieldedPoolWorld) {
         .deposit_with_accounts(
             accounts,
             &depositor,
-            &ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 31], &mint, &other_token),
+            &ZolanaProgramTest::spl_shield_data(
+                1_000,
+                [1u8; 32],
+                test_blinding(1),
+                &mint,
+                &other_token,
+            ),
         )
         .unwrap_err();
     world.last_error = Some(err);
@@ -302,7 +308,13 @@ fn spl_shield_non_canonical_vault(world: &mut ShieldedPoolWorld) {
         .deposit_with_accounts(
             accounts,
             &depositor,
-            &ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 31], &mint, &user_token),
+            &ZolanaProgramTest::spl_shield_data(
+                1_000,
+                [1u8; 32],
+                test_blinding(1),
+                &mint,
+                &user_token,
+            ),
         )
         .unwrap_err();
     world.last_error = Some(err);
@@ -328,7 +340,13 @@ fn spl_shield_mint_mismatch(world: &mut ShieldedPoolWorld) {
         .deposit_with_accounts(
             accounts,
             &depositor,
-            &ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 31], &mint_a, &token_b),
+            &ZolanaProgramTest::spl_shield_data(
+                1_000,
+                [1u8; 32],
+                test_blinding(1),
+                &mint_a,
+                &token_b,
+            ),
         )
         .unwrap_err();
     world.last_error = Some(err);
@@ -345,7 +363,13 @@ fn spl_shield_unaffordable(world: &mut ShieldedPoolWorld, amount: u64) {
         .deposit(
             &tree,
             &depositor,
-            &ZolanaProgramTest::spl_shield_data(amount, [3u8; 32], [3u8; 31], &mint, &user_token),
+            &ZolanaProgramTest::spl_shield_data(
+                amount,
+                [3u8; 32],
+                test_blinding(3),
+                &mint,
+                &user_token,
+            ),
         )
         .unwrap_err();
     world.last_error = Some(err);

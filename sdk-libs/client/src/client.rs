@@ -1438,11 +1438,13 @@ mod tests {
             AssetRegistry::default(),
         )
         .expect("wallet");
+        let mut blinding = [0u8; 32];
+        blinding[1..].fill(7);
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset: SOL_MINT,
             amount,
-            blinding: [7u8; 31],
+            blinding,
             zone_program_id: None,
             data: Data::default(),
         };

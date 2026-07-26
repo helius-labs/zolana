@@ -33,6 +33,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
+use zolana_program_test::test_blinding;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -90,7 +91,7 @@ fn shield_then_withdraw_sol() {
 
     // The shielded UTXO is owned by the payer's Ed25519 key (eddsa rail). Fixed
     // blinding / nullifier secret keep the run deterministic.
-    let blinding: [u8; 31] = [7u8; 31];
+    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let utxo = Utxo {
@@ -298,7 +299,7 @@ fn shield_transfer_then_withdraw_sol() {
     let zero = [0u8; 32];
 
     // 1. Shield into a Solana-owned UTXO controlled by the payer.
-    let payer_blinding: [u8; 31] = [7u8; 31];
+    let payer_blinding = test_blinding(7);
     let payer_nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let payer_nullifier_pk = payer_nullifier_key.pubkey().expect("payer nullifier pk");
     let payer_utxo = Utxo {

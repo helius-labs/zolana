@@ -1,7 +1,7 @@
 mod common;
 
 use common::{build_transfer, keypair_from_index, local_authority, wallet_for, TransferSpec};
-use zolana_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
+use zolana_keypair::constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, DEFAULT_TAG_WINDOW};
 

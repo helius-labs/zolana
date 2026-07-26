@@ -1,5 +1,5 @@
 use cucumber::{given, then, when};
-use zolana_keypair::{viewing_key::random_salt};
+use zolana_keypair::viewing_key::random_salt;
 use zolana_transaction::{
     serialization::{
         anonymous::AnonymousTransferSenderPlaintext,

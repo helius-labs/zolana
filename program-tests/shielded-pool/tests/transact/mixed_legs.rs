@@ -22,7 +22,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::ZolanaProgramTest;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_transaction::{
     instructions::transact::{spp_proof_inputs::signed_to_field, PrivateTxHash},
     Data, Utxo, SOL_MINT,
@@ -148,7 +148,7 @@ fn build_spend_note(
 
 fn deposit_sol_note(env: &mut TransactEnv, amount: u64) -> SpendNote {
     let payer = env.rpc.payer.insecure_clone();
-    let blinding = [7u8; 31];
+    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let utxo = Utxo {
@@ -191,7 +191,7 @@ fn deposit_spl_note(
         .mint_to(&mint, &source, amount)
         .expect("mint tokens");
 
-    let blinding = [7u8; 31];
+    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let utxo = Utxo {

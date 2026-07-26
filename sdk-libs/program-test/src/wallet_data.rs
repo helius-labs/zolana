@@ -26,11 +26,7 @@ pub(crate) fn wallet_shield_fields(
 }
 
 impl ZolanaProgramTest {
-    pub fn sol_shield_data(
-        lamports: u64,
-        owner: [u8; 32],
-        blinding: [u8; 32],
-    ) -> AssetDeposit {
+    pub fn sol_shield_data(lamports: u64, owner: [u8; 32], blinding: [u8; 32]) -> AssetDeposit {
         AssetDeposit {
             asset: DepositAsset::Sol,
             view_tag: [0u8; 32],

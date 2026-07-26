@@ -194,7 +194,12 @@ pub fn into_prover_with_dummy_policy(
     dummy_nullifier_proofs: &[NonInclusionProof],
     allow_dummy_inputs: bool,
 ) -> Result<BuiltCircuit, ClientError> {
-    if !allow_dummy_inputs && proof_inputs.input_utxos.iter().any(|input| input.is_dummy()) {
+    if !allow_dummy_inputs
+        && proof_inputs
+            .input_utxos
+            .iter()
+            .any(|input| input.is_dummy())
+    {
         return Err(ClientError::DummyInputsNotAllowed);
     }
     // Derived here, once: the variant drives the prover witness below and the
@@ -255,12 +260,7 @@ pub fn assemble(
     input_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
 ) -> Result<AssembledTransfer, ClientError> {
-    assemble_with_dummy_policy(
-        proof_inputs,
-        input_proofs,
-        dummy_nullifier_proofs,
-        true,
-    )
+    assemble_with_dummy_policy(proof_inputs, input_proofs, dummy_nullifier_proofs, true)
 }
 
 pub fn assemble_with_dummy_policy(

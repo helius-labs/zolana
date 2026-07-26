@@ -24,6 +24,13 @@ pub(crate) fn right_align_blinding(blinding: &Blinding) -> [u8; 32] {
     *blinding
 }
 
+#[cfg(test)]
+pub(crate) fn test_blinding(byte: u8) -> Blinding {
+    let mut blinding = [byte; 32];
+    blinding[0] = 0;
+    blinding
+}
+
 pub(crate) fn check_output_utxo(
     label: &str,
     output: &SppProofOutputUtxo,

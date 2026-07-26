@@ -5,10 +5,7 @@ use pinocchio::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::{
-            merge_transact::MergeExternalDataHash,
-            merge_zone::MergeZoneIxDataRef,
-        },
+        instruction_data::{merge_transact::MergeExternalDataHash, merge_zone::MergeZoneIxDataRef},
         tag::ZONE_MERGE_TRANSACT,
     },
 };
@@ -16,10 +13,7 @@ use zolana_interface::{
 use super::account::MergeZoneAccounts;
 use crate::instructions::{
     hash::solana_pk_hash,
-    merge::{
-        processor::process_merge_core,
-        verify::MergeOwnerBinding,
-    },
+    merge::{processor::process_merge_core, verify::MergeOwnerBinding},
     shared::check_not_expired,
 };
 

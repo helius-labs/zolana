@@ -819,6 +819,7 @@ mod tests {
                     nullifiers: vec![nullifier],
                     proofless: true,
                     messages: vec![],
+                    merge_view_tag: None,
                 }],
                 next_cursor: Some(vec![23]),
             }

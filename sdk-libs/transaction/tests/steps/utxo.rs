@@ -1,8 +1,5 @@
 use cucumber::then;
-use zolana_keypair::{
-    constants::BLINDING_LEN,
-    hash::{hash_field, owner_hash, poseidon},
-};
+use zolana_keypair::hash::{hash_field, owner_hash, poseidon};
 use zolana_transaction::{
     data::Data,
     utxo::{ProofInputUtxo, Utxo, UTXO_DOMAIN},

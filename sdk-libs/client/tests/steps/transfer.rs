@@ -14,9 +14,7 @@ use zolana_client::{
 };
 use zolana_event::OutputDataEncoding;
 use zolana_interface::SOL_ASSET_FIELD;
-use zolana_keypair::{
-    constants::BLINDING_LEN, shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey,
-};
+use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::{
     instructions::transact::{
         spp_proof_inputs::{asset_field, signed_to_field},
@@ -86,10 +84,15 @@ impl TransferWorld {
                 };
                 match input.owner {
                     crate::world::Owner::P256 => SppProofInputUtxo::new(utxo, &sender),
-                    crate::world::Owner::Solana => SppProofInputUtxo::new(
-                        utxo,
-                        NullifierKey::from_secret(random_blinding(&mut rng)),
-                    ),
+                    crate::world::Owner::Solana => {
+                        let secret = random_blinding(&mut rng);
+                        SppProofInputUtxo::new(
+                            utxo,
+                            NullifierKey::from_secret(
+                                secret[1..].try_into().expect("31-byte nullifier secret"),
+                            ),
+                        )
+                    }
                 }
             })
             .collect();
@@ -199,7 +202,7 @@ fn assert_outputs(
     sender: &ShieldedKeypair,
     recipients: &[ShieldedKeypair],
     first_nullifier: &[u8; 32],
-    seed: [u8; BLINDING_LEN],
+    seed: [u8; 32],
 ) {
     let net_public = |asset: Asset| -> i128 {
         match &plan.withdraw {

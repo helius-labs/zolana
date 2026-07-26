@@ -50,7 +50,11 @@ pub fn merge_dummy_nullifier(
     slot_index: u8,
 ) -> Result<[u8; 32], KeypairError> {
     let index = fe_u32(u32::from(slot_index));
-    poseidon(&[&fe_u32(DOMAIN_MERGE_DUMMY_NULLIFIER), merge_view_tag, &index])
+    poseidon(&[
+        &fe_u32(DOMAIN_MERGE_DUMMY_NULLIFIER),
+        merge_view_tag,
+        &index,
+    ])
 }
 
 /// Poseidon hash of a byte payload, packed as big-endian field elements in
@@ -126,7 +130,10 @@ mod tests {
     /// here silently breaks wallet recovery, so pin the byte values.
     #[test]
     fn recovery_domains_are_the_ascii_tags() {
-        assert_eq!(DOMAIN_MERGE_OUTPUT_BLINDING_V1, u32::from_be_bytes(*b"TMOB"));
+        assert_eq!(
+            DOMAIN_MERGE_OUTPUT_BLINDING_V1,
+            u32::from_be_bytes(*b"TMOB")
+        );
         assert_eq!(DOMAIN_MERGE_DUMMY_NULLIFIER, u32::from_be_bytes(*b"TMDN"));
     }
 

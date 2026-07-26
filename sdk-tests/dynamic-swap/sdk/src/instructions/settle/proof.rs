@@ -4,7 +4,7 @@ use dynamic_swap_prover::{
     EscrowSettleProofInputs, ProofInputUtxo, MAKER_COUNTER_BLINDING_DOMAIN,
     MAKER_SOURCE_BLINDING_DOMAIN, RECIPIENT_BLINDING_DOMAIN,
 };
-use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon};
+use zolana_keypair::hash::poseidon;
 use zolana_transaction::{
     instructions::{
         transact::{PrivateTxHash, SppProofOutputUtxo},

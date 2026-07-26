@@ -1052,11 +1052,13 @@ mod tests {
             registry,
         )
         .expect("wallet");
+        let mut blinding = [7u8; 32];
+        blinding[0] = 0;
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset,
             amount,
-            blinding: [7u8; 31],
+            blinding,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -1865,11 +1867,13 @@ mod tests {
         amount: u64,
         blinding: [u8; 31],
     ) -> [u8; 32] {
+        let mut canonical_blinding = [0u8; 32];
+        canonical_blinding[1..].copy_from_slice(&blinding);
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset: SOL_MINT,
             amount,
-            blinding,
+            blinding: canonical_blinding,
             zone_program_id: None,
             data: Data::default(),
         };

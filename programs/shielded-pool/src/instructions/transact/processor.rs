@@ -291,8 +291,7 @@ fn apply_tree(
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<TreeWrite, ProgramError> {
     let error = ShieldedPoolError::InvalidTransactShape;
-    proof_inputs.allow_dummy_inputs =
-        bool_field(tree.allow_dummy_inputs().map_err(tree_error)?);
+    proof_inputs.allow_dummy_inputs = bool_field(tree.allow_dummy_inputs().map_err(tree_error)?);
     let mut inputs = Vec::with_capacity(ix.inputs.len());
     let nullifier_seq_base = tree.nullifer_tree().queue_batches.next_index;
     for (i, input) in ix.inputs.iter().enumerate() {

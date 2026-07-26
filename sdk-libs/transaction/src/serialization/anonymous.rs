@@ -1,9 +1,6 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_keypair::{
-    constants::{SALT_LEN},
-    P256Pubkey, PublicKey, ViewingKey,
-};
+use zolana_keypair::{constants::SALT_LEN, P256Pubkey, PublicKey, ViewingKey};
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
@@ -262,7 +259,7 @@ impl UtxoSerialization for AnonymousSenderBundle {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::{constants::BLINDING_LEN, PublicKey, ViewingKey};
+    use zolana_keypair::{PublicKey, ViewingKey};
 
     use super::*;
     use crate::{data::DataRecord, SOL_ASSET_ID};

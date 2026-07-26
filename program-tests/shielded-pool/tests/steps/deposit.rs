@@ -9,8 +9,8 @@ use zolana_interface::{
     instruction::{tag, DepositAssetKind, DepositEntry, DepositIxData},
     pda,
 };
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_program_test::ZolanaProgramTest;
+use zolana_keypair::ShieldedKeypair;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_deposit;
 use zolana_transaction::{AssetRegistry, LocalWalletAuthority, Wallet};
 
@@ -41,7 +41,7 @@ fn send_raw(world: &mut ShieldedPoolWorld, accounts: Vec<AccountMeta>) {
                 asset_index: 0,
                 view_tag: [0u8; 32],
                 owner: [8u8; 32],
-                blinding: [8u8; 31],
+                blinding: test_blinding(8),
                 amount: 1_000_000,
                 utxo_data: None,
                 memo: None,
@@ -73,7 +73,7 @@ fn shield_sol(world: &mut ShieldedPoolWorld, amount: u64) {
         AssetRegistry::default(),
     )
     .expect("wallet");
-    let seed = [3u8; BLINDING_LEN];
+    let seed = test_blinding(3);
     let mut data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient.identity, &seed, 0)
         .expect("wallet deposit data");
     // Exercise the proofless memo end-to-end: instruction data -> emitted event
@@ -176,7 +176,7 @@ fn shield_into_paused(world: &mut ShieldedPoolWorld, amount: u64) {
     let depositor = world.depositor().insecure_clone();
     let err = world
         .rpc()
-        .deposit_sol(&tree, &depositor, amount, [2u8; 32], [2u8; 31])
+        .deposit_sol(&tree, &depositor, amount, [2u8; 32], test_blinding(2))
         .unwrap_err();
     world.last_error = Some(err);
 }
@@ -202,7 +202,7 @@ fn shield_after_unpause(world: &mut ShieldedPoolWorld, amount: u64) {
     let depositor = world.depositor().insecure_clone();
     world
         .rpc()
-        .deposit_sol(&tree, &depositor, amount, [5u8; 32], [5u8; 31])
+        .deposit_sol(&tree, &depositor, amount, [5u8; 32], test_blinding(5))
         .expect("deposit after unpause");
 }
 
@@ -214,7 +214,7 @@ fn shield_unaffordable(world: &mut ShieldedPoolWorld, amount: u64) {
     let depositor = world.depositor().insecure_clone();
     let err = world
         .rpc()
-        .deposit_sol(&tree, &depositor, amount, [3u8; 32], [3u8; 31])
+        .deposit_sol(&tree, &depositor, amount, [3u8; 32], test_blinding(3))
         .unwrap_err();
     world.last_error = Some(err);
 }
@@ -235,7 +235,7 @@ fn rejected_insufficient(world: &mut ShieldedPoolWorld) {
 fn repeat_deposits(world: &mut ShieldedPoolWorld, amount: u64) {
     let tree = world.tree().pubkey();
     let depositor = world.depositor().insecure_clone();
-    let data = ZolanaProgramTest::sol_shield_data(amount, [4u8; 32], [4u8; 31]);
+    let data = ZolanaProgramTest::sol_shield_data(amount, [4u8; 32], test_blinding(4));
     let root0 = world.rpc().state_root(&tree).expect("root");
     world.rpc().deposit(&tree, &depositor, &data).expect("d1");
     let root1 = world.rpc().state_root(&tree).expect("root");

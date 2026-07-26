@@ -286,10 +286,7 @@ impl<'a> TreeAccount<'a> {
             .nullifer_tree()
             .remaining_queue_capacity()
             .map_err(|_| TreeError::InvalidCapacity)?;
-        Ok(dummy_inputs_allowed(
-            nullifier_remaining,
-            state_remaining,
-        ))
+        Ok(dummy_inputs_allowed(nullifier_remaining, state_remaining))
     }
 
     pub fn get_utxo_tree_root(&self, index: u16) -> Result<[u8; 32], TreeError> {

@@ -382,6 +382,7 @@ impl ZoneLifecycleWorld {
                     external_data: proof_inputs.external_data.clone(),
                     public_movements: proof_inputs.public_movements()?,
                     payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
+                    allow_dummy_inputs: true,
                     zone_program_id: Some(zone),
                     shape: Some(shape),
                 };
@@ -405,6 +406,7 @@ impl ZoneLifecycleWorld {
                     external_data: proof_inputs.external_data.clone(),
                     public_movements: proof_inputs.public_movements()?,
                     payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
+                    allow_dummy_inputs: true,
                     p256_owner,
                     zone_program_id: Some(zone),
                     shape: Some(shape),
@@ -440,6 +442,7 @@ impl ZoneLifecycleWorld {
             external_data: proof_inputs.external_data.clone(),
             public_movements: proof_inputs.public_movements()?,
             payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
+            allow_dummy_inputs: true,
             p256_owner: P256Owner {
                 pubkey,
                 sig_r: [0u8; 32],
@@ -679,6 +682,7 @@ impl ZoneLifecycleWorld {
             external_data: proof_inputs.external_data.clone(),
             public_movements: proof_inputs.public_movements()?,
             payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
+            allow_dummy_inputs: true,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
         };

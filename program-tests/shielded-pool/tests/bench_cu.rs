@@ -25,13 +25,12 @@ use zolana_interface::{
     pda, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
-    constants::BLINDING_LEN,
     hash::{hash_field, owner_hash},
     pubkey::PublicKey,
     NullifierKey, ShieldedKeypair,
 };
 use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::ZolanaProgramTest;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
@@ -255,7 +254,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let seed = [3u8; BLINDING_LEN];
+    let seed = test_blinding(3);
     let data = ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient, &seed, 0)
         .expect("wallet deposit data");
 
@@ -293,7 +292,7 @@ fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &MolluskPubkey, bench:
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let seed = [3u8; BLINDING_LEN];
+    let seed = test_blinding(3);
     let deposits = (0..3)
         .map(|position| {
             ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient, &seed, position)
@@ -348,7 +347,7 @@ fn bench_deposit_spl(
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let seed = [7u8; BLINDING_LEN];
+    let seed = test_blinding(7);
     let data =
         ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &seed, 0, &mint, &user_token)
             .expect("wallet deposit data");
@@ -478,7 +477,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    let blinding: [u8; 31] = [7u8; 31];
+    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let utxo = Utxo {
@@ -652,7 +651,7 @@ fn bench_withdrawal_spl(
         .expect("user token account");
     pt.mint_to(&mint, &user_token, AMOUNT).expect("mint_to");
 
-    let blinding: [u8; 31] = [7u8; 31];
+    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let utxo = Utxo {

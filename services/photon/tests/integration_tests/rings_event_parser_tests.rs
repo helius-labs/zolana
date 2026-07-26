@@ -1373,6 +1373,7 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
             messages: Vec::new(),
             tx_viewing_pk: [0; 33],
             salt: [0; 16],
+            merge_view_tag: None,
             first_output_leaf_index: 0,
             output_tree: TEST_TREE,
             movements: vec![Movement {
@@ -1387,7 +1388,11 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
 fn proofless_output_payload() -> Vec<u8> {
     encode_output_data(ProoflessOutput {
         owner: [1; 32],
-        blinding: [2; 31],
+        blinding: {
+            let mut blinding = [2; 32];
+            blinding[0] = 0;
+            blinding
+        },
         asset: [0; 32],
         amount: 100,
         data_hash: None,
@@ -1414,6 +1419,7 @@ fn shielded_transfer_transaction_info() -> TransactionInfo {
             messages: Vec::new(),
             tx_viewing_pk: [0; 33],
             salt: [0; 16],
+            merge_view_tag: None,
             first_output_leaf_index: 1,
             output_tree: TEST_TREE,
             movements: Vec::new(),
@@ -1436,6 +1442,7 @@ fn unshield_transaction_info() -> TransactionInfo {
             messages: Vec::new(),
             tx_viewing_pk: [0; 33],
             salt: [0; 16],
+            merge_view_tag: None,
             first_output_leaf_index: 4,
             output_tree: TEST_TREE,
             movements: vec![Movement {
@@ -1462,6 +1469,7 @@ fn encrypted_transfer_transaction_info() -> TransactionInfo {
             messages: Vec::new(),
             tx_viewing_pk: [5; 33],
             salt: [6; 16],
+            merge_view_tag: None,
             first_output_leaf_index: 2,
             output_tree: TEST_TREE,
             movements: Vec::new(),

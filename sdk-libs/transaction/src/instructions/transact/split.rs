@@ -5,12 +5,8 @@ use zolana_interface::{
     shape::Shape,
 };
 use zolana_keypair::{
-    constants::{SALT_LEN},
-    hash::sha256_be,
-    random_salt,
-    shielded::ShieldedAddress,
-    viewing_key::random_blinding,
-    P256Pubkey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
+    constants::SALT_LEN, hash::sha256_be, random_salt, shielded::ShieldedAddress,
+    viewing_key::random_blinding, P256Pubkey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
 };
 
 use super::{spp_proof_inputs::SppProofInputs, ExternalData, SppProofOutputUtxo};

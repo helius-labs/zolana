@@ -108,6 +108,7 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> ZoneTransferProver {
         external_data: zone_external_data(n_out),
         public_movements: zero_public_movements(),
         payer_pubkey_hash: [0u8; 32],
+        allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
     }
@@ -131,6 +132,7 @@ fn eddsa_multi_real() -> ZoneTransferProver {
         external_data: zone_external_data(3),
         public_movements: zero_public_movements(),
         payer_pubkey_hash: [0u8; 32],
+        allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(3, 3)),
     }
@@ -157,6 +159,7 @@ fn p256_multi_real() -> ZoneTransferP256Prover {
             external_data: zone_external_data(3),
             public_movements: zero_public_movements(),
             payer_pubkey_hash: [0u8; 32],
+            allow_dummy_inputs: true,
             p256_owner,
             zone_program_id: Some(zone_program()),
             shape: Some(Shape::new(3, 3)),
@@ -210,6 +213,7 @@ fn p256_prover(n_in: usize, n_out: usize) -> ZoneTransferP256Prover {
             external_data: zone_external_data(n_out),
             public_movements: zero_public_movements(),
             payer_pubkey_hash: [0u8; 32],
+            allow_dummy_inputs: true,
             p256_owner,
             zone_program_id: Some(zone_program()),
             shape: Some(Shape::new(n_in, n_out)),

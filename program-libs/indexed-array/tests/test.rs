@@ -123,7 +123,9 @@ fn test_append() {
         bigint_to_be_bytes_array::<32>(&nullifier1)
             .unwrap()
             .as_ref(),
-        bigint_to_be_bytes_array::<32>(&next_value).unwrap().as_ref(),
+        bigint_to_be_bytes_array::<32>(&next_value)
+            .unwrap()
+            .as_ref(),
     ])
     .unwrap();
     assert_eq!(indexed_array.hash_element(1).unwrap(), expected_hash);
@@ -363,7 +365,9 @@ fn test_append() {
         bigint_to_be_bytes_array::<32>(&nullifier4)
             .unwrap()
             .as_ref(),
-        bigint_to_be_bytes_array::<32>(&next_value).unwrap().as_ref(),
+        bigint_to_be_bytes_array::<32>(&next_value)
+            .unwrap()
+            .as_ref(),
     ])
     .unwrap();
     assert_eq!(indexed_array.hash_element(4).unwrap(), expected_hash);

@@ -100,8 +100,7 @@ pub(crate) fn process_merge_core(
             allow_dummy_inputs: bool_field(tree.allow_dummy_inputs().map_err(tree_error)?),
             owner_binding,
         };
-        let tree_write =
-            apply_tree(&mut tree, ix, output_tree, &mut derived, single_use_tag)?;
+        let tree_write = apply_tree(&mut tree, ix, output_tree, &mut derived, single_use_tag)?;
         (tree_write, derived)
     };
 

@@ -9,9 +9,7 @@ use zolana_interface::instruction::instruction_data::{
     merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
     merge_zone::MergeZoneIxData,
 };
-use zolana_keypair::{
-    merge::merge_dummy_nullifier, NullifierKey, PublicKey, SignatureType,
-};
+use zolana_keypair::{merge::merge_dummy_nullifier, NullifierKey, PublicKey, SignatureType};
 use zolana_transaction::{
     instructions::{merge::PreparedMerge, transact::PrivateTxHash},
     SppProofOutputUtxo,
@@ -171,7 +169,7 @@ impl MergeProver {
     ) -> Result<CommonMerge, ClientError> {
         // Slot zero must be real: the circuit derives the output blinding from
         // its blinding.
-        if self.inputs.first().is_none() || self.inputs[0].proof.is_none() {
+        if self.inputs.is_empty() || self.inputs[0].proof.is_none() {
             return Err(ClientError::NoInputs);
         }
         let mut assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;

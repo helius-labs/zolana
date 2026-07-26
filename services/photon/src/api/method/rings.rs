@@ -124,6 +124,7 @@ mod tests {
             tx_signature: SerializableSignature::default(),
             tx_viewing_pk: None,
             salt: None,
+            merge_view_tag: None,
             output_slots: vec![RingsOutputSlot {
                 view_tag: hash(4),
                 output_context: RingsOutputContext {

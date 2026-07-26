@@ -240,11 +240,13 @@ mod tests {
         let payer = Keypair::new();
         let depositor = Keypair::new();
         let tree = Pubkey::new_unique();
+        let mut blinding = [3u8; 32];
+        blinding[0] = 0;
         let entry = AssetDeposit {
             asset: DepositAsset::Sol,
             view_tag: [1u8; 32],
             owner: [2u8; 32],
-            blinding: [3u8; 31],
+            blinding,
             amount: 1_000,
             utxo_data: None,
             memo: Some(b"thanks".to_vec()),
@@ -281,7 +283,7 @@ mod tests {
 
         assert_eq!(prepared.deposit.view_tag, recipient.viewing_pubkey().x());
         assert_eq!(prepared.deposit.amount, 1_000);
-        assert_ne!(prepared.deposit.blinding, [0u8; 31]);
+        assert_ne!(prepared.deposit.blinding, [0u8; 32]);
         assert_ne!(prepared.deposit.owner, [0u8; 32]);
         assert_ne!(prepared.utxo_hash, [0u8; 32]);
     }

@@ -213,8 +213,14 @@ mod tests {
     #[test]
     fn external_data_hash_is_injective() {
         let base = hash_of(crate::instruction::tag::MERGE_TRANSACT, 1, &[1u8; 32]);
-        assert_ne!(base, hash_of(crate::instruction::tag::MERGE_TRANSACT, 2, &[1u8; 32]));
-        assert_ne!(base, hash_of(crate::instruction::tag::MERGE_TRANSACT, 1, &[2u8; 32]));
+        assert_ne!(
+            base,
+            hash_of(crate::instruction::tag::MERGE_TRANSACT, 2, &[1u8; 32])
+        );
+        assert_ne!(
+            base,
+            hash_of(crate::instruction::tag::MERGE_TRANSACT, 1, &[2u8; 32])
+        );
         assert_ne!(
             base,
             hash_of(crate::instruction::tag::ZONE_MERGE_TRANSACT, 1, &[1u8; 32])

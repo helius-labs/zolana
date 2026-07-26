@@ -276,6 +276,7 @@ mod tests {
             first_output_leaf_index: 0,
             tx_viewing_pk: None,
             salt: None,
+            merge_view_tag: None,
             proofless: false,
             encrypted_utxos: None,
             raw_event: None,

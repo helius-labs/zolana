@@ -14,7 +14,7 @@ use zolana_interface::{
     },
     pda,
 };
-use zolana_program_test::ZolanaProgramTest;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
 
 use crate::{common::assert_pool_error, ShieldedPoolWorld};
 
@@ -41,14 +41,14 @@ fn assert_batch_root_matches_reference(world: &mut ShieldedPoolWorld, tree: &Pub
 }
 
 fn sol_entry(amount: u64, seed: u8) -> AssetDeposit {
-    ZolanaProgramTest::sol_shield_data(amount, [seed; 32], [seed; 31])
+    ZolanaProgramTest::sol_shield_data(amount, [seed; 32], test_blinding(seed))
 }
 
 fn spl_entry(world: &ShieldedPoolWorld, amount: u64, seed: u8) -> AssetDeposit {
     ZolanaProgramTest::spl_shield_data(
         amount,
         [seed; 32],
-        [seed; 31],
+        test_blinding(seed),
         &world.mint(),
         &world.user_token(),
     )
@@ -303,7 +303,7 @@ fn raw_entry(amount: u64) -> DepositEntry {
         asset_index: 0,
         view_tag: [9u8; 32],
         owner: [9u8; 32],
-        blinding: [9u8; 31],
+        blinding: test_blinding(9),
         amount,
         utxo_data: None,
         memo: None,

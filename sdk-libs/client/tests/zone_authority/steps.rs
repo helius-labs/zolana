@@ -220,6 +220,7 @@ fn assemble_prover(
         external_data: zone_external_data(n_out),
         public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
+        allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
     }
