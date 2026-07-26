@@ -692,18 +692,40 @@ Added `2026-07-26` by [row-updates/gate1-gaps.md](row-updates/gate1-gaps.md). Th
 Apply these gates to each package. Record evidence beside a gate or in a
 [`log/`](log/) entry.
 
-- [ ] Each package row is `done` with `PARITY` or justified `NOT_APPLICABLE`.
-- [ ] The complete public Rust export set has a TypeScript disposition.
-- [ ] Each TypeScript export traces to Rust or a documented, behavior-preserving adaptation.
-- [ ] Inventory claims have evidence independent of the inventory.
-- [ ] Fixture provenance is fresh for the reviewed Rust revision, and current Rust drift is reviewed.
+- [x] Each package row is `done` with `PARITY` or justified `NOT_APPLICABLE`.
+      Evidence at gate1-gaps: 148 rows, zero `needs_re_review`; `E03`/`E05`/`E06`
+      closed; `H15`/`TK01`/`TK02` seated
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
+- [x] The complete public Rust export set has a TypeScript disposition.
+      Evidence: prior package ledgers plus
+      [test-kit-node-dispositions.md](test-kit-node-dispositions.md) for the
+      `/node` annex and `public-exports.md` for `@zolana/hasher`.
+- [x] Each TypeScript export traces to Rust or a documented, behavior-preserving adaptation.
+      Evidence: same disposition ledgers; root vs annex split for test-kit;
+      hasher slim/inlined WASM adaptations documented in `public-exports.md`.
+- [x] Inventory claims have evidence independent of the inventory.
+      Evidence: frozen 182-row report plus live rows in
+      `sdk-libs/ts/reports/inventory-live.json` for hasher-wasm and test-kit
+      annex paths absent from `frozenCommit`; `npm run test:inventory` green.
+- [x] Fixture provenance is fresh for the reviewed Rust revision, and current Rust drift is reviewed.
+      Evidence: `ts-fixtures --check` and `--current-client --check` reproduced
+      every body with **no body drift**; `manifest.driftReview` records the
+      review without moving `frozenCommit`
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
 - [ ] Deterministic instruction, proof-input, hash, key, ciphertext, and serialization bytes match current Rust where applicable.
-- [ ] Non-deterministic behavior has invariant or property coverage.
+- [x] Non-deterministic behavior has invariant or property coverage.
+      Evidence: `client/test/property/client-property.test.ts` and
+      `wallet/test/property/wallet-property.test.ts`; scaffold requires both;
+      other packages already had `test:property`
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
 - [ ] Rust rejection, malformed-input, and tamper behavior has TypeScript coverage.
 - [ ] Errors preserve stable codes and structured details at the same boundary.
 - [ ] Browser-safe entry points contain no Node-only imports, and Node-only behavior stays in documented entry points.
 - [ ] Feature-gated behavior and each supported proof rail have a disposition.
-- [ ] Relevant focused, package, browser, vector, property, export, dependency, and pack checks pass.
+- [x] Relevant focused, package, browser, vector, property, export, dependency, and pack checks pass.
+      Evidence: `npm run check:packaging` green including real `api:check`
+      against `sdk-libs/ts/api-reports/**`
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
 - [x] A browser-capable package executes its vector suites in a headless browser engine. The static
       forbidden-import scan in `browser-check.mjs` does not satisfy this gate
       ([G9-4](production-readiness-issues.md#g9-4-browser-support-is-checked-statically-not-in-a-browser-medium)).
