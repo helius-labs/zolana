@@ -6980,6 +6980,145 @@
       }
     ]
   },
+  "walletBalances": {
+    "balance": {
+      "emptyRegistered": {
+        "arm": "ok",
+        "value": {
+          "amount": "0",
+          "assetId": "5",
+          "mint": "5zzsbHTkm4ymKhWZH78zXn7T4kZtqhogMCKZK8KLHesK",
+          "utxoAmounts": []
+        }
+      },
+      "second": {
+        "arm": "ok",
+        "value": {
+          "amount": "12",
+          "assetId": "2",
+          "mint": "5w5aSyzkAmgYBcG3qop5EuLgpbMhAe7rnneuFkGjYKYc",
+          "utxoAmounts": [
+            "12"
+          ]
+        }
+      },
+      "sol": {
+        "arm": "ok",
+        "value": {
+          "amount": "11",
+          "assetId": "1",
+          "mint": "11111111111111111111111111111111",
+          "utxoAmounts": [
+            "3",
+            "8"
+          ]
+        }
+      },
+      "solMinAmount5": {
+        "arm": "ok",
+        "value": {
+          "amount": "8",
+          "assetId": "1",
+          "mint": "11111111111111111111111111111111",
+          "utxoAmounts": [
+            "8"
+          ]
+        }
+      },
+      "solMinAmountAboveEvery": {
+        "arm": "ok",
+        "value": {
+          "amount": "0",
+          "assetId": "1",
+          "mint": "11111111111111111111111111111111",
+          "utxoAmounts": []
+        }
+      },
+      "unregistered": {
+        "arm": "err",
+        "error": "TRANSACTION_UNKNOWN_MINT"
+      }
+    },
+    "balances": {
+      "skipUtxos": {
+        "arm": "ok",
+        "value": [
+          {
+            "amount": "11",
+            "assetId": "1",
+            "mint": "11111111111111111111111111111111",
+            "utxoAmounts": []
+          },
+          {
+            "amount": "12",
+            "assetId": "2",
+            "mint": "5w5aSyzkAmgYBcG3qop5EuLgpbMhAe7rnneuFkGjYKYc",
+            "utxoAmounts": []
+          }
+        ]
+      },
+      "withUtxos": {
+        "arm": "ok",
+        "value": [
+          {
+            "amount": "11",
+            "assetId": "1",
+            "mint": "11111111111111111111111111111111",
+            "utxoAmounts": [
+              "3",
+              "8"
+            ]
+          },
+          {
+            "amount": "12",
+            "assetId": "2",
+            "mint": "5w5aSyzkAmgYBcG3qop5EuLgpbMhAe7rnneuFkGjYKYc",
+            "utxoAmounts": [
+              "12"
+            ]
+          }
+        ]
+      }
+    },
+    "mints": {
+      "emptyRegistered": "5zzsbHTkm4ymKhWZH78zXn7T4kZtqhogMCKZK8KLHesK",
+      "second": "5w5aSyzkAmgYBcG3qop5EuLgpbMhAe7rnneuFkGjYKYc",
+      "sol": "11111111111111111111111111111111",
+      "unregistered": "64vAjavmMNGzTnm4iQTupetDJun6WmVVubzDNWMw2zC2"
+    },
+    "notes": [
+      {
+        "amount": "3",
+        "mint": "sol",
+        "spent": false
+      },
+      {
+        "amount": "8",
+        "mint": "sol",
+        "spent": false
+      },
+      {
+        "amount": "40",
+        "mint": "sol",
+        "spent": true
+      },
+      {
+        "amount": "12",
+        "mint": "second",
+        "spent": false
+      }
+    ],
+    "registry": [
+      [
+        "2",
+        "5w5aSyzkAmgYBcG3qop5EuLgpbMhAe7rnneuFkGjYKYc"
+      ],
+      [
+        "5",
+        "5zzsbHTkm4ymKhWZH78zXn7T4kZtqhogMCKZK8KLHesK"
+      ]
+    ]
+  },
   "zoneAuthority": [
     {
       "error": null,

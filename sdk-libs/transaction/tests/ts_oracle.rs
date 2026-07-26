@@ -56,8 +56,8 @@ use zolana_transaction::{
         split::{Split, SplitEncode, SplitEncryptedUtxos},
         DecodeCx, OwnerCx, UtxoSerialization,
     },
-    AssetRegistry, Data, DataRecord, EncryptedScheme, ProofInputUtxo, TransactionError, Utxo,
-    SOL_ASSET_ID, SOL_MINT, SPLIT,
+    AssetBalance, AssetRegistry, Data, DataRecord, EncryptedScheme, Filter, OutputContext,
+    ProofInputUtxo, TransactionError, Utxo, Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT, SPLIT,
 };
 
 const ORACLE_PATH: &str = "../ts/transaction/test/oracles/transaction-parity-v1.json";
@@ -2717,6 +2717,103 @@ fn oracle() -> Value {
         "decrypt": decrypt_section(),
         "externalData": external_data_section(),
         "anonymousProgression": anonymous_progression_section(),
+        "walletBalances": wallet_balances_section(),
+    })
+}
+
+/// `Wallet::balance` and `Wallet::balances` over one wallet, so the port has an
+/// oracle for the three things a reading keeps getting wrong here: a registered
+/// mint the wallet holds no note for still has a balance, `Filter::MinAmount`
+/// narrows the notes that count, and `skip_utxos` drops the note list while
+/// leaving the amount alone. An unregistered mint is a rejection on both calls.
+fn wallet_balances_section() -> Value {
+    let keypair = ShieldedKeypair::from_ed25519(&[71; 32], ViewingKey::from_seed(&[72; 32], 0).unwrap())
+        .expect("wallet keypair");
+    let second = Address::new_from_array([73; 32]);
+    let empty = Address::new_from_array([74; 32]);
+    let unregistered = Address::new_from_array([75; 32]);
+    let mut wallet = Wallet::new(
+        keypair.shielded_address().expect("shielded address"),
+        AssetRegistry::new([(2, second), (5, empty)]).expect("registry"),
+    )
+    .expect("wallet");
+    // Amounts are chosen so the min-amount filter splits the SOL notes and the
+    // spent one never counts on either call.
+    for (index, (asset, amount, spent)) in [
+        (SOL_MINT, 3u64, false),
+        (SOL_MINT, 8, false),
+        (SOL_MINT, 40, true),
+        (second, 12, false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        wallet.utxos.push(WalletUtxo {
+            utxo: Utxo {
+                owner: keypair.signing_pubkey(),
+                asset,
+                amount,
+                blinding: [u8::try_from(index + 1).unwrap(); BLINDING_LEN],
+                zone_program_id: None,
+                data: Data::new(Vec::new()),
+            },
+            output_context: OutputContext {
+                hash: [u8::try_from(index + 1).unwrap(); 32],
+                tree: Address::new_from_array([76; 32]),
+                leaf_index: u64::try_from(index).unwrap(),
+            },
+            nullifier: [u8::try_from(index + 20).unwrap(); 32],
+            data_hash: None,
+            zone_data_hash: None,
+            spent,
+        });
+    }
+
+    let describe = |balance: &AssetBalance| {
+        json!({
+            "assetId": balance.asset_id.to_string(),
+            "mint": balance.mint.to_string(),
+            "amount": balance.amount.to_string(),
+            "utxoAmounts": balance.utxos.iter().map(|u| u.amount.to_string()).collect::<Vec<_>>(),
+        })
+    };
+    let one = |mint: Address, filter: Option<Filter>| match wallet.balance(mint, filter) {
+        Ok(balance) => json!({ "arm": "ok", "value": describe(&balance) }),
+        Err(error) => json!({ "arm": "err", "error": ts_code(&error) }),
+    };
+    let all = |skip_utxos: bool| match wallet.balances(skip_utxos) {
+        Ok(balances) => {
+            json!({ "arm": "ok", "value": balances.iter().map(describe).collect::<Vec<_>>() })
+        }
+        Err(error) => json!({ "arm": "err", "error": ts_code(&error) }),
+    };
+
+    json!({
+        "mints": {
+            "sol": SOL_MINT.to_string(),
+            "second": second.to_string(),
+            "emptyRegistered": empty.to_string(),
+            "unregistered": unregistered.to_string(),
+        },
+        "registry": [["2", second.to_string()], ["5", empty.to_string()]],
+        "notes": [
+            { "mint": "sol", "amount": "3", "spent": false },
+            { "mint": "sol", "amount": "8", "spent": false },
+            { "mint": "sol", "amount": "40", "spent": true },
+            { "mint": "second", "amount": "12", "spent": false },
+        ],
+        "balance": {
+            "sol": one(SOL_MINT, None),
+            "solMinAmount5": one(SOL_MINT, Some(Filter::MinAmount(5))),
+            "solMinAmountAboveEvery": one(SOL_MINT, Some(Filter::MinAmount(1_000))),
+            "second": one(second, None),
+            "emptyRegistered": one(empty, None),
+            "unregistered": one(unregistered, None),
+        },
+        "balances": {
+            "withUtxos": all(false),
+            "skipUtxos": all(true),
+        },
     })
 }
 

@@ -21,6 +21,7 @@ export { Wallet } from "./state.js";
 export type {
   AssetBalance,
   CounterpartyCounter,
+  Filter,
   PrivateTransaction,
   SyncReport,
   ViewingKeyEntry,

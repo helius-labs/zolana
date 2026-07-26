@@ -1,5 +1,51 @@
 {
   "generator": "cargo run -p xtask --bin wallet-actions",
+  "rails": [
+    {
+      "authorityRail": "p256",
+      "noteRail": "p256",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "p256Signature": true
+        }
+      },
+      "sameKey": true
+    },
+    {
+      "authorityRail": "ed25519",
+      "noteRail": "ed25519",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "p256Signature": false
+        }
+      },
+      "sameKey": true
+    },
+    {
+      "authorityRail": "p256",
+      "noteRail": "ed25519",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "p256Signature": true
+        }
+      },
+      "sameKey": false
+    },
+    {
+      "authorityRail": "ed25519",
+      "noteRail": "p256",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "p256Signature": false
+        }
+      },
+      "sameKey": false
+    }
+  ],
   "rustSource": [
     "sdk-libs/wallet/src/actions/transaction.rs"
   ],
@@ -158,6 +204,92 @@
       },
       "parts": "2",
       "wallet": "ascending"
+    }
+  ],
+  "substitutions": [
+    {
+      "outcome": {
+        "arm": "ok",
+        "value": {}
+      },
+      "substitution": "none"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "spent"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "tree"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "commitment"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "nullifier"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "dataHash"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "zoneDataHash"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "utxo.owner"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "utxo.asset"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "utxo.amount"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "utxo.blinding"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "utxo.zoneProgramId"
     }
   ],
   "trees": {

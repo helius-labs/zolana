@@ -729,7 +729,7 @@ describe("P12 action workflows", () => {
     expect(eddsa.signingPublicKey().signatureType()).toBe("ed25519");
     const state = await walletFromDeposits(p256, [20n, 60n], fixture.inputs.blindingSeedBytes);
     expect(getPrivateTokenBalances(state.wallet)).toEqual([
-      { mint: SOL_MINT, amount: 80n, spendableAmount: 80n },
+      { assetId: 1n, mint: SOL_MINT, amount: 80n, utxos: [] },
     ]);
     expect(getPrivateTransactions(state.wallet)).toHaveLength(2);
     const authorityKeypair = seededKeypair(

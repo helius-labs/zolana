@@ -35,6 +35,8 @@ import {
 
 export interface WalletSyncConfig {
   readonly tagWindow?: bigint;
+  /** Recorded as `Wallet.lastSynced` once the sync commits, as `Wallet::sync` records `synced_at`. */
+  readonly syncedAt?: bigint;
 }
 
 function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
@@ -132,7 +134,7 @@ function transactionRow(
   kind: PrivateTransaction["kind"],
 ): PrivateTransaction {
   return Object.freeze({
-    id: Object.freeze({ signature: tx.txSignature as Signature, index }),
+    id: Object.freeze({ signature: tx.txSignature as Signature, index: BigInt(index) }),
     kind,
     direction: "incoming",
     status: "confirmed",
@@ -643,7 +645,7 @@ export async function decryptTransactions(
       : left.slot > right.slot
         ? 1
         : left.id.signature === right.id.signature
-          ? left.id.index - right.id.index
+          ? Number(left.id.index - right.id.index)
           : left.id.signature.localeCompare(right.id.signature),
   );
   for (const key of material.viewingKeys) {
@@ -669,7 +671,13 @@ export async function decryptTransactions(
       recipients: recipients.get(id) ?? empty,
     });
   });
-  input.wallet._replace({ utxos: finalUtxos, transactions, nullifiers, viewingKeyHistory });
+  input.wallet._replace({
+    utxos: finalUtxos,
+    transactions,
+    nullifiers,
+    viewingKeyHistory,
+    lastSynced: input.config?.syncedAt ?? 0n,
+  });
   return Object.freeze({
     received,
     spent,
