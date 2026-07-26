@@ -20,16 +20,17 @@ enum SigningKeyInner {
     Ed25519(DalekSigningKey),
 }
 
-/// Reduces a 32-byte P256 prehash modulo the group order, which is what
-/// RFC 6979 section 2.3.4 seeds the nonce with.
+/// Reduces a P256 prehash modulo the group order, which is what RFC 6979
+/// section 2.3.4 seeds the nonce with.
 ///
 /// `ecdsa` 0.16 hands `rfc6979::generate_k` the unreduced prehash, against that
-/// crate's own documented contract. For a prehash at or above the order that
-/// yields a nonce, and so a signature, no conforming implementation reproduces.
-/// Reducing first is a no-op below the order and leaves the signature equation
-/// untouched at every input, since `sign_prehashed` reduces the prehash again
-/// before using it.
-fn reduce_prehash(prehash: &[u8]) -> FieldBytes {
+/// crate's own documented contract. A prehash at or above the order then gives
+/// a nonce, and so a signature, that no conforming implementation reproduces.
+///
+/// Only the nonce moves. Below the order the reduction is the identity, and
+/// above it the signature equation was already using the reduced value, since
+/// `sign_prehashed` reduces the prehash itself before signing with it.
+fn reduce_prehash(prehash: &[u8; 32]) -> FieldBytes {
     <Scalar as Reduce<U256>>::reduce_bytes(FieldBytes::from_slice(prehash)).to_repr()
 }
 
@@ -113,12 +114,12 @@ impl SigningKey {
     pub fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
         match &self.inner {
             SigningKeyInner::P256(sk) => {
-                if msg.len() != 32 {
-                    return Err(KeypairError::InvalidPrehashLength(msg.len()));
-                }
+                let prehash: &[u8; 32] = msg
+                    .try_into()
+                    .map_err(|_| KeypairError::InvalidPrehashLength(msg.len()))?;
                 let signing = EcdsaSigningKey::from(sk);
                 let sig: EcdsaSig = signing
-                    .sign_prehash(&reduce_prehash(msg))
+                    .sign_prehash(&reduce_prehash(prehash))
                     .map_err(|_| KeypairError::InvalidPrehashLength(msg.len()))?;
                 let mut out = [0u8; 64];
                 out.copy_from_slice(&sig.to_bytes());
