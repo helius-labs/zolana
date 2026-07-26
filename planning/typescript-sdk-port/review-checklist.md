@@ -693,12 +693,17 @@ Apply these gates to each package. Record evidence beside a gate or in a
 - [ ] Browser-safe entry points contain no Node-only imports, and Node-only behavior stays in documented entry points.
 - [ ] Feature-gated behavior and each supported proof rail have a disposition.
 - [ ] Relevant focused, package, browser, vector, property, export, dependency, and pack checks pass.
-- [ ] A browser-capable package executes its vector suites in a headless browser engine. The static
+- [x] A browser-capable package executes its vector suites in a headless browser engine. The static
       forbidden-import scan in `browser-check.mjs` does not satisfy this gate
       ([G9-4](production-readiness-issues.md#g9-4-browser-support-is-checked-statically-not-in-a-browser-medium)).
-- [ ] Each public accessor that returns secret-adjacent bytes has an aliasing test that mutates the
+      Evidence: `npm run test:browser-runtime` / `check:browser-runtime` runs Poseidon, SHA-256,
+      HKDF, AES-CTR, Ed25519, and P256 vectors in headless Chromium
+      ([row-updates/browser.md](row-updates/browser.md)); green on this branch.
+- [x] Each public accessor that returns secret-adjacent bytes has an aliasing test that mutates the
       returned buffer and asserts internal state is unchanged
       ([G6-2](production-readiness-issues.md#g6-2-defensive-copy-discipline-is-not-uniformly-verified-medium)).
+      Evidence: `keypair/test/vectors/aliasing-census.test.ts` names the accessor census and mutates
+      each returned buffer; `CompressedShieldedAddress.ownerHash` is a copying getter.
 - [ ] No package row has `PARTIAL`, `MISSING`, `DIVERGENT`, `STALE`, or `BLOCKED`.
 
 ## Full SDK completion gates
@@ -706,8 +711,19 @@ Apply these gates to each package. Record evidence beside a gate or in a
 A full SDK parity claim requires the gate set below. Per-file completion is one
 input to this decision.
 
-- [ ] Each of the nine packages passes its package gates.
-- [ ] Cross-package public types, errors, dependencies, and capability boundaries match current Rust.
+- [ ] Each of the eleven workspace packages passes its package gates. The workspace list is root
+      `package.json` `workspaces`: `hasher`, `interface`, `keypair`, `transaction`, `indexer-api`,
+      `api`, `client`, `wallet`, `merkle-tree`, `smart-account-client`, `test-kit`. `@zolana/hasher`
+      and `@zolana/test-kit` were uncounted under the former "nine"; `test-kit` is private annex-only
+      for publish, and still takes the package gates that apply (exports, dependencies, api check).
+      G9-4 and G6-2 are closed; remaining package-gate bullets above still need a per-package
+      evidence walk before this top-level line can be checked
+      ([row-updates/gate12-pkg.md](row-updates/gate12-pkg.md)).
+- [ ] Cross-package public types, errors, dependencies, and capability boundaries match current Rust,
+      except (a) the forester `address-append` / `batchUpdateNullifierTreeInstruction` path, which is
+      an owner-ruled unsupported capability (no TypeScript forester; builder withdrawn; codec and tag
+      retained), and (b) P3 G2 proof compression, owned by `port/g2` and not certified here
+      ([row-updates/gate12-pkg.md](row-updates/gate12-pkg.md)).
 - [ ] Deposit, private transfer, withdraw, split, merge, registration, sync, and submission flows have current-Rust coverage without behavior-hiding stubs.
 - [ ] Instruction bytes execute against same-revision Solana programs.
 - [ ] Proof inputs work with the same-revision prover for each supported shape and rail.
