@@ -69,6 +69,7 @@ export type {
   EncryptedEnvelope,
   EncryptedSplit,
   EncryptedTransfer,
+  Filter,
   P256Signature,
   PrivateTransaction,
   SplitBundlePlaintext,

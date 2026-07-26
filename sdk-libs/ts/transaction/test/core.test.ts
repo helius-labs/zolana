@@ -264,7 +264,17 @@ describe("transaction core", () => {
       expect.objectContaining({ code: "TRANSACTION_UNKNOWN_ASSET" }),
     );
     expect(wallet.balances()).toEqual([]);
-    expect(wallet.balance(SOL_MINT)).toBeUndefined();
+    // A registered mint the wallet holds no note of has a zero balance rather
+    // than none; only an unregistered mint is a rejection.
+    expect(wallet.balance(SOL_MINT)).toEqual({
+      assetId: 1n,
+      mint: SOL_MINT,
+      amount: 0n,
+      utxos: [],
+    });
+    expect(() => wallet.balance(laterMint)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_UNKNOWN_MINT" }),
+    );
     expect(
       () =>
         new Utxo({

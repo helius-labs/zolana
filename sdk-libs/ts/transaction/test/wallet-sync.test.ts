@@ -213,7 +213,7 @@ describe("manifest-verified wallet behavior", () => {
         fixtureString(fixtureObject(entry.id, "history id"), "signature"),
       ),
     );
-    expect(wallet.balance(SOL_MINT)?.amount).toBe(40n);
+    expect(wallet.balance(SOL_MINT).amount).toBe(40n);
     expect(wallet.utxos().filter((entry) => entry.spent)).toHaveLength(1);
   });
 
@@ -262,7 +262,7 @@ describe("manifest-verified wallet behavior", () => {
     expect(wallet.privateTransactions()).toHaveLength(
       Number(fixtureString(sequentialExpected, "historyCount")),
     );
-    expect(wallet.balance(SOL_MINT)?.amount).toBe(
+    expect(wallet.balance(SOL_MINT).amount).toBe(
       BigInt(fixtureString(sequentialExpected, "balance")),
     );
 

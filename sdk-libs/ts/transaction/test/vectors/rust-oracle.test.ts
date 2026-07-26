@@ -29,6 +29,7 @@ import {
   TRANSACTION_ERROR_CODES,
   TransactionError,
   Utxo,
+  Wallet,
   anonymousRecipientFromUtxos,
   anonymousSenderFromUtxos,
   assetField,
@@ -49,8 +50,10 @@ import {
   signedToField,
   splitBundleFromUtxos,
   slotOrdinal,
+  type AssetBalance,
   type DataRecord,
   type ExternalData,
+  type Filter,
   type PreparedTransfer,
   type PreparedZoneAuthority,
   type Shape,
@@ -216,7 +219,9 @@ function noncanonicalDummy(fields: readonly string[]): ProofInputUtxo {
         amount: set.has("amount") ? 7n : 0n,
         blinding: new Uint8Array(31) as Bytes31,
         ...(set.has("data")
-          ? { data: new Data([{ kind: "memo", bytes: Uint8Array.from(BUILDER_RECORD_BYTES.memo) }]) }
+          ? {
+              data: new Data([{ kind: "memo", bytes: Uint8Array.from(BUILDER_RECORD_BYTES.memo) }]),
+            }
           : {}),
         ...(set.has("zone_program_id") ? { zoneProgramId: oracle.merge.zone as Address } : {}),
       }),
@@ -453,10 +458,7 @@ describe("the Rust oracle and TypeScript agree on UTXO commitments", () => {
     }>[]) {
       expect(
         hex(
-          ownerUtxoHash(
-            bytes(entry.ownerHashHex) as Bytes32,
-            bytes(entry.blindingHex) as Bytes31,
-          ),
+          ownerUtxoHash(bytes(entry.ownerHashHex) as Bytes32, bytes(entry.blindingHex) as Bytes31),
         ),
       ).toBe(entry.hashHex);
     }
@@ -726,12 +728,8 @@ interface MergeIntoUtxosCase {
 
 describe("the Rust oracle and TypeScript agree on the from-UTXO conversions", () => {
   const fromUtxos = oracle.fromUtxos;
-  const ownerKey = SigningKey.fromBytes(
-    bytes(`${"00".repeat(31)}07`) as Bytes32,
-  ).publicKey();
-  const otherKey = SigningKey.fromBytes(
-    bytes(`${"00".repeat(31)}0c`) as Bytes32,
-  ).publicKey();
+  const ownerKey = SigningKey.fromBytes(bytes(`${"00".repeat(31)}07`) as Bytes32).publicKey();
+  const otherKey = SigningKey.fromBytes(bytes(`${"00".repeat(31)}0c`) as Bytes32).publicKey();
   const senderViewing = ViewingKey.fromBytes(bytes("08".repeat(32)) as Bytes32).publicKey();
   const blindingSeed = bytes(fromUtxos.blindingSeedHex) as Bytes31;
   const splMint = fromUtxos.splMint as Address;
@@ -772,7 +770,9 @@ describe("the Rust oracle and TypeScript agree on the from-UTXO conversions", ()
     const convert = (): Uint8Array => {
       switch (family) {
         case "plaintextTransfer":
-          return encodePlaintextTransfer(plaintextTransferFromUtxos(utxos, owner, { blindingSeed }));
+          return encodePlaintextTransfer(
+            plaintextTransferFromUtxos(utxos, owner, { blindingSeed }),
+          );
         case "anonymousRecipient":
           return encodeAnonymousRecipient(
             anonymousRecipientFromUtxos(utxos, owner, { senderPublicKey: senderViewing }),
@@ -919,11 +919,7 @@ describe("the Rust oracle and TypeScript agree on the transfer builder", () => {
     for (const op of testCase.ops) {
       switch (op.kind) {
         case "send":
-          builder.send(
-            receiver.shielded.shieldedAddress(),
-            op.asset as Address,
-            BigInt(op.amount),
-          );
+          builder.send(receiver.shielded.shieldedAddress(), op.asset as Address, BigInt(op.amount));
           break;
         case "withdraw":
           builder.withdraw(op.asset as Address, BigInt(op.amount), withdrawalTarget(op.target));
@@ -1440,7 +1436,9 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
           asset: SOL_MINT,
           amount: 500n,
           blinding,
-          ...(testCase.outputZone === null ? {} : { zoneProgramId: testCase.outputZone as Address }),
+          ...(testCase.outputZone === null
+            ? {}
+            : { zoneProgramId: testCase.outputZone as Address }),
         }),
         ...Array.from({ length: testCase.extraOutputs + 1 }, () =>
           createProofOutput({
@@ -1810,4 +1808,116 @@ describe("the Rust oracle and TypeScript agree on public-input field encodings",
       expect(hex(assetField(entry.asset as Address))).toBe(entry.fieldHex);
     }
   });
+});
+
+describe("the Rust oracle and TypeScript agree on wallet balances", () => {
+  const section = oracle.walletBalances;
+  const mints = section.mints as Readonly<Record<string, Address>>;
+
+  interface Balance {
+    readonly assetId: string;
+    readonly mint: string;
+    readonly amount: string;
+    readonly utxoAmounts: readonly string[];
+  }
+  type Arm =
+    | { readonly arm: "ok"; readonly value: Balance | readonly Balance[] }
+    | { readonly arm: "err"; readonly error: string };
+
+  const filled = (value: number): Bytes32 => new Uint8Array(32).fill(value) as Bytes32;
+  const minAmount = (value: bigint): Filter => ({ kind: "minAmount", minAmount: value });
+  const describeBalance = (balance: AssetBalance): Balance => ({
+    assetId: balance.assetId.toString(),
+    mint: balance.mint,
+    amount: balance.amount.toString(),
+    utxoAmounts: balance.utxos.map((utxo) => utxo.amount.toString()),
+  });
+
+  function observe(outcome: Arm, act: () => Balance | readonly Balance[]): unknown {
+    if (outcome.arm === "ok") return { arm: "ok", value: act() };
+    try {
+      act();
+    } catch (cause) {
+      return { arm: "err", error: (cause as { code?: unknown }).code };
+    }
+    throw new Error(`expected ${outcome.error} but the call returned`);
+  }
+
+  function walletOf(): Wallet {
+    const keypair = ShieldedKeypair.fromEd25519(filled(71), 0);
+    const wallet = new Wallet({
+      identity: keypair.shieldedAddress(),
+      registry: new AssetRegistry(
+        (section.registry as readonly (readonly [string, string])[]).map(
+          ([id, mint]) => [BigInt(id), mint as Address] as const,
+        ),
+      ),
+    });
+    wallet._replace({
+      utxos: (
+        section.notes as readonly Readonly<{ mint: string; amount: string; spent: boolean }>[]
+      ).map((note, index) => ({
+        utxo: new Utxo({
+          owner: keypair.signingPublicKey(),
+          asset: mints[note.mint] as Address,
+          amount: BigInt(note.amount),
+          blinding: new Uint8Array(31).fill(index + 1) as Bytes31,
+          data: new Data(),
+        }),
+        outputContext: {
+          hash: filled(index + 1),
+          tree: mints.sol as Address,
+          leafIndex: BigInt(index),
+        },
+        nullifier: filled(index + 20),
+        spent: note.spent,
+      })),
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    return wallet;
+  }
+
+  // A registered mint the wallet holds no note of still has a balance, the
+  // min-amount filter narrows which notes count, and an unregistered mint is a
+  // rejection rather than an absent entry.
+  const filters: Readonly<Record<string, readonly [string, Filter | undefined]>> = {
+    sol: ["sol", undefined],
+    solMinAmount5: ["sol", minAmount(5n)],
+    solMinAmountAboveEvery: ["sol", minAmount(1000n)],
+    second: ["second", undefined],
+    emptyRegistered: ["emptyRegistered", undefined],
+    unregistered: ["unregistered", undefined],
+  };
+
+  for (const [name, [mint, filter]] of Object.entries(filters)) {
+    const outcome = (section.balance as Readonly<Record<string, Arm>>)[name];
+    if (outcome === undefined) throw new Error(`the oracle has no balance case ${name}`);
+    it(`balance: ${name}`, () => {
+      const wallet = walletOf();
+      expect(
+        observe(outcome, () =>
+          describeBalance(
+            filter === undefined
+              ? wallet.balance(mints[mint] as Address)
+              : wallet.balance(mints[mint] as Address, filter),
+          ),
+        ),
+      ).toEqual(outcome);
+    });
+  }
+
+  for (const [name, skipUtxos] of [
+    ["withUtxos", false],
+    ["skipUtxos", true],
+  ] as const) {
+    const outcome = (section.balances as Readonly<Record<string, Arm>>)[name];
+    if (outcome === undefined) throw new Error(`the oracle has no balances case ${name}`);
+    it(`balances: ${name}`, () => {
+      const wallet = walletOf();
+      expect(observe(outcome, () => wallet.balances(skipUtxos).map(describeBalance))).toEqual(
+        outcome,
+      );
+    });
+  }
 });

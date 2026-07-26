@@ -7,13 +7,21 @@ import { Utxo } from "../utxo.js";
 import { AssetRegistry } from "./asset.js";
 
 export interface AssetBalance {
+  readonly assetId: bigint;
   readonly mint: Address;
   readonly amount: bigint;
-  readonly spendableAmount: bigint;
+  readonly utxos: readonly Utxo[];
+}
+
+/** Narrows which unspent notes a balance counts. */
+export type Filter = Readonly<{ kind: "minAmount"; minAmount: bigint }>;
+
+function matches(filter: Filter, utxo: Utxo): boolean {
+  return utxo.amount >= filter.minAmount;
 }
 
 export interface PrivateTransaction {
-  readonly id: Readonly<{ signature: Signature; index: number }>;
+  readonly id: Readonly<{ signature: Signature; index: bigint }>;
   readonly kind: "deposit" | "transfer" | "withdrawal" | "split" | "merge";
   readonly direction: "incoming" | "outgoing" | "self";
   readonly status: "pending" | "confirmed";
@@ -83,19 +91,21 @@ export interface WalletUtxo {
   readonly spent: boolean;
 }
 
+function copyUtxo(value: Utxo): Utxo {
+  return new Utxo({
+    owner: value.owner,
+    asset: value.asset,
+    amount: value.amount,
+    blinding: value.blinding,
+    data: value.data,
+    ...(value.zoneProgramId === undefined ? {} : { zoneProgramId: value.zoneProgramId }),
+  });
+}
+
 function snapshotUtxo(value: WalletUtxo): WalletUtxo {
   return Object.freeze({
     ...value,
-    utxo: new Utxo({
-      owner: value.utxo.owner,
-      asset: value.utxo.asset,
-      amount: value.utxo.amount,
-      blinding: value.utxo.blinding,
-      data: value.utxo.data,
-      ...(value.utxo.zoneProgramId === undefined
-        ? {}
-        : { zoneProgramId: value.utxo.zoneProgramId }),
-    }),
+    utxo: copyUtxo(value.utxo),
     outputContext: Object.freeze({
       ...value.outputContext,
       hash: copy(value.outputContext.hash),
@@ -142,28 +152,38 @@ export class Wallet {
     );
   }
 
-  balance(mint: Address): AssetBalance | undefined {
-    const matching = this.#utxos.filter((entry) => !entry.spent && entry.utxo.asset === mint);
-    if (matching.length === 0) return undefined;
-    const amount = checkedBalance(matching.reduce((sum, entry) => sum + entry.utxo.amount, 0n));
-    return Object.freeze({ mint, amount, spendableAmount: amount });
+  /**
+   * The balance of one registered mint. A mint the wallet holds no note for
+   * still has a balance of zero; only a mint the registry does not know is a
+   * rejection.
+   */
+  balance(mint: Address, filter?: Filter): AssetBalance {
+    const assetId = this.#registry.assetId(mint);
+    const utxos = this.#utxos
+      .filter(
+        (entry) =>
+          !entry.spent &&
+          entry.utxo.asset === mint &&
+          (filter === undefined || matches(filter, entry.utxo)),
+      )
+      .map((entry) => copyUtxo(entry.utxo));
+    const amount = checkedBalance(utxos.reduce((sum, utxo) => sum + utxo.amount, 0n));
+    return Object.freeze({ assetId, mint, amount, utxos: Object.freeze(utxos) });
   }
 
-  balances(options?: Readonly<{ skipUtxos?: boolean }>): readonly AssetBalance[] {
-    void options;
+  /** One balance per mint the wallet holds an unspent note of, by asset id. */
+  balances(skipUtxos = false): readonly AssetBalance[] {
     const mints = new Set(
       this.#utxos.filter((entry) => !entry.spent).map((entry) => entry.utxo.asset),
     );
     return [...mints]
-      .sort((left, right) => {
-        const leftId = this.#registry.assetId(left);
-        const rightId = this.#registry.assetId(right);
-        return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
-      })
-      .flatMap((mint) => {
+      .map((mint) => {
         const balance = this.balance(mint);
-        return balance ? [balance] : [];
-      });
+        return skipUtxos ? Object.freeze({ ...balance, utxos: Object.freeze([]) }) : balance;
+      })
+      .sort((left, right) =>
+        left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0,
+      );
   }
 
   _state(): Readonly<{

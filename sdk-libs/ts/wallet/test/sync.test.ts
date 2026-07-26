@@ -165,7 +165,7 @@ describe("wallet sync", () => {
     );
     const balance = fixture.expected.balances[0];
     if (balance === undefined) throw new Error("missing balance fixture");
-    expect(wallet.balance(SOL_MINT)?.amount).toBe(BigInt(balance.amount));
+    expect(wallet.balance(SOL_MINT).amount).toBe(BigInt(balance.amount));
     expect(getShieldedTransactionsByTags).toHaveBeenCalledTimes(8);
     expect(getEncryptedUtxosByTags).toHaveBeenCalledTimes(8);
   });
@@ -259,7 +259,7 @@ describe("wallet sync", () => {
         requested.has(hex(viewingKey.recipientRequestViewTag(counters.requestCount + window - 1n))),
       ).toBe(true);
       expect(wallet.utxos()).toHaveLength(3);
-      expect(wallet.balance(SOL_MINT)?.amount).toBe(40n + DEPOSIT_AMOUNT);
+      expect(wallet.balance(SOL_MINT).amount).toBe(40n + DEPOSIT_AMOUNT);
     }
   });
 

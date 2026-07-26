@@ -370,7 +370,7 @@ export async function syncWallet(
 }
 
 export function getPrivateTokenBalances(wallet: Wallet): readonly AssetBalance[] {
-  return wallet.balances();
+  return wallet.balances(true);
 }
 
 export function getPrivateTransactions(wallet: Wallet): readonly PrivateTransaction[] {

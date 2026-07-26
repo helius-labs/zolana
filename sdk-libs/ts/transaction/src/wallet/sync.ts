@@ -132,7 +132,7 @@ function transactionRow(
   kind: PrivateTransaction["kind"],
 ): PrivateTransaction {
   return Object.freeze({
-    id: Object.freeze({ signature: tx.txSignature as Signature, index }),
+    id: Object.freeze({ signature: tx.txSignature as Signature, index: BigInt(index) }),
     kind,
     direction: "incoming",
     status: "confirmed",
@@ -643,7 +643,7 @@ export async function decryptTransactions(
       : left.slot > right.slot
         ? 1
         : left.id.signature === right.id.signature
-          ? left.id.index - right.id.index
+          ? Number(left.id.index - right.id.index)
           : left.id.signature.localeCompare(right.id.signature),
   );
   for (const key of material.viewingKeys) {

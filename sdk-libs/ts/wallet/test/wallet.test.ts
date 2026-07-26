@@ -224,8 +224,10 @@ describe("wallet actions", () => {
 
   it("returns immutable balance and history snapshots", () => {
     const wallet = fundedWallet([2n, 5n]);
+    // `get_private_token_balances` passes `skip_utxos = true`, so the note list
+    // is dropped and only the aggregate survives.
     expect(getPrivateTokenBalances(wallet)).toEqual([
-      { mint: SOL_MINT, amount: 7n, spendableAmount: 7n },
+      { assetId: 1n, mint: SOL_MINT, amount: 7n, utxos: [] },
     ]);
     expect(getPrivateTransactions(wallet)).toEqual([]);
   });
