@@ -913,8 +913,312 @@ precision-loss refusal, since silently truncating a slot is the failure this
 prevents. Follow Light in applying the coercion only to fields whose domain can
 actually exceed `2^53`, rather than uniformly, so a field that cannot overflow
 does not acquire a parse path it never needs.
-| Date | |
-| Follow-up artifacts | |
+
+## Thirteen rulings from the open-questions register, 2026-07-26
+
+The protocol owner ruled on thirteen questions in one sitting. The numbering is
+[`open-questions.md`](open-questions.md)'s, and each entry below is the record
+that register's status line points at.
+
+Three went against the recommendation on the table, Q19, Q22 and the shape of
+Q10. Each says so, because an undocumented override reads later as an oversight
+and gets quietly reversed.
+
+Several authorise editing `docs/spec.md`, which this port's standing constraint
+otherwise forbids. Each such entry says so, and the authorisation covers that
+conflict only.
+
+### Q5: a zone authority moving value out of a zone
+
+| Field | Value |
+| --- | --- |
+| Conflict | `docs/spec.md:983` states that value cannot leave a zone through a zone-authority transition. The program settles a zone-authority public leg through the same path as an ordinary `transact`, and the protocol's own builder carries a `withdrawal` field for it. |
+| Ruling | Amend the specification to match the program. Same principle as G7-1 and X01: the implementations agree and the document is the stale artifact. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | The `docs/spec.md:983` paragraph. No SDK code moves; the guard was already removed under [Zone-authority withdrawals](#zone-authority-withdrawals). Row T29's text still describes the guard and needs rewriting to the current behaviour. |
+
+This ruling authorises editing `docs/spec.md`. The authorisation covers this
+conflict only.
+
+Three independent readings agree that nothing on chain gates a public leg on the
+zone-authority variant, and [`row-updates/rejection-validation.md`](row-updates/rejection-validation.md)
+collects all three. `zone_authority_transact` calls
+`process_transact_core::<true, true>`
+(`zone_authority_transact/processor.rs:45-52`), and that function settles through
+a match that consults neither const parameter (`transact/processor.rs:170-176`);
+`IS_ZONE` and `IS_AUTHORITY` are read in exactly two places and neither touches
+the public amounts. The circuit applies `assertBalanceConservation`
+(`balance.go:15-72`) to every variant, and the only variant-specific constraints
+in `Define` are the two zone-field assertions at `circuit.go:216-221`. And
+`program-libs/interface/src/instruction/builders/zone_authority_transact.rs:21`
+declares `pub withdrawal: Option<TransactWithdrawal>` and pushes the settlement
+accounts for it, which is a protocol statement about what the instruction can
+carry.
+
+The specification paragraph is not careless, which is why it needs amending
+rather than deleting. `git log -S` places it in `39465e8c`, the commit that added
+the zone circuits, so it predates the port and is not a fixer writing their own
+justification. What it gets wrong is the inference: the mechanism it cites is the
+strict UTXO zone binding, and the conclusion that mechanism supports is that a
+default-zone UTXO can neither be spent nor created. A withdrawal creates no
+default-zone UTXO. It settles to an external account through the public leg,
+which the binding does not touch. The amendment has to state the binding it
+actually has and drop the containment claim, not restate the claim in different
+words.
+
+What would reopen this: someone intending containment as a real invariant. That
+is a program change constraining the public amounts on the authority rail, and
+the key rotation behind it, rather than a document edit. The confirming test the
+register names, a `program-tests` scenario submitting a negative
+`public_sol_amount` with a real proof, is still worth having, but as
+confirmation. [`row-updates/double-spend-analysis.md`](row-updates/double-spend-analysis.md)
+already established that nullification and public-leg settlement happen in one
+instruction with no path that applies one without the other, so the safety
+question that held this open is answered.
+
+### Q6: the frozen-source gate
+
+| Field | Value |
+| --- | --- |
+| Conflict | `npm run fixtures:check` fails when any file under twelve canonical paths differs from a pinned revision, so every row closed by fixing Rust reddens the gate whether or not the fix can change a fixture byte. |
+| Ruling | Drop the source-hash gate entirely, as Light does. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `assert_frozen_sources` and its three revision constants and three path lists in `xtask/src/bin/ts-fixtures.rs`; the `canonicalSourceRevisions` block those constants also feed; the checklist's G8-1 drift line. `xtask` sits outside the `sdk-libs/**` scope rule, so this needs a worker allowed to touch it. |
+
+This went further than the recommendation on the table, which was to narrow the
+frozen set to files whose bytes feed a fixture. The owner chose removal. Record
+it as a choice: a later reader finding no source pin should not conclude it was
+lost.
+
+The gate is `assert_frozen_sources` (`ts-fixtures.rs:268-295`), which runs
+`git diff --quiet <revision> -- <paths>` for three revisions and fails the run on
+any difference. Its baseline list is twelve paths (`ts-fixtures.rs:38-50`) and
+includes `sdk-libs/keypair/src`, `sdk-libs/transaction/src` and
+`sdk-libs/client/src/prover`, so a fix anywhere in three of the packages this
+port is actively repairing turns the gate red. K12 already did it, and the C08
+ruling sends the next worker into `client/src/prover`, another frozen path.
+
+Light's absence here was checked as a negative rather than assumed:
+`BASELINE_SHA`, `frozen_sources` and `assert_frozen` return nothing anywhere in
+that repository, and it does export test data from Rust
+(`xtask/src/export_photon_test_data.rs`) while pinning nothing about the sources
+that produced it.
+
+The consequence, stated plainly: fixture drift will no longer be caught by
+hashing sources. What remains is the fixtures' own comparison, the regenerate
+into `target/ts-fixtures-check` and compare against the committed tree at
+`ts-fixtures.rs:133-145`, plus `EXPECTED_FIXTURE_COUNT` and the manifest hashes.
+That comparison catches a source change that moves a fixture byte and is silent
+about one that does not, which is the trade being accepted: the gate that fired
+on a harmless edit is also the gate that would have caught a fixture nobody
+regenerated. Two things follow for whoever removes it. The regenerate-and-compare
+run has to actually run in CI rather than be assumed. And the three revision
+constants also populate `canonicalSourceRevisions` in the manifest, so the
+removal has to decide whether they stay as provenance labels or go with the
+gate; leaving a constant named `BASELINE_SHA` behind with nothing enforcing it is
+the outcome to avoid.
+
+What would reopen this: a fixture divergence reaching `main` because nobody
+regenerated. If that happens the answer is a stronger comparison, not a restored
+source hash.
+
+### Q7: `@solana/kit` and versioned transactions
+
+| Field | Value |
+| --- | --- |
+| Conflict | Whether to take `@solana/kit`, and with it versioned transactions and address lookup tables, against a hand-written legacy message compiler. |
+| Ruling | Stay on legacy messages. Revisit when a second pool tree ships. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | None to implement. Step A of [`remaining-work.md`](remaining-work.md) closes with this answer. The interim work [`versioned-transactions.md`](versioned-transactions.md) recommends stands on its own merits: the size measurement is landed, and consolidating the three hand-written compilers is justified by the duplication rather than by v0. |
+
+The measurement is what decides it. A shielded transfer names three accounts at
+any supported shape against a runtime ceiling of 128, and the count does not grow
+with the proof shape, because `InputUtxo` carries a `tree_index: u8` and
+`TransactAccounts` loads exactly one tree (`transact/account.rs:24-27`). Going
+from one input to five adds 38 bytes and no accounts. A lookup table costs a
+shielded transfer 5 bytes and saves an SPL withdrawal 57, because break-even is
+two compressible addresses and a transfer has exactly one: the fee payer is a
+signer, and a program id cannot be loaded from a table.
+
+"Light adopted it" is not an argument its code supports, and this was checked
+twice. Light did not migrate to v0, it started there, with no migration commit
+and so no recorded trigger; its lookup tables are an append-only address registry
+never passed to `compileToV0Message`; and its `@solana/kit` dependency is an
+interop shim that compiles no transactions.
+
+The decision is cheap to defer, which is the other half of the reasoning. The
+boundary type is `Transaction = { messageBytes, signatures }`
+(`interface/src/index.ts:72-75`), so a v0 message is still bytes and adopting v0
+later ripples into no caller, no signer, and no wallet surface. What does accrete
+is the duplication a version change would have to cross: one message compiler
+became three and one `compactU16` became five, in four commits, in a package two
+days old.
+
+The revisit trigger the owner named is a second pool tree, which is Q9. Two
+others from the study are real and should not be crowded out by it:
+`OwnerTag::Account` coming into use, which makes the account list grow with
+output count, and a wallet integration requiring `VersionedTransaction`, which is
+an interoperation reason rather than a size one and belongs with finding F1.
+
+### Q8: the ciphertext format change
+
+| Field | Value |
+| --- | --- |
+| Conflict | Three of the ten supported shapes compile to transfers past the 1232-byte limit today and a fourth joins them as a withdrawal. The already-specified ciphertext format brings nine of the ten under the limit. |
+| Ruling | Not scheduled. Plan as though it is not coming. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `SPP_SUPPORTED_SHAPES` and the resolution that reads it, `sdk-libs/ts/interface/src/shape.ts:12-42` and `program-libs/interface/src/shape.rs:68-79`. Both languages move together or the narrowing becomes a divergence. |
+
+The register recorded the conditional: if the format change slips, narrowing
+`SPP_SUPPORTED_SHAPES` stops being bookkeeping. It has slipped indefinitely, so
+the conditional fires and the narrowing is necessary work.
+
+What is unsendable today, measured rather than modelled
+([`versioned-transactions.md`](versioned-transactions.md)): 4 in 4 out at 1294
+bytes as a transfer, 5 in 4 out at 1332, 1 in 8 out at 2108, and 5 in 3 out at
+1240 as a withdrawal. The last of those is the reason a flat removal of shapes
+from the list would be wrong: 5 in 3 out sends fine as a transfer at 1100 bytes
+and fails only as a withdrawal, so the narrowing has to distinguish the role
+rather than the shape alone. The 1 in 8 out case is reachable from the public API
+without doing anything unusual, because a single-input transfer to six recipients
+resolves to it, and today nothing refuses it: the transaction is built, submitted,
+rejected, and reported as a confirmation timeout.
+
+The interaction with Q7 is the part worth recording. The recommendation against
+versioned transactions rested partly on this change arriving, since it makes v0
+unnecessary for size. That leg is gone. Q7's answer now stands on the size check
+instead: a lookup table costs a transfer 5 bytes and rescues exactly one shape
+across the ten, the 5 in 3 out withdrawal, from 1240 bytes to 1183. Versioned
+transactions were never the fix for the three oversized transfers, and that
+remains true with the format change unscheduled, but the argument is now the
+measured arithmetic alone.
+
+Coordinate with Q16 before editing the shape list. Two separate narrowings land
+on the same surface for unrelated reasons: this one for size across the rails,
+Q16's for zone-authority key coverage on one rail.
+
+### Q9: a second pool tree
+
+| Field | Value |
+| --- | --- |
+| Conflict | The account arithmetic behind Q7 rests on `TransactAccounts` loading exactly one tree, and no roadmap statement existed either way. |
+| Ruling | No plan currently. Proceed on the one-tree assumption, recorded as an assumption with a named dependency rather than as a fact. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | None to implement. Q7's answer depends on this, and a second tree is Q7's named revisit trigger. |
+
+The distinction the ruling asks for is the whole content of it. "No plan
+currently" is the absence of a roadmap statement, not a commitment that a second
+tree will never ship, so anything resting on it has to be written as conditional.
+The load-bearing use is Q7: `InputUtxo::tree_index` is a `u8` that is zero
+everywhere today because `TransactAccounts` loads one tree
+(`transact/account.rs:24-27`), and the moment a spend can name two, a transfer
+has two compressible protocol-owned addresses, which is exactly the lookup-table
+break-even. A five-input spend across five trees would put four more 32-byte
+addresses inline, and the account count would start scaling with input count.
+
+Nobody will announce this in a form the SDK sees, so name the tells. A change to
+`TransactAccounts::validate_and_parse` that reads more than one tree account is
+the direct one. The indirect check is one command, `cargo run -p xtask -- tx-size`
+over the shapes of interest, which should be re-run after any change to the
+`transact` account list, the proof layout, or the ciphertext format, and compared
+against the tables in [`versioned-transactions.md`](versioned-transactions.md).
+
+### Q10: an explicitly-passed zero at a zone binding (T28)
+
+| Field | Value |
+| --- | --- |
+| Conflict | T28 proposed refusing an explicitly-passed zero where the SDK constructors take an `Option`. The prepared struct distinguishes `Some(zero)` from `None` and the commitment does not. |
+| Ruling | Normalize an explicitly-passed zero to absent rather than refusing it. The counterargument, that the dummy-canonicity check refuses an explicit zero rather than normalizing, was considered and not taken. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `sdk-libs/transaction/src/instructions/types.rs:124` and the constructors that take these options, with the TypeScript counterparts. Rust first, TypeScript second, per the standing order for a change to what a constructor accepts. Row T28. |
+
+This went against [`row-updates/t28-zone-binding.md`](row-updates/t28-zone-binding.md)
+in shape for one of the two clauses it covers, and the register should be read
+with that in mind: clause one was recommended as a refusal and clause two as a
+normalization. The ruling normalizes.
+
+Read the ruling as a principle over both explicit-zero clauses, because the
+sentence names the zone address while the counterargument it dismisses belongs to
+the zone data hash, and the two clauses had opposite recommendations. The
+principle is that an explicitly-passed zero means absence and is normalized to
+it. The consequence differs by clause and an implementer needs both.
+
+For the zone data hash, normalization is free. The mechanism is
+`types.rs:124`, which takes `spend.zone_data_hash.unwrap_or_default()`, so
+`Some([0u8; 32])` and `None` already reach the commitment as the same value while
+the prepared struct keeps them apart. That gap is the defect. Normalizing closes
+it and moves no commitment, because the committed field was already zero.
+
+For the zone address, normalization changes what is committed. `Some(zero)`
+commits to `pk_field(0) = Poseidon(0, 0)`, a specific non-zero field element, so
+a UTXO built that way is read as zone-bound and held to the public zone rather
+than being unbound. Normalizing makes it unbound instead. That is safe on the
+evidence: no caller in the SDK tests, client tests, program tests or TypeScript
+fixtures passes the zero zone address, and a build that did could not settle,
+because `merge_zone` reads the public zone from a signing `zone_config` and
+`create_zone_config` requires that account to sign and to sit at the
+`zone_auth` PDA derived under the zone program (`zone_config/create.rs:30`,
+`:33-38`, `:76-78`). One trap for whoever implements it: do not cite
+`circuit.go:219-221` as the chain-side equivalent. The circuit compares the field
+element, and `pk_field(0)` is non-zero, so it would accept what the SDK refuses.
+
+The counterargument, recorded because it was close. The SDKs already refuse an
+explicit zero rather than normalize it in the canonical-dummy check
+(`types.rs:79-80`, its test at `:209-211`, mirrored at
+`ts/transaction/src/utxo.ts:284`), so refusing would have been consistent and
+normalizing leaves the SDK doing two different things with the same input in two
+places. What carries the ruling over that is the difference in what the two rules
+are for: the dummy rule exists to catch a caller who built a dummy wrong, where
+masking the mistake is the harm, and no equivalent mistake is being masked on a
+real output. The caller shape is not hypothetical either, since the zone-deposit
+fixtures use a zero `[u8; 32]` as the no-zone-data value in a fixed-width struct
+(`program-tests/zone-test-program/tests/steps/zone_deposit.rs:46`), so an adapter
+onto the `Option` API lands on `Some([0u8; 32])` without meaning anything by it.
+
+What this ruling does not settle, both of which question 10 also carried. T28's
+third clause, refusing a zone data hash at or above the BN254 modulus, is
+untouched; it refuses nothing that succeeds today, relabels a deferred Poseidon
+failure, and can be taken alone in either language first. And S01, the 1232-byte
+guard, is untouched: question 13 supplied Light's partial answer, measure without
+refusing, and the measurement landed in `0e26c397`, but whether Rust gains the
+fallible builder signature is still open.
+
+### Q11: the two program defects
+
+| Field | Value |
+| --- | --- |
+| Conflict | PD-1 and PD-2 are program and circuit defects with executed reproductions, and the port's SDK-only scope forbids fixing either on this branch. |
+| Ruling | Each gets its own pull request against the program, tracked outside this port. Neither blocks this port from landing. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | PD-1 has no branch. PD-2 has branch `fix/merge-user-record-binding`, commit `a811b20e`, and PR #160, which is open rather than merged and whose commit is not an ancestor of `main`. [`scope-and-denominator.md`](scope-and-denominator.md)'s outside-scope table and the checklist's protocol-defect table both carry the route. |
+
+The route is the same one this ledger already set twice, for the padding
+nullifier against PR #142 and for the `user_record` binding defect. Confirming it
+for both defects at once is most of what this ruling does. The new half is that
+neither blocks the port: the completion criteria do not include either fix, so a
+reviewer counting adverse rows should not count PD-1 or PD-2 among them, and a
+worker finding one of them in a file they are porting should not stop.
+
+PD-1 is a liveness risk rather than a double spend, and the distinction matters
+because the investigation that found it answered the double-spend question the
+other way. A padding dummy input's public nullifier column is unconstrained in
+the circuit and the program inserts it anyway, so a padding dummy carrying
+nullifier `0` lands on chain, and `0` is already a nullifier-tree leaf that
+cannot be appended again. A chosen padding nullifier can wedge the queue and
+freeze every shielded balance. Established by execution in
+`program-tests/shielded-pool/tests/transact/double_spend.rs`.
+
+PD-2 is that `merge_transact` does not bind its `user_record` to the owner whose
+UTXOs are merged. [Where the `user_record` binding defect lands](#where-the-user_record-binding-defect-lands)
+carries the analysis and should be read before the fix is attempted, in
+particular that the P256 rail probably does not close without a registry change.
 
 ## Closed rulings
 
