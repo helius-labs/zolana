@@ -955,9 +955,9 @@ Three went against the recommendation on the table, Q19, Q22 and the shape of
 Q10. Each says so, because an undocumented override reads later as an oversight
 and gets quietly reversed.
 
-Several authorise editing `docs/spec.md`, which this port's standing constraint
-otherwise forbids. Each such entry says so, and the authorisation covers that
-conflict only.
+One, Q5, authorises editing `docs/spec.md`, which this port's standing constraint
+otherwise forbids. That entry says so, and the authorisation covers that conflict
+only.
 
 ### Q5: a zone authority moving value out of a zone
 
