@@ -104,6 +104,25 @@ by subject was considered and dropped on 2026-07-26: finishing the stages is
 worth more than a navigable log, and rewriting history under agents that are
 still committing would be unsafe anyway.
 
+## The T28 normalization is split, and only one half may be implemented
+
+The owner ruled on 2026-07-26 to normalize an explicitly-passed zero rather than
+refuse it. Recording that ruling surfaced a distinction the question had blurred:
+it names the zone address, while the counterargument it dismisses belongs to the
+zone data hash, and the two clauses do not cost the same.
+
+**Implement the data hash half.** Normalizing an explicit zero there moves no
+commitment, so it is the tidying the ruling describes.
+
+**Hold the zone address half** until the owner confirms it specifically. A UTXO
+built today with `Some([0u8; 32])` commits to `pk_field(0)`, a non-zero field, so
+the circuit treats it as zone-bound. Normalizing the address turns that into an
+unbound UTXO, which changes what the commitment says rather than how a caller
+spells it. The analysis in
+[`row-updates/t28-zone-binding.md`](row-updates/t28-zone-binding.md) establishes
+that such a UTXO can never settle on-chain, so nothing is stranded either way,
+which is exactly why this can wait for a sentence rather than being guessed.
+
 ## Build before you run the suite
 
 `npm run build`, then the tests. Packages resolve each other through their
