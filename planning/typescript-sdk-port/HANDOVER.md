@@ -97,29 +97,24 @@ agent.** Do not touch a path another worker owns; report a gap in it instead.
 | --- | --- |
 | `port/tail-fixes` | The six behavioural fixes plus the `F130` redaction unification |
 | `port/tail-small` | The six smaller fixes: page limits, dead fixture field, unverifiable fixture, registry copy, payer hash, base58 length search |
-| `port/ci-infra` | Strip this port's coordination tooling from the repository and scope the CI graph by path with shared build output |
+| `port/baseline-hash` | Define the fixture baseline commit once and have every generator and check read it from there |
+| `port/gate-packages` | Walk the per-package gate bullets and close each on named evidence or record what it needs |
 
 Landed since the last refresh: `port/example-surface` (client surface reconciled
 onto the example shape, `api:check` matching for all eleven packages),
 `port/reject-fixtures` (Rust-generated rejection and tamper fixtures, closing the
-last fixture gate line), and `port/f130-light` (research only). The merged branch
-is green: 2359 unit tests passing, 9 skipped, static, packaging, and fixture
-provenance all clean.
+last fixture gate line), `port/f130-light` (research only), and `port/ci-infra`
+(coordination tooling deleted, CI path-filtered onto one shared build with
+`merge-gate` still conclusive on every non-draft pull request). The merged branch
+is green: 2359 unit tests passing, 9 skipped, static, packaging, `check:scope`,
+and fixture provenance all clean.
 
-### Queued, in order
+### Queued
 
-1. **Centralize the fixture baseline commit**, which is copied into many files
-   instead of defined once. Held until `port/reject-fixtures` releases the
-   fixture config.
-
-4. **Re-run the package-gate evidence walk** for the bullets that rest on an
-   export census, after the surface reconciliation lands. This is the ordering
-   constraint the reconciliation ruling exists to enforce.
-
-5. **Strip `planning/` to a side branch.** Owner ruling: the record survives, the
-   pull request diff shows only code, tests, fixtures, and spec amendments. That
-   removes ~40,000 lines. Promote this file to the pull request description
-   before deleting the directory.
+**Strip `planning/` to a side branch.** The last step, once the four live
+branches merge. Owner ruling: the record survives, the pull request diff shows
+only code, tests, fixtures, and spec amendments. That removes ~40,000 lines.
+Promote this file to the pull request description before deleting the directory.
 
 ### Needs the owner
 
