@@ -6,15 +6,17 @@ rail, and the rejection surface for malformed prover responses.
 
 ## Bottom line
 
-P3 does not fully certify. The shared accept and reject surface for parsing and
-compression is strong where both languages already agreed, and the new
-Rust-generated fixture closes the parity-bit, identity, leading-zero, structural
-row-count, truncated/extended, and rail-confusion gaps that the older suites
-only partly covered. Two clauses remain open: unknown response fields are
-accepted by both languages rather than rejected, and no frozen G2 point was
-found for the `y1 == 0 && isLargest(y0)` compression branch within a 50000
-scalar search. One real divergence is recorded: TypeScript refuses an off-curve
-G2 at compress while Rust's `alt_bn128_g2_compress_be` accepts it.
+P3 certifies the shared accept/reject surface for parsing and compression where
+both languages already agreed, plus the Rust-generated fixture for parity-bit,
+identity, leading-zero, structural row-count, truncated/extended, and
+rail-confusion cases. Three residuals have dispositions (see
+[fnd-d5.md](./fnd-d5.md)):
+
+1. Off-curve G2 at compress — deliberate TypeScript-only fail-fast (SIMD-0129).
+2. Unknown response fields — shared acceptance kept for prover forward
+   compatibility; not a soundness gap.
+3. `y1 == 0 && isLargest(y0)` — skipped with algebraic evidence that the curve
+   locus lies outside the r-torsion; no short prime-order witness.
 
 ## What already covered P3
 
@@ -64,8 +66,10 @@ Rust/TypeScript divergence.
 validate the G2 curve equation; the SIMD for that syscall says so explicitly.
 TypeScript calls `bn254.G2.Point.fromAffine(...).assertValidity()` and refuses
 the same bytes. Fixture id `off-curve-g2-compress-divergence` pins both
-outcomes. This was not changed on either side. A G2 limb at or above the base
-modulus is refused by both and is the shared rejection used for that clause.
+outcomes with `disposition: "typescript-fail-fast"`. Kept as a TypeScript-only
+fail-fast: off-curve G2 leaks nothing and fails on-chain pairing; Rust stays on
+the syscall. A G2 limb at or above the base modulus is refused by both and is
+the shared rejection used for that clause.
 
 **Error taxonomy.** Rust folds parse, point, and rail failures into
 `ClientError::ProofParse`. TypeScript names `CLIENT_PROOF_PARSE`,
@@ -75,21 +79,17 @@ fixture; it does not pretend the strings match.
 
 **Unknown response fields.** Serde ignores unknown keys on `GnarkProofJson`, and
 TypeScript reads named fields only. Both accept a proof carrying
-`unexpected_field`. P3 asked for a rejection vector here; the honest shared
-behavior is acceptance, so the rejection clause stays unmet and the fixture pins
-that both sides still accept.
+`unexpected_field`. Fixture id `unknown-response-field` pins
+`disposition: "accept-forward-compat"`. Rejection would be a coordinated API
+change with no soundness win; the Go prover's `ProofJSON` is additive-tolerant.
 
 ## Gaps
 
-The `y1 == 0 && isLargest(y0)` G2 parity branch has no frozen point. A search
-over the first 50 000 scalar multiples of the G2 generator found none with
-`y.c1 == 0`. The fixture marks that row `unavailable` and the TypeScript test
-skips it. Closing it needs either a longer constructive search or an explicit
-authoritative point from the compression implementation.
-
-Unknown-field rejection remains open until an owner decides whether the parser
-should `deny_unknown_fields` (Rust) and mirror that in TypeScript. That would be
-a protocol/API change, not a silent port fix.
+The `y1 == 0 && isLargest(y0)` G2 parity branch stays `unavailable`. An algebraic
+solve finds on-curve points with `y.c1 == 0` (first hit at `x1 = 2`), but every
+constructed point fails the r-torsion check that TypeScript `assertValidity`
+enforces. Expected `|G2 ∩ locus|` is O(1) in a 2^254 group, so there is no short
+prime-order witness. The skip is backed by that evidence, not a failed search.
 
 P1 public-input assembly files were not touched; no handoff beyond staying out
 of that worker's paths.
