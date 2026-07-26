@@ -61,7 +61,7 @@ function invoke(surface: Surface, wire: unknown): unknown {
       return getNullifierQueueElementsMethod.decodeResponse(wire);
     default: {
       const _exhaustive: never = surface;
-      throw new Error(`unknown surface ${_exhaustive}`);
+      throw new Error(`unknown surface ${String(_exhaustive)}`);
     }
   }
 }
