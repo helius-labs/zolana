@@ -6,9 +6,9 @@ disagree, the options with their consequences, and the artifacts a change would
 touch. This is the artifact register `G7-2` reports as missing. It is not a
 statement of the authority order.
 
-The `Ruling` block in each section is left blank for the protocol owner. Fill
-the ruling and the date; leave the evidence untouched so a later reader can see
-what the ruling was made against.
+A section's `Ruling` block is filled in when the ruling lands, and the evidence
+above it is left untouched so a later reader can see what the ruling was made
+against.
 
 Line numbers are as of branch `ts-sdk-port` on 2026-07-25. Claims that could
 not be settled from the repository are labelled unverified with the missing
@@ -16,11 +16,14 @@ piece named.
 
 ## Contents
 
-- [Open: owner-hash encoding (G7-1)](#open-owner-hash-encoding-g7-1)
+- [Ruled: owner-hash encoding (G7-1)](#ruled-owner-hash-encoding-g7-1)
+- [Ruled: indexer-api schema authority (X01)](#ruled-indexer-api-schema-authority-x01)
+- [Ruled: least-powerful capability at the call sites (K11)](#ruled-least-powerful-capability-at-the-call-sites-k11)
 - [Ruled: confidential owner tag (T23)](#ruled-confidential-owner-tag-t23)
 - [Ruled: ECDSA malleability policy (G2-1)](#ruled-ecdsa-malleability-policy-g2-1)
 - [Ruled: Ed25519 acceptance (G2-2)](#ruled-ed25519-acceptance-g2-2)
-- [Open: the u64 integer domain (C04)](#open-the-u64-integer-domain-c04)
+- [Ruled: the u64 integer domain (C04)](#ruled-the-u64-integer-domain-c04)
+- [Thirteen rulings from the open-questions register, 2026-07-26](#thirteen-rulings-from-the-open-questions-register-2026-07-26)
 - [Closed rulings](#closed-rulings)
 
 ## Ruled: owner-hash encoding (G7-1)
@@ -249,6 +252,11 @@ two packages. It was deferred to avoid colliding with the workers editing them,
 not because anyone is unsure what to do. It belongs after the transaction and
 wallet rows, and it is real: no consumer can pass a backend today, even though one
 typechecks.
+
+Superseded in part by [Q17](#q17-an-out-of-process-viewing-key-backend-k11). The
+call sites do not go async: the owner ruled an out-of-process viewing-key backend
+unsupported, so `ViewingKeyLike` narrows to synchronous returns instead and the
+signature change across two packages does not happen.
 
 ## Ruled: confidential owner tag (T23)
 
@@ -1219,6 +1227,233 @@ PD-2 is that `merge_transact` does not bind its `user_record` to the owner whose
 UTXOs are merged. [Where the `user_record` binding defect lands](#where-the-user_record-binding-defect-lands)
 carries the analysis and should be read before the fix is attempted, in
 particular that the P256 rail probably does not close without a registry change.
+
+### Q16: zone-authority shapes (C18)
+
+| Field | Value |
+| --- | --- |
+| Conflict | `ZoneAuthorityProver::build` resolves against the ten `SPP_SUPPORTED_SHAPES` while four zone-authority verifying keys exist, so both SDKs build a request the prover cannot serve and the caller learns at proving time. |
+| Ruling | Narrow both SDKs to the four shapes the specification lists and for which keys exist: 1x1, 2x2, 3x3, 4x4. Do not generate the six missing keys. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `ZoneAuthorityProver::build` in `sdk-libs/client/src/prover` and its TypeScript counterpart, a named error stating which shapes the rail supports, a shared cross-language vector, and row C18. `prover/` and `program-libs/interface/src/verifying_keys/` do not move. |
+
+The specification decides this one, which is why it needs no balancing of costs.
+`docs/spec.md:1013-1020` lists exactly four supported shapes for the
+zone-authority rail and the keys on disk match it, so the SDKs are the diverging
+side and narrowing them is conformance. That framing belongs in the commit
+message, because the surrounding rows record the opposite pattern, TypeScript
+tightening past Rust, as a regression this project has reverted twice. Here both
+languages move together, and if one moves alone the narrowing becomes the
+divergence it was meant to close.
+
+Light does not answer this and copying it would leave the defect in place:
+`proverRequest` selects among three circuit-type strings and validates no shape
+before sending (`js/stateless.js/src/rpc.ts:356-410`). The standing rule is that
+Light outranks a reviewer's preference and does not outrank the authority order,
+and this is the case that exercises the second half.
+
+Two notes for whoever implements it.
+[`row-updates/zone-authority-shape-narrowing.md`](row-updates/zone-authority-shape-narrowing.md)
+justifies the four by arguing that a zone-authority transition "cannot move value
+out of the zone", so inputs equal outputs and the missing six are exactly the
+non-square shapes. Q5 has just ruled that a zone authority can move value out
+through a public leg, so that sentence no longer holds. The conclusion survives
+without it, on the specification and the keys on disk, and a withdrawal spends
+and rebuilds the same number of notes in any case. Do not repeat the sentence.
+Second, Q8 narrows the same shape surface for a different reason, so read both
+before editing.
+
+### Q17: an out-of-process viewing-key backend (K11)
+
+| Field | Value |
+| --- | --- |
+| Conflict | `ViewingKeyLike` returns `T \| Promise<T>` so a backend answering over a wire can implement it, which makes the three remaining call sites `async` when they accept it, propagating across two packages. |
+| Ruling | An out-of-process viewing-key backend is not a supported deployment. `ViewingKeyLike` narrows to synchronous returns and K11 closes without the three call sites becoming async. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `ViewingKeyLike` in `sdk-libs/ts/keypair/src/shielded.ts:145-183` and Rust's `ViewingKeyTrait` if it carries the same option; the `RemoteBackend` case in `keypair/test/api-surface.test.ts:126-256`; the three call sites `transaction/src/wallet/sync.ts`, `transaction/src/serialization/codecs.ts` and `wallet/src/sync.ts`, which now accept the interface and stay synchronous. Owned by the keypair batch. |
+
+This supersedes the disposition in [Ruled: least-powerful capability at the call
+sites (K11)](#ruled-least-powerful-capability-at-the-call-sites-k11), which read
+the remaining work as making the three call sites async. It is not: they stay as
+they are and the interface moves instead.
+
+The scope is viewing-key material, not signing. `ShieldedKeypairLike` keeps
+`T | Promise<T>`, because `sign` is genuinely remote-capable and an HSM that
+signs is a real deployment. Light draws the same line: its capability interface
+for the compiled backend is synchronous and passed as an argument
+(`test-rpc.ts:70-75`, `rpc.ts:495`), and signing is the async one, taken from
+web3.js `Signer` rather than declared. So derivation stays synchronous and the
+propagating `async` never happens.
+
+Read this beside the [Custody seam](#custody-seam) ruling, which already says a
+signing-only custodian is not supported and that a custodian must hold nullifier
+and viewing key material. Together the two fix the seam: a custodian may hold the
+material, and it has to answer in the caller's process.
+
+What the ruling costs, stated plainly: the interface was widened to
+`T | Promise<T>` for exactly the case now ruled out, so narrowing removes the one
+capability it was added for. Two concrete consequences follow. `RemoteBackend`,
+which exists to prove the published interfaces are satisfiable without the
+concrete classes, will no longer typecheck as a `ViewingKeyLike`, so that test
+has to keep the async proof for `ShieldedKeypairLike` and drop it for the viewing
+half rather than be deleted. And the narrowing is a breaking change to a
+published interface in `@zolana/keypair`, which the standing pre-1.0 ruling
+permits.
+
+What would reopen it: a deployment that actually needs a remote viewing-key
+backend. At that point the three call sites go async, the change propagates
+across two packages, and Light's arrangement stops transferring.
+
+### Q19: `sync_wallet` against `sync_wallet_async`
+
+| Field | Value |
+| --- | --- |
+| Conflict | `sync_wallet` blocks waiting for the indexer and `sync_wallet_async` does not, and no comment or document explains the split. |
+| Ruling | The split stays. It is deliberate. Document it. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | Doc comments on `sync_wallet` and `sync_wallet_async` (`sdk-libs/wallet/src/wallet_sync.rs:59-69`, `:135-145`) and on the `SyncWalletConfig::new` against `Default` pair that produces the difference (`:37-57`); the same sentence on the TypeScript side, where `syncWallet` defaults `waitForIndexer` to `false` (`sdk-libs/ts/wallet/src/sync.ts:317`). |
+
+This went against the recommendation, and the dissent matters more than usual
+because the recommendation was an inference about intent. It read Light's single
+always-wait behaviour, `confirmTransactionIndexed` polling `getIndexerSlot` and
+`confirmTx` calling it unconditionally at the end of every confirmation
+(`js/stateless.js/src/rpc.ts:1671-1688`, `send-and-confirm.ts:106-107`), as
+evidence that blocking was the intended behaviour and that the `::default()`
+construction on the async path was an accident. The owner ruled the split is
+deliberate. Light's arrangement is not adopted, and the register's phrasing that
+`::default()` is "the accident" is the recommendation rather than the outcome.
+
+The mechanism, so nobody re-derives it: `sync_wallet` builds
+`SyncWalletConfig::new()`, which sets `wait_for_indexer: true`;
+`sync_wallet_async` builds `::default()`, which sets it `false`. That single
+field is the whole difference in behaviour. The two entry points also differ in
+their authority bound, `SyncWalletAuthority` against `WalletAuthority`.
+
+Documenting the split is now owed work rather than an optional tidy, and that
+follows from the ruling rather than sitting beside it. The absence of any
+explanation is what made the split look like a defect and got it filed as an open
+question. A ruling that it is deliberate, landing with no written reason, leaves
+the same artifact for the next reviewer to file again. So the documentation has to
+say why the two entry points differ, not merely that they do.
+
+One consequence for the port. TypeScript has a single entry point and matches the
+async default, which `wallet/test/vectors/wallet-sync-tags.test.ts:141-147`
+already records in a comment. Under this ruling that is correct rather than
+provisional, but it means the blocking behaviour is reachable in TypeScript only
+by passing `waitForIndexer: true`, and the documentation owed covers that too: a
+caller who wants what Rust's `sync_wallet` does has to ask for it.
+
+What would reopen it: a caller surprised by a sync that returned before the
+indexer caught up. If that happens, the thing to revisit is the default on the
+async path, not the existence of two entry points.
+
+### Q22: merging `@zolana/api` and `@zolana/indexer-api` (F10)
+
+| Field | Value |
+| --- | --- |
+| Conflict | The two packages are the transport and the schema for the same server, both browser-safe, each depending only on the other and on `@zolana/interface`, and nothing consumes one without the other. |
+| Ruling | Keep them separate. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | None. Question 14, the shared home for the compact-u16 and message-compiler helpers, has to be settled on its own now, because the merge was the moment that would have carried it. |
+
+Against the recommendation, which was to merge after parity. Finding F10 counted
+what the split costs: a package, a build step, a typecheck step and six test
+configurations, against `@zolana/api` being a single file whose only dependencies
+are the other two. It also named a cost the README has already paid once, that
+cross-package tests resolve through `exports` and so import `dist` rather than
+`src`, and a stale `dist` produced something that looked exactly like a
+cross-batch regression in secret redaction. Light ships three packages against
+Zolana's ten. The owner kept them separate anyway.
+
+The override is cheap and it is worth saying why, because that is what should
+stop anyone reopening it on a slow afternoon. Every argument for merging is a
+cost argument. None of them is a correctness argument: no behaviour, no fixture
+and no published symbol depends on which of the two packages a symbol lives in.
+The ruling accepts the cost.
+
+What it forbids: merging them opportunistically while doing something else.
+Question 14's shared home for the duplicated wire helpers was going to ride along
+with this merge, and now needs a home that does not rest on it.
+
+F10's other half is unaffected and was never in dispute. `@zolana/test-kit` stays
+a separate package rather than following Light, which puts `test-helpers` on its
+published root surface and so ships a mock RPC and a TypeScript Merkle tree to
+every production consumer.
+
+### Q24: merkle-tree error code mapping (M02)
+
+| Field | Value |
+| --- | --- |
+| Conflict | Eleven `MerkleTreeErrorCode` values face eight `ReferenceMerkleTreeError` variants, and inventing a mapping would assert a correspondence nothing evidences. |
+| Ruling | Close the row without a mapping. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | Row M02's residual line. No code moves. |
+
+M02 is already `done` and `PARITY`, closed at `ecfda044` on the surface gates.
+This clears the residue that survived it.
+
+The row's behavioural half compares outcomes rather than error names, and it is
+satisfied: `xtask/src/bin/merkle-semantics.rs` drives the Rust tree and
+`merkle-tree/test/vectors/merkle-semantics.test.ts` replays the same traces
+through TypeScript, step by step, so a divergence fails at the step that
+introduced it. Nothing in that evidence needs an error-name correspondence.
+
+Light's own taxonomy is a warning rather than a model, and it is the reason there
+is no external answer to adopt: `js/stateless.js/src/errors.ts` defines nine enums
+and nine `MetaError` subclasses under a `// TODO: Clean up` on its first line, and
+none of them is referenced anywhere else in `js/src`, where the real style is
+`throw new Error(...)`, twenty-three of them in `rpc.ts` alone.
+
+What would reopen it: a caller that needs to branch on a merkle-tree error code
+across the two languages. Neither SDK has one today, and a mapping asserted
+without evidence is worth less than the absence of one.
+
+### Q26: publishing
+
+| Field | Value |
+| --- | --- |
+| Conflict | Two repository-external choices the plan has carried from the start: which npm scope to publish under and with whose registry access, and which browser versions are supported. |
+| Ruling | Publish under the `@zolana` scope. State a Browserslist. Do not gate on it. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | Registry access under the scope, which is an operational task rather than a code change; a published Browserslist across the ten publishable packages; the open-questions block in the port README, which carries both as defaults. |
+
+The scope half confirms the default rather than changing anything: every manifest
+already assumes `@zolana/*`, and Light's three packages publish under one
+organisation scope in the same way. What the ruling converts is the operational
+item, from a question into a task with an owner.
+
+The Browserslist half does not follow Light, and the reason should be recorded so
+it does not read as an oversight. None of Light's three manifests declares
+`engines` or `browserslist`, checked by reading all three, so a shipped SDK with
+real users in this ecosystem publishes no browser matrix at all and lets the
+consumer's bundler decide. Zolana holds a stronger property than Light does:
+`sdk-libs/ts/config/browser-check.mjs` scans every source file for `Buffer`,
+`require(`, `node:` and `process`, then bundles the whole graph under the
+`browser` condition and scans the output for the same tokens. A gate that strong
+should say what it implies, so the matrix is published as a claim about the
+target.
+
+"Do not gate on it" is the load-bearing half. The Browserslist documents the
+target; it does not become a second gate. A manifest field tests nothing, and the
+property it would appear to promise, that the bundle loads and runs in those
+browsers, needs a real browser run rather than a static scan. Finding F9 records
+what that would take, roughly fifteen lines of Playwright configuration and one
+spec, and it is a separate decision.
+
+Two practical notes for whoever writes the list. The ten packages already declare
+`engines.node` at `>=20.19.0 <23`, so the manifests have the shape for it. And
+the list should be derived from what the bundle actually uses rather than from
+the README's standing sentence about Web Crypto, `BigInt`, ES2022 modules and
+`fetch`; the compiled Poseidon and the CommonJS build that
+[`poseidon-wasm-and-packaging.md`](poseidon-wasm-and-packaging.md) adds are part
+of what a consumer will load, so the claim should be written after that packaging
+lands.
 
 ## Closed rulings
 
