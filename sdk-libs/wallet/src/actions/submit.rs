@@ -18,7 +18,7 @@ use zolana_user_registry_interface::{user_record_pda, UserRecord};
 use zolana_client::{
     error::ClientError,
     prover::{
-        merge::{MergeProver, MergeWitness},
+        merge::{MergeProofInputs, MergeProver},
         ProofCompressed, ProverClient,
     },
     rpc::Rpc,
@@ -108,7 +108,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
     let proofs = indexer.get_input_merkle_proofs(&commitments, None)?;
     ensure_proofs_match_submit_tree(&proofs, Address::new_from_array(tree.to_bytes()))?;
 
-    let result = MergeProver::try_from(MergeWitness {
+    let result = MergeProver::try_from(MergeProofInputs {
         prepared,
         nullifier_key: material.nullifier_key.clone(),
         proofs,
@@ -145,7 +145,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
 /// Reject spend proofs resolved against a different tree than the submit ix
 /// targets: a merge proof only verifies against the tree its input proofs were
 /// fetched from, so a mismatch would fail on-chain after proving.
-fn ensure_proofs_match_submit_tree(
+pub fn ensure_proofs_match_submit_tree(
     proofs: &[SpendProof],
     submit_tree: Address,
 ) -> Result<(), ClientError> {
@@ -169,7 +169,7 @@ fn ensure_proofs_match_submit_tree(
 /// identity the registry record commits, per rail. The on-chain program verifies
 /// the same keys against the record, so a mismatch would only fail after proving;
 /// catching it here avoids a wasted proof.
-fn validate_merge_submission(
+pub fn validate_merge_submission(
     record: &UserRecord,
     owner: Pubkey,
     material: &MergeMaterial,

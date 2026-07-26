@@ -1,0 +1,52 @@
+/// <reference types="node" />
+
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { TestKitError } from "./error.js";
+
+/**
+ * The kit runs from `src/` under a source checkout and from `dist/es/` once
+ * built, which sits one directory deeper. Counting `..` segments is therefore
+ * right in one layout and wrong in the other, so walk up to the package
+ * directory that both layouts sit under.
+ */
+function packageRoot(): string {
+  let directory = path.dirname(fileURLToPath(import.meta.url));
+  while (path.basename(directory) !== "test-kit") {
+    const parent = path.dirname(directory);
+    if (parent === directory) {
+      throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
+        details: { field: "packageRoot", reason: "missing" },
+      });
+    }
+    directory = parent;
+  }
+  return directory;
+}
+
+/** `sdk-libs/ts/fixtures`, the committed fixture tree with its manifest. */
+export const FIXTURES_ROOT = path.resolve(packageRoot(), "../fixtures");
+
+/** The repository root, which the local stack reads built binaries from. */
+export const WORKSPACE_ROOT = path.resolve(packageRoot(), "../../..");
+
+/**
+ * Cargo's output directory for this process. Matches `CARGO_TARGET_DIR` when
+ * set (shared targets across worktrees) and otherwise `<workspace>/target`,
+ * which is where `just build-programs` / `just build-photon` write by default.
+ */
+export function cargoTargetDir(workspace: string = WORKSPACE_ROOT): string {
+  const override = process.env["CARGO_TARGET_DIR"]?.trim();
+  return override && override !== "" ? path.resolve(override) : path.resolve(workspace, "target");
+}
+
+export function programBinaryPath(
+  workspace: string,
+  input: Readonly<{ environmentVariable: string; fileName: string }>,
+): string {
+  const override = process.env[input.environmentVariable]?.trim();
+  return override && override !== ""
+    ? path.resolve(override)
+    : path.resolve(cargoTargetDir(workspace), "deploy", input.fileName);
+}

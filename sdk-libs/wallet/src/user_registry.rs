@@ -418,14 +418,22 @@ pub fn resolved_address_from_record(
 ) -> Result<ResolvedAddress, ClientError> {
     let signing_pubkey = signing_pubkey_from_record(owner, record)?;
     let viewing_pubkey = P256Pubkey::from_bytes(record.sender_viewing_pubkey())?;
+    let address = ShieldedAddress {
+        signing_pubkey,
+        nullifier_pubkey: record.nullifier_pubkey,
+        viewing_pubkey,
+    };
+    // A sender that resolves a recipient here writes this tag onto the output it
+    // creates, so it must be the owner tag every wallet scans for, not the
+    // viewing key of the moment: a sync delegate rotates the viewing key while
+    // the owner pubkey stays put.
+    let view_tag = address
+        .confidential_view_tag()
+        .map_err(|err| ClientError::AddressResolution(err.to_string()))?;
     Ok(ResolvedAddress {
         owner,
-        address: ShieldedAddress {
-            signing_pubkey,
-            nullifier_pubkey: record.nullifier_pubkey,
-            viewing_pubkey,
-        },
-        view_tag: viewing_pubkey.x(),
+        address,
+        view_tag,
     })
 }
 
@@ -688,7 +696,11 @@ mod tests {
             resolved.address.viewing_pubkey.as_bytes(),
             keypair.viewing_pubkey().as_bytes()
         );
-        assert_eq!(resolved.view_tag, keypair.recipient_bootstrap_view_tag());
+        assert_eq!(
+            resolved.view_tag,
+            keypair.signing_pubkey().confidential_view_tag().unwrap()
+        );
+        assert_ne!(resolved.view_tag, keypair.recipient_bootstrap_view_tag());
     }
 
     #[test]
@@ -708,7 +720,10 @@ mod tests {
 
         assert_eq!(resolved.owner, owner);
         assert_eq!(resolved.address.signing_pubkey, keypair.signing_pubkey());
-        assert_eq!(resolved.view_tag, keypair.recipient_bootstrap_view_tag());
+        assert_eq!(
+            resolved.view_tag,
+            keypair.signing_pubkey().confidential_view_tag().unwrap()
+        );
     }
 
     #[test]

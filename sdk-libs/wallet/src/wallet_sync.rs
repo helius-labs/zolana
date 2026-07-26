@@ -611,8 +611,9 @@ mod tests {
             merge::{Merge, MergeEncode},
             Proofless,
         },
-        Address, AssetRegistry, Data, LocalWalletAuthority, OwnerCx, PrivateTransactionDirection,
-        PrivateTransactionKind, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
+        Address, AssetRegistry, LocalWalletAuthority, OutputData, OwnerCx,
+        PrivateTransactionDirection, PrivateTransactionKind, Utxo, UtxoSerialization, WalletUtxo,
+        SOL_MINT,
     };
 
     use super::*;
@@ -1197,7 +1198,7 @@ mod tests {
                 withdraw_asset,
                 withdraw_amount,
                 WithdrawalTarget::Sol {
-                    user_sol_account: Address::new_from_array([9u8; 32]),
+                    recipient: Address::new_from_array([9u8; 32]),
                 },
             )
             .expect("withdraw");
@@ -1221,7 +1222,7 @@ mod tests {
                 asset,
                 amount,
                 WithdrawalTarget::Sol {
-                    user_sol_account: Address::new_from_array([9u8; 32]),
+                    recipient: Address::new_from_array([9u8; 32]),
                 },
             )
             .expect("withdraw");
@@ -1286,7 +1287,7 @@ mod tests {
             amount: prepared.output.amount,
             blinding: prepared.output.blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let output_hash = output
             .hash(
@@ -1394,7 +1395,7 @@ mod tests {
             amount,
             blinding: [seed; BLINDING_LEN],
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         }
     }
 

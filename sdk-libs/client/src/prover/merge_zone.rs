@@ -102,17 +102,17 @@ impl MergeZoneProver {
 /// Merkle proofs, ready to fold into a [`MergeZoneProver`]. The nullifier key is
 /// the secret the merge circuit proves ownership from; it is not carried on
 /// [`PreparedMergeZone`], so the caller supplies it from the keypair.
-pub struct MergeZoneWitness {
+pub struct MergeZoneProofInputs {
     pub prepared: PreparedMergeZone,
     pub nullifier_key: NullifierKey,
     pub proofs: Vec<SpendProof>,
 }
 
-impl TryFrom<MergeZoneWitness> for MergeZoneProver {
+impl TryFrom<MergeZoneProofInputs> for MergeZoneProver {
     type Error = ClientError;
 
-    fn try_from(witness: MergeZoneWitness) -> Result<Self, Self::Error> {
-        let MergeZoneWitness {
+    fn try_from(witness: MergeZoneProofInputs) -> Result<Self, Self::Error> {
+        let MergeZoneProofInputs {
             prepared,
             nullifier_key,
             proofs,

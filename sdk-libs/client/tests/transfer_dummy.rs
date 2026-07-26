@@ -35,7 +35,7 @@ use zolana_interface::{
     },
 };
 use zolana_keypair::{NullifierKey, PublicKey};
-use zolana_transaction::{Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{ExternalData, OutputData, SppProofOutputUtxo, Utxo, SOL_MINT};
 
 use crate::test_indexer::TestIndexer;
 
@@ -139,7 +139,7 @@ fn real_input() -> TransferSpendInput {
         amount: 0,
         blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
 
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
@@ -185,7 +185,7 @@ fn dummy_input() -> TransferSpendInput {
         amount: 0,
         blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     TransferSpendInput {
         utxo,

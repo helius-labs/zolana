@@ -38,8 +38,8 @@ use zolana_transaction::{
         DecodeCx, UtxoSerialization,
     },
     utxo::derive_blinding,
-    AssetRegistry, Data, ExternalData, OutputContext, SppProofOutputUtxo, TransactionError, Utxo,
-    Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, ExternalData, OutputContext, OutputData, SppProofOutputUtxo, TransactionError,
+    Utxo, Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_wallet::{
     create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
@@ -60,7 +60,7 @@ fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> Spp
         amount,
         blinding: blinding(rng),
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     SppProofInputUtxo::new(utxo, sender)
 }
@@ -372,7 +372,7 @@ fn transfer_round_trip_outputs_and_slots() {
             amount: 40,
             blinding: derive_blinding(&seed, 1),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         }]
     );
     assert_eq!(
@@ -384,7 +384,7 @@ fn transfer_round_trip_outputs_and_slots() {
                 amount: 60,
                 blinding: derive_blinding(&seed, 2),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             }
         )]
     );
@@ -589,13 +589,7 @@ fn withdrawal_sets_external_data_and_change() {
     )
     .with_shape(Shape::IN2_OUT3);
     transfer
-        .withdraw(
-            SOL_MINT,
-            30,
-            WithdrawalTarget::Sol {
-                user_sol_account: dest,
-            },
-        )
+        .withdraw(SOL_MINT, 30, WithdrawalTarget::Sol { recipient: dest })
         .unwrap();
 
     let seed = transfer.blinding_seed;
@@ -643,7 +637,7 @@ fn withdrawal_sets_external_data_and_change() {
             amount: 70,
             blinding: derive_blinding(&seed, 1),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         }]
     );
     assert!(recipients.is_empty());
@@ -695,7 +689,7 @@ fn rail_follows_input_owner_type() {
         amount: 10,
         blinding: blinding(&mut rng),
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let ed_input = SppProofInputUtxo::new(ed_utxo, NullifierKey::from_secret(blinding(&mut rng)));
     let ed_transfer = ConfidentialTransfer::new(
@@ -757,6 +751,9 @@ fn input_commitments_include_data_and_zone_hashes() {
     let recipient = ShieldedKeypair::new().unwrap();
     let mut spend = p256_input(&sender, 100, &mut rng);
     spend.data_hash = Some([11u8; 32]);
+    // A nonzero zone hash only commits to an enforceable policy when the UTXO
+    // names the zone program, so the input has to carry one.
+    spend.utxo.zone_program_id = Some(Address::new_from_array([9u8; 32]));
     spend.zone_data_hash = Some([12u8; 32]);
     let nullifier_pubkey = spend.nullifier_key.pubkey().unwrap();
     let expected_hash = spend
@@ -904,7 +901,7 @@ fn second_withdraw_is_rejected() {
             SOL_MINT,
             10,
             WithdrawalTarget::Sol {
-                user_sol_account: Address::default(),
+                recipient: Address::default(),
             },
         )
         .unwrap();
@@ -913,7 +910,7 @@ fn second_withdraw_is_rejected() {
             SOL_MINT,
             5,
             WithdrawalTarget::Sol {
-                user_sol_account: Address::default(),
+                recipient: Address::default(),
             },
         ),
         Err(TransactionError::WithdrawalAlreadySet)
@@ -956,7 +953,7 @@ fn two_distinct_spl_assets_are_rejected() {
 async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
     use solana_account::Account;
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{Data, Utxo, WalletUtxo, SOL_MINT};
+    use zolana_transaction::{OutputData, Utxo, WalletUtxo, SOL_MINT};
 
     struct RegistryAbsent;
 
@@ -985,7 +982,7 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
         amount: 10,
         blinding: [7u8; 31],
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pubkey");
     let hash = utxo

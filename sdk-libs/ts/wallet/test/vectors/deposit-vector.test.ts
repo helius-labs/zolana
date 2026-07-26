@@ -1,0 +1,290 @@
+import { readFileSync } from "node:fs";
+
+import type { Rpc } from "@zolana/client";
+import { SPL_TOKEN_PROGRAM_ID, type Address, type Bytes31, type Bytes32 } from "@zolana/interface";
+import {
+  NullifierKey,
+  ShieldedKeypair,
+  SigningKey,
+  ViewingKey,
+  type ShieldedAddress,
+} from "@zolana/keypair";
+import { SOL_MINT, ownerUtxoHash } from "@zolana/transaction";
+import { describe, expect, it } from "vitest";
+
+import { Deposit, buildDepositTransaction, createDeposit } from "../../src/index.js";
+import { base58, hexBytes, walletFixture } from "../helpers/fixtures.js";
+
+interface RecipientInputs {
+  readonly recipientSigningSecretBytes: string;
+  readonly recipientViewingSeedBytes: string;
+}
+
+const recipientOf = (inputs: RecipientInputs): ShieldedAddress => {
+  const signing = SigningKey.fromBytes(hexBytes(inputs.recipientSigningSecretBytes) as Bytes32);
+  return ShieldedKeypair.fromKeys(
+    signing,
+    NullifierKey.fromSigningKey(signing),
+    ViewingKey.fromSeed(hexBytes(inputs.recipientViewingSeedBytes) as Bytes32, 0),
+  ).shieldedAddress();
+};
+
+interface Fixture {
+  readonly inputs: Readonly<{
+    amount: string;
+    blindingBytes: string;
+    memoBytes: string;
+    ownerBytes: string;
+    viewTagBytes: string;
+  }>;
+  readonly expected: Readonly<{
+    instruction: Readonly<{
+      dataBytes: string;
+      programId: Address;
+      accounts: readonly Readonly<{
+        address: Address;
+        signer: boolean;
+        writable: boolean;
+      }>[];
+    }>;
+  }>;
+}
+
+const bytes = (hex: string): Uint8Array =>
+  Uint8Array.from(hex.match(/../g)?.map((pair) => Number.parseInt(pair, 16)) ?? []);
+const hex = (value: Uint8Array): string =>
+  [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const readBytes = readFileSync as unknown as (path: URL) => Uint8Array;
+const readText = readFileSync as unknown as (path: URL, encoding: "utf8") => string;
+
+describe("wallet deposit vector", () => {
+  it("verifies the manifest hash and preserves the frozen instruction behavior", async () => {
+    const fixtureUrl = new URL("../../../fixtures/workflows/deposit-v1.json", import.meta.url);
+    const manifestUrl = new URL("../../../fixtures/manifest.json", import.meta.url);
+    const fixtureBytes = readBytes(fixtureUrl);
+    const manifest = JSON.parse(readText(manifestUrl, "utf8")) as {
+      files: readonly Readonly<{ path: string; sha256: string }>[];
+    };
+    const entry = manifest.files.find(
+      (candidate) => candidate.path === "workflows/deposit-v1.json",
+    );
+    expect(entry).toBeDefined();
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", Uint8Array.from(fixtureBytes));
+    expect(hex(new Uint8Array(digest))).toBe(entry?.sha256);
+
+    const fixture = JSON.parse(new TextDecoder().decode(fixtureBytes)) as Fixture;
+    const deposit = new Deposit({
+      data: {
+        amount: BigInt(fixture.inputs.amount),
+        blinding: bytes(fixture.inputs.blindingBytes) as Bytes31,
+        memo: bytes(fixture.inputs.memoBytes),
+        owner: bytes(fixture.inputs.ownerBytes) as Bytes32,
+        viewTag: bytes(fixture.inputs.viewTagBytes) as Bytes32,
+      },
+      utxoHash: new Uint8Array(32) as Bytes32,
+      asset: SOL_MINT,
+    });
+    const [tree, depositor] = fixture.expected.instruction.accounts;
+    if (tree === undefined || depositor === undefined) throw new Error("invalid fixture accounts");
+    const instruction = deposit.instruction(tree.address, depositor.address);
+    expect(instruction.programAddress).toBe(fixture.expected.instruction.programId);
+    expect(hex(instruction.data)).toBe(fixture.expected.instruction.dataBytes);
+    expect(instruction.accounts).toEqual(
+      fixture.expected.instruction.accounts.map((account) => ({
+        address: account.address,
+        isSigner: account.signer,
+        isWritable: account.writable,
+      })),
+    );
+  });
+
+  it("derives the recipient owner hash and view tag through createDeposit", async () => {
+    const fixture = await walletFixture<{
+      inputs: {
+        amount: string;
+        recipientSigningSecretBytes: string;
+        recipientViewingSeedBytes: string;
+      };
+      expected: { sol: { ownerBytes: string; viewTagBytes: string } };
+    }>("deposit");
+    const recipient = recipientOf(fixture.inputs);
+
+    const deposit = createDeposit({
+      recipient,
+      asset: SOL_MINT,
+      amount: BigInt(fixture.inputs.amount),
+      // A SOL deposit ignores a supplied token account rather than rejecting it.
+      splTokenAccount: "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD" as Address,
+    });
+
+    expect(hex(deposit.data.owner)).toBe(fixture.expected.sol.ownerBytes);
+    expect(hex(deposit.viewTag())).toBe(fixture.expected.sol.viewTagBytes);
+    // The Rust-captured tag is the ruled-on one. Asserted against this
+    // fixture's own recipient rather than inferred from the generated-recipient
+    // case below, so regenerating the fixture from the pre-ruling derivation
+    // fails here.
+    expect(hex(recipient.confidentialViewTag())).toBe(fixture.expected.sol.viewTagBytes);
+    expect(hex(recipient.viewingPublicKey.x())).not.toBe(fixture.expected.sol.viewTagBytes);
+    expect(deposit.spl).toBeUndefined();
+    // The blinding is fresh per deposit, so the commitment is pinned to the
+    // hash the recipient will spend rather than to a recorded value.
+    expect(hex(deposit.utxoHash)).toBe(
+      hex(
+        ownerUtxoHash({
+          owner: deposit.data.owner,
+          asset: SOL_MINT,
+          amount: BigInt(fixture.inputs.amount),
+          blinding: deposit.data.blinding,
+        }),
+      ),
+    );
+    expect(() => createDeposit({ recipient, asset: SOL_MINT, amount: 0n })).toThrow(
+      expect.objectContaining({
+        code: "WALLET_INVALID_AMOUNT",
+        details: { amount: "0" },
+      }),
+    );
+  });
+
+  it("rejects a zero-value SPL deposit before building settlement accounts", () => {
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+    const mint = base58(new Uint8Array(32).fill(33)) as Address;
+    expect(() =>
+      createDeposit({
+        recipient,
+        asset: mint,
+        amount: 0n,
+        splTokenAccount: "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD" as Address,
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "WALLET_INVALID_AMOUNT",
+        details: { amount: "0" },
+      }),
+    );
+  });
+
+  // A deposit tagged by anything other than the owner signing pubkey is
+  // invisible to a wallet that scans only what the spec defines, and nothing on
+  // the write path rejects it. Pin both halves so a return to the viewing key
+  // fails here instead of silently losing deposits.
+  it("tags a deposit with the recipient signing pubkey", () => {
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+    const deposit = createDeposit({ recipient, asset: SOL_MINT, amount: 42n });
+
+    expect(deposit.viewTag()).toEqual(recipient.confidentialViewTag());
+    expect(deposit.viewTag()).not.toEqual(recipient.viewingPublicKey.x());
+  });
+
+  it("derives the SPL settlement accounts and the rejection Rust records", async () => {
+    const fixture = await walletFixture<{
+      inputs: RecipientInputs & { amount: string };
+      expected: {
+        spl: {
+          missingTokenAccountError: { code: string; details: string };
+          registry: Address;
+          vault: Address;
+        };
+      };
+    }>("deposit");
+    const recipient = recipientOf(fixture.inputs);
+    // The generator's mint is `Pubkey::new_from_array([33; 32])`; the recorded
+    // rejection names it, so the address this test derives is Rust's own.
+    const mint = base58(new Uint8Array(32).fill(33)) as Address;
+    expect(fixture.expected.spl.missingTokenAccountError.details).toContain(mint);
+    const userToken = "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD" as Address;
+
+    const deposit = createDeposit({
+      recipient,
+      asset: mint,
+      amount: BigInt(fixture.inputs.amount),
+      splTokenAccount: userToken,
+    });
+
+    expect(deposit.spl).toEqual({
+      userToken,
+      splTokenInterface: fixture.expected.spl.vault,
+      registry: fixture.expected.spl.registry,
+      tokenProgram: SPL_TOKEN_PROGRAM_ID,
+    });
+    expect(() =>
+      createDeposit({ recipient, asset: mint, amount: BigInt(fixture.inputs.amount) }),
+    ).toThrow(expect.objectContaining({ code: "WALLET_MISSING_SPL_TOKEN_ACCOUNT" }));
+    expect(fixture.expected.spl.missingTokenAccountError.code).toBe("MissingSplTokenAccount");
+  });
+
+  it("matches the wallet deposit instruction and unsigned message oracle", async () => {
+    const fixture = await walletFixture<{
+      inputs: { amount: string; payer: Address; tree: Address };
+      expected: {
+        sol: {
+          blindingBytes: string;
+          ownerBytes: string;
+          utxoHashBytes: string;
+          viewTagBytes: string;
+          instruction: Fixture["expected"]["instruction"];
+          unsignedTransaction: { messageBytes: string };
+        };
+      };
+    }>("deposit");
+    const expected = fixture.expected.sol;
+    const deposit = new Deposit({
+      data: {
+        amount: BigInt(fixture.inputs.amount),
+        blinding: hexBytes(expected.blindingBytes) as Bytes31,
+        memo: new TextEncoder().encode("wallet fixture"),
+        owner: hexBytes(expected.ownerBytes) as Bytes32,
+        viewTag: hexBytes(expected.viewTagBytes) as Bytes32,
+      },
+      utxoHash: hexBytes(expected.utxoHashBytes) as Bytes32,
+      asset: SOL_MINT,
+    });
+    // Rust builds this hash through `SppProofInputUtxo::new(..).hash()`. Recomputing
+    // it from the recorded owner and blinding makes the commitment an oracle
+    // rather than a fixture input the rest of the test only echoes back.
+    expect(
+      hex(
+        ownerUtxoHash({
+          owner: hexBytes(expected.ownerBytes) as Bytes32,
+          asset: SOL_MINT,
+          amount: BigInt(fixture.inputs.amount),
+          blinding: hexBytes(expected.blindingBytes) as Bytes31,
+        }),
+      ),
+    ).toBe(expected.utxoHashBytes);
+    const instruction = deposit.instruction(fixture.inputs.tree, fixture.inputs.payer);
+    expect(hex(instruction.data)).toBe(expected.instruction.dataBytes);
+    expect(instruction.accounts).toEqual(
+      expected.instruction.accounts.map((account) => ({
+        address: account.address,
+        isSigner: account.signer,
+        isWritable: account.writable,
+      })),
+    );
+    const unsupported = (): Promise<never> => Promise.reject(new Error("unexpected RPC call"));
+    const rpc: Rpc = {
+      getAccount: unsupported,
+      getMultipleAccounts: unsupported,
+      getBalance: unsupported,
+      getLatestBlockhash: () =>
+        Promise.resolve({
+          blockhash: base58(new Uint8Array(32).fill(32)),
+          lastValidBlockHeight: 1n,
+        }),
+      sendTransaction: unsupported,
+      confirmTransaction: unsupported,
+      transactOutputViewTags: unsupported,
+      getMerkleProofs: unsupported,
+      getNonInclusionProofs: unsupported,
+      getInputMerkleProofs: unsupported,
+    };
+    const transaction = await buildDepositTransaction({
+      rpc,
+      payer: fixture.inputs.payer,
+      tree: fixture.inputs.tree,
+      depositor: fixture.inputs.payer,
+      deposit,
+    });
+    expect(hex(transaction.messageBytes)).toBe(expected.unsignedTransaction.messageBytes);
+  });
+});
