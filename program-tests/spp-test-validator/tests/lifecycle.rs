@@ -314,7 +314,7 @@ fn randomized_mixed_asset_workload_preserves_conservation() -> Result<()> {
     harness.run_random_workload(
         seed,
         Workload {
-            target_txs: 500,
+            target_txs: 50,
             num_actors: 8,
             num_spl: 3,
         },

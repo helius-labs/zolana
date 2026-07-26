@@ -669,7 +669,7 @@ test-spp-validator-merge: build-programs build-prover-server build-cli ensure-ph
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p spp-test-validator --test lifecycle --no-capture -E 'test(merge)'
 
-# Run only the randomized 500-transaction workload from test-spp-validator.
+# Run only the randomized 50-transaction workload from test-spp-validator.
 # Set ZOLANA_RANDOM_SEED (decimal or 0x-prefixed hex) to replay a run.
 test-spp-validator-randomized: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
