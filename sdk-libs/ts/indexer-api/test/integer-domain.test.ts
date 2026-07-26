@@ -159,7 +159,7 @@ describe("indexer integer domain", () => {
       () =>
         getNullifierQueueElementsMethod.decodeResponse({
           context: CONTEXT,
-          elements: [{ seq: 9_007_199_254_740_993, value: HASH }],
+          elements: [{ seq: Number.MAX_SAFE_INTEGER + 1, value: HASH }],
         }),
       "INDEXER_SCHEMA_INVALID_INTEGER",
       "$.elements[0].seq",

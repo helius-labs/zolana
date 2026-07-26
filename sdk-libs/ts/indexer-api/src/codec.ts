@@ -114,17 +114,12 @@ function unboundedWireInteger(
     return wireInteger(value, path, minimum, maximum);
   }
   if (!DECIMAL_INTEGER.test(value)) {
-    return schemaFailure(
-      "INDEXER_SCHEMA_INVALID_INTEGER",
-      path,
-      "a decimal integer string",
-      value,
-    );
+    return schemaFailure("INDEXER_SCHEMA_INVALID_INTEGER", path, "a decimal integer string", value);
   }
   return inRange(BigInt(value), value, path, minimum, maximum);
 }
 
-/** For an index or count a tree height, a ring size, or a page bound caps. */
+/** For a tree index, which the tree height caps well below `2^53`. */
 function u64(value: unknown, path: string): bigint {
   return wireInteger(value, path, 0n, U64_MAX);
 }
