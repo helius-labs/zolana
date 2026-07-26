@@ -63,13 +63,7 @@ export const packageConfigurations = {
   },
   wallet: {
     entryPoints: [".", "./authority", "./registry", "./actions", "./sync"],
-    dependencies: [
-      "@zolana/client",
-      "@zolana/hasher",
-      "@zolana/interface",
-      "@zolana/keypair",
-      "@zolana/transaction",
-    ],
+    dependencies: ["@zolana/client", "@zolana/interface", "@zolana/keypair", "@zolana/transaction"],
     browser: true,
   },
   "merkle-tree": {
