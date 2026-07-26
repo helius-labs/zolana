@@ -75,7 +75,7 @@
     },
     {
       "path": "keypair/hash.json",
-      "sha256": "4b53a3517bca8f66d4b02b96960a341791daf99f9212d56edf2429ae34b765b0"
+      "sha256": "aafab1def46c5184d2c656535f0f67bfbdf9073f27c7f893012c1763f711c09e"
     },
     {
       "path": "keypair/lib.json",
@@ -147,7 +147,7 @@
     },
     {
       "path": "transaction/serialization-v1.json",
-      "sha256": "43c22526eb5b0e5ad921b3dfbc6cd206264467e0511289144b54998379f2701a"
+      "sha256": "e149e6224e60bf23e64971de3b63f18bbf54b738d27d9ebf5847b572abf70654"
     },
     {
       "path": "transaction/split-v1.json",

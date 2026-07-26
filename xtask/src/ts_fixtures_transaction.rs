@@ -630,7 +630,6 @@ fn serialization_vectors(
                     "wincodeBytes": hex(&anonymous_sender_bytes),
                     "encryptedBodyBytes": hex(&anonymous_sender_body),
                     "envelopeBorshBytes": hex(&anonymous_sender_envelope.data),
-                    "recipientCountPrefixOffset": (33 + 8 + 8 + 8 + BLINDING_LEN).to_string(),
                     "roundTripVerified": true
                 },
                 "plaintextTransfer": {
