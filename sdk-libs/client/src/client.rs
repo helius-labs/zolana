@@ -1524,7 +1524,7 @@ mod tests {
                 SOL_MINT,
                 4,
                 WithdrawalTarget::Sol {
-                    user_sol_account: recipient,
+                    recipient: recipient,
                 },
             )
             .expect("withdraw");

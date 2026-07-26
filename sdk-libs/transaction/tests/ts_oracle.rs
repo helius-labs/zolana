@@ -1765,7 +1765,7 @@ fn transfer_op_json(op: &TransferOp) -> Value {
 fn withdrawal_target(target: &str) -> WithdrawalTarget {
     match target {
         "sol" => WithdrawalTarget::Sol {
-            user_sol_account: address(20),
+            recipient: address(20),
         },
         "spl" => WithdrawalTarget::Spl {
             user_spl_token: address(21),

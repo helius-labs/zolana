@@ -177,7 +177,7 @@ fn main() -> Result<()> {
             SOL_MINT,
             WITHDRAW_AMOUNT,
             WithdrawalTarget::Sol {
-                user_sol_account: sender_solana_keypair.pubkey(),
+                recipient: sender_solana_keypair.pubkey(),
             },
         )?;
         let proof_inputs = withdrawal.sign(&sender_keypair, &assets)?;

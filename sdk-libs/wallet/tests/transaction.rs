@@ -589,13 +589,7 @@ fn withdrawal_sets_external_data_and_change() {
     )
     .with_shape(Shape::IN2_OUT3);
     transfer
-        .withdraw(
-            SOL_MINT,
-            30,
-            WithdrawalTarget::Sol {
-                user_sol_account: dest,
-            },
-        )
+        .withdraw(SOL_MINT, 30, WithdrawalTarget::Sol { recipient: dest })
         .unwrap();
 
     let seed = transfer.blinding_seed;
@@ -907,7 +901,7 @@ fn second_withdraw_is_rejected() {
             SOL_MINT,
             10,
             WithdrawalTarget::Sol {
-                user_sol_account: Address::default(),
+                recipient: Address::default(),
             },
         )
         .unwrap();
@@ -916,7 +910,7 @@ fn second_withdraw_is_rejected() {
             SOL_MINT,
             5,
             WithdrawalTarget::Sol {
-                user_sol_account: Address::default(),
+                recipient: Address::default(),
             },
         ),
         Err(TransactionError::WithdrawalAlreadySet)
