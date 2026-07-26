@@ -1,0 +1,51 @@
+{
+  "package": "@zolana/smart-account-client",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "allPermissions",
+        "kind": "value"
+      },
+      {
+        "name": "createSmartAccountInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "executeSyncInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "Permissions",
+        "kind": "type"
+      },
+      {
+        "name": "programConfigAddress",
+        "kind": "value"
+      },
+      {
+        "name": "settingsAddress",
+        "kind": "value"
+      },
+      {
+        "name": "SMART_ACCOUNT_PROGRAM_ID",
+        "kind": "value"
+      },
+      {
+        "name": "smartAccountAddress",
+        "kind": "value"
+      },
+      {
+        "name": "SmartAccountClientError",
+        "kind": "value"
+      },
+      {
+        "name": "SmartAccountSigner",
+        "kind": "type"
+      },
+      {
+        "name": "treasuryAddress",
+        "kind": "value"
+      }
+    ]
+  }
+}

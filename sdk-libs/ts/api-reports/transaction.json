@@ -1,0 +1,1095 @@
+{
+  "package": "@zolana/transaction",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "anonymousRecipientFromUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "AnonymousRecipientSlot",
+        "kind": "type"
+      },
+      {
+        "name": "anonymousSenderFromUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "ApprovalRequest",
+        "kind": "type"
+      },
+      {
+        "name": "AssetBalance",
+        "kind": "type"
+      },
+      {
+        "name": "assetField",
+        "kind": "value"
+      },
+      {
+        "name": "AssetRegistry",
+        "kind": "value"
+      },
+      {
+        "name": "authorityError",
+        "kind": "value"
+      },
+      {
+        "name": "Blinding",
+        "kind": "type"
+      },
+      {
+        "name": "BN254_MODULUS_DEC",
+        "kind": "value"
+      },
+      {
+        "name": "canonicalShape",
+        "kind": "value"
+      },
+      {
+        "name": "ConfidentialSplit",
+        "kind": "value"
+      },
+      {
+        "name": "ConfidentialTransfer",
+        "kind": "value"
+      },
+      {
+        "name": "CounterpartyCounter",
+        "kind": "type"
+      },
+      {
+        "name": "createEncryptedTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "createExternalData",
+        "kind": "value"
+      },
+      {
+        "name": "createInputUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "createProofOutput",
+        "kind": "value"
+      },
+      {
+        "name": "Data",
+        "kind": "value"
+      },
+      {
+        "name": "DataRecord",
+        "kind": "type"
+      },
+      {
+        "name": "DecodeContext",
+        "kind": "type"
+      },
+      {
+        "name": "decodeContextForSlot",
+        "kind": "value"
+      },
+      {
+        "name": "decryptTransactions",
+        "kind": "value"
+      },
+      {
+        "name": "DEFAULT_TAG_WINDOW",
+        "kind": "value"
+      },
+      {
+        "name": "deriveBlinding",
+        "kind": "value"
+      },
+      {
+        "name": "encodeConfidentialSlots",
+        "kind": "value"
+      },
+      {
+        "name": "EncryptedEnvelope",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedScheme",
+        "kind": "value"
+      },
+      {
+        "name": "encryptedSchemeFromByte",
+        "kind": "value"
+      },
+      {
+        "name": "encryptedSchemeToByte",
+        "kind": "value"
+      },
+      {
+        "name": "EncryptedSplit",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "ExternalData",
+        "kind": "type"
+      },
+      {
+        "name": "ExternalDataInit",
+        "kind": "type"
+      },
+      {
+        "name": "Filter",
+        "kind": "type"
+      },
+      {
+        "name": "IndexedShieldedTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "initializePoseidon",
+        "kind": "value"
+      },
+      {
+        "name": "InputUtxo",
+        "kind": "type"
+      },
+      {
+        "name": "InputUtxoContext",
+        "kind": "type"
+      },
+      {
+        "name": "isPoseidonInitialized",
+        "kind": "value"
+      },
+      {
+        "name": "LocalWalletAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "Merge",
+        "kind": "value"
+      },
+      {
+        "name": "MERGE",
+        "kind": "value"
+      },
+      {
+        "name": "MERGE_INPUTS",
+        "kind": "value"
+      },
+      {
+        "name": "MergeZone",
+        "kind": "value"
+      },
+      {
+        "name": "OutputContext",
+        "kind": "type"
+      },
+      {
+        "name": "outputDataEncoding",
+        "kind": "value"
+      },
+      {
+        "name": "OutputDataEncoding",
+        "kind": "type"
+      },
+      {
+        "name": "OutputSlot",
+        "kind": "type"
+      },
+      {
+        "name": "OwnerContext",
+        "kind": "type"
+      },
+      {
+        "name": "ownerUtxoHash",
+        "kind": "value"
+      },
+      {
+        "name": "P256Signature",
+        "kind": "type"
+      },
+      {
+        "name": "plaintextTransferFromUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "PreparedMerge",
+        "kind": "value"
+      },
+      {
+        "name": "PreparedMergeZone",
+        "kind": "value"
+      },
+      {
+        "name": "PreparedSplit",
+        "kind": "value"
+      },
+      {
+        "name": "PreparedTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "PreparedZoneAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "prepareZoneAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "PrivateTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "PrivateTransactionDirection",
+        "kind": "type"
+      },
+      {
+        "name": "PrivateTransactionId",
+        "kind": "type"
+      },
+      {
+        "name": "PrivateTransactionKind",
+        "kind": "type"
+      },
+      {
+        "name": "PrivateTransactionStatus",
+        "kind": "type"
+      },
+      {
+        "name": "privateTxHash",
+        "kind": "value"
+      },
+      {
+        "name": "PrivateTxHashInput",
+        "kind": "type"
+      },
+      {
+        "name": "ProofInputUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "prooflessFromUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "ProofOutputInit",
+        "kind": "type"
+      },
+      {
+        "name": "ProofOutputUtxo",
+        "kind": "type"
+      },
+      {
+        "name": "PublicAmounts",
+        "kind": "type"
+      },
+      {
+        "name": "resolveShape",
+        "kind": "value"
+      },
+      {
+        "name": "SENDER_SLOT_COUNT",
+        "kind": "value"
+      },
+      {
+        "name": "Shape",
+        "kind": "type"
+      },
+      {
+        "name": "signedToField",
+        "kind": "value"
+      },
+      {
+        "name": "slotOrdinal",
+        "kind": "value"
+      },
+      {
+        "name": "SOL_ASSET_ID",
+        "kind": "value"
+      },
+      {
+        "name": "SOL_MINT",
+        "kind": "value"
+      },
+      {
+        "name": "SPLIT",
+        "kind": "value"
+      },
+      {
+        "name": "splitBundleFromUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "SplitBundlePlaintext",
+        "kind": "type"
+      },
+      {
+        "name": "SPP_SUPPORTED_SHAPES",
+        "kind": "value"
+      },
+      {
+        "name": "SppProofInputs",
+        "kind": "value"
+      },
+      {
+        "name": "SyncReport",
+        "kind": "type"
+      },
+      {
+        "name": "syncWalletWithAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "syncWalletWithMaterial",
+        "kind": "value"
+      },
+      {
+        "name": "TRANSACTION_ERROR_CODES",
+        "kind": "value"
+      },
+      {
+        "name": "transactionError",
+        "kind": "value"
+      },
+      {
+        "name": "TransactionError",
+        "kind": "value"
+      },
+      {
+        "name": "TransactionErrorCause",
+        "kind": "type"
+      },
+      {
+        "name": "TransactionErrorCode",
+        "kind": "type"
+      },
+      {
+        "name": "TransactionErrorDetails",
+        "kind": "type"
+      },
+      {
+        "name": "TransactionErrorValue",
+        "kind": "type"
+      },
+      {
+        "name": "TRANSFER",
+        "kind": "value"
+      },
+      {
+        "name": "TRANSFER_PLAINTEXT",
+        "kind": "value"
+      },
+      {
+        "name": "unknownTransactionError",
+        "kind": "value"
+      },
+      {
+        "name": "Utxo",
+        "kind": "value"
+      },
+      {
+        "name": "UtxoInit",
+        "kind": "type"
+      },
+      {
+        "name": "VIEW_TAG_LEN",
+        "kind": "value"
+      },
+      {
+        "name": "ViewingKeyEntry",
+        "kind": "type"
+      },
+      {
+        "name": "Wallet",
+        "kind": "value"
+      },
+      {
+        "name": "WalletAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "WalletSyncAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "WalletSyncConfig",
+        "kind": "type"
+      },
+      {
+        "name": "WalletSyncMaterial",
+        "kind": "type"
+      },
+      {
+        "name": "WalletUtxo",
+        "kind": "type"
+      },
+      {
+        "name": "WithdrawalTarget",
+        "kind": "type"
+      }
+    ],
+    "./serialization": [
+      {
+        "name": "anonymousRecipientFromUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "AnonymousRecipientPlaintext",
+        "kind": "type"
+      },
+      {
+        "name": "anonymousRecipientUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "anonymousSenderFromUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "AnonymousSenderPlaintext",
+        "kind": "type"
+      },
+      {
+        "name": "anonymousSenderUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "ConfidentialOutputPlaintext",
+        "kind": "type"
+      },
+      {
+        "name": "confidentialPlaintextFromUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "confidentialUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "decodeAnonymousRecipient",
+        "kind": "value"
+      },
+      {
+        "name": "decodeAnonymousSender",
+        "kind": "value"
+      },
+      {
+        "name": "decodeConfidential",
+        "kind": "value"
+      },
+      {
+        "name": "DecodeContext",
+        "kind": "type"
+      },
+      {
+        "name": "decodeContextForSlot",
+        "kind": "value"
+      },
+      {
+        "name": "decodeData",
+        "kind": "value"
+      },
+      {
+        "name": "decodeMerge",
+        "kind": "value"
+      },
+      {
+        "name": "decodeOutputData",
+        "kind": "value"
+      },
+      {
+        "name": "decodePlaintextTransfer",
+        "kind": "value"
+      },
+      {
+        "name": "decodeProofless",
+        "kind": "value"
+      },
+      {
+        "name": "decodeSplitBundle",
+        "kind": "value"
+      },
+      {
+        "name": "decodeSplitEncrypted",
+        "kind": "value"
+      },
+      {
+        "name": "decryptAnonymous",
+        "kind": "value"
+      },
+      {
+        "name": "decryptConfidential",
+        "kind": "value"
+      },
+      {
+        "name": "decryptConfidentialAsSender",
+        "kind": "value"
+      },
+      {
+        "name": "decryptMerge",
+        "kind": "value"
+      },
+      {
+        "name": "decryptSplit",
+        "kind": "value"
+      },
+      {
+        "name": "encodeAnonymousRecipient",
+        "kind": "value"
+      },
+      {
+        "name": "encodeAnonymousSender",
+        "kind": "value"
+      },
+      {
+        "name": "encodeConfidential",
+        "kind": "value"
+      },
+      {
+        "name": "encodeData",
+        "kind": "value"
+      },
+      {
+        "name": "encodeMerge",
+        "kind": "value"
+      },
+      {
+        "name": "encodeOutputData",
+        "kind": "value"
+      },
+      {
+        "name": "encodePlaintextTransfer",
+        "kind": "value"
+      },
+      {
+        "name": "encodeProofless",
+        "kind": "value"
+      },
+      {
+        "name": "encodeSplitBundle",
+        "kind": "value"
+      },
+      {
+        "name": "encodeSplitEncrypted",
+        "kind": "value"
+      },
+      {
+        "name": "encryptAnonymous",
+        "kind": "value"
+      },
+      {
+        "name": "encryptConfidential",
+        "kind": "value"
+      },
+      {
+        "name": "EncryptedScheme",
+        "kind": "value"
+      },
+      {
+        "name": "encryptedSchemeFromByte",
+        "kind": "value"
+      },
+      {
+        "name": "encryptedSchemeToByte",
+        "kind": "value"
+      },
+      {
+        "name": "encryptMerge",
+        "kind": "value"
+      },
+      {
+        "name": "encryptSplit",
+        "kind": "value"
+      },
+      {
+        "name": "MergePlaintext",
+        "kind": "type"
+      },
+      {
+        "name": "mergePlaintextFromUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "mergeUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "outputDataEncoding",
+        "kind": "value"
+      },
+      {
+        "name": "OutputDataEncoding",
+        "kind": "type"
+      },
+      {
+        "name": "OwnerContext",
+        "kind": "type"
+      },
+      {
+        "name": "plaintextTransferFromUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "plaintextTransferUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "prooflessFromUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "ProoflessOutput",
+        "kind": "type"
+      },
+      {
+        "name": "prooflessUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "splitBundleFromUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "SplitBundlePlaintext",
+        "kind": "type"
+      },
+      {
+        "name": "splitBundleUtxos",
+        "kind": "value"
+      },
+      {
+        "name": "SplitEncryptedUtxos",
+        "kind": "type"
+      },
+      {
+        "name": "TransferPlaintextRecipient",
+        "kind": "type"
+      },
+      {
+        "name": "TransferPlaintextSender",
+        "kind": "type"
+      },
+      {
+        "name": "TransferPlaintextSplChange",
+        "kind": "type"
+      },
+      {
+        "name": "TransferPlaintextUtxos",
+        "kind": "type"
+      }
+    ],
+    "./instructions": [
+      {
+        "name": "assetField",
+        "kind": "value"
+      },
+      {
+        "name": "BN254_MODULUS_DEC",
+        "kind": "value"
+      },
+      {
+        "name": "canonicalShape",
+        "kind": "value"
+      },
+      {
+        "name": "ConfidentialSplit",
+        "kind": "value"
+      },
+      {
+        "name": "ConfidentialTransfer",
+        "kind": "value"
+      },
+      {
+        "name": "createEncryptedTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "createExternalData",
+        "kind": "value"
+      },
+      {
+        "name": "createInputUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "createProofOutput",
+        "kind": "value"
+      },
+      {
+        "name": "encodeConfidentialSlots",
+        "kind": "value"
+      },
+      {
+        "name": "EncryptedTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "ExternalData",
+        "kind": "type"
+      },
+      {
+        "name": "ExternalDataInit",
+        "kind": "type"
+      },
+      {
+        "name": "IndexedShieldedTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "InputUtxo",
+        "kind": "type"
+      },
+      {
+        "name": "InputUtxoContext",
+        "kind": "type"
+      },
+      {
+        "name": "Merge",
+        "kind": "value"
+      },
+      {
+        "name": "MERGE_INPUTS",
+        "kind": "value"
+      },
+      {
+        "name": "MergeZone",
+        "kind": "value"
+      },
+      {
+        "name": "OutputContext",
+        "kind": "type"
+      },
+      {
+        "name": "OutputSlot",
+        "kind": "type"
+      },
+      {
+        "name": "PreparedMerge",
+        "kind": "value"
+      },
+      {
+        "name": "PreparedMergeZone",
+        "kind": "value"
+      },
+      {
+        "name": "PreparedSplit",
+        "kind": "value"
+      },
+      {
+        "name": "PreparedTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "PreparedZoneAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "prepareZoneAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "privateTxHash",
+        "kind": "value"
+      },
+      {
+        "name": "PrivateTxHashInput",
+        "kind": "type"
+      },
+      {
+        "name": "ProofInputUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "ProofOutputInit",
+        "kind": "type"
+      },
+      {
+        "name": "ProofOutputUtxo",
+        "kind": "type"
+      },
+      {
+        "name": "PublicAmounts",
+        "kind": "type"
+      },
+      {
+        "name": "resolveShape",
+        "kind": "value"
+      },
+      {
+        "name": "SENDER_SLOT_COUNT",
+        "kind": "value"
+      },
+      {
+        "name": "Shape",
+        "kind": "type"
+      },
+      {
+        "name": "signedToField",
+        "kind": "value"
+      },
+      {
+        "name": "slotOrdinal",
+        "kind": "value"
+      },
+      {
+        "name": "SPP_SUPPORTED_SHAPES",
+        "kind": "value"
+      },
+      {
+        "name": "SppProofInputs",
+        "kind": "value"
+      },
+      {
+        "name": "WithdrawalTarget",
+        "kind": "type"
+      }
+    ],
+    "./transact": [
+      {
+        "name": "canonicalShape",
+        "kind": "value"
+      },
+      {
+        "name": "ConfidentialTransfer",
+        "kind": "value"
+      },
+      {
+        "name": "createEncryptedTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "createExternalData",
+        "kind": "value"
+      },
+      {
+        "name": "createInputUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "encodeConfidentialSlots",
+        "kind": "value"
+      },
+      {
+        "name": "EncryptedTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "ExternalData",
+        "kind": "type"
+      },
+      {
+        "name": "ExternalDataInit",
+        "kind": "type"
+      },
+      {
+        "name": "IndexedShieldedTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "InputUtxo",
+        "kind": "type"
+      },
+      {
+        "name": "InputUtxoContext",
+        "kind": "type"
+      },
+      {
+        "name": "OutputContext",
+        "kind": "type"
+      },
+      {
+        "name": "OutputSlot",
+        "kind": "type"
+      },
+      {
+        "name": "PreparedTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "privateTxHash",
+        "kind": "value"
+      },
+      {
+        "name": "PrivateTxHashInput",
+        "kind": "type"
+      },
+      {
+        "name": "ProofOutputUtxo",
+        "kind": "type"
+      },
+      {
+        "name": "PublicAmounts",
+        "kind": "type"
+      },
+      {
+        "name": "resolveShape",
+        "kind": "value"
+      },
+      {
+        "name": "SENDER_SLOT_COUNT",
+        "kind": "value"
+      },
+      {
+        "name": "Shape",
+        "kind": "type"
+      },
+      {
+        "name": "signedToField",
+        "kind": "value"
+      },
+      {
+        "name": "slotOrdinal",
+        "kind": "value"
+      },
+      {
+        "name": "SPP_SUPPORTED_SHAPES",
+        "kind": "value"
+      },
+      {
+        "name": "SppProofInputs",
+        "kind": "value"
+      },
+      {
+        "name": "WithdrawalTarget",
+        "kind": "type"
+      }
+    ],
+    "./wallet": [
+      {
+        "name": "AnonymousRecipientSlot",
+        "kind": "type"
+      },
+      {
+        "name": "ApprovalRequest",
+        "kind": "type"
+      },
+      {
+        "name": "AssetBalance",
+        "kind": "type"
+      },
+      {
+        "name": "AssetRegistry",
+        "kind": "value"
+      },
+      {
+        "name": "CounterpartyCounter",
+        "kind": "type"
+      },
+      {
+        "name": "decryptTransactions",
+        "kind": "value"
+      },
+      {
+        "name": "DEFAULT_TAG_WINDOW",
+        "kind": "value"
+      },
+      {
+        "name": "EncryptedEnvelope",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedSplit",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "Filter",
+        "kind": "type"
+      },
+      {
+        "name": "LocalWalletAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "P256Signature",
+        "kind": "type"
+      },
+      {
+        "name": "PrivateTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "PrivateTransactionDirection",
+        "kind": "type"
+      },
+      {
+        "name": "PrivateTransactionId",
+        "kind": "type"
+      },
+      {
+        "name": "PrivateTransactionKind",
+        "kind": "type"
+      },
+      {
+        "name": "PrivateTransactionStatus",
+        "kind": "type"
+      },
+      {
+        "name": "SOL_ASSET_ID",
+        "kind": "value"
+      },
+      {
+        "name": "SOL_MINT",
+        "kind": "value"
+      },
+      {
+        "name": "SplitBundlePlaintext",
+        "kind": "type"
+      },
+      {
+        "name": "SyncReport",
+        "kind": "type"
+      },
+      {
+        "name": "syncWalletWithAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "syncWalletWithMaterial",
+        "kind": "value"
+      },
+      {
+        "name": "syncWalletWorkerEquivalent",
+        "kind": "value"
+      },
+      {
+        "name": "ViewingKeyEntry",
+        "kind": "type"
+      },
+      {
+        "name": "Wallet",
+        "kind": "value"
+      },
+      {
+        "name": "WalletAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "WalletSyncAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "WalletSyncConfig",
+        "kind": "type"
+      },
+      {
+        "name": "WalletSyncMaterial",
+        "kind": "type"
+      },
+      {
+        "name": "WalletUtxo",
+        "kind": "type"
+      }
+    ]
+  }
+}

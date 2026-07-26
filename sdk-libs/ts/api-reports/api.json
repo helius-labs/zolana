@@ -1,0 +1,19 @@
+{
+  "package": "@zolana/api",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "ApiError",
+        "kind": "value"
+      },
+      {
+        "name": "ZolanaApi",
+        "kind": "value"
+      },
+      {
+        "name": "ZolanaApiConfig",
+        "kind": "type"
+      }
+    ]
+  }
+}
