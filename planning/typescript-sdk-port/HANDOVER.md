@@ -156,7 +156,7 @@ and fixture provenance all clean.
    8  test(ts): end-to-end suites                         10 files  ~3.2k
         sdk-libs/ts/e2e/**
 
-   9  test(sdk): paired deposit, transfer, withdraw example  8 files ~0.5k
+   9  example(sdk): paired deposit, transfer, withdraw example  8 files ~0.5k
         sdk-tests/rust-client/**, sdk-tests/typescript-client/**
    ```
 
