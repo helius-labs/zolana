@@ -16,6 +16,7 @@ import { compactU16 } from "./wire.js";
 import {
   addressBytes,
   composeSignal,
+  compareBytes,
   decodeBase58,
   decodeBase64,
   encodeBase64,
@@ -787,14 +788,6 @@ function decodeBase58UnknownLength(value: string): Uint8Array {
     }
   }
   throw new ClientError("CLIENT_INVALID_BASE58");
-}
-
-function compareBytes(left: Uint8Array, right: Uint8Array): number {
-  for (let index = 0; index < Math.min(left.length, right.length); index++) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return left.length - right.length;
 }
 
 function concat(...parts: readonly Uint8Array[]): Uint8Array {

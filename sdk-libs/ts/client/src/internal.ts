@@ -191,6 +191,16 @@ export function decodeBase58(value: unknown, length: number, fieldName: string):
   return result;
 }
 
+/** Lexicographic compare; unequal lengths are unequal (prefix ≠ extension). */
+export function compareBytes(left: Uint8Array, right: Uint8Array): number {
+  const limit = Math.min(left.length, right.length);
+  for (let index = 0; index < limit; index++) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return left.length - right.length;
+}
+
 export function encodeBase58(value: Uint8Array): string {
   const digits = [0];
   for (const byte of value) {
