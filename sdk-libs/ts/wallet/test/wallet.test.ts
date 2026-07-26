@@ -226,10 +226,35 @@ describe("wallet actions", () => {
     const wallet = fundedWallet([2n, 5n]);
     // `get_private_token_balances` passes `skip_utxos = true`, so the note list
     // is dropped and only the aggregate survives.
+    const balances = getPrivateTokenBalances(wallet);
+    const history = getPrivateTransactions(wallet);
+    expect(balances).toEqual([{ assetId: 1n, mint: SOL_MINT, amount: 7n, utxos: [] }]);
+    expect(history).toEqual([]);
+
+    const state = wallet._state();
+    wallet._replace({
+      utxos: state.utxos.map((entry, index) => (index === 0 ? { ...entry, spent: true } : entry)),
+      transactions: [
+        {
+          id: { signature: SIGNATURE, index: 0n },
+          kind: "deposit",
+          direction: "incoming",
+          status: "confirmed",
+          slot: 1n,
+        },
+      ],
+      nullifiers: state.nullifiers,
+    });
+
+    // Rust returns owned values from both calls, so a result taken before the
+    // wallet moved still reads as it did and cannot be written back through.
+    expect(balances).toEqual([{ assetId: 1n, mint: SOL_MINT, amount: 7n, utxos: [] }]);
+    expect(history).toEqual([]);
+    expect(Object.isFrozen(balances[0])).toBe(true);
     expect(getPrivateTokenBalances(wallet)).toEqual([
-      { assetId: 1n, mint: SOL_MINT, amount: 7n, utxos: [] },
+      { assetId: 1n, mint: SOL_MINT, amount: 5n, utxos: [] },
     ]);
-    expect(getPrivateTransactions(wallet)).toEqual([]);
+    expect(getPrivateTransactions(wallet)).toHaveLength(1);
   });
 
   it("auto-merges the frozen smallest-input set and rejects duplicates", async () => {

@@ -124,10 +124,13 @@ function keypair(): ShieldedKeypair {
 }
 
 /**
- * A backend that keeps its key material behind an async boundary, standing in
- * for an HSM or a remote signer. It exists to prove the published interfaces
- * are satisfiable without the concrete in-memory classes -- the point of the
- * Rust traits.
+ * A signer that answers over a wire, standing in for an HSM. It exists to prove
+ * the published interfaces are satisfiable without the concrete in-memory
+ * classes -- the point of the Rust traits.
+ *
+ * Only the signing half crosses the wire. Viewing keys are held in process, so
+ * this backend satisfies {@link ViewingKeyLike} synchronously; an interface
+ * that could not be satisfied that way would be one no scan path could call.
  */
 class RemoteBackend implements ShieldedKeypairLike, ViewingKeyLike {
   readonly #inner = keypair();
@@ -159,68 +162,65 @@ class RemoteBackend implements ShieldedKeypairLike, ViewingKeyLike {
   nullifierPublicKey(): Promise<Bytes32> {
     return Promise.resolve(this.#inner.nullifierPublicKey());
   }
-  publicKey(): Promise<P256PublicKey> {
-    return Promise.resolve(this.#inner.publicKey());
+  publicKey(): P256PublicKey {
+    return this.#inner.publicKey();
   }
-  ecdh(counterparty: P256PublicKey): Promise<Bytes32> {
-    return Promise.resolve(this.#inner.ecdh(counterparty));
+  ecdh(counterparty: P256PublicKey): Bytes32 {
+    return this.#inner.ecdh(counterparty);
   }
-  senderViewTag(txCount: bigint): Promise<Bytes32> {
-    return Promise.resolve(this.#inner.senderViewTag(txCount));
+  senderViewTag(txCount: bigint): Bytes32 {
+    return this.#inner.senderViewTag(txCount);
   }
-  recipientRequestViewTag(requestCount: bigint): Promise<Bytes32> {
-    return Promise.resolve(this.#inner.recipientRequestViewTag(requestCount));
+  recipientRequestViewTag(requestCount: bigint): Bytes32 {
+    return this.#inner.recipientRequestViewTag(requestCount);
   }
-  mergeViewTag(mergeCount: bigint): Promise<Bytes32> {
-    return Promise.resolve(this.#inner.mergeViewTag(mergeCount));
+  mergeViewTag(mergeCount: bigint): Bytes32 {
+    return this.#inner.mergeViewTag(mergeCount);
   }
-  sendSharedViewTag(counterparty: P256PublicKey, index: bigint): Promise<Bytes32> {
-    return Promise.resolve(this.#inner.sendSharedViewTag(counterparty, index));
+  sendSharedViewTag(counterparty: P256PublicKey, index: bigint): Bytes32 {
+    return this.#inner.sendSharedViewTag(counterparty, index);
   }
-  recipientSharedViewTag(counterparty: P256PublicKey, index: bigint): Promise<Bytes32> {
-    return Promise.resolve(this.#inner.recipientSharedViewTag(counterparty, index));
+  recipientSharedViewTag(counterparty: P256PublicKey, index: bigint): Bytes32 {
+    return this.#inner.recipientSharedViewTag(counterparty, index);
   }
-  recipientBootstrapViewTag(): Promise<Bytes32> {
-    return Promise.resolve(this.#inner.recipientBootstrapViewTag());
+  recipientBootstrapViewTag(): Bytes32 {
+    return this.#inner.recipientBootstrapViewTag();
   }
-  transactionViewingKey(firstNullifier: Bytes32): Promise<ViewingKey> {
-    return Promise.resolve(this.#inner.transactionViewingKey(firstNullifier));
+  transactionViewingKey(firstNullifier: Bytes32): ViewingKey {
+    return this.#inner.transactionViewingKey(firstNullifier);
   }
   encryptSlot(
     recipientPublicKey: P256PublicKey,
     plaintext: Uint8Array,
     salt: rootEntry.Salt,
     slotIndex: number,
-  ): Promise<Uint8Array> {
-    return Promise.resolve(this.#inner.encryptSlot(recipientPublicKey, plaintext, salt, slotIndex));
+  ): Uint8Array {
+    return this.#inner.encryptSlot(recipientPublicKey, plaintext, salt, slotIndex);
   }
   decryptUtxo(
     ciphertext: Uint8Array,
     txViewingPublicKey: P256PublicKey,
     salt: rootEntry.Salt,
     slotIndex: number,
-  ): Promise<Uint8Array> {
-    return Promise.resolve(this.#inner.decryptUtxo(ciphertext, txViewingPublicKey, salt, slotIndex));
+  ): Uint8Array {
+    return this.#inner.decryptUtxo(ciphertext, txViewingPublicKey, salt, slotIndex);
   }
   decryptSlotEphemeral(
     recipientPublicKey: P256PublicKey,
     ciphertext: Uint8Array,
     salt: rootEntry.Salt,
     slotIndex: number,
-  ): Promise<Uint8Array> {
-    return Promise.resolve(this.#inner.decryptSlotEphemeral(recipientPublicKey, ciphertext, salt, slotIndex));
+  ): Uint8Array {
+    return this.#inner.decryptSlotEphemeral(recipientPublicKey, ciphertext, salt, slotIndex);
   }
   encryptVerifiable(
     userViewingPublicKey: P256PublicKey,
     plaintext: Uint8Array,
-  ): Promise<Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }>> {
-    return Promise.resolve(this.#inner.encryptVerifiable(userViewingPublicKey, plaintext));
+  ): Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }> {
+    return this.#inner.encryptVerifiable(userViewingPublicKey, plaintext);
   }
-  decryptVerifiable(
-    txViewingPublicKey: P256PublicKey,
-    ciphertext: Uint8Array,
-  ): Promise<Uint8Array> {
-    return Promise.resolve(this.#inner.decryptVerifiable(txViewingPublicKey, ciphertext));
+  decryptVerifiable(txViewingPublicKey: P256PublicKey, ciphertext: Uint8Array): Uint8Array {
+    return this.#inner.decryptVerifiable(txViewingPublicKey, ciphertext);
   }
 }
 
@@ -232,27 +232,34 @@ describe("capability interfaces", () => {
 
     expect(await remote.curve()).toBe(await concreteKeypair.curve());
     expect(await remote.ownerHash()).toEqual(await concreteKeypair.ownerHash());
-    expect(await remote.nullifierPublicKey()).toEqual(
-      await concreteKeypair.nullifierPublicKey(),
-    );
-    expect((await remote.publicKey()).toBytes()).toEqual(
-      (await concreteViewing.publicKey()).toBytes(),
-    );
-    expect(await remote.senderViewTag(9n)).toEqual(await concreteViewing.senderViewTag(9n));
+    expect(await remote.nullifierPublicKey()).toEqual(await concreteKeypair.nullifierPublicKey());
+    expect(remote.publicKey().toBytes()).toEqual(concreteViewing.publicKey().toBytes());
+    expect(remote.senderViewTag(9n)).toEqual(concreteViewing.senderViewTag(9n));
     expect((await remote.compressedAddress()).hash()).toEqual(
       (await concreteKeypair.compressedAddress()).hash(),
     );
   });
 
-  it("round-trips a slot ciphertext through the interface alone", async () => {
+  it("returns viewing material without a promise to await", () => {
+    const backends: readonly ViewingKeyLike[] = [
+      new RemoteBackend(),
+      ViewingKey.fromBytes(VIEWING_SECRET),
+      keypair(),
+    ];
+    for (const backend of backends) {
+      expect(backend.publicKey()).not.toBeInstanceOf(Promise);
+      expect(backend.senderViewTag(0n)).not.toBeInstanceOf(Promise);
+      expect(backend.recipientBootstrapViewTag()).not.toBeInstanceOf(Promise);
+    }
+  });
+
+  it("round-trips a slot ciphertext through the interface alone", () => {
     const remote: ViewingKeyLike = new RemoteBackend();
     const recipient = ViewingKey.fromBytes(SECRET);
     const salt = new Uint8Array(16).fill(9) as rootEntry.Salt;
     const plaintext = Uint8Array.from({ length: 40 }, (_, index) => index);
-    const ciphertext = await remote.encryptSlot(recipient.publicKey(), plaintext, salt, 2);
-    expect(
-      recipient.decryptUtxo(ciphertext, await remote.publicKey(), salt, 2),
-    ).toEqual(plaintext);
+    const ciphertext = remote.encryptSlot(recipient.publicKey(), plaintext, salt, 2);
+    expect(recipient.decryptUtxo(ciphertext, remote.publicKey(), salt, 2)).toEqual(plaintext);
   });
 
   it("a shielded keypair stands in for a viewing-key backend", () => {

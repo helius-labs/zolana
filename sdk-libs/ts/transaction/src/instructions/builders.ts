@@ -96,9 +96,7 @@ export class PreparedMerge {
 /** An input carrying program or zone data, which the plain merge rail never consolidates. */
 function hasData(input: ProofInputUtxo): boolean {
   return (
-    input.dataHash !== undefined ||
-    input.zoneDataHash !== undefined ||
-    !input.utxo.data.isEmpty()
+    input.dataHash !== undefined || input.zoneDataHash !== undefined || !input.utxo.data.isEmpty()
   );
 }
 

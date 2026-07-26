@@ -27,6 +27,7 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_TRANSACTION",
   "CLIENT_HASHER",
   "CLIENT_UNSUPPORTED_SHAPE",
+  "CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE",
   "CLIENT_TOO_MANY_INPUTS",
   "CLIENT_TOO_MANY_OUTPUTS",
   "CLIENT_INSUFFICIENT_BALANCE",
@@ -90,6 +91,7 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_TRANSACTION: Readonly<{ code: TransactionErrorCode }>;
   readonly CLIENT_HASHER: Readonly<{ code: HasherErrorCode }>;
   readonly CLIENT_UNSUPPORTED_SHAPE: Readonly<{ nIn: number; nOut: number }>;
+  readonly CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE: Readonly<{ nIn: number; nOut: number }>;
   readonly CLIENT_TOO_MANY_INPUTS: Readonly<{ got: number; max: number }>;
   readonly CLIENT_TOO_MANY_OUTPUTS: Readonly<{ got: number; max: number }>;
   readonly CLIENT_INSUFFICIENT_BALANCE: Readonly<{ requested: string; available: string }>;
@@ -415,6 +417,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_TRANSACTION: { code: "string" },
   CLIENT_HASHER: { code: "string" },
   CLIENT_UNSUPPORTED_SHAPE: { nIn: "number", nOut: "number" },
+  CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE: { nIn: "number", nOut: "number" },
   CLIENT_TOO_MANY_INPUTS: { got: "number", max: "number" },
   CLIENT_TOO_MANY_OUTPUTS: { got: "number", max: "number" },
   CLIENT_INSUFFICIENT_BALANCE: { requested: "string", available: "string" },

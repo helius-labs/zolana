@@ -41,9 +41,11 @@ export type {
   EncryptedTransaction,
   ExternalData,
   ExternalDataInit,
+  IndexedShieldedTransaction,
   InputUtxo,
   InputUtxoContext,
   OutputContext,
+  OutputSlot,
   PreparedTransfer,
   PreparedZoneAuthority,
   PrivateTxHashInput,
@@ -55,6 +57,7 @@ export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash 
 export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
 export {
   AssetRegistry,
+  DEFAULT_TAG_WINDOW,
   LocalWalletAuthority,
   SOL_ASSET_ID,
   SOL_MINT,
@@ -72,6 +75,10 @@ export type {
   Filter,
   P256Signature,
   PrivateTransaction,
+  PrivateTransactionDirection,
+  PrivateTransactionId,
+  PrivateTransactionKind,
+  PrivateTransactionStatus,
   SplitBundlePlaintext,
   SyncWalletAuthority,
   SyncReport,
@@ -81,23 +88,22 @@ export type {
   WalletSyncMaterial,
   WalletUtxo,
 } from "./wallet/index.js";
+/** Wire type prefixes, defined once beside the reader and writer that enforce them. */
+export { MERGE, SPLIT, TRANSFER, TRANSFER_PLAINTEXT } from "./serialization/codecs.js";
 export {
   EncryptedScheme,
   anonymousRecipientFromUtxos,
   anonymousSenderFromUtxos,
+  decodeContextForSlot,
   encryptedSchemeFromByte,
   encryptedSchemeToByte,
   outputDataEncoding,
   plaintextTransferFromUtxos,
   prooflessFromUtxos,
   splitBundleFromUtxos,
+  type DecodeContext,
   type OutputDataEncoding,
   type OwnerContext,
 } from "./serialization/index.js";
 
-export const TRANSFER = 1;
-export const SPLIT = 2;
-export const MERGE = 3;
-export const TRANSFER_PLAINTEXT = 4;
 export const VIEW_TAG_LEN = 32;
-export const DEFAULT_TAG_WINDOW = 64n;

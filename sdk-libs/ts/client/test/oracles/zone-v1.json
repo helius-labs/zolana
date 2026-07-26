@@ -1137,47 +1137,6 @@
       },
       {
         "chain": {
-          "externalDataHash": "303009002665539086933183246304423406299687944110833055319342827445871286743",
-          "inputOwnerPkHashes": [
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307"
-          ],
-          "nullifierChain": "06c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082",
-          "outputHashChain": "29a4571b662540d8e491635c164db7fe494d060bedf4d271b5385c13d9f7c031",
-          "outputOwnerPkHashes": [
-            "20534077477214190735315515649622820549814899182756132139585713173924294727935",
-            "16626418611698668768430538620899182463716133495512882582696903579878855459716"
-          ],
-          "payerPubkeyHash": "167552958392527228427615935453266833389473147512340066254431296777771890764",
-          "privateTxHash": "13139287134799393871697849231822604394245388479748753241025704112723035969575",
-          "publicInputHash": "10767339431931674468674262689717147328449902153881651205484049492031162579622",
-          "publicSolAmount": "21888242871839275222246405745257275088548364400416034343698204186575808495612",
-          "publicSplAmount": "0",
-          "publicSplAssetPubkey": "0",
-          "zoneProgramId": "17668819869647849988253893139611690900829907154378926789780653957570376174785"
-        },
-        "inputRootIndices": [
-          [
-            76,
-            82
-          ]
-        ],
-        "nullifierBytes": [
-          "06c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082"
-        ],
-        "outputHashBytes": [
-          "0de8fee726912a7ef151cd2bec121ffad33e9b4eadbadfb3ffcc6aa270b5ffda",
-          "11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa"
-        ],
-        "privateTxHashBytes": "1d0c92ae8f7a51746cadcb672707e70d485bf47582098abce2d39a4ea0c85827",
-        "publicInputHashBytes": "17ce1920797f7fb09a6de366f8a1c9b19f7d52baf9b0a8f0ee10ab084ad87aa6",
-        "requestBodyJson": "{\"circuitType\":\"transfer-zone-authority\",\"nInputs\":1,\"nOutputs\":2,\"inputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0xb0dccf72c300b1c5568a664cf7dcb976b8de03d79e67b5be47c044d1e47921\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x6c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"}],\"outputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0x3378acc046ccb76c352597c41cac7b74230b7921314505a0e10ff51107986\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0xde8fee726912a7ef151cd2bec121ffad33e9b4eadbadfb3ffcc6aa270b5ffda\",\"ownerPkHash\":\"0x2d65e040c5915be356b3743e6c15658c06cf4bb5dfd92cb6307f1b4cdd0c98ff\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xe47a87f7606802800c5e5904184383e2e78273b35e10b47dad7539eac32b0d\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa\",\"ownerPkHash\":\"0x24c2382dc8bf0cead74ae9c50e1df314248bde7d1599b6ee71cb144c72fec384\",\"nullifierPk\":\"0x0\"}],\"externalDataHash\":\"0xab7f3c9062bfb705660738b3cbb2c0f7d2abb56b5cb8c3ce6834d5dd6599d7\",\"privateTxHash\":\"0x1d0c92ae8f7a51746cadcb672707e70d485bf47582098abce2d39a4ea0c85827\",\"publicSolAmount\":\"0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffffc\",\"publicSplAmount\":\"0x0\",\"publicSplAssetPubkey\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\",\"payerPubkeyHash\":\"0x5ed4e4a36b30ea21b90e21c712c649e8214c29b7eaf68089d1039c6e55384c\",\"publicInputHash\":\"0x17ce1920797f7fb09a6de366f8a1c9b19f7d52baf9b0a8f0ee10ab084ad87aa6\"}",
-        "shape": {
-          "inputs": 1,
-          "outputs": 2
-        }
-      },
-      {
-        "chain": {
           "externalDataHash": "115756457179559544222122668918985204865745165244496984994995027817902381099",
           "inputOwnerPkHashes": [
             "7318734284173988651257985029839412962026011743454623461927924044018121419307",
@@ -1221,55 +1180,6 @@
         "shape": {
           "inputs": 2,
           "outputs": 2
-        }
-      },
-      {
-        "chain": {
-          "externalDataHash": "144566772225079769570011946225475216306173390196792011253193797692639670024",
-          "inputOwnerPkHashes": [
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307"
-          ],
-          "nullifierChain": "1038ad1a3f92998b19a327505fef3ee9bb9ba42601e0bea9829560678edf2a2a",
-          "outputHashChain": "07858cc8bdbe702d941255e416cf4a8da7849d3f2aa5d5e9d88de4a272191a88",
-          "outputOwnerPkHashes": [
-            "20534077477214190735315515649622820549814899182756132139585713173924294727935",
-            "16626418611698668768430538620899182463716133495512882582696903579878855459716",
-            "2071110289418059129720952873673618263353953398508349060492866092011642417091"
-          ],
-          "payerPubkeyHash": "167552958392527228427615935453266833389473147512340066254431296777771890764",
-          "privateTxHash": "16307627586748684549616647561277329812540688261478759197839383229504211145923",
-          "publicInputHash": "4521373377984184882329197104253200216333222014458327001320792842610965737252",
-          "publicSolAmount": "21888242871839275222246405745257275088548364400416034343698204186575808495612",
-          "publicSplAmount": "0",
-          "publicSplAssetPubkey": "0",
-          "zoneProgramId": "17668819869647849988253893139611690900829907154378926789780653957570376174785"
-        },
-        "inputRootIndices": [
-          [
-            76,
-            82
-          ],
-          [
-            77,
-            83
-          ]
-        ],
-        "nullifierBytes": [
-          "06c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082",
-          "1f20d3095e51e49c32c34b54c58170c40d03ff20a60a44fe6b7a7f93731b7f15"
-        ],
-        "outputHashBytes": [
-          "100a46c06973b1da393d1b45c5163b223cc9f2c6f13345427ee00872536e4641",
-          "11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa",
-          "2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b"
-        ],
-        "privateTxHashBytes": "240dca457a97f07f44d56002ba50a5c0cd5b54e7ee64684a1a7f49f6d2d054c3",
-        "publicInputHashBytes": "09ff01b36e860e1e1e2e04912de58d0e8ed3aac2b1583516cc6f1649c007ef24",
-        "requestBodyJson": "{\"circuitType\":\"transfer-zone-authority\",\"nInputs\":2,\"nOutputs\":3,\"inputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0xb0dccf72c300b1c5568a664cf7dcb976b8de03d79e67b5be47c044d1e47921\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x6c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0x359414787fb4b0b4a40b2caf96bc5446899a71b38b7c9deaf9a914f30f4353\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\"],\"statePathIndex\":\"0x1\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\"],\"nullifierLowPathIndex\":\"0x1\",\"utxoTreeRoot\":\"0x4b\",\"nullifierTreeRoot\":\"0x51\",\"nullifier\":\"0x1f20d3095e51e49c32c34b54c58170c40d03ff20a60a44fe6b7a7f93731b7f15\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"}],\"outputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0xc8\",\"blinding\":\"0x3378acc046ccb76c352597c41cac7b74230b7921314505a0e10ff51107986\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x100a46c06973b1da393d1b45c5163b223cc9f2c6f13345427ee00872536e4641\",\"ownerPkHash\":\"0x2d65e040c5915be356b3743e6c15658c06cf4bb5dfd92cb6307f1b4cdd0c98ff\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xe47a87f7606802800c5e5904184383e2e78273b35e10b47dad7539eac32b0d\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa\",\"ownerPkHash\":\"0x24c2382dc8bf0cead74ae9c50e1df314248bde7d1599b6ee71cb144c72fec384\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xc631bb9ed80b9289c58f19b053e235cabfd5b44b65c329bab175b479a23c94\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b\",\"ownerPkHash\":\"0x49434f63e1bff4911a6ce6fe0313b59b51cd90198a6834cf73cb388c76fefc3\",\"nullifierPk\":\"0x0\"}],\"externalDataHash\":\"0x51d2679b72f6510a20facb5a0e9c98267ba267e82a684d45f07891bac7ef08\",\"privateTxHash\":\"0x240dca457a97f07f44d56002ba50a5c0cd5b54e7ee64684a1a7f49f6d2d054c3\",\"publicSolAmount\":\"0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffffc\",\"publicSplAmount\":\"0x0\",\"publicSplAssetPubkey\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\",\"payerPubkeyHash\":\"0x5ed4e4a36b30ea21b90e21c712c649e8214c29b7eaf68089d1039c6e55384c\",\"publicInputHash\":\"0x9ff01b36e860e1e1e2e04912de58d0e8ed3aac2b1583516cc6f1649c007ef24\"}",
-        "shape": {
-          "inputs": 2,
-          "outputs": 3
         }
       },
       {
@@ -1324,67 +1234,6 @@
         "requestBodyJson": "{\"circuitType\":\"transfer-zone-authority\",\"nInputs\":3,\"nOutputs\":3,\"inputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0xb0dccf72c300b1c5568a664cf7dcb976b8de03d79e67b5be47c044d1e47921\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x6c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0x359414787fb4b0b4a40b2caf96bc5446899a71b38b7c9deaf9a914f30f4353\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\"],\"statePathIndex\":\"0x1\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\"],\"nullifierLowPathIndex\":\"0x1\",\"utxoTreeRoot\":\"0x4b\",\"nullifierTreeRoot\":\"0x51\",\"nullifier\":\"0x1f20d3095e51e49c32c34b54c58170c40d03ff20a60a44fe6b7a7f93731b7f15\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x8dbb8b463a5251b306ca68629ce4185fb81ad7bf36c66a46f47fd76b771023\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x0\"},\"isDummy\":\"0x1\",\"statePathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x0\",\"nullifierNextValue\":\"0x0\",\"nullifierLowPathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x17ed29c462bb5d98cd3d6cde5225683fc2f39a12a810f6e3db019fb35471c163\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x0\"}],\"outputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0xc8\",\"blinding\":\"0x3378acc046ccb76c352597c41cac7b74230b7921314505a0e10ff51107986\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x100a46c06973b1da393d1b45c5163b223cc9f2c6f13345427ee00872536e4641\",\"ownerPkHash\":\"0x2d65e040c5915be356b3743e6c15658c06cf4bb5dfd92cb6307f1b4cdd0c98ff\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xe47a87f7606802800c5e5904184383e2e78273b35e10b47dad7539eac32b0d\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa\",\"ownerPkHash\":\"0x24c2382dc8bf0cead74ae9c50e1df314248bde7d1599b6ee71cb144c72fec384\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xc631bb9ed80b9289c58f19b053e235cabfd5b44b65c329bab175b479a23c94\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b\",\"ownerPkHash\":\"0x49434f63e1bff4911a6ce6fe0313b59b51cd90198a6834cf73cb388c76fefc3\",\"nullifierPk\":\"0x0\"}],\"externalDataHash\":\"0x51d2679b72f6510a20facb5a0e9c98267ba267e82a684d45f07891bac7ef08\",\"privateTxHash\":\"0x2601975ca839ea39424d4553de6550916d997905c819e69033b29179bc172443\",\"publicSolAmount\":\"0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffffc\",\"publicSplAmount\":\"0x0\",\"publicSplAssetPubkey\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\",\"payerPubkeyHash\":\"0x5ed4e4a36b30ea21b90e21c712c649e8214c29b7eaf68089d1039c6e55384c\",\"publicInputHash\":\"0x837598a1ae2f416e8fb96bf17a3250cfdcd3d3496b7ff7c63b6bb7798d3f174\"}",
         "shape": {
           "inputs": 3,
-          "outputs": 3
-        }
-      },
-      {
-        "chain": {
-          "externalDataHash": "144566772225079769570011946225475216306173390196792011253193797692639670024",
-          "inputOwnerPkHashes": [
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307"
-          ],
-          "nullifierChain": "0306eb1c7ba59a2b68b5c5c89b9b677b6992028150bb67ff493d8bff36a71146",
-          "outputHashChain": "07858cc8bdbe702d941255e416cf4a8da7849d3f2aa5d5e9d88de4a272191a88",
-          "outputOwnerPkHashes": [
-            "20534077477214190735315515649622820549814899182756132139585713173924294727935",
-            "16626418611698668768430538620899182463716133495512882582696903579878855459716",
-            "2071110289418059129720952873673618263353953398508349060492866092011642417091"
-          ],
-          "payerPubkeyHash": "167552958392527228427615935453266833389473147512340066254431296777771890764",
-          "privateTxHash": "4942437208909563175779147059541958375957037163377004295110412977435797914466",
-          "publicInputHash": "10161795284910276958232425646809827642885639344062334806299897972447771895542",
-          "publicSolAmount": "21888242871839275222246405745257275088548364400416034343698204186575808495612",
-          "publicSplAmount": "0",
-          "publicSplAssetPubkey": "0",
-          "zoneProgramId": "17668819869647849988253893139611690900829907154378926789780653957570376174785"
-        },
-        "inputRootIndices": [
-          [
-            76,
-            82
-          ],
-          [
-            77,
-            83
-          ],
-          [
-            76,
-            82
-          ],
-          [
-            76,
-            82
-          ]
-        ],
-        "nullifierBytes": [
-          "06c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082",
-          "1f20d3095e51e49c32c34b54c58170c40d03ff20a60a44fe6b7a7f93731b7f15",
-          "17ed29c462bb5d98cd3d6cde5225683fc2f39a12a810f6e3db019fb35471c163",
-          "29a5775260609022c653ed0dfc8092ad4bb3d18ee1cfdb06bcb6c23617bdd200"
-        ],
-        "outputHashBytes": [
-          "100a46c06973b1da393d1b45c5163b223cc9f2c6f13345427ee00872536e4641",
-          "11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa",
-          "2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b"
-        ],
-        "privateTxHashBytes": "0aed5200f25d5f18d3b36dcfc9ab1cf0448f0ea268c20bd9b9044f5094548362",
-        "publicInputHashBytes": "16775f4fba6874aeb6350b178a3fbad4db1f9520298aa5f6b30216d2ab1426f6",
-        "requestBodyJson": "{\"circuitType\":\"transfer-zone-authority\",\"nInputs\":4,\"nOutputs\":3,\"inputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0xb0dccf72c300b1c5568a664cf7dcb976b8de03d79e67b5be47c044d1e47921\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x6c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0x359414787fb4b0b4a40b2caf96bc5446899a71b38b7c9deaf9a914f30f4353\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\"],\"statePathIndex\":\"0x1\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\"],\"nullifierLowPathIndex\":\"0x1\",\"utxoTreeRoot\":\"0x4b\",\"nullifierTreeRoot\":\"0x51\",\"nullifier\":\"0x1f20d3095e51e49c32c34b54c58170c40d03ff20a60a44fe6b7a7f93731b7f15\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x8dbb8b463a5251b306ca68629ce4185fb81ad7bf36c66a46f47fd76b771023\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x0\"},\"isDummy\":\"0x1\",\"statePathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x0\",\"nullifierNextValue\":\"0x0\",\"nullifierLowPathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x17ed29c462bb5d98cd3d6cde5225683fc2f39a12a810f6e3db019fb35471c163\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x2f98355ee995d6c39d0c8babd5e443539c10c1780f716b3fa66f498f259452\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x0\"},\"isDummy\":\"0x1\",\"statePathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x0\",\"nullifierNextValue\":\"0x0\",\"nullifierLowPathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x29a5775260609022c653ed0dfc8092ad4bb3d18ee1cfdb06bcb6c23617bdd200\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x0\"}],\"outputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0xc8\",\"blinding\":\"0x3378acc046ccb76c352597c41cac7b74230b7921314505a0e10ff51107986\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x100a46c06973b1da393d1b45c5163b223cc9f2c6f13345427ee00872536e4641\",\"ownerPkHash\":\"0x2d65e040c5915be356b3743e6c15658c06cf4bb5dfd92cb6307f1b4cdd0c98ff\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xe47a87f7606802800c5e5904184383e2e78273b35e10b47dad7539eac32b0d\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa\",\"ownerPkHash\":\"0x24c2382dc8bf0cead74ae9c50e1df314248bde7d1599b6ee71cb144c72fec384\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xc631bb9ed80b9289c58f19b053e235cabfd5b44b65c329bab175b479a23c94\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b\",\"ownerPkHash\":\"0x49434f63e1bff4911a6ce6fe0313b59b51cd90198a6834cf73cb388c76fefc3\",\"nullifierPk\":\"0x0\"}],\"externalDataHash\":\"0x51d2679b72f6510a20facb5a0e9c98267ba267e82a684d45f07891bac7ef08\",\"privateTxHash\":\"0xaed5200f25d5f18d3b36dcfc9ab1cf0448f0ea268c20bd9b9044f5094548362\",\"publicSolAmount\":\"0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffffc\",\"publicSplAmount\":\"0x0\",\"publicSplAssetPubkey\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\",\"payerPubkeyHash\":\"0x5ed4e4a36b30ea21b90e21c712c649e8214c29b7eaf68089d1039c6e55384c\",\"publicInputHash\":\"0x16775f4fba6874aeb6350b178a3fbad4db1f9520298aa5f6b30216d2ab1426f6\"}",
-        "shape": {
-          "inputs": 4,
           "outputs": 3
         }
       },
@@ -1450,191 +1299,70 @@
           "inputs": 4,
           "outputs": 4
         }
+      }
+    ],
+    "transferZoneAuthorityRejected": [
+      {
+        "details": {
+          "nIn": 1,
+          "nOut": 2
+        },
+        "errorCode": "CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE",
+        "shape": {
+          "inputs": 1,
+          "outputs": 2
+        }
       },
       {
-        "chain": {
-          "externalDataHash": "144566772225079769570011946225475216306173390196792011253193797692639670024",
-          "inputOwnerPkHashes": [
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307"
-          ],
-          "nullifierChain": "06c40a602af437f2fa1b4ca5f5a19272d83cdac1d37d8f79c1dce1308698f54a",
-          "outputHashChain": "07858cc8bdbe702d941255e416cf4a8da7849d3f2aa5d5e9d88de4a272191a88",
-          "outputOwnerPkHashes": [
-            "20534077477214190735315515649622820549814899182756132139585713173924294727935",
-            "16626418611698668768430538620899182463716133495512882582696903579878855459716",
-            "2071110289418059129720952873673618263353953398508349060492866092011642417091"
-          ],
-          "payerPubkeyHash": "167552958392527228427615935453266833389473147512340066254431296777771890764",
-          "privateTxHash": "8550260971103311185684807401990755677648538799907671077093353309534383926435",
-          "publicInputHash": "20772998900520586628794737578428696385582349663295671345894834796940226169024",
-          "publicSolAmount": "21888242871839275222246405745257275088548364400416034343698204186575808495612",
-          "publicSplAmount": "0",
-          "publicSplAssetPubkey": "0",
-          "zoneProgramId": "17668819869647849988253893139611690900829907154378926789780653957570376174785"
+        "details": {
+          "nIn": 2,
+          "nOut": 3
         },
-        "inputRootIndices": [
-          [
-            76,
-            82
-          ],
-          [
-            77,
-            83
-          ],
-          [
-            76,
-            82
-          ],
-          [
-            76,
-            82
-          ],
-          [
-            76,
-            82
-          ]
-        ],
-        "nullifierBytes": [
-          "06c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082",
-          "1f20d3095e51e49c32c34b54c58170c40d03ff20a60a44fe6b7a7f93731b7f15",
-          "17ed29c462bb5d98cd3d6cde5225683fc2f39a12a810f6e3db019fb35471c163",
-          "29a5775260609022c653ed0dfc8092ad4bb3d18ee1cfdb06bcb6c23617bdd200",
-          "23b5567e983f5d1c06fa9b69a46c6daaf61c957dacec4ea2916868300066667d"
-        ],
-        "outputHashBytes": [
-          "100a46c06973b1da393d1b45c5163b223cc9f2c6f13345427ee00872536e4641",
-          "11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa",
-          "2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b"
-        ],
-        "privateTxHashBytes": "12e746b5d70996bd0120eafc1b6460eaeb23ad46604ddfe37f53c1b2c92a6ca3",
-        "publicInputHashBytes": "2ded19c8e67caef53d70e18810286eb968058ec130089a7f339f46a6959b88c0",
-        "requestBodyJson": "{\"circuitType\":\"transfer-zone-authority\",\"nInputs\":5,\"nOutputs\":3,\"inputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0xb0dccf72c300b1c5568a664cf7dcb976b8de03d79e67b5be47c044d1e47921\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x6c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0x359414787fb4b0b4a40b2caf96bc5446899a71b38b7c9deaf9a914f30f4353\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\"],\"statePathIndex\":\"0x1\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\"],\"nullifierLowPathIndex\":\"0x1\",\"utxoTreeRoot\":\"0x4b\",\"nullifierTreeRoot\":\"0x51\",\"nullifier\":\"0x1f20d3095e51e49c32c34b54c58170c40d03ff20a60a44fe6b7a7f93731b7f15\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x8dbb8b463a5251b306ca68629ce4185fb81ad7bf36c66a46f47fd76b771023\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x0\"},\"isDummy\":\"0x1\",\"statePathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x0\",\"nullifierNextValue\":\"0x0\",\"nullifierLowPathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x17ed29c462bb5d98cd3d6cde5225683fc2f39a12a810f6e3db019fb35471c163\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x2f98355ee995d6c39d0c8babd5e443539c10c1780f716b3fa66f498f259452\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x0\"},\"isDummy\":\"0x1\",\"statePathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x0\",\"nullifierNextValue\":\"0x0\",\"nullifierLowPathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x29a5775260609022c653ed0dfc8092ad4bb3d18ee1cfdb06bcb6c23617bdd200\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x5ab2e3f4c946cbf7c93dfcc345c18d3bb1397143bee6dee73c4b49202eb09e\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x0\"},\"isDummy\":\"0x1\",\"statePathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x0\",\"nullifierNextValue\":\"0x0\",\"nullifierLowPathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x23b5567e983f5d1c06fa9b69a46c6daaf61c957dacec4ea2916868300066667d\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x0\"}],\"outputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0xc8\",\"blinding\":\"0x3378acc046ccb76c352597c41cac7b74230b7921314505a0e10ff51107986\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x100a46c06973b1da393d1b45c5163b223cc9f2c6f13345427ee00872536e4641\",\"ownerPkHash\":\"0x2d65e040c5915be356b3743e6c15658c06cf4bb5dfd92cb6307f1b4cdd0c98ff\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xe47a87f7606802800c5e5904184383e2e78273b35e10b47dad7539eac32b0d\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa\",\"ownerPkHash\":\"0x24c2382dc8bf0cead74ae9c50e1df314248bde7d1599b6ee71cb144c72fec384\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xc631bb9ed80b9289c58f19b053e235cabfd5b44b65c329bab175b479a23c94\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b\",\"ownerPkHash\":\"0x49434f63e1bff4911a6ce6fe0313b59b51cd90198a6834cf73cb388c76fefc3\",\"nullifierPk\":\"0x0\"}],\"externalDataHash\":\"0x51d2679b72f6510a20facb5a0e9c98267ba267e82a684d45f07891bac7ef08\",\"privateTxHash\":\"0x12e746b5d70996bd0120eafc1b6460eaeb23ad46604ddfe37f53c1b2c92a6ca3\",\"publicSolAmount\":\"0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffffc\",\"publicSplAmount\":\"0x0\",\"publicSplAssetPubkey\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\",\"payerPubkeyHash\":\"0x5ed4e4a36b30ea21b90e21c712c649e8214c29b7eaf68089d1039c6e55384c\",\"publicInputHash\":\"0x2ded19c8e67caef53d70e18810286eb968058ec130089a7f339f46a6959b88c0\"}",
+        "errorCode": "CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE",
+        "shape": {
+          "inputs": 2,
+          "outputs": 3
+        }
+      },
+      {
+        "details": {
+          "nIn": 4,
+          "nOut": 3
+        },
+        "errorCode": "CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE",
+        "shape": {
+          "inputs": 4,
+          "outputs": 3
+        }
+      },
+      {
+        "details": {
+          "nIn": 5,
+          "nOut": 3
+        },
+        "errorCode": "CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE",
         "shape": {
           "inputs": 5,
           "outputs": 3
         }
       },
       {
-        "chain": {
-          "externalDataHash": "21429032483423335362379030673466676729363014953256539323815079035107537324",
-          "inputOwnerPkHashes": [
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307",
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307"
-          ],
-          "nullifierChain": "06c40a602af437f2fa1b4ca5f5a19272d83cdac1d37d8f79c1dce1308698f54a",
-          "outputHashChain": "2a7ced7a923d194f0578058feeb98d81d2befdc78c06ab3ff99653bb448e8d81",
-          "outputOwnerPkHashes": [
-            "20534077477214190735315515649622820549814899182756132139585713173924294727935",
-            "16626418611698668768430538620899182463716133495512882582696903579878855459716",
-            "2071110289418059129720952873673618263353953398508349060492866092011642417091",
-            "15243851767292983033439915708217182273458663829193968356198238278292609740493"
-          ],
-          "payerPubkeyHash": "167552958392527228427615935453266833389473147512340066254431296777771890764",
-          "privateTxHash": "5392129855703311034492762641184231620076417810690925721766521347535057185742",
-          "publicInputHash": "17625718684632843608473078865119637717048543475351136230465126456059632211113",
-          "publicSolAmount": "21888242871839275222246405745257275088548364400416034343698204186575808495612",
-          "publicSplAmount": "0",
-          "publicSplAssetPubkey": "0",
-          "zoneProgramId": "17668819869647849988253893139611690900829907154378926789780653957570376174785"
+        "details": {
+          "nIn": 5,
+          "nOut": 4
         },
-        "inputRootIndices": [
-          [
-            76,
-            82
-          ],
-          [
-            77,
-            83
-          ],
-          [
-            76,
-            82
-          ],
-          [
-            76,
-            82
-          ],
-          [
-            76,
-            82
-          ]
-        ],
-        "nullifierBytes": [
-          "06c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082",
-          "1f20d3095e51e49c32c34b54c58170c40d03ff20a60a44fe6b7a7f93731b7f15",
-          "17ed29c462bb5d98cd3d6cde5225683fc2f39a12a810f6e3db019fb35471c163",
-          "29a5775260609022c653ed0dfc8092ad4bb3d18ee1cfdb06bcb6c23617bdd200",
-          "23b5567e983f5d1c06fa9b69a46c6daaf61c957dacec4ea2916868300066667d"
-        ],
-        "outputHashBytes": [
-          "100a46c06973b1da393d1b45c5163b223cc9f2c6f13345427ee00872536e4641",
-          "11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa",
-          "2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b",
-          "0d503dc41947e602119476e6ef3a9884098b3ffc38623d19eed29dd9bb4797d0"
-        ],
-        "privateTxHashBytes": "0bebd65c42c3c9ce3d342d29cc12e22ac598ce0647facfdc7174eaa99273ebce",
-        "publicInputHashBytes": "26f7cda18da2ad3d29e5b9b33214c86e3ba89b17579969298ac848513276d4a9",
-        "requestBodyJson": "{\"circuitType\":\"transfer-zone-authority\",\"nInputs\":5,\"nOutputs\":4,\"inputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0xb0dccf72c300b1c5568a664cf7dcb976b8de03d79e67b5be47c044d1e47921\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x6c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0x359414787fb4b0b4a40b2caf96bc5446899a71b38b7c9deaf9a914f30f4353\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\",\"0x4a\"],\"statePathIndex\":\"0x1\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\",\"0x4e\"],\"nullifierLowPathIndex\":\"0x1\",\"utxoTreeRoot\":\"0x4b\",\"nullifierTreeRoot\":\"0x51\",\"nullifier\":\"0x1f20d3095e51e49c32c34b54c58170c40d03ff20a60a44fe6b7a7f93731b7f15\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x8dbb8b463a5251b306ca68629ce4185fb81ad7bf36c66a46f47fd76b771023\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x0\"},\"isDummy\":\"0x1\",\"statePathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x0\",\"nullifierNextValue\":\"0x0\",\"nullifierLowPathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x17ed29c462bb5d98cd3d6cde5225683fc2f39a12a810f6e3db019fb35471c163\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x2f98355ee995d6c39d0c8babd5e443539c10c1780f716b3fa66f498f259452\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x0\"},\"isDummy\":\"0x1\",\"statePathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x0\",\"nullifierNextValue\":\"0x0\",\"nullifierLowPathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x29a5775260609022c653ed0dfc8092ad4bb3d18ee1cfdb06bcb6c23617bdd200\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x5ab2e3f4c946cbf7c93dfcc345c18d3bb1397143bee6dee73c4b49202eb09e\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x0\"},\"isDummy\":\"0x1\",\"statePathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x0\",\"nullifierNextValue\":\"0x0\",\"nullifierLowPathElements\":[\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\",\"0x0\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x23b5567e983f5d1c06fa9b69a46c6daaf61c957dacec4ea2916868300066667d\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x0\"}],\"outputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0xc8\",\"blinding\":\"0x3378acc046ccb76c352597c41cac7b74230b7921314505a0e10ff51107986\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x100a46c06973b1da393d1b45c5163b223cc9f2c6f13345427ee00872536e4641\",\"ownerPkHash\":\"0x2d65e040c5915be356b3743e6c15658c06cf4bb5dfd92cb6307f1b4cdd0c98ff\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xe47a87f7606802800c5e5904184383e2e78273b35e10b47dad7539eac32b0d\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa\",\"ownerPkHash\":\"0x24c2382dc8bf0cead74ae9c50e1df314248bde7d1599b6ee71cb144c72fec384\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xc631bb9ed80b9289c58f19b053e235cabfd5b44b65c329bab175b479a23c94\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b\",\"ownerPkHash\":\"0x49434f63e1bff4911a6ce6fe0313b59b51cd90198a6834cf73cb388c76fefc3\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xbba1906e03cf627ecb8aa641926598e8b008bce144bb4d06c06c6304439888\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0xd503dc41947e602119476e6ef3a9884098b3ffc38623d19eed29dd9bb4797d0\",\"ownerPkHash\":\"0x21b3b6df5aa697e37d7e13ececd590cd6facb0eb3c2697f3c27bcf003a88aecd\",\"nullifierPk\":\"0x0\"}],\"externalDataHash\":\"0xc20defdac249c2150dd7e7999566a7563c61bff780383cf309342757ff1ac\",\"privateTxHash\":\"0xbebd65c42c3c9ce3d342d29cc12e22ac598ce0647facfdc7174eaa99273ebce\",\"publicSolAmount\":\"0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffffc\",\"publicSplAmount\":\"0x0\",\"publicSplAssetPubkey\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\",\"payerPubkeyHash\":\"0x5ed4e4a36b30ea21b90e21c712c649e8214c29b7eaf68089d1039c6e55384c\",\"publicInputHash\":\"0x26f7cda18da2ad3d29e5b9b33214c86e3ba89b17579969298ac848513276d4a9\"}",
+        "errorCode": "CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE",
         "shape": {
           "inputs": 5,
           "outputs": 4
         }
       },
       {
-        "chain": {
-          "externalDataHash": "329712759657778420281032153352368212603522105357581599520028277513296128471",
-          "inputOwnerPkHashes": [
-            "7318734284173988651257985029839412962026011743454623461927924044018121419307"
-          ],
-          "nullifierChain": "06c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082",
-          "outputHashChain": "252c61e6b10ced0b860303a30617be9a7c0d618cd5dbbfdcde3278d24c3cdd68",
-          "outputOwnerPkHashes": [
-            "20534077477214190735315515649622820549814899182756132139585713173924294727935",
-            "16626418611698668768430538620899182463716133495512882582696903579878855459716",
-            "2071110289418059129720952873673618263353953398508349060492866092011642417091",
-            "15243851767292983033439915708217182273458663829193968356198238278292609740493",
-            "360097669797691154270312668423565064326848121029783476194088703809678249475",
-            "20973236784231693773303150955291079848105498585972420677450754379052859638583",
-            "21614144061019337110708719990591974029800119653515199574663424252366517479719",
-            "6065582078020720029470803769340660446413761618188162840270597841380401586988"
-          ],
-          "payerPubkeyHash": "167552958392527228427615935453266833389473147512340066254431296777771890764",
-          "privateTxHash": "4148591786403405668229058398718179550037060163458124262393979400314675142758",
-          "publicInputHash": "19561967243015401665852322950298191081453992383975058020106487917908249729761",
-          "publicSolAmount": "21888242871839275222246405745257275088548364400416034343698204186575808495612",
-          "publicSplAmount": "0",
-          "publicSplAssetPubkey": "0",
-          "zoneProgramId": "17668819869647849988253893139611690900829907154378926789780653957570376174785"
+        "details": {
+          "nIn": 1,
+          "nOut": 8
         },
-        "inputRootIndices": [
-          [
-            76,
-            82
-          ]
-        ],
-        "nullifierBytes": [
-          "06c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082"
-        ],
-        "outputHashBytes": [
-          "0de8fee726912a7ef151cd2bec121ffad33e9b4eadbadfb3ffcc6aa270b5ffda",
-          "11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa",
-          "2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b",
-          "0d503dc41947e602119476e6ef3a9884098b3ffc38623d19eed29dd9bb4797d0",
-          "2d6c75fdb91dfd7c705f534b04bba3cb6b1a345064278173d2f68d512a1bff3e",
-          "2539039528c5636c0af30af3c5acc19dc6611286d69c6ef5053a9e74eac2461f",
-          "03def0cc78a9d1773e09615d047c5517cd3672f29a724ff67d5728bc0e0abad5",
-          "05eadaa0ae390aeff24cc8774b4d876894a1dccdef5c68b39f5c25970811072a"
-        ],
-        "privateTxHashBytes": "092c050db54bd3fa25e163eb8d00d5a381505577b2dc108127e85c9345622066",
-        "publicInputHashBytes": "2b3fae5c2c630432adbf6a9081b5c7832752d3eac11527cf417c686d26aedae1",
-        "requestBodyJson": "{\"circuitType\":\"transfer-zone-authority\",\"nInputs\":1,\"nOutputs\":8,\"inputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x230af33a9a76e84bbbdc6ba2368f450112330ec3bde7614daca63ca9ca180528\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0xb0dccf72c300b1c5568a664cf7dcb976b8de03d79e67b5be47c044d1e47921\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x0\",\"statePathElements\":[\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\",\"0x49\"],\"statePathIndex\":\"0x0\",\"nullifierLowValue\":\"0x4e\",\"nullifierNextValue\":\"0x4f\",\"nullifierLowPathElements\":[\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\",\"0x4d\"],\"nullifierLowPathIndex\":\"0x0\",\"utxoTreeRoot\":\"0x4a\",\"nullifierTreeRoot\":\"0x50\",\"nullifier\":\"0x6c4d4d1d634c67e8ce20ad403e1cd7f54e4b1cc90004f67940594536e7ea082\",\"ownerPkHash\":\"0x102e41be3896c5cdc886d5038dafd8e7aa62d1506369fc430553723c892faa2b\",\"nullifierSecret\":\"0x35ef9904adeb5d517c7ce4a9c14a580d4bd7b01eab7a6cc6843437139c6c18\"}],\"outputs\":[{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x64\",\"blinding\":\"0x3378acc046ccb76c352597c41cac7b74230b7921314505a0e10ff51107986\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0xde8fee726912a7ef151cd2bec121ffad33e9b4eadbadfb3ffcc6aa270b5ffda\",\"ownerPkHash\":\"0x2d65e040c5915be356b3743e6c15658c06cf4bb5dfd92cb6307f1b4cdd0c98ff\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xe47a87f7606802800c5e5904184383e2e78273b35e10b47dad7539eac32b0d\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x11b7fc67c8e2ae8246d46201db831682d650cde4d09060dbb6210769b91964fa\",\"ownerPkHash\":\"0x24c2382dc8bf0cead74ae9c50e1df314248bde7d1599b6ee71cb144c72fec384\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xc631bb9ed80b9289c58f19b053e235cabfd5b44b65c329bab175b479a23c94\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x2d613dc6a152a428afa9e5609f5ec5f4d1ccf0c19635b8198136db1ea38dde2b\",\"ownerPkHash\":\"0x49434f63e1bff4911a6ce6fe0313b59b51cd90198a6834cf73cb388c76fefc3\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0xbba1906e03cf627ecb8aa641926598e8b008bce144bb4d06c06c6304439888\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0xd503dc41947e602119476e6ef3a9884098b3ffc38623d19eed29dd9bb4797d0\",\"ownerPkHash\":\"0x21b3b6df5aa697e37d7e13ececd590cd6facb0eb3c2697f3c27bcf003a88aecd\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x3c12962dc53052684348f02e6730ab7ba6ec6959f26c5b6d4fa6758c5c2b8a\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x2d6c75fdb91dfd7c705f534b04bba3cb6b1a345064278173d2f68d512a1bff3e\",\"ownerPkHash\":\"0xcbcedceaa77ade10f1152e31d266bfb9fab94064c999b36402cca1dc608e03\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x5d7b17074ebfe7fab8fbb1bea0c54dcf9237d08c64f661e73f3007f6e3ee92\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x2539039528c5636c0af30af3c5acc19dc6611286d69c6ef5053a9e74eac2461f\",\"ownerPkHash\":\"0x2e5e6e6ccc888f32e1ae6e3a8545c034aff682d14b90c8572d8eb03fae99c337\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x79a688dae52b943d5f6efe9fd3bc3d969f64cd19064209fb5d11e47150e499\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x3def0cc78a9d1773e09615d047c5517cd3672f29a724ff67d5728bc0e0abad5\",\"ownerPkHash\":\"0x2fc92c08ee055b9841a64a87c6dd0abcf124fc966cbb3b87791a3a215f20a927\",\"nullifierPk\":\"0x0\"},{\"utxo\":{\"domain\":\"0x1\",\"owner\":\"0x0\",\"asset\":\"0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864\",\"amount\":\"0x0\",\"blinding\":\"0x9c8f702820dfe4ad1e84486e814efccabebf6d4d4832e18efd6afeb822914c\",\"dataHash\":\"0x0\",\"zoneDataHash\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\"},\"isDummy\":\"0x1\",\"hash\":\"0x5eadaa0ae390aeff24cc8774b4d876894a1dccdef5c68b39f5c25970811072a\",\"ownerPkHash\":\"0xd68ff6f834fef3cb5607673744b8ebfbd45cc5af096678773da4b713155a32c\",\"nullifierPk\":\"0x0\"}],\"externalDataHash\":\"0xba9c5df5f8cb618945d74f0407eaafd5bfc4ca89e6912fad085d8db7a5a9d7\",\"privateTxHash\":\"0x92c050db54bd3fa25e163eb8d00d5a381505577b2dc108127e85c9345622066\",\"publicSolAmount\":\"0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffffc\",\"publicSplAmount\":\"0x0\",\"publicSplAssetPubkey\":\"0x0\",\"zoneProgramId\":\"0x271032995bde33ade5cdbcf2f59201dff99ddb12a23d4042848572ce9e430cc1\",\"payerPubkeyHash\":\"0x5ed4e4a36b30ea21b90e21c712c649e8214c29b7eaf68089d1039c6e55384c\",\"publicInputHash\":\"0x2b3fae5c2c630432adbf6a9081b5c7832752d3eac11527cf417c686d26aedae1\"}",
+        "errorCode": "CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE",
         "shape": {
           "inputs": 1,
           "outputs": 8

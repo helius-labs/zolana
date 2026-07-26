@@ -16,7 +16,10 @@
 //! `TransactionError` exhaustively, so a new Rust variant fails to compile until
 //! it is mapped to a TypeScript code (or recorded as having none).
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use serde_json::{json, Map, Value};
 use solana_address::Address;
@@ -2695,6 +2698,278 @@ fn slots_section() -> Value {
     json!({ "ordinals": cases })
 }
 
+/// The five Rust modules that own an aggregate parity row, each paired with the
+/// `@zolana/transaction` entry point that must carry or disposition its surface.
+const AGGREGATE_MODULES: [(&str, &str); 5] = [
+    ("src/lib.rs", "."),
+    ("src/serialization/mod.rs", "./serialization"),
+    ("src/wallet/mod.rs", "./wallet"),
+    ("src/instructions/mod.rs", "./instructions"),
+    ("src/instructions/transact/mod.rs", "./transact"),
+];
+
+fn strip_line_comments(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| match line.find("//") {
+            Some(start) => &line[..start],
+            None => line,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A `pub use` item is a tree: `a::{b, c::{d, e}}` re-exports the leaves `b`,
+/// `d`, and `e`. A rename (`a as b`) publishes the right-hand name.
+fn push_use_tree_leaves(item: &str, out: &mut Vec<String>) {
+    let item = item.trim().trim_end_matches(';').trim();
+    match (item.find('{'), item.rfind('}')) {
+        (Some(open), Some(close)) if open < close => {
+            let mut depth = 0usize;
+            let mut branch = String::new();
+            for character in item[open + 1..close].chars() {
+                match character {
+                    '{' => {
+                        depth += 1;
+                        branch.push(character);
+                    }
+                    '}' => {
+                        depth = depth.saturating_sub(1);
+                        branch.push(character);
+                    }
+                    ',' if depth == 0 => push_use_tree_leaves(&core::mem::take(&mut branch), out),
+                    _ => branch.push(character),
+                }
+            }
+            push_use_tree_leaves(&branch, out);
+        }
+        _ => {
+            let leaf = item.rsplit("::").next().unwrap_or(item).trim();
+            let leaf = leaf.rsplit(" as ").next().unwrap_or(leaf).trim();
+            if !leaf.is_empty() && leaf != "self" && leaf != "*" {
+                out.push(leaf.to_string());
+            }
+        }
+    }
+}
+
+/// The name a top-level `pub <keyword> <name>` item publishes, with generics,
+/// arguments, and bounds cut away.
+fn declared_item_name(rest: &str) -> Option<String> {
+    let name: String = rest
+        .trim_start()
+        .chars()
+        .take_while(|character| character.is_alphanumeric() || *character == '_')
+        .collect();
+    (!name.is_empty()).then_some(name)
+}
+
+/// Everything a Rust module publishes at its own top level: `pub mod`, the leaf
+/// names of each `pub use` tree, and every inline `pub` item. Brace depth keeps
+/// `impl` and trait bodies out, since a caller writing
+/// `use zolana_transaction::..` reaches the module's own surface and nothing
+/// nested inside it.
+fn module_surface(source: &str) -> (Vec<String>, Vec<String>) {
+    let source = strip_line_comments(source);
+    let mut modules = Vec::new();
+    let mut names = Vec::new();
+    let mut depth = 0usize;
+    let mut pending: Option<String> = None;
+    for line in source.lines() {
+        if let Some(statement) = pending.as_mut() {
+            statement.push(' ');
+            statement.push_str(line.trim());
+            if statement.matches('{').count() == statement.matches('}').count()
+                && statement.ends_with(';')
+            {
+                push_use_tree_leaves(statement.trim_start_matches("pub use "), &mut names);
+                pending = None;
+            }
+            continue;
+        }
+        let trimmed = line.trim();
+        if depth == 0 {
+            if let Some(item) = trimmed.strip_prefix("pub mod ") {
+                modules.push(item.trim().trim_end_matches(';').to_string());
+            } else if let Some(item) = trimmed.strip_prefix("pub use ") {
+                if item.matches('{').count() == item.matches('}').count() && item.ends_with(';') {
+                    push_use_tree_leaves(item, &mut names);
+                } else {
+                    pending = Some(trimmed.to_string());
+                    continue;
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("pub ") {
+                for keyword in [
+                    "struct ", "enum ", "trait ", "fn ", "const ", "static ", "type ",
+                ] {
+                    if let Some(tail) = rest.strip_prefix(keyword) {
+                        names.extend(declared_item_name(tail));
+                        break;
+                    }
+                }
+            }
+        }
+        depth = (depth + line.matches('{').count()).saturating_sub(line.matches('}').count());
+    }
+    modules.sort_unstable();
+    modules.dedup();
+    names.sort_unstable();
+    names.dedup();
+    (modules, names)
+}
+
+/// Every `UtxoSerialization` implementor with the scheme byte it seals, read
+/// through the trait so the compiler proves the pair. The parsed half below
+/// keeps the list honest: an eighth implementor added to Rust fails this
+/// section rather than quietly leaving TypeScript a scheme short.
+fn utxo_serialization_implementors() -> Vec<(&'static str, u8)> {
+    vec![
+        (
+            "AnonymousRecipient",
+            <AnonymousRecipient as UtxoSerialization>::SCHEME.as_byte(),
+        ),
+        (
+            "AnonymousSenderBundle",
+            <AnonymousSenderBundle as UtxoSerialization>::SCHEME.as_byte(),
+        ),
+        (
+            "Confidential",
+            <Confidential as UtxoSerialization>::SCHEME.as_byte(),
+        ),
+        (
+            "Merge",
+            <MergeSerialization as UtxoSerialization>::SCHEME.as_byte(),
+        ),
+        (
+            "PlaintextTransfer",
+            <PlaintextTransfer as UtxoSerialization>::SCHEME.as_byte(),
+        ),
+        (
+            "Proofless",
+            <Proofless as UtxoSerialization>::SCHEME.as_byte(),
+        ),
+        ("Split", <Split as UtxoSerialization>::SCHEME.as_byte()),
+    ]
+}
+
+/// The capability contract behind `T10`, stated as data rather than as a
+/// TypeScript interface nobody can implement. Rust's `UtxoSerialization` is a
+/// code-sharing trait with two associated types and no `dyn` or generic-bound
+/// use, so it has no callable TypeScript counterpart; what a caller actually
+/// reaches is one named operation per scheme. This section names those
+/// operations and the schemes they exist for, and the TypeScript side has to
+/// point each cell at a shipped function or record why the cell is empty.
+fn utxo_serialization_section() -> Value {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let source = strip_line_comments(
+        &fs::read_to_string(root.join("src/serialization/mod.rs")).expect("read serialization mod"),
+    );
+    let (_, trait_body) = source
+        .split_once("pub trait UtxoSerialization {")
+        .expect("locate the UtxoSerialization declaration");
+    let mut operations = Vec::new();
+    let mut depth = 0usize;
+    for line in trait_body.lines() {
+        if depth == 0 {
+            if let Some(tail) = line.trim().strip_prefix("fn ") {
+                operations.extend(declared_item_name(tail));
+            }
+        }
+        depth = (depth + line.matches('{').count()).saturating_sub(line.matches('}').count());
+        if line.starts_with('}') {
+            break;
+        }
+    }
+    operations.sort_unstable();
+    operations.dedup();
+
+    let mut declared = Vec::new();
+    for entry in fs::read_dir(root.join("src/serialization")).expect("read serialization directory")
+    {
+        let path = entry.expect("serialization entry").path();
+        let source = fs::read_to_string(&path).expect("read serialization source");
+        for statement in strip_line_comments(&source)
+            .split("impl UtxoSerialization for ")
+            .skip(1)
+        {
+            declared.extend(declared_item_name(statement));
+        }
+    }
+    declared.sort_unstable();
+    let implementors = utxo_serialization_implementors();
+    let mut referenced = implementors
+        .iter()
+        .map(|(name, _)| (*name).to_string())
+        .collect::<Vec<_>>();
+    referenced.sort_unstable();
+    assert_eq!(
+        declared, referenced,
+        "the UtxoSerialization implementors in src/serialization no longer match the ones this oracle reads through the trait"
+    );
+
+    json!({
+        "operations": operations,
+        "implementors": implementors
+            .into_iter()
+            .map(|(name, scheme)| json!({ "type": name, "schemeByte": scheme }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// The public surface of each aggregate Rust module, so the five aggregate rows
+/// compare against a list Rust generates rather than one a reviewer typed. A
+/// name added to or removed from a Rust module changes this section, and the
+/// TypeScript side then has to carry it or record why it does not.
+fn collect_submodule_names(directory: &Path, modules: &[String], out: &mut Vec<String>) {
+    for module in modules {
+        let file = [
+            directory.join(format!("{module}.rs")),
+            directory.join(module).join("mod.rs"),
+        ]
+        .into_iter()
+        .find(|candidate| candidate.exists())
+        .unwrap_or_else(|| panic!("locate the source of submodule {module}"));
+        let (children, names) = module_surface(&fs::read_to_string(&file).expect("read submodule"));
+        out.extend(names);
+        collect_submodule_names(file.parent().expect("submodule directory"), &children, out);
+    }
+}
+
+fn module_surfaces_section() -> Value {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut surfaces = Map::new();
+    for (path, entry_point) in AGGREGATE_MODULES {
+        let source = fs::read_to_string(root.join(path)).expect("read aggregate module");
+        let (modules, names) = module_surface(&source);
+        assert!(
+            !modules.is_empty() || !names.is_empty(),
+            "{path} yielded no public surface"
+        );
+        // A TypeScript barrel flattens what Rust leaves behind a `pub mod`, so
+        // what explains an export the aggregate itself does not re-export is
+        // the whole submodule tree beneath it, not just its direct children.
+        let parent = root
+            .join(path)
+            .parent()
+            .expect("module directory")
+            .to_owned();
+        let mut submodule_names = Vec::new();
+        collect_submodule_names(&parent, &modules, &mut submodule_names);
+        submodule_names.sort_unstable();
+        submodule_names.dedup();
+        surfaces.insert(
+            path.to_string(),
+            json!({
+                "entryPoint": entry_point,
+                "modules": modules,
+                "names": names,
+                "submoduleNames": submodule_names,
+            }),
+        );
+    }
+    Value::Object(surfaces)
+}
+
 fn oracle() -> Value {
     json!({
         "schema": "zolana-transaction-parity-oracle-v1",
@@ -2718,6 +2993,8 @@ fn oracle() -> Value {
         "externalData": external_data_section(),
         "anonymousProgression": anonymous_progression_section(),
         "walletBalances": wallet_balances_section(),
+        "moduleSurfaces": module_surfaces_section(),
+        "utxoSerialization": utxo_serialization_section(),
     })
 }
 

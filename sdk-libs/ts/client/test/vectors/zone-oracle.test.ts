@@ -198,10 +198,17 @@ interface Case {
   readonly chain: Readonly<Record<string, unknown>>;
 }
 
+interface RejectionCase {
+  readonly shape: Readonly<{ inputs: number; outputs: number }>;
+  readonly errorCode: string;
+  readonly details: Readonly<{ nIn: number; nOut: number }>;
+}
+
 const rails = [
   {
     name: "transfer-zone",
     p256: false,
+    shapes: 10,
     cases: oracle.expected.transferZone as readonly Case[],
     assemble: (shape: Readonly<{ inputs: number; outputs: number }>) => {
       const { proofInputs, spendProofs } = buildInputs(false, shape);
@@ -211,6 +218,7 @@ const rails = [
   {
     name: "transfer-p256-zone",
     p256: true,
+    shapes: 10,
     cases: oracle.expected.transferP256Zone as readonly Case[],
     assemble: (shape: Readonly<{ inputs: number; outputs: number }>) => {
       const { proofInputs, spendProofs } = buildInputs(true, shape);
@@ -220,6 +228,8 @@ const rails = [
   {
     name: "transfer-zone-authority",
     p256: false,
+    // The zone-authority rail has four verifying keys, not ten.
+    shapes: 4,
     cases: oracle.expected.transferZoneAuthority as readonly Case[],
     assemble: (shape: Readonly<{ inputs: number; outputs: number }>) => {
       const { proofInputs, spendProofs } = buildInputs(false, shape);
@@ -232,7 +242,7 @@ describe("zone prover rails against the Rust oracle", () => {
   for (const rail of rails) {
     describe(rail.name, () => {
       it("covers every supported shape", () => {
-        expect(rail.cases.length).toBe(10);
+        expect(rail.cases.length).toBe(rail.shapes);
       });
 
       for (const expected of rail.cases) {
@@ -272,6 +282,25 @@ describe("zone prover rails against the Rust oracle", () => {
       }
     });
   }
+
+  /// The zone-authority rail has four verifying keys and the specification
+  /// lists four shapes, so a request in one of the six non-square shapes is
+  /// unprovable. Rust generated these rejections rather than the test asserting
+  /// them independently, so a TypeScript refusal that named a different shape
+  /// or code would fail here.
+  it("refuses the six zone-authority shapes no key can verify", () => {
+    const rejected = oracle.expected.transferZoneAuthorityRejected as readonly RejectionCase[];
+    expect(rejected.length).toBe(6);
+    for (const expected of rejected) {
+      const { proofInputs, spendProofs } = buildInputs(false, expected.shape);
+      expect(() => assembleZoneAuthority(proofInputs, spendProofs, ZONE)).toThrow(
+        expect.objectContaining({ code: expected.errorCode, details: expected.details }),
+      );
+      // The same shape stays provable on the zone transfer rail, which has all
+      // ten keys, so the refusal is the rail's and not the shape resolver's.
+      expect(() => assembleZone(proofInputs, spendProofs, ZONE)).not.toThrow();
+    }
+  });
 
   /// The zone field is the only value binding a proof to its zone, so a rail
   /// that dropped it would still produce a well-formed request.

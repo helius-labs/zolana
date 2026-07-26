@@ -12,9 +12,11 @@ import {
   confidentialUtxo,
   decodeAnonymousRecipient,
   decodeAnonymousSender,
+  decodeContextForSlot,
   decodeOutputData,
   decodePlaintextTransfer,
   decodeSplitBundle,
+  type DecodeContext,
   decryptAnonymous,
   decryptConfidential,
   decryptMerge,
@@ -32,6 +34,13 @@ import {
   Wallet,
   hex,
 } from "./state.js";
+
+/**
+ * Tags queried past each family's stored counter. A counterparty that has run
+ * ahead by fewer than this many tags stays reachable on the next sync, so
+ * lowering it can strand a wallet behind a fast sender.
+ */
+export const DEFAULT_TAG_WINDOW = 64n;
 
 export interface WalletSyncConfig {
   readonly tagWindow?: bigint;
@@ -157,13 +166,13 @@ interface DecodedCandidate {
 }
 
 function decodeCandidate(
-  key: ViewingKey,
+  cx: DecodeContext,
   material: WalletSyncMaterial,
   wallet: Wallet,
   tx: IndexedShieldedTransaction,
-  slotIndex: number,
   unknownAssetIds: Set<bigint>,
 ): DecodedCandidate | undefined {
+  const { viewingKey: key, slotIndex } = cx;
   const slot = tx.outputSlots[slotIndex];
   if (!slot) return undefined;
   let decoded: ReturnType<typeof decodeOutputData>;
@@ -181,14 +190,14 @@ function decodeCandidate(
       (decoded.scheme === EncryptedScheme.anonymousRecipient ||
         decoded.scheme === EncryptedScheme.anonymousSender) &&
       decoded.encoding === "encrypted" &&
-      tx.txViewingPublicKey &&
-      tx.salt
+      cx.txViewingPublicKey &&
+      cx.salt
     ) {
       const plaintext = decryptAnonymous(
         key,
-        tx.txViewingPublicKey,
+        cx.txViewingPublicKey,
         decoded.body,
-        tx.salt,
+        cx.salt,
         slotIndex,
       );
       if (decoded.scheme === EncryptedScheme.anonymousRecipient) {
@@ -224,14 +233,14 @@ function decodeCandidate(
     if (
       decoded.scheme === EncryptedScheme.confidential &&
       decoded.encoding === "encrypted" &&
-      tx.txViewingPublicKey &&
-      tx.salt
+      cx.txViewingPublicKey &&
+      cx.salt
     ) {
       const value = decryptConfidential(
         key,
-        tx.txViewingPublicKey,
+        cx.txViewingPublicKey,
         decoded.body,
-        tx.salt,
+        cx.salt,
         slotIndex,
       );
       return {
@@ -297,11 +306,11 @@ function decodeCandidate(
     if (
       decoded.scheme === EncryptedScheme.split &&
       decoded.encoding === "encrypted" &&
-      tx.txViewingPublicKey &&
-      tx.salt
+      cx.txViewingPublicKey &&
+      cx.salt
     ) {
       const plaintext = decodeSplitBundle(
-        key.decryptUtxo(decoded.body, tx.txViewingPublicKey, tx.salt, slotIndex),
+        key.decryptUtxo(decoded.body, cx.txViewingPublicKey, cx.salt, slotIndex),
       );
       return {
         utxos: splitBundleUtxos(plaintext, wallet.registry).map((utxo, index) => ({
@@ -529,7 +538,7 @@ export async function decryptTransactions(
     config?: WalletSyncConfig;
   }>,
 ): Promise<SyncReport> {
-  const window = input.config?.tagWindow ?? 64n;
+  const window = input.config?.tagWindow ?? DEFAULT_TAG_WINDOW;
   if (window <= 0n) {
     throw new TransactionError("TRANSACTION_INVALID_TAG_WINDOW");
   }
@@ -573,11 +582,10 @@ export async function decryptTransactions(
     for (let slotIndex = 0; slotIndex < tx.outputSlots.length; slotIndex++) {
       for (const key of material.viewingKeys) {
         const candidate = decodeCandidate(
-          key,
+          decodeContextForSlot(key, tx, slotIndex),
           material,
           input.wallet,
           tx,
-          slotIndex,
           unknownAssetIds,
         );
         if (!candidate) continue;
@@ -662,7 +670,9 @@ export async function decryptTransactions(
     material.viewingKeys,
   ).map((entry) => {
     const id = hex(entry.viewingPublicKey.toBytes());
-    const key = material.viewingKeys.find((candidate) => hex(candidate.publicKey().toBytes()) === id);
+    const key = material.viewingKeys.find(
+      (candidate) => hex(candidate.publicKey().toBytes()) === id,
+    );
     if (key === undefined) return entry;
     return advanceViewingKeyEntry(entry, key, {
       window,

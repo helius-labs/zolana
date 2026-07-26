@@ -17,7 +17,7 @@ import type { ShieldedKeypairLike, ViewingKeyLike } from "../../src/traits/index
  */
 const readText = readFileSync as unknown as (path: URL, encoding: "utf8") => string;
 
-function traitMethods(file: string, trait: string): readonly string[] {
+function traitBlock(file: string, trait: string): string {
   const source = readText(
     new URL(`../../../../keypair/src/traits/${file}`, import.meta.url),
     "utf8",
@@ -28,7 +28,11 @@ function traitMethods(file: string, trait: string): readonly string[] {
   // which is what separates it from the `impl` blocks below.
   const end = source.indexOf("\n}\n", start);
   if (end < 0) throw new Error(`unterminated trait ${trait} in ${file}`);
-  return [...source.slice(start, end).matchAll(/^\s{4}fn (\w+)/gm)].map((match) => match[1] ?? "");
+  return source.slice(start, end);
+}
+
+function traitMethods(file: string, trait: string): readonly string[] {
+  return [...traitBlock(file, trait).matchAll(/^\s{4}fn (\w+)/gm)].map((match) => match[1] ?? "");
 }
 
 /**
@@ -72,6 +76,15 @@ const viewingKeyNames: Record<keyof ViewingKeyLike, string> = {
  */
 const rustOnly = ["try_sign"];
 
+function interfaceBlock(name: string): string {
+  const source = readText(new URL("../../src/shielded.ts", import.meta.url), "utf8");
+  const start = source.indexOf(`export interface ${name} {`);
+  if (start < 0) throw new Error(`interface ${name} not found`);
+  const end = source.indexOf("\n}\n", start);
+  if (end < 0) throw new Error(`unterminated interface ${name}`);
+  return source.slice(start, end);
+}
+
 describe("capability trait surface", () => {
   it("declares every ShieldedKeypairTrait capability", () => {
     const rust = traitMethods("shielded_keypair.rs", "ShieldedKeypairTrait");
@@ -81,6 +94,18 @@ describe("capability trait surface", () => {
   it("declares every ViewingKeyTrait capability", () => {
     const rust = traitMethods("view_key.rs", "ViewingKeyTrait");
     expect([...rust].sort()).toEqual([...Object.values(viewingKeyNames)].sort());
+  });
+
+  /**
+   * An out-of-process viewing-key backend is not a supported deployment, so the
+   * interface returns values rather than promises, as Rust's trait does. The
+   * `ShieldedKeypairLike` half is asserted the other way round: it still admits
+   * a promise for a remote signer, which is what proves this scrape can see one.
+   */
+  it("declares the viewing capabilities synchronously, as Rust does", () => {
+    expect(traitBlock("view_key.rs", "ViewingKeyTrait")).not.toMatch(/\basync fn\b/u);
+    expect(interfaceBlock("ViewingKeyLike")).not.toMatch(/Promise</u);
+    expect(interfaceBlock("ShieldedKeypairLike")).toMatch(/Promise</u);
   });
 
   /**

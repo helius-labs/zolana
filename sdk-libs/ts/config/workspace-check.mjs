@@ -23,7 +23,10 @@ async function checkExports() {
     const value = await manifest(packageName);
     const configuration = packageConfigurations[packageName];
     const exportPaths = Object.keys(value.exports ?? {});
-    const expectedExportPaths = configuration.entryPoints;
+    const assets = configuration.assets ?? {};
+    // Assets come last so a reader of the manifest meets the JavaScript the
+    // package is for before the files it carries.
+    const expectedExportPaths = [...configuration.entryPoints, ...Object.keys(assets)];
     // `test-kit` reads `import.meta.url` and is never published, so it is the
     // one package with no CommonJS half.
     const dual = productionPackageNames.includes(packageName);
@@ -52,6 +55,16 @@ async function checkExports() {
     for (const [exportPath, conditions] of Object.entries(value.exports)) {
       const stem = outputStem(exportPath);
       assert(!exportPath.includes("*"), `${value.name} cannot use wildcard exports`);
+
+      // An asset is one file for every consumer, so it carries no conditions
+      // and no declarations. Resolving it has to actually reach something, or
+      // the slim build has nothing to load.
+      if (Object.hasOwn(assets, exportPath)) {
+        assert(conditions === assets[exportPath], `${value.name} ${exportPath} asset target`);
+        await access(path.join(packagesRoot, packageName, conditions));
+        continue;
+      }
+
       assert(
         JSON.stringify(Object.keys(conditions)) === JSON.stringify(expectedConditions),
         `${value.name} ${exportPath} export conditions`,

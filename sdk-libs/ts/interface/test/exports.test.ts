@@ -31,9 +31,11 @@ describe("public exports", () => {
       "STATE_ROOT_OFFSET",
       "ShieldedPoolError",
       "StateDiscriminator",
+      "TRANSACTION_SIZE_LIMIT",
       "TREE_ACCOUNT_SIZE",
       "UTXO_DOMAIN",
       "addressTreeParams",
+      "checkedTransactionSize",
       "ciphertextHash",
       "decodeProtocolConfig",
       "decodeShieldedPoolError",
@@ -49,6 +51,7 @@ describe("public exports", () => {
       "pack33",
       "pkFieldCompressed",
       "selectSppShape",
+      "transactionSize",
       "validateSppShape",
     ]);
     expect(Object.keys(codecs).sort()).toEqual([
