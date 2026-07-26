@@ -8,7 +8,7 @@ use super::external_data::ExternalData;
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
-    utxo::{Blinding, ProofInputUtxo, Utxo},
+    utxo::{normalize_zone_data_hash, Blinding, ProofInputUtxo, Utxo},
 };
 
 /// Canonical ordering key for data records: `ZoneData` < `UtxoData` < `Memo`,
@@ -78,7 +78,7 @@ impl SppProofOutputUtxo {
         zone_data: Vec<u8>,
         zone_data_hash: [u8; 32],
     ) -> Self {
-        self.zone_data_hash = Some(zone_data_hash);
+        self.zone_data_hash = normalize_zone_data_hash(zone_data_hash);
         self.zone_program_id = Some(zone_program_id);
         self.set_data_record(DataRecord::ZoneData(zone_data));
         self
@@ -98,7 +98,7 @@ impl SppProofOutputUtxo {
         zone_data_hash: [u8; 32],
     ) -> Self {
         self.zone_program_id = Some(zone_program_id);
-        self.zone_data_hash = Some(zone_data_hash);
+        self.zone_data_hash = normalize_zone_data_hash(zone_data_hash);
         self
     }
 

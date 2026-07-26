@@ -65,6 +65,15 @@ pub fn zone_program_id_field(
     program_id_field(zone_program_id)
 }
 
+/// An all-zero zone data hash reaches the commitment as the same field an absent
+/// one does, so the two spellings must not survive as distinct prepared values.
+/// This normalizes the hash only; the zone address is deliberately left alone,
+/// because `Some(Address::default())` commits to `pk_field(0)`, a non-zero field
+/// the circuit reads as zone-bound.
+pub(crate) fn normalize_zone_data_hash(zone_data_hash: [u8; 32]) -> Option<[u8; 32]> {
+    (zone_data_hash != [0u8; 32]).then_some(zone_data_hash)
+}
+
 pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], TransactionError> {
     match program_id {
         Some(id) => zolana_keypair::hash::hash_field(id.as_array()).map_err(TransactionError::from),

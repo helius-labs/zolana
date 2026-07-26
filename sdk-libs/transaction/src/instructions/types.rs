@@ -6,7 +6,7 @@ use zolana_keypair::{
 use crate::{
     data::Data,
     error::TransactionError,
-    utxo::{ProofInputUtxo, Utxo},
+    utxo::{normalize_zone_data_hash, ProofInputUtxo, Utxo},
 };
 
 #[derive(Clone)]
@@ -33,7 +33,7 @@ impl SppProofInputUtxo {
     }
 
     pub fn with_zone_data_hash(mut self, zone_data_hash: [u8; 32]) -> Self {
-        self.zone_data_hash = Some(zone_data_hash);
+        self.zone_data_hash = normalize_zone_data_hash(zone_data_hash);
         self
     }
 
