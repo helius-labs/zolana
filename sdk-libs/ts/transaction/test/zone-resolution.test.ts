@@ -91,7 +91,9 @@ function slot(data: Data, owner: ShieldedKeypair, hash: Bytes32): IndexedShielde
     txSignature: "zone-resolution",
     outputSlots: [
       {
-        viewTag: new Uint8Array(32) as Bytes32,
+        // Plaintext transfer slots are indexed under the owner tag, so a slot
+        // tagged anything else is one the sync never opens.
+        viewTag: owner.signingPublicKey().confidentialViewTag(),
         outputContext: { hash, tree: SOL_MINT, leafIndex: 0n },
         payload,
       },
