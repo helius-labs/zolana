@@ -27,20 +27,39 @@ node sdk-libs/ts/config/pkp-entry-gate.mjs
 node sdk-libs/ts/config/port-health.mjs
 ```
 
-Last update: 2026-07-26 09:15 UTC. Times in this file are true UTC; some earlier
+Last update: 2026-07-26 10:10 UTC. Times in this file are true UTC; some earlier
 entries wrote the local `+02:00` clock and labelled it UTC.
 
 | | |
 | --- | --- |
-| Rows the table calls supported | 106 of 145, the figure the gate reports. Seven more are closed on a confirmed `NOT_APPLICABLE` disposition, which the gate counts separately |
+| Rows the table calls supported | 108 of 145, the figure the gate reports. Seven more are closed on a confirmed `NOT_APPLICABLE` disposition, which the gate counts separately |
 | Rows carrying an attributable verdict | 145 of 145. None is unexamined, and each one's verdict is now traceable to a log entry |
-| Rows carrying an adverse verdict | 29: 20 `PARTIAL`, 9 `DIVERGENT`. No row is `BLOCKED`, `MISSING`, or `STALE` |
-| Rows evidenced, but the table still shows them open | `T14` and `T15`, on the wallet-history port merged at `569544e0`. Its row update is written; no reconciler has folded it |
-| Rows this branch cannot close | None. See [scope-and-denominator.md](scope-and-denominator.md) |
-| Branch | Build, unit tests, lint and typecheck are green at `569544e0`, verified on the history branch before it merged |
+| Rows carrying an adverse verdict | 27: 18 `PARTIAL`, 9 `DIVERGENT`. No row is `BLOCKED`, `MISSING`, or `STALE`, and none is unowned |
+| Rows evidenced, but the table still shows them open | None folded-but-open. `T14` and `T15` closed at `569544e0` |
+| Rows this branch cannot close | `T16` by matching, because the behaviour it would match is unspecified: Rust's serial sync walks a `HashMap`, so its UTXO order varies between processes. It needs a written disposition rather than a fix. See [scope-and-denominator.md](scope-and-denominator.md) |
+| Branch | Build, unit tests, lint and typecheck green at `569544e0` |
 | Phase | 2 of 4: remediation. Phases 3 and 4 not started |
-| Entry gate to the cryptographic phase | Criteria 1, 3 and 4 pass. Criterion 2 fails on the 29 adverse rows and is the only one left |
-| Reconciliation debt | One row update outstanding, `row-updates/tx-history.md`. The `c03-rpc-surface.md` update is also unfolded: it needs judgement rather than arithmetic, because eight of the fifteen methods it calls missing are Rust trait declarations with no implementor |
+| Entry gate to the cryptographic phase | Criteria 1, 3 and 4 pass. Criterion 2 fails on the 27 adverse rows and is the only one left |
+| Reconciliation debt | Two row updates outstanding: `c03-rpc-surface.md`, which needs judgement rather than arithmetic because eight of the fifteen methods it calls missing are Rust trait declarations with no implementor, and `transaction-independent-read.md`, which is salvage from a collision and defers to the live worker |
+
+## Live workers and the merge order
+
+Four workers hold the 27 remaining adverse rows between them, with none
+unassigned. Merge them in this order, because
+three branches touch `sdk-libs/ts/transaction/src/instructions/builders.ts`:
+
+1. `port/tx-close`, which owns the transaction package: T12, T13, T16, T17, T21, T23, T26, T28, T29, T30, T31, S01
+2. `port/client-c`: C03, C04, C05, C18
+3. `port/rereview`: K11 through K14, C06, C21, W04, I37, X01
+4. `port/serialization`: T06, T10
+
+The `builders.ts` overlap was checked rather than assumed. Both `port/client-c`
+and `port/tx-close` add a `type ExternalData` import and an `externalData` field,
+and neither defines a rival type: `ExternalData` already exists in
+`instructions/transact.ts` on the base branch, so the shapes agree and the
+conflict is textual. `port/rereview` touches the same file only to route keypair
+calls through the narrowed capability surface. It is duplicated effort, not a
+divergence, but merge in the order above so the owner's version lands first.
 | Continuous integration | No known red job; the last two were a stale committed oracle and a type assertion the `K11` narrowing made redundant, both fixed. Runs are cancelling each other because agents push while a run is in flight, so a simultaneous green needs a quiet window more than it needs another fix. One failure mode is designed in and worth knowing before it fires: `typescript / static`, `suites` and `packaging` now install a Rust toolchain, so a change to `program-libs/hasher` without a regenerated `@zolana/hasher` artifact turns those three red on the build's refusal |
 
 **Do not trust a row that says `PARITY` without reading its evidence.** An audit
