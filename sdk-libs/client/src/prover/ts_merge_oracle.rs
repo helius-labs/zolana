@@ -199,6 +199,53 @@ fn build_merge() -> (MergeProofResult, String) {
     (result, body)
 }
 
+/// `MergeWitness` clears data hashes on the plain rail. Stamping nonzero hashes
+/// onto an otherwise identical prepared merge must therefore yield the same
+/// public inputs as the clean oracle above.
+#[test]
+fn plain_merge_clears_nonzero_data_hashes() {
+    let keypair = keypair();
+    let clean_inputs = inputs(&keypair, None);
+    let proofs = spend_proofs(
+        &PreparedMerge {
+            inputs: clean_inputs.clone(),
+            output: output(&keypair, None),
+            expiry_unix_ts: u64::MAX,
+            signing_pubkey: keypair.signing_pubkey(),
+            user_viewing_pk: keypair.viewing_pubkey(),
+            tx_viewing_sk: SecretKey::from_slice(&TX_VIEWING_SECRET).expect("tx viewing scalar"),
+        }
+        .input_utxo_hashes()
+        .expect("clean contexts"),
+    );
+    let mut stale_inputs = clean_inputs;
+    for spend in &mut stale_inputs {
+        if !spend.utxo.owner.is_zero() {
+            spend.data_hash = Some([0x1f; 32]);
+            spend.zone_data_hash = Some([0x2e; 32]);
+        }
+    }
+    let stale = MergeProver::try_from(MergeWitness {
+        prepared: PreparedMerge {
+            inputs: stale_inputs,
+            output: output(&keypair, None),
+            expiry_unix_ts: u64::MAX,
+            signing_pubkey: keypair.signing_pubkey(),
+            user_viewing_pk: keypair.viewing_pubkey(),
+            tx_viewing_sk: SecretKey::from_slice(&TX_VIEWING_SECRET).expect("tx viewing scalar"),
+        },
+        nullifier_key: keypair.nullifier_key.clone(),
+        proofs,
+    })
+    .expect("stale-hash merge prover")
+    .build()
+    .expect("stale-hash merge proof result");
+    let (clean, _) = build_merge();
+    assert_eq!(stale.public_input_hash, clean.public_input_hash);
+    assert_eq!(stale.private_tx_hash, clean.private_tx_hash);
+    assert_eq!(stale.nullifiers, clean.nullifiers);
+}
+
 fn build_merge_zone() -> (MergeProofResult, String) {
     let keypair = keypair();
     let zone = Address::new_from_array(ZONE_PROGRAM_BYTES);

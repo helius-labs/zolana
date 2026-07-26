@@ -207,4 +207,48 @@ describe("merge assembly against the Rust oracle", () => {
     expect(zoneBody["zoneProgramId"]).not.toBe("0x0");
     expect(zoneBody["publicInputHash"]).not.toBe(defaultBody["publicInputHash"]);
   });
+
+  /// Rust `MergeWitness` clears both hashes before plain-merge assembly. A
+  /// hand-built prepared value that still carries them must normalize to the
+  /// same public inputs the clean oracle recorded.
+  it("clears nonzero data hashes on the plain rail to match the Rust oracle", () => {
+    const { keypair: owner, nullifierKey } = keypair();
+    const dataHash = new Uint8Array(32).fill(0x1f) as Bytes32;
+    const zoneDataHash = new Uint8Array(32).fill(0x2e) as Bytes32;
+    const slots = inputs(owner, nullifierKey).map((input) =>
+      input.isDummy()
+        ? input
+        : new ProofInputUtxo({
+            utxo: input.utxo,
+            nullifierKey: input.nullifierKey,
+            dataHash,
+            zoneDataHash,
+          }),
+    );
+    const normalized = slots.map((input) =>
+      input.isDummy()
+        ? input
+        : new ProofInputUtxo({ utxo: input.utxo, nullifierKey: input.nullifierKey }),
+    );
+    const prepared = new PreparedMerge({
+      inputs: [...slots],
+      output: createProofOutput({
+        ownerAddress: owner.shieldedAddress(),
+        asset: SOL_MINT,
+        amount: BigInt(oracle.inputs.outputAmount),
+        blinding: deriveBlinding(seed(), 2),
+      }),
+      expiryUnixTs: BigInt(oracle.expected.merge.expiryUnixTs),
+      signingPublicKey: owner.signingPublicKey(),
+      userViewingPublicKey: owner.viewingPublicKey(),
+      txViewingSecret: bytes(oracle.inputs.txViewingSecretBytes) as Bytes32,
+    });
+    const proofs = normalized.filter((input) => !input.isDummy()).map(spendProof);
+    const assembly = assembleMergeWithProofs(prepared, material(owner, nullifierKey), proofs, TREE);
+    expect(hex(assembly.publicInputHash)).toBe(oracle.expected.merge.publicInputHashBytes);
+    expect(hex(assembly.privateTxHash)).toBe(oracle.expected.merge.privateTxHashBytes);
+    expect(assembly.nullifiers.map((nullifier) => hex(nullifier))).toEqual(
+      oracle.expected.merge.nullifierBytes,
+    );
+  });
 });
