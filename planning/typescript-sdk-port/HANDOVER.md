@@ -14,12 +14,18 @@ refreshed deliberately. Where they disagree, this one wins, and the commands in
 Port the Rust `sdk-libs` to TypeScript with the same behaviour, the same public
 surface, and the same test coverage, then prove it rather than assert it.
 
-Two constraints shaped every decision:
+Three constraints shaped every decision:
 
 - **SDK only.** Solana programs, `program-libs`, and the circuits are read-only.
   Where a defect was found in them it was recorded, not fixed.
 - **Evidence over claims.** A parity claim needs a Rust-generated fixture, a
   cross-language oracle, or a live run. "It looks equivalent" closes nothing.
+- **Pre-release, so breaking changes are free.** No crate or package here has a
+  consumer. Where Rust and TypeScript disagreed and Rust was wrong, Rust moved
+  rather than TypeScript bending around it, and no compatibility shim was added
+  for a surface nobody depends on. This is why the Rust SDK carries genuine
+  behaviour changes inside a TypeScript port, and why no migration note or
+  version dance was written for them.
 
 The port is 11 npm packages mirroring the Rust crates, plus `@zolana/hasher`,
 which has no Rust twin and carries the Rust Poseidon compiled to WebAssembly so
@@ -29,12 +35,12 @@ five hand-written copies could be deleted.
 
 | | |
 | --- | --- |
-| Review rows | 145 examined. 135 at `PARITY`, 7 justified `NOT_APPLICABLE`, 3 reopened. See [What is not true yet](#what-is-not-true-yet) |
-| Full SDK gates | 12 of 16 checked |
-| Package gates | 3 of 15 bullets checked across all eleven packages |
+| Review rows | 148 examined, 0 adverse. The 3 reopened interface rows closed, and the two uncounted packages gained seats |
+| Full SDK gates | 14 of 16 checked. The 2 open are named under [Remaining steps](#remaining-steps) |
+| Package gates | 5 of 15 bullets checked across all eleven packages |
 | Cryptographic certification | All 15 suites landed: key-handling `K1` to `K10`, proof `P1` to `P5`, closing evidence `PKP-08` |
-| Branch health | Unit 2290 passing / 9 skipped · static clean · no fixture drift · packaging clean · `check:scope` clean |
-| External review | 44 findings. Blockers and High closed; 31-row tail triaged, 0 invalid |
+| Branch health | Unit 2301 passing / 9 skipped, static clean, no fixture drift, packaging clean including a real `api:check`, `check:scope` clean |
+| External review | 44 findings, 0 invalid. Blockers and High closed. The 31-row tail is triaged and ruled row by row: 12 were already fixed, 16 land here, 1 defers, 1 is dismissed, 1 waits on a Light Protocol check |
 
 ### What is proven
 
@@ -87,38 +93,43 @@ Claims previously recorded that do not hold, all found by adversarial re-checks:
 Each worker owns a git worktree and a branch. **One tree, one branch, one
 agent.** Do not touch a path another worker owns; report a gap in it instead.
 
-| Branch | Scope | Closes |
-| --- | --- | --- |
-| `port/gate-prover` | Build the prover and proving keys; produce a live proof per shape per rail; re-run the clean-checkout command list | 2 gate lines |
-| `port/gate1-gaps` | A real `api:check`; the three `needs_re_review` rows; queue seats for the two uncounted packages; the stale fixture baseline; property suites for `client` and `wallet` | 3 gate lines |
+| Branch | Scope |
+| --- | --- |
+| `port/example-surface` | Reconcile the client surface onto the example branch, per the ruling below |
+| `port/reject-fixtures` | Rust-generated rejection and tamper fixtures for `indexer-api` and `smart-account-client`, closing the last fixture gate line |
+| `port/ci-infra` | Strip this port's coordination tooling from the repository and scope the CI graph by path with shared build output |
+| `port/f130-light` | Research only: how Light Protocol keeps secret material out of error payloads, before we unify our two contradictory rules |
 
 ### Queued, in order
 
-1. **Reconcile the client surface onto `ts-example-deposit-transfer-withdraw`.**
-   See [the ruling](authority-rulings.md#the-example-branch-carries-the-target-client-surface).
-   Six commits are unmerged there; the substantive one is `0d5f3c1d`, ~437 lines
-   across five packages. It gives the client a `compileTransaction` entry point,
-   adds `interface/src/signers.ts` and `transaction/src/wallet/state.ts`, and
-   deletes the duplicated `base58` and `native` code from `test-kit` by moving
-   those primitives into the production packages, which closes finding `F106`
-   as a side effect. It also brings the example itself and the paired READMEs.
+1. **The twelve small behavioural fixes**, ruled row by row and recorded in
+   [`authority-rulings.md`](authority-rulings.md#register-tail-the-six-behavioural-rows-are-fixed-in-this-pull-request).
+   They are held rather than dispatched because most touch files
+   `port/example-surface` is rewriting, and fixing a function while another
+   branch moves it means resolving the same conflict twice. Six change
+   behaviour: a zero-amount deposit the program always rejects, empty
+   instruction data that throws where Rust returns empty bytes, RPC faults
+   TypeScript treats as fatal where Rust retries, a byte comparison that calls
+   a prefix equal, an airdrop that rounds large amounts, and drift oracles that
+   overwrite the baseline they exist to check. Six are smaller: hardcoded page
+   limits, a wrong offset in an unread fixture field, an unverifiable fixture,
+   a registry copy whose `insert` silently does nothing, an unchecked payer
+   hash, and a base58 length brute-force.
 
-   **This must land after the two in-flight workers, not beside them.** It moves
-   exports across five packages, so the export-ledger gate, the
-   `module-surface` and `crate-root-exports` tests, and every package gate
-   resting on an export census have to be re-run against the reconciled surface.
-   The `api:check` being built right now is what will catch anything the
-   reconciliation silently drops.
+2. **Unify error-detail redaction** once the Light Protocol finding lands.
+   `keypair` admits an allow-list, `client` keeps arbitrary scalars, so an error
+   on the client path can carry data the keypair path would strip. This SDK
+   handles secret keys, viewing keys, and decrypted amounts.
 
-2. **Fixture rejection and tamper coverage.** `@zolana/indexer-api` and
-   `@zolana/smart-account-client` have success-only generated fixtures; their
-   rejection cases live only in hand-written unit tests.
+3. **Centralize the fixture baseline commit**, which is copied into many files
+   instead of defined once. Held until `port/reject-fixtures` releases the
+   fixture config.
 
-3. **Sweep the findings tail.** 12 cheap and 7 costly rows, itemised with
-   evidence and a per-row recommendation in [`fnd-tail.md`](row-updates/fnd-tail.md).
-   Awaiting a disposition per row.
+4. **Re-run the package-gate evidence walk** for the bullets that rest on an
+   export census, after the surface reconciliation lands. This is the ordering
+   constraint the reconciliation ruling exists to enforce.
 
-4. **Strip `planning/` to a side branch.** Owner ruling: the record survives, the
+5. **Strip `planning/` to a side branch.** Owner ruling: the record survives, the
    pull request diff shows only code, tests, fixtures, and spec amendments. That
    removes ~40,000 lines. Promote this file to the pull request description
    before deleting the directory.
@@ -128,7 +139,15 @@ agent.** Do not touch a path another worker owns; report a gap in it instead.
 | Item | Why it is blocked |
 | --- | --- |
 | Make `typescript / merge-gate` a required status check on the default branch | Needs repository admin. All eight jobs run on every pull request but none is required, so a red suite does not block a merge today. Requiring the one aggregating job covers the whole tier and survives job renames |
-| Disposition for the 31-row findings tail | Per-row judgement, itemised in [`fnd-tail.md`](row-updates/fnd-tail.md) |
+
+Nothing else is waiting on a decision. Every register row is ruled, every gate
+line is owned, and the two open gate lines have workers on them.
+
+### Deferred by ruling
+
+- **The Merkle append copies the whole tree per leaf.** Correct but quadratic for
+  bulk appends, and changing it alters how a failure rolls back mid-append.
+  Filed rather than taken beside the release.
 
 ### Known and accepted
 
@@ -166,8 +185,12 @@ alter shipping behaviour rather than adding a second implementation of it. They
 exist because parity is symmetric: where TypeScript was right and Rust was wrong,
 Rust moved. The two that matter are the P256 RFC 6979 nonce derivation, where
 Rust passed an unreduced digest to `generate_k`, and a zero-length dummy
-ciphertext that made padded outputs distinguishable on the wire. Finding `F013`
-asks for these to be release-noted separately, and it is open.
+ciphertext that made padded outputs distinguishable on the wire.
+
+A reviewer asked for these to be release-noted and versioned separately. The
+owner dismissed that: the crates are pre-release with no consumers, so there is
+no migration to describe and nobody to describe it to. Read them as ordinary
+fixes, not as a compatibility event.
 
 **The spec amendments.** `docs/spec.md` is the protocol source of truth and it
 was amended in a few places where both implementations already disagreed with it
