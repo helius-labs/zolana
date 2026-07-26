@@ -926,3 +926,78 @@ describe("ConfidentialTransfer constructor matches Rust", () => {
     ).not.toThrow();
   });
 });
+
+describe("padded finalize ciphertext lengths", () => {
+  function spend(keypair: ShieldedKeypair, amount: bigint): ProofInputUtxo {
+    return new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount,
+        blinding: new Uint8Array(31).fill(3) as Bytes31,
+      }),
+      nullifierKey: keypair.nullifierKey(),
+    });
+  }
+
+  function lens(proof: SppProofInputs): number[] {
+    return proof.externalData.outputs.map((output) => output.data?.length ?? 0);
+  }
+
+  // Shape padding is routine; a zero-length dummy is distinguishable on the wire.
+  it("keeps real and dummy ciphertext lengths equal when the shape pads", () => {
+    const sender = ShieldedKeypair.generate();
+    const ownerAddress = sender.shieldedAddress();
+    const shape = { inputs: 2, outputs: 3 };
+    const registry = new AssetRegistry();
+
+    const changeOnly = new ConfidentialTransfer(ownerAddress, [spend(sender, 100n)], SOL_MINT)
+      .withShape(shape)
+      .sign(sender, registry);
+
+    const withRecipient = new ConfidentialTransfer(ownerAddress, [spend(sender, 100n)], SOL_MINT);
+    withRecipient.withShape(shape);
+    withRecipient.send(ShieldedKeypair.generate().shieldedAddress(), SOL_MINT, 60n);
+    const recipientProof = withRecipient.sign(sender, registry);
+
+    const changeLens = lens(changeOnly);
+    const recipientLens = lens(recipientProof);
+    expect(changeLens).toHaveLength(3);
+    expect(recipientLens).toHaveLength(3);
+    const expected = recipientLens[0];
+    expect(expected).toBeGreaterThan(0);
+    expect(changeLens.every((length) => length === expected)).toBe(true);
+    expect(recipientLens.every((length) => length === expected)).toBe(true);
+  });
+
+  // A short finalize payload has no `undefined` entries to iterate, yet missing
+  // indices still need length-matched dummies (same guard Rust now shares).
+  it("length-matches dummies when finalize receives an empty payload", () => {
+    const sender = ShieldedKeypair.generate();
+    const transfer = new ConfidentialTransfer(
+      sender.shieldedAddress(),
+      [spend(sender, 100n)],
+      SOL_MINT,
+    ).withShape({ inputs: 1, outputs: 2 });
+    const prepared = transfer.prepare();
+    expect(prepared.outputs).toHaveLength(prepared.shape.outputs);
+
+    const short = prepared.finalize({
+      txViewingPublicKey: ViewingKey.generate().publicKey(),
+      salt: new Uint8Array(16).fill(9) as Bytes16,
+      payload: [],
+    });
+    const honest = new ConfidentialTransfer(
+      sender.shieldedAddress(),
+      [spend(sender, 100n)],
+      SOL_MINT,
+    )
+      .withShape({ inputs: 1, outputs: 2 })
+      .sign(sender, new AssetRegistry());
+
+    const shortLens = lens(short);
+    expect(shortLens).toHaveLength(2);
+    expect(shortLens).toEqual(lens(honest));
+    expect(shortLens.every((length) => length > 0)).toBe(true);
+  });
+});
