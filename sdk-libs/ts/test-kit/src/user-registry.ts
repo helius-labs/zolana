@@ -40,7 +40,7 @@ export function createTestNativeSigner(seed: Bytes32): TransactionSigner {
   }
   // Delegate to the production signer so a key that is not a required message
   // signer rejects with INTERFACE_SIGNER_NOT_REQUIRED instead of overwriting
-  // slot 0. The previous catch-all fallback hid that refusal and broke P13.
+  // slot 0. The previous catch-all fallback hid that refusal.
   return createSolanaSigner(ShieldedKeypair.fromEd25519(new Uint8Array(seed) as Bytes32, 0));
 }
 
