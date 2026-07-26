@@ -16,18 +16,21 @@ export const CHECK_PARTS = Object.freeze([
   {
     name: "check:static",
     contains: "build, typecheck, lint, lint:packages (package-lint), format:check",
-    needs: "Node",
+    // Rust is required so a program-libs/hasher change without a regenerated
+    // @zolana/hasher artifact fails here rather than shipping a stale wasm.
+    needs: "Node + Rust (hasher artifact refusal)",
   },
   {
     name: "check:suites",
     contains: "test:unit, test:vectors, test:property, test:cross, test:prover",
-    needs: "Node (prover suite is offline against committed vectors; no live prover)",
+    needs:
+      "Node + Rust (hasher artifact refusal; prover suite is offline against committed vectors)",
   },
   {
     name: "check:packaging",
     contains:
       "test:inventory, test:exports, test:dependencies, api:check, test:browser, pack:check",
-    needs: "Node (packed-package consumer + static browser bundle scan)",
+    needs: "Node + Rust (hasher artifact refusal; packed-package + browser bundle scan)",
   },
   {
     name: "check:browser-runtime",
@@ -74,7 +77,10 @@ for (const part of CHECK_PARTS) {
 }
 
 console.log("npm run check — merge-tier composition");
-console.log("CI splits these into jobs by service needs (.github/workflows/typescript.yml).");
+console.log("CI splits these into jobs by service needs (.github/workflows/typescript.yml),");
+console.log(
+  "shares one build artifact across them, and skips the tier when no TypeScript-tier path changed.",
+);
 console.log("Locally, prefer the named sub-script when you lack a service.\n");
 for (const part of CHECK_PARTS) {
   console.log(`${part.name}`);
