@@ -226,7 +226,10 @@ describe("manifest-verified transaction builders", () => {
     expect(inputs.p256Signature()?.s).toEqual(compact.slice(32));
   });
 
-  it("retains P256 rail signature and owner validation for mixed and homogeneous inputs", () => {
+  // Rust's `sign_p256` reads the keypair's curve and nothing else; the inputs a
+  // signature covers are the circuit's business. A rule here that Rust lacks
+  // would refuse transactions the prover and the chain accept.
+  it("takes any P256 signature over any inputs, and refuses only a non-P256 signer", () => {
     const p256 = SigningKey.fromBytes(new Uint8Array(32).fill(3) as Bytes32);
     const otherP256 = SigningKey.fromBytes(new Uint8Array(32).fill(4) as Bytes32);
     const ed25519 = SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(5) as Bytes32);
@@ -238,17 +241,33 @@ describe("manifest-verified transaction builders", () => {
       r: signature.slice(0, 32) as Bytes32,
       s: signature.slice(32) as Bytes32,
     };
+    const keypairFor = (signing: SigningKey): ShieldedKeypair =>
+      ShieldedKeypair.fromKeys(
+        signing,
+        NullifierKey.fromSigningKey(signing),
+        ViewingKey.fromSeed(new Uint8Array(32).fill(23) as Bytes32, 0),
+      );
 
     expect(proofInputs([p256Input, ed25519Input]).p256Signature()).toBeUndefined();
+
+    const foreign = proofInputs([p256Input, ed25519Input]);
+    foreign.applyP256Signature({ ...valid, publicKey: otherP256.publicKey().p256() });
+    expect(foreign.p256Signature()?.publicKey).toEqual(otherP256.publicKey().p256());
+
+    const ed25519Owned = proofInputs([ed25519Input, ed25519Input]);
+    ed25519Owned.applyP256Signature(valid);
+    expect(ed25519Owned.p256Signature()?.publicKey).toEqual(p256.publicKey().p256());
+
+    const ed25519Signer = proofInputs([p256Input, ed25519Input]);
     expect(() => {
-      proofInputs([p256Input, ed25519Input]).applyP256Signature({
-        ...valid,
-        publicKey: otherP256.publicKey().p256(),
-      });
-    }).toThrow(expect.objectContaining({ code: "TRANSACTION_SIGNATURE_OWNER_MISMATCH" }));
-    expect(() => {
-      proofInputs([ed25519Input, ed25519Input]).applyP256Signature(valid);
+      ed25519Signer.signP256(keypairFor(ed25519));
     }).toThrow(expect.objectContaining({ code: "TRANSACTION_SIGNER_NOT_P256" }));
+    expect(ed25519Signer.p256Signature()).toBeUndefined();
+
+    const p256Signer = proofInputs([ed25519Input, ed25519Input]);
+    p256Signer.signP256(keypairFor(p256));
+    expect(p256Signer.p256Signature()?.publicKey).toEqual(p256.publicKey().p256());
+
     expect(() => {
       proofInputs([p256Input, p256Input]).applyP256Signature({
         ...valid,
@@ -274,6 +293,26 @@ describe("manifest-verified transaction builders", () => {
       r: homogeneousSignature.slice(0, 32),
       s: homogeneousSignature.slice(32),
     });
+  });
+
+  // Rust's constructor validates nothing and `check_shape` is a separate call,
+  // so an unsupported shape builds and hashes; only a caller that asks about
+  // the shape hears about it.
+  it("builds and hashes an unsupported shape, and names it only when asked", () => {
+    const p256 = SigningKey.fromBytes(new Uint8Array(32).fill(6) as Bytes32);
+    const inputs = [inputFor(p256, 0), inputFor(p256, 1), inputFor(p256, 2)];
+    const unsupported = proofInputs(inputs);
+
+    expect(unsupported.messageHash()).toHaveLength(32);
+    expect(() => unsupported.checkShape()).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_UNSUPPORTED_SHAPE" }),
+    );
+    // Contexts index the real inputs, so a padded slot shifts nothing.
+    const real = inputs[0];
+    if (!real) throw new Error("missing input");
+    expect(proofInputs([real, ProofInputUtxo.dummy()]).inputUtxoHashes()).toEqual([
+      { index: 0, utxoHash: real.hash(), nullifier: real.nullifier() },
+    ]);
   });
 
   it("matches transfer outputs, wire payloads, hashes, conservation, and errors", () => {

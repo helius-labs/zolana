@@ -431,7 +431,7 @@ export class ConfidentialSplit {
       },
     });
     if (keypair.signingPublicKey().signatureType() === "p256") {
-      signed.applyP256Signature(keypair.signP256(signed.messageHash()));
+      signed.signP256(keypair);
     }
     return signed;
   }
