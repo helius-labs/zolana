@@ -112,6 +112,6 @@
   "rustPath": "sdk-libs/client/src/lib.rs",
   "rustSymbol": "pub mod; pub use",
   "schema": "zolana-ts-fixtures-v1",
-  "sourceRevision": "71f7f319fa794e44e4a03c39268f7981c2669445",
+  "sourceRevision": "d2fa0d601554d5a76411b7586816146d7fd9bd59",
   "version": "1"
 }
