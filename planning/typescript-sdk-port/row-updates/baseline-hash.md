@@ -64,8 +64,13 @@ keeps that manifest bound to the pin.
 
 ## Gate notes
 
-Run from this worktree after the plumbing landed:
+All required gates passed on `port/baseline-hash` after the plumbing landed:
 
 ```bash
 npm run build && npm run test:unit && npm run check:static && npm run check:packaging && npm run fixtures:check
 ```
+
+- `test:unit`: 2359 passed / 9 skipped
+- `check:static`: clean (scope, typecheck, lint, format)
+- `check:packaging`: clean
+- `fixtures:check`: all generators `--check` green; `fixture provenance ok`
