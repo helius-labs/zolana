@@ -23,7 +23,7 @@ piece named.
 - [Open: the u64 integer domain (C04)](#open-the-u64-integer-domain-c04)
 - [Closed rulings](#closed-rulings)
 
-## Open: owner-hash encoding (G7-1)
+## Ruled: owner-hash encoding (G7-1)
 
 ### What the spec says
 
@@ -178,10 +178,77 @@ proving keys:
 
 | Field | Value |
 | --- | --- |
-| Ruling | |
-| Ruled by | |
-| Date | |
-| Follow-up artifacts | |
+| Ruling | Option 1. Amend `docs/spec.md` to match the implementations. The parity-free `Poseidon(x_low_128, x_high_128)` is canonical for `owner_hash`; the parity-inclusive form stays canonical for viewing keys. The divergence was deliberate, not drift. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `docs/spec.md` lines 265 to 286, and the collision argument at line 278 |
+
+The owner's words were that it "seems like it was on purpose", which the evidence
+supports: `merge_utils.rs:32-37` carries a comment giving the reason, that a P256
+owner should have the same `pk_field` shape as an Ed25519 owner, and nine
+surfaces across the circuit, the program, both SDKs and the interface crate agree
+with each other. A specification that eleven implementations contradict is the
+artifact that is wrong.
+
+This ruling authorises editing `docs/spec.md`, which the port's standing
+constraint otherwise forbids. The authorisation covers this conflict only.
+
+Line 278 needs more than a correction. It argues that P256 and Ed25519 encodings
+cannot collide *because* the P256 form carries the extra `y_is_odd` layer. That
+argument does not hold for the parity-free form actually deployed, so the
+amendment has to restate collision resistance on the encoding in use rather than
+delete the claim and leave nothing in its place.
+
+## Ruled: indexer-api schema authority (X01)
+
+| Field | Value |
+| --- | --- |
+| Conflict | `docs/spec.md` defines context, UTXO, transaction and output schemas that neither Rust nor Photon implements, and `get_nullifier_queue_elements` appears in Rust, the port and Photon but nowhere in the spec. |
+| Ruling | Where Rust, the port and Photon already agree, that agreement is authoritative and the specification is the stale artifact. The port is correct as it stands. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `docs/spec.md` indexer schemas; no SDK code moves |
+
+The owner's test was direct: if a surface exists in Rust, in the port and in
+Photon, the port is correct. That resolves the row without touching code, because
+the disagreement was never three ways on those surfaces. It was the
+specification against a consensus of implementations, which is the same shape as
+G7-1 and gets the same answer.
+
+Two consequences worth stating. `get_nullifier_queue_elements` is an undocumented
+extension rather than a divergence, so it needs a specification entry rather than
+removal. And the port's rename of `ShieldedTransaction` to
+`IndexedShieldedTransaction` is deliberate disambiguation from
+`@zolana/transaction`, not drift, so no one should later read it as one.
+
+What this ruling does not settle: the promised Rust fixture
+`fixtures/indexer-api/lib.json` still does not exist and needs an `xtask`
+generator, and live-Photon evidence still needs a running indexer. Both sit
+outside `sdk-libs/**`.
+
+## Ruled: least-powerful capability at the call sites (K11)
+
+| Field | Value |
+| --- | --- |
+| Conflict | Recorded as an open question. It is not one. |
+| Ruling | Answered already. The design half is settled and what remains is sequenced work, not a decision. |
+| Ruled by | Coordinator, correcting a mis-classification, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `transaction/src/wallet/sync.ts`, `transaction/src/serialization/codecs.ts`, `wallet/src/sync.ts` |
+
+`ViewingKeyLike` declares its fourteen operations and is proven satisfiable by an
+async backend. The related trait question, K12, is closed: Rust's
+`nullifier_key()` was handing out the nullifier secret so that its one generic
+consumer could compute a public value, and narrowing it to `nullifier_pubkey()`
+lost no capability.
+
+What is left is three call sites still binding the concrete `ViewingKey`. Because
+`ViewingKeyLike` returns `T | Promise<T>` so an HSM can implement it, accepting it
+there makes those functions `async`, and that signature change propagates across
+two packages. It was deferred to avoid colliding with the workers editing them,
+not because anyone is unsure what to do. It belongs after the transaction and
+wallet rows, and it is real: no consumer can pass a backend today, even though one
+typechecks.
 
 ## Open: confidential owner tag (T23)
 
