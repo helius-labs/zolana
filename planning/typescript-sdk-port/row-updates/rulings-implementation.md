@@ -269,7 +269,7 @@ T28 revert applied.
 
 - `npm run build`, `npm run typecheck`, `npm run lint`, `npm run format:check`
 - `npm run check:packaging` (inventory, exports, dependencies, api, browser, pack)
-- `npm run test:unit`, 1941 passed and 1 skipped
+- `npm run test:unit`, 1942 passed and 1 skipped
 - `npm run fixtures:check`, 58 fixtures and 182 inventory rows verified, with the
   frozen-source gate gone and the tip's Rust sources moved under it
 - `cargo test -p zolana-transaction`, 61 passed across the crate's suites
