@@ -10,8 +10,9 @@ const live = JSON.parse(await readFile(path.join(reports, "inventory-live.json")
 const manifest = JSON.parse(
   await readFile(path.join(root, "sdk-libs/ts/fixtures/manifest.json"), "utf8"),
 );
-const historicalBaseline = (await readFile(path.join(here, "historical-baseline-commit"), "utf8"))
-  .trim();
+const historicalBaseline = (
+  await readFile(path.join(here, "historical-baseline-commit"), "utf8")
+).trim();
 
 // Single source of truth is config/historical-baseline-commit; manifest and
 // inventory must both quote it.
