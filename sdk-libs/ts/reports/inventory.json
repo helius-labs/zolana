@@ -6,9 +6,9 @@
     "unknownPackets": "0"
   },
   "dispositionCounts": {
-    "internal": 6,
+    "internal": 5,
     "not applicable": 7,
-    "port": 134,
+    "port": 135,
     "reuse": 1,
     "test-only": 34
   },
@@ -598,12 +598,12 @@
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
     {
-      "disposition": "internal",
+      "disposition": "port",
       "fixtureResponsibility": "Rust-generated `fixtures/keypair/hash.json` with logical input, exact bytes/value, and error mutations.",
       "marker": "active",
       "packet": "P04",
       "path": "sdk-libs/keypair/src/hash.rs",
-      "responsibility": "Internal implementation of poseidon; hash_field; split_be_128; sha256; owner_hash; callers reach it through the package allowlist.",
+      "responsibility": "Ported: `hashField`, `ownerHash`, `sha256Be`, `sha256Bytes` and `splitBigEndian128` are re-exported by name from the package root, so callers reach them directly rather than through another module's allowlist.",
       "target": "`@zolana/keypair` · `src/hash.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
