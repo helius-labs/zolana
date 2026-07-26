@@ -33,7 +33,7 @@ use zolana_keypair::{
 };
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
+use zolana_transaction::{instructions::transact::PrivateTxHash, OutputData, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 mod common;
@@ -455,7 +455,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         amount: AMOUNT,
         blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
@@ -620,7 +620,7 @@ fn bench_withdrawal_spl(
         amount: AMOUNT,
         blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");

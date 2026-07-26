@@ -698,6 +698,44 @@ mod tests {
         assert_ne!(some_empty, none);
     }
 
+    #[test]
+    fn external_data_hash_vector_is_stable() {
+        let utxo_hash = [6u8; 32];
+        let outputs = [ResolvedOutput {
+            utxo_hash: &utxo_hash,
+            owner_tag: [7u8; 32],
+            data: Some(&[8, 9]),
+        }];
+        let messages = [MessageData {
+            view_tag: [10u8; 32],
+            data: vec![11, 12, 13],
+        }];
+        let hash = ExternalDataHash {
+            spp_instruction_discriminator: 2,
+            expiry_unix_ts: 42,
+            relayer_fee: 7,
+            public_sol_amount: Some(-9),
+            public_spl_amount: Some(11),
+            user_sol_account: &[1u8; 32],
+            user_spl_token_account: &[2u8; 32],
+            spl_token_interface: &[3u8; 32],
+            data_hash: Some([4u8; 32]),
+            zone_data_hash: Some([5u8; 32]),
+            outputs: &outputs,
+            messages: &messages,
+        }
+        .hash()
+        .unwrap();
+        assert_eq!(
+            hash,
+            [
+                0x00, 0x0a, 0xd6, 0x17, 0x06, 0x19, 0x65, 0x31, 0x04, 0x62, 0x7e, 0xee, 0x83, 0xa6,
+                0x3d, 0x4c, 0x37, 0x4e, 0x10, 0xae, 0x1b, 0xf2, 0xc5, 0xf8, 0x34, 0x59, 0x84, 0xea,
+                0x0f, 0x5b, 0xe2, 0x82,
+            ]
+        );
+    }
+
     /// The owner tag is a fixed 32-byte field and `data` is length-prefixed, so a
     /// 32-byte value cannot shift between the resolved owner tag and `data`.
     #[test]

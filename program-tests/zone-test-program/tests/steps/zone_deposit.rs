@@ -20,7 +20,7 @@ use zolana_test_utils::{
     spl::mint_to,
     test_validator_asserts::{assert_zone_deposit, fetch_account, ZoneDepositAssertArgs},
 };
-use zolana_transaction::{Data, LocalWalletAuthority, Utxo, Wallet, SOL_MINT};
+use zolana_transaction::{LocalWalletAuthority, OutputData, Utxo, Wallet, SOL_MINT};
 
 use crate::{
     actor::{SplZoneDepositAccounts, ZoneDepositRecord},
@@ -92,7 +92,7 @@ impl ZoneLifecycleWorld {
             amount,
             blinding: data.blinding,
             zone_program_id: Some(zone),
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let actor = self.actor_mut(name);
         actor.spendable.push(utxo);

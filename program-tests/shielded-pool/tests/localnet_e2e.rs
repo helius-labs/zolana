@@ -32,7 +32,7 @@ use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
     single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
 };
-use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
+use zolana_transaction::{instructions::transact::PrivateTxHash, OutputData, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
@@ -130,7 +130,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         amount: AMOUNT,
         blinding: payer_blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let payer_owner_pk_hash = payer_utxo.owner.hash()?;
     let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
@@ -318,7 +318,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     assert_eq!(
         recipient_hash,

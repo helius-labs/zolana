@@ -33,7 +33,7 @@ use zolana_test_utils::test_validator_asserts::{
     assert_merge_zone, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_non_inclusion_proof, MergeZoneAssertArgs,
 };
-use zolana_transaction::{Data, SppProofOutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{OutputData, SppProofOutputUtxo, Utxo, SOL_MINT};
 
 use crate::{
     localnet::{pack_proof, send_transaction, ZERO},
@@ -111,7 +111,7 @@ impl ZoneLifecycleWorld {
                 amount: 0,
                 blinding: random_blinding(),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             };
             spend_inputs.push(TransferSpendInput {
                 utxo,
@@ -135,7 +135,7 @@ impl ZoneLifecycleWorld {
             zone_data_hash: None,
             data_hash: None,
             owner_tag: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the
@@ -302,7 +302,7 @@ impl ZoneLifecycleWorld {
                 amount: 0,
                 blinding: random_blinding(),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             };
             spend_inputs.push(TransferSpendInput {
                 utxo,
@@ -322,7 +322,7 @@ impl ZoneLifecycleWorld {
             zone_data_hash: None,
             data_hash: None,
             owner_tag: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
 
         let mut sk_bytes = [0u8; 32];

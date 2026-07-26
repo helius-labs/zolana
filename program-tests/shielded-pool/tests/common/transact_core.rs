@@ -190,6 +190,11 @@ pub fn dummy_input(
     }
 }
 
+/// Called by the `transact` binary and, through the `common/transact.rs`
+/// re-export, by `bench_cu` and `localnet_photon_e2e`. `double_spend` compiles
+/// this same file without calling it, so the unused warning there is an
+/// artifact of the split test targets rather than dead code.
+#[allow(dead_code)]
 pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> InputUtxo {
     InputUtxo {
         nullifier_hash,

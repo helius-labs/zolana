@@ -87,7 +87,7 @@ impl LifecycleWorld {
             SOL_MINT,
             amount,
             WithdrawalTarget::Sol {
-                user_sol_account: Address::new_from_array(recipient.pubkey().to_bytes()),
+                recipient: Address::new_from_array(recipient.pubkey().to_bytes()),
             },
         )?;
         let proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
@@ -177,8 +177,7 @@ impl LifecycleWorld {
             }
         }
 
-        // The withdrawn SOL is custodied in `sol_interface` and drained to the
-        // external recipient: its on-chain balance grows by exactly `amount`.
+        // Validate the recipient's balance grew by exactly `amount`.
         let recipient_after = self.rpc.client().get_balance(&recipient.pubkey())?;
         assert_eq!(
             recipient_after,

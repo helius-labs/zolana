@@ -42,7 +42,9 @@ impl<'a> MergeZoneIxDataRef<'a> {
 mod tests {
     use super::*;
     use crate::instruction::instruction_data::{
-        merge_transact::{MERGE_ENCRYPTED_UTXO_LEN, MERGE_INPUT_COUNT},
+        merge_transact::{
+            MERGE_ENCRYPTED_UTXO_LEN, MERGE_ENCRYPTED_UTXO_TYPE_PREFIX, MERGE_INPUT_COUNT,
+        },
         transact::P256Proof,
     };
 
@@ -64,7 +66,13 @@ mod tests {
                 nullifier_tree_root_index: (0..MERGE_INPUT_COUNT as u16).collect(),
                 private_tx_hash: [3u8; 32],
                 encrypted_utxo: (0..MERGE_ENCRYPTED_UTXO_LEN as u16)
-                    .map(|i| i as u8)
+                    .map(|i| {
+                        if i == 0 {
+                            MERGE_ENCRYPTED_UTXO_TYPE_PREFIX
+                        } else {
+                            i as u8
+                        }
+                    })
                     .collect(),
                 eddsa_owner: false,
             },
