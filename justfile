@@ -690,7 +690,9 @@ test-ts-example: build-programs build-prover-server ensure-photon ensure-smart-a
     # startLocalStack spawns its own validator, prover, and Photon from
     # ZOLANA_PORT_OFFSET, so the localnet URL variables are deliberately not
     # exported here: setting them makes the harness attach to an external stack
-    # instead of building one.
+    # instead of building one. ZOLANA_PROVER_URL is exported for every recipe,
+    # so it has to be dropped explicitly.
+    unset ZOLANA_PROVER_URL
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
@@ -698,7 +700,12 @@ test-ts-example: build-programs build-prover-server ensure-photon ensure-smart-a
       pkill -f solana-test-validator 2>/dev/null || true
     }
     trap cleanup EXIT
-    export ZOLANA_PHOTON_BIN="$(pwd)/{{photon-bin}}"
+    # The harness spawns from its own working directory, so both binaries have
+    # to be absolute. photon-bin defaults to a repo-relative path but is an
+    # absolute one whenever ZOLANA_PHOTON_BIN is already set.
+    photon="{{photon-bin}}"
+    [[ "$photon" == /* ]] || photon="$(pwd)/$photon"
+    export ZOLANA_PHOTON_BIN="$photon"
     export ZOLANA_PROVER_BIN="$(pwd)/target/prover-server"
     npm run build
     npm run test:e2e:example

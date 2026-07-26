@@ -29,8 +29,7 @@ and `npm run lint:example` point at, both of which run as part of
 these transactions. This example deliberately does not use it, because the Rust
 example it mirrors builds instructions by hand and the two read as a pair. It
 drops to `@zolana/interface` instruction builders, `ConfidentialTransfer`, and
-`client.proveTransact`, and uses the wallet package only for `syncWallet`, which
-owns the view-tag walk across the two indexer endpoints.
+`client.proveTransact`.
 
 One consequence: the transfer step addresses the recipient by `ShieldedAddress`,
 exactly as Rust does. The action layer instead takes the recipient's Solana
@@ -41,50 +40,43 @@ which would add a registration step the Rust example does not have.
 
 | Rust | TypeScript |
 | --- | --- |
-| `ZolanaClient::from_urls(rpc, indexer, prover, tree)` | `new ZolanaClient({ rpc, indexer, prover, tree })` |
+| `ZolanaClient::from_urls(rpc, indexer, prover, tree)` | `ZolanaClient.fromUrls({ rpc, indexerUrl, proverUrl, tree })` |
 | `SolanaRpc::new(url)` | `new SolanaRpc({ url })` |
-| (the Rust client reaches the indexer itself) | `new ZolanaIndexer(new ZolanaApi({ url }))` |
-| `spawn_prover()` | `new ProverClient({ url })`, spawned by `startLocalStack` |
+| `spawn_prover()` | spawned by `startLocalStack`, wired by `fromUrls` |
 | `ShieldedKeypair::from_solana_keypair(&kp)` | `ShieldedKeypair.fromEd25519(seed, 0)` |
+| `keypair.to_solana_keypair()` | `createSolanaSigner(keypair)` |
 | `keypair.shielded_address()` | `keypair.shieldedAddress()` |
 | `address.confidential_view_tag()` / `.owner_hash()` | `address.confidentialViewTag()` / `.ownerHash()` |
 | `random_blinding()` | `randomBlinding()` |
 | `Deposit { .. }.instruction()` | `depositInstruction({ tree, depositor, data })` |
 | `Transact { .. }.instruction()` | `transactInstruction({ payer, tree, withdrawal, data })` |
 | `TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })` | `{ kind: "sol", recipient }` |
-| `SppProofInputUtxo::new(utxo, &kp)` | `new ProofInputUtxo({ utxo, nullifierKey })` |
-| `ConfidentialTransfer::new / send / withdraw` | same names, same order |
-| `transfer.sign(&keypair, &assets)` | `prepare()`, then encrypt, then `finalize()` |
-| `client.prove_transact(inputs, config)` | `client.proveTransact(inputs, context)` |
-| `client.create_and_send_transaction(ixs, payer, signers)` | `sendAndConfirm({ rpc, feePayer, instructions, keypairs })` |
-| `client.get_shielded_transactions_by_tags(..)` | `client.indexer.getShieldedTransactionsByTags(..)` |
-| `decrypt_transactions(&kp, &txs, &assets)` | `syncWallet({ wallet, authority, indexer, config })` |
+| `SppProofInputUtxo::new(utxo, &kp)` | `ProofInputUtxo.fromKeypair(utxo, keypair)` |
+| `ConfidentialTransfer::new / send / withdraw / sign` | same names, same order, `sign` also synchronous |
+| `client.prove_transact(inputs, config)` | `client.proveTransact(inputs, config)` |
+| `client.create_and_send_transaction(ixs, payer, signers)` | `client.createAndSendTransaction({ instructions, feePayer, signers })` |
+| `client.get_shielded_transactions_by_tags(..)` | `client.getShieldedTransactionsByTags(..)` |
+| `decrypt_transactions(&kp, &txs, &assets)` | `Wallet.decrypt({ authority, transactions, assets })` |
 | `balances.get_balance(SOL_MINT)` | `wallet.balance(SOL_MINT)` |
-| `balance.utxos` | `wallet.utxos()` |
 | `client.confirm_private_transaction_sync(sig)` | `await client.confirmPrivateTransaction(sig)` |
 | `client.get_balance(pubkey)` | `client.getBalance(address)` |
-| `IndexerRpcConfig::wait()` | `{ waitForIndexer: true }` |
+| `IndexerRpcConfig::wait()` | `waitForIndexer()` |
 
-## Three places the shapes differ
+## Two places the shapes differ
 
-**There is no `ConfidentialTransfer.sign()`.** Rust folds signing and payload
-encryption into one call. In TypeScript the output ciphertexts come from the
-wallet authority, so it is three steps: `transfer.prepare()` returns the
-nullifier and outputs, `authority.encryptConfidentialTransfer(...)` encrypts
-them, and `prepared.finalize({ txViewingPublicKey, salt, payload })` produces the
-proof inputs. The example wraps this in a local `proofInputs` helper.
+**Everything that touches the network is async.** Rust exposes a blocking and a
+non-blocking rail; JavaScript has no blocking rail to expose, so the TypeScript
+methods that Rust names `*_sync` are the plain `await`ed ones. The purely local
+calls stay synchronous on both sides, including `ConfidentialTransfer.sign`.
 
-**Balances are wallet state, not a return value.** `decrypt_transactions`
-returns balances that the Rust example threads from step to step. `syncWallet`
-mutates a long-lived `Wallet`, so each step re-syncs. Input selection reads that
-same wallet, so a missing re-sync surfaces as a spend of an already-spent note
-rather than as a stale number.
-
-**Signing goes through a keypair, not a `Signer` trait.** There is no
-`to_solana_keypair()`. `@zolana/test-kit/node` exports `nativeKeypair(seed)` for
-a keypair that can fill a signer slot, `nativeSigner(keypair)` to adapt it to the
-`TransactionSigner` interface the wallet package submits through, and
-`sendAndConfirm` to compile, sign, send, and confirm in one call.
+**Decryption goes through a `WalletAuthority`, not a bare keypair.** Rust reads
+`decrypt_transactions(&keypair, ..)`. In TypeScript the viewing key may live
+behind a remote signer or a hardware device, so decryption asks an authority for
+its sync material. `new LocalWalletAuthority({ solanaPublicKey, keypair })` is the
+in-process implementation, and `setup.ts` builds one per participant. The
+stateful alternative is `syncWallet`, which walks the tag ranges and pages both
+indexer endpoints to keep one long-lived `Wallet` current; this example stays at
+the level Rust's does, one tag query followed by one decrypt.
 
 ## What `setup()` does
 
@@ -101,9 +93,9 @@ and the harness does not create:
    as the protocol, forester, merge, tree, and zone authority.
 4. Allocate and create one state tree. `DEFAULT_TREE_ADDRESS` is a vanity address
    with no keypair in the repo, so the example generates a tree and passes it to
-   `new ZolanaClient({ tree })`.
+   `ZolanaClient.fromUrls({ tree })`.
 
-Participants derive their Solana keypair, shielded keypair, wallet, and authority
+Participants derive their Solana signer, shielded keypair, and wallet authority
 from a single seed, so a participant's Solana address and shielded address share
 one key, as they do in the Rust example.
 

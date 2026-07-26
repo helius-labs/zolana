@@ -1,26 +1,27 @@
 /// <reference types="node" />
 
-import { ZolanaApi } from "@zolana/api";
-import { SolanaRpc, ZolanaClient, ZolanaIndexer } from "@zolana/client";
-import { ProverClient } from "@zolana/client/prover";
-import { TREE_ACCOUNT_SIZE, type Address, type Bytes32 } from "@zolana/interface";
+import { SolanaRpc, ZolanaClient } from "@zolana/client";
+import {
+  TREE_ACCOUNT_SIZE,
+  type Address,
+  type Bytes32,
+  type TransactionSigner,
+} from "@zolana/interface";
 import { createTreeInstruction } from "@zolana/interface/instructions";
 import { ShieldedKeypair } from "@zolana/keypair";
 import { executeSyncInstruction } from "@zolana/smart-account-client";
-import { AssetRegistry, Wallet } from "@zolana/transaction";
-import { LocalWalletAuthority } from "@zolana/wallet";
+import { AssetRegistry } from "@zolana/transaction";
+import { createSolanaSigner, LocalWalletAuthority } from "@zolana/wallet";
 import { startLocalStack, type LocalStack } from "@zolana/test-kit";
 import {
   confirm,
   createProtocolConfigInstructions,
   createStandardAccountInstructions,
   minimumBalanceForRentExemption,
-  nativeKeypair,
   requestAirdrop,
   sendAndConfirm,
   standardAccounts,
   systemCreateAccountInstruction,
-  type NativeKeypair,
 } from "@zolana/test-kit/node";
 
 const PAYER_SEED = 1;
@@ -35,16 +36,15 @@ const PROTOCOL_VAULT_LAMPORTS = 5_000_000_000n;
 const PARTICIPANT_LAMPORTS = 10_000_000_000n;
 
 /**
- * One participant in the example: the shielded key material, the local wallet
- * state its notes are decrypted into, and the native keypair that pays fees.
- * All three derive from a single ed25519 seed, so the participant's Solana
- * address and its shielded address share one key.
+ * One participant in the example: the shielded key material, the authority that
+ * decrypts its notes, and the signer that pays its fees. All three come from a
+ * single ed25519 seed, so the participant's Solana address and its shielded
+ * address share one key.
  */
 export interface ExampleParticipant {
   readonly keypair: ShieldedKeypair;
   readonly authority: LocalWalletAuthority;
-  readonly wallet: Wallet;
-  readonly native: NativeKeypair;
+  readonly signer: TransactionSigner;
   readonly address: Address;
 }
 
@@ -62,16 +62,18 @@ function seedBytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
 
+function signer(seed: number): TransactionSigner {
+  return createSolanaSigner(ShieldedKeypair.fromEd25519(seedBytes(seed), 0));
+}
+
 function participant(seed: number): ExampleParticipant {
-  const bytes = seedBytes(seed);
-  const keypair = ShieldedKeypair.fromEd25519(bytes, 0);
-  const native = nativeKeypair(bytes);
+  const keypair = ShieldedKeypair.fromEd25519(seedBytes(seed), 0);
+  const solanaSigner = createSolanaSigner(keypair);
   return Object.freeze({
     keypair,
-    authority: new LocalWalletAuthority({ solanaPublicKey: native.address, keypair }),
-    wallet: new Wallet({ identity: keypair.shieldedAddress(), registry: new AssetRegistry() }),
-    native,
-    address: native.address,
+    authority: new LocalWalletAuthority({ solanaPublicKey: solanaSigner.address, keypair }),
+    signer: solanaSigner,
+    address: solanaSigner.address,
   });
 }
 
@@ -89,13 +91,21 @@ export async function setup(
     input.portOffset === undefined ? {} : { portOffset: input.portOffset },
   );
   try {
-    const rpc = new SolanaRpc({ url: stack.rpcUrl });
     const accounts = standardAccounts();
-    const payer = nativeKeypair(seedBytes(PAYER_SEED));
-    const authority = nativeKeypair(seedBytes(AUTHORITY_SEED));
-    const tree = nativeKeypair(seedBytes(TREE_SEED));
+    const payer = signer(PAYER_SEED);
+    const authority = signer(AUTHORITY_SEED);
+    const tree = signer(TREE_SEED);
     const sender = participant(SENDER_SEED);
     const recipient = participant(RECIPIENT_SEED);
+
+    // The tree address comes from a keypair the example holds, so the client
+    // can be wired before the account it points at exists.
+    const client = ZolanaClient.fromUrls({
+      rpc: new SolanaRpc({ url: stack.rpcUrl }),
+      indexerUrl: stack.indexerUrl,
+      proverUrl: stack.proverUrl,
+      tree: tree.address,
+    });
 
     // Each airdrop is its own transaction, and the funded accounts sign the
     // very next one, so every airdrop has to be confirmed before continuing.
@@ -112,7 +122,7 @@ export async function setup(
         requestAirdrop({ rpcUrl: stack.rpcUrl, address, lamports }),
       ),
     );
-    await Promise.all(airdrops.map((signature) => confirm({ rpc, signature })));
+    await Promise.all(airdrops.map((signature) => confirm({ rpc: client, signature })));
 
     // Every settings account is created with the same signer, so one keypair
     // authorizes protocol, forester, merge, tree, and zone actions.
@@ -126,17 +136,12 @@ export async function setup(
         zone: authority.address,
       },
     })) {
-      await sendAndConfirm({
-        rpc,
-        feePayer: payer.address,
-        instructions: [instruction],
-        keypairs: [payer],
-      });
+      await sendAndConfirm({ client, feePayer: payer, instructions: [instruction] });
     }
 
     await sendAndConfirm({
-      rpc,
-      feePayer: payer.address,
+      client,
+      feePayer: payer,
       instructions: [
         executeSyncInstruction({
           settings: accounts.protocolSettings,
@@ -147,7 +152,7 @@ export async function setup(
           }),
         }),
       ],
-      keypairs: [payer, authority],
+      signers: [authority],
     });
 
     const lamports = await minimumBalanceForRentExemption({
@@ -155,8 +160,8 @@ export async function setup(
       space: TREE_ACCOUNT_SIZE,
     });
     await sendAndConfirm({
-      rpc,
-      feePayer: payer.address,
+      client,
+      feePayer: payer,
       instructions: [
         systemCreateAccountInstruction({
           payer: payer.address,
@@ -169,22 +174,11 @@ export async function setup(
           accountIndex: 0,
           signerKeys: [authority.address],
           innerInstructions: [
-            createTreeInstruction({
-              authority: accounts.protocolVault,
-              tree: tree.address,
-              owner: accounts.protocolVault,
-            }),
+            createTreeInstruction({ authority: accounts.protocolVault, tree: tree.address }),
           ],
         }),
       ],
-      keypairs: [payer, tree, authority],
-    });
-
-    const client = new ZolanaClient({
-      rpc,
-      indexer: new ZolanaIndexer(new ZolanaApi({ url: stack.indexerUrl })),
-      prover: new ProverClient({ url: stack.proverUrl }),
-      tree: tree.address,
+      signers: [tree, authority],
     });
 
     return Object.freeze({
