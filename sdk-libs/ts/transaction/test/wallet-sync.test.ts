@@ -1,4 +1,4 @@
-import type { Bytes31, Bytes32, Bytes33, Signature } from "@zolana/interface";
+import type { Bytes16, Bytes31, Bytes32, Bytes33, Signature } from "@zolana/interface";
 import {
   NullifierKey,
   P256PublicKey,
@@ -133,9 +133,15 @@ function shieldedTransactions(
 ): readonly IndexedShieldedTransaction[] {
   return fixtureArray(inputs, "transactions").map((entry) => {
     const transaction = fixtureObject(entry, "shielded transaction");
+    const txViewingPk = transaction.txViewingPkBytes;
+    const salt = transaction.saltBytes;
     return {
       slot: BigInt(fixtureString(transaction, "slot")),
       txSignature: fixtureString(transaction, "signature") as Signature,
+      ...(typeof txViewingPk === "string"
+        ? { txViewingPublicKey: P256PublicKey.fromBytes(hexBytes(txViewingPk) as Bytes33) }
+        : {}),
+      ...(typeof salt === "string" ? { salt: hexBytes(salt) as Bytes16 } : {}),
       outputSlots: fixtureArray(transaction, "outputSlots").map((slotValue) => {
         const slot = fixtureObject(slotValue, "output slot");
         return {
@@ -348,6 +354,40 @@ describe("manifest-verified wallet behavior", () => {
         transactions: [],
       }),
     ).rejects.toMatchObject({ code: "TRANSACTION_MISSING_CURRENT_VIEWING_KEY" });
+  });
+
+  it("records the same history rows Rust records for every recording path", async () => {
+    const fixture = load("wallet-sync");
+    const inputs = section(fixture, "inputs");
+    const value = fixtureAuthority(inputs);
+    const history = fixtureObject(section(fixture, "expected").history, "wallet history");
+    const transactions = shieldedTransactions(fixtureObject(inputs.history, "history inputs"));
+    const wallet = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
+    const steps = fixtureArray(history, "steps");
+    expect(steps).toHaveLength(transactions.length);
+
+    // Synced one transaction at a time, in order: an outbound row can only net
+    // the notes it spends down if the sync that stored them already ran.
+    for (const [index, transaction] of transactions.entries()) {
+      const step = fixtureObject(steps[index], "history step");
+      const report = await decryptTransactions({
+        wallet,
+        authority: value.authority,
+        transactions: [transaction],
+        config: { syncedAt: BigInt(300 + index) },
+      });
+      expect(report).toEqual(reportRow(step.report));
+      expect(wallet.privateTransactions()).toEqual(
+        fixtureArray(step, "rows").map((entry) => historyRow(fixtureObject(entry, "history row"))),
+      );
+    }
+
+    expect(wallet.utxos()).toHaveLength(Number(fixtureString(history, "utxoCount")));
+    expect(wallet.utxos().filter((entry) => !entry.spent)).toHaveLength(
+      Number(fixtureString(history, "unspentCount")),
+    );
+    expect(wallet.balance(SOL_MINT).amount).toBe(BigInt(fixtureString(history, "balance")));
+    expect(wallet.lastSynced).toBe(BigInt(fixtureString(history, "lastSynced")));
   });
 
   it("replays the persisted Rust regression seed amounts", () => {

@@ -1309,6 +1309,7 @@ fn transaction_json(transaction: &PrivateTransaction) -> Value {
 }
 
 fn wallet_sync_vectors(keypair: &ShieldedKeypair) -> Result<Value, Box<dyn std::error::Error>> {
+    let (history_inputs, history_expected) = wallet_history_vectors(keypair, &fixed_recipient()?)?;
     let registry = AssetRegistry::default();
     let material = WalletSyncMaterial {
         identity: keypair.shielded_address()?,
@@ -1353,9 +1354,11 @@ fn wallet_sync_vectors(keypair: &ShieldedKeypair) -> Result<Value, Box<dyn std::
         json!({
             "signingSecretBytes": hex(&SIGNING_SECRET),
             "viewingSeedBytes": hex(&VIEWING_SEED),
-            "transactions": transactions.iter().map(shielded_transaction_json).collect::<Vec<_>>()
+            "transactions": transactions.iter().map(shielded_transaction_json).collect::<Vec<_>>(),
+            "history": history_inputs
         }),
         json!({
+            "history": history_expected,
             "sequential": {
                 "reports": [sync_report_json(&first), sync_report_json(&second), sync_report_json(&idempotent)],
                 "utxoCount": sequential.utxos.len().to_string(),
@@ -1429,6 +1432,8 @@ fn shielded_transaction_json(transaction: &ShieldedTransaction) -> Value {
         "slot": transaction.slot.to_string(),
         "signature": transaction.tx_signature.to_string(),
         "proofless": transaction.proofless,
+        "txViewingPkBytes": transaction.tx_viewing_pk.map(|pubkey| hex(pubkey.as_bytes())),
+        "saltBytes": transaction.salt.map(|salt| hex(&salt)),
         "outputSlots": transaction.output_slots.iter().map(|slot| json!({
             "viewTagBytes": hex(&slot.view_tag),
             "hashBytes": hex(&slot.output_context.hash),
@@ -1447,6 +1452,522 @@ fn sync_report_json(report: &zolana_transaction::SyncReport) -> Value {
         "undecryptableCandidates": report.undecryptable_candidates.to_string(),
         "unknownAssetIds": report.unknown_asset_ids.iter().map(ToString::to_string).collect::<Vec<_>>()
     })
+}
+
+const HISTORY_TREE: [u8; 32] = [44; 32];
+/// A dummy change slot is a length-matched ciphertext no key of the wallet's
+/// opens, so it carries a tag the wallet never derives and a body sealed under
+/// an unrelated transaction key.
+const HISTORY_DUMMY_TAG: [u8; 32] = [45; 32];
+const HISTORY_DUMMY_SEED: [u8; 32] = [46; 32];
+
+fn history_slot(
+    view_tag: [u8; 32],
+    hash: [u8; 32],
+    leaf_index: u64,
+    payload: Vec<u8>,
+) -> OutputSlot {
+    OutputSlot {
+        view_tag,
+        output_context: OutputContext {
+            hash,
+            tree: Address::new_from_array(HISTORY_TREE),
+            leaf_index,
+        },
+        payload,
+    }
+}
+
+fn history_note(keypair: &ShieldedKeypair, amount: u64, position: u8) -> Utxo {
+    Utxo {
+        owner: keypair.signing_pubkey(),
+        asset: SOL_MINT,
+        amount,
+        blinding: zolana_transaction::derive_blinding(&BLINDING_SEED, position),
+        zone_program_id: None,
+        data: Data::default(),
+    }
+}
+
+fn history_hash(
+    keypair: &ShieldedKeypair,
+    utxo: &Utxo,
+) -> Result<[u8; 32], Box<dyn std::error::Error>> {
+    Ok(utxo.hash(&keypair.nullifier_key.pubkey()?, &[0; 32], &[0; 32])?)
+}
+
+/// The nullifier the wallet stores against `utxo`, which is what a later
+/// transaction must publish for that note to be netted out of its history row.
+fn history_nullifier(
+    keypair: &ShieldedKeypair,
+    utxo: &Utxo,
+) -> Result<[u8; 32], Box<dyn std::error::Error>> {
+    let hash = history_hash(keypair, utxo)?;
+    Ok(utxo.nullifier(&hash, &keypair.nullifier_key)?)
+}
+
+fn history_owner_cx<'a>(
+    keypair: &ShieldedKeypair,
+    assets: &'a AssetRegistry,
+) -> zolana_transaction::OwnerCx<'a> {
+    zolana_transaction::OwnerCx {
+        owner: keypair.signing_pubkey(),
+        assets,
+        zone_program_id: None,
+    }
+}
+
+/// The transaction viewing key and salt a spending wallet publishes. Both come
+/// from the first nullifier, which is what lets the author alone re-derive them
+/// and reconstruct its own outbound history.
+fn history_envelope(
+    keypair: &ShieldedKeypair,
+    first_nullifier: &[u8; 32],
+) -> Result<(ViewingKey, [u8; SALT_LEN]), Box<dyn std::error::Error>> {
+    let tx = keypair
+        .viewing_key
+        .get_transaction_viewing_key(first_nullifier)?;
+    let mut salt = [0u8; SALT_LEN];
+    salt.copy_from_slice(&first_nullifier[..SALT_LEN]);
+    Ok((tx, salt))
+}
+
+fn history_transaction(
+    slot: u64,
+    envelope: Option<(&ViewingKey, [u8; SALT_LEN])>,
+    nullifiers: Vec<[u8; 32]>,
+    output_slots: Vec<OutputSlot>,
+) -> ShieldedTransaction {
+    ShieldedTransaction {
+        slot,
+        tx_signature: Default::default(),
+        tx_viewing_pk: envelope.map(|(tx, _)| tx.pubkey()),
+        salt: envelope.map(|(_, salt)| salt),
+        output_slots,
+        messages: Vec::new(),
+        nullifiers,
+        proofless: false,
+    }
+}
+
+/// A proofless deposit: one plaintext slot under the recipient bootstrap tag.
+fn history_deposit(
+    owner: &ShieldedKeypair,
+    assets: &AssetRegistry,
+    note: &Utxo,
+    slot: u64,
+) -> Result<ShieldedTransaction, Box<dyn std::error::Error>> {
+    let message = Proofless::encode(
+        std::slice::from_ref(note),
+        &history_owner_cx(owner, assets),
+        owner.viewing_key.recipient_bootstrap_view_tag(),
+        &ProoflessEncode {
+            owner_hash: owner.owner_hash()?,
+            data_hash: None,
+            zone_data_hash: None,
+        },
+    )?;
+    let mut deposit = history_transaction(
+        slot,
+        None,
+        Vec::new(),
+        vec![history_slot(
+            message.view_tag,
+            history_hash(owner, note)?,
+            0,
+            message.data,
+        )],
+    );
+    deposit.proofless = true;
+    Ok(deposit)
+}
+
+struct HistoryAnonymous<'a> {
+    sender: &'a ShieldedKeypair,
+    recipient: &'a ShieldedKeypair,
+    assets: &'a AssetRegistry,
+    slot: u64,
+    leaf_index: u64,
+    nullifiers: Vec<[u8; 32]>,
+    change: u64,
+    recipient_note: &'a Utxo,
+    blinding_seed: [u8; BLINDING_LEN],
+    sender_tag: [u8; 32],
+    recipient_tag: [u8; 32],
+}
+
+impl HistoryAnonymous<'_> {
+    /// The two-rail anonymous transfer: slot 0 is the sender bundle that
+    /// carries the change back, slot 1 is the recipient's sealed note.
+    fn build(self) -> Result<(ShieldedTransaction, Utxo), Box<dyn std::error::Error>> {
+        let first_nullifier = *self
+            .nullifiers
+            .first()
+            .ok_or("an anonymous transfer spends at least one note")?;
+        let (tx, salt) = history_envelope(self.sender, &first_nullifier)?;
+        let recipient_pks = vec![self.recipient.viewing_pubkey()];
+        let plaintext = AnonymousTransferSenderPlaintext {
+            owner_pubkey: self.sender.signing_pubkey(),
+            spl_asset_id: 0,
+            spl_amount: 0,
+            sol_amount: self.change,
+            blinding_seed: self.blinding_seed,
+            recipient_viewing_pks: recipient_pks.clone(),
+            spl_data: Data::default(),
+            sol_data: Data::default(),
+        };
+        let change = AnonymousSenderBundle::into_utxos(
+            plaintext.clone(),
+            &history_owner_cx(self.sender, self.assets),
+        )?;
+        let change_note = change
+            .into_iter()
+            .next()
+            .ok_or("the sender bundle carries one change note")?;
+        let sender_message = AnonymousSenderBundle::encode_plaintext(
+            &plaintext,
+            self.sender_tag,
+            &AnonymousSenderEncode {
+                tx: tx.clone(),
+                self_pubkey: self.sender.viewing_pubkey(),
+                salt,
+                slot_index: 0,
+                blinding_seed: self.blinding_seed,
+                recipient_viewing_pks: recipient_pks,
+            },
+        )?;
+        let recipient_message = AnonymousRecipient::encode(
+            std::slice::from_ref(self.recipient_note),
+            &history_owner_cx(self.recipient, self.assets),
+            self.recipient_tag,
+            &AnonymousRecipientEncode {
+                tx: tx.clone(),
+                recipient_pubkey: self.recipient.viewing_pubkey(),
+                sender_pubkey: self.sender.viewing_pubkey(),
+                salt,
+                slot_index: 1,
+            },
+        )?;
+        let transaction = history_transaction(
+            self.slot,
+            Some((&tx, salt)),
+            self.nullifiers,
+            vec![
+                history_slot(
+                    sender_message.view_tag,
+                    history_hash(self.sender, &change_note)?,
+                    self.leaf_index,
+                    sender_message.data,
+                ),
+                history_slot(
+                    recipient_message.view_tag,
+                    history_hash(self.recipient, self.recipient_note)?,
+                    self.leaf_index + 1,
+                    recipient_message.data,
+                ),
+            ],
+        );
+        Ok((transaction, change_note))
+    }
+}
+
+struct HistoryConfidential<'a> {
+    sender: &'a ShieldedKeypair,
+    assets: &'a AssetRegistry,
+    slot: u64,
+    leaf_index: u64,
+    nullifiers: Vec<[u8; 32]>,
+    change_note: &'a Utxo,
+    /// Absent for a withdrawal, which pays a public address rather than a
+    /// shielded one and so publishes no recipient slot at all.
+    recipient: Option<(&'a ShieldedKeypair, &'a Utxo)>,
+}
+
+impl HistoryConfidential<'_> {
+    /// The unified confidential rail: the two leading slots are the sender's own
+    /// SPL and SOL change, recipients follow. This scenario moves SOL only, so
+    /// slot 0 is the dummy that a real transfer length-matches into the SPL
+    /// position and that the author's own key fails to open.
+    fn build(self) -> Result<ShieldedTransaction, Box<dyn std::error::Error>> {
+        let first_nullifier = *self
+            .nullifiers
+            .first()
+            .ok_or("a confidential transfer spends at least one note")?;
+        let (tx, salt) = history_envelope(self.sender, &first_nullifier)?;
+        let dummy = Confidential::encode(
+            std::slice::from_ref(self.change_note),
+            &history_owner_cx(self.sender, self.assets),
+            HISTORY_DUMMY_TAG,
+            &ConfidentialEncode {
+                tx: ViewingKey::from_seed(&HISTORY_DUMMY_SEED, 0)?,
+                recipient_pubkey: self.sender.viewing_pubkey(),
+                salt,
+                slot_index: 0,
+            },
+        )?;
+        let change = Confidential::encode(
+            std::slice::from_ref(self.change_note),
+            &history_owner_cx(self.sender, self.assets),
+            self.sender.signing_pubkey().confidential_view_tag()?,
+            &ConfidentialEncode {
+                tx: tx.clone(),
+                recipient_pubkey: self.sender.viewing_pubkey(),
+                salt,
+                slot_index: 1,
+            },
+        )?;
+        let mut output_slots = vec![
+            history_slot(dummy.view_tag, [0u8; 32], self.leaf_index, dummy.data),
+            history_slot(
+                change.view_tag,
+                history_hash(self.sender, self.change_note)?,
+                self.leaf_index + 1,
+                change.data,
+            ),
+        ];
+        if let Some((recipient, note)) = self.recipient {
+            let message = Confidential::encode(
+                std::slice::from_ref(note),
+                &history_owner_cx(recipient, self.assets),
+                recipient.signing_pubkey().confidential_view_tag()?,
+                &ConfidentialEncode {
+                    tx: tx.clone(),
+                    recipient_pubkey: recipient.viewing_pubkey(),
+                    salt,
+                    slot_index: 2,
+                },
+            )?;
+            output_slots.push(history_slot(
+                message.view_tag,
+                history_hash(recipient, note)?,
+                self.leaf_index + 2,
+                message.data,
+            ));
+        }
+        Ok(history_transaction(
+            self.slot,
+            Some((&tx, salt)),
+            self.nullifiers,
+            output_slots,
+        ))
+    }
+}
+
+/// A split: one bundle at slot 0 describes every equal output, and the later
+/// slots publish only their leaves, which is what the wallet matches its
+/// reconstructed notes against.
+fn history_split(
+    owner: &ShieldedKeypair,
+    assets: &AssetRegistry,
+    outputs: &[Utxo],
+    slot: u64,
+    nullifiers: Vec<[u8; 32]>,
+) -> Result<ShieldedTransaction, Box<dyn std::error::Error>> {
+    let first_nullifier = *nullifiers.first().ok_or("a split spends one note")?;
+    let (tx, salt) = history_envelope(owner, &first_nullifier)?;
+    let message = Split::encode(
+        outputs,
+        &history_owner_cx(owner, assets),
+        owner.signing_pubkey().confidential_view_tag()?,
+        &SplitEncode {
+            tx: tx.clone(),
+            recipient_pubkey: owner.viewing_pubkey(),
+            salt,
+            slot_index: 0,
+            blinding_seed: BLINDING_SEED,
+        },
+    )?;
+    let mut payload = Some(message.data);
+    let output_slots = outputs
+        .iter()
+        .enumerate()
+        .map(|(index, output)| {
+            Ok(history_slot(
+                message.view_tag,
+                history_hash(owner, output)?,
+                20 + index as u64,
+                payload.take().unwrap_or_default(),
+            ))
+        })
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+    Ok(history_transaction(
+        slot,
+        Some((&tx, salt)),
+        nullifiers,
+        output_slots,
+    ))
+}
+
+/// A merge seals its output under a transaction key carried inside the slot, so
+/// the transaction publishes no envelope key and no salt of its own.
+fn history_merge(
+    owner: &ShieldedKeypair,
+    assets: &AssetRegistry,
+    output: &Utxo,
+    slot: u64,
+    nullifiers: Vec<[u8; 32]>,
+) -> Result<ShieldedTransaction, Box<dyn std::error::Error>> {
+    let message = Merge::encode(
+        std::slice::from_ref(output),
+        &history_owner_cx(owner, assets),
+        owner.signing_pubkey().confidential_view_tag()?,
+        &MergeEncode {
+            tx: ViewingKey::from_seed(&TX_VIEWING_SEED, 0)?,
+            user_viewing_pk: owner.viewing_pubkey(),
+        },
+    )?;
+    Ok(history_transaction(
+        slot,
+        None,
+        nullifiers,
+        vec![history_slot(
+            message.view_tag,
+            history_hash(owner, output)?,
+            30,
+            message.data,
+        )],
+    ))
+}
+
+/// One transaction per history-recording path, in the order a wallet sees them:
+/// each sync spends notes the previous sync stored, which is what makes the
+/// outbound rows carry real spent amounts rather than zero.
+fn wallet_history_transactions(
+    owner: &ShieldedKeypair,
+    peer: &ShieldedKeypair,
+    assets: &AssetRegistry,
+) -> Result<Vec<ShieldedTransaction>, Box<dyn std::error::Error>> {
+    let deposited = history_note(owner, 100, 1);
+    let deposit = history_deposit(owner, assets, &deposited, 200)?;
+
+    let received = history_note(owner, 40, 2);
+    let (inbound, _) = HistoryAnonymous {
+        sender: peer,
+        recipient: owner,
+        assets,
+        slot: 201,
+        leaf_index: 2,
+        nullifiers: vec![history_nullifier(peer, &history_note(peer, 55, 3))?],
+        change: 15,
+        recipient_note: &received,
+        blinding_seed: zolana_transaction::derive_blinding(&BLINDING_SEED, 4),
+        sender_tag: peer.viewing_key.get_sender_view_tag(0)?,
+        recipient_tag: owner.viewing_key.recipient_bootstrap_view_tag(),
+    }
+    .build()?;
+
+    let (outbound, anonymous_change) = HistoryAnonymous {
+        sender: owner,
+        recipient: peer,
+        assets,
+        slot: 202,
+        leaf_index: 4,
+        nullifiers: vec![history_nullifier(owner, &deposited)?],
+        change: 76,
+        recipient_note: &history_note(peer, 24, 5),
+        blinding_seed: zolana_transaction::derive_blinding(&BLINDING_SEED, 6),
+        sender_tag: owner.viewing_key.get_sender_view_tag(0)?,
+        recipient_tag: peer.viewing_key.recipient_bootstrap_view_tag(),
+    }
+    .build()?;
+
+    let confidential_change = history_note(owner, 44, 7);
+    let sent = HistoryConfidential {
+        sender: owner,
+        assets,
+        slot: 203,
+        leaf_index: 6,
+        nullifiers: vec![history_nullifier(owner, &anonymous_change)?],
+        change_note: &confidential_change,
+        recipient: Some((peer, &history_note(peer, 32, 8))),
+    }
+    .build()?;
+
+    let withdrawn = HistoryConfidential {
+        sender: owner,
+        assets,
+        slot: 204,
+        leaf_index: 9,
+        nullifiers: vec![history_nullifier(owner, &received)?],
+        change_note: &history_note(owner, 15, 9),
+        recipient: None,
+    }
+    .build()?;
+
+    // A split's outputs are equal and blinded by position from the bundle seed,
+    // so their positions are fixed rather than free.
+    let parts = (0..2)
+        .map(|part| history_note(owner, 22, part))
+        .collect::<Vec<_>>();
+    let split = history_split(
+        owner,
+        assets,
+        &parts,
+        205,
+        vec![history_nullifier(owner, &confidential_change)?],
+    )?;
+
+    let merged = history_note(owner, 44, 10);
+    let merge = history_merge(
+        owner,
+        assets,
+        &merged,
+        206,
+        parts
+            .iter()
+            .map(|part| history_nullifier(owner, part))
+            .collect::<Result<Vec<_>, _>>()?,
+    )?;
+
+    Ok(vec![
+        deposit, inbound, outbound, sent, withdrawn, split, merge,
+    ])
+}
+
+/// Sync the scenario one transaction at a time and record the report and the
+/// full history after each, so the fixture pins both the rows each recording
+/// path writes and the order the wallet keeps them in.
+fn wallet_history_vectors(
+    owner: &ShieldedKeypair,
+    peer: &ShieldedKeypair,
+) -> Result<(Value, Value), Box<dyn std::error::Error>> {
+    let assets = AssetRegistry::default();
+    let transactions = wallet_history_transactions(owner, peer, &assets)?;
+    let material = WalletSyncMaterial {
+        identity: owner.shielded_address()?,
+        viewing_keys: vec![owner.viewing_key.clone()],
+        nullifier_key: owner.nullifier_key.clone(),
+    };
+    let mut wallet = Wallet::new(material.identity, assets)?;
+    let steps = transactions
+        .iter()
+        .enumerate()
+        .map(|(index, transaction)| {
+            let report = wallet.sync_with_material(
+                &material,
+                std::slice::from_ref(transaction),
+                300 + index as i64,
+                64,
+            )?;
+            Ok(json!({
+                "report": sync_report_json(&report),
+                "rows": wallet.private_transactions().iter().map(transaction_json).collect::<Vec<_>>()
+            }))
+        })
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+
+    Ok((
+        json!({
+            "transactions": transactions.iter().map(shielded_transaction_json).collect::<Vec<_>>()
+        }),
+        json!({
+            "steps": steps,
+            "utxoCount": wallet.utxos.len().to_string(),
+            "unspentCount": wallet.utxos.iter().filter(|utxo| !utxo.spent).count().to_string(),
+            "balance": wallet.balance(SOL_MINT, None)?.amount.to_string(),
+            "lastSynced": wallet.last_synced.to_string()
+        }),
+    ))
 }
 
 fn assigned_test_vectors() -> Result<Value, Box<dyn std::error::Error>> {

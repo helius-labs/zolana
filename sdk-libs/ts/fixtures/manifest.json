@@ -164,7 +164,7 @@
     },
     {
       "path": "transaction/wallet-sync-v1.json",
-      "sha256": "54322d4939cf9c4fd5bf1c8e524df3b0b09814eae427139bd637864e40be9682"
+      "sha256": "1196ea52c5840e223d25c3a8c32a059a5eda969c9a19d1c7afdf2c7a675212ac"
     },
     {
       "path": "transaction/zone-v1.json",

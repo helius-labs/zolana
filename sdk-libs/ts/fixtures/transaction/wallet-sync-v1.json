@@ -11,6 +11,448 @@
         "details": "MissingCurrentViewingKey"
       }
     ],
+    "history": {
+      "balance": "59",
+      "lastSynced": "306",
+      "steps": [
+        {
+          "report": {
+            "storedUtxos": "1",
+            "undecryptableCandidates": "0",
+            "unknownAssetIds": [],
+            "unparsedTransactions": "0"
+          },
+          "rows": [
+            {
+              "amount": "100",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "Inbound",
+              "id": {
+                "index": "0",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "200"
+              },
+              "kind": "Deposit",
+              "status": "Confirmed"
+            }
+          ]
+        },
+        {
+          "report": {
+            "storedUtxos": "1",
+            "undecryptableCandidates": "0",
+            "unknownAssetIds": [],
+            "unparsedTransactions": "0"
+          },
+          "rows": [
+            {
+              "amount": "100",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "Inbound",
+              "id": {
+                "index": "0",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "200"
+              },
+              "kind": "Deposit",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "40",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Inbound",
+              "id": {
+                "index": "3",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "201"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            }
+          ]
+        },
+        {
+          "report": {
+            "storedUtxos": "1",
+            "undecryptableCandidates": "0",
+            "unknownAssetIds": [],
+            "unparsedTransactions": "0"
+          },
+          "rows": [
+            {
+              "amount": "100",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "Inbound",
+              "id": {
+                "index": "0",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "200"
+              },
+              "kind": "Deposit",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "40",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Inbound",
+              "id": {
+                "index": "3",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "201"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "24",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "202"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            }
+          ]
+        },
+        {
+          "report": {
+            "storedUtxos": "1",
+            "undecryptableCandidates": "0",
+            "unknownAssetIds": [],
+            "unparsedTransactions": "0"
+          },
+          "rows": [
+            {
+              "amount": "100",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "Inbound",
+              "id": {
+                "index": "0",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "200"
+              },
+              "kind": "Deposit",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "40",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Inbound",
+              "id": {
+                "index": "3",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "201"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "24",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "202"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "32",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "203"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            }
+          ]
+        },
+        {
+          "report": {
+            "storedUtxos": "1",
+            "undecryptableCandidates": "0",
+            "unknownAssetIds": [],
+            "unparsedTransactions": "0"
+          },
+          "rows": [
+            {
+              "amount": "100",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "Inbound",
+              "id": {
+                "index": "0",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "200"
+              },
+              "kind": "Deposit",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "40",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Inbound",
+              "id": {
+                "index": "3",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "201"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "24",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "202"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "32",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "203"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "25",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "204"
+              },
+              "kind": "PublicWithdrawal",
+              "status": "Confirmed"
+            }
+          ]
+        },
+        {
+          "report": {
+            "storedUtxos": "2",
+            "undecryptableCandidates": "0",
+            "unknownAssetIds": [],
+            "unparsedTransactions": "0"
+          },
+          "rows": [
+            {
+              "amount": "100",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "Inbound",
+              "id": {
+                "index": "0",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "200"
+              },
+              "kind": "Deposit",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "40",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Inbound",
+              "id": {
+                "index": "3",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "201"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "24",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "202"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "32",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "203"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "25",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "204"
+              },
+              "kind": "PublicWithdrawal",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "44",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "SelfTransfer",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "205"
+              },
+              "kind": "Split",
+              "status": "Confirmed"
+            }
+          ]
+        },
+        {
+          "report": {
+            "storedUtxos": "1",
+            "undecryptableCandidates": "0",
+            "unknownAssetIds": [],
+            "unparsedTransactions": "0"
+          },
+          "rows": [
+            {
+              "amount": "100",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "Inbound",
+              "id": {
+                "index": "0",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "200"
+              },
+              "kind": "Deposit",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "40",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Inbound",
+              "id": {
+                "index": "3",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "201"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "24",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "202"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "32",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "203"
+              },
+              "kind": "PrivateTransfer",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "25",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "Outbound",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "204"
+              },
+              "kind": "PublicWithdrawal",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "44",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "SelfTransfer",
+              "id": {
+                "index": "9223372036854775808",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "205"
+              },
+              "kind": "Split",
+              "status": "Confirmed"
+            },
+            {
+              "amount": "44",
+              "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "counterpartyViewingPkBytes": null,
+              "direction": "SelfTransfer",
+              "id": {
+                "index": "30",
+                "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+                "slot": "206"
+              },
+              "kind": "Merge",
+              "status": "Confirmed"
+            }
+          ]
+        }
+      ],
+      "unspentCount": "2",
+      "utxoCount": "8"
+    },
     "parallelEquivalent": {
       "balance": "50",
       "historyEqual": true,
@@ -61,6 +503,184 @@
   },
   "id": "fx-p00-transaction-wallet-sync-v1",
   "inputs": {
+    "history": {
+      "transactions": [
+        {
+          "nullifiers": [],
+          "outputSlots": [
+            {
+              "hashBytes": "0db4344ee6af1fca4fc07b82eeecb5529f29631fbae4a95476cc668cf42001b2",
+              "leafIndex": "0",
+              "payloadBytes": "006e000000002b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa915875e98abbb4043bbd77fa2d8846e15833eaaae791ab2fe1e7b60aa98b3df00000000000000000000000000000000000000000000000000000000000000006400000000000000000000000000",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "28207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+            }
+          ],
+          "proofless": true,
+          "saltBytes": null,
+          "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+          "slot": "200",
+          "txViewingPkBytes": null
+        },
+        {
+          "nullifiers": [
+            "2b88c62b40a2a20e0602cd8785a7fb681301ec28a771989a663a0e700f955a3a"
+          ],
+          "outputSlots": [
+            {
+              "hashBytes": "225ceb089c13a2da109c983608c8af3f170dc8786de4c0273c0c48593664a2af",
+              "leafIndex": "2",
+              "payloadBytes": "017e00000002cd87e4547f346375cbef4f4c77d08e4c4841cf31a8b47c0ce4b0dbb20648bffe28a81804ac4af3f2433bed5dc37907993520009aee045f8d83df2a44999d3f4afcfcd7022a5e4e699d35554cf822b9e5feb7e9d6cfd957d1800874736d90fb7408066f35b13db950f53edbea805d86bed3860c2093900fa2b668c5f8f9",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "0033946c8eaa83d57d3bc06d9855b8bb7783b013afbc4d2719daf713455cb0cd"
+            },
+            {
+              "hashBytes": "103c13677f94e5cfd47e78a459055eb78c41f6af03550481034f0c996f217848",
+              "leafIndex": "3",
+              "payloadBytes": "0174000000012cc9ee0d09e3f0d6e48211a91fe333a2ad310cc6a78d42b3d8d7a4582c0f97b88a88e057ea1fc7f0f7e72d305b60686917baff297302402fbaf961ea7ea5413098043cd522e9a6455f039744a1ff897de98f479e1361dcf96a1c756c8e2bd4a849c4b813950834eb84572dba2fadf67afbc975",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "28207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+            }
+          ],
+          "proofless": false,
+          "saltBytes": "2b88c62b40a2a20e0602cd8785a7fb68",
+          "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+          "slot": "201",
+          "txViewingPkBytes": "032507d784694d249995ca6b156b08382b44b2ef0a636fc132b3027aef502b6620"
+        },
+        {
+          "nullifiers": [
+            "0fe8349b8450e65bcce3efde32b161106ee10bc911722fa6303deda627b4e3f4"
+          ],
+          "outputSlots": [
+            {
+              "hashBytes": "0c251fa1e92f6974e6fddd55ae8fbdae76a100c4367ce319d3258060b74e1421",
+              "leafIndex": "4",
+              "payloadBytes": "017e0000000262b42e8fa8deabc0fe8353dd9ab69511312f223f5d20a9344a0c439c22ce87d4d9b825b55108419775b962be52fb839e8c467616f0b6a4176d996dd597d23adb520499bc6737677775b081462f69a7bd823abfdc0853cdc82d91c752e854e3a0d282c996b1bcb8258dbf01e7c03a8eccd04efb7f1cc608415de6003a0f",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "0087218caadfe2a51f479e5ca120b8ae2036e7706f9cfd3b3ff273d236b2aab7"
+            },
+            {
+              "hashBytes": "26dc6f1a101b77f5ddd2514e8724934e407fdd55e0ec6f72296e7a5b7fadea9d",
+              "leafIndex": "5",
+              "payloadBytes": "0174000000014b1185e6d38293140eda74b3b08bdb61887c6aa17438549728c2a7e4f4c2c18c94516eb39b9b606f3f72f661db4192a1324e6da618835920bd504c19080fcf22b3c67edf52ce77a62a28fba69bf97fa84791d3bdf4771297fcb9154783b4bb10419f18749ead69ca073cd8bc52e41530939f8e",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3"
+            }
+          ],
+          "proofless": false,
+          "saltBytes": "0fe8349b8450e65bcce3efde32b16110",
+          "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+          "slot": "202",
+          "txViewingPkBytes": "02f6c11aa24b674355a8601865f427a2dd21e394c725bdbce6a7ca3611b5239447"
+        },
+        {
+          "nullifiers": [
+            "1cd2e7c0e3127d71ba0c40568375cf6f1e363fac2b1a78eb55bac1f41d90b174"
+          ],
+          "outputSlots": [
+            {
+              "hashBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "leafIndex": "6",
+              "payloadBytes": "0153000000030228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a1411e0a4e211dd9c422a80786801f978107b4ad9c2e9e82a4cfcf1141ae3b7370ec4fbb84a9d71740b4b74dcb767c5ae4ed69",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d"
+            },
+            {
+              "hashBytes": "14eec5b35090dfb5ee6cab0c4348411238a81e79b930a6ffc266aec19cdc5c5b",
+              "leafIndex": "7",
+              "payloadBytes": "0153000000030228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a14188ae4df8b9ba07482112939a211d2db6f8ef96bab57b612f02924afc26a3ac8355da4cddd89c2144ec8d99adeae6a1cb32",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3"
+            },
+            {
+              "hashBytes": "270564353aba7edb67f9ce148d6f604ecd1673047bbc46a220a151508072da3c",
+              "leafIndex": "8",
+              "payloadBytes": "01530000000302ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3d8dadd8b34e368796b914ed4b9ff76a328688d56c44eecd989015c981e14fbb532545646b6f2ae817b7a6c8d23bf459d2e",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "741dd5bda817d95e4626537320e5d55179983028b2f82c99d500c5ee8624e3c4"
+            }
+          ],
+          "proofless": false,
+          "saltBytes": "1cd2e7c0e3127d71ba0c40568375cf6f",
+          "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+          "slot": "203",
+          "txViewingPkBytes": "02de1b0cbda59bed8bdb078a9daf7a4e1a2125224929623bac8ff25495d2e6279d"
+        },
+        {
+          "nullifiers": [
+            "081ac2a060530e7c0ff0520e99fdbf2d674be93072487799265bec63f16ff6df"
+          ],
+          "outputSlots": [
+            {
+              "hashBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+              "leafIndex": "9",
+              "payloadBytes": "0153000000030228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a1412f4ee0c88ef1b94848b6cd15c4259787d5e413d5f062a18beebe3a91ad34bf9a27ea8abbec297d3e12c8b9e70efe688767",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d"
+            },
+            {
+              "hashBytes": "0432d5af6f587ab381e16d9ed7d7ce496b3b08693a8f3a1c289e61ca79d5248d",
+              "leafIndex": "10",
+              "payloadBytes": "0153000000030228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141b97ed799b8f810f1a5c5d4472536cc458d68ec98c7e7ee30b744e502aea9a8dcff4d7c8f96c156cdff476aa27db813fc56",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3"
+            }
+          ],
+          "proofless": false,
+          "saltBytes": "081ac2a060530e7c0ff0520e99fdbf2d",
+          "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+          "slot": "204",
+          "txViewingPkBytes": "03f9948098a8a4f93282273c0c9c4f710fb0734164c8990b7f2f6712d07b1064e3"
+        },
+        {
+          "nullifiers": [
+            "248485023fd7d46636ee33edff23ded7b321328189df587b95cd51246af469eb"
+          ],
+          "outputSlots": [
+            {
+              "hashBytes": "028c5339423a73c73d064461f1d28924c2fc785c9aaa89158358cdba2ede8a04",
+              "leafIndex": "20",
+              "payloadBytes": "0154000000054eea4a0bba583b76a04d8cc58f70aa87670699d61e815be12d8750819c914519624268f91e5316cbf5192e900fb876e7add93bd14a305de4fe8c581c8da8641cbcaccfae060c644f2bcc498e939335909ce4ca",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3"
+            },
+            {
+              "hashBytes": "0cdcb35a82b2cf558cf4d6d34c5022ba1c75c879a262f1f8ca66eead61ba320e",
+              "leafIndex": "21",
+              "payloadBytes": "",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3"
+            }
+          ],
+          "proofless": false,
+          "saltBytes": "248485023fd7d46636ee33edff23ded7",
+          "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+          "slot": "205",
+          "txViewingPkBytes": "0363b2cc2dae07c81ff9b0a2e8521137d616700dacd28e97ecaf37589c53f8aad6"
+        },
+        {
+          "nullifiers": [
+            "099cd89dc5bd7aa42e12d6397c2e1ec1bc874c09dff7dad74d258f6e52dae297",
+            "25c72609f20dfc95c6ed2462112ea4681dd61071e09154b3b55114b9873cf696"
+          ],
+          "outputSlots": [
+            {
+              "hashBytes": "0f33bb0c2392bcf6903bf9111e06da128f6f54eb422335dad2d9e24a58517df1",
+              "leafIndex": "30",
+              "payloadBytes": "02690000000603ae545af75fdbbd8b987d6899f977999c191f0126da866b02bc175e2563b7a2743f9a689ceb77dd884fd37eff11a18f27f585a8cca99c6c84362d593fba097ede8fe624935cb5d8e4771af68ad7853a3764ef2fa29e5331ec54cb10a89acc867ef3b1589359597c",
+              "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+              "viewTagBytes": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3"
+            }
+          ],
+          "proofless": false,
+          "saltBytes": null,
+          "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+          "slot": "206",
+          "txViewingPkBytes": null
+        }
+      ]
+    },
     "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
     "testOnlySecret": true,
     "transactions": [
@@ -76,8 +696,10 @@
           }
         ],
         "proofless": true,
+        "saltBytes": null,
         "signature": "1111111111111111111111111111111111111111111111111111111111111111",
-        "slot": "100"
+        "slot": "100",
+        "txViewingPkBytes": null
       },
       {
         "nullifiers": [],
@@ -91,8 +713,10 @@
           }
         ],
         "proofless": true,
+        "saltBytes": null,
         "signature": "1111111111111111111111111111111111111111111111111111111111111111",
-        "slot": "101"
+        "slot": "101",
+        "txViewingPkBytes": null
       }
     ],
     "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808"
