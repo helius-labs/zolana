@@ -53,7 +53,11 @@ Node has no such restriction on synchronous compilation, so the initializer may 
 
 Model it on `js/stateless.js/package.json` rather than inventing a layout. Produce `dist/cjs` and `dist/es`, with `main`, `module`, `types`, and an `exports` map carrying `require` and `import` conditions for each subpath a package already exports. Keep the existing `browser` condition working.
 
-The compiled artifact is currently inlined as base64, because these packages produce plain `tsc` output and neither way of loading a sibling `.wasm` file is open: `fetch` will not read a `file:` URL in Node, and `node:fs` is what the browser gate exists to exclude. Light takes the same fork. Keep the inlining unless the CommonJS build gives a reason to revisit it.
+The compiled artifact is currently inlined as base64, because these packages produce plain `tsc` output and neither way of loading a sibling `.wasm` file is open: `fetch` will not read a `file:` URL in Node, and `node:fs` is what the browser gate exists to exclude.
+
+**Corrected 2026-07-26.** This paragraph used to end "Light takes the same fork", and that reading was too narrow. Unpacking `@lightprotocol/hasher.rs@0.2.1` shows Light shipping the raw `dist/light_wasm_hasher_bg.wasm` (1.99 MB) and a SIMD variant (1.28 MB) beside two browser builds: a fat one that inlines base64 into 4.4 MB of JavaScript and is the default, and a slim one at 20 KB that loads the artifact as a file. So Light does inline, but as one variant among several inside a separately versioned package whose build compiles the Rust.
+
+Two consequences the original reading missed. Light's packaging makes a stale artifact impossible rather than detectable, because the package cannot be built without compiling the Rust it wraps, whereas `@zolana/hasher` carries a committed `src/artifact.ts` that no build step regenerates. And the 585 KB accepted in point 4 below is avoidable for consumers who can load a file, which is what Light's slim build is for.
 
 Each exported subpath needs the treatment, not just the package root. `@zolana/keypair` alone exports `./merge` and others.
 
