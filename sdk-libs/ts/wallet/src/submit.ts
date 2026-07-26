@@ -79,6 +79,8 @@ export interface MergeParams {
   readonly keypair: ShieldedKeypair;
   readonly asset: Address;
   readonly inputs?: readonly Bytes32[];
+  /** Spend tree to bind. Filters auto-sweep and explicit-hash selection. */
+  readonly tree?: Address;
 }
 
 export interface CreatedMerge {
@@ -92,13 +94,15 @@ export function createMerge(params: MergeParams): CreatedMerge {
   const eligible = params.wallet
     .utxos()
     .filter((entry) => !entry.spent && entry.utxo.asset === params.asset);
-  // Named inputs bind the spend to the first named utxo's tree and the rest
-  // must match it; an auto-sweep resolves the tree over the plain utxos. Rust
-  // settles the tree before it counts the named hashes, so a single unknown
-  // hash reports the utxo and not the input count.
+  // A caller-selected tree wins over inference. Without one, named inputs bind
+  // to the first named utxo's tree and auto-sweep resolves over the plain
+  // utxos — refusing when more than one tree holds the asset. Rust settles the
+  // tree before it counts the named hashes, so a single unknown hash reports
+  // the utxo and not the input count.
   const first = params.inputs?.[0];
   const tree =
-    first === undefined ? sweepTree(eligible, params.asset) : namedInputTree(eligible, first);
+    params.tree ??
+    (first === undefined ? sweepTree(eligible, params.asset) : namedInputTree(eligible, first));
   const selected = selectMergeEntries(eligible, tree, params.asset, params.inputs);
   const nullifierKey = params.keypair.nullifierKey();
   const inputs = selected.map(
@@ -368,7 +372,7 @@ export async function submitMergeTransaction(
     const transaction = client.finishMergeSubmissionUnsigned({
       proved,
       feePayer: request.payer.address,
-      userRecord: await internalUserRecordAddress(request.owner),
+      userRecord: internalUserRecordAddress(request.owner),
       recentBlockhash: latest.blockhash,
     });
     const signed = await request.payer.signNativeTransaction(transaction);

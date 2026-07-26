@@ -140,7 +140,7 @@ describe("P12 live action lifecycle", () => {
       expect(await harness.rpc.getAccount(first.address)).toBeDefined();
     } finally {
       if (mergingEnabled) {
-        const record = await userRecordAddress(owner.address);
+        const record = userRecordAddress(owner.address);
         await submitSetMergingEnabled({
           rpc: harness.rpc,
           signer: owner,

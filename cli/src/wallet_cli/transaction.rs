@@ -172,6 +172,7 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         keypair: &ctx.material.keypair,
         asset,
         inputs,
+        tree: None,
     })?;
     let num_inputs = created.num_inputs;
     let merged_amount = created.merged_amount;

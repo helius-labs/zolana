@@ -35,9 +35,9 @@ function recordData(owner: Address, bump: number, enabled: boolean): Uint8Array 
 }
 
 describe("user registry merge setup", () => {
-  it("constructs the frozen set-merging instruction accounts and data", async () => {
+  it("constructs the frozen set-merging instruction accounts and data", () => {
     const owner = createTestNativeSigner(bytes32(7)).address;
-    const record = await userRecordAddress(owner);
+    const record = userRecordAddress(owner);
     expect(
       setMergingEnabledInstruction({ owner, userRecord: record.address, enabled: true }),
     ).toEqual({
@@ -52,7 +52,7 @@ describe("user registry merge setup", () => {
 
   it("signs, sends, and confirms opt-in once, then no-ops when enabled", async () => {
     const signer = createTestNativeSigner(bytes32(8));
-    const record = await userRecordAddress(signer.address);
+    const record = userRecordAddress(signer.address);
     const rpc = new TestRpc();
     rpc.nextSignature = SIGNATURE;
     rpc.setConfirmation(SIGNATURE, true);
@@ -85,7 +85,7 @@ describe("user registry merge setup", () => {
   it("rejects unauthorized signers and preserves typed context failures", async () => {
     const owner = createTestNativeSigner(bytes32(9));
     const stranger = createTestNativeSigner(bytes32(10));
-    const record = await userRecordAddress(owner.address);
+    const record = userRecordAddress(owner.address);
     const rpc = new TestRpc();
     rpc.setAccount(record.address, {
       owner: REGISTRY_PROGRAM,
@@ -112,7 +112,7 @@ describe("user registry merge setup", () => {
 
   it("rejects invalid record accounts and wraps RPC failures", async () => {
     const signer = createTestNativeSigner(bytes32(12));
-    const record = await userRecordAddress(signer.address);
+    const record = userRecordAddress(signer.address);
     const rpc = new TestRpc();
     rpc.setAccount(record.address, {
       owner: signer.address,
@@ -130,7 +130,7 @@ describe("user registry merge setup", () => {
 
   it("submits registration before opt-in and reports confirmation failures", async () => {
     const signer = createTestNativeSigner(bytes32(11));
-    const record = await userRecordAddress(signer.address);
+    const record = userRecordAddress(signer.address);
     const rpc = new RegisteringRpc(record.address, recordData(signer.address, record.bump, false));
     rpc.nextSignature = SIGNATURE;
     rpc.setConfirmation(SIGNATURE, true);
@@ -160,7 +160,7 @@ describe("user registry merge setup", () => {
 
   it("submits a registration update without repeating an existing opt-in", async () => {
     const signer = createTestNativeSigner(bytes32(13));
-    const record = await userRecordAddress(signer.address);
+    const record = userRecordAddress(signer.address);
     const rpc = new TestRpc();
     rpc.nextSignature = SIGNATURE;
     rpc.setConfirmation(SIGNATURE, true);

@@ -1,14 +1,16 @@
 //! Generates the wallet action vectors that `@zolana/wallet` checks itself
 //! against.
 //!
-//! Row W04 turns on which inputs `create_withdrawal` and `create_split` accept
-//! and which rejection each refusal carries. Both answers live in Rust control
-//! flow that no fixture froze: `create_withdrawal` performs no amount check at
-//! all, `select_inputs` stops at the first note that covers the request, and
-//! `select_split_utxo` distinguishes a zone-bound note from a data-carrying one.
-//! Reading the two languages for that is how a strictness regression got past
-//! review once already, so this binary calls the real entry points over a matrix
-//! of wallets and requests and records the decision each one reaches.
+//! Row W04 turns on which inputs `create_withdrawal`, `create_split`, and
+//! `create_merge` accept and which rejection each refusal carries. Those answers
+//! live in Rust control flow that no fixture froze: `create_withdrawal` performs
+//! no amount check at all, `select_inputs` stops at the first note that covers
+//! the request, `select_split_utxo` distinguishes a zone-bound note from a
+//! data-carrying one, and `create_merge` needs an optional tree selector once
+//! holdings straddle a rollover. Reading the two languages for that is how a
+//! strictness regression got past review once already, so this binary calls the
+//! real entry points over a matrix of wallets and requests and records the
+//! decision each one reaches.
 //!
 //! The wallets are described declaratively rather than by their hashes, because
 //! the port has to build the same wallet to replay a case. A note's commitment
@@ -31,7 +33,8 @@ use zolana_transaction::{
     AssetRegistry, Data, LocalWalletAuthority, OutputContext, Utxo, Wallet, WalletUtxo, SOL_MINT,
 };
 use zolana_wallet::{
-    create_split, create_withdrawal, sign_shielded_transaction_sync, SplitParams, WithdrawalParams,
+    create_merge, create_split, create_withdrawal, sign_shielded_transaction_sync, MergeParams,
+    SplitParams, WithdrawalParams,
 };
 
 const FIXTURE: &str = "sdk-libs/ts/vectors/wallet-actions-v1.json";
@@ -95,6 +98,11 @@ fn wallets() -> BTreeMap<&'static str, Vec<Note>> {
         (
             "zone-bound-beside-plain",
             vec![plain(12), zone_bound(1_000)],
+        ),
+        // Two plain notes on each tree: enough to merge either side of a rollover.
+        (
+            "rollover",
+            vec![plain(3), plain(5), on_secondary(7), on_secondary(11)],
         ),
     ])
 }
@@ -170,6 +178,7 @@ fn build() -> Result<Value> {
         "wallets": Value::Object(described),
         "withdrawals": withdrawals()?,
         "splits": splits()?,
+        "merges": merges()?,
         "rails": rails()?,
         "substitutions": substitutions()?,
     }))
@@ -434,6 +443,73 @@ fn splits() -> Result<Value> {
                 "wallet": wallet_id,
                 "parts": parts.to_string(),
                 "input": input.map_or(Value::Null, |index| Value::String(index.to_string())),
+                "outcome": arm(outcome),
+            }))
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(Value::Array)
+}
+
+/// Optional tree selector for merge: omit it, or name one of the fixture trees.
+#[derive(Clone, Copy)]
+enum MergeTree {
+    Omit,
+    Named(&'static str),
+}
+
+/// `create_merge` refuses a multi-tree auto-sweep without a selector, merges each
+/// tree when named, and reports a wrong-tree named hash with both trees.
+fn merges() -> Result<Value> {
+    let cases: [(&str, MergeTree, Option<&'static [usize]>); 5] = [
+        ("rollover", MergeTree::Omit, None),
+        ("rollover", MergeTree::Named("primary"), None),
+        ("rollover", MergeTree::Named("secondary"), None),
+        ("ascending", MergeTree::Omit, None),
+        ("rollover", MergeTree::Named("primary"), Some(&[0usize, 2])),
+    ];
+
+    cases
+        .into_iter()
+        .map(|(wallet_id, tree, inputs)| {
+            let (keypair, wallet) = build_wallet(wallet_id)?;
+            let tree_address = match tree {
+                MergeTree::Omit => None,
+                MergeTree::Named(name) => Some(match name {
+                    "primary" => PRIMARY_TREE,
+                    "secondary" => SECONDARY_TREE,
+                    other => bail!("no tree named {other}"),
+                }),
+            };
+            let outcome = create_merge(MergeParams {
+                wallet: &wallet,
+                keypair: &keypair,
+                asset: SOL_MINT,
+                inputs: inputs.map(|indexes| indexes.iter().copied().map(note_hash).collect()),
+                tree: tree_address,
+            })
+            .map(|created| {
+                json!({
+                    "numInputs": created.num_inputs.to_string(),
+                    "mergedAmount": created.merged_amount.to_string(),
+                    "tree": created.tree.to_string(),
+                })
+            })
+            .map_err(|error| format!("{error:?}"));
+            Ok(json!({
+                "wallet": wallet_id,
+                "tree": match tree {
+                    MergeTree::Omit => Value::Null,
+                    MergeTree::Named(name) => Value::String(name.to_string()),
+                },
+                "inputs": match inputs {
+                    None => Value::Null,
+                    Some(indexes) => Value::Array(
+                        indexes
+                            .iter()
+                            .map(|index| Value::String(index.to_string()))
+                            .collect(),
+                    ),
+                },
                 "outcome": arm(outcome),
             }))
         })

@@ -373,7 +373,10 @@ describe("wallet sync", () => {
       getShieldedTransactionsByTags: () =>
         Promise.resolve({ context: { blockTime: 0n }, transactions: [] }),
       getEncryptedUtxosByTags: () => {
-        const payload = bogus[index] ?? bogus[0]!;
+        const payload = bogus.at(index) ?? bogus.at(0);
+        if (payload === undefined) {
+          throw new Error("missing deposit sync payload");
+        }
         index += 1;
         return Promise.resolve({
           context: { blockTime: 0n },
