@@ -111,10 +111,54 @@ and fixture provenance all clean.
 
 ### Queued
 
-**Strip `planning/` to a side branch.** The last step, once the four live
-branches merge. Owner ruling: the record survives, the pull request diff shows
-only code, tests, fixtures, and spec amendments. That removes ~40,000 lines.
-Promote this file to the pull request description before deleting the directory.
+1. **Strip `planning/` to a side branch.** The last step, once the four live
+   branches merge. Owner ruling: the record survives, the pull request diff shows
+   only code, tests, fixtures, and spec amendments. That removes ~40,000 lines.
+   Promote this file to the pull request description before deleting the
+   directory.
+
+2. **Write the reading order into the pull request description.** Owner-specified
+   buckets, below, verbatim except the last. This is a description only: the
+   commit history is not being rewritten to match, so the buckets are a reading
+   order over the diff, not a commit sequence. Recompute every file count and
+   line total against `git merge-base origin/main HEAD` at the time of writing,
+   because the four live branches move them. The `e2e` bucket is already 10 files
+   and ~3.2k rather than the 6 and ~1.7k recorded when the buckets were drafted.
+
+   ```text
+   1  chore(spec): protocol authority updates              9 files   ~0.9k
+        docs/spec.md, program-libs/interface/**, program-tests/**
+
+   2  chore(ts): workspace, lint, and CI gates            ~30 files  ~6.0k
+        package.json, package-lock.json, tsconfig*, eslint, vitest,
+        prettier.config.js, .github/**, sdk-libs/ts/config/** (minus process scripts)
+        sdk-libs/ts/.gitignore
+
+   3  feat(ts): hasher and keypair                        ~69 files ~11.1k
+        sdk-libs/hasher-wasm/**, sdk-libs/ts/hasher/**
+        sdk-libs/ts/keypair/**, sdk-libs/keypair/**
+
+   4  feat(ts): interface, merkle-tree, transaction      ~111 files ~36.9k
+        sdk-libs/ts/{interface,merkle-tree,transaction}/**
+        sdk-libs/{transaction,merkle-tree}/**
+
+   5  feat(ts): indexer-api and api                       ~24 files  ~4.4k
+        sdk-libs/indexer-api/**, sdk-libs/ts/{indexer-api,api}/**
+
+   6  feat(ts): client, wallet, smart-account, test-kit  ~162 files ~34.4k
+        sdk-libs/ts/{client,wallet,smart-account-client,test-kit}/**
+        sdk-libs/{client,wallet,smart-account-client,program-test}/**
+
+   7  test(ts): fixture generators and parity oracles    ~117 files ~63.3k
+        xtask/**, tools/wasm-oracle/**, tools/control-edit.mjs
+        sdk-libs/ts/{fixtures,vectors}/**, sdk-libs/ts/reports/inventory.json
+
+   8  test(ts): end-to-end suites                         10 files  ~3.2k
+        sdk-libs/ts/e2e/**
+
+   9  test(sdk): paired deposit, transfer, withdraw example  8 files ~0.5k
+        sdk-tests/rust-client/**, sdk-tests/typescript-client/**
+   ```
 
 ### Needs the owner
 
