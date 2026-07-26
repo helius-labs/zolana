@@ -1,0 +1,5 @@
+export const GET_ENCRYPTED_UTXOS_BY_TAGS = "get_encrypted_utxos_by_tags";
+export const GET_SHIELDED_TRANSACTIONS_BY_TAGS = "get_shielded_transactions_by_tags";
+export const GET_MERKLE_PROOFS = "get_merkle_proofs";
+export const GET_NON_INCLUSION_PROOFS = "get_non_inclusion_proofs";
+export const GET_NULLIFIER_QUEUE_ELEMENTS = "get_nullifier_queue_elements";
