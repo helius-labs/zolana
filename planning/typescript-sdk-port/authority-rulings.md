@@ -250,7 +250,7 @@ not because anyone is unsure what to do. It belongs after the transaction and
 wallet rows, and it is real: no consumer can pass a backend today, even though one
 typechecks.
 
-## Open: confidential owner tag (T23)
+## Ruled: confidential owner tag (T23)
 
 ### What the spec says
 
@@ -381,10 +381,21 @@ Either option invalidates the P256 rail of
 
 | Field | Value |
 | --- | --- |
-| Ruling | |
-| Ruled by | |
-| Date | |
-| Follow-up artifacts | |
+| Ruling | Option 1. Amend the spec to the variant split: the zero sentinel is the anonymous and zone-authority rule, the equality form is the confidential rule. No code moves and no verifying key is regenerated. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `docs/spec.md:884`, `:944`, `:959` |
+
+Same principle as G7-1 and X01, and the evidence here is stronger than in either:
+the four implementations agree with each other, and the specification contradicts
+*itself* in two places before it contradicts the code.
+
+Option 3 was not viable, and the reason is worth keeping. The anonymous variants
+exist so a P256-owned input's identity stays private, and `p256SigningPkField` is
+folded into the public hash only in the confidential variant
+(`circuit.go:254-259`). Moving the anonymous rail to the equality form would
+expose an owner tag and destroy that property. A future reader tempted by the
+symmetry should know it was rejected on a security ground, not on cost.
 
 ## Ruled: ECDSA malleability policy (G2-1)
 
@@ -697,7 +708,7 @@ key from the secret, so a small-order or non-canonically encoded public key
 cannot reach it. Only the small-order `R` case is reachable, and it is the one
 the new tests exercise in both languages.
 
-## Open: the u64 integer domain (C04)
+## Ruled: the u64 integer domain (C04)
 
 ### What the spec says
 
@@ -845,9 +856,59 @@ Listed per option above. The shared items are
 
 | Field | Value |
 | --- | --- |
-| Ruling (Context field) | |
-| Ruling (integer domain) | |
-| Ruled by | |
+| Ruling (Context field) | Option C1. Amend the spec to `block_time: i64`, matching the three implementations. Same principle as G7-1 and X01: where the implementations agree, the specification is the stale artifact. |
+| Ruling (integer domain) | Adopt Light Protocol's encoding, described below. It is neither of the two options originally offered. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `docs/spec.md:1775-1778`; `sdk-libs/ts/indexer-api/src/codec.ts`; the indexer schema |
+
+#### What Light does, and why it settles this question
+
+The owner asked how Light Protocol handles it before choosing between decimal
+strings and a safe-integer bound. Light does both, as a union, and the
+distinction it draws is per-field rather than global.
+
+`js/stateless.js/src/rpc-interface.ts:316-328` defines `BNFromStringOrNumber`,
+which accepts a JSON string or a JSON number. A number that is not a safe
+integer is refused outright, with a message naming precision loss. A string is
+parsed base 10 with no ceiling.
+
+```316:328:js/stateless.js/src/rpc-interface.ts
+const BNFromStringOrNumber = coerce(
+    instance(BN),
+    union([string(), number()]),
+    value => {
+        if (typeof value === 'number') {
+            if (!Number.isSafeInteger(value)) {
+                throw new Error(`Unsafe integer. Precision loss: ${value}`);
+            }
+            return bn(value); // Safe number → BN
+        }
+        return bn(value, 10); // String → BN
+    },
+);
+```
+
+Light applies it selectively. `lamports`, `seq`, `slotCreated` and
+`discriminator` take the coercion, because those can genuinely exceed `2^53`.
+`slot` and `leafIndex` are declared as plain `number()`
+(`rpc-interface.ts:429`, `:83`), with no coercion and no safe-integer check,
+because they cannot.
+
+Two things follow, and the first is the one that changes the framing of this
+conflict. **Zolana's TypeScript rejection is already Light's behaviour** for the
+number case: Light throws on an unsafe JSON number exactly as
+`codec.ts:68-82` does. The rejection was recorded here as TypeScript being
+stricter than Rust, and it is, but it is also what the reference implementation
+does, so it is not the defect. What Zolana lacks is Light's escape hatch.
+
+Adopt the union. Accepting a decimal string alongside a number removes the
+ceiling without breaking a single existing caller, because numbers stay valid,
+which is the objection that ruled out decimal strings on their own. Keep the
+precision-loss refusal, since silently truncating a slot is the failure this
+prevents. Follow Light in applying the coercion only to fields whose domain can
+actually exceed `2^53`, rather than uniformly, so a field that cannot overflow
+does not acquire a parse path it never needs.
 | Date | |
 | Follow-up artifacts | |
 
