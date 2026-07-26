@@ -29,8 +29,8 @@ use zolana_transaction::{
 /// does not move when the port changes a source the fixtures are generated
 /// from. Those live pins are the three below.
 const HISTORICAL_BASELINE_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
-const BASELINE_SHA: &str = "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71";
-const INTERFACE_SHA: &str = "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71";
+const BASELINE_SHA: &str = "dd497dcef14ae4d8bb5e60a68d178c2064ad635d";
+const INTERFACE_SHA: &str = "dd497dcef14ae4d8bb5e60a68d178c2064ad635d";
 const MERKLE_SHA: &str = "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
