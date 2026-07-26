@@ -4,11 +4,13 @@ import {
   transactInstruction,
   type MergeTransactInstructionData,
 } from "@zolana/interface/instructions";
+import { checkedTransactionSize } from "@zolana/interface";
 import type {
   Address,
   Bytes32,
   Instruction,
   RequestContext,
+  Shape,
   Signature,
   Transaction,
   TransactInstructionData,
@@ -302,11 +304,7 @@ export class ZolanaClient implements Rpc {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
     try {
-      const proofs = await this.getInputMerkleProofs(
-        proofInputs.inputContexts(),
-        config,
-        context,
-      );
+      const proofs = await this.getInputMerkleProofs(proofInputs.inputContexts(), config, context);
       const assembled = assemble(proofInputs, proofs);
       const proof = await this.#prover.prove(assembled.proverInputs, context);
       return assembled.withProof(compressProof(proof).toTransactProof());
@@ -520,8 +518,7 @@ export class ZolanaClient implements Rpc {
         // `wait_for_indexed_transaction` sends `Some(50)`; omitting it left the
         // page size to the server, so a busy tag could push the signature off
         // the first page.
-        () =>
-          this.indexer.getShieldedTransactionsByTags({ tags, limit: 50 }, undefined, context),
+        () => this.indexer.getShieldedTransactionsByTags({ tags, limit: 50 }, undefined, context),
         // Rust accepts the signature alone. Re-checking that every requested
         // tag reappears in `outputSlots`/`messages` made this reject records
         // Rust confirms: the indexer answers a tag query with the whole
@@ -572,7 +569,10 @@ export function buildUnsignedTransaction(
       ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
     }),
   ];
-  return compileLegacyTransaction(input.feePayer, input.recentBlockhash, instructions);
+  return compileLegacyTransaction(input.feePayer, input.recentBlockhash, instructions, {
+    inputs: input.data.inputs.length,
+    outputs: input.data.outputs.length,
+  });
 }
 
 export function buildUnsignedMergeTransaction(
@@ -621,6 +621,7 @@ function compileLegacyTransaction(
   feePayer: Address,
   recentBlockhash: string,
   instructions: readonly Instruction[],
+  shape?: Shape,
 ): Transaction {
   const accountMap = new Map<
     Address,
@@ -696,10 +697,13 @@ function compileLegacyTransaction(
       new Uint8Array(instruction.data),
     );
   }
-  return Object.freeze({
-    messageBytes: concat(...parts),
-    signatures: Object.freeze(Array.from({ length: requiredSignatures }, () => undefined)),
-  });
+  return checkedTransactionSize(
+    Object.freeze({
+      messageBytes: concat(...parts),
+      signatures: Object.freeze(Array.from({ length: requiredSignatures }, () => undefined)),
+    }),
+    shape,
+  );
 }
 
 function compareBytes(left: Uint8Array, right: Uint8Array): number {
@@ -791,5 +795,7 @@ function isProvedMerge(value: unknown): value is ProvedMerge {
 }
 
 function isProvedMergeZone(value: unknown): value is ProvedMergeZone {
-  return isProvedMerge(value) && "zoneProgramId" in value && typeof value.zoneProgramId === "string";
+  return (
+    isProvedMerge(value) && "zoneProgramId" in value && typeof value.zoneProgramId === "string"
+  );
 }
