@@ -238,9 +238,10 @@ jobs:
       - run: npm ci
       - run: npm run build
       # ZOLANA_PORT_OFFSET and the three service URLs stay unset: each suite
-      # asserts its own offset (300 for actions, 400 for instructions) and starts
-      # the validator, prover, and Photon it needs. A set URL would make the test
-      # kit treat that service as external and skip starting it.
+      # asserts its own offset (300 for actions, 400 for instructions, 800 for
+      # the Photon contract suite) and starts the validator, prover, and Photon
+      # it needs. A set URL would make the test kit treat that service as
+      # external and skip starting it.
       # No log-collection step follows: the test kit keeps the last 8 KB of each
       # service's output in memory and attaches it to the failure it throws.
       - run: npm run check:e2e
@@ -250,8 +251,7 @@ jobs:
     runs-on: ubuntu-latest
     if:
       always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    needs:
-      [gate-scope, planning, static, suites, packaging, browser-runtime, fixtures, e2e]
+    needs: [gate-scope, planning, static, suites, packaging, browser-runtime, fixtures, e2e]
     steps:
       - name: Require every part of npm run check
         run: |
