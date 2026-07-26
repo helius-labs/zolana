@@ -18,6 +18,7 @@ import {
   Utxo,
   Wallet,
   canonicalShape,
+  createProofOutput,
   deriveBlinding,
   ownerUtxoHash,
   resolveShape,
@@ -43,6 +44,10 @@ const DUMMY_ORACLE_NULLIFIER = "1afecf4cfcfd1c73219605b615e66d7236c98ec083f9e555
 const DUMMY_BLINDING = new Uint8Array(31).fill(7) as Bytes31;
 const ZERO_NULLIFIER_KEY = (): NullifierKey =>
   NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
+
+const ZERO_ADDRESS = "11111111111111111111111111111111" as Address;
+const ZONE = "SysvarRent111111111111111111111111111111111" as Address;
+const ZERO_HASH = (): Bytes32 => new Uint8Array(32) as Bytes32;
 
 function zeroOwnerUtxo(overrides: Partial<ConstructorParameters<typeof Utxo>[0]> = {}): Utxo {
   return new Utxo({
@@ -227,6 +232,56 @@ describe("transaction core", () => {
         }),
       );
     }
+  });
+
+  // T28 covers two zone bindings that cost differently, and the suite holds
+  // them apart. Normalizing the zone data hash moves no commitment, because the
+  // zero was already the committed field. Normalizing the zone address would
+  // move one: the zero address commits to `pk_field(0)`, a non-zero field the
+  // circuit reads as zone-bound. The two `not.toEqual` assertions fail if
+  // anyone extends normalization to the address.
+  it("normalizes an explicit zero at the zone data hash and not at the zone address", () => {
+    const { keypair, nullifier } = keyMaterial();
+    const blinding = new Uint8Array(31).fill(3) as Bytes31;
+    const utxo = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 42n,
+      blinding,
+    });
+    const unboundInput = new ProofInputUtxo({ utxo, nullifierKey: nullifier });
+
+    const normalizedInput = new ProofInputUtxo({
+      utxo,
+      nullifierKey: nullifier,
+      zoneDataHash: ZERO_HASH(),
+    });
+    expect(normalizedInput.zoneDataHash).toBeUndefined();
+    expect(normalizedInput.hash()).toEqual(unboundInput.hash());
+
+    const zeroZoneInput = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 42n,
+        blinding,
+        zoneProgramId: ZERO_ADDRESS,
+      }),
+      nullifierKey: nullifier,
+    });
+    expect(zeroZoneInput.hash()).not.toEqual(unboundInput.hash());
+
+    const output = createProofOutput({
+      ownerAddress: keypair.shieldedAddress(),
+      asset: SOL_MINT,
+      amount: 42n,
+      blinding,
+    });
+    expect(output.withZoneDataHash(ZONE, ZERO_HASH()).zoneDataHash).toBeUndefined();
+    expect(
+      output.withZoneData(ZONE, Uint8Array.of(1, 2), ZERO_HASH()).zoneDataHash,
+    ).toBeUndefined();
+    expect(output.withZoneProgramId(ZERO_ADDRESS).hash()).not.toEqual(output.hash());
   });
 
   it("derives position-specific blindings and validates their range", () => {

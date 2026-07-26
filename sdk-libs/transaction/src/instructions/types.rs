@@ -241,4 +241,29 @@ mod tests {
 
         assert_eq!(spend.check_canonical_dummy(), Ok(()));
     }
+
+    /// T28 covers two zone bindings that cost differently, and the suite has to
+    /// hold them apart. The clause above normalizes the zone data hash and
+    /// moves no commitment. This one is why the zone address is not normalized
+    /// with it: `Some(Address::default())` commits to `pk_field(0)`, a non-zero
+    /// field the circuit reads as zone-bound, so folding it to absence would
+    /// change what the UTXO says rather than how a caller spelled it. This test
+    /// fails if anyone extends the normalization there.
+    #[test]
+    fn the_zero_zone_address_stays_bound_rather_than_normalizing() {
+        let mut spend = SppProofInputUtxo::new_dummy();
+        spend.utxo.owner = PublicKey::from_ed25519(&[1u8; 32]);
+        spend.utxo.amount = 5;
+        let unbound = spend.hash().expect("unbound hash");
+
+        spend.utxo.zone_program_id = Some(Address::default());
+
+        assert_eq!(
+            ProofInputUtxo::try_from(&spend)
+                .expect("proof input")
+                .zone_program_id,
+            zolana_keypair::hash::hash_field(&[0u8; 32]).expect("pk_field(0)")
+        );
+        assert_ne!(spend.hash().expect("zero-zone hash"), unbound);
+    }
 }
