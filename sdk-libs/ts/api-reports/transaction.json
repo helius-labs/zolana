@@ -155,20 +155,12 @@
         "kind": "type"
       },
       {
-        "name": "initializePoseidon",
-        "kind": "value"
-      },
-      {
         "name": "InputUtxo",
         "kind": "type"
       },
       {
         "name": "InputUtxoContext",
         "kind": "type"
-      },
-      {
-        "name": "isPoseidonInitialized",
-        "kind": "value"
       },
       {
         "name": "LocalWalletAuthority",

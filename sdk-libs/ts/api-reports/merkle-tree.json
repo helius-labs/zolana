@@ -27,14 +27,6 @@
         "kind": "type"
       },
       {
-        "name": "initializePoseidon",
-        "kind": "value"
-      },
-      {
-        "name": "isPoseidonInitialized",
-        "kind": "value"
-      },
-      {
         "name": "keccakHasher",
         "kind": "value"
       },

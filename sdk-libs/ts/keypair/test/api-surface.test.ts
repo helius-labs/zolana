@@ -47,8 +47,6 @@ const ROOT_EXPORTS = [
   "VIEW_TAG_LEN",
   "ViewingKey",
   "hashField",
-  "initializePoseidon",
-  "isPoseidonInitialized",
   "ownerHash",
   "poseidon",
   "randomBlinding",

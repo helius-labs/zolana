@@ -1,4 +1,3 @@
-export { initializePoseidon, isPoseidonInitialized } from "@zolana/hasher";
 import { type Bytes31, type Bytes16, randomBytes } from "./bytes.js";
 
 export type { Bytes16, Bytes31, Bytes32, Bytes33, Bytes34, Bytes64 } from "./bytes.js";

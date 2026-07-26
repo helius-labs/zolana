@@ -52,8 +52,6 @@ describe("public exports", () => {
       "externalDataHash",
       "fetchTag",
       "foresterFeePerQueueElement",
-      "initializePoseidon",
-      "isPoseidonInitialized",
       "ownerPkFieldCompressed",
       "pack33",
       "pkFieldCompressed",

@@ -1,4 +1,3 @@
-export { initializePoseidon, isPoseidonInitialized } from "@zolana/hasher";
 export { IndexedMerkleTreeError, MerkleTreeError } from "./errors.js";
 export { type Hasher32WithBytes, keccakHasher, poseidonHasher, sha256Hasher } from "./hashers.js";
 export {

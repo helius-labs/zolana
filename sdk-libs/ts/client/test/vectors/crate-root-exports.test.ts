@@ -170,9 +170,6 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
     "Rpc::create_and_send_transaction as a free function, because the caller signs; " +
     "Light Protocol splits it the same way, into buildAndSignTx beside Rpc rather than on it",
   createIndexerPollConfig: "validated IndexerPollConfig construction",
-  initializePoseidon:
-    "loads the compiled Poseidon, which Rust links rather than instantiates at runtime",
-  isPoseidonInitialized: "reports whether the compiled Poseidon has been loaded",
   createIndexerRpcConfig: "validated IndexerRpcConfig construction",
   isRetryable: "ClientError::retry_cause().is_some() as a predicate",
   pollUntil: "the retry loop Rust inlines into each caller",

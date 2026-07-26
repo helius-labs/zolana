@@ -25,12 +25,12 @@
     ],
     "./node": [
       {
-        "name": "CompiledInstruction",
-        "kind": "type"
-      },
-      {
         "name": "cargoTargetDir",
         "kind": "value"
+      },
+      {
+        "name": "CompiledInstruction",
+        "kind": "type"
       },
       {
         "name": "confirm",

@@ -155,15 +155,7 @@
         "kind": "type"
       },
       {
-        "name": "initializePoseidon",
-        "kind": "value"
-      },
-      {
         "name": "intoProver",
-        "kind": "value"
-      },
-      {
-        "name": "isPoseidonInitialized",
         "kind": "value"
       },
       {

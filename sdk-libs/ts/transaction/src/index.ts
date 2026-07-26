@@ -1,4 +1,3 @@
-export { initializePoseidon, isPoseidonInitialized } from "@zolana/hasher";
 export { Data } from "./data.js";
 export type { DataRecord } from "./data.js";
 export {

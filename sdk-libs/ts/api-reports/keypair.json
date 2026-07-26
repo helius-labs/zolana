@@ -47,14 +47,6 @@
         "kind": "value"
       },
       {
-        "name": "initializePoseidon",
-        "kind": "value"
-      },
-      {
-        "name": "isPoseidonInitialized",
-        "kind": "value"
-      },
-      {
         "name": "KEYPAIR_ERROR_RUST_VARIANT",
         "kind": "value"
       },

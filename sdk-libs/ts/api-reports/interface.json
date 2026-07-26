@@ -163,10 +163,6 @@
         "kind": "value"
       },
       {
-        "name": "initializePoseidon",
-        "kind": "value"
-      },
-      {
         "name": "InputUtxo",
         "kind": "type"
       },
@@ -185,10 +181,6 @@
       {
         "name": "InterfaceErrorCode",
         "kind": "type"
-      },
-      {
-        "name": "isPoseidonInitialized",
-        "kind": "value"
       },
       {
         "name": "MERGE_ENCRYPTED_UTXO_LENGTH",

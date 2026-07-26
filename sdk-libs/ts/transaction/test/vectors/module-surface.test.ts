@@ -135,9 +135,6 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, Readonly<Record<string, string>>>
     createExternalData: "ExternalData::new, which has no impl block here",
     createInputUtxo: "InputUtxo::new, which has no impl block here",
     createProofOutput: "SppProofOutputUtxo::new, which has no impl block here",
-    initializePoseidon:
-      "loads the compiled Poseidon, which Rust links rather than instantiates at runtime",
-    isPoseidonInitialized: "reports whether the compiled Poseidon has been loaded",
     outputDataEncoding: "the OutputDataEncoding discriminant, which zolana_event owns in Rust",
     prepareZoneAuthority: "PreparedZoneAuthority::new, which has no impl block here",
     privateTxHash: "PrivateTxHash::hash as a function",

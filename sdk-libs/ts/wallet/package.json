@@ -112,7 +112,6 @@
   "types": "./dist/es/index.d.ts",
   "dependencies": {
     "@zolana/client": "0.1.0",
-    "@zolana/hasher": "0.1.0",
     "@zolana/interface": "0.1.0",
     "@zolana/keypair": "0.1.0",
     "@zolana/transaction": "0.1.0"
