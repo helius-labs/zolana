@@ -151,6 +151,8 @@ function proofResponse(): Response {
 }
 
 describe("merge submission", () => {
+  // Fixture pipeline order with a mocked prover fetch. Live prove+submit is
+  // `sdk-libs/ts/e2e/actions/gate3-flows.live.test.ts` (`ZOLANA_TEST_GATE3=1`).
   it("matches frozen material and executes the submission pipeline in order", async () => {
     const fixture = await walletFixture<SubmitFixture>("submit");
     const localKeypair = keypair(fixture);
