@@ -140,17 +140,20 @@ Confirmed on this tree:
 - Gate 2 checklist text now carves this out as an unsupported capability rather
   than an unexplained hole.
 
-### P3 G2 compression — not this worker
+### P3 G2 compression — closed after this report was written
 
-Owned by `port/g2`. TypeScript `compressProof` rejecting live prover G2 points
-remains. **Gate 2 cannot fully close until that lands.** Checklist gate 2 stays
-unchecked and names the carve-out.
+Owned by `port/g2` and merged at `c1a9b35e`. The carve-out was a TypeScript Fq2
+limb-order defect, not an accepted cross-language divergence. Live evidence:
+16/16 compressions match Solana with `rustFallbackNeeded: 0`
+([g2.md](g2.md)). Gate-ledger removes carve-out (b) from the checklist and
+re-measures Gate 2 as HOLDS with only the forester path carved out
+([gate-ledger.md](gate-ledger.md)).
 
 ### Gate 2 checkable off?
 
-**No.** Three of four named residuals are closed or accepted-with-ledger
-(`KEYPAIR_HASH`, Promise/Q17, `address-append`). G2 compression still blocks a
-HOLDS claim.
+**Yes, after `port/g2` and the stale `@noble/curves` cleanup.** Residuals:
+`KEYPAIR_HASH` → `KEYPAIR_POSEIDON` (closed), Promise/Q17 (accepted),
+`address-append` (owner carve-out (a)), G2 (fixed, carve-out removed).
 
 ---
 
