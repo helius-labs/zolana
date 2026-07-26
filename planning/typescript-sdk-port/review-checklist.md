@@ -828,19 +828,20 @@ input to this decision.
       oracle refusals of the six non-square authority shapes and
       `transfer.test.ts` zone-authority / MergeZone mismatches.
       ([row-updates/gate-shapes.md](row-updates/gate-shapes.md)).
-- [ ] Fixture provenance points to the reviewed Rust revision and covers deterministic success, rejection, and tamper cases where applicable.
+- [x] Fixture provenance points to the reviewed Rust revision and covers deterministic success, rejection, and tamper cases where applicable.
       Provenance half closed at `6bcd79ae` (G8-1 revisionCompatibility +
       fixtures-provenance; G8-2 verifying-key module + sha256) and still holds at
-      HEAD. Rejection/tamper half is **not** closed: `@zolana/indexer-api` and
-      `@zolana/smart-account-client` ship only success-shape P00 fixtures while
-      their validation surfaces reject malformed input in unit tests that are not
-      Rust-generated. Closing those two needs xtask generator output plus a
-      `manifest.json` hash update, which this worker is forbidden to touch.
-      Packages that already carry reject/tamper in fixtures or gated vectors
-      (transaction, wallet, keypair error/merge, merkle-tree, api/transport,
-      client proof-validity, workflows, poseidon-parity, program-libs-parity,
-      proof-response-parity) are fine.
-      ([row-updates/gate-ci.md](row-updates/gate-ci.md),
+      HEAD. Rejection/tamper half closed on `port/reject-fixtures`: gated vectors
+      `indexer-schema-rejects-v1.json` and `smart-account-rejects-v1.json` are
+      generated from production Rust (`serde` Deserialize /
+      `checked_u8` panics), wired into `fixtures:check`, and replayed by
+      TypeScript tests. No Rust-versus-TypeScript accept/reject disagreement.
+      Success-shape P00 fixtures for those packages stay as census/success oracles;
+      reject coverage follows the same gated-vector pattern as poseidon-parity
+      and proof-response-parity (vectors/, not `fixtures/`, so no P00 envelope /
+      `manifest.json` churn).
+      ([row-updates/reject-fixtures.md](row-updates/reject-fixtures.md),
+      [row-updates/gate-ci.md](row-updates/gate-ci.md),
       [row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
 - [x] The public-export ledger has no unexplained difference.
 - [x] The public-export ledger has no unexplained difference.
