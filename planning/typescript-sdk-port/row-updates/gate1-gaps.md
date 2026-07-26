@@ -4,7 +4,7 @@
 | --- | --- |
 | Worktree | `/Users/tilohelius/Workspace/zolana-wt-gate1-gaps` |
 | Branch | `port/gate1-gaps` |
-| Measured revision | `9d21b71d` |
+| Measured revision | `6f18b06e` |
 | Measured at | 2026-07-26 |
 | Scope | Five gaps from [gate1-walk.md](gate1-walk.md) that blocked the eleven-package line |
 

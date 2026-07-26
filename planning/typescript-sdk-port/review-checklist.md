@@ -753,9 +753,12 @@ input to this decision.
       `api`, `client`, `wallet`, `merkle-tree`, `smart-account-client`, `test-kit`. `@zolana/hasher`
       and `@zolana/test-kit` were uncounted under the former "nine"; `test-kit` is private annex-only
       for publish, and still takes the package gates that apply (exports, dependencies, api check).
-      G9-4 and G6-2 are closed; remaining package-gate bullets above still need a per-package
-      evidence walk before this top-level line can be checked
-      ([row-updates/gate12-pkg.md](row-updates/gate12-pkg.md)).
+      Gate1 walk + gate1-gaps closed the five named gaps that blocked this line's package seats,
+      dispositions, inventory, fixture drift story, property suites, and real `api:check`
+      ([row-updates/gate1-walk.md](row-updates/gate1-walk.md),
+      [row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)). Left unchecked while client
+      P11 (`RAIL` / G2) remains owned by parallel workers, and while P6/P8–P10/P11 package
+      bullets above still need an affirming tick from their evidence owners.
 - [ ] Cross-package public types, errors, dependencies, and capability boundaries match current Rust,
       except (a) the forester `address-append` / `batchUpdateNullifierTreeInstruction` path, which is
       an owner-ruled unsupported capability (no TypeScript forester; builder withdrawn; codec and tag
@@ -790,7 +793,11 @@ input to this decision.
       `transfer.test.ts` zone-authority / MergeZone mismatches.
       ([row-updates/gate-shapes.md](row-updates/gate-shapes.md)).
 - [ ] Fixture provenance points to the reviewed Rust revision and covers deterministic success, rejection, and tamper cases where applicable.
-- [ ] The public-export ledger has no unexplained difference.
+- [x] The public-export ledger has no unexplained difference.
+      Evidence: `npm run api:check` compares built surfaces to
+      `sdk-libs/ts/api-reports/**` for all eleven packages and fails on
+      undeclared addition or removal
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
 - [ ] No row or package gate has an unresolved adverse verdict.
 - [ ] Full CI, fixture regeneration, browser, packed-package consumer, action
       E2E, and instruction E2E commands pass from a clean checkout.
