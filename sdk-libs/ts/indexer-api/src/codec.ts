@@ -65,11 +65,16 @@ function boolean(value: unknown, path: string): boolean {
   return value;
 }
 
-function wireInteger(value: unknown, path: string, minimum: bigint, maximum: bigint): bigint {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
-    return schemaFailure("INDEXER_SCHEMA_INVALID_INTEGER", path, "a safe JSON integer", value);
-  }
-  const integer = BigInt(value);
+/** No leading zero, no sign on zero, no exponent: one spelling per value. */
+const DECIMAL_INTEGER = /^(?:0|-?[1-9][0-9]*)$/;
+
+function inRange(
+  integer: bigint,
+  value: unknown,
+  path: string,
+  minimum: bigint,
+  maximum: bigint,
+): bigint {
   if (integer < minimum || integer > maximum) {
     return schemaFailure(
       "INDEXER_SCHEMA_INVALID_INTEGER",
@@ -81,12 +86,55 @@ function wireInteger(value: unknown, path: string, minimum: bigint, maximum: big
   return integer;
 }
 
+function wireInteger(value: unknown, path: string, minimum: bigint, maximum: bigint): bigint {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    return schemaFailure("INDEXER_SCHEMA_INVALID_INTEGER", path, "a safe JSON integer", value);
+  }
+  return inRange(BigInt(value), value, path, minimum, maximum);
+}
+
+/**
+ * Wire form of a field whose value nothing in the protocol caps below
+ * `Number.MAX_SAFE_INTEGER`: a Solana slot or block time, or a monotonic tree
+ * or queue sequence.
+ *
+ * Photon writes a JSON number, which stays valid. A JSON number that has
+ * already lost precision is refused rather than silently truncated, so an
+ * indexer with a value past the double-precision range has to send the decimal
+ * string instead. The two forms are the union Light Protocol accepts
+ * (`js/stateless.js/src/rpc-interface.ts:316-328`).
+ */
+function unboundedWireInteger(
+  value: unknown,
+  path: string,
+  minimum: bigint,
+  maximum: bigint,
+): bigint {
+  if (typeof value !== "string") {
+    return wireInteger(value, path, minimum, maximum);
+  }
+  if (!DECIMAL_INTEGER.test(value)) {
+    return schemaFailure(
+      "INDEXER_SCHEMA_INVALID_INTEGER",
+      path,
+      "a decimal integer string",
+      value,
+    );
+  }
+  return inRange(BigInt(value), value, path, minimum, maximum);
+}
+
+/** For an index or count a tree height, a ring size, or a page bound caps. */
 function u64(value: unknown, path: string): bigint {
   return wireInteger(value, path, 0n, U64_MAX);
 }
 
-function i64(value: unknown, path: string): bigint {
-  return wireInteger(value, path, I64_MIN, I64_MAX);
+function unboundedU64(value: unknown, path: string): bigint {
+  return unboundedWireInteger(value, path, 0n, U64_MAX);
+}
+
+function unboundedI64(value: unknown, path: string): bigint {
+  return unboundedWireInteger(value, path, I64_MIN, I64_MAX);
 }
 
 function u16(value: unknown, path: string): number {
@@ -154,7 +202,7 @@ function optional<T>(
 
 function context(value: unknown, path: string): IndexerContext {
   const record = object(value, path, ["block_time"]);
-  return { blockTime: i64(record["block_time"], `${path}.block_time`) };
+  return { blockTime: unboundedI64(record["block_time"], `${path}.block_time`) };
 }
 
 function outputContext(value: unknown, path: string): RingsOutputContext {
@@ -194,7 +242,7 @@ function encryptedUtxoMatch(value: unknown, path: string): EncryptedUtxoMatch {
   const txViewingPk = optional(record["tx_viewing_pk"], `${path}.tx_viewing_pk`, checkedBase64);
   const salt = optional(record["salt"], `${path}.salt`, checkedBase64);
   return {
-    slot: u64(record["slot"], `${path}.slot`),
+    slot: unboundedU64(record["slot"], `${path}.slot`),
     txSignature: checkedSignature(record["tx_signature"], `${path}.tx_signature`),
     outputSlot: outputSlot(record["output_slot"], `${path}.output_slot`),
     ...(txViewingPk === undefined ? {} : { txViewingPk }),
@@ -216,7 +264,7 @@ function indexedTransaction(value: unknown, path: string): IndexedShieldedTransa
   const txViewingPk = optional(record["tx_viewing_pk"], `${path}.tx_viewing_pk`, checkedBase64);
   const salt = optional(record["salt"], `${path}.salt`, checkedBase64);
   return {
-    slot: u64(record["slot"], `${path}.slot`),
+    slot: unboundedU64(record["slot"], `${path}.slot`),
     txSignature: checkedSignature(record["tx_signature"], `${path}.tx_signature`),
     ...(txViewingPk === undefined ? {} : { txViewingPk }),
     ...(salt === undefined ? {} : { salt }),
@@ -251,7 +299,7 @@ function merkleProof(value: unknown, path: string): MerkleProof {
     path: array(record["path"], `${path}.path`, checkedHash),
     leafIndex: u64(record["leaf_index"], `${path}.leaf_index`),
     root: checkedHash(record["root"], `${path}.root`),
-    rootSeq: u64(record["root_seq"], `${path}.root_seq`),
+    rootSeq: unboundedU64(record["root_seq"], `${path}.root_seq`),
     rootIndex: u16(record["root_index"], `${path}.root_index`),
   };
 }
@@ -278,7 +326,7 @@ function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
     highElement: checkedHash(record["high_element"], `${path}.high_element`),
     highElementIndex: u64(record["high_element_index"], `${path}.high_element_index`),
     root: checkedHash(record["root"], `${path}.root`),
-    rootSeq: u64(record["root_seq"], `${path}.root_seq`),
+    rootSeq: unboundedU64(record["root_seq"], `${path}.root_seq`),
     rootIndex: u16(record["root_index"], `${path}.root_index`),
   };
 }
@@ -286,7 +334,7 @@ function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
 function queueElement(value: unknown, path: string): NullifierQueueElement {
   const record = object(value, path, ["seq", "value"]);
   return {
-    seq: u64(record["seq"], `${path}.seq`),
+    seq: unboundedU64(record["seq"], `${path}.seq`),
     value: checkedHash(record["value"], `${path}.value`),
   };
 }
@@ -392,7 +440,8 @@ export function decodeNonInclusionProofsResponse(value: unknown): GetNonInclusio
 
 export function decodeNullifierQueueRequest(value: unknown): GetNullifierQueueElementsRequest {
   const record = object(value, "$", ["tree_account", "start_seq", "limit"]);
-  const startSeq = record["start_seq"] === undefined ? 0n : u64(record["start_seq"], "$.start_seq");
+  const startSeq =
+    record["start_seq"] === undefined ? 0n : unboundedU64(record["start_seq"], "$.start_seq");
   return {
     treeAccount: checkedAddress(record["tree_account"], "$.tree_account"),
     startSeq,
