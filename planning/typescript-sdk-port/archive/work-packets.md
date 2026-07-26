@@ -1,10 +1,14 @@
 # Implementation work packets
 
+> Archived. These packets are implemented. For what is left to do, read
+> [`../remaining-work.md`](../remaining-work.md); for row status, read
+> [`../review-checklist.md`](../review-checklist.md).
+
 These packets implement the TypeScript port against frozen Rust revision
 `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`. A contextless agent starts with
-[README.md](README.md), its packet's inventory rows, the exact declarations in
-[public-exports.md](public-exports.md), and the relevant workflow in
-[action-and-instruction-api.md](action-and-instruction-api.md).
+[README.md](../README.md), its packet's inventory rows, the exact declarations in
+[public-exports.md](../public-exports.md), and the relevant workflow in
+[action-and-instruction-api.md](../action-and-instruction-api.md).
 
 ## Rules for every packet
 
@@ -49,7 +53,7 @@ Work and fixtures:
 - assert the frozen tree has 182 paths and each has one active marker or
   exclusion, one packet, and at least one fixture/test responsibility;
 - generate the fixture manifest and package directories defined in
-  [testing-and-conformance.md](testing-and-conformance.md);
+  [testing-and-conformance.md](../testing-and-conformance.md);
 - call production Rust for logical values, errors, bytes, accounts, proof
   inputs, Merkle/non-inclusion paths, prover JSON/result/compression,
   instructions, indexer schemas, smart-account vectors, and wallet sequences;
@@ -158,7 +162,7 @@ Owned files:
 
 Source inventory rows: the one smart-account row whose `Packet` cell is `P03`
 in
-[inventory-indexer-and-smart-account.md](inventory-indexer-and-smart-account.md);
+[inventory-indexer-and-smart-account.md](../inventory-indexer-and-smart-account.md);
 frozen `sdk-libs/smart-account-client/src/lib.rs`; frozen
 `program-tests/test-utils/src/smart_account.rs` for integration vectors.
 
@@ -192,7 +196,7 @@ Owned files:
 - `sdk-libs/ts/reports/packets/P04.json`.
 
 Source inventory rows: the 30 rows whose `Packet` cell is `P04` in
-[inventory-keypair.md](inventory-keypair.md).
+[inventory-keypair.md](../inventory-keypair.md).
 
 Exports: complete keypair root and merge allowlists, including corrected
 nullifier `(utxoHash, blinding)` API; internals stay private.
@@ -225,7 +229,7 @@ Owned files:
 - `sdk-libs/ts/reports/packets/P05.json`.
 
 Source inventory rows: the 62 rows whose `Packet` cell is `P05` in
-[inventory-transaction.md](inventory-transaction.md).
+[inventory-transaction.md](../inventory-transaction.md).
 
 Exports: complete transaction declarations, including `ProofInputUtxo`,
 `PreparedTransfer`, `ConfidentialTransfer`, `SppProofInputs`, corrected SPL
@@ -262,7 +266,7 @@ Owned files:
 - `sdk-libs/ts/reports/packets/P06.json`.
 
 Source inventory rows: the four rows whose `Packet` cell is `P06` in
-[inventory-support.md](inventory-support.md).
+[inventory-support.md](../inventory-support.md).
 
 Exports: exact Merkle tree allowlist.
 
@@ -292,7 +296,7 @@ Owned files:
 - `sdk-libs/ts/reports/packets/P07.json`.
 
 Source inventory rows: the one row whose `Packet` cell is `P07` in
-[inventory-indexer-and-smart-account.md](inventory-indexer-and-smart-account.md).
+[inventory-indexer-and-smart-account.md](../inventory-indexer-and-smart-account.md).
 
 Exports: five method constants; encoded scalar constructors and conversions;
 all request/response/Merkle/non-inclusion/queue types; schema error.
@@ -323,7 +327,7 @@ Owned files:
 - `sdk-libs/ts/reports/packets/P08.json`.
 
 Source inventory rows: the one row whose `Packet` cell is `P08` in
-[inventory-support.md](inventory-support.md).
+[inventory-support.md](../inventory-support.md).
 
 Exports: `ZolanaApiConfig`, async `ZolanaApi`, `ApiError`; no blocking client or
 schema re-export.
@@ -354,7 +358,7 @@ Owned files:
 - `sdk-libs/ts/reports/packets/P09.json`.
 
 Source inventory rows: the 45 rows whose `Packet` cell is `P09` in
-[inventory-client.md](inventory-client.md).
+[inventory-client.md](../inventory-client.md).
 
 Exports: exact client and prover allowlists: `IndexerPollConfig`,
 `IndexerRpcConfig`, `RpcContext`, `MerkleContext`, `MerkleProof`,
@@ -398,7 +402,7 @@ Owned files:
 - `sdk-libs/ts/reports/packets/P10.json`.
 
 Source inventory rows: the ten rows whose `Packet` cell is `P10` in
-[inventory-wallet.md](inventory-wallet.md), especially frozen
+[inventory-wallet.md](../inventory-wallet.md), especially frozen
 `sdk-libs/wallet/tests/transaction.rs`.
 
 Exports: exact wallet allowlist with `createDeposit`,
@@ -442,7 +446,7 @@ Owned files:
 - `sdk-libs/ts/reports/packets/P11.json`.
 
 Source inventory rows: the 12 rows whose `Packet` cell is `P11` in
-[inventory-support.md](inventory-support.md).
+[inventory-support.md](../inventory-support.md).
 
 Exports: only the private test-kit allowlist. Production package indexes remain
 untouched.
@@ -475,7 +479,7 @@ Owned files:
 Source rows and workflows: no inventory row is assigned to P12. This packet
 observes wallet action/test rows owned by `P10`, client confirmation rows owned
 by `P09`, program localnet/Photon evidence, and the action sections of
-[action-and-instruction-api.md](action-and-instruction-api.md).
+[action-and-instruction-api.md](../action-and-instruction-api.md).
 
 Exports: none; consume published package entry points only.
 
