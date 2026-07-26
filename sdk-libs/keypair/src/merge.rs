@@ -39,10 +39,17 @@ fn pack32(b: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
     (lo, hi)
 }
 
+/// The two field limbs hold 31 and 32 bytes respectively, so `pack_info` cannot
+/// represent a longer label.
+pub const MAX_INFO_LEN: usize = 62;
+
 /// pack_info mirrors packInfoTo2FECircuit: lo[0] = len, lo holds info[..split] in
-/// its low bytes, hi holds the remainder. `info.len()` must be <= 62.
-fn pack_info(info: &[u8]) -> ([u8; 32], [u8; 32]) {
+/// its low bytes, hi holds the remainder.
+fn pack_info(info: &[u8]) -> Result<([u8; 32], [u8; 32]), KeypairError> {
     let len = info.len();
+    if len > MAX_INFO_LEN {
+        return Err(KeypairError::InfoTooLong);
+    }
     let split = len.min(31);
     let mut lo = [0u8; 32];
     lo[0] = len as u8;
@@ -52,7 +59,7 @@ fn pack_info(info: &[u8]) -> ([u8; 32], [u8; 32]) {
     if rem > 0 {
         hi[32 - rem..32].copy_from_slice(&info[split..len]);
     }
-    (lo, hi)
+    Ok((lo, hi))
 }
 
 fn derive_shared_secret(
@@ -80,7 +87,7 @@ fn key_schedule(
     shared_secret: &[u8; 32],
     info: &[u8],
 ) -> Result<([u8; 32], [u8; NONCE_LEN]), KeypairError> {
-    let (info_lo, info_hi) = pack_info(info);
+    let (info_lo, info_hi) = pack_info(info)?;
     let siloed = poseidon(&[&fe_u32(DOM_SEP_SILO), shared_secret, &info_lo, &info_hi])?;
     let key_lo = poseidon(&[&fe_u32(DOM_SEP_KEY), &siloed])?;
     let key_hi = poseidon(&[&fe_u32(DOM_SEP_KEY + 1), &siloed])?;

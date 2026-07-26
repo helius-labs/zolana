@@ -1,7 +1,6 @@
 use crate::{
     constants::BLINDING_LEN,
     error::KeypairError,
-    nullifier_key::NullifierKey,
     pubkey::{P256Pubkey, PublicKey, SignatureType},
     shielded::{CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair},
 };
@@ -34,6 +33,10 @@ pub trait ShieldedKeypairTrait {
 
     fn sign(&self, msg: &[u8]) -> [u8; 64];
 
+    /// [`Self::sign`] without the P256 prehash-length panic, for backends that
+    /// take a message from an untrusted caller.
+    fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError>;
+
     // --- nullifiers ---
 
     fn nullifier(
@@ -42,8 +45,9 @@ pub trait ShieldedKeypairTrait {
         blinding: &[u8; BLINDING_LEN],
     ) -> Result<[u8; 32], KeypairError>;
 
-    /// The owner's nullifier key, used to build spendable inputs.
-    fn nullifier_key(&self) -> NullifierKey;
+    /// The owner's nullifier public key, so a caller can match spendable inputs
+    /// against this owner without holding the secret.
+    fn nullifier_pubkey(&self) -> Result<[u8; 32], KeypairError>;
 }
 
 /// Forwards to the inherent `ShieldedKeypair` methods. Inherent methods win
@@ -78,6 +82,10 @@ impl ShieldedKeypairTrait for ShieldedKeypair {
         self.sign(msg)
     }
 
+    fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
+        self.try_sign(msg)
+    }
+
     fn nullifier(
         &self,
         utxo_hash: &[u8; 32],
@@ -86,7 +94,7 @@ impl ShieldedKeypairTrait for ShieldedKeypair {
         self.nullifier(utxo_hash, blinding)
     }
 
-    fn nullifier_key(&self) -> NullifierKey {
-        self.nullifier_key.clone()
+    fn nullifier_pubkey(&self) -> Result<[u8; 32], KeypairError> {
+        self.nullifier_key.pubkey()
     }
 }
