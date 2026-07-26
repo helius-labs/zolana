@@ -1,4 +1,4 @@
-import type { Address, Instruction } from "@zolana/interface";
+import { TRANSACTION_SIZE_LIMIT, type Address, type Instruction } from "@zolana/interface";
 
 import { decodeAddress } from "./base58.js";
 import { SmartAccountClientError } from "./error.js";
@@ -28,7 +28,9 @@ const SYSTEM_PROGRAM = "11111111111111111111111111111111" as Address;
 const MAX_U8 = 0xff;
 const MAX_U16 = 0xffff;
 const MAX_U32 = 0xffff_ffff;
-const MAX_INSTRUCTION_DATA_SIZE = 1232;
+// Inner instruction data rides inside one transaction, so the packet limit
+// bounds it too.
+const MAX_INSTRUCTION_DATA_SIZE = TRANSACTION_SIZE_LIMIT;
 const U128_MAX = (1n << 128n) - 1n;
 
 export function allPermissions(): Permissions {
