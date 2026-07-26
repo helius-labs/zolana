@@ -235,6 +235,7 @@ async function checkDependencies() {
 
 async function checkScaffold() {
   const vectorPackages = [
+    "hasher",
     "interface",
     "keypair",
     "transaction",

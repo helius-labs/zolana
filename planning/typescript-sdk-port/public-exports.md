@@ -37,6 +37,43 @@ Checked byte constructors validate exact length and copy their input. Address,
 signature, integer, enum, and collection validation occurs before I/O. Every
 package error has `readonly code`, `readonly details?`, and `readonly cause?`.
 
+## `@zolana/hasher`
+
+Source: compiled from [`program-libs/hasher`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/program-libs/hasher)
+via [`sdk-libs/hasher-wasm`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/hasher-wasm).
+This package is not a line-by-line port of the Rust crate root; it is the
+browser-safe Poseidon the other packages call, loaded from the compiled
+artifact. Hand-written Poseidon tables in sibling packages are held to the same
+vectors and are being retired behind this module.
+
+```ts
+// "." — inlined artifact (default)
+export class HasherWasmError extends Error {
+  readonly code: number;
+}
+export const MAX_POSEIDON_INPUTS: 12;
+export const POSEIDON_ARTIFACT_BYTES: number;
+export function initializePoseidon(): Promise<void>;
+export function isPoseidonInitialized(): boolean;
+export function poseidon(inputs: readonly Uint8Array[]): Uint8Array;
+/** Drops the loaded module so a suite can exercise the uninitialized path. */
+export function resetPoseidonForTests(): void;
+
+// "./slim" — same digests; caller supplies the resolved artifact
+export function initializePoseidon(
+  artifact: BufferSource | WebAssembly.Module | Response | URL | string | Promise<...>,
+): Promise<void>;
+// plus HasherWasmError, MAX_POSEIDON_INPUTS, isPoseidonInitialized, poseidon,
+// resetPoseidonForTests
+
+// "./poseidon.wasm" — the compiled artifact file
+```
+
+`resetPoseidonForTests` ships so the package suite can reset the same singleton
+the published entry point holds; it is not a product API. Rejected inputs raise
+`HasherWasmError` with either a wrapper code or the Rust `HasherError` code the
+module returned.
+
 ## `@zolana/interface`
 
 Source: [`program-libs/interface/src/lib.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/program-libs/interface/src/lib.rs),
@@ -1816,6 +1853,10 @@ SDK semver.
 
 ## Rust-root reconciliation
 
+- `@zolana/hasher` ships the compiled Poseidon surface above rather than the
+  full `zolana-hasher` crate (SHA-256, Keccak, hash-chain, syscall, zero-byte
+  tables). Those remain on `@zolana/merkle-tree` / sibling ports where the
+  primary queue already dispositions them.
 - `@zolana/client` intentionally omits blocking types, `spawn_prover`, raw
   rail-specific prover classes, and wallet-owned exports.
 - `@zolana/wallet` intentionally omits every Rust `_sync` function and hidden
@@ -1828,8 +1869,10 @@ SDK semver.
   wallet or client.
 - `@zolana/indexer-api` owns schema and method names; `@zolana/api` owns only
   transport.
-- The frozen `program-test` root maps only to private `@zolana/test-kit`.
+- The frozen `program-test` root maps only to private `@zolana/test-kit`. The
+  root entry point is the five names above; `@zolana/test-kit/node` re-exports
+  a broader Node-only annex for e2e helpers and is outside SDK semver.
 
-An API-report check must fail for every runtime export absent from this file,
-every declaration emitted from the wrong entry point, and every allowlisted
-symbol missing from implementation.
+Per-package `exports.test.ts` / export-vector suites pin runtime allowlists.
+`npm run api:check` is a scaffold check (scripts and entry points), not an
+api-extractor report against this file.

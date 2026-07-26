@@ -42,19 +42,20 @@ files.
   program implementation constants. TypeScript instruction builders use the
   canonical token program addresses and do not parse SPL account storage.
 
-## Rust defect not copied
+## Merge prefix (closed)
 
-`MERGE_ENCRYPTED_UTXO_TYPE_PREFIX` documents byte `2` as mandatory, but
-`MergeTransactIxDataRef::validate_shape` checks only vector lengths. The
-TypeScript merge codecs reject another prefix. Rust should add the same check
-before accepting merge instruction data.
+Both languages now accept the non-canonical merge encrypted-UTXO prefix Rust
+reads. The earlier TypeScript-only reject was removed with `I08`/`I09`/`I20`/
+`I21` (`78039fe9`); see
+[row-updates/merge-prefix.md](row-updates/merge-prefix.md).
 
-## Blocked authority conflicts
+## Spec conflicts that no longer block the port
 
-- Deposit and zone-deposit layout changes remain blocked because
-  `docs/spec.md` conflicts with the current Rust program and builders.
-- Protocol-config create and update changes remain blocked for the same reason.
-  Current TypeScript builders continue to match current Rust.
+Deposit tag semantics, zone-deposit builders, and protocol-config single-field
+updates were ruled in
+[row-updates/interface-spec-conflicts.md](row-updates/interface-spec-conflicts.md)
+and closed at `I07`/`I10`/`I19`. Spec text may still lag Rust; the TypeScript
+surface matches current Rust.
 
 The runtime allowlists are pinned in
 `sdk-libs/ts/interface/test/exports.test.ts`. The owned codec and state behavior
