@@ -88,10 +88,24 @@ normalization fails the data-hash assertions; normalizing the zone address, in
 Rust at `program_id_field` and in TypeScript at `commitmentFields`, fails the
 address assertions.
 
-Suites run green afterwards: `cargo test -p zolana-transaction -p zolana-wallet`,
+Suites run green afterwards, at the second merge of `ts-sdk-port`:
+`cargo test -p zolana-transaction -p zolana-wallet`,
 `cargo check --workspace --all-targets`,
-`cargo clippy -p zolana-transaction --all-targets`, and the TypeScript unit run
-at 1943 passing after `npm run build`.
+`cargo clippy -p zolana-transaction --all-targets`, `npm run typecheck`,
+`npm run format:check`, and the unit run at 1983 passing after `npm run build`.
+The `ts_oracle` comparison is included and passes; it was red between the two
+merges because the other worker regenerated the committed oracle for the same
+normalization in `1e6dab57`.
+
+## One defect inherited from the merge, not fixed here
+
+`npm run lint:packages` is red at
+`sdk-libs/ts/keypair/test/vectors/capability-boundary-certification.test.ts:290`,
+`@typescript-eslint/no-unnecessary-type-assertion`. It arrived with `aebde4af`
+from the crypto certification batch and is untouched by this branch. The fix is
+to drop the assertion on that line. Recorded rather than made, because the file
+belongs to another batch and its agent may still be committing; whoever owns the
+CI job should take it, since it fails the lint gate for everyone.
 
 ## What the row should now say
 
