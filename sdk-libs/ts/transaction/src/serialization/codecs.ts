@@ -16,8 +16,16 @@ import {
 import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
 import { Utxo, deriveBlinding } from "../utxo.js";
 
-const SPLIT_TYPE_PREFIX = 2;
-const TRANSFER_PLAINTEXT_TYPE_PREFIX = 4;
+/**
+ * The type prefix each encrypted family writes into its plaintext body. These
+ * live beside the reader and the writer that enforce them so a wire-format
+ * change has one place to happen; the package root re-exports them, as the Rust
+ * crate root does.
+ */
+export const TRANSFER = 1;
+export const SPLIT = 2;
+export const MERGE = 3;
+export const TRANSFER_PLAINTEXT = 4;
 
 export const EncryptedScheme = Object.freeze({
   proofless: 0,
@@ -541,7 +549,7 @@ export function encodePlaintextTransfer(value: TransferPlaintextUtxos): Uint8Arr
 
 export function decodePlaintextTransfer(
   bytes: Uint8Array,
-  expectedTypePrefix = TRANSFER_PLAINTEXT_TYPE_PREFIX,
+  expectedTypePrefix = TRANSFER_PLAINTEXT,
 ): TransferPlaintextUtxos {
   const reader = new Reader(bytes);
   const typePrefix = reader.u8();
@@ -605,7 +613,7 @@ export function decodeSplitBundle(bytes: Uint8Array): SplitBundlePlaintext {
 }
 
 export function encodeSplitEncrypted(value: SplitEncryptedUtxos): Uint8Array {
-  if (value.typePrefix !== SPLIT_TYPE_PREFIX) {
+  if (value.typePrefix !== SPLIT) {
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
       typePrefix: value.typePrefix,
     });
@@ -629,7 +637,7 @@ export function encodeSplitEncrypted(value: SplitEncryptedUtxos): Uint8Array {
 export function decodeSplitEncrypted(bytes: Uint8Array): SplitEncryptedUtxos {
   const reader = new Reader(bytes);
   const typePrefix = reader.u8();
-  if (typePrefix !== SPLIT_TYPE_PREFIX) {
+  if (typePrefix !== SPLIT) {
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { typePrefix });
   }
   const txViewingPublicKey = P256PublicKey.fromBytes(reader.take(33) as Bytes33);
@@ -988,6 +996,47 @@ function requireOwner(utxo: Utxo, owner: ShieldedPublicKey): void {
 }
 
 /**
+ * Everything a wallet needs to open one output slot, the counterpart of Rust
+ * `DecodeCx`. Each field is per-transaction except `slotIndex`, and the
+ * encryption schemes bind the slot index, so a context built for one slot must
+ * not be reused to open another.
+ */
+export interface DecodeContext {
+  readonly viewingKey: ViewingKey;
+  readonly txViewingPublicKey?: P256PublicKey;
+  readonly salt?: Bytes16;
+  readonly slotIndex: number;
+  readonly firstNullifier?: Bytes32;
+}
+
+/**
+ * Structural view of an indexed transaction, kept local so the codecs stay
+ * independent of the instruction types that own the full shape.
+ */
+type DecodeSource = Readonly<{
+  txViewingPublicKey?: P256PublicKey;
+  salt?: Bytes16;
+  nullifiers: readonly Bytes32[];
+}>;
+
+export function decodeContextForSlot(
+  viewingKey: ViewingKey,
+  transaction: DecodeSource,
+  slotIndex: number,
+): DecodeContext {
+  const [firstNullifier] = transaction.nullifiers;
+  return {
+    viewingKey,
+    ...(transaction.txViewingPublicKey === undefined
+      ? {}
+      : { txViewingPublicKey: transaction.txViewingPublicKey }),
+    ...(transaction.salt === undefined ? {} : { salt: transaction.salt }),
+    slotIndex,
+    ...(firstNullifier === undefined ? {} : { firstNullifier }),
+  };
+}
+
+/**
  * The owner, registry, and zone a set of output UTXOs is converted under, the
  * counterpart of Rust `OwnerCx`. The conversions below are the counterparts of
  * the `UtxoSerialization::from_utxos` implementations, which is where a builder
@@ -1088,7 +1137,7 @@ export function plaintextTransferFromUtxos(
     }
   }
   return {
-    typePrefix: TRANSFER_PLAINTEXT_TYPE_PREFIX,
+    typePrefix: TRANSFER_PLAINTEXT,
     blindingSeed,
     ...(senderOwner === undefined
       ? {}

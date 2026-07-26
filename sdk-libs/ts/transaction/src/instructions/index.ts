@@ -34,6 +34,7 @@ export type {
   InputUtxo,
   InputUtxoContext,
   OutputContext,
+  OutputSlot,
   PreparedTransfer,
   PrivateTxHashInput,
   PublicAmounts,

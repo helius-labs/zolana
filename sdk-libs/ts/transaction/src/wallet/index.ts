@@ -13,6 +13,7 @@ export {
 } from "./authority.js";
 export { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "./asset.js";
 export {
+  DEFAULT_TAG_WINDOW,
   decryptTransactions,
   decryptTransactionsWorkerEquivalent,
   type WalletSyncConfig,
@@ -23,6 +24,10 @@ export type {
   CounterpartyCounter,
   Filter,
   PrivateTransaction,
+  PrivateTransactionDirection,
+  PrivateTransactionId,
+  PrivateTransactionKind,
+  PrivateTransactionStatus,
   SyncReport,
   ViewingKeyEntry,
   WalletUtxo,
