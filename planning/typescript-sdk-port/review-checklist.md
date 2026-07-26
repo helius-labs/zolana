@@ -729,8 +729,15 @@ input to this decision.
       an owner-ruled unsupported capability (no TypeScript forester; builder withdrawn; codec and tag
       retained), and (b) P3 G2 proof compression, owned by `port/g2` and not certified here
       ([row-updates/gate12-pkg.md](row-updates/gate12-pkg.md)).
-- [ ] Deposit, private transfer, withdraw, split, merge, registration, sync, and submission flows have current-Rust coverage without behavior-hiding stubs.
-- [ ] Instruction bytes execute against same-revision Solana programs.
+- [x] Deposit, private transfer, withdraw, split, merge, registration, sync, and submission flows have current-Rust coverage without behavior-hiding stubs.
+      Evidence: [`row-updates/gate3-flows.md`](row-updates/gate3-flows.md) plus
+      submission landings in [`row-updates/gate-submit.md`](row-updates/gate-submit.md)
+      (`ZOLANA_PORT_OFFSET=300 npm run test:e2e:gate3` and `test:e2e:p5`, pure TS
+      compress, live signatures recorded).
+- [x] Instruction bytes execute against same-revision Solana programs.
+      Evidence: [`row-updates/gate-submit.md`](row-updates/gate-submit.md) —
+      split / merge / private transfer / withdraw signatures against programs
+      built in this worktree (`just build-programs`).
 - [ ] Proof inputs work with the same-revision prover for each supported shape and rail.
 - [ ] Indexer requests and responses match the same-revision live Photon contract.
 - [x] EdDSA and P256 rails cover the complete supported shape set.

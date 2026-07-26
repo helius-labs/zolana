@@ -6,23 +6,17 @@
  * Opt-in: `ZOLANA_TEST_GATE3=1`. Boots validator + Photon + prover via
  * `@zolana/test-kit` (same stack as P5). Covers registration, deposit, sync,
  * split, merge submission, and private-transaction submission without mocking
- * the prover.
+ * the prover. Spend paths prove and submit through pure TypeScript
+ * `compressProof` (no Rust compress fallback).
  *
  * Deposit / private transfer / withdraw against this stack are also exercised
  * in `prove-to-chain.live.test.ts` (P5). This suite owns the flows P5 left out:
  * split, merge submit, registration assertions, and production submit for
  * spend paths beyond transfer/withdraw.
- *
- * Pure TypeScript `compressProof` currently rejects live G2 B points
- * (`CLIENT_PROOF_POINT`, fnd-d5 / port/g2). When sign or merge-submit hits that
- * wall after a real prove, the case records it and continues to the next flow
- * that can still run without that on-chain state. Once G2 lands, submit + sync
- * assertions below run without code changes. Do not install a Rust compress
- * fallback here — that would hide the production wire path.
  */
 
 import { createAndSendTransaction, createIndexerRpcConfig } from "@zolana/client";
-import type { Bytes32, Signature, Transaction } from "@zolana/interface";
+import type { Bytes32, Signature } from "@zolana/interface";
 import { TREE_ACCOUNT_SIZE } from "@zolana/interface";
 import { ShieldedKeypair } from "@zolana/keypair";
 import { SOL_MINT } from "@zolana/transaction";
@@ -41,7 +35,6 @@ import {
   signPrivateTransaction,
   submitMergeTransaction,
   syncWallet,
-  type TransactionSigner,
 } from "@zolana/wallet";
 import { createTestWallet, startLocalStack } from "@zolana/test-kit";
 import {
@@ -55,22 +48,15 @@ import {
 } from "@zolana/test-kit/node";
 import { describe, expect, it } from "vitest";
 
-import {
-  airdrop,
-  bytes32,
-  confirm,
-  isProofPointFailure,
-  syncUntil,
-  waitForAccount,
-} from "./support/live-helpers.js";
+import { airdrop, bytes32, confirm, syncUntil, waitForAccount } from "./support/live-helpers.js";
 
 const LIVE = process.env["ZOLANA_TEST_GATE3"] === "1";
 const DEPOSIT_AMOUNT = 1_000_000_000n;
 const SPLIT_PARTS = 2;
 const PER_PART = DEPOSIT_AMOUNT / BigInt(SPLIT_PARTS);
 const TRANSFER_AMOUNT = 100_000_000n;
-/** Distinct from P5's 500 so two suites can run on one machine. */
-const DEFAULT_OFFSET = 600;
+/** Distinct from P5 so two suites can run on one machine. */
+const DEFAULT_OFFSET = 300;
 
 const suite = LIVE ? describe : describe.skip;
 
@@ -101,7 +87,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
       const recipientKeypair = ShieldedKeypair.fromEd25519(recipientSeed, 0);
 
       const harness = createE2eHarness(stack, tree);
-      const g2Blocked = new Set<string>();
       try {
         for (const [address, lamports] of [
           [authority.address, 2_000_000_000n],
@@ -176,7 +161,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
         expect(afterMergeOptIn).toBeDefined();
         expect(mergingFlag(afterMergeOptIn!)).toBe(true);
 
-        // Two deposits so merge still has ≥2 notes if split submit is G2-blocked.
         const shielded = await owner.authority.shieldedAddress();
         for (let index = 0; index < 2; index++) {
           const depositSig = await deposit({
@@ -236,7 +220,7 @@ suite("Gate 3 flows (real prover + validator)", () => {
         });
         expect(stranger.wallet.utxos()).toHaveLength(0);
 
-        // --- split (real prover) ---
+        // --- split (real prover + chain submit) ---
         const splitInput = owner.wallet
           .utxos()
           .find(
@@ -256,34 +240,30 @@ suite("Gate 3 flows (real prover + validator)", () => {
         expect(split.numOutputs).toBe(SPLIT_PARTS);
         expect(split.perOutputAmount).toBe(PER_PART);
 
-        const splitSigned = await signOrHitG2Wall({
+        const splitSigned = await signPrivateTransaction({
           transaction: split.transaction,
           wallet: owner.wallet,
           authority: owner.authority,
           client: harness.client,
           feePayer: ownerSigner,
-          flow: "split",
-          g2Blocked,
         });
-        if (splitSigned !== undefined) {
-          const splitSig = await harness.rpc.sendTransaction(splitSigned);
-          await harness.client.confirmPrivateTransaction(splitSig);
-          await syncUntil(
-            {
-              wallet: owner.wallet,
-              authority: owner.authority,
-              indexer: harness.indexer,
-              registryRpc: harness.rpc,
-            },
-            () =>
-              owner.wallet.utxos().filter(
-                (entry) =>
-                  !entry.spent &&
-                  entry.utxo.asset === SOL_MINT &&
-                  entry.utxo.amount === PER_PART,
-              ).length >= SPLIT_PARTS,
-          );
-        }
+        const splitSig = await harness.rpc.sendTransaction(splitSigned);
+        await harness.client.confirmPrivateTransaction(splitSig);
+        await syncUntil(
+          {
+            wallet: owner.wallet,
+            authority: owner.authority,
+            indexer: harness.indexer,
+            registryRpc: harness.rpc,
+          },
+          () =>
+            owner.wallet.utxos().filter(
+              (entry) =>
+                !entry.spent &&
+                entry.utxo.asset === SOL_MINT &&
+                entry.utxo.amount === PER_PART,
+            ).length >= SPLIT_PARTS,
+        );
 
         // --- merge submit (real prover via production proveMerge) ---
         const unspentForMerge = owner.wallet
@@ -299,122 +279,103 @@ suite("Gate 3 flows (real prover + validator)", () => {
         });
         expect(createdMerge.numInputs).toBe(2);
 
-        let mergeReachedProver = false;
-        try {
-          // Spend proofs live on `ZolanaClient.getInputMerkleProofs`, not on the
-          // Photon-facing `ZolanaIndexer` surface.
-          const submitted = await submitMergeTransaction({
-            rpc: harness.client,
-            indexer: harness.client,
-            owner: ownerSigner.address,
-            payer: ownerSigner,
-            material: MergeMaterial.fromKeypair(ownerKeypair),
-            tree,
-            prepared: createdMerge.prepared,
-          });
-          mergeReachedProver = true;
-          await confirm(harness.rpc, submitted.signature);
-          await harness.client.confirmPrivateTransaction(submitted.signature);
-          expect(submitted.outputHash).toEqual(createdMerge.prepared.output.hash());
-          await syncUntil(
-            {
-              wallet: owner.wallet,
-              authority: owner.authority,
-              indexer: harness.indexer,
-              registryRpc: harness.rpc,
-            },
-            () =>
-              owner.wallet
-                .utxos()
-                .some(
-                  (entry) =>
-                    !entry.spent &&
-                    entry.utxo.asset === SOL_MINT &&
-                    equalBytes(entry.outputContext.hash, submitted.outputHash),
-                ),
-          );
-        } catch (error) {
-          if (!isProofPointFailure(error)) throw error;
-          mergeReachedProver = true;
-          g2Blocked.add("merge-submit");
-          expect(isProofPointFailure(error)).toBe(true);
-        }
-        expect(mergeReachedProver).toBe(true);
+        // Spend proofs live on `ZolanaClient.getInputMerkleProofs`, not on the
+        // Photon-facing `ZolanaIndexer` surface.
+        // Merge returns after send; wait for RPC confirm + indexed output leaf.
+        // `confirmPrivateTransaction` is the transfer confirm-by-tags path and
+        // does not recognize `MERGE_TRANSACT` (same in Rust `submit_merge_transaction`).
+        const submitted = await submitMergeTransaction({
+          rpc: harness.client,
+          indexer: harness.client,
+          owner: ownerSigner.address,
+          payer: ownerSigner,
+          material: MergeMaterial.fromKeypair(ownerKeypair),
+          tree,
+          prepared: createdMerge.prepared,
+        });
+        await confirm(harness.rpc, submitted.signature);
+        expect(submitted.outputHash).toEqual(createdMerge.prepared.output.hash());
+        await syncUntil(
+          {
+            wallet: owner.wallet,
+            authority: owner.authority,
+            indexer: harness.indexer,
+            registryRpc: harness.rpc,
+          },
+          () =>
+            owner.wallet
+              .utxos()
+              .some(
+                (entry) =>
+                  !entry.spent &&
+                  entry.utxo.asset === SOL_MINT &&
+                  equalBytes(entry.outputContext.hash, submitted.outputHash),
+              ),
+        );
 
         // --- private transfer submit (production sign path; also covered by P5) ---
         const transferable = owner.wallet
           .utxos()
           .filter((entry) => !entry.spent && entry.utxo.asset === SOL_MINT)
           .reduce((sum, entry) => sum + entry.utxo.amount, 0n);
-        if (transferable >= TRANSFER_AMOUNT) {
-          const transfer = await createTransfer({
-            rpc: harness.rpc,
-            wallet: owner.wallet,
-            payer: ownerSigner.address,
-            recipient: recipientSigner.address,
-            asset: SOL_MINT,
-            amount: TRANSFER_AMOUNT,
-          });
-          expect(transfer.recipient.kind).toBe("registered");
+        expect(transferable).toBeGreaterThanOrEqual(TRANSFER_AMOUNT);
+        const transfer = await createTransfer({
+          rpc: harness.rpc,
+          wallet: owner.wallet,
+          payer: ownerSigner.address,
+          recipient: recipientSigner.address,
+          asset: SOL_MINT,
+          amount: TRANSFER_AMOUNT,
+        });
+        expect(transfer.recipient.kind).toBe("registered");
 
-          const transferSigned = await signOrHitG2Wall({
-            transaction: transfer.transaction,
-            wallet: owner.wallet,
-            authority: owner.authority,
-            client: harness.client,
-            feePayer: ownerSigner,
-            flow: "private-transfer-submit",
-            g2Blocked,
-          });
-          if (transferSigned !== undefined) {
-            const transferSig = await harness.rpc.sendTransaction(transferSigned);
-            await harness.client.confirmPrivateTransaction(transferSig);
+        const transferSigned = await signPrivateTransaction({
+          transaction: transfer.transaction,
+          wallet: owner.wallet,
+          authority: owner.authority,
+          client: harness.client,
+          feePayer: ownerSigner,
+        });
+        const transferSig = await harness.rpc.sendTransaction(transferSigned);
+        await harness.client.confirmPrivateTransaction(transferSig);
 
-            await syncUntil(
-              {
-                wallet: recipient.wallet,
-                authority: recipient.authority,
-                indexer: harness.indexer,
-                registryRpc: harness.rpc,
-              },
-              () =>
-                recipient.wallet.utxos().some(
-                  (entry) =>
-                    !entry.spent &&
-                    entry.utxo.amount === TRANSFER_AMOUNT &&
-                    entry.utxo.asset === SOL_MINT,
-                ),
-            );
+        await syncUntil(
+          {
+            wallet: recipient.wallet,
+            authority: recipient.authority,
+            indexer: harness.indexer,
+            registryRpc: harness.rpc,
+          },
+          () =>
+            recipient.wallet.utxos().some(
+              (entry) =>
+                !entry.spent &&
+                entry.utxo.amount === TRANSFER_AMOUNT &&
+                entry.utxo.asset === SOL_MINT,
+            ),
+        );
 
-            const indexed = await harness.indexer.getShieldedTransactionsByTags({
-              tags: [recipient.wallet.identity.confidentialViewTag()],
-              limit: 50,
-            });
-            expect(
-              indexed.transactions.some(
-                (transaction) => transaction.txSignature === transferSig,
-              ),
-            ).toBe(true);
-            const merkle = await harness.indexer.getMerkleProofs(
-              tree,
-              [
-                recipient.wallet
-                  .utxos()
-                  .find((entry) => !entry.spent && entry.utxo.amount === TRANSFER_AMOUNT)!
-                  .outputContext.hash,
-              ],
-              createIndexerRpcConfig(true),
-            );
-            expect(merkle.proofs).toHaveLength(1);
-          }
-        }
-
-        // Split reached the real prover (landed on-chain or stopped at G2 compress).
+        const indexed = await harness.indexer.getShieldedTransactionsByTags({
+          tags: [recipient.wallet.identity.confidentialViewTag()],
+          limit: 50,
+        });
         expect(
-          g2Blocked.has("split") ||
-            owner.wallet
+          indexed.transactions.some((transaction) => transaction.txSignature === transferSig),
+        ).toBe(true);
+        const merkle = await harness.indexer.getMerkleProofs(
+          tree,
+          [
+            recipient.wallet
               .utxos()
-              .some((entry) => !entry.spent && entry.utxo.amount === PER_PART),
+              .find((entry) => !entry.spent && entry.utxo.amount === TRANSFER_AMOUNT)!
+              .outputContext.hash,
+          ],
+          createIndexerRpcConfig(true),
+        );
+        expect(merkle.proofs).toHaveLength(1);
+
+        expect(
+          owner.wallet.utxos().some((entry) => !entry.spent && entry.utxo.amount === PER_PART),
         ).toBe(true);
       } finally {
         await harness.stop();
@@ -438,39 +399,4 @@ function mergingFlag(
 
 function equalBytes(left: Bytes32, right: Bytes32): boolean {
   return left.length === right.length && left.every((byte, index) => byte === right[index]);
-}
-
-/**
- * Sign through the production client/prover path. A `CLIENT_PROOF_POINT` after
- * prove means the real prover returned a proof and TypeScript compress refused
- * the G2 B point — gate 3 still counts that as real-prover coverage for the
- * flow; chain submit waits on the G2 fix.
- */
-async function signOrHitG2Wall(
-  input: Readonly<{
-    transaction: Parameters<typeof signPrivateTransaction>[0]["transaction"];
-    wallet: Parameters<typeof signPrivateTransaction>[0]["wallet"];
-    authority: Parameters<typeof signPrivateTransaction>[0]["authority"];
-    client: Parameters<typeof signPrivateTransaction>[0]["client"];
-    feePayer: TransactionSigner;
-    flow: string;
-    g2Blocked: Set<string>;
-  }>,
-): Promise<Transaction | undefined> {
-  try {
-    return await signPrivateTransaction({
-      transaction: input.transaction,
-      wallet: input.wallet,
-      authority: input.authority,
-      client: input.client,
-      feePayer: input.feePayer,
-    });
-  } catch (error) {
-    if (!isProofPointFailure(error)) throw error;
-    input.g2Blocked.add(input.flow);
-    expect(isProofPointFailure(error), `${input.flow}: expected G2 wall after real prove`).toBe(
-      true,
-    );
-    return undefined;
-  }
 }

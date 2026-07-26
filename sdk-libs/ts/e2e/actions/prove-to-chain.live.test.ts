@@ -55,7 +55,7 @@ const RUST_COMPRESS = process.env["ZOLANA_TEST_P5_RUST_COMPRESS"] === "1";
 const DEPOSIT_AMOUNT = 1_000_000_000n;
 const TRANSFER_AMOUNT = 400_000_000n;
 const WITHDRAW_AMOUNT = 400_000_000n;
-const DEFAULT_OFFSET = 500;
+const DEFAULT_OFFSET = 300;
 
 function bytes32(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
