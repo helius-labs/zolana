@@ -20,14 +20,19 @@ const TRANSFER_AMOUNT = 300_000_000n;
 const WITHDRAW_AMOUNT = 300_000_000n;
 
 function inputUtxo(wallet: Wallet, keypair: ShieldedKeypair): ProofInputUtxo {
-  return ProofInputUtxo.fromKeypair(wallet.balance(SOL_MINT).utxos[0]!, keypair);
+  const utxo = wallet.balance(SOL_MINT).utxos[0];
+  if (utxo === undefined) {
+    throw new Error("expected at least one spendable SOL UTXO");
+  }
+  return ProofInputUtxo.fromKeypair(utxo, keypair);
 }
 
 describe("example: deposit, transfer, withdraw", () => {
   it("moves SOL into the pool, to a second wallet, and back out", async () => {
-    const { rpcUrl, indexerUrl, proverUrl, tree, sender, recipient, stop } = await setup({
+    const stack = await setup({
       portOffset: Number(process.env["ZOLANA_PORT_OFFSET"] ?? "500"),
     });
+    const { rpcUrl, indexerUrl, proverUrl, tree, sender, recipient } = stack;
     try {
       const client = ZolanaClient.fromUrls({
         rpc: new SolanaRpc({ url: rpcUrl }),
@@ -127,7 +132,7 @@ describe("example: deposit, transfer, withdraw", () => {
       });
       await client.confirmPrivateTransaction(withdrawalSignature);
     } finally {
-      await stop();
+      await stack.stop();
     }
   }, 600_000);
 });
