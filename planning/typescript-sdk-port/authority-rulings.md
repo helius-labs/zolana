@@ -41,7 +41,7 @@ Sections carrying their own evidence:
 - [Where the `user_record` binding defect lands](#where-the-user_record-binding-defect-lands)
 - [Whether the zone prover paths are built now or deferred](#whether-the-zone-prover-paths-are-built-now-or-deferred)
 - [The forester instruction builder on the TypeScript public surface](#the-forester-instruction-builder-on-the-typescript-public-surface)
-- [How TypeScript gets its Poseidon](#how-typescript-gets-its-poseidon)
+- [Poseidon in TypeScript](#poseidon-in-typescript)
 - [Whether the WebAssembly Poseidon may use a module-scope await](#whether-the-webassembly-poseidon-may-use-a-module-scope-await)
 - [The external-data length prefix (T21)](#the-external-data-length-prefix-t21)
 - [Which side is wrong at the indexed-array sentinel (M01)](#which-side-is-wrong-at-the-indexed-array-sentinel-m01)
