@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,6 +7,17 @@ import { describe, expect, it } from "vitest";
 import oracle from "../oracles/transaction-parity-v1.json" with { type: "json" };
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src");
+
+async function sourceFiles(directory: string): Promise<readonly string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await sourceFiles(full)));
+    else if (entry.name.endsWith(".ts")) files.push(full);
+  }
+  return files;
+}
 
 /** `@zolana/transaction` entry point to the barrel file that defines it. */
 const ENTRY_POINT_SOURCES: Readonly<Record<string, string>> = {
@@ -414,5 +425,34 @@ describe("UtxoSerialization capability contract", () => {
         expect(exports, `${implementor.type}.${operation} must ship as ${name}`).toContain(name);
       }
     }
+  });
+});
+
+/**
+ * A name that two modules declare independently is the defect T10 recorded for
+ * `SplitBundlePlaintext`: the barrels agree on the spelling while the two
+ * entry points hand out unrelated types. One declaration per name keeps a
+ * re-export the only way a second barrel can publish it.
+ */
+describe("one declaration per exported name", () => {
+  it("declares each name in exactly one module", async () => {
+    const files = await sourceFiles(sourceRoot);
+    const sites = new Map<string, string[]>();
+    for (const file of files) {
+      const source = await readFile(file, "utf8");
+      const relative = path.relative(sourceRoot, file);
+      for (const [, name] of source.matchAll(
+        /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:const|function|class|interface|enum)\s+([A-Za-z_$][\w$]*)/gmu,
+      )) {
+        const homes = sites.get(name) ?? [];
+        if (!homes.includes(relative)) homes.push(relative);
+        sites.set(name, homes);
+      }
+    }
+    const duplicated = [...sites]
+      .filter(([, homes]) => homes.length > 1)
+      .map(([name, homes]) => `${name}: ${homes.join(", ")}`)
+      .sort();
+    expect(duplicated).toEqual([]);
   });
 });
