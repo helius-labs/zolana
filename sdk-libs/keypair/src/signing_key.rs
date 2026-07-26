@@ -228,6 +228,42 @@ mod tests {
         assert!(!key.verify(&[], &signature_bytes(NON_CANONICAL_R_SIGNATURE)));
     }
 
+    const P256_ORDER: &str = "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551";
+
+    fn digest_bytes(value: &str) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        hex::decode_to_slice(value, &mut bytes).unwrap();
+        bytes
+    }
+
+    /// RFC 6979 section 2.3.4 seeds the nonce with the prehash reduced modulo
+    /// the group order, so a prehash and its reduction name one signature.
+    /// `ecdsa` 0.16 seeds it unreduced, which would give these pairs different
+    /// bytes and leave `@noble/curves` unable to reproduce either.
+    /// `key-certification-k2-p256.test.ts` asserts the same pairs.
+    #[test]
+    fn p256_signs_a_prehash_as_its_reduction() {
+        let key = SigningKey::from_bytes(&[3u8; 32]).unwrap();
+        let order = digest_bytes(P256_ORDER);
+        let mut order_plus_one = order;
+        order_plus_one[31] += 1;
+        let mut one = [0u8; 32];
+        one[31] = 1;
+
+        for (prehash, reduced) in [(order, [0u8; 32]), (order_plus_one, one)] {
+            assert_eq!(key.sign(&prehash), key.sign(&reduced));
+            // Reducing changes only the nonce, so the signature still stands
+            // against the prehash the caller handed in.
+            assert!(key.verify(&prehash, &key.sign(&prehash)));
+        }
+
+        // Below the order the reduction is the identity, which is what keeps
+        // every other recorded signature unchanged.
+        let mut below = order;
+        below[31] -= 1;
+        assert_ne!(key.sign(&below), key.sign(&order));
+    }
+
     /// `new_ed25519` produces a genuine ed25519 key: it reports the ed25519 rail,
     /// signs and verifies a message (which an off-curve key could not), and its
     /// confidential view tag is the raw 32-byte ed25519 public key. `new` stays on
