@@ -26,7 +26,7 @@ import assemblyFixtureJson from "../../../vectors/public-input-assembly-v1.json"
   type: "json",
 };
 import proverShapesJson from "../../../fixtures/client/prover-shapes-v1.json" with { type: "json" };
-import fixtureJson from "../../../fixtures/client/prover-request-parity-v1.json" with {
+import fixtureJson from "../../../vectors/prover-request-parity-v1.json" with {
   type: "json",
 };
 import { ClientError } from "../../src/error.js";

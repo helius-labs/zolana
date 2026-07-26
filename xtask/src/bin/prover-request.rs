@@ -54,7 +54,7 @@ use zolana_transaction::{
     Data, Utxo, SOL_MINT,
 };
 
-const FIXTURE: &str = "sdk-libs/ts/fixtures/client/prover-request-parity-v1.json";
+const FIXTURE: &str = "sdk-libs/ts/vectors/prover-request-parity-v1.json";
 const JSON_RS: &str = "sdk-libs/client/src/prover/json.rs";
 
 const P256_SECRET: [u8; 32] = [
