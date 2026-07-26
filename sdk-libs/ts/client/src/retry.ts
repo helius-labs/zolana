@@ -146,6 +146,8 @@ export function retryCause(error: unknown): RetryErrorCause | undefined {
     // or `salt` into `ClientError::Rpc` inside the polled closure, and
     // `indexer.ts::decodeP256` raises `CLIENT_INVALID_RPC_RESPONSE` for the same
     // response.
+    // Malformed encodings in an RPC body become `ClientError::Rpc` in Rust
+    // (`solana_rpc.rs` wraps bs58/base64 decode failures), so they retry there.
     case "CLIENT_RPC":
     case "CLIENT_RPC_HTTP":
     case "CLIENT_RPC_JSON":
@@ -156,8 +158,6 @@ export function retryCause(error: unknown): RetryErrorCause | undefined {
     case "CLIENT_RPC_OWNER_TAG":
     case "CLIENT_RPC_TRANSACT_NOT_FOUND":
     case "CLIENT_INVALID_RPC_RESPONSE":
-    // Malformed encodings in an RPC body become `ClientError::Rpc` in Rust
-    // (`solana_rpc.rs` wraps bs58/base64 decode failures), so they retry there.
     case "CLIENT_INVALID_BASE58":
     case "CLIENT_INVALID_BASE64":
       return RPC_CAUSE;
