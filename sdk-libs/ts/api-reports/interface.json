@@ -259,6 +259,10 @@
         "kind": "type"
       },
       {
+        "name": "signerIndex",
+        "kind": "value"
+      },
+      {
         "name": "SOL_INTERFACE",
         "kind": "value"
       },
@@ -303,6 +307,10 @@
         "kind": "value"
       },
       {
+        "name": "TransactionSigner",
+        "kind": "type"
+      },
+      {
         "name": "transactionSize",
         "kind": "value"
       },
@@ -340,6 +348,10 @@
       },
       {
         "name": "validateSppShape",
+        "kind": "value"
+      },
+      {
+        "name": "withSignature",
         "kind": "value"
       },
       {

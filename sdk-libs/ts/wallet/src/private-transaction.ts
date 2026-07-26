@@ -1,5 +1,11 @@
 import { ClientError, type SignedPrivateTransaction, type ZolanaClient } from "@zolana/client";
-import type { Address, Bytes32, RequestContext, Transaction } from "@zolana/interface";
+import type {
+  Address,
+  Bytes32,
+  RequestContext,
+  Transaction,
+  TransactionSigner,
+} from "@zolana/interface";
 import type { ShieldedAddress } from "@zolana/keypair";
 import {
   ConfidentialTransfer,
@@ -14,7 +20,6 @@ import { ConfidentialSplit } from "@zolana/transaction/instructions";
 import { UnsignedPrivateTransaction } from "./actions.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { equalBytes } from "./internal.js";
-import type { TransactionSigner } from "./submit.js";
 import type { WalletAuthority } from "./wallet-authority.js";
 
 function sameOptionalHash(left: Bytes32 | undefined, right: Bytes32 | undefined): boolean {

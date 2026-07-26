@@ -47,6 +47,8 @@ const rustValueExports = Object.keys(names);
  */
 const dispositions: Record<string, string> = {
   MergeMaterial: "Rust callers reach actions::submit::MergeMaterial through the public submodule",
+  createSolanaSigner:
+    "TypeScript has no Solana keypair type, so ShieldedKeypair::to_solana_keypair returns a TransactionSigner from here instead",
 };
 
 /** Erased at runtime, so the typecheck is the only place a drop shows up. */
@@ -205,7 +207,7 @@ describe("wallet-authority re-export parity (W06)", () => {
       "wallet-authority.ts must be one @zolana/transaction re-export clause",
     ).not.toHaveLength(0);
     expect([...names].sort()).toStrictEqual(
-      [...(await rustReExports("wallet_authority.rs"))].sort(),
+      [...(await rustReExports("wallet_authority.rs"))].map(typescriptName).sort(),
     );
     expect(source).not.toMatch(/\b(class|function|const|interface)\b/);
   });
@@ -217,6 +219,14 @@ describe("wallet-authority re-export parity (W06)", () => {
   });
 });
 
+/** Names this package spells differently from Rust on purpose. */
+const RENAMES: Readonly<Record<string, string>> = {
+  // Rust's `Sync` prefix marks the blocking form of WalletAuthority. TypeScript
+  // has no blocking form, and this is the narrower sync-material capability, so
+  // the name reads as "authority for wallet sync" instead.
+  SyncWalletAuthority: "WalletSyncAuthority",
+};
+
 /**
  * Rust splits blocking and async into `f` / `f_async` (or `f_sync` / `f`) pairs
  * and TypeScript has one promise-returning function per pair, so the suffix
@@ -224,6 +234,8 @@ describe("wallet-authority re-export parity (W06)", () => {
  * same TypeScript name.
  */
 function typescriptName(rustName: string): string {
+  const renamed = RENAMES[rustName];
+  if (renamed !== undefined) return renamed;
   if (/^[A-Z]/u.test(rustName)) {
     return rustName;
   }
@@ -249,6 +261,8 @@ const DISPOSITIONED_TS_ONLY_EXPORTS: Readonly<Record<string, string>> = {
   MergeMaterial:
     "class in TS, struct in Rust; reachable as zolana_wallet::actions::submit::MergeMaterial",
   TransactionSigner: "the custody callback shape; Rust passes a &dyn WalletAuthority instead",
+  createSolanaSigner:
+    "TypeScript has no Solana keypair type, so ShieldedKeypair::to_solana_keypair returns a TransactionSigner from here instead",
   deposit: "reachable as zolana_wallet::actions::deposit",
   registerIfAbsent: "reachable as zolana_wallet::user_registry::register_if_absent",
   fetchUserRecord:

@@ -8,7 +8,7 @@ export {
   type EncryptedSplit,
   type EncryptedTransfer,
   type P256Signature,
-  type SyncWalletAuthority,
+  type WalletSyncAuthority,
   type WalletAuthority,
   type WalletSyncMaterial,
 } from "./wallet-authority.js";
@@ -38,6 +38,7 @@ export {
   MergeMaterial,
   createAssociatedTokenAccount,
   createMerge,
+  createSolanaSigner,
   submitMergeTransaction,
   type CreatedMerge,
   type MergeParams,

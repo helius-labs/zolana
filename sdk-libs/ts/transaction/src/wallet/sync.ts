@@ -32,7 +32,7 @@ import {
   type ProoflessOutput,
 } from "../serialization/codecs.js";
 import { Utxo } from "../utxo.js";
-import type { SyncWalletAuthority, WalletSyncMaterial } from "./authority.js";
+import type { WalletSyncAuthority, WalletSyncMaterial } from "./authority.js";
 import { SOL_MINT, type AssetRegistry } from "./asset.js";
 import {
   SENDER_HISTORY_ROW_BASE,
@@ -881,7 +881,7 @@ class SyncPass {
 export async function syncWalletWithAuthority(
   input: Readonly<{
     wallet: Wallet;
-    authority: SyncWalletAuthority;
+    authority: WalletSyncAuthority;
     transactions: readonly IndexedShieldedTransaction[];
     config?: WalletSyncConfig;
   }>,
@@ -980,7 +980,7 @@ export async function syncWalletWorkerEquivalent(
  */
 export async function decryptTransactions(
   input: Readonly<{
-    authority: SyncWalletAuthority;
+    authority: WalletSyncAuthority;
     transactions: readonly IndexedShieldedTransaction[];
     registry: AssetRegistry;
     config?: WalletSyncConfig;

@@ -83,6 +83,10 @@
         "kind": "type"
       },
       {
+        "name": "compileTransaction",
+        "kind": "value"
+      },
+      {
         "name": "CompressedProof",
         "kind": "type"
       },

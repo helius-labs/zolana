@@ -18,6 +18,21 @@ export type Transaction = Readonly<{
   messageBytes: Uint8Array;
   signatures: readonly (Signature | undefined)[];
 }>;
+/**
+ * Fills this signer's slot in a compiled transaction and leaves every other
+ * slot as it found it, so a transaction needing several signers can be passed
+ * from one to the next.
+ */
+export interface TransactionSigner {
+  readonly address: Address;
+  signNativeTransaction(transaction: Transaction): Promise<Transaction>;
+}
+export function signerIndex(transaction: Transaction, address: Address): number;
+export function withSignature(
+  transaction: Transaction,
+  address: Address,
+  signature: Signature,
+): Transaction;
 export type Instruction = Readonly<{
   programAddress: Address;
   accounts: readonly Readonly<{
@@ -208,7 +223,9 @@ export type InterfaceErrorCode =
   | "INTERFACE_INVALID_ADDRESS" | "INTERFACE_INVALID_LENGTH"
   | "INTERFACE_INVALID_INTEGER" | "INTERFACE_INVALID_DISCRIMINATOR"
   | "INTERFACE_INVALID_ACCOUNT_DATA" | "INTERFACE_INVALID_PDA"
-  | "INTERFACE_CODEC";
+  | "INTERFACE_INVALID_SHAPE" | "INTERFACE_INVALID_TRANSACTION"
+  | "INTERFACE_SIGNER_NOT_REQUIRED" | "INTERFACE_TRANSACTION_TOO_LARGE"
+  | "INTERFACE_HASH" | "INTERFACE_CODEC";
 export type ShieldedPoolErrorCode = 7000 | 7001 | 7002 | 7003 | 7004 | 7005
   | 7006 | 7007 | 7008 | 7009 | 7010 | 7011 | 7012 | 7013 | 7014 | 7015
   | 7016 | 7017 | 7018 | 7019 | 7020 | 7021 | 7022 | 7023 | 7024 | 7025;
@@ -706,6 +723,16 @@ export class Wallet {
   readonly identity: ShieldedAddress;
   readonly registry: AssetRegistry;
   constructor(input: Readonly<{ identity: ShieldedAddress; registry: AssetRegistry }>);
+  /**
+   * Construct-sync path Rust's free `decrypt_transactions` open-codes and then
+   * drops. Keeping the wallet lets a caller take the notes, not only balances.
+   */
+  static decrypt(input: Readonly<{
+    authority: WalletSyncAuthority;
+    transactions: readonly IndexedShieldedTransaction[];
+    assets: AssetRegistry;
+    config?: WalletSyncConfig;
+  }>): Promise<Wallet>;
   utxos(): readonly WalletUtxo[];
   privateTransactions(): readonly PrivateTransaction[];
   balance(mint: Address): AssetBalance | undefined;
@@ -805,6 +832,14 @@ export interface WalletSyncMaterial {
   readonly viewingKeys: readonly ViewingKey[];
   readonly nullifierKey: NullifierKey;
 }
+/**
+ * Rust spells this `SyncWalletAuthority`, where `Sync` marks the blocking form
+ * of the full `WalletAuthority` trait. TypeScript has no blocking form, so the
+ * name reads as "authority for wallet sync" instead.
+ */
+export interface WalletSyncAuthority {
+  syncMaterial(): Promise<WalletSyncMaterial>;
+}
 export interface SppProofInputs {
   readonly payerPublicKeyHash: Bytes32;
   readonly inputUtxos: readonly ProofInputUtxo[];
@@ -878,7 +913,7 @@ export interface WalletSyncConfig {
   readonly syncedAt?: bigint;
 }
 export function syncWalletWithAuthority(input: Readonly<{
-  wallet: Wallet; authority: SyncWalletAuthority;
+  wallet: Wallet; authority: WalletSyncAuthority;
   transactions: readonly IndexedShieldedTransaction[];
   config?: WalletSyncConfig;
 }>): Promise<SyncReport>;
@@ -888,7 +923,7 @@ export function syncWalletWithMaterial(input: Readonly<{
   config?: WalletSyncConfig;
 }>): SyncReport;
 export function decryptTransactions(input: Readonly<{
-  authority: SyncWalletAuthority;
+  authority: WalletSyncAuthority;
   transactions: readonly IndexedShieldedTransaction[];
   registry: AssetRegistry;
   config?: WalletSyncConfig;
@@ -1261,10 +1296,12 @@ export class ZolanaClient {
   constructor(input: Readonly<{
     rpc: Rpc; indexer: ZolanaIndexer; prover: ProverClient; tree: Address;
     computeUnitLimit?: number; computeUnitPriceMicroLamports?: bigint;
+    indexerConfig?: IndexerRpcConfig;
   }>);
   readonly tree: Address;
   readonly rpc: Rpc;
   readonly indexer: ZolanaIndexer;
+  readonly indexerConfig: IndexerRpcConfig;
   getAccount(address: Address, context?: RequestContext): Promise<Readonly<{ owner: Address; data: Uint8Array; lamports: bigint }> | undefined>;
   getMultipleAccounts(addresses: readonly Address[], context?: RequestContext): Promise<readonly (Readonly<{ owner: Address; data: Uint8Array; lamports: bigint }> | undefined)[]>;
   getBalance(address: Address, context?: RequestContext): Promise<bigint>;
@@ -1272,6 +1309,16 @@ export class ZolanaClient {
   sendTransaction(transaction: Transaction, context?: RequestContext): Promise<Signature>;
   confirmTransaction(signature: Signature, context?: RequestContext): Promise<boolean>;
   transactOutputViewTags(signature: Signature, context?: RequestContext): Promise<readonly Bytes32[]>;
+  /**
+   * Instruction-level send: compile against a fresh blockhash, collect every
+   * required `TransactionSigner`, and submit. Maps Rust
+   * `Rpc::create_and_send_transaction` with signers instead of keypairs.
+   */
+  createAndSendTransaction(input: Readonly<{
+    instructions: readonly Instruction[];
+    feePayer: TransactionSigner;
+    signers?: readonly TransactionSigner[];
+  }>, context?: RequestContext): Promise<Signature>;
   getMerkleProofs(treeAccount: Address, leaves: readonly Bytes32[], config?: IndexerRpcConfig, context?: RequestContext): Promise<GetMerkleProofsResponse>;
   getNonInclusionProofs(treeAccount: Address, leaves: readonly Bytes32[], config?: IndexerRpcConfig, context?: RequestContext): Promise<GetNonInclusionProofsResponse>;
   getInputMerkleProofs(inputUtxoCommitments: readonly InputUtxoContext[], config?: IndexerRpcConfig, context?: RequestContext): Promise<readonly SpendProof[]>;
@@ -1289,6 +1336,31 @@ export class ZolanaClient {
   }>, context?: RequestContext): Promise<Transaction>;
   confirmPrivateTransaction(signature: Signature, context?: RequestContext): Promise<void>;
 }
+/**
+ * Compile instructions into an unsigned legacy transaction whose signature
+ * slots are all empty. Message assembly Rust gets from `solana-message`;
+ * TypeScript exposes it so callers can build a transaction the SDK signs and
+ * sends. Prefer `ZolanaClient.finishSubmissionUnsigned` when the only
+ * instruction is a shielded `Transact` that also needs the client's compute
+ * budget.
+ */
+export function compileTransaction(input: Readonly<{
+  feePayer: Address;
+  recentBlockhash: string;
+  instructions: readonly Instruction[];
+}>): Transaction;
+/**
+ * Compile against a fresh blockhash, hand the unsigned transaction to `sign`,
+ * and submit: Rust's `Rpc::create_and_send_transaction` without the keypairs.
+ * Kept beside the method form so callers that already hold an `Rpc` and a
+ * sign callback (parity fixtures, Light-style free functions) stay covered.
+ */
+export async function createAndSendTransaction(input: Readonly<{
+  rpc: Rpc;
+  feePayer: Address;
+  instructions: readonly Instruction[];
+  sign: (transaction: Transaction) => Promise<Transaction>;
+}>, context?: RequestContext): Promise<Signature>;
 ```
 
 Constructors validate URLs, tree, limits, and retained adapters. RPC methods
@@ -1305,7 +1377,10 @@ while `ZolanaClient` delegates them to its indexer. This keeps
 `SubmitMergeTransaction.indexer: Rpc` source-exact without adding a wallet
 dependency on the concrete indexer adapter.
 No wallet action, authority, registry, balance, history, or sync export is
-permitted here.
+permitted here. The instruction-level surface above
+(`compileTransaction`, `ZolanaClient.createAndSendTransaction`) is the shape
+the example branch carried; the free `createAndSendTransaction` is retained
+for Rust/`Rpc` parity.
 
 The root also carries the prover block, so `import { ProverClient } from
 "@zolana/client"` resolves the same declaration as the `@zolana/client/prover`
@@ -1599,6 +1674,9 @@ export interface TransactionSigner {
   readonly address: Address;
   signNativeTransaction(transaction: Transaction): Promise<Transaction>;
 }
+/** Ed25519-only native signer backed by a shielded keypair. */
+export function createSolanaSigner(keypair: ShieldedKeypair): TransactionSigner;
+export type { WalletSyncAuthority };
 
 export interface SyncWalletConfig {
   readonly tagWindow?: bigint; readonly tagQueryChunk?: number;
@@ -1663,8 +1741,10 @@ helpers remain excluded because Promise APIs already cover their behavior.
    commitment context, tree/leaf index, nullifier, optional data hashes, and
    spent state from
    [`wallet/state.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/transaction/src/wallet/state.rs).
-4. `decryptTransactions` uses the one Promise-based `WalletAuthority` contract
-   and returns `Promise<SyncReport>`; the blocking Rust authority remains
+4. `decryptTransactions` takes a `WalletSyncAuthority`, builds a fresh wallet,
+   syncs it, and returns `Promise<readonly AssetBalance[]>`, matching Rust's
+   free `decrypt_transactions`. `Wallet.decrypt` keeps the constructed wallet
+   for callers that need the notes. The blocking Rust authority remains
    internal.
 5. Nullifier methods accept the frozen 31-byte UTXO blinding, not a leaf index,
    matching [`nullifier_key.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/keypair/src/nullifier_key.rs).
@@ -1871,10 +1951,31 @@ export function createTestWallet(seed: Bytes32): Readonly<{
 }>;
 ```
 
+`@zolana/test-kit/node` also carries the thin local-stack helpers the TypeScript
+example uses after the production packages absorbed the duplicated primitives:
+
+```ts
+export function sendAndConfirm(input: Readonly<{
+  client: ZolanaClient; feePayer: TransactionSigner;
+  instructions: readonly Instruction[]; signers?: readonly TransactionSigner[];
+  timeoutMs?: number;
+}>, context?: RequestContext): Promise<Signature>;
+export function confirm(input: Readonly<{
+  rpc: Rpc; signature: Signature; timeoutMs?: number;
+}>, context?: RequestContext): Promise<void>;
+export function requestAirdrop(input: Readonly<{
+  rpcUrl: URL; address: Address; lamports: bigint;
+}>): Promise<Signature>;
+export function minimumBalanceForRentExemption(input: Readonly<{
+  rpcUrl: URL; space: number;
+}>): Promise<bigint>;
+```
+
 This Node-only unpublished surface owns process/filesystem behavior and rejects
 with `TestKitError`. Rust admin, event, indexer, instruction, SPL, proofless,
 wallet-data, and zone helpers remain test implementation details rather than
-SDK semver.
+SDK semver. The paired examples live under `sdk-tests/rust-client` and
+`sdk-tests/typescript-client`.
 
 ## Rust-root reconciliation
 

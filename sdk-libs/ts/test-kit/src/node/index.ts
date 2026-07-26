@@ -20,6 +20,7 @@ export * from "../events.js";
 export * from "../harness.js";
 export * from "../indexer.js";
 export * from "../instructions.js";
+export * from "../native.js";
 export * from "../paths.js";
 export * from "../proofless.js";
 export * from "../prover.js";

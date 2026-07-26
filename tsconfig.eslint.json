@@ -6,5 +6,9 @@
     "noEmit": true,
     "sourceMap": false
   },
-  "include": ["sdk-libs/ts/*/src/**/*.ts", "sdk-libs/ts/*/test/**/*.ts"]
+  "include": [
+    "sdk-libs/ts/*/src/**/*.ts",
+    "sdk-libs/ts/*/test/**/*.ts",
+    "sdk-tests/typescript-client/**/*.ts"
+  ]
 }

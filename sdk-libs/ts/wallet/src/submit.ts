@@ -1,5 +1,13 @@
-import type { Rpc, ZolanaClient } from "@zolana/client";
-import type { Address, Bytes32, RequestContext, Signature, Transaction } from "@zolana/interface";
+import { compileTransaction, type Rpc, type ZolanaClient } from "@zolana/client";
+import type {
+  Address,
+  Bytes32,
+  RequestContext,
+  Signature,
+  Transaction,
+  TransactionSigner,
+} from "@zolana/interface";
+import { withSignature } from "@zolana/interface";
 import { createAssociatedTokenAccountInstruction } from "@zolana/interface/instructions";
 import type { MergeTransactInstructionData } from "@zolana/interface/instructions";
 import { associatedTokenAddress } from "@zolana/interface/pda";
@@ -18,16 +26,38 @@ import {
 import { Merge } from "@zolana/transaction/instructions";
 
 import { WalletError, wrapWalletError } from "./error.js";
-import { bytesKey, compileTransaction, decodeBase58, equalBytes } from "./internal.js";
+import { bytesKey, decodeBase58, encodeBase58, equalBytes } from "./internal.js";
 import {
   internalMergeSubmissionRecord,
   internalUserRecordAddress,
   type MergeSubmissionRecord,
 } from "./registry.js";
 
-export interface TransactionSigner {
-  readonly address: Address;
-  signNativeTransaction(transaction: Transaction): Promise<Transaction>;
+export type { TransactionSigner };
+
+/**
+ * A signer for native Solana transactions backed by a shielded keypair,
+ * mirroring Rust's `ShieldedKeypair::to_solana_keypair`. TypeScript has no
+ * Solana keypair type, so the equivalent is the signer that key signs with.
+ * Only the ed25519 rail produces a native signature, so a P256 keypair is
+ * rejected here the same way Rust rejects it.
+ */
+export function createSolanaSigner(keypair: ShieldedKeypair): TransactionSigner {
+  if (keypair.curve() !== "ed25519") {
+    throw new WalletError("WALLET_SIGNER_NOT_ED25519");
+  }
+  const address = keypair.shieldedAddress().solanaAddress() as unknown as Address;
+  return Object.freeze({
+    address,
+    signNativeTransaction(transaction: Transaction): Promise<Transaction> {
+      // Deferred so a message this key is not a required signer for comes back
+      // as a rejection: a signer that returns a promise must not also throw.
+      return Promise.resolve().then(() => {
+        const signature = encodeBase58(keypair.sign(transaction.messageBytes)) as Signature;
+        return withSignature(transaction, address, signature);
+      });
+    },
+  });
 }
 
 export async function createAssociatedTokenAccount(

@@ -438,6 +438,11 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_INSUFFICIENT_BALANCE: { requested: "string", available: "string" },
   CLIENT_UNSIGNED_INPUT_UNAVAILABLE: { index: "number" },
   CLIENT_SOLANA_TRANSACTION_SIGNING: { reason: "string" },
+  CLIENT_INCOMPLETE_SIGNATURES: {
+    required: "number",
+    provided: "number",
+    missingIndex: "number",
+  },
   CLIENT_AMBIGUOUS_TREE: { asset: "string", treeCount: "number" },
   CLIENT_TREE_MISMATCH: { transactionTree: "string", clientTree: "string" },
   CLIENT_MISSING_SPL_TOKEN_ACCOUNT: { mint: "string" },
@@ -482,11 +487,6 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_INVALID_INTEGER: { field: "string", value: "string", length: "number" },
   CLIENT_INVALID_INPUT_CONTEXT: { index: "number" },
   CLIENT_CONFIRMATION_TIMEOUT: { signature: "string", attempts: "number" },
-  CLIENT_INCOMPLETE_SIGNATURES: {
-    required: "number",
-    provided: "number",
-    missingIndex: "number",
-  },
   CLIENT_INVALID_LENGTH: { field: "string", expected: "number", actual: "number" },
   CLIENT_INVALID_FIELD: { field: "string", value: "string" },
   CLIENT_INVALID_BASE58: { field: "string", expectedLength: "number", actualLength: "number" },

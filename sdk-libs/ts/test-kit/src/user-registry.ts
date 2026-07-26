@@ -27,6 +27,7 @@ export type MergingSetupResult =
   | Readonly<{ changed: false; userRecord: Address }>
   | Readonly<{ changed: true; signature: Signature; userRecord: Address }>;
 
+/** Seed-based convenience over `createSolanaSigner` for tests holding raw bytes. */
 export function createTestNativeSigner(seed: Bytes32): TransactionSigner {
   if (!(seed instanceof Uint8Array) || seed.length !== 32) {
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", {

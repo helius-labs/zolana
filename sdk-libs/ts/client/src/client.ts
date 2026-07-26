@@ -1,3 +1,4 @@
+import { ZolanaApi } from "@zolana/api";
 import {
   mergeTransactInstruction,
   mergeZoneInstruction,
@@ -13,6 +14,7 @@ import type {
   Shape,
   Signature,
   Transaction,
+  TransactionSigner,
   TransactInstructionData,
   TransactWithdrawal,
 } from "@zolana/interface";
@@ -34,8 +36,10 @@ import { compressProof } from "./prover/proof.js";
 import { DEFAULT_INDEXER_RPC_CONFIG, pollUntil, validatePollConfig } from "./retry.js";
 import { compactU16 } from "./wire.js";
 import {
+  type GetByTagsRequest,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
+  type GetShieldedTransactionsByTagsResponse,
   type IndexerRpcConfig,
   type Rpc,
   type RpcAccount,
@@ -134,6 +138,41 @@ export class ZolanaClient implements Rpc {
     this.#indexerConfig = indexerConfig;
   }
 
+  /**
+   * Build a client from an RPC plus the indexer and prover URLs, mirroring
+   * Rust's `ZolanaClient::from_urls`. The RPC is passed in because a caller may
+   * already hold one, or may be supplying their own implementation.
+   */
+  static fromUrls(
+    input: Readonly<{
+      rpc: Rpc;
+      indexerUrl: URL | string;
+      proverUrl: URL | string;
+      tree: Address;
+      computeUnitLimit?: number;
+      computeUnitPriceMicroLamports?: bigint;
+      indexerConfig?: IndexerRpcConfig;
+    }>,
+  ): ZolanaClient {
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null) {
+      throw new ClientError("CLIENT_INVALID_CONFIG");
+    }
+    return new ZolanaClient({
+      rpc: input.rpc,
+      indexer: new ZolanaIndexer(new ZolanaApi({ url: input.indexerUrl })),
+      prover: new ProverClient({ url: input.proverUrl }),
+      tree: input.tree,
+      ...(input.computeUnitLimit === undefined
+        ? {}
+        : { computeUnitLimit: input.computeUnitLimit }),
+      ...(input.computeUnitPriceMicroLamports === undefined
+        ? {}
+        : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+      ...(input.indexerConfig === undefined ? {} : { indexerConfig: input.indexerConfig }),
+    });
+  }
+
   /// Mirrors Rust's `ZolanaClient::indexer_config`: the config every indexer
   /// call falls back to and the schedule confirmation polls.
   get indexerConfig(): IndexerRpcConfig {
@@ -174,6 +213,68 @@ export class ZolanaClient implements Rpc {
     context?: RequestContext,
   ): Promise<readonly Bytes32[]> {
     return this.rpc.transactOutputViewTags(signature, context);
+  }
+
+  /**
+   * Compile, sign, and send `instructions` in one call, mirroring Rust's
+   * `Rpc::create_and_send_transaction`. Returns once the cluster accepts the
+   * transaction; it does not wait for confirmation or for the indexer to catch
+   * up, which `confirmPrivateTransaction` does.
+   *
+   * `feePayer` signs first and every signer in `signers` after it, so a
+   * transaction requiring several signatures is passed along the list. A signer
+   * that is not required by the compiled message is an error rather than a
+   * silent no-op.
+   */
+  async createAndSendTransaction(
+    input: Readonly<{
+      instructions: readonly Instruction[];
+      feePayer: TransactionSigner;
+      signers?: readonly TransactionSigner[];
+    }>,
+    context?: RequestContext,
+  ): Promise<Signature> {
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null) {
+      throw new ClientError("CLIENT_INVALID_TRANSACTION");
+    }
+    const latest = await this.rpc.getLatestBlockhash(context);
+    const unsigned = compileTransaction({
+      feePayer: input.feePayer.address,
+      recentBlockhash: latest.blockhash,
+      instructions: input.instructions,
+    });
+    let signed = unsigned;
+    for (const signer of [input.feePayer, ...(input.signers ?? [])]) {
+      signed = await signer.signNativeTransaction(signed);
+    }
+    // The compiled message reserves one slot per required signer, and the
+    // cluster rejects a message with an unfilled slot. Reporting it here names
+    // the signer that is missing instead of spending a round trip to be told
+    // the signature count is wrong.
+    const missing = signed.signatures.findIndex((signature) => signature === undefined);
+    if (signed.signatures.length !== unsigned.signatures.length || missing !== -1) {
+      throw new ClientError("CLIENT_INCOMPLETE_SIGNATURES", {
+        details: {
+          required: unsigned.signatures.length,
+          provided: signed.signatures.length,
+          ...(missing === -1 ? {} : { missingIndex: missing }),
+        },
+      });
+    }
+    return await this.rpc.sendTransaction(signed, context);
+  }
+
+  /**
+   * Mirrors Rust's `ZolanaClient::get_shielded_transactions_by_tags`, which
+   * reaches the indexer through the client rather than through a second handle.
+   */
+  getShieldedTransactionsByTags(
+    request: GetByTagsRequest,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<GetShieldedTransactionsByTagsResponse> {
+    return this.indexer.getShieldedTransactionsByTags(request, this.#configOr(config), context);
   }
 
   getMerkleProofs(
@@ -654,6 +755,22 @@ export function buildUnsignedMergeZoneTransaction(
       mergeViewTag: input.mergeViewTag,
     }),
   ]);
+}
+
+/**
+ * Compile instructions into an unsigned legacy transaction whose signature
+ * slots are all empty. Callers that only need the shielded `Transact`
+ * instruction should prefer `ZolanaClient.finishSubmissionUnsigned`, which
+ * also applies the client's compute budget.
+ */
+export function compileTransaction(
+  input: Readonly<{
+    feePayer: Address;
+    recentBlockhash: string;
+    instructions: readonly Instruction[];
+  }>,
+): Transaction {
+  return compileLegacyTransaction(input.feePayer, input.recentBlockhash, input.instructions);
 }
 
 function compileLegacyTransaction(
