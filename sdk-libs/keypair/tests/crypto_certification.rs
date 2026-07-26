@@ -29,7 +29,8 @@ use zolana_keypair::{
     pubkey::{P256Pubkey, PublicKey},
     shielded::ShieldedKeypair,
     signing_key::SigningKey,
-    viewing_key::{Salt, ViewingKey},
+    traits::{ShieldedKeypairTrait, ViewingKeyTrait},
+    viewing_key::{Salt, ViewTag, ViewingKey},
 };
 
 const VECTOR_PATH: &str = "../ts/vectors/keypair-crypto-cert-v1.json";
@@ -63,7 +64,12 @@ fn zeros(length: usize) -> Vec<u8> {
     vec![0u8; length]
 }
 
-fn transfer_keystream(sender: &ViewingKey, recipient: &P256Pubkey, salt: Salt, slot: u32) -> Vec<u8> {
+fn transfer_keystream(
+    sender: &ViewingKey,
+    recipient: &P256Pubkey,
+    salt: Salt,
+    slot: u32,
+) -> Vec<u8> {
     sender
         .encrypt_slot(recipient, &zeros(KEYSTREAM_LEN), salt, slot)
         .expect("transfer keystream")
@@ -72,7 +78,13 @@ fn transfer_keystream(sender: &ViewingKey, recipient: &P256Pubkey, salt: Salt, s
 /// One row of the derivation-boundary matrix: every input of the transfer key
 /// schedule perturbed on its own, so a TypeScript implementation that drops one
 /// of them from the derivation fails on exactly that row.
-fn boundary_case(name: &str, sender: &ViewingKey, recipient: &P256Pubkey, salt: Salt, slot: u32) -> Value {
+fn boundary_case(
+    name: &str,
+    sender: &ViewingKey,
+    recipient: &P256Pubkey,
+    salt: Salt,
+    slot: u32,
+) -> Value {
     json!({
         "case": name,
         "senderPublicKeyBytes": hex(sender.pubkey().as_bytes()),
@@ -93,10 +105,34 @@ fn transfer_encryption() -> Value {
 
     let boundaries = vec![
         boundary_case("base", &sender, &recipient.pubkey(), BASE_SALT, BASE_SLOT),
-        boundary_case("slot", &sender, &recipient.pubkey(), BASE_SALT, BASE_SLOT + 1),
-        boundary_case("salt", &sender, &recipient.pubkey(), flipped_salt, BASE_SLOT),
-        boundary_case("recipient", &sender, &stranger.pubkey(), BASE_SALT, BASE_SLOT),
-        boundary_case("ephemeral", &stranger, &recipient.pubkey(), BASE_SALT, BASE_SLOT),
+        boundary_case(
+            "slot",
+            &sender,
+            &recipient.pubkey(),
+            BASE_SALT,
+            BASE_SLOT + 1,
+        ),
+        boundary_case(
+            "salt",
+            &sender,
+            &recipient.pubkey(),
+            flipped_salt,
+            BASE_SLOT,
+        ),
+        boundary_case(
+            "recipient",
+            &sender,
+            &stranger.pubkey(),
+            BASE_SALT,
+            BASE_SLOT,
+        ),
+        boundary_case(
+            "ephemeral",
+            &stranger,
+            &recipient.pubkey(),
+            BASE_SALT,
+            BASE_SLOT,
+        ),
     ];
 
     // One bit per byte position of the big-endian slot encoding. A
@@ -300,8 +336,8 @@ fn merge_encryption() -> Value {
     let contributions: Vec<Value> = [even, odd]
         .into_iter()
         .map(|key| {
-            let contribution = merge_public_contribution(&key.pubkey(), &[7u8; 32])
-                .expect("public contribution");
+            let contribution =
+                merge_public_contribution(&key.pubkey(), &[7u8; 32]).expect("public contribution");
             json!({
                 "publicKeyBytes": hex(key.pubkey().as_bytes()),
                 "yIsOdd": key.pubkey().y_is_odd(),
@@ -393,6 +429,227 @@ fn secret_lifecycle() -> Value {
         // deliberate difference in TypeScript's favour.
         "nullifierSecretAccessor": "borrow",
         "nullifierSecretBytes": hex(NullifierKey::from_secret([5u8; BLINDING_LEN]).secret()),
+    })
+}
+
+/// A viewing-key backend that is not a `ViewingKey`: it holds key material
+/// behind its own boundary and exposes only the trait. Implementing the trait
+/// here is the compile-time half of K9 -- if a method gains a signature a
+/// custodial backend cannot satisfy, or the trait starts demanding secret
+/// export, this stops compiling.
+struct BackendViewingKey {
+    inner: ViewingKey,
+}
+
+impl ViewingKeyTrait for BackendViewingKey {
+    fn pubkey(&self) -> P256Pubkey {
+        self.inner.pubkey()
+    }
+
+    fn ecdh(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError> {
+        self.inner.ecdh(counterparty)
+    }
+
+    fn get_sender_view_tag(&self, tx_count: u64) -> Result<ViewTag, KeypairError> {
+        self.inner.get_sender_view_tag(tx_count)
+    }
+
+    fn get_recipient_request_view_tag(&self, request_count: u64) -> Result<ViewTag, KeypairError> {
+        self.inner.get_recipient_request_view_tag(request_count)
+    }
+
+    fn get_merge_view_tag(&self, merge_count: u64) -> Result<ViewTag, KeypairError> {
+        self.inner.get_merge_view_tag(merge_count)
+    }
+
+    fn get_send_shared_view_tag(
+        &self,
+        counterparty: &P256Pubkey,
+        i: u64,
+    ) -> Result<ViewTag, KeypairError> {
+        self.inner.get_send_shared_view_tag(counterparty, i)
+    }
+
+    fn get_recipient_shared_view_tag(
+        &self,
+        counterparty: &P256Pubkey,
+        i: u64,
+    ) -> Result<ViewTag, KeypairError> {
+        self.inner.get_recipient_shared_view_tag(counterparty, i)
+    }
+
+    fn recipient_bootstrap_view_tag(&self) -> ViewTag {
+        self.inner.recipient_bootstrap_view_tag()
+    }
+
+    fn get_transaction_viewing_key(
+        &self,
+        first_nullifier: &[u8; 32],
+    ) -> Result<ViewingKey, KeypairError> {
+        self.inner.get_transaction_viewing_key(first_nullifier)
+    }
+
+    fn encrypt_slot(
+        &self,
+        recipient_pubkey: &P256Pubkey,
+        plaintext: &[u8],
+        salt: Salt,
+        slot_index: u32,
+    ) -> Result<Vec<u8>, KeypairError> {
+        self.inner
+            .encrypt_slot(recipient_pubkey, plaintext, salt, slot_index)
+    }
+
+    fn decrypt_utxo(
+        &self,
+        ciphertext: &[u8],
+        tx_viewing_pubkey: &P256Pubkey,
+        salt: Salt,
+        slot_index: u32,
+    ) -> Result<Vec<u8>, KeypairError> {
+        self.inner
+            .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
+    }
+
+    fn decrypt_slot_ephemeral(
+        &self,
+        recipient_pubkey: &P256Pubkey,
+        ciphertext: &[u8],
+        salt: Salt,
+        slot_index: u32,
+    ) -> Result<Vec<u8>, KeypairError> {
+        self.inner
+            .decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
+    }
+
+    fn encrypt_verifiable(
+        &self,
+        user_viewing_pk: &P256Pubkey,
+        plaintext: &[u8],
+    ) -> Result<(Vec<u8>, P256Pubkey), KeypairError> {
+        self.inner.encrypt_verifiable(user_viewing_pk, plaintext)
+    }
+
+    fn decrypt_verifiable(
+        &self,
+        tx_viewing_pubkey: &P256Pubkey,
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, KeypairError> {
+        self.inner.decrypt_verifiable(tx_viewing_pubkey, ciphertext)
+    }
+}
+
+/// Every `fn` declared directly in `pub trait <name>` in `path`. Reading the
+/// source is what makes the recorded list exhaustive: a method added with a
+/// default body would satisfy the impl above without appearing in it.
+fn trait_methods(path: &str, name: &str) -> Vec<String> {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join(path),
+    )
+    .expect("trait source");
+    let header = format!("pub trait {name} {{\n");
+    let start = source.find(&header).expect("trait declaration") + header.len();
+    let body = &source[start..];
+    let end = body.find("\n}\n").expect("trait terminator");
+    body[..end]
+        .lines()
+        .filter_map(|line| line.strip_prefix("    fn "))
+        .filter_map(|line| line.split(['(', '<']).next())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// K9. The trait surfaces are the deployment boundary: what a wallet may ask a
+/// key backend for, and by omission what it may not. The recorded TypeScript
+/// name against each Rust method is the declared correspondence, so a rename on
+/// either side shows up as a failure rather than as a silently missing method.
+fn capability_boundary() -> Value {
+    let backend = BackendViewingKey { inner: viewing(11) };
+    let recipient = viewing(23);
+    let keypair = ShieldedKeypair::from_keys(
+        SigningKey::from_bytes(&secret32(3)).expect("seeded p256 secret"),
+        viewing(11),
+    )
+    .expect("shielded keypair");
+
+    // The operations a wallet drives through the trait, run against a backend
+    // that is not a `ViewingKey`, so the surface is certified as sufficient
+    // rather than merely declared.
+    let through_backend = backend
+        .encrypt_slot(&recipient.pubkey(), b"cert/backend", BASE_SALT, BASE_SLOT)
+        .expect("backend encrypt");
+    let direct = viewing(11)
+        .encrypt_slot(&recipient.pubkey(), b"cert/backend", BASE_SALT, BASE_SLOT)
+        .expect("direct encrypt");
+
+    let viewing_rust = trait_methods("traits/view_key.rs", "ViewingKeyTrait");
+    let keypair_rust = trait_methods("traits/shielded_keypair.rs", "ShieldedKeypairTrait");
+    // `zip` truncates, so a method added to either trait would drop out of the
+    // recorded mapping instead of failing. These bound the parsed lists.
+    assert_eq!(viewing_rust.len(), 14, "ViewingKeyTrait changed size");
+    assert_eq!(keypair_rust.len(), 10, "ShieldedKeypairTrait changed size");
+
+    let viewing_methods: Vec<Value> = viewing_rust
+        .into_iter()
+        .zip([
+            "publicKey",
+            "ecdh",
+            "senderViewTag",
+            "recipientRequestViewTag",
+            "mergeViewTag",
+            "sendSharedViewTag",
+            "recipientSharedViewTag",
+            "recipientBootstrapViewTag",
+            "transactionViewingKey",
+            "encryptSlot",
+            "decryptUtxo",
+            "decryptSlotEphemeral",
+            "encryptVerifiable",
+            "decryptVerifiable",
+        ])
+        .map(|(rust, typescript)| json!({ "rust": rust, "typescript": typescript }))
+        .collect();
+
+    // `sign` and `try_sign` are one method in TypeScript: Rust's `sign` panics
+    // on a bad P256 prehash length and `try_sign` returns the error, while a
+    // TypeScript throw is the same control flow as the `Result`. The mapping
+    // records `try_sign` as the counterpart and `sign` as absent.
+    let keypair_methods: Vec<Value> = keypair_rust
+        .into_iter()
+        .zip([
+            Some("signingPublicKey"),
+            Some("viewingPublicKey"),
+            Some("curve"),
+            Some("shieldedAddress"),
+            Some("ownerHash"),
+            Some("compressedAddress"),
+            None,
+            Some("sign"),
+            Some("nullifier"),
+            Some("nullifierPublicKey"),
+        ])
+        .map(|(rust, typescript)| json!({ "rust": rust, "typescript": typescript }))
+        .collect();
+
+    json!({
+        "viewingKeyTrait": viewing_methods,
+        "shieldedKeypairTrait": keypair_methods,
+        // The trait declares no constructor and no secret export, which is what
+        // lets a custodial backend implement it. The list above is read out of
+        // the trait source, so the absence is measured, not asserted.
+        "excludedFromViewingKeyTrait": ["from_bytes", "from_seed", "generate", "secret_bytes"],
+        "backendMatchesDirectKey": through_backend == direct,
+        // A full keypair satisfies both traits, so it stands in wherever a
+        // viewing-key backend is required.
+        "shieldedKeypairIsViewingBackend":
+            ViewingKeyTrait::pubkey(&keypair) == viewing(11).pubkey()
+                && ShieldedKeypairTrait::nullifier_pubkey(&keypair).is_ok(),
+        // Rust's trait is synchronous. The owner's 2026-07-26 ruling that an
+        // out-of-process viewing-key backend is unsupported keeps TypeScript on
+        // the same shape, so a call site never awaits a view tag.
+        "synchronous": true,
     })
 }
 
@@ -549,7 +806,7 @@ fn document() -> Value {
         "source".into(),
         json!("sdk-libs/keypair/tests/crypto_certification.rs"),
     );
-    root.insert("suites".into(), json!(["K6", "K7", "K8", "K10"]));
+    root.insert("suites".into(), json!(["K6", "K7", "K8", "K9", "K10"]));
     root.insert(
         "note".into(),
         json!(
@@ -562,6 +819,7 @@ fn document() -> Value {
     root.insert("transferEncryption".into(), transfer_encryption());
     root.insert("mergeEncryption".into(), merge_encryption());
     root.insert("secretLifecycle".into(), secret_lifecycle());
+    root.insert("capabilityBoundary".into(), capability_boundary());
     root.insert("errorLedger".into(), error_ledger());
     Value::Object(root)
 }
@@ -606,7 +864,10 @@ fn vectors_rest_on_the_properties_they_claim() {
         .zip(keystream.iter())
         .map(|(byte, key)| byte ^ key)
         .collect();
-    assert_eq!(xored, ciphertext, "zero-plaintext output is not the keystream");
+    assert_eq!(
+        xored, ciphertext,
+        "zero-plaintext output is not the keystream"
+    );
 
     // Every boundary row must differ from the base row, or the row proves
     // nothing about the input it perturbs.

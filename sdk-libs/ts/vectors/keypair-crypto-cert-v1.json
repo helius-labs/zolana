@@ -1,4 +1,115 @@
 {
+  "capabilityBoundary": {
+    "backendMatchesDirectKey": true,
+    "excludedFromViewingKeyTrait": [
+      "from_bytes",
+      "from_seed",
+      "generate",
+      "secret_bytes"
+    ],
+    "shieldedKeypairIsViewingBackend": true,
+    "shieldedKeypairTrait": [
+      {
+        "rust": "signing_pubkey",
+        "typescript": "signingPublicKey"
+      },
+      {
+        "rust": "viewing_pubkey",
+        "typescript": "viewingPublicKey"
+      },
+      {
+        "rust": "curve",
+        "typescript": "curve"
+      },
+      {
+        "rust": "shielded_address",
+        "typescript": "shieldedAddress"
+      },
+      {
+        "rust": "owner_hash",
+        "typescript": "ownerHash"
+      },
+      {
+        "rust": "compressed_address",
+        "typescript": "compressedAddress"
+      },
+      {
+        "rust": "sign",
+        "typescript": null
+      },
+      {
+        "rust": "try_sign",
+        "typescript": "sign"
+      },
+      {
+        "rust": "nullifier",
+        "typescript": "nullifier"
+      },
+      {
+        "rust": "nullifier_pubkey",
+        "typescript": "nullifierPublicKey"
+      }
+    ],
+    "synchronous": true,
+    "viewingKeyTrait": [
+      {
+        "rust": "pubkey",
+        "typescript": "publicKey"
+      },
+      {
+        "rust": "ecdh",
+        "typescript": "ecdh"
+      },
+      {
+        "rust": "get_sender_view_tag",
+        "typescript": "senderViewTag"
+      },
+      {
+        "rust": "get_recipient_request_view_tag",
+        "typescript": "recipientRequestViewTag"
+      },
+      {
+        "rust": "get_merge_view_tag",
+        "typescript": "mergeViewTag"
+      },
+      {
+        "rust": "get_send_shared_view_tag",
+        "typescript": "sendSharedViewTag"
+      },
+      {
+        "rust": "get_recipient_shared_view_tag",
+        "typescript": "recipientSharedViewTag"
+      },
+      {
+        "rust": "recipient_bootstrap_view_tag",
+        "typescript": "recipientBootstrapViewTag"
+      },
+      {
+        "rust": "get_transaction_viewing_key",
+        "typescript": "transactionViewingKey"
+      },
+      {
+        "rust": "encrypt_slot",
+        "typescript": "encryptSlot"
+      },
+      {
+        "rust": "decrypt_utxo",
+        "typescript": "decryptUtxo"
+      },
+      {
+        "rust": "decrypt_slot_ephemeral",
+        "typescript": "decryptSlotEphemeral"
+      },
+      {
+        "rust": "encrypt_verifiable",
+        "typescript": "encryptVerifiable"
+      },
+      {
+        "rust": "decrypt_verifiable",
+        "typescript": "decryptVerifiable"
+      }
+    ]
+  },
   "errorLedger": {
     "badPointBytes": "0002590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9fa6",
     "badPrefixBytes": "0902590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
@@ -192,6 +303,7 @@
     "K6",
     "K7",
     "K8",
+    "K9",
     "K10"
   ],
   "testOnlySecret": true,
