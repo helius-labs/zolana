@@ -125,6 +125,45 @@ describe("viewing-key history", () => {
     expect(entry?.knownRecipients.map((counter) => counter.count)).toEqual([0n]);
   });
 
+  // `scan_stream` extends a window as long as the step it just walked hit a
+  // tag, so a counterparty that ran ahead of the stored counter is still
+  // reachable. Tags at 1 and 3 with a window of 2 need two extensions; only a
+  // scan that stops at the first miss settles on 4.
+  it("keeps extending the window while each step still hits a tag", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const counterparty = ShieldedKeypair.generate();
+    const authority = new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const bundle = async (tagIndex: bigint) =>
+      transaction(
+        await authority.encryptAnonymousTransfer({
+          firstNullifier: bytes32(1),
+          senderViewTag: keypair.viewingKey().senderViewTag(tagIndex),
+          sender: {
+            ownerPublicKey: keypair.signingPublicKey(),
+            splAssetId: SOL_ASSET_ID,
+            splAmount: 0n,
+            solAmount: 5n,
+            blindingSeed: randomBlinding(),
+            recipientViewingPublicKeys: [counterparty.viewingKey().publicKey()],
+            splData: new Data(),
+            solData: new Data(),
+          },
+          recipients: [],
+        }),
+        [],
+      );
+    const target = wallet(keypair);
+
+    await decryptTransactions({
+      wallet: target,
+      authority,
+      transactions: [await bundle(1n), await bundle(3n)],
+      config: { tagWindow: 2n },
+    });
+
+    expect(target.viewingKeyHistory[0]?.txCount).toBe(4n);
+  });
+
   it("advances the request counter and records the sender of a stored note", async () => {
     const keypair = ShieldedKeypair.generate();
     const sender = ShieldedKeypair.generate();
