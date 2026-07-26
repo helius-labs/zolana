@@ -1,0 +1,38 @@
+{
+  "expected": {
+    "flow": [
+      "sync_wallet",
+      "create_transfer",
+      "sign_private_transaction",
+      "send_transaction",
+      "confirm_private_transaction"
+    ],
+    "modules": [
+      "actions",
+      "user_registry",
+      "wallet_authority",
+      "wallet_sync"
+    ],
+    "nestedErrors": {
+      "client": {
+        "code": "Transaction",
+        "details": "Transaction(NoInputs)"
+      },
+      "transaction": {
+        "code": "NoInputs",
+        "details": "NoInputs"
+      }
+    }
+  },
+  "id": "fx-p00-wallet-lib-v1",
+  "inputs": {
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/wallet/src/lib.rs",
+  "owningPacket": "P00",
+  "responsibility": "root module surface, documented flow, and nested client/transaction errors",
+  "rustPath": "sdk-libs/wallet/src/lib.rs",
+  "rustSymbol": "wallet root modules and re-exports",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

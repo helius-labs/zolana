@@ -1,0 +1,134 @@
+{
+  "apiDiff": {
+    "added": [],
+    "changed": [],
+    "removed": []
+  },
+  "checkpointReady": true,
+  "commands": [
+    {
+      "command": "npm run build --workspace @zolana/smart-account-client",
+      "exitStatus": "0",
+      "responsibility": "production ESM and declaration build"
+    },
+    {
+      "command": "npm run typecheck --workspace @zolana/smart-account-client",
+      "exitStatus": "0",
+      "responsibility": "strict production typecheck"
+    },
+    {
+      "command": "npx tsc --noEmit --project sdk-libs/ts/smart-account-client/test/tsconfig.json",
+      "exitStatus": "0",
+      "responsibility": "strict test and production boundary typecheck"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/smart-account-client/src/**/*.ts\" \"sdk-libs/ts/smart-account-client/test/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "strict lint for every P03 TypeScript file"
+    },
+    {
+      "command": "./node_modules/.bin/prettier --check \"sdk-libs/ts/smart-account-client/src/**/*.ts\" \"sdk-libs/ts/smart-account-client/test/**/*.{ts,json}\"",
+      "exitStatus": "0",
+      "responsibility": "P03 formatting"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/smart-account-client",
+      "exitStatus": "0",
+      "responsibility": "37 declaration, malformed, boundary, ownership, vector, and payload tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/smart-account-client",
+      "exitStatus": "0",
+      "responsibility": "three frozen Rust PDA, create, execute, byte, and account-meta vectors"
+    },
+    {
+      "command": "npm run test:property --workspace @zolana/smart-account-client",
+      "exitStatus": "0",
+      "responsibility": "64-case privilege union, stable-index, vault-signer, and ownership properties"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/smart-account-client",
+      "exitStatus": "0",
+      "responsibility": "browser bundle and forbidden Node import/global scan"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "responsibility": "fresh packed Node 20, Node 22, declaration, and browser consumers"
+    },
+    {
+      "command": "npm run api:check --workspace @zolana/smart-account-client",
+      "exitStatus": "0",
+      "responsibility": "public API configuration"
+    },
+    {
+      "command": "git diff --check -- sdk-libs/ts/smart-account-client/src sdk-libs/ts/smart-account-client/test sdk-libs/ts/reports/packets/P03.json",
+      "exitStatus": "0",
+      "responsibility": "owned-path whitespace validation"
+    }
+  ],
+  "declarations": [
+    "SMART_ACCOUNT_PROGRAM_ID",
+    "Permissions",
+    "SmartAccountSigner",
+    "SmartAccountClientError",
+    "allPermissions",
+    "programConfigAddress",
+    "treasuryAddress",
+    "settingsAddress",
+    "smartAccountAddress",
+    "createSmartAccountInstruction",
+    "executeSyncInstruction"
+  ],
+  "dependencies": {
+    "@zolana/interface": "0.1.0"
+  },
+  "fixtureIds": [
+    "fx-p00-smart-account-create-v1",
+    "fx-p00-test-kit-standard-accounts-v1",
+    "fx-smart-account-client-root-const-smart-account-program-id-v1",
+    "fx-smart-account-client-root-interface-permissions-v1",
+    "fx-smart-account-client-root-interface-smart-account-signer-v1",
+    "fx-smart-account-client-root-class-smart-account-client-error-v1",
+    "fx-smart-account-client-root-function-all-permissions-v1",
+    "fx-smart-account-client-root-function-program-config-address-v1",
+    "fx-smart-account-client-root-function-treasury-address-v1",
+    "fx-smart-account-client-root-function-settings-address-v1",
+    "fx-smart-account-client-root-function-smart-account-address-v1",
+    "fx-smart-account-client-root-function-create-smart-account-instruction-v1",
+    "fx-smart-account-client-root-function-execute-sync-instruction-v1"
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "inventoryRows": ["sdk-libs/smart-account-client/src/lib.rs"],
+  "ownedChangedPaths": [
+    "sdk-libs/ts/reports/packets/P03.json",
+    "sdk-libs/ts/smart-account-client/src/base58.ts",
+    "sdk-libs/ts/smart-account-client/src/error.ts",
+    "sdk-libs/ts/smart-account-client/src/index.ts",
+    "sdk-libs/ts/smart-account-client/src/instructions.ts",
+    "sdk-libs/ts/smart-account-client/src/pda.ts",
+    "sdk-libs/ts/smart-account-client/src/sha256.ts",
+    "sdk-libs/ts/smart-account-client/test/boundaries.test.ts",
+    "sdk-libs/ts/smart-account-client/test/declarations.test.ts",
+    "sdk-libs/ts/smart-account-client/test/property.test.ts",
+    "sdk-libs/ts/smart-account-client/test/tsconfig.json",
+    "sdk-libs/ts/smart-account-client/test/vectors.test.ts"
+  ],
+  "packet": "P03",
+  "qualityPass": {
+    "commentCorrections": [],
+    "edits": [
+      "kept PDA hashing, address conversion, serialization, and payload compilation in focused internal modules",
+      "used checked integer and collection boundaries before every wire-width conversion",
+      "centralized duplicate account privilege union while preserving first-seen indexes",
+      "returned owned instruction bytes and account objects",
+      "left implementation comments out because names and tests express the behavior without narration"
+    ],
+    "selfReview": {
+      "codeQuality": "passed",
+      "codeSimplifier": "passed",
+      "zolanaComments": "passed"
+    }
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}

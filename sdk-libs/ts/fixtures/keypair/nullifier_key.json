@@ -1,0 +1,22 @@
+{
+  "expected": {
+    "derivedFromSigningPublicKeyBytes": "11c05b334df19eeeec863a6821592ab43b61ba32b92b45b241fe528af4284f7f",
+    "nullifierBytes": "068f034f62007ae79032304f1a23fd36d968f4a1817baa0d9bb52a910b0bf952",
+    "publicKeyBytes": "2ece7cecb48850fb1762bea0a87c4f8290c40f90ac43b9dae85eed13b2e9af8c"
+  },
+  "id": "fx-p00-keypair-nullifier-key-v1",
+  "inputs": {
+    "blindingBytes": "08080808080808080808080808080808080808080808080808080808080808",
+    "secretBytes": "07070707070707070707070707070707070707070707070707070707070707",
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000003",
+    "testOnlySecret": true,
+    "utxoHashBytes": "0606060606060606060606060606060606060606060606060606060606060606"
+  },
+  "inventoryRow": "sdk-libs/keypair/src/nullifier_key.rs",
+  "owningPacket": "P00",
+  "responsibility": "nullifier secret derivation, public key, and UTXO nullifier bytes",
+  "rustPath": "sdk-libs/keypair/src/nullifier_key.rs",
+  "rustSymbol": "NullifierKey::from_signing_key; pubkey; nullifier",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

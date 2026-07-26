@@ -1,0 +1,122 @@
+{
+  "cases": [
+    {
+      "id": "sendTransaction",
+      "requests": [
+        {
+          "id": 0,
+          "jsonrpc": "2.0",
+          "method": "sendTransaction",
+          "params": [
+            "AZNzjr6qdoCrGv+tIZqr/2Bg8a3EEpv7gUPBIyWdJT7gAcytTpnZfxzJRfn9S5i27/OLEL2i8LVmvIQlrDkJXwEBAAECbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHAQEBAAMJCAc=",
+            {
+              "encoding": "base64",
+              "maxRetries": null,
+              "minContextSlot": null,
+              "preflightCommitment": "confirmed",
+              "skipPreflight": false
+            }
+          ]
+        },
+        {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "method": "getSignatureStatuses",
+          "params": [
+            [
+              "3wzAC5wD7yQ5cFhwoYFLmuvHcEz5JZzoRbLVksjwDJC7zoMyxdqXMTRQ6pLkkUHu7jVHKbHuyzK6oCuwyRBgs8RN"
+            ]
+          ]
+        }
+      ],
+      "signature": "3wzAC5wD7yQ5cFhwoYFLmuvHcEz5JZzoRbLVksjwDJC7zoMyxdqXMTRQ6pLkkUHu7jVHKbHuyzK6oCuwyRBgs8RN"
+    },
+    {
+      "id": "sendTransactionWithDefaultConfig",
+      "requests": [
+        {
+          "id": 0,
+          "jsonrpc": "2.0",
+          "method": "sendTransaction",
+          "params": [
+            "AZNzjr6qdoCrGv+tIZqr/2Bg8a3EEpv7gUPBIyWdJT7gAcytTpnZfxzJRfn9S5i27/OLEL2i8LVmvIQlrDkJXwEBAAECbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHAQEBAAMJCAc=",
+            {
+              "encoding": "base64",
+              "maxRetries": null,
+              "minContextSlot": null,
+              "preflightCommitment": "finalized",
+              "skipPreflight": false
+            }
+          ]
+        },
+        {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "method": "getSignatureStatuses",
+          "params": [
+            [
+              "3wzAC5wD7yQ5cFhwoYFLmuvHcEz5JZzoRbLVksjwDJC7zoMyxdqXMTRQ6pLkkUHu7jVHKbHuyzK6oCuwyRBgs8RN"
+            ]
+          ]
+        },
+        {
+          "id": 2,
+          "jsonrpc": "2.0",
+          "method": "getSignatureStatuses",
+          "params": [
+            [
+              "3wzAC5wD7yQ5cFhwoYFLmuvHcEz5JZzoRbLVksjwDJC7zoMyxdqXMTRQ6pLkkUHu7jVHKbHuyzK6oCuwyRBgs8RN"
+            ]
+          ]
+        }
+      ],
+      "signature": "3wzAC5wD7yQ5cFhwoYFLmuvHcEz5JZzoRbLVksjwDJC7zoMyxdqXMTRQ6pLkkUHu7jVHKbHuyzK6oCuwyRBgs8RN"
+    },
+    {
+      "id": "sendTransactionWithConfig",
+      "requests": [
+        {
+          "id": 0,
+          "jsonrpc": "2.0",
+          "method": "sendTransaction",
+          "params": [
+            "AZNzjr6qdoCrGv+tIZqr/2Bg8a3EEpv7gUPBIyWdJT7gAcytTpnZfxzJRfn9S5i27/OLEL2i8LVmvIQlrDkJXwEBAAECbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHAQEBAAMJCAc=",
+            {
+              "encoding": "base64",
+              "maxRetries": 3,
+              "minContextSlot": 77,
+              "preflightCommitment": "processed",
+              "skipPreflight": true
+            }
+          ]
+        },
+        {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "method": "getSignatureStatuses",
+          "params": [
+            [
+              "3wzAC5wD7yQ5cFhwoYFLmuvHcEz5JZzoRbLVksjwDJC7zoMyxdqXMTRQ6pLkkUHu7jVHKbHuyzK6oCuwyRBgs8RN"
+            ]
+          ]
+        },
+        {
+          "id": 2,
+          "jsonrpc": "2.0",
+          "method": "getSignatureStatuses",
+          "params": [
+            [
+              "3wzAC5wD7yQ5cFhwoYFLmuvHcEz5JZzoRbLVksjwDJC7zoMyxdqXMTRQ6pLkkUHu7jVHKbHuyzK6oCuwyRBgs8RN"
+            ]
+          ]
+        }
+      ],
+      "signature": "3wzAC5wD7yQ5cFhwoYFLmuvHcEz5JZzoRbLVksjwDJC7zoMyxdqXMTRQ6pLkkUHu7jVHKbHuyzK6oCuwyRBgs8RN"
+    }
+  ],
+  "transaction": {
+    "messageBytes": "010001026e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1030303030303030303030303030303030303030303030303030303030303030307070707070707070707070707070707070707070707070707070707070707070101010003090807",
+    "signature": "3wzAC5wD7yQ5cFhwoYFLmuvHcEz5JZzoRbLVksjwDJC7zoMyxdqXMTRQ6pLkkUHu7jVHKbHuyzK6oCuwyRBgs8RN"
+  },
+  "version": 1
+}

@@ -1,0 +1,53 @@
+{
+  "expected": {
+    "canonicalBump": "253",
+    "current": {
+      "transaction": null
+    },
+    "publicFallbackViewTagBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+    "recordPda": "AAZ27hwNGcRCrBmc8UUxBL9HfESRMTiC5cXGQJ1KpNnt",
+    "register": {
+      "expectedTag": "0",
+      "tag": "0",
+      "unsignedTransaction": {
+        "messageBytes": "010002042828282828282828282828282828282828282828282828282828282828282828882b9d277058bccd056608ebec0adf9b51a8a36cb845d6185d9d0ed2cd29a9910000000000000000000000000000000000000000000000000000000000000000c8ee13395b8f232188f67d9691e8b2912bc377757ffb422e522b6d481dcb38292929292929292929292929292929292929292929292929292929292929292929010303010002640001033250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83004d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b003ae140a144f8ed7344d97b2e6ce70d541eb9b9e9f2bc5b204e708b4883b664264",
+        "requiredSignatures": "1",
+        "signatures": [
+          "1111111111111111111111111111111111111111111111111111111111111111"
+        ]
+      }
+    },
+    "resolved": {
+      "nullifierPubkeyBytes": "004d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+      "signingPubkeyBytes": "00033250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83",
+      "viewTagBytes": "3250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83",
+      "viewingPubkeyBytes": "03ae140a144f8ed7344d97b2e6ce70d541eb9b9e9f2bc5b204e708b4883b664264"
+    },
+    "rotation": {
+      "expectedTag": "5",
+      "tag": "5",
+      "unsignedTransaction": {
+        "messageBytes": "010001032828282828282828282828282828282828282828282828282828282828282828882b9d277058bccd056608ebec0adf9b51a8a36cb845d6185d9d0ed2cd29a991c8ee13395b8f232188f67d9691e8b2912bc377757ffb422e522b6d481dcb382929292929292929292929292929292929292929292929292929292929292929290102020100640501030e91c7239c2640d7d28a3e39d4583fa63c0bc0a5df64a4fe672e573045ca78962b3c03f59469d2d66d16a9edc35ecda7b0c58983b5ef495bebb47dbefc4e9160033f07c6ea5118fbd2dd0785f8a193b2debc89ea3af55995be66bc1904ee4d15db",
+        "requiredSignatures": "1",
+        "signatures": [
+          "1111111111111111111111111111111111111111111111111111111111111111"
+        ]
+      }
+    }
+  },
+  "id": "fx-p00-wallet-user-registry-v1",
+  "inputs": {
+    "owner": "3hkpj3dQevt4ad1JSx3ke1sWmMR3wYToMKfFLCnxtKuH",
+    "ownerSigningSecretBytes": "0000000000000000000000000000000000000000000000000000000000000015",
+    "ownerViewingSeedBytes": "1616161616161616161616161616161616161616161616161616161616161616",
+    "rotatedSigningSecretBytes": "0000000000000000000000000000000000000000000000000000000000000017",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/wallet/src/user_registry.rs",
+  "owningPacket": "P00",
+  "responsibility": "registration, current-record no-op, key rotation, record resolution, and public fallback",
+  "rustPath": "sdk-libs/wallet/src/user_registry.rs",
+  "rustSymbol": "build_registration_transaction_sync; resolved_address_from_record; recipient_confidential_view_tag_sync",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

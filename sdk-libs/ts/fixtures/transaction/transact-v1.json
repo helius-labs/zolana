@@ -1,0 +1,93 @@
+{
+  "expected": {
+    "compressedP256ProofBoundary": {
+      "commitmentBytesLength": "32",
+      "commitmentPokBytesLength": "32"
+    },
+    "errors": [
+      {
+        "code": "UnsupportedShape",
+        "details": "UnsupportedShape { n_in: 9, n_out: 9 }"
+      },
+      {
+        "code": "TooManyInputs",
+        "details": "TooManyInputs { got: 2, max: 1 }"
+      }
+    ],
+    "externalData": {
+      "dataHashBytes": "1616161616161616161616161616161616161616161616161616161616161616",
+      "hashBytes": "00bfa87cf66346c5e1359f5de890ba6c3213c6ccd4ac17aa557b110d3ae62cdb",
+      "publicSolAmount": "-5",
+      "relayerFee": "0",
+      "saltBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+      "txViewingPkBytes": "03ae545af75fdbbd8b987d6899f977999c191f0126da866b02bc175e2563b7a274",
+      "zoneDataHashBytes": "1717171717171717171717171717171717171717171717171717171717171717"
+    },
+    "proofInputs": {
+      "inputContexts": [
+        {
+          "index": "0",
+          "nullifierBytes": "2d8f2b39e00aa10532ede81c95a9a5bc5634f0f7d9cfd13e94ff0fc39520040f",
+          "utxoHashBytes": "10e7cd3954ca81e0362eaee78b83119733e62c484c7cf2350fd5a4fd2a83d32e",
+          "wire": {
+            "eddsaSignerIndex": "255",
+            "nullifierHashBytes": "2d8f2b39e00aa10532ede81c95a9a5bc5634f0f7d9cfd13e94ff0fc39520040f",
+            "nullifierTreeRootIndex": "7",
+            "roundTripVerified": true,
+            "treeIndex": "0",
+            "utxoTreeRootIndex": "9",
+            "wincodeBytes": "2d8f2b39e00aa10532ede81c95a9a5bc5634f0f7d9cfd13e94ff0fc39520040f0700090000ff"
+          }
+        }
+      ],
+      "messageHashBytes": "069ad7b14062f5a642cfcd845ca2c62931745b51d13e847db8e33c8a4a3fa0ba",
+      "payerPubkeyHashBytes": "008238d98128f76ab6179217d5e7cadd4f08b0e3e1520fbfc006843519ffbaaf",
+      "privateTxHashBytes": "1e6425ffa55293dd3c46a0c8b6cd32203e6c33b469bb69f97abeb2b3b428ea0e",
+      "publicSolFieldBytes": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffffc",
+      "publicSplFieldBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+      "signedNegativeFiveBytes": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffffc"
+    },
+    "shapeCases": [
+      {
+        "requestedInputs": "1",
+        "requestedOutputs": "1",
+        "shapeInputs": "1",
+        "shapeOutputs": "1"
+      },
+      {
+        "requestedInputs": "1",
+        "requestedOutputs": "8",
+        "shapeInputs": "1",
+        "shapeOutputs": "8"
+      },
+      {
+        "requestedInputs": "2",
+        "requestedOutputs": "3",
+        "shapeInputs": "2",
+        "shapeOutputs": "3"
+      },
+      {
+        "requestedInputs": "5",
+        "requestedOutputs": "4",
+        "shapeInputs": "5",
+        "shapeOutputs": "4"
+      }
+    ]
+  },
+  "id": "fx-p00-transaction-transact-v1",
+  "inputs": {
+    "payerBytes": "1818181818181818181818181818181818181818181818181818181818181818",
+    "saltBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
+    "testOnlySecret": true,
+    "txViewingSeedBytes": "0909090909090909090909090909090909090909090909090909090909090909",
+    "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808"
+  },
+  "inventoryRow": "sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs",
+  "owningPacket": "P00",
+  "responsibility": "shape selection, external hashes, proof inputs, signed fields, wire mapping, and P256 proof widths",
+  "rustPath": "sdk-libs/transaction/src/instructions/transact",
+  "rustSymbol": "Shape; ExternalData; SppProofInputs; PrivateTxHash; InputUtxo",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

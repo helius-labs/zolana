@@ -1,0 +1,654 @@
+{
+  "generator": "cargo run -p xtask --bin merkle-semantics",
+  "hasher": "poseidon",
+  "highestAddressPlusOne": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+  "rustSource": [
+    "sdk-libs/merkle-tree/src/lib.rs",
+    "sdk-libs/merkle-tree/src/indexed.rs"
+  ],
+  "scenarios": [
+    {
+      "id": "history-offset-does-not-shift-next-index",
+      "steps": [
+        {
+          "op": "construct",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "err",
+              "error": "RootHistoryStartOffsetAboveIndex { offset: 2, next_index: 0 }"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "0"
+            },
+            "leafCount": "0",
+            "nextIndex": "0",
+            "rootHex": "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238",
+            "rootHistoryLength": "1",
+            "sequenceNumber": "0"
+          }
+        },
+        {
+          "leafHex": "0101010101010101010101010101010101010101010101010101010101010101",
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "err",
+              "error": "RootHistoryStartOffsetAboveIndex { offset: 2, next_index: 1 }"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "leafCount": "1",
+            "nextIndex": "1",
+            "rootHex": "04438428ffc7c2173a462271c2d551a05f03b04fe556c7f3c7ac594bb18ebdd1",
+            "rootHistoryLength": "2",
+            "sequenceNumber": "1"
+          }
+        },
+        {
+          "leafHex": "0202020202020202020202020202020202020202020202020202020202020202",
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "0"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "2"
+            },
+            "leafCount": "2",
+            "nextIndex": "2",
+            "rootHex": "1cd46e7e1b00aa6f1e099a2874ced5d215131e6cdc4e4aa140d91ac435e41391",
+            "rootHistoryLength": "3",
+            "sequenceNumber": "2"
+          }
+        },
+        {
+          "leafHex": "0303030303030303030303030303030303030303030303030303030303030303",
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "0"
+            },
+            "leafCount": "3",
+            "nextIndex": "3",
+            "rootHex": "304f598162f2b82d6f46146ebda34d04ee902cdfe01da5ab92ac87d02e050f1b",
+            "rootHistoryLength": "4",
+            "sequenceNumber": "3"
+          }
+        },
+        {
+          "index": "0",
+          "leafHex": "0909090909090909090909090909090909090909090909090909090909090909",
+          "op": "update",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "leafCount": "3",
+            "nextIndex": "3",
+            "rootHex": "26421a9216215e79bd10b14bcae2d5c803861713d99e48b8e2e8182ab8cd95c3",
+            "rootHistoryLength": "5",
+            "sequenceNumber": "4"
+          }
+        },
+        {
+          "index": "5",
+          "leafHex": "0808080808080808080808080808080808080808080808080808080808080808",
+          "op": "insertLeaf",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "leafCount": "6",
+            "nextIndex": "3",
+            "rootHex": "26421a9216215e79bd10b14bcae2d5c803861713d99e48b8e2e8182ab8cd95c3",
+            "rootHistoryLength": "5",
+            "sequenceNumber": "4"
+          }
+        }
+      ],
+      "tree": {
+        "canopyDepth": "0",
+        "height": "3",
+        "rootHistoryArrayLength": "3",
+        "rootHistoryStartOffset": "2"
+      }
+    },
+    {
+      "id": "rejected-mutations-leave-the-tree-unchanged",
+      "steps": [
+        {
+          "op": "construct",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "0"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "0"
+            },
+            "leafCount": "0",
+            "nextIndex": "0",
+            "rootHex": "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+            "rootHistoryLength": "1",
+            "sequenceNumber": "0"
+          }
+        },
+        {
+          "leafHex": "0101010101010101010101010101010101010101010101010101010101010101",
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "leafCount": "1",
+            "nextIndex": "1",
+            "rootHex": "0a3cd76f0f009ccafcae353a1e6496b44070f10ef1b26f708af86135f387cac2",
+            "rootHistoryLength": "2",
+            "sequenceNumber": "1"
+          }
+        },
+        {
+          "leafHex": "0202020202020202020202020202020202020202020202020202020202020202",
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "2"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "2"
+            },
+            "leafCount": "2",
+            "nextIndex": "2",
+            "rootHex": "1e2330775f176594e6628031222df786c678e4d1e38f0ff1332a5487284eb7f3",
+            "rootHistoryLength": "3",
+            "sequenceNumber": "2"
+          }
+        },
+        {
+          "leafHex": "0303030303030303030303030303030303030303030303030303030303030303",
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "0"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "0"
+            },
+            "leafCount": "3",
+            "nextIndex": "3",
+            "rootHex": "2c4108f639d900e21998cbd17b36ae4b78508248eb22f298010cfec4b6aa7787",
+            "rootHistoryLength": "4",
+            "sequenceNumber": "3"
+          }
+        },
+        {
+          "leafHex": "0404040404040404040404040404040404040404040404040404040404040404",
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "leafCount": "4",
+            "nextIndex": "4",
+            "rootHex": "0f0ef4f2042f1b29459097c285f2505f08f0647deb5124d79897695ff9cd8044",
+            "rootHistoryLength": "5",
+            "sequenceNumber": "4"
+          }
+        },
+        {
+          "leafHex": "0505050505050505050505050505050505050505050505050505050505050505",
+          "op": "append",
+          "outcome": {
+            "arm": "err",
+            "error": "IntegerOverflow"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "leafCount": "4",
+            "nextIndex": "4",
+            "rootHex": "0f0ef4f2042f1b29459097c285f2505f08f0647deb5124d79897695ff9cd8044",
+            "rootHistoryLength": "5",
+            "sequenceNumber": "4"
+          }
+        },
+        {
+          "index": "9",
+          "leafHex": "0606060606060606060606060606060606060606060606060606060606060606",
+          "op": "update",
+          "outcome": {
+            "arm": "err",
+            "error": "LeafDoesNotExist(9)"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "historyRootIndexV2": {
+              "arm": "ok",
+              "value": "1"
+            },
+            "leafCount": "4",
+            "nextIndex": "4",
+            "rootHex": "0f0ef4f2042f1b29459097c285f2505f08f0647deb5124d79897695ff9cd8044",
+            "rootHistoryLength": "5",
+            "sequenceNumber": "4"
+          }
+        }
+      ],
+      "tree": {
+        "canopyDepth": "0",
+        "height": "2",
+        "rootHistoryArrayLength": "3",
+        "rootHistoryStartOffset": "0"
+      }
+    },
+    {
+      "id": "history-accessors-reject-an-unconfigured-tree",
+      "steps": [
+        {
+          "op": "construct",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "err",
+              "error": "RootHistoryArrayLenNotSet"
+            },
+            "historyRootIndexV2": {
+              "arm": "err",
+              "error": "RootHistoryArrayLenNotSet"
+            },
+            "leafCount": "0",
+            "nextIndex": "0",
+            "rootHex": "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238",
+            "rootHistoryLength": "1",
+            "sequenceNumber": "0"
+          }
+        },
+        {
+          "leafHex": "0101010101010101010101010101010101010101010101010101010101010101",
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "historyRootIndex": {
+              "arm": "err",
+              "error": "RootHistoryArrayLenNotSet"
+            },
+            "historyRootIndexV2": {
+              "arm": "err",
+              "error": "RootHistoryArrayLenNotSet"
+            },
+            "leafCount": "1",
+            "nextIndex": "1",
+            "rootHex": "04438428ffc7c2173a462271c2d551a05f03b04fe556c7f3c7ac594bb18ebdd1",
+            "rootHistoryLength": "2",
+            "sequenceNumber": "1"
+          }
+        }
+      ],
+      "tree": {
+        "canopyDepth": "0",
+        "height": "3"
+      }
+    },
+    {
+      "id": "sentinel-closes-the-indexed-range",
+      "steps": [
+        {
+          "op": "construct",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "elementCount": "1",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "1",
+            "rootHex": "1574f306f3c0bddbbded3591b47950921f78b780eebe51219719cf30987f8dc4"
+          }
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "elementCount": "2",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "2",
+            "rootHex": "05b0193f545cfc5ef101e8897710b4ab79e37a30d34f98c86f074fa90a0be147"
+          },
+          "valueDecimal": "30"
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "elementCount": "3",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "3",
+            "rootHex": "2a02828c6e7044ceaf4b65af91f41d430273846bacb27a0f69c279015eed78a5"
+          },
+          "valueDecimal": "10"
+        },
+        {
+          "op": "nonInclusionProof",
+          "outcome": {
+            "arm": "err",
+            "error": "ValueOutsideIndexedRange"
+          },
+          "state": {
+            "elementCount": "3",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "3",
+            "rootHex": "2a02828c6e7044ceaf4b65af91f41d430273846bacb27a0f69c279015eed78a5"
+          },
+          "valueDecimal": "452312848583266388373324160190187140051835877600158453279131187530910662655"
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "err",
+            "error": "ValueOutsideIndexedRange"
+          },
+          "state": {
+            "elementCount": "3",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "3",
+            "rootHex": "2a02828c6e7044ceaf4b65af91f41d430273846bacb27a0f69c279015eed78a5"
+          },
+          "valueDecimal": "452312848583266388373324160190187140051835877600158453279131187530910662655"
+        },
+        {
+          "op": "nonInclusionProof",
+          "outcome": {
+            "arm": "err",
+            "error": "ValueOutsideIndexedRange"
+          },
+          "state": {
+            "elementCount": "3",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "3",
+            "rootHex": "2a02828c6e7044ceaf4b65af91f41d430273846bacb27a0f69c279015eed78a5"
+          },
+          "valueDecimal": "452312848583266388373324160190187140051835877600158453279131187530910662656"
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "err",
+            "error": "ValueOutsideIndexedRange"
+          },
+          "state": {
+            "elementCount": "3",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "3",
+            "rootHex": "2a02828c6e7044ceaf4b65af91f41d430273846bacb27a0f69c279015eed78a5"
+          },
+          "valueDecimal": "452312848583266388373324160190187140051835877600158453279131187530910662656"
+        },
+        {
+          "op": "nonInclusionProof",
+          "outcome": {
+            "arm": "err",
+            "error": "ValueOutsideIndexedRange"
+          },
+          "state": {
+            "elementCount": "3",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "3",
+            "rootHex": "2a02828c6e7044ceaf4b65af91f41d430273846bacb27a0f69c279015eed78a5"
+          },
+          "valueDecimal": "904625697166532776746648320380374280103671755200316906558262375061821325310"
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "err",
+            "error": "ValueOutsideIndexedRange"
+          },
+          "state": {
+            "elementCount": "3",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "3",
+            "rootHex": "2a02828c6e7044ceaf4b65af91f41d430273846bacb27a0f69c279015eed78a5"
+          },
+          "valueDecimal": "904625697166532776746648320380374280103671755200316906558262375061821325310"
+        },
+        {
+          "op": "nonInclusionProof",
+          "outcome": {
+            "arm": "ok",
+            "value": {
+              "verified": true
+            }
+          },
+          "state": {
+            "elementCount": "3",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "3",
+            "rootHex": "2a02828c6e7044ceaf4b65af91f41d430273846bacb27a0f69c279015eed78a5"
+          },
+          "valueDecimal": "452312848583266388373324160190187140051835877600158453279131187530910662654"
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "elementCount": "4",
+            "highestValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "nextIndex": "4",
+            "rootHex": "04960d753f389198677f2e58a27537bd731938efbf25488c2c39774898297ae4"
+          },
+          "valueDecimal": "452312848583266388373324160190187140051835877600158453279131187530910662654"
+        }
+      ],
+      "tree": {
+        "canopyDepth": "0",
+        "height": "4"
+      }
+    },
+    {
+      "id": "rejected-indexed-appends-leave-the-tree-provable",
+      "sentinel": "100",
+      "steps": [
+        {
+          "op": "construct",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "elementCount": "1",
+            "highestValue": "100",
+            "nextIndex": "1",
+            "rootHex": "20ed1bad6e38320a9fb25fdd6e7f31d054fd2a52a10edec67bf3940cee10ccb3"
+          }
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "elementCount": "2",
+            "highestValue": "100",
+            "nextIndex": "2",
+            "rootHex": "2b9b41dd5f60edee5e62ef2cba595e8a921121bcf8ab1270bbdd5de8d0f8f05f"
+          },
+          "valueDecimal": "30"
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "err",
+            "error": "Indexed(ElementAlreadyExists)"
+          },
+          "state": {
+            "elementCount": "2",
+            "highestValue": "100",
+            "nextIndex": "2",
+            "rootHex": "2b9b41dd5f60edee5e62ef2cba595e8a921121bcf8ab1270bbdd5de8d0f8f05f"
+          },
+          "valueDecimal": "0"
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "err",
+            "error": "ValueOutsideIndexedRange"
+          },
+          "state": {
+            "elementCount": "2",
+            "highestValue": "100",
+            "nextIndex": "2",
+            "rootHex": "2b9b41dd5f60edee5e62ef2cba595e8a921121bcf8ab1270bbdd5de8d0f8f05f"
+          },
+          "valueDecimal": "100"
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "err",
+            "error": "ValueOutsideIndexedRange"
+          },
+          "state": {
+            "elementCount": "2",
+            "highestValue": "100",
+            "nextIndex": "2",
+            "rootHex": "2b9b41dd5f60edee5e62ef2cba595e8a921121bcf8ab1270bbdd5de8d0f8f05f"
+          },
+          "valueDecimal": "150"
+        },
+        {
+          "op": "nonInclusionProof",
+          "outcome": {
+            "arm": "err",
+            "error": "Indexed(ElementAlreadyExists)"
+          },
+          "state": {
+            "elementCount": "2",
+            "highestValue": "100",
+            "nextIndex": "2",
+            "rootHex": "2b9b41dd5f60edee5e62ef2cba595e8a921121bcf8ab1270bbdd5de8d0f8f05f"
+          },
+          "valueDecimal": "30"
+        },
+        {
+          "op": "nonInclusionProof",
+          "outcome": {
+            "arm": "ok",
+            "value": {
+              "verified": true
+            }
+          },
+          "state": {
+            "elementCount": "2",
+            "highestValue": "100",
+            "nextIndex": "2",
+            "rootHex": "2b9b41dd5f60edee5e62ef2cba595e8a921121bcf8ab1270bbdd5de8d0f8f05f"
+          },
+          "valueDecimal": "35"
+        },
+        {
+          "op": "append",
+          "outcome": {
+            "arm": "ok"
+          },
+          "state": {
+            "elementCount": "3",
+            "highestValue": "100",
+            "nextIndex": "3",
+            "rootHex": "075cca9467b82112af0b5d4c6e44412f1f76904fd8ff8cf45a9fa937eb189d78"
+          },
+          "valueDecimal": "35"
+        }
+      ],
+      "tree": {
+        "canopyDepth": "0",
+        "height": "4"
+      }
+    }
+  ]
+}

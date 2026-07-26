@@ -1,0 +1,208 @@
+{
+  "apiDiff": {
+    "added": [
+      "33 root declarations from planning/typescript-sdk-port/public-exports.md",
+      "@zolana/indexer-api/methods: MethodDescriptor and five typed descriptors"
+    ],
+    "changed": [],
+    "removed": []
+  },
+  "commands": [
+    {
+      "command": "npm run build --workspace @zolana/indexer-api",
+      "exitStatus": "0",
+      "responsibility": "ES2022 ESM output and declarations"
+    },
+    {
+      "command": "npm run typecheck --workspace @zolana/indexer-api",
+      "exitStatus": "0",
+      "responsibility": "strict production-source type checking against @zolana/interface"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/indexer-api/src/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "production-source lint"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/indexer-api/src/**/*.ts\" \"sdk-libs/ts/indexer-api/test/**/*.ts\"",
+      "exitStatus": "blocked",
+      "responsibility": "direct test lint remains unavailable because the package tsconfig excludes test/**/*.ts from the ESLint project service; the shared lint command passes"
+    },
+    {
+      "command": "npx prettier --check \"sdk-libs/ts/indexer-api/src/**/*.ts\" \"sdk-libs/ts/indexer-api/test/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "source and test formatting"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/indexer-api",
+      "exitStatus": "0",
+      "responsibility": "all scalar, schema, malformed, boundary, redaction, and response-family tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/indexer-api",
+      "exitStatus": "0",
+      "responsibility": "six exact request and five response-family wire vectors"
+    },
+    {
+      "command": "npm run test:property --workspace @zolana/indexer-api",
+      "exitStatus": "0",
+      "responsibility": "six deterministic scalar, limit, ordering, cursor, defaulting, and standalone non-inclusion properties"
+    },
+    {
+      "command": "npx esbuild sdk-libs/ts/indexer-api/src/index.ts sdk-libs/ts/indexer-api/src/methods/index.ts --bundle --platform=browser --format=esm --outdir=/tmp/zolana-indexer-browser-check",
+      "exitStatus": "0",
+      "responsibility": "both P07 entry points bundle without Node globals or polyfills"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/indexer-api",
+      "exitStatus": "0",
+      "responsibility": "shared browser source and packed-entry graph check after package-local build"
+    },
+    {
+      "command": "npm run build --workspace @zolana/indexer-api && npm pack --dry-run --workspace @zolana/indexer-api",
+      "exitStatus": "0",
+      "responsibility": "25-file package tarball with root and methods declarations and ESM"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "blocked",
+      "responsibility": "the repository-wide build stops on P04 keypair TypeScript errors before packed-consumer checks"
+    },
+    {
+      "command": "npm run api:check --workspace @zolana/indexer-api",
+      "exitStatus": "0",
+      "responsibility": "P01 API-check scaffold"
+    },
+    {
+      "command": "git diff --check",
+      "exitStatus": "0",
+      "responsibility": "whitespace validation"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "blocked",
+      "responsibility": "the latest shared build stops when P03 smart-account-client cannot resolve @zolana/interface; an earlier run stopped on P04 keypair TypeScript errors; P07 package build and typecheck pass independently"
+    },
+    {
+      "command": "npm run test:browser",
+      "exitStatus": "blocked",
+      "responsibility": "the aggregate command rebuilds every package and stops on P04 keypair TypeScript errors before browser checks"
+    },
+    {
+      "command": "npm run lint && npm run format:check && npm run api:check",
+      "exitStatus": "0",
+      "responsibility": "shared lint, formatting, and API checks"
+    }
+  ],
+  "dependencies": {
+    "gaps": [],
+    "production": ["@zolana/interface"],
+    "status": "No production manifest dependency is missing; base58 and base64 validation are browser-safe package code."
+  },
+  "nonInclusionProof": {
+    "camelCaseFields": [
+      "leaf",
+      "merkleContext",
+      "path",
+      "lowElement",
+      "lowElementIndex",
+      "highElement",
+      "highElementIndex",
+      "root",
+      "rootSeq",
+      "rootIndex"
+    ],
+    "leafIndex": "rejected as an unknown field",
+    "wireFields": [
+      "leaf",
+      "merkle_context",
+      "path",
+      "low_element",
+      "low_element_index",
+      "high_element",
+      "high_element_index",
+      "root",
+      "root_seq",
+      "root_index"
+    ]
+  },
+  "fixtureIds": [
+    "fx-p00-indexer-schema-v1",
+    "fx-indexer-api-root-const-min-page-limit-v1",
+    "fx-indexer-api-root-const-page-limit-v1",
+    "fx-indexer-api-root-const-get-encrypted-utxos-by-tags-v1",
+    "fx-indexer-api-root-const-get-shielded-transactions-by-tags-v1",
+    "fx-indexer-api-root-const-get-merkle-proofs-v1",
+    "fx-indexer-api-root-const-get-non-inclusion-proofs-v1",
+    "fx-indexer-api-root-const-get-nullifier-queue-elements-v1",
+    "fx-indexer-api-root-type-base64-string-v1",
+    "fx-indexer-api-root-type-hash-v1",
+    "fx-indexer-api-root-type-limit-v1",
+    "fx-indexer-api-root-interface-indexer-context-v1",
+    "fx-indexer-api-root-interface-get-rings-by-tags-request-v1",
+    "fx-indexer-api-root-interface-rings-output-context-v1",
+    "fx-indexer-api-root-interface-rings-output-slot-v1",
+    "fx-indexer-api-root-interface-rings-message-v1",
+    "fx-indexer-api-root-interface-encrypted-utxo-match-v1",
+    "fx-indexer-api-root-interface-get-encrypted-utxos-by-tags-response-v1",
+    "fx-indexer-api-root-interface-indexed-shielded-transaction-v1",
+    "fx-indexer-api-root-interface-get-shielded-transactions-by-tags-response-v1",
+    "fx-indexer-api-root-interface-get-merkle-proofs-request-v1",
+    "fx-indexer-api-root-interface-merkle-proof-v1",
+    "fx-indexer-api-root-interface-get-merkle-proofs-response-v1",
+    "fx-indexer-api-root-interface-get-non-inclusion-proofs-request-v1",
+    "fx-indexer-api-root-interface-non-inclusion-proof-v1",
+    "fx-indexer-api-root-interface-get-non-inclusion-proofs-response-v1",
+    "fx-indexer-api-root-interface-get-nullifier-queue-elements-request-v1",
+    "fx-indexer-api-root-interface-nullifier-queue-element-v1",
+    "fx-indexer-api-root-interface-get-nullifier-queue-elements-response-v1",
+    "fx-indexer-api-root-class-indexer-schema-error-v1",
+    "fx-indexer-api-root-function-base64-string-v1",
+    "fx-indexer-api-root-function-hash-v1",
+    "fx-indexer-api-root-function-hash-bytes-v1",
+    "fx-indexer-api-root-function-limit-v1"
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "inventoryRows": ["sdk-libs/indexer-api/src/lib.rs"],
+  "ownedChangedPaths": [
+    "sdk-libs/ts/indexer-api/src/codec.ts",
+    "sdk-libs/ts/indexer-api/src/index.ts",
+    "sdk-libs/ts/indexer-api/src/methods/index.ts",
+    "sdk-libs/ts/indexer-api/src/names.ts",
+    "sdk-libs/ts/indexer-api/src/scalars.ts",
+    "sdk-libs/ts/indexer-api/src/types.ts",
+    "sdk-libs/ts/indexer-api/test/property.test.ts",
+    "sdk-libs/ts/indexer-api/test/schema.test.ts",
+    "sdk-libs/ts/indexer-api/test/vectors.test.ts",
+    "sdk-libs/ts/reports/packets/P07.json"
+  ],
+  "packet": "P07",
+  "qualityPass": {
+    "commentCorrections": [],
+    "edits": [
+      "kept the root export list explicit and exact",
+      "centralized strict object, integer, scalar, and snake-case conversion",
+      "decoded and encoded the standalone ten-field non-inclusion proof directly",
+      "kept indexer wire proofs independent from client and reference Merkle-tree proof types",
+      "removed Node globals, transport, dependencies, dead conversion code, and source comments",
+      "copied decoded collections and hash byte results",
+      "bounded error diagnostics to type and length metadata instead of retaining wire strings"
+    ],
+    "security": [
+      "unknown fields fail at every nested object boundary",
+      "unsafe JSON integers and u16/u64/i64 range violations fail before conversion",
+      "address, signature, hash, base58, and base64 values require canonical encodings",
+      "browser bundles use Uint8Array and contain no Buffer, process, require, node imports, or polyfills"
+    ]
+  },
+  "readiness": {
+    "implementation": "ready",
+    "packetCheckpoint": "ready",
+    "aggregateBlockers": [
+      "shared typecheck, browser, and pack commands stopped on unrelated P04 keypair TypeScript errors",
+      "the latest shared build stops when P03 smart-account-client cannot resolve @zolana/interface",
+      "direct ESLint invocation for package test files is still outside the package tsconfig project service"
+    ]
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}

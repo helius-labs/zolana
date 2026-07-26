@@ -1,0 +1,25 @@
+{
+  "expected": {
+    "merkle": {
+      "leafIndex": "7",
+      "pathLength": "32",
+      "rootIndex": "9"
+    },
+    "nonInclusion": {
+      "highIndex": "3",
+      "lowIndex": "2",
+      "pathLength": "40"
+    }
+  },
+  "id": "fx-p00-indexer-schema-v1",
+  "inputs": {
+    "blockTime": "1234"
+  },
+  "inventoryRow": "sdk-libs/client/tests/test_indexer.rs",
+  "owningPacket": "P00",
+  "responsibility": "indexer logical schema values and path bounds",
+  "rustPath": "sdk-libs/client/src/rpc.rs",
+  "rustSymbol": "Context; MerkleProof; NonInclusionProof",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

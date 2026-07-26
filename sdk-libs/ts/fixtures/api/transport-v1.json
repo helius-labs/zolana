@@ -1,0 +1,353 @@
+{
+  "expected": {
+    "errors": {
+      "http": {
+        "error": {
+          "body": "fixture unavailable",
+          "kind": "Response",
+          "status": 503
+        },
+        "request": {
+          "body": {
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "method": "get_merkle_proofs",
+            "params": {
+              "leaves": [
+                "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+              ],
+              "tree_account": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+            }
+          },
+          "contentType": "application/json",
+          "method": "POST",
+          "path": "/base/get_merkle_proofs",
+          "query": ""
+        }
+      },
+      "invalidOptionalLimit": {
+        "field": "limit",
+        "kind": "InvalidRequest",
+        "message": "value must be between 1 and 1000"
+      },
+      "invalidRequiredLimit": {
+        "field": "limit",
+        "kind": "InvalidRequest",
+        "message": "value must be between 1 and 1000"
+      },
+      "jsonRpc": {
+        "error": {
+          "code": -32001,
+          "kind": "JsonRpc",
+          "message": "fixture rejected",
+          "method": "get_non_inclusion_proofs"
+        },
+        "request": {
+          "body": {
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "method": "get_non_inclusion_proofs",
+            "params": {
+              "leaves": [
+                "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+              ],
+              "tree_account": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+            }
+          },
+          "contentType": "application/json",
+          "method": "POST",
+          "path": "/base/get_non_inclusion_proofs",
+          "query": ""
+        }
+      },
+      "missingResult": {
+        "error": {
+          "kind": "MissingResult",
+          "method": "get_nullifier_queue_elements"
+        },
+        "request": {
+          "body": {
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "method": "get_nullifier_queue_elements",
+            "params": {
+              "limit": 2,
+              "start_seq": 7,
+              "tree_account": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+            }
+          },
+          "contentType": "application/json",
+          "method": "POST",
+          "path": "/base/get_nullifier_queue_elements",
+          "query": ""
+        }
+      }
+    },
+    "successes": [
+      {
+        "case": "encrypted-utxos",
+        "request": {
+          "body": {
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "method": "get_encrypted_utxos_by_tags",
+            "params": {
+              "cursor": "Bwg=",
+              "limit": 1000,
+              "tags": [
+                "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+              ]
+            }
+          },
+          "contentType": "application/json",
+          "method": "POST",
+          "path": "/base/get_encrypted_utxos_by_tags",
+          "query": ""
+        },
+        "response": {
+          "context": {
+            "block_time": "101"
+          },
+          "matches": [
+            {
+              "output_slot": {
+                "output_context": {
+                  "hash": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+                  "leaf_index": "103",
+                  "tree": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+                },
+                "payload": "AQID",
+                "view_tag": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+              },
+              "salt": "Bgc=",
+              "slot": "102",
+              "tx_signature": "1111111111111111111111111111111111111111111111111111111111111111",
+              "tx_viewing_pk": "BAU="
+            }
+          ],
+          "next_cursor": "CAk="
+        }
+      },
+      {
+        "case": "shielded-transactions",
+        "request": {
+          "body": {
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "method": "get_shielded_transactions_by_tags",
+            "params": {
+              "tags": [
+                "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+              ]
+            }
+          },
+          "contentType": "application/json",
+          "method": "POST",
+          "path": "/base/get_shielded_transactions_by_tags",
+          "query": ""
+        },
+        "response": {
+          "context": {
+            "block_time": "201"
+          },
+          "next_cursor": "EhM=",
+          "transactions": [
+            {
+              "messages": [
+                {
+                  "payload": "EBE=",
+                  "view_tag": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+                }
+              ],
+              "nullifiers": [
+                "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq"
+              ],
+              "output_slots": [
+                {
+                  "output_context": {
+                    "hash": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+                    "leaf_index": "203",
+                    "tree": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+                  },
+                  "payload": "Dg8=",
+                  "view_tag": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+                }
+              ],
+              "proofless": false,
+              "salt": "DA0=",
+              "slot": "202",
+              "tx_signature": "1111111111111111111111111111111111111111111111111111111111111111",
+              "tx_viewing_pk": "Cgs="
+            }
+          ]
+        }
+      },
+      {
+        "case": "merkle-proofs",
+        "request": {
+          "body": {
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "method": "get_merkle_proofs",
+            "params": {
+              "leaves": [
+                "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+              ],
+              "tree_account": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+            }
+          },
+          "contentType": "application/json",
+          "method": "POST",
+          "path": "/base/get_merkle_proofs",
+          "query": ""
+        },
+        "response": {
+          "context": {
+            "block_time": "301"
+          },
+          "proofs": [
+            {
+              "leaf": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "leaf_index": "302",
+              "merkle_context": {
+                "tree": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8",
+                "tree_type": 1
+              },
+              "path": [
+                "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+                "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY"
+              ],
+              "root": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+              "root_index": 304,
+              "root_seq": "303"
+            }
+          ]
+        }
+      },
+      {
+        "case": "non-inclusion-proofs",
+        "request": {
+          "body": {
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "method": "get_non_inclusion_proofs",
+            "params": {
+              "leaves": [
+                "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+              ],
+              "tree_account": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+            }
+          },
+          "contentType": "application/json",
+          "method": "POST",
+          "path": "/base/get_non_inclusion_proofs",
+          "query": ""
+        },
+        "response": {
+          "context": {
+            "block_time": "401"
+          },
+          "proofs": [
+            {
+              "high_element": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+              "high_element_index": "403",
+              "leaf": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "low_element": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+              "low_element_index": "402",
+              "merkle_context": {
+                "tree": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8",
+                "tree_type": 2
+              },
+              "path": [
+                "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+                "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY"
+              ],
+              "root": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+              "root_index": 405,
+              "root_seq": "404"
+            }
+          ]
+        }
+      },
+      {
+        "case": "nullifier-queue-default",
+        "request": {
+          "body": {
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "method": "get_nullifier_queue_elements",
+            "params": {
+              "limit": 1,
+              "start_seq": 0,
+              "tree_account": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+            }
+          },
+          "contentType": "application/json",
+          "method": "POST",
+          "path": "/base/get_nullifier_queue_elements",
+          "query": ""
+        },
+        "response": {
+          "context": {
+            "block_time": "501"
+          },
+          "elements": [
+            {
+              "seq": "0",
+              "value": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq"
+            }
+          ]
+        }
+      },
+      {
+        "case": "nullifier-queue-explicit",
+        "request": {
+          "body": {
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "method": "get_nullifier_queue_elements",
+            "params": {
+              "limit": 2,
+              "start_seq": 7,
+              "tree_account": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+            }
+          },
+          "contentType": "application/json",
+          "method": "POST",
+          "path": "/base/get_nullifier_queue_elements",
+          "query": ""
+        },
+        "response": {
+          "context": {
+            "block_time": "502"
+          },
+          "elements": [
+            {
+              "seq": "7",
+              "value": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "id": "fx-p00-api-transport-v1",
+  "inputs": {
+    "cursor": "Bwg=",
+    "explicitStartSeq": "7",
+    "leaf": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+    "optionalLimit": "1000",
+    "queueExplicitLimit": "2",
+    "queueLimit": "1",
+    "tag": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+    "treeAccount": "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+  },
+  "inventoryRow": "sdk-libs/zolana-api/src/lib.rs",
+  "owningPacket": "P00",
+  "responsibility": "production HTTP requests, decoded responses, defaults, limits, and shared transport errors",
+  "rustPath": "sdk-libs/zolana-api/src/lib.rs; sdk-libs/indexer-api/src/lib.rs",
+  "rustSymbol": "BlockingZolanaApi::{get_encrypted_utxos_by_tags,get_shielded_transactions_by_tags,get_merkle_proofs,get_non_inclusion_proofs,get_nullifier_queue_elements}; ApiError",
+  "schema": "zolana-ts-fixtures-v1",
+  "sourceRevision": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "version": "1"
+}

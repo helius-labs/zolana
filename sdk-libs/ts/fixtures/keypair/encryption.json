@@ -1,0 +1,25 @@
+{
+  "expected": {
+    "ciphertextBytes": "0dedf6fb1c2c64f57a31740887",
+    "ephemeralRecoveredBytes": "64657465726d696e6973746963",
+    "recipientRecoveredBytes": "64657465726d696e6973746963",
+    "wrongSlotRecoveredBytes": "d46b9b2455585558853d10edc7"
+  },
+  "id": "fx-p00-keypair-encryption-v1",
+  "inputs": {
+    "ephemeralSecretBytes": "0000000000000000000000000000000000000000000000000000000000000001",
+    "plaintextBytes": "64657465726d696e6973746963",
+    "recipientPublicKeyBytes": "037cf27b188d034f7e8a52380304b51ac3c08969e277f21b35a60b48fc47669978",
+    "recipientSecretBytes": "0000000000000000000000000000000000000000000000000000000000000002",
+    "saltBytes": "00000000000000000000000000000000",
+    "slotIndex": "0",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/keypair/src/encryption.rs",
+  "owningPacket": "P00",
+  "responsibility": "ECDH, HKDF, AES slot bytes, both decrypt paths, and slot separation",
+  "rustPath": "sdk-libs/keypair/src/encryption.rs",
+  "rustSymbol": "ViewingKey::encrypt_slot; decrypt_utxo; decrypt_slot_ephemeral",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}
