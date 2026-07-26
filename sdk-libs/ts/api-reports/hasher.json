@@ -1,0 +1,65 @@
+{
+  "package": "@zolana/hasher",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "HasherWasmError",
+        "kind": "value"
+      },
+      {
+        "name": "initializePoseidon",
+        "kind": "value"
+      },
+      {
+        "name": "isPoseidonInitialized",
+        "kind": "value"
+      },
+      {
+        "name": "MAX_POSEIDON_INPUTS",
+        "kind": "value"
+      },
+      {
+        "name": "poseidon",
+        "kind": "value"
+      },
+      {
+        "name": "POSEIDON_ARTIFACT_BYTES",
+        "kind": "value"
+      },
+      {
+        "name": "resetPoseidonForTests",
+        "kind": "value"
+      }
+    ],
+    "./slim": [
+      {
+        "name": "HasherWasmError",
+        "kind": "value"
+      },
+      {
+        "name": "initializePoseidon",
+        "kind": "value"
+      },
+      {
+        "name": "isPoseidonInitialized",
+        "kind": "value"
+      },
+      {
+        "name": "MAX_POSEIDON_INPUTS",
+        "kind": "value"
+      },
+      {
+        "name": "poseidon",
+        "kind": "value"
+      },
+      {
+        "name": "PoseidonArtifact",
+        "kind": "type"
+      },
+      {
+        "name": "resetPoseidonForTests",
+        "kind": "value"
+      }
+    ]
+  }
+}

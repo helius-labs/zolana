@@ -10,6 +10,14 @@ inputs:
     description: Install the `just` task runner via taiki-e/install-action.
     required: false
     default: "true"
+  wasm-target:
+    description: |
+      Add the `wasm32-unknown-unknown` target. `@zolana/hasher` compiles
+      `program-libs/hasher` to WebAssembly during `npm run build`, and only
+      when the committed artifact is stale, so the jobs that run that build
+      need the target even though most of them never invoke the compiler.
+    required: false
+    default: "false"
   private-libs-token:
     description: |
       GitHub token with read access to helius-labs/privacy-program-libs (and any
@@ -32,6 +40,10 @@ runs:
     - name: Install workspace Rust toolchain
       shell: bash
       run: rustup show active-toolchain
+    - if: inputs.wasm-target == 'true'
+      name: Add the WebAssembly target
+      shell: bash
+      run: rustup target add wasm32-unknown-unknown
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
         shared-key: ${{ inputs.shared-key }}

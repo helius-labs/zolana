@@ -1,0 +1,169 @@
+{
+  "package": "@zolana/indexer-api",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "base64Bytes",
+        "kind": "value"
+      },
+      {
+        "name": "base64String",
+        "kind": "value"
+      },
+      {
+        "name": "Base64String",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedUtxoMatch",
+        "kind": "type"
+      },
+      {
+        "name": "GET_ENCRYPTED_UTXOS_BY_TAGS",
+        "kind": "value"
+      },
+      {
+        "name": "GET_MERKLE_PROOFS",
+        "kind": "value"
+      },
+      {
+        "name": "GET_NON_INCLUSION_PROOFS",
+        "kind": "value"
+      },
+      {
+        "name": "GET_NULLIFIER_QUEUE_ELEMENTS",
+        "kind": "value"
+      },
+      {
+        "name": "GET_SHIELDED_TRANSACTIONS_BY_TAGS",
+        "kind": "value"
+      },
+      {
+        "name": "GetEncryptedUtxosByTagsResponse",
+        "kind": "type"
+      },
+      {
+        "name": "GetMerkleProofsRequest",
+        "kind": "type"
+      },
+      {
+        "name": "GetMerkleProofsResponse",
+        "kind": "type"
+      },
+      {
+        "name": "GetNonInclusionProofsRequest",
+        "kind": "type"
+      },
+      {
+        "name": "GetNonInclusionProofsResponse",
+        "kind": "type"
+      },
+      {
+        "name": "GetNullifierQueueElementsRequest",
+        "kind": "type"
+      },
+      {
+        "name": "GetNullifierQueueElementsResponse",
+        "kind": "type"
+      },
+      {
+        "name": "GetRingsByTagsRequest",
+        "kind": "type"
+      },
+      {
+        "name": "GetShieldedTransactionsByTagsResponse",
+        "kind": "type"
+      },
+      {
+        "name": "hash",
+        "kind": "value"
+      },
+      {
+        "name": "Hash",
+        "kind": "type"
+      },
+      {
+        "name": "hashBytes",
+        "kind": "value"
+      },
+      {
+        "name": "IndexedShieldedTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "IndexerContext",
+        "kind": "type"
+      },
+      {
+        "name": "IndexerSchemaError",
+        "kind": "value"
+      },
+      {
+        "name": "limit",
+        "kind": "value"
+      },
+      {
+        "name": "Limit",
+        "kind": "type"
+      },
+      {
+        "name": "MerkleProof",
+        "kind": "type"
+      },
+      {
+        "name": "MIN_PAGE_LIMIT",
+        "kind": "value"
+      },
+      {
+        "name": "NonInclusionProof",
+        "kind": "type"
+      },
+      {
+        "name": "NullifierQueueElement",
+        "kind": "type"
+      },
+      {
+        "name": "PAGE_LIMIT",
+        "kind": "value"
+      },
+      {
+        "name": "RingsMessage",
+        "kind": "type"
+      },
+      {
+        "name": "RingsOutputContext",
+        "kind": "type"
+      },
+      {
+        "name": "RingsOutputSlot",
+        "kind": "type"
+      }
+    ],
+    "./methods": [
+      {
+        "name": "getEncryptedUtxosByTagsMethod",
+        "kind": "value"
+      },
+      {
+        "name": "getMerkleProofsMethod",
+        "kind": "value"
+      },
+      {
+        "name": "getNonInclusionProofsMethod",
+        "kind": "value"
+      },
+      {
+        "name": "getNullifierQueueElementsMethod",
+        "kind": "value"
+      },
+      {
+        "name": "getShieldedTransactionsByTagsMethod",
+        "kind": "value"
+      },
+      {
+        "name": "MethodDescriptor",
+        "kind": "type"
+      }
+    ]
+  }
+}
