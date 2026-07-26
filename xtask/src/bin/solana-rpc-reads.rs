@@ -45,6 +45,10 @@ use zolana_client::{rpc::Rpc, ClientError, SolanaRpc};
 
 const FIXTURE: &str = "sdk-libs/ts/vectors/solana-rpc-reads-v1.json";
 
+/// One read to record: its name, the body the listener answers with, and the
+/// call that drives `SolanaRpc` into making it.
+type ReadCase = (&'static str, Value, Box<dyn Fn(&SolanaRpc) -> Value>);
+
 /// One exchange: the request the client sent and the answer it was given.
 struct Exchange {
     id: &'static str,
@@ -74,8 +78,8 @@ fn run() -> Result<ExitCode> {
 
     let path = repository_root()?.join(FIXTURE);
     if env::args().any(|argument| argument == "--check") {
-        let current = fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let current =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         if current != rendered {
             bail!("{FIXTURE} is stale; rerun without --check");
         }
@@ -90,7 +94,7 @@ fn run() -> Result<ExitCode> {
 /// `solana_rpc_client` rather than from this file.
 fn reads() -> Result<Vec<Value>> {
     let signatures = [signature(1), signature(2)];
-    let cases: Vec<(&'static str, Value, Box<dyn Fn(&SolanaRpc) -> Value>)> = vec![
+    let cases: Vec<ReadCase> = vec![
         (
             "getSlot",
             json!({ "jsonrpc": "2.0", "id": 1, "result": 214_748_364_755_u64 }),
@@ -99,7 +103,12 @@ fn reads() -> Result<Vec<Value>> {
         (
             "getBlockHeight",
             json!({ "jsonrpc": "2.0", "id": 1, "result": 198_765_432_u64 }),
-            Box::new(|rpc| json!(rpc.get_block_height().expect("get_block_height").to_string())),
+            Box::new(|rpc| {
+                json!(rpc
+                    .get_block_height()
+                    .expect("get_block_height")
+                    .to_string())
+            }),
         ),
         (
             "getMinimumBalanceForRentExemption",
