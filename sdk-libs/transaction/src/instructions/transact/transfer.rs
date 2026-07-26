@@ -610,13 +610,7 @@ mod tests {
             Address::default(),
         );
         transfer
-            .withdraw(
-                SOL_MINT,
-                0,
-                WithdrawalTarget::Sol {
-                    recipient: recipient,
-                },
-            )
+            .withdraw(SOL_MINT, 0, WithdrawalTarget::Sol { recipient })
             .unwrap();
         let prepared = transfer.prepare().unwrap();
         assert!(prepared.public_sol_amount.is_none());

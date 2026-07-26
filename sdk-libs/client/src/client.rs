@@ -1520,13 +1520,7 @@ mod tests {
             payer.pubkey(),
         );
         transfer
-            .withdraw(
-                SOL_MINT,
-                4,
-                WithdrawalTarget::Sol {
-                    recipient: recipient,
-                },
-            )
+            .withdraw(SOL_MINT, 4, WithdrawalTarget::Sol { recipient })
             .expect("withdraw");
         let proof_inputs = transfer
             .sign(&sender, &AssetRegistry::default())
