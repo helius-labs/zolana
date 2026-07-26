@@ -123,7 +123,7 @@ export class ShieldedPublicKey {
       try {
         return pkFieldCompressed(this.p256().toBytes());
       } catch (error) {
-        throw wrapKeypairError("KEYPAIR_HASH", error);
+        throw wrapKeypairError("KEYPAIR_POSEIDON", error);
       }
     }
     return hashField(this.confidentialViewTag());
@@ -134,7 +134,7 @@ export class ShieldedPublicKey {
       try {
         return ownerPkFieldCompressed(this.p256().toBytes());
       } catch (error) {
-        throw wrapKeypairError("KEYPAIR_HASH", error);
+        throw wrapKeypairError("KEYPAIR_POSEIDON", error);
       }
     }
     return hashField(this.confidentialViewTag());

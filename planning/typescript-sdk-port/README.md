@@ -27,20 +27,21 @@ node sdk-libs/ts/config/pkp-entry-gate.mjs
 node sdk-libs/ts/config/port-health.mjs
 ```
 
-Last update: 2026-07-26 01:55.
+Last update: 2026-07-26 01:50 UTC. Times in this file are true UTC; some earlier
+entries wrote the local `+02:00` clock and labelled it UTC.
 
 | | |
 | --- | --- |
-| Rows the table calls supported | 90 of 145, the figure the gate reports. Six more are closed on a confirmed `NOT_APPLICABLE` disposition, which the gate counts separately |
-| Rows carrying an attributable verdict | 145 of 145. None is unexamined |
-| Rows carrying an adverse verdict | 45: 27 `PARTIAL`, 17 `DIVERGENT`, 1 `STALE`. No row is `BLOCKED` |
-| Rows evidenced, but the table still shows them open | Six. `C07`, `C08`, `C15`, `C19`, `C20`, and the `T23` residual landed with client batch B and are waiting on the reconciler |
+| Rows the table calls supported | 105 of 145, the figure the gate reports. Seven more are closed on a confirmed `NOT_APPLICABLE` disposition, which the gate counts separately |
+| Rows carrying an attributable verdict | 145 of 145. None is unexamined, and each one's verdict is now traceable to a log entry |
+| Rows carrying an adverse verdict | 30: 20 `PARTIAL`, 10 `DIVERGENT`. No row is `BLOCKED`, `MISSING`, or `STALE` |
+| Rows evidenced, but the table still shows them open | None. The reconciliation backlog is drained as of this update |
 | Rows this branch cannot close | None. See [scope-and-denominator.md](scope-and-denominator.md) |
-| Branch | 452 commits vs `main`. 1808 unit tests pass; formatting, typecheck and lint are clean |
-| Phase | 2 of 4: remediation. Phases 3 and 4 not started |
-| Entry gate to the cryptographic phase | Criteria 1 and 3 pass. Criterion 2 fails on the 45 adverse rows, criterion 4 on the pull request |
-| Reconciliation debt | Seven row updates have landed since the checklist last moved, so the 45 overstates what is left |
-| Continuous integration | `typescript / static` fixed. A worker owns the rest and has merged `main`, which settles the `CreateTree.owner` compile break behind the Rust failures |
+| Branch | 1941 unit tests pass, with vectors, property, cross-language and prover suites alongside them; formatting, typecheck and lint are clean |
+| Phase | 2 of 4: remediation, and further into it than the last update read. Phases 3 and 4 not started |
+| Entry gate to the cryptographic phase | Criteria 1 and 3 pass. Criterion 2 fails on the 30 adverse rows, which is now the only substantive one. Criterion 4 has no known red job: the stale `transaction-parity-v1.json` is regenerated and the `typescript / static` lint is fixed, so it needs a clean run rather than a fix |
+| Reconciliation debt | None outstanding. The six row updates named in the last update are folded in, and two of them moved no row |
+| Continuous integration | No known red job; the last two were a stale committed oracle and a type assertion the `K11` narrowing made redundant, both fixed. Runs are cancelling each other because agents push while a run is in flight, so a simultaneous green needs a quiet window more than it needs another fix. One failure mode is designed in and worth knowing before it fires: `typescript / static`, `suites` and `packaging` now install a Rust toolchain, so a change to `program-libs/hasher` without a regenerated `@zolana/hasher` artifact turns those three red on the build's refusal |
 
 **Do not trust a row that says `PARITY` without reading its evidence.** An audit
 on 2026-07-25 examined the 36 rows then claiming it and found one supported by
@@ -52,12 +53,14 @@ was 1 row of 145. A row reaches parity when a test, a fixture, or an executed
 comparison demonstrates it. Recording that you could not close a row is worth
 more than a verdict nobody can check.
 
-The count then moved from 19 to 90 in one evening, and the rise is not
+The count then moved from 19 to 105 in one evening, and the rise is not
 bookkeeping. It comes from batches that stopped comparing implementations by
 reading them and started generating oracles from Rust and replaying them in
-TypeScript, several with control edits applied and observed to fail. What the
-number still does not cover is the SDK as a whole: no package gate set has
-passed.
+TypeScript, most with control edits applied and observed to fail. The reports
+worth reading first are the ones that say where a control was *not* caught,
+because those name a rule nobody can currently observe. What the number still
+does not cover is the SDK as a whole, and the two figures to watch are the 30
+adverse rows and the pull request, not this one.
 
 ## Worktree topology
 
@@ -66,10 +69,11 @@ another batch's work, and so agents stop contending for one index. The branches
 below converge into `ts-sdk-port`, which is the single pull request. Nothing is
 published from a batch branch.
 
-Live state as of 2026-07-26 02:20, read from `git worktree list` rather than
-from memory. Nine trees were missing from this table when it was last audited,
-including the two that steps 7 and 8 wait on, so a coordinator reading it saw
-work as unowned that had an owner.
+Live state as of 2026-07-26 01:40 UTC, read from `git worktree list` rather than
+from memory. This table has now been short twice: nine trees were missing when
+it was audited, and thirteen more were missing when it was checked again an hour
+later, so a coordinator reading it saw work as unowned that had an owner. Re-read
+the command before trusting a row, and add your own tree when you create it.
 
 **Four directory names no longer describe their contents.** `zolana-ts-keypair`,
 `zolana-ts-interface-a`, `zolana-ts-programlibs` and `zolana-ts-wallet-misc`
@@ -90,17 +94,37 @@ the collisions recorded below.
 | `zolana-ts-ci` | `port/ci-green` | the failing CI jobs |
 | `zolana-ts-interface-b` | `port/interface-b` | `X01`, `S01`, `K12`, `M02`. Unmerged, and steps 7 and 8 wait on it |
 | `zolana-ts-hasher-pkg` | `port/hasher-pkg` | the `@zolana/hasher` packaging change that replaced the withdrawn artifact CI gate |
-| `zolana-ts-questions` | `port/open-questions` | the open-questions register, plus the C04 integer domain and the transaction size measurement. Unmerged |
 | `zolana-ts-spec` | `port/spec-amend` | `docs/spec.md` amendments the owner has authorised |
-| `zolana-ts-reconcile` | `port/reconcile` | folding row updates into the checklist |
+| `zolana-ts-reconcile` | `port/reconcile` | folding row updates into the checklist. Merged |
+| `zolana-ts-reconcile2` | `port/reconcile2` | the same, second holder. Merged |
+| `zolana-ts-reconcile3` | `port/reconcile3` | the same, fourth holder, and the plan status block. **Occupied.** The reconciler is the single writer of `review-checklist.md`; do not edit that file from another tree |
 | `zolana-ts-rulings` | `port/rulings` | recorded the G7-1, X01, K11, T23 and C04 rulings. Merged; tree retained until its agent is unresumable |
-| `zolana-ts-stragglers` | `port/stragglers` | leftover `C` and `T` rows |
+| `zolana-ts-rulings2` | `port/rulings2` | the ledger's spec-authorisation wording. Merged |
+| `zolana-ts-rulings-impl` | `port/rulings-impl` | implementing the ruled behaviour, six rulings reported and two halves handed off. Unmerged |
 | `zolana-ts-rulings-audit` | `port/rulings-audit` | auditing whether each ruling is recorded, reflected, queued, and landed |
+| `zolana-ts-stragglers` | `port/stragglers` | the eight rows no batch owned: `C01`, `C02`, `C03`, `C05`, `T14`, `T15`, `W02`, `W04` |
+| `zolana-ts-t28-close` | `port/t28-close` | `T28`'s three clauses, normalising the explicit zero and pinning the split in both suites. Unmerged |
+| `zolana-ts-txsurface` | `port/tx-surface` | `T10` and the transaction export surface. Unmerged |
+| `zolana-ts-zone-read` | `port/zone-read` | zone read paths, currently carrying merges of `port/tx-surface` and `port/reconcile2`. Unmerged |
+| `zolana-ts-keycert` | `port/key-cert` | `K1`-`K5` key certification. Unmerged |
+| `zolana-ts-cryptob` | `port/crypto-b` | `K6`-`K10` certification vectors generated from production Rust. Unmerged |
+| `zolana-ts-rfc6979` | `port/rfc6979` | the P256 prehash reduction before RFC 6979 nonce generation, and the signer the transaction crate uses. Unmerged |
+| `zolana-ts-green` | `port/green` | suite repairs. Merged |
+| `zolana-ts-green2` | `port/green2` | the same, second holder, plus the browser gate's reading of the word "process". Unmerged |
+| `zolana-ts-overlap` | `port/overlap-detect` | `port-health.mjs` and what a tree collision costs. Merged |
+| `zolana-ts-handoff` | `port/handoff` | integration merges. **Note:** it also committed to `review-checklist.md`, which the reconciler owns |
+| `zolana-ts-c03` | `port/c03` | `C03`, the `Rpc` trait decomposition question |
 | `zolana-merge-record` | `fix/merge-user-record-binding` | program defect, **separate** pull request off `main` |
 | (no tree) | `fix/indexed-array-exclusive-highest-value` | protocol-library fix relocated out of the port, **separate** pull request off `main` |
 
 Both `fix/*` branches are local and unpushed. Push them before removing any
 worktree, or the work is lost with it.
+
+`port/open-questions` was listed here as an unmerged tree and is neither: the
+branch is gone from this clone and from `origin`, and its work, the
+open-questions register, the C04 integer domain, and the transaction size
+measurement, is in `ts-sdk-port`. A row that says "unmerged" is a claim on
+someone's attention, so check the branch still exists before acting on one.
 
 ### One tree, one branch, one agent
 

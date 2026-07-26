@@ -5,9 +5,10 @@ worktree `zolana-ts-rulings-impl`. Every row transition below is proposed here
 rather than written into [`review-checklist.md`](../review-checklist.md), which
 has a single writer.
 
-Two items landed in part. Item 2 lost its TypeScript half to a collision and
-item 3 has a TypeScript half nobody may write this run; both hand off below with
-the call sites named, which is the deliverable for what is not being done.
+Item 2 landed in part, losing its TypeScript half to a collision, and hands off
+below with the call sites named, which is the deliverable for what it does not
+do. Item 3 is withdrawn: T28 belongs to `port/t28-close`, and section 3 records
+what the two versions did and did not share rather than any work of mine.
 
 ## 1. C18, the zone-authority rail carries four shapes, not ten
 
@@ -122,56 +123,53 @@ divergence rather than a narrowing.
 `sdk-libs/ts/wallet/src/sync.ts` was uncontested and is done in `335a026c`:
 `viewingKeyCounters` takes `ViewingKeyLike`.
 
-## 3. T28, an explicit zero zone data hash is stored as absence
+## 3. T28, withdrawn in favour of `port/t28-close`
 
-**Commit** `994574a0`. Rust only.
+**Commit** `994574a0`, dropped. T28 was dispatched to another worker, whose
+version is the one to keep: it carries the TypeScript half in
+`sdk-libs/ts/transaction/src/utxo.ts`, which is the point of the port, and it
+pins the address clause the owner held back.
 
-`run-authorizations.md` splits this row and authorises one half of it: normalize
-the zone **data hash**, hold the zone **address** until the owner confirms that
-clause specifically. This implements the authorised half and touches nothing
-about the address.
+`994574a0` was rebased out of this branch, but it had already reached
+`ts-sdk-port` through the reconciler's merge at `ec0ec8ea`, before the dispatch
+arrived. History alone therefore does not remove the code, so the merge here is
+followed by a revert that does. Two normalizers cannot share three call sites,
+and this yields them, leaving `port/t28-close` a clean apply.
 
-`ProofInputUtxo::with_zone`, the `SppProofOutputUtxo` conversion, and
-`ExternalDataHash::hash` all unwrap the option to zero, so `Some([0u8; 32])` and
-`None` were one value on chain and two in the builders. `normalized_zone_data_hash`
-in `sdk-libs/transaction/src/utxo.rs` collapses them, and
-`SppProofInputUtxo::with_zone_data_hash`, `SppProofOutputUtxo::with_zone_data` and
-`SppProofOutputUtxo::with_zone_data_hash` call it. `MergeZone::new` needs no
-change of its own: `Some([0u8; 32])` now takes the `with_zone_data_hash` branch to
-the same output the `None` branch builds.
+**What mine covered that theirs does not.** Nothing in behaviour. Both change
+the same three builders -- `SppProofInputUtxo::with_zone_data_hash`,
+`SppProofOutputUtxo::with_zone_data`, `SppProofOutputUtxo::with_zone_data_hash`
+-- through one helper in `utxo.rs`, and both leave the zone address alone. The
+74-against-40 line count is an artefact of packaging: mine carried its tests in
+one commit, theirs split them into `725c8b84`, which adds 58 more.
 
-No commitment moves, because the committed field was already zero. Nothing is
-refused that succeeds today, which is the point of normalizing rather than
-refusing: the zone-deposit fixtures already carry `[u8; 32]` zero as their
-no-zone-data value, so an adapter onto the `Option` API lands on `Some([0u8; 32])`
-without meaning anything by it.
+Two test cases are mine alone, and one of them is worth restating if anyone
+extends that suite:
 
-**Evidence.** Two unit tests, one per side, assert that the explicit zero and the
-absent hash produce an equal prepared struct and an equal commitment, and on the
-input side an equal nullifier. Two more assert a non-zero hash is still kept.
-Control edit: making `normalized_zone_data_hash` return `Some(_)`
-unconditionally fails both.
+- **A non-zero hash is still kept**, asserted directly on both sides. Theirs
+  leaves that to `preserves_input_and_output_zone_data_hashes` in
+  `instructions/transact/merge_zone.rs`, which does catch a helper that returns
+  `None` unconditionally, so the case is covered, just not locally.
+- **Equality of the whole prepared struct**, where theirs asserts the commitment
+  and the two fields it names. Mine also compared nullifiers, which the
+  commitment equality already implies.
 
-**What is left.** The dummy rule still rejects a zero-owner input whose
-`zone_data_hash` field was assigned directly, at
-`instructions/types.rs:79`. That is deliberate: the fields are public, the builder
-is the caller-facing path, and the rule exists to catch a dummy built wrong. The
-same `unwrap_or_default` gap exists for `data_hash`, which no ruling covers.
+Theirs holds something mine does not, and it is the more valuable of the two: a
+zero zone **address** still commits to `pk_field(0)` and still moves the hash,
+asserted on both sides, so the half the owner declined cannot be normalized by a
+later reader who sees only the data-hash rule. Their helper is `pub(crate)`
+where mine was `pub`, which is also the better call.
 
-**Row transition.** T28: no change. The row cannot close on one language.
+**One observation outlives the commit**, because neither version addresses it.
+The canonical-dummy rule still rejects a zero-owner input whose `zone_data_hash`
+field was assigned directly rather than through the builder, at
+`instructions/types.rs:79`. That is defensible -- the fields are public, the
+builder is the caller-facing path, and the rule exists to catch a dummy built
+wrong -- but the same `unwrap_or_default` gap exists for `data_hash`, which no
+ruling covers and no builder normalizes.
 
-### Handoff: the TypeScript half
-
-`sdk-libs/ts/transaction/src/utxo.ts`, held by the export-surface agent. Three
-places store a supplied zone data hash and need the same collapse, because a
-zeroed `Uint8Array` is truthy and takes the present branch today:
-
-- the `ProofInputUtxo` constructor at 214, `if (input.zoneDataHash)`.
-- `createProofOutput` at 364, which spreads `input.zoneDataHash` through.
-- `withZoneData` (377) and `withZoneDataHash` (386), which route into it.
-
-A helper beside `isZero` reads best. `mergeZone`'s `outputZoneDataHash` in
-`instructions/builders.ts` (286) then follows for free, as `MergeZone::new` did.
+**Row transition.** T28: no change from this branch. `port/t28-close` carries
+the row.
 
 ## 4. The frozen-source gate is gone
 
@@ -265,15 +263,16 @@ than owed. Open question 24 closes with it.
 
 ## Gates run
 
-`npm run build` before every suite, which is now the standing rule.
+`npm run build` before every suite, which is now the standing rule. The run
+below is on the merged state, `ts-sdk-port` at `ec0ec8ea` folded in, with the
+T28 revert applied.
 
-- `npm run check:static` (build, typecheck, lint, lint:packages, format:check)
+- `npm run build`, `npm run typecheck`, `npm run lint`, `npm run format:check`
 - `npm run check:packaging` (inventory, exports, dependencies, api, browser, pack)
-- `npm run test:unit`, 1854 passed and 1 skipped
-- `npm run test:vectors`
-- `npm run fixtures:check`, 58 fixtures and 182 inventory rows verified
-- `cargo test -p zolana-transaction`, `cargo clippy -p zolana-transaction
-  --all-targets`, `cargo fmt`
+- `npm run test:unit`, 1942 passed and 1 skipped
+- `npm run fixtures:check`, 58 fixtures and 182 inventory rows verified, with the
+  frozen-source gate gone and the tip's Rust sources moved under it
+- `cargo test -p zolana-transaction`, 61 passed across the crate's suites
 
 ## Not touched
 

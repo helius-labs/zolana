@@ -20,7 +20,9 @@ genuinely requires it, and say in your report that you did.
 **Programs and circuits are still out of scope.** If a fix needs one, stop and
 record it as a finding with the change it would take. Two program defects,
 `PD-1` and `PD-2`, already sit outside this port and each gets its own pull
-request; `PD-2` is PR #160.
+request; `PD-2` is PR #160. `PD-1` is ruled `2026-07-26` to stay unwritten under
+this run: do not open a branch for it. It is recorded as owed and assignable in
+[`scope-and-denominator.md`](scope-and-denominator.md#pd-1-is-owed-and-assignable).
 
 ## Amending the specification
 
@@ -104,24 +106,27 @@ by subject was considered and dropped on 2026-07-26: finishing the stages is
 worth more than a navigable log, and rewriting history under agents that are
 still committing would be unsafe anyway.
 
-## The T28 normalization is split, and only one half may be implemented
+## The T28 normalization is split, and only one half is taken
 
 The owner ruled on 2026-07-26 to normalize an explicitly-passed zero rather than
 refuse it. Recording that ruling surfaced a distinction the question had blurred:
 it names the zone address, while the counterargument it dismisses belongs to the
-zone data hash, and the two clauses do not cost the same.
+zone data hash, and the two clauses do not cost the same. The owner confirmed the
+split the same day: **the data hash half only.**
 
-**Implement the data hash half.** Normalizing an explicit zero there moves no
-commitment, so it is the tidying the ruling describes.
+**The data hash half is implemented**, in both languages. Normalizing an explicit
+zero there moves no commitment, so it is the tidying the ruling describes.
 
-**Hold the zone address half** until the owner confirms it specifically. A UTXO
-built today with `Some([0u8; 32])` commits to `pk_field(0)`, a non-zero field, so
-the circuit treats it as zone-bound. Normalizing the address turns that into an
-unbound UTXO, which changes what the commitment says rather than how a caller
-spells it. The analysis in
-[`row-updates/t28-zone-binding.md`](row-updates/t28-zone-binding.md) establishes
-that such a UTXO can never settle on-chain, so nothing is stranded either way,
-which is exactly why this can wait for a sentence rather than being guessed.
+**The zone address half is not taken, and is not open.** No normalization, no
+refusal, no warning. A UTXO built today with `Some([0u8; 32])` commits to
+`pk_field(0)`, a non-zero field, so the circuit treats it as zone-bound;
+normalizing the address turns that into an unbound UTXO, which changes what the
+commitment says rather than how a caller spells it. Such a UTXO can never settle
+on chain, per [`row-updates/t28-zone-binding.md`](row-updates/t28-zone-binding.md),
+so nothing is stranded by leaving it alone and nothing is bought by moving it.
+Both halves are pinned by tests that fail if the address is normalized later.
+[`authority-rulings.md`](authority-rulings.md#q10-an-explicitly-passed-zero-at-a-zone-binding-t28)
+carries the reasoning.
 
 ## Build before you run the suite
 
@@ -135,6 +140,28 @@ This cost roughly an agent-hour on 2026-07-26. Nineteen tests were reported
 failing, a worker was dispatched to judge each one, and a clean rebuild passed
 all of them. The tell was a test flipping across a merge whose diff over both
 packages was empty: a merge does not rebuild `dist`.
+
+## When a commit hangs, it is the signing key
+
+`commit.gpgsign` is on. When the agent's cached passphrase expires, `git commit`
+launches pinentry, pinentry finds no terminal it can prompt on, and the command
+sits there until something times it out. Thirty minutes, in the case that
+prompted this note.
+
+The damage is not the wait. An agent that commits incrementally hits this on its
+first commit and stops there, holding everything in its working tree, and it
+looks exactly like a dropped agent: transcript quiet, branch not moving, tree
+dirty. Three agents were diagnosed as dead and relaunched on 2026-07-26 before
+anyone read the actual error, and all three stalled again for the same reason,
+because relaunching does not unlock a key. Two and a half hours.
+
+The tell that separates it from a real drop: the health check reports no branch
+activity while the transcripts keep growing. A dropped agent stops doing both.
+
+`gpgconf --kill gpg-agent` clears a wedged agent and the next commit re-prompts
+cleanly. Signing may then work again. If it does not, commit unsigned and keep
+going. The standing instruction is not to stop when signed checkpoints stop
+working, and an unsigned commit that exists beats a signed one that does not.
 
 ## A failure mode that has already cost us
 

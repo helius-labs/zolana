@@ -113,10 +113,53 @@ such.
 
 | Item | Divergence | Component that must change | Route |
 | --- | --- | --- | --- |
-| `PD-1` | A padding dummy input's public nullifier column is unconstrained in the circuit and the program inserts it anyway. A chosen padding nullifier can wedge the nullifier queue and freeze shielded balances pool-wide | Circuit, `prover/server/circuits/`, and the program's insert path | Recommend its own pull request. This is a liveness risk with an executed reproduction, not a boundary out of a caller's reach |
+| `PD-1` | A padding dummy input's public nullifier column is unconstrained in the circuit and the program inserts it anyway. A chosen padding nullifier can wedge the nullifier queue and freeze shielded balances pool-wide | Circuit, `prover/server/circuits/`, and the program's insert path | Its own pull request, ruled `2026-07-26` and **not** taken here. Unowned on purpose, not forgotten: see below |
 | `PD-2` | `merge_transact` does not tie its `user_record` to the owner whose UTXOs are merged, so a delegate holding the `nullifier_secret` and blindings can substitute a record | `programs/shielded-pool` loader, plus a signature over the record at `register` and `update_keys` proving the caller holds `owner_p256` | Its own pull request, already taken: branch `fix/merge-user-record-binding`, commit `a811b20e`, PR #160. **Correction to the standing precedent: #160 is open, not merged, and `a811b20e` is not an ancestor of `main` at this HEAD.** The route is the precedent; the merge has not happened |
 | `address-append` | TypeScript ships no forester, so the builder had neither a producer nor a proof path | Nothing. Producing the proof needs witness generation and gnark proving | Accepted limitation, ruled `2026-07-25`: withdraw the builder from the public surface, do not port the witness. Tracked as ordinary work on `C07` |
 | Zone-authority key coverage | `ZoneAuthorityProver::build` resolves against ten `SPP_SUPPORTED_SHAPES` while `program-libs/interface/src/verifying_keys/` holds four zone-authority keys, so both SDKs will build a 2x3 request the prover server cannot serve | Either none, by narrowing the accepted set in both SDKs, or `prover/` and `program-libs/interface` to generate the six missing keys | Needs the owner's answer before the cryptographic phase. If the shapes should be servable it is a separate pull request; if not, the narrowing is in scope and belongs on a row that does not yet exist. Recorded today only inside the closed `C18` |
+
+### `PD-1` is owed and assignable
+
+The owner ruled on `2026-07-26` that `PD-1` gets its own pull request and that
+this run does not write it. There is no branch and no owner. That is a decision,
+not an oversight, and it is recorded here so the next person to pick it up starts
+from the analysis rather than from the code.
+
+**What is wrong.** The `spp_transaction` circuit leaves a padding dummy input's
+public nullifier column unconstrained, and the program inserts that column into
+the nullifier queue without checking that the slot was a dummy. So a caller
+chooses the nullifier a padding slot publishes.
+
+**Why it matters.** It is a liveness defect, not a double spend. Nullification and
+public-leg settlement happen in one instruction with no path that applies one
+without the other, which
+[`row-updates/double-spend-analysis.md`](row-updates/double-spend-analysis.md)
+established while finding this. The reachable harm is the queue: a padding dummy
+carrying nullifier `0` lands on chain, `0` is already a nullifier-tree leaf that
+cannot be appended again, and the append wedges. A wedged queue freezes every
+shielded balance in the pool, so the blast radius is the whole pool and the cost
+to the attacker is one ordinary transaction. The same class reaches an address
+slot (`IsDummy = 1`, `DataHash != 0`), whose nullifier is pinned but whose
+non-inclusion proof is skipped because the root binding at `inputs.go:124` is
+gated on `notDummy`, leaving its uniqueness to the epoch-limited bloom filter
+alone.
+
+**Reproduction.** Executed, not argued:
+`program-tests/shielded-pool/tests/transact/double_spend.rs`, 8 tests.
+
+**What the fix involves.** Constrain the padding slot's public nullifier column
+in `prover/server/circuits/spp_transaction/` so a dummy cannot publish a chosen
+value, and refuse the insert on the program's side for a slot the proof marks
+dummy. Both halves are needed: the program check alone leaves the circuit
+permissive for any future caller, and the circuit change alone does not protect
+an already-deployed verifying key. Constraining the circuit means regenerating
+the affected verifying keys and the proving-key lockfile in the same commit, per
+`CLAUDE.md`, which is the expensive part and the reason this is a pull request of
+its own rather than a rider on another.
+
+**Scope note.** Nothing in `sdk-libs/**` reaches it, in either language, so no
+row in this port is blocked by it and no reviewer counting adverse rows should
+count it.
 
 ## How to recount
 

@@ -108,6 +108,7 @@ export interface Rpc {
     context?: RequestContext,
   ): Promise<readonly (RpcAccount | undefined)[]>;
   getBalance(address: Address, context?: RequestContext): Promise<bigint>;
+  getMinimumBalanceForRentExemption?(dataLength: number, context?: RequestContext): Promise<bigint>;
   getLatestBlockhash(
     context?: RequestContext,
   ): Promise<Readonly<{ blockhash: string; lastValidBlockHeight: bigint }>>;

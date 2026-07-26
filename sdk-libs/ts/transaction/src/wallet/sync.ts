@@ -1,14 +1,13 @@
-import type { Address, Bytes16, Bytes31, Bytes32, Bytes33, Signature } from "@zolana/interface";
+import type { Address, Bytes16, Bytes32, Bytes33, Signature } from "@zolana/interface";
 import {
   P256PublicKey,
   type NullifierKey,
   type ShieldedPublicKey,
-  type ViewingKey,
+  type ViewingKeyLike,
 } from "@zolana/keypair";
 
-import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
-import { copy, decodeAddress, encodeAddress, equal } from "../internal.js";
+import { copy, decodeAddress, equal } from "../internal.js";
 import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
 import {
@@ -19,16 +18,20 @@ import {
   decodeAnonymousRecipient,
   decodeAnonymousSender,
   decodePlaintextTransfer,
+  decodeProofless,
   decodeSplitBundle,
   decryptAnonymous,
   decryptConfidential,
   decryptConfidentialAsSender,
   decryptMerge,
   mergeUtxo,
+  prooflessUtxo,
+  plaintextTransferUtxos,
   readOutputData,
   splitBundleUtxos,
+  type ProoflessOutput,
 } from "../serialization/codecs.js";
-import { Utxo, deriveBlinding } from "../utxo.js";
+import { Utxo } from "../utxo.js";
 import type { SyncWalletAuthority, WalletSyncMaterial } from "./authority.js";
 import { SOL_MINT, type AssetRegistry } from "./asset.js";
 import {
@@ -83,116 +86,6 @@ function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
   ) {
     throw new TransactionError("TRANSACTION_MISSING_CURRENT_VIEWING_KEY");
   }
-}
-
-function readU32(bytes: Uint8Array, offset: number): number {
-  if (offset + 4 > bytes.length) throw new TransactionError("TRANSACTION_DESERIALIZE");
-  return new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0, true);
-}
-
-interface ProoflessNote {
-  readonly utxo: Utxo;
-  readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
-}
-
-function prooflessNote(body: Uint8Array, owner: ShieldedPublicKey): ProoflessNote {
-  let offset = 0;
-  const take = (length: number): Uint8Array => {
-    if (offset + length > body.length) throw new TransactionError("TRANSACTION_DESERIALIZE");
-    const value = body.slice(offset, offset + length);
-    offset += length;
-    return value;
-  };
-  const option = <T>(read: () => T): T | undefined => {
-    const tag = take(1)[0];
-    if (tag === 0) return undefined;
-    if (tag !== 1) throw new TransactionError("TRANSACTION_DESERIALIZE", { optionTag: tag });
-    return read();
-  };
-  take(32);
-  const blinding = take(31) as Bytes31;
-  const asset = encodeAddress(take(32));
-  const amountBytes = take(8);
-  const amount = new DataView(
-    amountBytes.buffer,
-    amountBytes.byteOffset,
-    amountBytes.byteLength,
-  ).getBigUint64(0, true);
-  const dataHash = option(() => take(32) as Bytes32);
-  const vector = (): Uint8Array => {
-    const length = readU32(body, offset);
-    offset += 4;
-    return take(length);
-  };
-  const utxoData = option(vector);
-  const zoneProgramId = option(() => encodeAddress(take(32)));
-  const zoneDataHash = option(() => take(32) as Bytes32);
-  const zoneData = option(vector);
-  const memo = option(vector);
-  if (offset !== body.length) throw new TransactionError("TRANSACTION_TRAILING_BYTES");
-  const records: DataRecord[] = [];
-  if (zoneData) records.push({ kind: "zoneData", bytes: zoneData });
-  if (utxoData) records.push({ kind: "utxoData", bytes: utxoData });
-  if (memo) records.push({ kind: "memo", bytes: memo });
-  return {
-    utxo: new Utxo({
-      owner,
-      asset,
-      amount,
-      blinding,
-      data: new Data(records),
-      ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
-    }),
-    ...(dataHash === undefined ? {} : { dataHash }),
-    ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
-  };
-}
-
-/** The notes a plaintext transfer slot describes, sender change slots first. */
-function plaintextTransferUtxos(body: Uint8Array, assets: AssetRegistry): readonly Utxo[] {
-  const value = decodePlaintextTransfer(body);
-  const utxos: Utxo[] = [];
-  if (value.sender) {
-    if (value.sender.spl) {
-      utxos.push(
-        new Utxo({
-          owner: value.sender.ownerPublicKey,
-          asset: assets.resolve(value.sender.spl.assetId),
-          amount: value.sender.spl.amount,
-          blinding: deriveBlinding(value.blindingSeed, 0),
-          data: value.sender.splData,
-        }),
-      );
-    } else if (!value.sender.splData.isEmpty()) {
-      throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
-    }
-    if (value.sender.solAmount !== undefined) {
-      utxos.push(
-        new Utxo({
-          owner: value.sender.ownerPublicKey,
-          asset: SOL_MINT,
-          amount: value.sender.solAmount,
-          blinding: deriveBlinding(value.blindingSeed, 1),
-          data: value.sender.solData,
-        }),
-      );
-    } else if (!value.sender.solData.isEmpty()) {
-      throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
-    }
-  }
-  value.recipientSlots.forEach((recipient, index) => {
-    utxos.push(
-      new Utxo({
-        owner: recipient.ownerPublicKey,
-        asset: assets.resolve(recipient.assetId),
-        amount: recipient.amount,
-        blinding: deriveBlinding(value.blindingSeed, index + 2),
-        data: recipient.data,
-      }),
-    );
-  });
-  return utxos;
 }
 
 /** One output slot of one fetched transaction, by position in both lists. */
@@ -288,7 +181,7 @@ function compareAssets(left: Address, right: Address): number {
 /** A rotated-in viewing key starts scanning from zero. */
 function ensureViewingKeyEntries(
   history: readonly ViewingKeyEntry[],
-  viewingKeys: readonly ViewingKey[],
+  viewingKeys: readonly ViewingKeyLike[],
 ): readonly ViewingKeyEntry[] {
   const known = new Set(history.map((entry) => hex(entry.viewingPublicKey.toBytes())));
   const entries = [...history];
@@ -610,7 +503,7 @@ class SyncPass {
    * viewing key derived from the first nullifier reproduces the published one
    * only for the spending wallet.
    */
-  #authored(tx: IndexedShieldedTransaction, key: ViewingKey): boolean {
+  #authored(tx: IndexedShieldedTransaction, key: ViewingKeyLike): boolean {
     const firstNullifier = tx.nullifiers[0];
     if (tx.txViewingPublicKey === undefined || firstNullifier === undefined) return false;
     return equal(
@@ -629,7 +522,7 @@ class SyncPass {
   recordConfidentialSend(
     tx: IndexedShieldedTransaction,
     index: number,
-    key: ViewingKey,
+    key: ViewingKeyLike,
     knownRecipients: CounterpartyCounters,
   ): void {
     const firstNullifier = tx.nullifiers[0];
@@ -678,7 +571,7 @@ class SyncPass {
    * committed leaf; the anonymous and split sender bundles, passed as slot 0,
    * store their change against the whole transaction.
    */
-  decodeSlot(key: ViewingKey, site: Site): SlotOutcome {
+  decodeSlot(key: ViewingKeyLike, site: Site): SlotOutcome {
     const outcome: SlotOutcome = { recipients: [] };
     const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
     if (this.#processedSlots.has(siteKey)) return outcome;
@@ -699,16 +592,20 @@ class SyncPass {
     const { body } = frame;
 
     if (frame.encoding === "plaintext" && frame.scheme === EncryptedScheme.proofless) {
-      let note: ProoflessNote;
+      let deposit: ProoflessOutput;
+      let utxo: Utxo;
       try {
-        note = prooflessNote(body, this.#owner);
+        deposit = decodeProofless(body);
+        utxo = prooflessUtxo(deposit, this.#owner);
       } catch {
         this.undecryptableCandidates++;
         return outcome;
       }
-      if (this.#storeRecipientUtxos([note.utxo], outputContext, note.dataHash, note.zoneDataHash)) {
+      if (
+        this.#storeRecipientUtxos([utxo], outputContext, deposit.dataHash, deposit.zoneDataHash)
+      ) {
         this.#processedSlots.add(siteKey);
-        this.#recordDeposit(tx, outputContext, note.utxo);
+        this.#recordDeposit(tx, outputContext, utxo);
       }
       return outcome;
     }
@@ -716,7 +613,7 @@ class SyncPass {
     if (frame.encoding === "plaintext" && frame.scheme === EncryptedScheme.plaintextTransfer) {
       let utxos: readonly Utxo[];
       try {
-        utxos = plaintextTransferUtxos(body, this.#assets);
+        utxos = plaintextTransferUtxos(decodePlaintextTransfer(body), this.#assets, SOL_MINT);
       } catch (error) {
         this.#noteUndecryptable(error);
         return outcome;
@@ -848,7 +745,7 @@ class SyncPass {
   }
 
   #decryptFor(
-    key: ViewingKey,
+    key: ViewingKeyLike,
     tx: IndexedShieldedTransaction,
     body: Uint8Array,
     slotIndex: number,
@@ -864,7 +761,7 @@ class SyncPass {
    */
   advance(
     entry: ViewingKeyEntry,
-    key: ViewingKey,
+    key: ViewingKeyLike,
     input: Readonly<{ window: bigint; index: TagIndex; ownerTag: Bytes32 }>,
   ): ViewingKeyEntry {
     const { window, index } = input;

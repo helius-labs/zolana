@@ -1,6 +1,7 @@
 import { transactInstructionDataCodec } from "@zolana/interface/codecs";
 import {
   SHIELDED_POOL_PROGRAM_ID,
+  TRANSACTION_SIZE_LIMIT,
   decodeShieldedPoolError,
   type Address,
   type Bytes32,
@@ -56,6 +57,22 @@ export interface ConfirmedInstructionGroups {
   readonly groups: readonly InstructionGroup[];
 }
 
+/// One entry of a `getSignatureStatuses` response. `confirmations` is absent
+/// once the transaction is rooted, and `err` is absent when it succeeded.
+export interface SignatureStatus {
+  readonly slot: bigint;
+  readonly confirmations?: number;
+  readonly confirmationStatus?: string;
+  readonly err?: unknown;
+}
+
+/// The plain Solana reads below are deliberately not on the `Rpc` interface.
+/// Light Protocol's `Rpc extends Connection implements CompressionApiInterface`
+/// keeps the same split: the protocol interface declares only protocol methods,
+/// and the plain Solana surface belongs to the concrete transport. Declaring
+/// them on `Rpc` would oblige every implementor -- `ZolanaClient`, the indexer,
+/// a caller's mock -- to answer chain-state questions it has no transport for,
+/// which is the fat-trait shape Rust carries and this port split apart.
 export class SolanaRpc implements Rpc {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
@@ -186,6 +203,73 @@ export class SolanaRpc implements Rpc {
         "result.value.lastValidBlockHeight",
       ),
     });
+  }
+
+  async getSlot(context?: RequestContext): Promise<bigint> {
+    return unsignedInteger(
+      await this.#call("getSlot", [{ commitment: "confirmed" }], context),
+      "result",
+    );
+  }
+
+  async getBlockHeight(context?: RequestContext): Promise<bigint> {
+    return unsignedInteger(
+      await this.#call("getBlockHeight", [{ commitment: "confirmed" }], context),
+      "result",
+    );
+  }
+
+  /// Rust reaches this through `RpcClient::get_signature_statuses`, which sends
+  /// the signatures alone and so leaves `searchTransactionHistory` at the
+  /// server's default; `confirmTransaction` is the call that turns it on.
+  async getSignatureStatuses(
+    signatures: readonly Signature[],
+    context?: RequestContext,
+  ): Promise<readonly (SignatureStatus | undefined)[]> {
+    signatures.forEach(signatureBytes);
+    const result = await this.#call("getSignatureStatuses", [signatures], context);
+    const values = array(object(result, "result")["value"], "result.value");
+    if (values.length !== signatures.length) {
+      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+        details: {
+          method: "getSignatureStatuses",
+          expected: signatures.length,
+          actual: values.length,
+        },
+      });
+    }
+    return Object.freeze(
+      values.map((value, index) =>
+        value === null ? undefined : decodeSignatureStatus(value, `result.value[${String(index)}]`),
+      ),
+    );
+  }
+
+  async getMinimumBalanceForRentExemption(
+    dataLength: number,
+    context?: RequestContext,
+  ): Promise<bigint> {
+    if (!Number.isSafeInteger(dataLength) || dataLength < 0) {
+      throw new ClientError("CLIENT_INVALID_INTEGER", {
+        details: { field: "dataLength", value: String(dataLength) },
+      });
+    }
+    return unsignedInteger(
+      await this.#call("getMinimumBalanceForRentExemption", [dataLength], context),
+      "result",
+    );
+  }
+
+  /// Resolves when the node reports itself healthy and rejects otherwise, the
+  /// way Rust's `health` returns `Result<(), _>`. An unhealthy node answers with
+  /// a JSON-RPC error, which `#call` raises as a retryable `CLIENT_RPC_ENVELOPE`.
+  async getHealth(context?: RequestContext): Promise<void> {
+    // `null` rather than `[]`: `solana_rpc_client` sends no parameter list for a
+    // parameterless request, and the recorded oracle pins that.
+    const status = string(await this.#call("getHealth", null, context), "result");
+    if (status !== "ok") {
+      throw new ClientError("CLIENT_RPC", { details: { method: "getHealth", reason: status } });
+    }
   }
 
   /// Sends and confirms, as the Rust `Rpc::send_transaction` does: the returned
@@ -373,7 +457,7 @@ export class SolanaRpc implements Rpc {
 
   async #call(
     method: string,
-    params: readonly unknown[],
+    params: readonly unknown[] | null,
     context?: RequestContext,
   ): Promise<unknown> {
     const signal = composeSignal(context, method);
@@ -470,6 +554,22 @@ function decodeAccount(value: unknown, path: string): RpcAccount {
     owner,
     data: decodeBase64(data[0], `${path}.data[0]`),
     lamports: unsignedInteger(account["lamports"], `${path}.lamports`),
+  });
+}
+
+function decodeSignatureStatus(value: unknown, path: string): SignatureStatus {
+  const status = object(value, path);
+  const confirmations = status["confirmations"];
+  const confirmationStatus = status["confirmationStatus"];
+  return Object.freeze({
+    slot: unsignedInteger(status["slot"], `${path}.slot`),
+    ...(confirmations === null || confirmations === undefined
+      ? {}
+      : { confirmations: safeNumber(confirmations, `${path}.confirmations`) }),
+    ...(confirmationStatus === null || confirmationStatus === undefined
+      ? {}
+      : { confirmationStatus: string(confirmationStatus, `${path}.confirmationStatus`) }),
+    ...(status["err"] === null || status["err"] === undefined ? {} : { err: status["err"] }),
   });
 }
 
@@ -618,7 +718,9 @@ function parsedInstruction(
 }
 
 function decodeBase58UnknownLength(value: string): Uint8Array {
-  for (let length = 1; length <= 1232; length++) {
+  // Instruction data travels inside a transaction, so no decode can be longer
+  // than the packet the validator accepts.
+  for (let length = 1; length <= TRANSACTION_SIZE_LIMIT; length++) {
     try {
       return decodeBase58(value, length, "instruction.data");
     } catch {

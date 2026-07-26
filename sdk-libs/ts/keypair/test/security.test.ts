@@ -64,7 +64,7 @@ describe("validation and secret lifecycle", () => {
         ),
       "KEYPAIR_POSEIDON",
     );
-    expectCode(() => mergeCiphertextHash(new Uint8Array()), "KEYPAIR_HASH");
+    expectCode(() => mergeCiphertextHash(new Uint8Array()), "KEYPAIR_POSEIDON");
   });
 
   it("returns copies and makes destroyed keys unusable", () => {

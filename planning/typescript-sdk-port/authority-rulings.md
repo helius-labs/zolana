@@ -896,6 +896,7 @@ Listed per option above. The shared items are
 | Ruled by | Protocol owner, 2026-07-26 |
 | Date | 2026-07-26 |
 | Follow-up artifacts | `docs/spec.md:1775-1778`; `sdk-libs/ts/indexer-api/src/codec.ts`; the indexer schema |
+| Status | Both halves landed. See [Both halves have landed](#both-halves-have-landed-2026-07-26) |
 
 #### What Light does, and why it settles this question
 
@@ -944,6 +945,30 @@ precision-loss refusal, since silently truncating a slot is the failure this
 prevents. Follow Light in applying the coercion only to fields whose domain can
 actually exceed `2^53`, rather than uniformly, so a field that cannot overflow
 does not acquire a parse path it never needs.
+
+#### Both halves have landed, 2026-07-26
+
+The `Context` half is in the specification: `docs/spec.md:1908-1911` declares
+`block_time: i64`.
+
+The integer-domain half was implemented without the matching amendment, and
+`docs/spec.md:1897` went on restricting an RPC integer to the safe-integer range
+while citing the decoder line that had become the string grammar. Amended under
+the [standing authorisation](run-authorizations.md#amending-the-specification),
+whose test is that Rust already implements the behaviour. Here the implementation
+that has to be checked is TypeScript's, because the decoder is a TypeScript
+reader of a Rust encoder that never emitted a string: Rust implements the half
+the amendment describes as normative for a sender, which is that every field is
+written as a JSON number and no field is written past the safe-integer bound.
+`unboundedWireInteger` is the union, applied to `block_time`, `slot`, `root_seq`,
+the nullifier-queue `seq` and `start_seq`; `wireInteger` is the number-only form
+everywhere else; `toWireInteger` refuses to emit a value it cannot represent
+exactly (`sdk-libs/ts/indexer-api/src/codec.ts:89-133`, `:170-197`).
+
+The amendment names the per-field test rather than only the field list, so a
+field the RPC section does not declare, the nullifier-queue sequences among
+them, is still decided by it. Nothing in `sdk-libs` moves: the decoder already
+landed in the ruled form. C04 closes on this.
 
 ## Thirteen rulings from the open-questions register, 2026-07-26
 
@@ -1173,40 +1198,86 @@ against the tables in [`versioned-transactions.md`](versioned-transactions.md).
 | Field | Value |
 | --- | --- |
 | Conflict | T28 proposed refusing an explicitly-passed zero where the SDK constructors take an `Option`. The prepared struct distinguishes `Some(zero)` from `None` and the commitment does not. |
-| Ruling | Normalize an explicitly-passed zero to absent rather than refusing it. The counterargument, that the dummy-canonicity check refuses an explicit zero rather than normalizing, was considered and not taken. |
+| Ruling | Normalize the zone data hash. Leave the zone address exactly as it behaves today: no normalization, no refusal, no warning. |
 | Ruled by | Protocol owner, 2026-07-26 |
 | Date | 2026-07-26 |
-| Follow-up artifacts | `sdk-libs/transaction/src/instructions/types.rs:124` and the constructors that take these options, with the TypeScript counterparts. Rust first, TypeScript second, per the standing order for a change to what a constructor accepts. Row T28. |
+| Follow-up artifacts | Landed in both languages. Rust in `994574a0`: `normalized_zone_data_hash` in `sdk-libs/transaction/src/utxo.rs`, applied by `SppProofInputUtxo::with_zone_data_hash` and by `SppProofOutputUtxo::with_zone_data` / `with_zone_data_hash`. TypeScript on `port/t28-close`: `normalizeZoneDataHash` in `sdk-libs/ts/transaction/src/utxo.ts`, applied by the `ProofInputUtxo` constructor and `createProofOutput`. Row T28. |
 
 This went against [`row-updates/t28-zone-binding.md`](row-updates/t28-zone-binding.md)
 in shape for one of the two clauses it covers, and the register should be read
 with that in mind: clause one was recommended as a refusal and clause two as a
-normalization. The ruling normalizes.
+normalization. The ruling normalizes, and only the second clause.
 
-Read the ruling as a principle over both explicit-zero clauses, because the
-sentence names the zone address while the counterargument it dismisses belongs to
-the zone data hash, and the two clauses had opposite recommendations. The
-principle is that an explicitly-passed zero means absence and is normalized to
-it. The consequence differs by clause and an implementer needs both.
+### Why one question became two rulings
 
-For the zone data hash, normalization is free. The mechanism is
-`types.rs:124`, which takes `spend.zone_data_hash.unwrap_or_default()`, so
-`Some([0u8; 32])` and `None` already reach the commitment as the same value while
-the prepared struct keeps them apart. That gap is the defect. Normalizing closes
-it and moves no commitment, because the committed field was already zero.
+The question was put as one thing, "normalize an explicitly-passed zero rather
+than refuse it", and the wording pointed at the zone address while the
+counterargument it dismissed belonged to the zone data hash. Trying to record it
+as a single principle is what exposed the problem: the two clauses do not cost
+the same, so a principle covering both would authorise a change nobody had
+weighed. Anyone reading T28 later should read it as two clauses with different
+costs, not as one clause half-implemented.
 
-For the zone address, normalization changes what is committed. `Some(zero)`
-commits to `pk_field(0) = Poseidon(0, 0)`, a specific non-zero field element, so
-a UTXO built that way is read as zone-bound and held to the public zone rather
-than being unbound. Normalizing makes it unbound instead. That is safe on the
-evidence: no caller in the SDK tests, client tests, program tests or TypeScript
-fixtures passes the zero zone address, and a build that did could not settle,
-because `merge_zone` reads the public zone from a signing `zone_config` and
-`create_zone_config` requires that account to sign and to sit at the
-`zone_auth` PDA derived under the zone program (`zone_config/create.rs:30`,
-`:33-38`, `:76-78`). One trap for whoever implements it: do not cite
+**The zone data hash clause is tidying.** `types.rs` takes
+`spend.zone_data_hash.unwrap_or_default()`, so `Some([0u8; 32])` and `None`
+already reach the commitment as the same field while the prepared struct keeps
+them apart. That gap is the defect. Normalizing closes it and moves nothing: two
+spellings of one intent now produce one set of bytes.
+
+**The zone address clause is not tidying.** A UTXO built today with
+`Some([0u8; 32])` as its zone address commits to `pk_field(0) = Poseidon(0, 0)`,
+a non-zero field element, so the circuit reads that UTXO as zone-bound and holds
+it to the public zone. Normalizing the address would turn the same UTXO into an
+unbound one. That changes what the commitment says, not merely how a caller
+spells it.
+
+**Why the address is left alone rather than guarded.** A zero-zone UTXO can
+never settle on chain, so nothing is stranded by leaving it as it is:
+`merge_zone` reads the public zone from a signing `zone_config`, and
+`create_zone_config` requires that account to sign and to sit at the `zone_auth`
+PDA derived under the zone program (`zone_config/create.rs:30`, `:33-38`,
+`:76-78`), which the system program cannot produce. Changing commitment
+semantics for an unreachable case buys nothing and risks something. A refusal
+was not taken either, on the same reasoning: it would tighten a constructor past
+Rust's behaviour to close a case no caller reaches.
+
+One trap for anyone who revisits the address clause: do not cite
 `circuit.go:219-221` as the chain-side equivalent. The circuit compares the field
-element, and `pk_field(0)` is non-zero, so it would accept what the SDK refuses.
+element, and `pk_field(0)` is non-zero, so it would accept what an SDK guard
+would refuse. The reason the zero address is unreachable is the `zone_config` PDA
+requirement above.
+
+### What landed, and what holds the split
+
+Both languages needed the change; neither normalized before, so this is not a
+case of TypeScript catching up to Rust. The normalizer sits beside the existing
+zone helpers in each language and is applied at the builders that turn a
+caller-supplied hash into the stored `Option`. Rust moved first, in `994574a0`,
+under the interim authorization that allowed the data-hash half before the split
+was confirmed.
+
+Deliberately out of scope: `ExternalData::with_zone_hashes` and its TypeScript
+counterpart. That `Option` is presence-tagged in the instruction bytes, so
+collapsing it there would move what is submitted rather than only what is
+prepared, and the pair of hashes it sets is guarded as a pair.
+
+The dummy-canonicity rule is untouched. A dummy input whose `zone_data_hash` is
+assigned directly is still rejected, which is the counterargument this ruling
+declined to follow; what changes is that the builder no longer produces such a
+value in the first place.
+
+The split is pinned by tests on both halves rather than by this record. The data
+hash half is `an_explicit_zero_zone_data_hash_is_stored_as_absence` and
+`a_non_zero_zone_data_hash_is_kept`, one pair each in
+`sdk-libs/transaction/src/instructions/types.rs` and
+`.../instructions/transact/types.rs`. The address half is
+`the_zero_zone_address_stays_bound_rather_than_normalizing`, beside each pair, so
+extending normalization to the address fails the suite rather than passing
+quietly. TypeScript asserts both halves in one case,
+`normalizes an explicit zero at the zone data hash and not at the zone address`
+in `sdk-libs/ts/transaction/test/core.test.ts`. Watched failing under two control
+edits rather than merely passing: one dropping the data-hash normalization, one
+normalizing the zone address in `program_id_field` and `commitmentFields`.
 
 The counterargument, recorded because it was close. The SDKs already refuse an
 explicit zero rather than normalize it in the canonical-dummy check
@@ -1234,10 +1305,10 @@ fallible builder signature is still open.
 | Field | Value |
 | --- | --- |
 | Conflict | PD-1 and PD-2 are program and circuit defects with executed reproductions, and the port's SDK-only scope forbids fixing either on this branch. |
-| Ruling | Each gets its own pull request against the program, tracked outside this port. Neither blocks this port from landing. |
+| Ruling | Each gets its own pull request against the program, tracked outside this port. Neither blocks this port from landing. PD-1 is additionally ruled to stay unwritten here: no branch, no pull request, no program change, recorded as owed and assignable instead. |
 | Ruled by | Protocol owner, 2026-07-26 |
 | Date | 2026-07-26 |
-| Follow-up artifacts | PD-1 has no branch. PD-2 has branch `fix/merge-user-record-binding`, commit `a811b20e`, and PR #160, which is open rather than merged and whose commit is not an ancestor of `main`. [`scope-and-denominator.md`](scope-and-denominator.md)'s outside-scope table and the checklist's protocol-defect table both carry the route. |
+| Follow-up artifacts | PD-1 has no branch and no owner, deliberately. Its defect, its reach, the shape of its fix, and the note that it is unowned rather than forgotten are in [`scope-and-denominator.md`](scope-and-denominator.md)'s outside-scope table, and the checklist's protocol-defect table carries the executed reproduction. PD-2 has branch `fix/merge-user-record-binding`, commit `a811b20e`, and PR #160, which is open rather than merged and whose commit is not an ancestor of `main`. |
 
 The route is the same one this ledger already set twice, for the padding
 nullifier against PR #142 and for the `user_record` binding defect. Confirming it
@@ -1254,6 +1325,14 @@ nullifier `0` lands on chain, and `0` is already a nullifier-tree leaf that
 cannot be appended again. A chosen padding nullifier can wedge the queue and
 freeze every shielded balance. Established by execution in
 `program-tests/shielded-pool/tests/transact/double_spend.rs`.
+
+PD-1 is deliberately unowned, ruled 2026-07-26 when the owner was asked whether
+to write the fix under this run's standing authorizations. It is not written, no
+branch exists, and no program code was touched. Recording that as a decision is
+the point: a later reader finding no branch should not conclude the defect was
+dropped, and an owner picking it up should not have to re-derive the analysis to
+start. [`scope-and-denominator.md`](scope-and-denominator.md) carries what the
+fix would involve.
 
 PD-2 is that `merge_transact` does not bind its `user_record` to the owner whose
 UTXOs are merged. [Where the `user_record` binding defect lands](#where-the-user_record-binding-defect-lands)

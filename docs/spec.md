@@ -1894,7 +1894,19 @@ A ZK program is a third-party Solana program that runs a custom ZK circuit over 
 
 All RPC services can be run independently. RPC providers can offer the endpoints of the services in a bundled API.
 
-**Integer encoding.** An integer in an RPC request or response is a JSON number restricted to the IEEE-754 safe-integer range, `-(2^53 - 1)` through `2^53 - 1`, whatever width its Rust declaration gives it. A decoder rejects a value outside that range rather than reading it with lost precision (`sdk-libs/ts/indexer-api/src/codec.ts:69`). The range covers the quantities these services carry: a Solana slot, a Unix block time, a leaf index in a tree of height 32, and a monotonic root sequence each sit far below `2^53`. A service that sends a value above the bound is the defect, not the decoder that refuses it.
+**Integer encoding.** An integer in an RPC request or response is a JSON number. A JSON number that is not an IEEE-754 safe integer, that is, one outside `-(2^53 - 1)` through `2^53 - 1`, has already lost precision by the time a decoder sees it, so a decoder rejects it rather than reading a value the sender did not write.
+
+A field whose domain is not bounded below `2^53` by anything in the protocol **also** accepts a decimal string, which carries the full width of its Rust declaration and has no ceiling. The string is a reader's tolerance rather than a shape a service has to adopt: numbers stay valid for every field, so a service that never approaches the bound needs no change. These fields take the union:
+
+| Field | Declared on | Why it is unbounded |
+| --- | --- | --- |
+| `block_time` | `Context` | A Unix timestamp, unbounded by the protocol |
+| `slot` | `EncryptedUtxoMatch`, `ShieldedTransaction` | A Solana slot, monotonic for the life of the chain |
+| `root_seq` | `MerkleProof`, `NonInclusionProof` | A monotonic sequence over every root a tree has held |
+
+Any other integer is a plain JSON number and a string is refused for it, because a field that cannot overflow does not need a second parse path. A leaf index, and the low and high element indices of a non-inclusion proof, are capped by the tree height; `tree_type` and `root_index` are 16-bit; a page `limit` is 1 through 1000. The same test decides a field this section does not name: a monotonic queue sequence takes the union, a bounded index does not.
+
+A value a service holds but cannot write as a safe JSON number is reported at the encoder rather than emitted, so a payload never carries a truncated integer (`sdk-libs/ts/indexer-api/src/codec.ts:89-120`, `:170-189`). This is Light Protocol's convention, per-field and for the same reason (`js/stateless.js/src/rpc-interface.ts:316-328`).
 
 ## Indexer
 

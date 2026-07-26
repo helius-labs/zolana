@@ -27,6 +27,24 @@ export interface UtxoInit {
   readonly zoneProgramId?: Address;
 }
 
+/**
+ * The zone binding a reconstructed UTXO carries, given the id its reader was
+ * configured with. A reader that supplies none cannot bind zone data to a
+ * policy nobody can enforce, so a payload carrying zone data is refused; a
+ * payload carrying none drops the id rather than committing to a zone the
+ * plaintext never mentioned. Mirrors Rust `resolve_zone_program_id`.
+ */
+export function resolveZoneProgramId(
+  zoneProgramId: Address | undefined,
+  data: Data,
+): Address | undefined {
+  if (!data.zoneData()) return undefined;
+  if (zoneProgramId === undefined) {
+    throw new TransactionError("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
+  }
+  return zoneProgramId;
+}
+
 export function deriveBlinding(seed: Bytes31, position: number): Blinding {
   const checkedSeed = checked<Bytes31>(seed, 31, "blinding seed");
   if (!Number.isInteger(position) || position < 0 || position > 0xff) {
@@ -70,6 +88,19 @@ function commitmentFields(
     zoneHash,
     ownerCommitment,
   ];
+}
+
+/**
+ * An all-zero zone data hash reaches the commitment as the same field an absent
+ * one does, so the two spellings must not survive as distinct stored values.
+ * This normalizes the hash only; the zone address is deliberately left alone,
+ * because a zero `zoneProgramId` commits to `pk_field(0)`, a non-zero field the
+ * circuit reads as zone-bound.
+ */
+function normalizeZoneDataHash(zoneDataHash?: Bytes32): Bytes32 | undefined {
+  if (zoneDataHash === undefined) return undefined;
+  const value = checked<Bytes32>(zoneDataHash, 32, "zone data hash");
+  return isZero(value) ? undefined : value;
 }
 
 function bigintToU64(value: bigint): Uint8Array {
@@ -143,9 +174,6 @@ export class Utxo {
     this.blinding = checked<Blinding>(input.blinding, 31, "blinding");
     this.data = new Data((input.data ?? new Data()).records());
     if (input.zoneProgramId !== undefined) this.zoneProgramId = input.zoneProgramId;
-    if (this.data.zoneData() && !this.zoneProgramId) {
-      throw new TransactionError("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
-    }
   }
 
   proofInput(
@@ -211,8 +239,9 @@ export class ProofInputUtxo {
     if (input.dataHash) {
       this.dataHash = checked<Bytes32>(input.dataHash, 32, "data hash");
     }
-    if (input.zoneDataHash) {
-      this.zoneDataHash = checked<Bytes32>(input.zoneDataHash, 32, "zone data hash");
+    const zoneDataHash = normalizeZoneDataHash(input.zoneDataHash);
+    if (zoneDataHash !== undefined) {
+      this.zoneDataHash = zoneDataHash;
     }
     this.checkCanonicalDummy();
   }
@@ -243,6 +272,10 @@ export class ProofInputUtxo {
    * for an unused slot. Every other field must be zero as well: the circuit
    * treats the slot as absent, and anything carried here would be committed
    * under an owner hash no key can reproduce.
+   *
+   * `zoneProgramId` is checked for presence rather than for a zero value,
+   * unlike the two hashes: the zero address commits to `pk_field(0)`, a
+   * non-zero field, so it is carried rather than absent.
    */
   checkCanonicalDummy(): void {
     if (!this.isDummy()) return;
@@ -275,13 +308,23 @@ export class ProofInputUtxo {
 
 const DUMMY_ASSET = "11111111111111111111111111111111" as Address;
 
+/**
+ * What the commitment folds in. An absent hash and an explicit zero reach
+ * `commitmentFields` as the same field, so a rule reading presence rather than
+ * this one tells apart two inputs the commitment cannot. `dataHash` is stored
+ * as given, so both spellings are reachable.
+ */
+function committedHash(hash?: Bytes32): Bytes32 {
+  return hash ?? ZERO_32;
+}
+
 function noncanonicalDummyField(input: ProofInputUtxo): string | undefined {
   if (input.utxo.asset !== DUMMY_ASSET) return "asset";
   if (input.utxo.amount !== 0n) return "amount";
   if (!input.utxo.data.isEmpty()) return "data";
   if (input.utxo.zoneProgramId !== undefined) return "zone_program_id";
-  if (input.dataHash !== undefined) return "data_hash";
-  if (input.zoneDataHash !== undefined) return "zone_data_hash";
+  if (!isZero(committedHash(input.dataHash))) return "data_hash";
+  if (!isZero(committedHash(input.zoneDataHash))) return "zone_data_hash";
   if (!isZeroNullifierKey(input.nullifierKey)) return "nullifier_key";
   return undefined;
 }
@@ -349,7 +392,15 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
   const blinding = checked<Bytes31>(input.blinding ?? random31(), 31, "output blinding");
   const amount = checkU64(input.amount, "output amount");
   const data = new Data((input.data ?? new Data()).records());
-  const init: ProofOutputInit = { ...input, amount, blinding, data };
+  const { zoneDataHash: suppliedZoneDataHash, ...rest } = input;
+  const zoneDataHash = normalizeZoneDataHash(suppliedZoneDataHash);
+  const init: ProofOutputInit = {
+    ...rest,
+    amount,
+    blinding,
+    data,
+    ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
+  };
   const ownerHash = (): Bytes32 =>
     input.ownerAddress ? input.ownerAddress.ownerHash() : copy(ZERO_32);
   return Object.freeze({
@@ -365,7 +416,7 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
         amount,
         blinding,
         ...(input.dataHash === undefined ? {} : { dataHash: input.dataHash }),
-        ...(input.zoneDataHash === undefined ? {} : { zoneDataHash: input.zoneDataHash }),
+        ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
         ...(input.zoneProgramId === undefined ? {} : { zoneProgramId: input.zoneProgramId }),
       });
     },

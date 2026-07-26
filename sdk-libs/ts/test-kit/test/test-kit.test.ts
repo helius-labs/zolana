@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import type { Address, Bytes31, Bytes32, Signature } from "@zolana/interface";
+import { TREE_ACCOUNT_SIZE } from "@zolana/interface";
 import { describe, expect, it } from "vitest";
 
 import { createTestWallet, fixtureBytes, startLocalStack, TestKitError } from "../src/index.js";
@@ -14,6 +15,7 @@ import {
   createZoneConfig,
   createStandardAccountInstructions,
   createTestProver,
+  createTreeInstructions,
   depositSolInstruction,
   groupInstructions,
   localStackUrls,
@@ -222,6 +224,45 @@ describe("standard protocol material and instruction helpers", () => {
       { address, isSigner: true, isWritable: true },
       { address, isSigner: true, isWritable: true },
     ]);
+  });
+
+  it("funds a tree from the rent the rpc reports, as Rust's create_tree does", async () => {
+    const rpc = new TestRpc();
+    const reads: number[] = [];
+    const watched = {
+      getMinimumBalanceForRentExemption: (dataLength: number) => {
+        reads.push(dataLength);
+        return rpc.getMinimumBalanceForRentExemption(dataLength);
+      },
+    };
+
+    const instructions = await createTreeInstructions(watched, {
+      payer: address,
+      authority: address,
+      tree: address,
+      accountSize: TREE_ACCOUNT_SIZE,
+    });
+
+    expect(reads).toEqual([TREE_ACCOUNT_SIZE]);
+    const create = instructions[0]?.data ?? new Uint8Array();
+    const view = new DataView(create.buffer);
+    expect(view.getBigUint64(4, true)).toBe(
+      await rpc.getMinimumBalanceForRentExemption(TREE_ACCOUNT_SIZE),
+    );
+    expect(view.getBigUint64(12, true)).toBe(BigInt(TREE_ACCOUNT_SIZE));
+    expect(instructions[1]?.data[0]).toBe(5);
+  });
+
+  it("refuses a tree rather than underfunding it when the rpc has no rent read", async () => {
+    await expect(
+      createTreeInstructions(
+        {},
+        { payer: address, authority: address, tree: address, accountSize: TREE_ACCOUNT_SIZE },
+      ),
+    ).rejects.toMatchObject({
+      code: "TEST_KIT_RPC",
+      details: { method: "getMinimumBalanceForRentExemption" },
+    });
   });
 
   it("encodes SPL minting and reads token amounts without truncation", () => {

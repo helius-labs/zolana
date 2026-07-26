@@ -312,16 +312,14 @@ const IDENTITY_CRYPTO: readonly string[] = ["PlaintextTransfer", "Proofless"];
  * assertion below inverts for these, so shipping the function without clearing
  * the entry fails: an absence stays declared only while it is true.
  *
- * Both are the read half of a plaintext rail. `decryptCandidate` reconstructs
- * these UTXOs inline while Rust reaches the same result through the trait, and
- * the inline path drops the `resolve_zone_program_id` check Rust applies, so
- * exporting the current logic would publish a divergence rather than close one.
+ * Empty since the two plaintext-rail read halves were extracted out of wallet
+ * sync as `plaintextTransferUtxos` and `prooflessUtxo`. They were recorded
+ * absent on the belief that the inline versions skipped Rust's
+ * `resolve_zone_program_id`; the inline versions in fact reached the same
+ * refusal through a `Utxo` constructor invariant Rust does not have, which
+ * diverged on the two inputs Rust treats differently.
  */
-const ABSENT_OPERATIONS: Readonly<Record<string, string>> = {
-  "PlaintextTransfer.into_utxos":
-    "T10: inlined in wallet sync without Rust's zone-program resolution",
-  "Proofless.into_utxos": "T10: inlined in wallet sync without Rust's zone-program resolution",
-};
+const ABSENT_OPERATIONS: Readonly<Record<string, string>> = {};
 
 /** Trait defaults a caller composes here from the two halves beside them. */
 const COMPOSED_OPERATIONS: readonly string[] = ["decode", "encode", "encode_plaintext"];

@@ -547,6 +547,44 @@ export class ZolanaClient implements Rpc {
   }
 }
 
+/**
+ * Compile `instructions` against a fresh blockhash, hand the unsigned
+ * transaction to `sign`, and submit it: Rust's `Rpc::create_and_send_transaction`
+ * without the keypairs.
+ *
+ * Rust takes `&[&Keypair]` and signs in place. No SDK surface here holds key
+ * material, so the caller signs, which is also how Light Protocol splits it
+ * (`buildAndSignTx` then `sendAndConfirmTx`, both free functions beside `Rpc`
+ * rather than methods on it).
+ */
+export async function createAndSendTransaction(
+  input: Readonly<{
+    rpc: Rpc;
+    feePayer: Address;
+    instructions: readonly Instruction[];
+    sign: (transaction: Transaction) => Promise<Transaction>;
+  }>,
+  context?: RequestContext,
+): Promise<Signature> {
+  const latest = await input.rpc.getLatestBlockhash(context);
+  const unsigned = compileLegacyTransaction(input.feePayer, latest.blockhash, input.instructions);
+  const signed = await input.sign(unsigned);
+  // `Transaction::new` fills every reserved slot by construction, so Rust cannot
+  // reach the cluster with one empty. A caller's signer can, and the cluster
+  // rejects it, so the round trip is wasted rather than informative.
+  const missing = signed.signatures.findIndex((signature) => signature === undefined);
+  if (signed.signatures.length !== unsigned.signatures.length || missing !== -1) {
+    throw new ClientError("CLIENT_INCOMPLETE_SIGNATURES", {
+      details: {
+        required: unsigned.signatures.length,
+        provided: signed.signatures.length,
+        ...(missing === -1 ? {} : { missingIndex: missing }),
+      },
+    });
+  }
+  return await input.rpc.sendTransaction(signed, context);
+}
+
 export function buildUnsignedTransaction(
   input: Readonly<{
     computeUnitLimit: number;

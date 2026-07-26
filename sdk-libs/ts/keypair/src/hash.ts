@@ -24,6 +24,11 @@ export function ownerHash(
   return poseidon([ownerPublicKeyField, nullifierPublicKey]);
 }
 
+/**
+ * The one boundary a TypeScript-only code belongs at: Rust's `pack33` takes
+ * `&[u8; 33]` and cannot fail, so a wrong-length input has no Rust variant to
+ * mirror.
+ */
 export function pack33(bytes: Uint8Array): readonly [Uint8Array, Uint8Array] {
   try {
     return interfacePack33(bytes);

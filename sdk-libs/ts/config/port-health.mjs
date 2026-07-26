@@ -146,15 +146,25 @@ for (const file of rowUpdateFiles.filter((name) => name.endsWith(".md"))) {
   );
   if (epoch > checklistEpoch) unreconciled.push(file);
 }
-if (unreconciled.length > 0) {
+// A backlog is only worth waking someone over when nobody is draining it. A
+// reconciliation pass takes half an hour or so and the checklist does not move
+// until it finishes, so during a pass this fires every few minutes about work
+// that is already being done, which is how a check teaches its reader to ignore
+// it. Presence of a reconciler worktree is the signal; if that worktree is
+// itself dead, the dead-agent check above is what says so.
+const reconcilerAtWork = (await git("worktree", "list", "--porcelain")).includes(
+  "branch refs/heads/port/reconcile",
+);
+if (unreconciled.length > 0 && !reconcilerAtWork) {
   problems.push(
     `${unreconciled.length} row update(s) landed after the checklist last moved ` +
-      `${minutesSince(checklistEpoch)} min ago: ${unreconciled.join(", ")}. ` +
-      "The entry gate is reading a stale adverse-row count",
+      `${minutesSince(checklistEpoch)} min ago: ${unreconciled.join(", ")}, ` +
+      "and no reconciler worktree exists. The entry gate is reading a stale adverse-row count",
   );
 }
 report.push(
-  `checklist: last moved ${minutesSince(checklistEpoch)} min ago, ${unreconciled.length} update(s) behind`,
+  `checklist: last moved ${minutesSince(checklistEpoch)} min ago, ${unreconciled.length} update(s) behind` +
+    (unreconciled.length > 0 && reconcilerAtWork ? ", a reconciler is draining them" : ""),
 );
 
 // --------------------------------------------------------------- merge backlog
@@ -241,7 +251,13 @@ const noteTouch = (file, branch, uncommitted) => {
   touched.set(file, branches);
 };
 
-for (const { branch } of behind) {
+// Only a branch someone is sitting in can be edited, and every agent here works
+// in its own worktree. A branch with unmerged commits and no worktree is parked
+// on purpose -- work set aside to be replayed after something else lands -- and
+// reporting it as a rival claim describes the arrangement that avoided the
+// collision as if it were the collision.
+const occupied = new Set(trees.map((tree) => tree.branch));
+for (const { branch } of behind.filter((entry) => occupied.has(entry.branch))) {
   const changed = await git("diff", "--name-only", `ts-sdk-port...${branch}`);
   for (const file of changed.split("\n").filter(Boolean)) noteTouch(file, branch, false);
 }
@@ -284,8 +300,43 @@ const claimEpoch = async (branch, file) => {
   return info ? info.mtimeMs / 1000 : Date.now() / 1000;
 };
 
+// Which lines a branch actually changed, taken from the hunk headers of a
+// zero-context diff. Two agents in one file is the cheap signal and it is wrong
+// about half the time: a large module has room for two people, and the port has
+// several files every batch touches for unrelated reasons. What is never fine is
+// two agents in the same lines, which is both the duplicated-work case and the
+// one that loses somebody's edit at the merge.
+const changedLines = async (branch, file, uncommitted) => {
+  const dir = trees.find((tree) => tree.branch === branch)?.dir;
+  const diff = uncommitted
+    ? await gitIn(dir ?? repoRoot, "diff", "-U0", "HEAD", "--", file).catch(() => "")
+    : await git("diff", "-U0", `ts-sdk-port...${branch}`, "--", file).catch(() => "");
+
+  const ranges = [];
+  for (const hunk of diff.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const start = Number(hunk[1]);
+    const length = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    // A pure deletion reports zero lines at the line it deleted from, which is
+    // still a claim on that point in the file.
+    ranges.push([start, start + Math.max(length, 1)]);
+  }
+  return ranges;
+};
+
+// Git resolves a merge with three lines of context, so edits that near each
+// other conflict even without touching the same line.
+const CONTEXT_LINES = 3;
+const rangesIntersect = (left, right) =>
+  left.some(([leftStart, leftEnd]) =>
+    right.some(
+      ([rightStart, rightEnd]) =>
+        leftStart - CONTEXT_LINES < rightEnd && rightStart - CONTEXT_LINES < leftEnd,
+    ),
+  );
+
 const collisions = [];
 let sharedQuietly = 0;
+let separateRegions = 0;
 for (const [file, branches] of touched) {
   if (branches.size < 2) continue;
   if (!worthReporting(file)) {
@@ -297,8 +348,28 @@ for (const [file, branches] of touched) {
       branch,
       uncommitted,
       epoch: await claimEpoch(branch, file),
+      lines: await changedLines(branch, file, uncommitted),
     })),
   );
+
+  // Report the file only if some pair of branches claims overlapping lines. A
+  // branch whose ranges could not be read counts as overlapping everything,
+  // because silence about an unreadable diff would read as a clean bill.
+  const contested = claims.some((left, index) =>
+    claims
+      .slice(index + 1)
+      .some(
+        (right) =>
+          left.lines.length === 0 ||
+          right.lines.length === 0 ||
+          rangesIntersect(left.lines, right.lines),
+      ),
+  );
+  if (!contested) {
+    separateRegions += 1;
+    continue;
+  }
+
   const minutes = minutesSince(Math.max(...claims.map((claim) => claim.epoch)));
   collisions.push({ file, minutes, branches: claims.sort((a, b) => a.epoch - b.epoch) });
 }
@@ -312,13 +383,14 @@ for (const { file, minutes, branches } of collisions.sort((a, b) => b.minutes - 
     .map((claim) => (claim.uncommitted ? `${claim.branch} (uncommitted)` : claim.branch))
     .join(", ");
   problems.push(
-    `${file} has been changed on ${branches.length} live branches for ${minutes} min ` +
+    `${file} has overlapping edits on ${branches.length} live branches for ${minutes} min ` +
       `(${named}); either one agent is repeating the other's work, or one of them ` +
       "loses it at the merge without being told",
   );
 }
 report.push(
-  `overlap: ${collisions.length} file(s) claimed by more than one branch` +
+  `overlap: ${collisions.length} file(s) with contested lines` +
+    (separateRegions > 0 ? `, ${separateRegions} shared but in separate regions` : "") +
     (sharedQuietly > 0 ? `, ${sharedQuietly} shared plan/lock file(s) left unreported` : ""),
 );
 
@@ -331,8 +403,11 @@ const stamp = readme.match(/Last update: (\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
 if (!stamp) {
   problems.push("the plan's status block has no timestamp, so its numbers cannot be dated");
 } else {
+  // The stamp is UTC, as the line beside it says. Without the `Z` the platform
+  // reads it as local time, so on a machine two hours ahead every fresh update
+  // is born two hours stale and the check reports a plan that was just written.
   const planAge = Math.round(
-    (Date.now() - new Date(stamp[1].replace(" ", "T")).getTime()) / 60_000,
+    (Date.now() - new Date(`${stamp[1].replace(" ", "T")}Z`).getTime()) / 60_000,
   );
   const tipAge = minutesSince(Number(await git("log", "-1", "--format=%ct", "ts-sdk-port")));
   // Age alone means nothing during a quiet spell. The plan is stale when the

@@ -203,11 +203,13 @@ interface CanonicalDummyCase {
   readonly field: string | null;
 }
 
-const DUMMY_ASSET = "11111111111111111111111111111111" as Address;
+/** `Address::default()`: both the dummy's asset and Rust's zero zone address. */
+const ZERO_ADDRESS = "11111111111111111111111111111111" as Address;
 
-/** A dummy input with the named fields set to the same nonzero values Rust uses. */
+/** A dummy input with the named fields set to the same values Rust uses. */
 function noncanonicalDummy(fields: readonly string[]): ProofInputUtxo {
   const set = new Set(fields);
+  const zeroHash = (): Bytes32 => new Uint8Array(32) as Bytes32;
   const nullifierKey = set.has("nullifier_key")
     ? shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex).nullifierKey()
     : NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
@@ -215,7 +217,7 @@ function noncanonicalDummy(fields: readonly string[]): ProofInputUtxo {
     return new ProofInputUtxo({
       utxo: new Utxo({
         owner: ShieldedPublicKey.zeroed(),
-        asset: set.has("asset") ? (oracle.fromUtxos.splMint as Address) : DUMMY_ASSET,
+        asset: set.has("asset") ? (oracle.fromUtxos.splMint as Address) : ZERO_ADDRESS,
         amount: set.has("amount") ? 7n : 0n,
         blinding: new Uint8Array(31) as Bytes31,
         ...(set.has("data")
@@ -224,12 +226,15 @@ function noncanonicalDummy(fields: readonly string[]): ProofInputUtxo {
             }
           : {}),
         ...(set.has("zone_program_id") ? { zoneProgramId: oracle.merge.zone as Address } : {}),
+        ...(set.has("zero_zone_program_id") ? { zoneProgramId: ZERO_ADDRESS } : {}),
       }),
       nullifierKey,
       ...(set.has("data_hash") ? { dataHash: bytes(oracle.merge.dataHashHex) as Bytes32 } : {}),
+      ...(set.has("zero_data_hash") ? { dataHash: zeroHash() } : {}),
       ...(set.has("zone_data_hash")
         ? { zoneDataHash: bytes(oracle.merge.zoneDataHashHex) as Bytes32 }
         : {}),
+      ...(set.has("zero_zone_data_hash") ? { zoneDataHash: zeroHash() } : {}),
     });
   } finally {
     nullifierKey.destroy();

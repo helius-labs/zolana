@@ -1,7 +1,12 @@
-import type { Signature, Transaction } from "@zolana/interface";
+import {
+  TRANSACTION_SIZE_LIMIT,
+  transactionSize,
+  type Signature,
+  type Transaction,
+} from "@zolana/interface";
 import { describe, expect, it, vi } from "vitest";
 
-import { MAX_TRANSACTION_SIZE, SolanaRpc, transactionSize } from "../src/index.js";
+import { SolanaRpc } from "../src/index.js";
 
 const ZERO_SIGNATURE = "1".repeat(64) as Signature;
 
@@ -39,9 +44,11 @@ function transaction(messageLength: number, signatureCount: number): Transaction
   };
 }
 
+// The measurement lives in @zolana/interface; this pins it against the bytes
+// the client's own RPC encoder actually submits.
 describe("transaction size", () => {
   it("is the runtime's packet limit", () => {
-    expect(MAX_TRANSACTION_SIZE).toBe(1232);
+    expect(TRANSACTION_SIZE_LIMIT).toBe(1232);
   });
 
   // 128 signatures is where the compact-u16 count grows to two bytes, so a
@@ -65,9 +72,9 @@ describe("transaction size", () => {
   // it. Measuring the size must not turn that into a local refusal, or the port
   // would reject what the crate it ports accepts.
   it("measures an oversized transaction rather than refusing it", async () => {
-    const value = transaction(MAX_TRANSACTION_SIZE, 1);
+    const value = transaction(TRANSACTION_SIZE_LIMIT, 1);
 
-    expect(transactionSize(value)).toBeGreaterThan(MAX_TRANSACTION_SIZE);
+    expect(transactionSize(value)).toBeGreaterThan(TRANSACTION_SIZE_LIMIT);
     expect(await submittedBytes(value)).toBe(transactionSize(value));
   });
 });

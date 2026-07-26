@@ -868,43 +868,62 @@
           "error": null,
           "hashHex": "009c9eb1ff8101c93f05df2be2b3f7486bd25bd3a33f9e8b69bdf9cc5720068a",
           "name": "publicSol",
-          "ops": ["publicSol"]
+          "ops": [
+            "publicSol"
+          ]
         },
         {
           "error": null,
           "hashHex": "0058b23566f56ba49012a8db721a37d7b02e50397fbdacaaab8f4ae9457f7f7e",
           "name": "publicSpl",
-          "ops": ["publicSpl"]
+          "ops": [
+            "publicSpl"
+          ]
         },
         {
           "error": null,
           "hashHex": "0094b9d10a1aac5e1ef0d5a9dacb51030c1580892221c50c435fb4fc2a8f83f4",
           "name": "zoneHashes",
-          "ops": ["zoneHashes"]
+          "ops": [
+            "zoneHashes"
+          ]
         },
         {
           "error": null,
           "hashHex": "00876c714711b1645d6b1c772b2a815dbe3589075f65c58248712b1745fb1b1f",
           "name": "allThree",
-          "ops": ["publicSol", "publicSpl", "zoneHashes"]
+          "ops": [
+            "publicSol",
+            "publicSpl",
+            "zoneHashes"
+          ]
         },
         {
           "error": "TRANSACTION_PUBLIC_SOL_ALREADY_SET",
           "hashHex": null,
           "name": "publicSolTwice",
-          "ops": ["publicSol", "publicSol"]
+          "ops": [
+            "publicSol",
+            "publicSol"
+          ]
         },
         {
           "error": "TRANSACTION_PUBLIC_SPL_ALREADY_SET",
           "hashHex": null,
           "name": "publicSplTwice",
-          "ops": ["publicSpl", "publicSpl"]
+          "ops": [
+            "publicSpl",
+            "publicSpl"
+          ]
         },
         {
           "error": "TRANSACTION_ZONE_HASHES_ALREADY_SET",
           "hashHex": null,
           "name": "zoneHashesTwice",
-          "ops": ["zoneHashes", "zoneHashes"]
+          "ops": [
+            "zoneHashes",
+            "zoneHashes"
+          ]
         }
       ],
       "dataHashHex": "0707070707070707070707070707070707070707070707070707070707070707",
@@ -2267,7 +2286,9 @@
             "nullifier": "owner",
             "owner": "owner",
             "position": 0,
-            "records": ["utxoData"],
+            "records": [
+              "utxoData"
+            ],
             "zone": null,
             "zoneDataHash": false
           }
@@ -2371,7 +2392,9 @@
             "nullifier": "owner",
             "owner": "owner",
             "position": 0,
-            "records": ["zoneData"],
+            "records": [
+              "zoneData"
+            ],
             "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
             "zoneDataHash": true
           }
@@ -2400,7 +2423,9 @@
             "nullifier": "owner",
             "owner": "owner",
             "position": 0,
-            "records": ["memo"],
+            "records": [
+              "memo"
+            ],
             "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
             "zoneDataHash": false
           }
@@ -2423,7 +2448,9 @@
             "nullifier": "owner",
             "owner": "owner",
             "position": 0,
-            "records": ["utxoData"],
+            "records": [
+              "utxoData"
+            ],
             "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
             "zoneDataHash": false
           }
@@ -2575,7 +2602,13 @@
   "moduleSurfaces": {
     "src/instructions/mod.rs": {
       "entryPoint": "./instructions",
-      "modules": ["merge", "merge_zone", "transact", "types", "zone_authority"],
+      "modules": [
+        "merge",
+        "merge_zone",
+        "transact",
+        "types",
+        "zone_authority"
+      ],
       "names": [],
       "submoduleNames": [
         "BN254_MODULUS_DEC",
@@ -2700,7 +2733,14 @@
     },
     "src/lib.rs": {
       "entryPoint": ".",
-      "modules": ["data", "error", "instructions", "serialization", "utxo", "wallet"],
+      "modules": [
+        "data",
+        "error",
+        "instructions",
+        "serialization",
+        "utxo",
+        "wallet"
+      ],
       "names": [
         "Address",
         "AnonymousRecipientSlot",
@@ -2859,6 +2899,7 @@
         "first_nullifier",
         "get_transaction_viewing_key",
         "inputs_require_p256",
+        "normalized_zone_data_hash",
         "owner_utxo_hash",
         "program_id_field",
         "resolve_shape",
@@ -2918,7 +2959,10 @@
     },
     "src/wallet/mod.rs": {
       "entryPoint": "./wallet",
-      "modules": ["asset", "authority"],
+      "modules": [
+        "asset",
+        "authority"
+      ],
       "names": [
         "AnonymousRecipientSlot",
         "ApprovalRequest",
@@ -5877,7 +5921,16 @@
         },
         "name": "twoEqualParts",
         "numOutputs": 2,
-        "outputAmounts": ["50", "50", "0", "0", "0", "0", "0", "0"],
+        "outputAmounts": [
+          "50",
+          "50",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
         "ownerViewTagHex": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
         "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
         "perOutputAmount": "50"
@@ -5900,7 +5953,16 @@
         },
         "name": "eightEqualParts",
         "numOutputs": 8,
-        "outputAmounts": ["10", "10", "10", "10", "10", "10", "10", "10"],
+        "outputAmounts": [
+          "10",
+          "10",
+          "10",
+          "10",
+          "10",
+          "10",
+          "10",
+          "10"
+        ],
         "ownerViewTagHex": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
         "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
         "perOutputAmount": "10"
@@ -5923,7 +5985,16 @@
         },
         "name": "zeroValueSplit",
         "numOutputs": 2,
-        "outputAmounts": ["0", "0", "0", "0", "0", "0", "0", "0"],
+        "outputAmounts": [
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
         "ownerViewTagHex": "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
         "payerPublicKeyHashHex": "0068d49bb092f71292ad76ab8fb8750d710aae5af70e43b8ec0a901d048c0030",
         "perOutputAmount": "0"
@@ -6193,7 +6264,9 @@
           "nullifier": "owner",
           "owner": "owner",
           "position": 0,
-          "records": ["utxoData"],
+          "records": [
+            "utxoData"
+          ],
           "zone": null,
           "zoneDataHash": false
         },
@@ -6317,7 +6390,9 @@
         "hashHex": "0d6d3d46b44da6663b175c71f05fdd1943ab0029a39d111b8ef454aedebb4502",
         "isDummy": false,
         "name": "memo",
-        "ops": ["memoA"],
+        "ops": [
+          "memoA"
+        ],
         "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
         "records": [
           {
@@ -6333,7 +6408,10 @@
         "hashHex": "0d6d3d46b44da6663b175c71f05fdd1943ab0029a39d111b8ef454aedebb4502",
         "isDummy": false,
         "name": "memoReplaced",
-        "ops": ["memoA", "memoB"],
+        "ops": [
+          "memoA",
+          "memoB"
+        ],
         "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
         "records": [
           {
@@ -6349,7 +6427,10 @@
         "hashHex": "20a0b3a80931bbd11bd60baa45ab390e9f0aee1e53644df5ce6b7dcc7c2741cb",
         "isDummy": false,
         "name": "utxoDataReplaced",
-        "ops": ["utxoDataA", "utxoDataB"],
+        "ops": [
+          "utxoDataA",
+          "utxoDataB"
+        ],
         "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
         "records": [
           {
@@ -6365,7 +6446,10 @@
         "hashHex": "20a0b3a80931bbd11bd60baa45ab390e9f0aee1e53644df5ce6b7dcc7c2741cb",
         "isDummy": false,
         "name": "memoThenUtxoData",
-        "ops": ["memoA", "utxoDataA"],
+        "ops": [
+          "memoA",
+          "utxoDataA"
+        ],
         "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
         "records": [
           {
@@ -6385,7 +6469,10 @@
         "hashHex": "2276cd18fa778eef09165896262d360c44359fdcab106143498deeae0785aa97",
         "isDummy": false,
         "name": "memoThenZoneData",
-        "ops": ["memoA", "zoneDataA"],
+        "ops": [
+          "memoA",
+          "zoneDataA"
+        ],
         "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
         "records": [
           {
@@ -6405,7 +6492,11 @@
         "hashHex": "2b65f50c00b2a3a5989d8caab3271149996a6fb10c71740b67e57f6b05c67720",
         "isDummy": false,
         "name": "allThreeOutOfOrder",
-        "ops": ["memoA", "zoneDataA", "utxoDataA"],
+        "ops": [
+          "memoA",
+          "zoneDataA",
+          "utxoDataA"
+        ],
         "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
         "records": [
           {
@@ -6429,7 +6520,9 @@
         "hashHex": "0bc86eaf548bfe206f861ea5f3cbe61785fe9474cc0b0ef1bf8dc8fd9c074173",
         "isDummy": false,
         "name": "zoneProgramIdOnly",
-        "ops": ["zoneProgramId"],
+        "ops": [
+          "zoneProgramId"
+        ],
         "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
         "records": [],
         "zoneDataHashHex": null,
@@ -6440,7 +6533,9 @@
         "hashHex": "2276cd18fa778eef09165896262d360c44359fdcab106143498deeae0785aa97",
         "isDummy": false,
         "name": "zoneDataHashOnly",
-        "ops": ["zoneDataHash"],
+        "ops": [
+          "zoneDataHash"
+        ],
         "ownerHashHex": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
         "records": [],
         "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020",
@@ -6464,9 +6559,13 @@
         "error": null,
         "expected": null,
         "hashHex": "1bcb33102c5d477849db97be21ec243f9bf4b575e97ee7b22937dba542633142",
-        "inputHashesHex": ["0101010101010101010101010101010101010101010101010101010101010101"],
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
         "name": "oneInputOneOutput",
-        "outputHashesHex": ["2828282828282828282828282828282828282828282828282828282828282828"]
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
       },
       {
         "actual": null,
@@ -6499,11 +6598,15 @@
           "0202020202020202020202020202020202020202020202020202020202020202"
         ],
         "name": "addressHashesPaired",
-        "outputHashesHex": ["2828282828282828282828282828282828282828282828282828282828282828"]
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
       },
       {
         "actual": 1,
-        "addressHashesHex": ["0808080808080808080808080808080808080808080808080808080808080808"],
+        "addressHashesHex": [
+          "0808080808080808080808080808080808080808080808080808080808080808"
+        ],
         "error": "TRANSACTION_ADDRESS_HASH_COUNT_MISMATCH",
         "expected": 2,
         "hashHex": null,
@@ -6512,7 +6615,9 @@
           "0202020202020202020202020202020202020202020202020202020202020202"
         ],
         "name": "addressHashesShort",
-        "outputHashesHex": ["2828282828282828282828282828282828282828282828282828282828282828"]
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
       },
       {
         "actual": 2,
@@ -6523,26 +6628,39 @@
         "error": "TRANSACTION_ADDRESS_HASH_COUNT_MISMATCH",
         "expected": 1,
         "hashHex": null,
-        "inputHashesHex": ["0101010101010101010101010101010101010101010101010101010101010101"],
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
         "name": "addressHashesLong",
-        "outputHashesHex": ["2828282828282828282828282828282828282828282828282828282828282828"]
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
       },
       {
         "actual": null,
-        "addressHashesHex": ["f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0"],
+        "addressHashesHex": [
+          "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0"
+        ],
         "error": "TRANSACTION_KEYPAIR",
         "expected": null,
         "hashHex": null,
-        "inputHashesHex": ["0101010101010101010101010101010101010101010101010101010101010101"],
+        "inputHashesHex": [
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
         "name": "addressHashOutOfField",
-        "outputHashesHex": ["2828282828282828282828282828282828282828282828282828282828282828"]
+        "outputHashesHex": [
+          "2828282828282828282828282828282828282828282828282828282828282828"
+        ]
       }
     ]
   },
   "transfer": {
     "cases": [
       {
-        "changeAmounts": ["0", "100"],
+        "changeAmounts": [
+          "0",
+          "100"
+        ],
         "error": null,
         "inputs": [
           {
@@ -6565,7 +6683,10 @@
         "userSplToken": "11111111111111111111111111111111"
       },
       {
-        "changeAmounts": ["0", "70"],
+        "changeAmounts": [
+          "0",
+          "70"
+        ],
         "error": null,
         "inputs": [
           {
@@ -6594,7 +6715,10 @@
         "userSplToken": "11111111111111111111111111111111"
       },
       {
-        "changeAmounts": ["0", "100"],
+        "changeAmounts": [
+          "0",
+          "100"
+        ],
         "error": null,
         "inputs": [
           {
@@ -6623,7 +6747,10 @@
         "userSplToken": "11111111111111111111111111111111"
       },
       {
-        "changeAmounts": ["0", "0"],
+        "changeAmounts": [
+          "0",
+          "0"
+        ],
         "error": null,
         "inputs": [
           {
@@ -6678,7 +6805,10 @@
         "userSplToken": null
       },
       {
-        "changeAmounts": ["0", "100"],
+        "changeAmounts": [
+          "0",
+          "100"
+        ],
         "error": null,
         "inputs": [
           {
@@ -6708,7 +6838,10 @@
         "userSplToken": "11111111111111111111111111111111"
       },
       {
-        "changeAmounts": ["0", "60"],
+        "changeAmounts": [
+          "0",
+          "60"
+        ],
         "error": null,
         "inputs": [
           {
@@ -6738,7 +6871,10 @@
         "userSplToken": "11111111111111111111111111111111"
       },
       {
-        "changeAmounts": ["60", "5"],
+        "changeAmounts": [
+          "60",
+          "5"
+        ],
         "error": null,
         "inputs": [
           {
@@ -6885,7 +7021,10 @@
         "userSplToken": null
       },
       {
-        "changeAmounts": ["0", "70"],
+        "changeAmounts": [
+          "0",
+          "70"
+        ],
         "error": null,
         "inputs": [
           {
@@ -6982,7 +7121,10 @@
         "userSplToken": null
       },
       {
-        "changeAmounts": ["0", "0"],
+        "changeAmounts": [
+          "0",
+          "0"
+        ],
         "error": null,
         "inputs": [
           {
@@ -7032,56 +7174,100 @@
       {
         "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
         "field": "asset",
-        "fields": ["asset"],
+        "fields": [
+          "asset"
+        ],
         "name": "asset"
       },
       {
         "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
         "field": "amount",
-        "fields": ["amount"],
+        "fields": [
+          "amount"
+        ],
         "name": "amount"
       },
       {
         "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
         "field": "data",
-        "fields": ["data"],
+        "fields": [
+          "data"
+        ],
         "name": "data"
       },
       {
         "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
         "field": "zone_program_id",
-        "fields": ["zone_program_id"],
+        "fields": [
+          "zone_program_id"
+        ],
         "name": "zoneProgramId"
       },
       {
         "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
         "field": "data_hash",
-        "fields": ["data_hash"],
+        "fields": [
+          "data_hash"
+        ],
         "name": "dataHash"
       },
       {
         "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
         "field": "zone_data_hash",
-        "fields": ["zone_data_hash"],
+        "fields": [
+          "zone_data_hash"
+        ],
         "name": "zoneDataHash"
       },
       {
         "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
         "field": "nullifier_key",
-        "fields": ["nullifier_key"],
+        "fields": [
+          "nullifier_key"
+        ],
         "name": "nullifierKey"
       },
       {
         "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
         "field": "asset",
-        "fields": ["amount", "asset"],
+        "fields": [
+          "amount",
+          "asset"
+        ],
         "name": "assetBeatsAmount"
       },
       {
         "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
         "field": "data",
-        "fields": ["zone_program_id", "data"],
+        "fields": [
+          "zone_program_id",
+          "data"
+        ],
         "name": "dataBeatsZoneProgramId"
+      },
+      {
+        "error": null,
+        "field": null,
+        "fields": [
+          "zero_data_hash"
+        ],
+        "name": "explicitZeroDataHash"
+      },
+      {
+        "error": null,
+        "field": null,
+        "fields": [
+          "zero_zone_data_hash"
+        ],
+        "name": "explicitZeroZoneDataHash"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "zone_program_id",
+        "fields": [
+          "zero_zone_program_id"
+        ],
+        "name": "zeroZoneProgramId"
       }
     ],
     "deriveBlinding": [
@@ -7287,7 +7473,9 @@
           "amount": "12",
           "assetId": "2",
           "mint": "5w5aSyzkAmgYBcG3qop5EuLgpbMhAe7rnneuFkGjYKYc",
-          "utxoAmounts": ["12"]
+          "utxoAmounts": [
+            "12"
+          ]
         }
       },
       "sol": {
@@ -7296,7 +7484,10 @@
           "amount": "11",
           "assetId": "1",
           "mint": "11111111111111111111111111111111",
-          "utxoAmounts": ["3", "8"]
+          "utxoAmounts": [
+            "3",
+            "8"
+          ]
         }
       },
       "solMinAmount5": {
@@ -7305,7 +7496,9 @@
           "amount": "8",
           "assetId": "1",
           "mint": "11111111111111111111111111111111",
-          "utxoAmounts": ["8"]
+          "utxoAmounts": [
+            "8"
+          ]
         }
       },
       "solMinAmountAboveEvery": {
@@ -7347,13 +7540,18 @@
             "amount": "11",
             "assetId": "1",
             "mint": "11111111111111111111111111111111",
-            "utxoAmounts": ["3", "8"]
+            "utxoAmounts": [
+              "3",
+              "8"
+            ]
           },
           {
             "amount": "12",
             "assetId": "2",
             "mint": "5w5aSyzkAmgYBcG3qop5EuLgpbMhAe7rnneuFkGjYKYc",
-            "utxoAmounts": ["12"]
+            "utxoAmounts": [
+              "12"
+            ]
           }
         ]
       }
@@ -7387,8 +7585,14 @@
       }
     ],
     "registry": [
-      ["2", "5w5aSyzkAmgYBcG3qop5EuLgpbMhAe7rnneuFkGjYKYc"],
-      ["5", "5zzsbHTkm4ymKhWZH78zXn7T4kZtqhogMCKZK8KLHesK"]
+      [
+        "2",
+        "5w5aSyzkAmgYBcG3qop5EuLgpbMhAe7rnneuFkGjYKYc"
+      ],
+      [
+        "5",
+        "5zzsbHTkm4ymKhWZH78zXn7T4kZtqhogMCKZK8KLHesK"
+      ]
     ]
   },
   "zoneAuthority": [

@@ -1,5 +1,5 @@
 export { initializePoseidon, isPoseidonInitialized } from "@zolana/hasher";
-export { ZolanaClient } from "./client.js";
+export { ZolanaClient, createAndSendTransaction } from "./client.js";
 export type {
   MergeMaterialInput,
   ProvedMerge,
@@ -18,6 +18,7 @@ export type {
 } from "./error.js";
 export { ZolanaIndexer } from "./indexer.js";
 export { SolanaRpc } from "./solana-rpc.js";
+export type { SignatureStatus } from "./solana-rpc.js";
 // The Rust crate root re-exports the prover block, so `@zolana/client` carries
 // it alongside the `@zolana/client/prover` subpath. `SpendProof` is rooted in
 // `./rpc.js`, which both entry points share.
@@ -74,4 +75,3 @@ export type {
   RpcContext,
   SpendProof,
 } from "./rpc.js";
-export { MAX_TRANSACTION_SIZE, transactionSize } from "./wire.js";

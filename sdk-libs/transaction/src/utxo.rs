@@ -78,6 +78,11 @@ pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], Transa
 /// keep apart are one state on chain. A zone that computes a policy digest
 /// generically then need not special-case the empty digest before calling: the
 /// prepared value agrees with what is committed either way.
+///
+/// The hash only. The zone address is deliberately left as it is, because
+/// `Some(Address::default())` commits to `pk_field(0)`, a non-zero field the
+/// circuit reads as zone-bound, so folding it to absence would move a
+/// commitment rather than settle a spelling.
 pub fn normalized_zone_data_hash(zone_data_hash: [u8; 32]) -> Option<[u8; 32]> {
     (zone_data_hash != [0u8; 32]).then_some(zone_data_hash)
 }

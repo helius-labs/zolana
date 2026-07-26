@@ -943,7 +943,11 @@ fn utxo_section() -> Value {
 /// zero too. The checks run in a fixed order, and each case names the field the
 /// rejection must report; the multi-field cases pin that order.
 fn canonical_dummy_cases() -> Value {
-    let perturbations: [(&str, &[&str]); 10] = [
+    // The last three carry the T28 split into the dummy rule. An explicit zero
+    // hash commits to the same field as an absent one, so the rule accepts it;
+    // the zero zone address commits to `pk_field(0)` instead of to absence, so
+    // the rule still rejects it.
+    let perturbations: [(&str, &[&str]); 13] = [
         ("canonical", &[]),
         ("asset", &["asset"]),
         ("amount", &["amount"]),
@@ -954,6 +958,9 @@ fn canonical_dummy_cases() -> Value {
         ("nullifierKey", &["nullifier_key"]),
         ("assetBeatsAmount", &["amount", "asset"]),
         ("dataBeatsZoneProgramId", &["zone_program_id", "data"]),
+        ("explicitZeroDataHash", &["zero_data_hash"]),
+        ("explicitZeroZoneDataHash", &["zero_zone_data_hash"]),
+        ("zeroZoneProgramId", &["zero_zone_program_id"]),
     ];
 
     Value::Array(
@@ -971,6 +978,11 @@ fn canonical_dummy_cases() -> Value {
                         }
                         "data_hash" => input.data_hash = Some(MERGE_DATA_HASH),
                         "zone_data_hash" => input.zone_data_hash = Some(MERGE_ZONE_DATA_HASH),
+                        "zero_data_hash" => input.data_hash = Some([0u8; 32]),
+                        "zero_zone_data_hash" => input.zone_data_hash = Some([0u8; 32]),
+                        "zero_zone_program_id" => {
+                            input.utxo.zone_program_id = Some(Address::default());
+                        }
                         "nullifier_key" => {
                             input.nullifier_key =
                                 shielded_keypair(&OWNER_SECRET, &TRANSFER_VIEWING_SEED)
