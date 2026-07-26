@@ -22,8 +22,10 @@ use p256::SecretKey;
 use serde_json::{json, Map, Value};
 use solana_address::Address;
 use zolana_client::{
-    assemble, MergeProver, MergeWitness, MergeZoneProver, MergeZoneWitness, MerkleContext,
-    MerkleProof, NonInclusionProof, ProverInputs, SpendProof, SPP_SUPPORTED_SHAPES,
+    assemble, attach_input_proofs, MergeProver, MergeWitness, MergeZoneProver, MergeZoneWitness,
+    MerkleContext, MerkleProof, NonInclusionProof, P256Owner, ProverInputs, PublicAmounts,
+    SpendProof, TransferInputs, TransferP256Inputs, ZoneAuthorityProver, ZoneTransferP256Prover,
+    ZoneTransferProver, SPP_SUPPORTED_SHAPES,
 };
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
@@ -69,6 +71,18 @@ const MERGE_OUTPUT_AMOUNT: u64 = 30;
 const MERGE_INPUTS: usize = 8;
 const MERGE_TREE: &str = "4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm";
 const MERGE_ZONE_PROGRAM: [u8; 32] = [3; 32];
+
+/// Same seeds as `ts_zone_oracle`, so the named chains here match that oracle and
+/// the fixture gate covers them without a second cargo-test writer.
+const ZONE_ED25519_SECRET: [u8; 32] = [61; 32];
+const ZONE_VIEWING_SEED: [u8; 32] = [62; 32];
+const ZONE_BLINDING_SEED: [u8; 31] = [63; 31];
+const ZONE_PROGRAM: [u8; 32] = [64; 32];
+const ZONE_PAYER: [u8; 32] = [66; 32];
+const ZONE_TREE: [u8; 32] = [67; 32];
+const ZONE_USER_SOL: [u8; 32] = [68; 32];
+const ZONE_INPUT_AMOUNT: u64 = 100;
+const ZONE_AUTHORITY_SHAPES: [(usize, usize); 4] = [(1, 1), (2, 2), (3, 3), (4, 4)];
 
 fn main() -> ExitCode {
     match run() {
@@ -122,8 +136,8 @@ fn fixture() -> Result<Value> {
         "schemaVersion": "1",
         "fixtureVersion": "1",
         "fixtureId": "fx-p1-public-input-assembly-v1",
-        "canonicalSourcePath": "sdk-libs/client/src/prover/transact/p256_and_eddsa.rs; sdk-libs/client/src/prover/merge.rs; sdk-libs/client/src/prover/merge_zone.rs",
-        "canonicalSourceSymbol": "PublicInputs::hash; MergeProver::build; MergeZoneProver::build",
+        "canonicalSourcePath": "sdk-libs/client/src/prover/transact/p256_and_eddsa.rs; sdk-libs/client/src/prover/transact/zone_eddsa.rs; sdk-libs/client/src/prover/transact/zone_p256.rs; sdk-libs/client/src/prover/zone_authority.rs; sdk-libs/client/src/prover/merge.rs; sdk-libs/client/src/prover/merge_zone.rs",
+        "canonicalSourceSymbol": "PublicInputs::hash; ZoneTransferProver::build; ZoneTransferP256Prover::build; ZoneAuthorityProver::build; MergeProver::build; MergeZoneProver::build",
         "specificationSection": "planning/typescript-sdk-port/proof-and-key-parity.md#p1-public-input-assembly",
         "inventoryReviewRow": "P1",
         "inputs": {
@@ -141,11 +155,24 @@ fn fixture() -> Result<Value> {
                 "outputAmount": MERGE_OUTPUT_AMOUNT.to_string(),
                 "tree": MERGE_TREE,
                 "zoneProgramIdBytes": hex(&MERGE_ZONE_PROGRAM),
+            },
+            "zone": {
+                "blindingSeedBytes": hex(&ZONE_BLINDING_SEED),
+                "ed25519SecretBytes": hex(&ZONE_ED25519_SECRET),
+                "p256SecretBytes": hex(&P256_SECRET),
+                "viewingSeedBytes": hex(&ZONE_VIEWING_SEED),
+                "zoneProgramIdBytes": hex(&ZONE_PROGRAM),
+                "payerBytes": hex(&ZONE_PAYER),
+                "treeBytes": hex(&ZONE_TREE),
+                "userSolAccountBytes": hex(&ZONE_USER_SOL),
+                "inputAmount": ZONE_INPUT_AMOUNT.to_string(),
             }
         },
         "expected": {
             "confidential": confidential_cases()?,
             "mixedOwner": mixed_owner_case()?,
+            "zone": zone_cases()?,
+            "zoneMixedOwner": zone_mixed_owner_case()?,
             "merge": merge_cases()?,
         }
     }))
@@ -223,6 +250,340 @@ fn mixed_owner_case() -> Result<Value> {
         "inputOwnerKinds": ["p256", "eddsa"],
         "chain": confidential_chain(&assembled.prover_inputs, &assembled.public_input_hash)?,
     }))
+}
+
+fn zone_cases() -> Result<Value> {
+    let mut transfer_zone = Vec::new();
+    let mut transfer_p256_zone = Vec::new();
+    for shape in SPP_SUPPORTED_SHAPES {
+        let n_in = shape.n_inputs();
+        let n_out = shape.n_outputs();
+        transfer_zone.push(zone_eddsa_case(n_in, n_out)?);
+        transfer_p256_zone.push(zone_p256_case(n_in, n_out)?);
+    }
+    let mut transfer_zone_authority = Vec::new();
+    for (n_in, n_out) in ZONE_AUTHORITY_SHAPES {
+        transfer_zone_authority.push(zone_authority_case(n_in, n_out)?);
+    }
+    Ok(json!({
+        "transferZone": transfer_zone,
+        "transferP256Zone": transfer_p256_zone,
+        "transferZoneAuthority": transfer_zone_authority,
+    }))
+}
+
+fn zone_mixed_owner_case() -> Result<Value> {
+    let p256_owner = zone_keypair(true)?;
+    let eddsa_owner = zone_keypair(false)?;
+    let mut inputs = zone_proof_inputs(&p256_owner, 2, 2);
+    inputs.input_utxos[1] = zone_real_input(&eddsa_owner, 1);
+    let p256 = zone_p256_owner(&p256_owner, &mut inputs);
+    let proofs = zone_spend_proofs(&inputs)?;
+    let spends = attach_input_proofs(inputs.input_utxos.clone(), &proofs)?;
+    let result = ZoneTransferP256Prover {
+        inputs: spends,
+        outputs: inputs.output_utxos.clone(),
+        external_data: inputs.external_data.clone(),
+        public_amounts: zone_amounts(&inputs)?,
+        payer_pubkey_hash: inputs.payer_pubkey_hash,
+        p256_owner: p256,
+        zone_program_id: Some(zone_address()),
+        shape: None,
+    }
+    .build()?;
+    Ok(json!({
+        "shape": { "inputs": "2", "outputs": "2" },
+        "rail": "p256",
+        "inputOwnerKinds": ["p256", "eddsa"],
+        "chain": zone_p256_chain(&result.inputs, &result.nullifiers, &result.output_hashes)?,
+        "publicInputHashBytes": hex(&result.public_input_hash),
+    }))
+}
+
+fn zone_eddsa_case(n_in: usize, n_out: usize) -> Result<Value> {
+    let owner = zone_keypair(false)?;
+    let inputs = zone_proof_inputs(&owner, n_in, n_out);
+    let proofs = zone_spend_proofs(&inputs)?;
+    let spends = attach_input_proofs(inputs.input_utxos.clone(), &proofs)?;
+    let result = ZoneTransferProver {
+        inputs: spends,
+        outputs: inputs.output_utxos.clone(),
+        external_data: inputs.external_data.clone(),
+        public_amounts: zone_amounts(&inputs)?,
+        payer_pubkey_hash: inputs.payer_pubkey_hash,
+        zone_program_id: Some(zone_address()),
+        shape: None,
+    }
+    .build()?;
+    Ok(json!({
+        "shape": { "inputs": n_in.to_string(), "outputs": n_out.to_string() },
+        "chain": zone_eddsa_chain(&result.inputs, &result.nullifiers, &result.output_hashes)?,
+        "publicInputHashBytes": hex(&result.public_input_hash),
+    }))
+}
+
+fn zone_p256_case(n_in: usize, n_out: usize) -> Result<Value> {
+    let owner = zone_keypair(true)?;
+    let mut inputs = zone_proof_inputs(&owner, n_in, n_out);
+    let p256 = zone_p256_owner(&owner, &mut inputs);
+    let proofs = zone_spend_proofs(&inputs)?;
+    let spends = attach_input_proofs(inputs.input_utxos.clone(), &proofs)?;
+    let result = ZoneTransferP256Prover {
+        inputs: spends,
+        outputs: inputs.output_utxos.clone(),
+        external_data: inputs.external_data.clone(),
+        public_amounts: zone_amounts(&inputs)?,
+        payer_pubkey_hash: inputs.payer_pubkey_hash,
+        p256_owner: p256,
+        zone_program_id: Some(zone_address()),
+        shape: None,
+    }
+    .build()?;
+    Ok(json!({
+        "shape": { "inputs": n_in.to_string(), "outputs": n_out.to_string() },
+        "chain": zone_p256_chain(&result.inputs, &result.nullifiers, &result.output_hashes)?,
+        "publicInputHashBytes": hex(&result.public_input_hash),
+    }))
+}
+
+fn zone_authority_case(n_in: usize, n_out: usize) -> Result<Value> {
+    let owner = zone_keypair(false)?;
+    let inputs = zone_proof_inputs(&owner, n_in, n_out);
+    let proofs = zone_spend_proofs(&inputs)?;
+    let spends = attach_input_proofs(inputs.input_utxos.clone(), &proofs)?;
+    let result = ZoneAuthorityProver {
+        inputs: spends,
+        outputs: inputs.output_utxos.clone(),
+        external_data: inputs.external_data.clone(),
+        public_amounts: zone_amounts(&inputs)?,
+        payer_pubkey_hash: inputs.payer_pubkey_hash,
+        zone_program_id: Some(zone_address()),
+        shape: None,
+    }
+    .build()?;
+    Ok(json!({
+        "shape": { "inputs": n_in.to_string(), "outputs": n_out.to_string() },
+        "chain": zone_eddsa_chain(&result.inputs, &result.nullifiers, &result.output_hashes)?,
+        "publicInputHashBytes": hex(&result.public_input_hash),
+    }))
+}
+
+fn zone_eddsa_chain(
+    inputs: &TransferInputs,
+    nullifiers: &[[u8; 32]],
+    output_hashes: &[[u8; 32]],
+) -> Result<Value> {
+    let utxo_roots = fields_to_bytes(&inputs.inputs.iter().map(|i| &i.utxo_tree_root).collect::<Vec<_>>());
+    let nullifier_roots =
+        fields_to_bytes(&inputs.inputs.iter().map(|i| &i.nullifier_tree_root).collect::<Vec<_>>());
+    let input_owners =
+        fields_to_bytes(&inputs.inputs.iter().map(|i| &i.owner_pk_hash).collect::<Vec<_>>());
+    Ok(json!({
+        "nullifierChain": hex(&create_hash_chain_from_slice(nullifiers)?),
+        "outputHashChain": hex(&create_hash_chain_from_slice(output_hashes)?),
+        "utxoRootChain": hex(&create_hash_chain_from_slice(&utxo_roots)?),
+        "nullifierRootChain": hex(&create_hash_chain_from_slice(&nullifier_roots)?),
+        "externalDataHash": inputs.external_data_hash.to_string(),
+        "privateTxHash": inputs.private_tx_hash.to_string(),
+        "p256MessageDigestField": hex(&hash_field(&[0u8; 32])?),
+        "publicSolAmount": inputs.public_sol_amount.to_string(),
+        "publicSplAmount": inputs.public_spl_amount.to_string(),
+        "publicSplAssetPubkey": inputs.public_spl_asset_pubkey.to_string(),
+        "zoneProgramId": inputs.zone_program_id.to_string(),
+        "payerPubkeyHash": inputs.payer_pubkey_hash.to_string(),
+        "publicInputHash": inputs.public_input_hash.to_string(),
+        "inputOwnerChain": hex(&create_hash_chain_from_slice(&input_owners)?),
+        "inputOwnerPkHashes": inputs.inputs.iter().map(|i| i.owner_pk_hash.to_string()).collect::<Vec<_>>(),
+    }))
+}
+
+fn zone_p256_chain(
+    inputs: &TransferP256Inputs,
+    nullifiers: &[[u8; 32]],
+    output_hashes: &[[u8; 32]],
+) -> Result<Value> {
+    let utxo_roots = fields_to_bytes(&inputs.inputs.iter().map(|i| &i.utxo_tree_root).collect::<Vec<_>>());
+    let nullifier_roots =
+        fields_to_bytes(&inputs.inputs.iter().map(|i| &i.nullifier_tree_root).collect::<Vec<_>>());
+    let input_owners =
+        fields_to_bytes(&inputs.inputs.iter().map(|i| &i.owner_pk_hash).collect::<Vec<_>>());
+    let private_tx = field_to_bytes(&inputs.private_tx_hash);
+    let p256_message = sha256(&private_tx);
+    Ok(json!({
+        "nullifierChain": hex(&create_hash_chain_from_slice(nullifiers)?),
+        "outputHashChain": hex(&create_hash_chain_from_slice(output_hashes)?),
+        "utxoRootChain": hex(&create_hash_chain_from_slice(&utxo_roots)?),
+        "nullifierRootChain": hex(&create_hash_chain_from_slice(&nullifier_roots)?),
+        "externalDataHash": inputs.external_data_hash.to_string(),
+        "privateTxHash": inputs.private_tx_hash.to_string(),
+        "p256MessageDigestField": hex(&hash_field(&p256_message)?),
+        "p256MessageHashLow": inputs.p256_message_hash_low.to_string(),
+        "p256MessageHashHigh": inputs.p256_message_hash_high.to_string(),
+        "p256SigningPkField": inputs.p256_signing_pk_field.to_string(),
+        "publicSolAmount": inputs.public_sol_amount.to_string(),
+        "publicSplAmount": inputs.public_spl_amount.to_string(),
+        "publicSplAssetPubkey": inputs.public_spl_asset_pubkey.to_string(),
+        "zoneProgramId": inputs.zone_program_id.to_string(),
+        "payerPubkeyHash": inputs.payer_pubkey_hash.to_string(),
+        "publicInputHash": inputs.public_input_hash.to_string(),
+        "inputOwnerChain": hex(&create_hash_chain_from_slice(&input_owners)?),
+        "inputOwnerPkHashes": inputs.inputs.iter().map(|i| i.owner_pk_hash.to_string()).collect::<Vec<_>>(),
+    }))
+}
+
+fn zone_address() -> Address {
+    Address::new_from_array(ZONE_PROGRAM)
+}
+
+fn zone_keypair(p256: bool) -> Result<ShieldedKeypair> {
+    let signing = if p256 {
+        SigningKey::from_bytes(&P256_SECRET)?
+    } else {
+        SigningKey::from_ed25519(&ZONE_ED25519_SECRET)
+    };
+    Ok(ShieldedKeypair::from_keys(
+        signing,
+        ViewingKey::from_seed(&ZONE_VIEWING_SEED, u32::from(p256))?,
+    )?)
+}
+
+fn zone_real_input(keypair: &ShieldedKeypair, position: u8) -> SppProofInputUtxo {
+    SppProofInputUtxo::new(
+        Utxo {
+            owner: keypair.signing_pubkey(),
+            asset: SOL_MINT,
+            amount: ZONE_INPUT_AMOUNT,
+            blinding: derive_blinding(&ZONE_BLINDING_SEED, position),
+            zone_program_id: Some(zone_address()),
+            data: Data::default(),
+        },
+        keypair,
+    )
+}
+
+fn zone_proof_inputs(keypair: &ShieldedKeypair, n_inputs: usize, n_outputs: usize) -> SppProofInputs {
+    let real = if n_inputs >= 2 { 2 } else { 1 };
+    let input_utxos = (0..n_inputs)
+        .map(|index| {
+            if index < real {
+                zone_real_input(keypair, index as u8)
+            } else {
+                SppProofInputUtxo {
+                    utxo: Utxo {
+                        owner: PublicKey::zeroed(),
+                        asset: SOL_MINT,
+                        amount: 0,
+                        blinding: derive_blinding(&ZONE_BLINDING_SEED, index as u8),
+                        zone_program_id: None,
+                        data: Data::default(),
+                    },
+                    nullifier_key: NullifierKey::from_secret([0; 31]),
+                    data_hash: None,
+                    zone_data_hash: None,
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+    let total = ZONE_INPUT_AMOUNT * real as u64;
+    let output_utxos = (0..n_outputs)
+        .map(|index| {
+            if index == 0 {
+                SppProofOutputUtxo {
+                    owner_address: None,
+                    owner_tag: Some(field_byte(32 + index as u8)),
+                    asset: SOL_MINT,
+                    amount: total,
+                    blinding: derive_blinding(&ZONE_BLINDING_SEED, 32 + index as u8),
+                    zone_program_id: Some(zone_address()),
+                    ..Default::default()
+                }
+            } else {
+                SppProofOutputUtxo {
+                    blinding: derive_blinding(&ZONE_BLINDING_SEED, 32 + index as u8),
+                    owner_tag: Some(field_byte(32 + index as u8)),
+                    zone_program_id: Some(zone_address()),
+                    ..Default::default()
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+    let tags = output_utxos
+        .iter()
+        .map(|output| output.owner_tag.expect("zone output tag"))
+        .collect::<Vec<_>>();
+    let wire = output_utxos
+        .iter()
+        .zip(&tags)
+        .map(|(output, tag)| TransactOutput {
+            utxo_hash: output.hash().expect("output hash"),
+            owner_tag: OwnerTag::Inline(*tag),
+            data: Some(vec![1, 2, 3]),
+        })
+        .collect::<Vec<_>>();
+    let external = ExternalData::new([71; 33], [72; 16], wire, tags, vec![])
+        .with_public_sol(-5, Address::new_from_array(ZONE_USER_SOL))
+        .expect("public sol leg");
+    SppProofInputs::new(
+        input_utxos,
+        output_utxos,
+        external,
+        Address::new_from_array(ZONE_PAYER),
+    )
+}
+
+fn zone_spend_proofs(inputs: &SppProofInputs) -> Result<Vec<SpendProof>> {
+    let tree = Address::new_from_array(ZONE_TREE);
+    Ok(inputs
+        .input_utxo_hashes()?
+        .iter()
+        .enumerate()
+        .map(|(index, context)| SpendProof {
+            state: MerkleProof {
+                leaf: context.utxo_hash,
+                merkle_context: MerkleContext { tree_type: 1, tree },
+                path: vec![field_byte(73 + index as u8); 32],
+                leaf_index: index as u64,
+                root: field_byte(74 + index as u8),
+                root_seq: 75,
+                root_index: 76 + index as u16,
+            },
+            nullifier: NonInclusionProof {
+                leaf: context.nullifier,
+                merkle_context: MerkleContext { tree_type: 2, tree },
+                path: vec![field_byte(77 + index as u8); 40],
+                low_element: field_byte(78),
+                low_element_index: index as u64,
+                high_element: field_byte(79),
+                high_element_index: index as u64 + 1,
+                root: field_byte(80 + index as u8),
+                root_seq: 81,
+                root_index: 82 + index as u16,
+            },
+        })
+        .collect())
+}
+
+fn zone_amounts(inputs: &SppProofInputs) -> Result<PublicAmounts> {
+    let value = inputs.public_amounts()?;
+    Ok(PublicAmounts {
+        sol: value.sol,
+        spl: value.spl,
+        asset: value.asset,
+    })
+}
+
+fn zone_p256_owner(keypair: &ShieldedKeypair, inputs: &mut SppProofInputs) -> P256Owner {
+    inputs.sign_p256(keypair).expect("p256 signature");
+    let signature = inputs.p256_signature.expect("p256 signature bytes");
+    let mut sig_r = [0u8; 32];
+    let mut sig_s = [0u8; 32];
+    sig_r.copy_from_slice(&signature[..32]);
+    sig_s.copy_from_slice(&signature[32..]);
+    P256Owner {
+        pubkey: keypair.signing_pubkey().as_p256().expect("p256 pubkey"),
+        sig_r,
+        sig_s,
+    }
 }
 
 fn confidential_chain(inputs: &ProverInputs, public_input_hash: &[u8; 32]) -> Result<Value> {

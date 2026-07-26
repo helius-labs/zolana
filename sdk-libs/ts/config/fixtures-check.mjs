@@ -17,6 +17,7 @@ const generators = [
   "poseidon-parity",
   "program-libs-parity",
   "proof-response-parity",
+  "prover-request",
   "public-input-assembly",
   "retry-schedule",
   "solana-rpc-groups",

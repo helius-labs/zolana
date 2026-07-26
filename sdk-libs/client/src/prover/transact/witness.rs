@@ -30,7 +30,7 @@ pub struct SpendProof {
 /// input (non-zero owner) consumes the next proof, dummy slots stay proofless
 /// and mirror the first real input's roots during assembly. Shared by every
 /// witness builder (transact, merge, merge-zone, zone-authority).
-pub(crate) fn attach_input_proofs(
+pub fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,
     proofs: &[SpendProof],
 ) -> Result<Vec<TransferSpendInput>, ClientError> {
