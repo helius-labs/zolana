@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { createExternalData } from "../../../transaction/src/instructions/transact.js";
 import { createProofOutput } from "../../../transaction/src/utxo.js";
-import assemblyFixtureJson from "../../../fixtures/client/public-input-assembly-v1.json" with {
+import assemblyFixtureJson from "../../../vectors/public-input-assembly-v1.json" with {
   type: "json",
 };
 import proverShapesJson from "../../../fixtures/client/prover-shapes-v1.json" with { type: "json" };
