@@ -6,10 +6,10 @@
   `serialization/codecs.ts` belong to another worker and were read, not edited
 - Evidence: [row-updates/transaction-cluster.md](../row-updates/transaction-cluster.md),
   with the Rust source and its TypeScript mirror cited per row
-- Gates: `npm run build`, `npm run test:unit` (2007 passing, 1 skipped),
-  `npm run lint`, `npm run typecheck`, all green at `cd9f5715`. The committed
-  Rust oracle is unchanged and every comparison against it passes, so no
-  regeneration was warranted
+- Gates: `npm run build`, `npm run test:unit` (2014 passing, 1 skipped),
+  `npm run lint`, `npm run typecheck`, all green. The committed Rust oracle is
+  unchanged and every comparison against it passes, so no regeneration was
+  warranted
 
 Each verdict below was re-derived at this HEAD rather than credited to a
 previous report. Several recorded residuals described a tree state that had
@@ -24,10 +24,11 @@ repeated.
 - Verdict: `T28` reaches PARITY
 - Verdict: `T29` reaches PARITY
 - Verdict: `T31` reaches PARITY
+- Verdict: `T21` reaches PARITY at the SDK layer, one layering note open
 - Verdict: `T17` stays PARTIAL
 - Verdict: `T26` stays PARTIAL
 - Verdict: `T30` stays PARTIAL
-- Verdict: `T21` stays PARTIAL
+- Verdict: `S01` stays DIVERGENT
 
 ## What closed on code rather than on verification
 
@@ -55,13 +56,35 @@ packaging allowlist clause, which is a `sdk-libs/ts/config` question about the
 published tarball rather than a barrel-versus-Rust question. It is the same work
 in three places and a reconciler may want it as its own row.
 
-`T21` is owed by `sdk-libs/transaction` and `program-libs/interface` under the
-`2026-07-26` ruling. TypeScript already carries the guard the ruling wants;
-removing it to close the row from this side would restore the quiet truncation
-the ruling exists to end.
+## Correcting `T21` in this entry's own first draft
 
-## S01
+This entry first recorded `T21` as owed by Rust on both halves. That was wrong
+and is corrected in the row-update file. The Rust guard has landed in
+`external_data.rs:159-184`, TypeScript matches it at the same layer in
+`transact.ts:252-280`, and the boundary vector the row asked for exists in the
+oracle and is replayed, accepted at `0xffff` and refused at `0x10000` for both
+the output and the message count.
 
-Not recorded here. It was verified by a subagent against
-`sdk-libs/smart-account-client/src/lib.rs` and its TypeScript counterpart, and
-whoever folds that result in owns the row.
+What was actually missing was one layer down, and is closed here: a caller
+reaching `@zolana/interface`'s `externalDataHash` directly bypasses the SDK
+guard, and nothing failed if that function were "simplified" back to the Rust
+`program-libs/interface` cast, which would put a hash over a truncated preimage
+back into TypeScript with every suite still green. The four prefixes are now
+pinned there. The note left open is which error taxonomy that layer should use;
+both layers refuse the same inputs, so no input distinguishes them.
+
+## S01 stays DIVERGENT
+
+Verified independently by two workers reaching the same verdict. Valid inputs
+agree byte for byte, with the PDAs, the create instructions, and the execute
+fixture pinned against Rust. The row stays adverse because TypeScript refuses
+inputs Rust accepts: the 1232-byte limits, the create signer and threshold rules,
+and an inner instruction at `0x10000` bytes that Rust truncates through an
+`as u16` cast.
+
+Not closable from `sdk-libs/ts/` in a direction worth taking. Deleting the
+guards would accept oversized payloads and silently truncate, the trade the
+`T21` ruling rejected; the alternative is fallible Rust builders with stable
+codes, which is out of scope. The row needs an owner ruling of the same kind
+`T21` got. Three of its recorded claims are stale and named in the row-update
+file.
