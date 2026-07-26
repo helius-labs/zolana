@@ -28,6 +28,7 @@ use groth16_solana::{
     groth16::{Groth16Verifier, Groth16Verifyingkey},
 };
 use serde_json::{json, Value};
+use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
 use zolana_interface::verifying_keys::{
     merge_8_1, merge_zone_8_1, transfer_confidential_1_1, transfer_confidential_1_2,
     transfer_confidential_1_8, transfer_confidential_2_2, transfer_confidential_2_3,
@@ -105,16 +106,23 @@ impl Rail {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Encoding {
+    Compressed,
+    Uncompressed,
+}
+
 struct VerifyRequest {
     family: Family,
     rail: Rail,
     n_inputs: usize,
     n_outputs: usize,
     public_input_hash: [u8; 32],
-    a: [u8; 32],
-    b: [u8; 64],
-    c: [u8; 32],
-    commitment: Option<([u8; 32], [u8; 32])>,
+    encoding: Encoding,
+    a: Vec<u8>,
+    b: Vec<u8>,
+    c: Vec<u8>,
+    commitment: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 fn main() -> impl Termination {
@@ -151,10 +159,23 @@ fn run() -> Result<ExitCode> {
     }
 
     let request: Value = serde_json::from_reader(io::stdin().lock()).context("read stdin JSON")?;
-    let parsed = parse_request(&request)?;
-    let result = match verify(&parsed) {
-        Ok(()) => json!({ "ok": true }),
-        Err(code) => json!({ "ok": false, "code": code.as_str() }),
+    let op = request
+        .get("op")
+        .and_then(Value::as_str)
+        .unwrap_or("verify");
+    let result = match op {
+        "verify" => {
+            let parsed = parse_request(&request)?;
+            match verify(&parsed) {
+                Ok(()) => json!({ "ok": true }),
+                Err(code) => json!({ "ok": false, "code": code.as_str() }),
+            }
+        }
+        "compress" => match compress_request(&request) {
+            Ok(value) => value,
+            Err(code) => json!({ "ok": false, "code": code.as_str() }),
+        },
+        other => bail!("unknown op {other:?}"),
     };
     println!("{}", serde_json::to_string(&result)?);
     Ok(ExitCode::SUCCESS)
@@ -197,9 +218,10 @@ fn self_check() -> Result<()> {
         n_inputs: 1,
         n_outputs: 1,
         public_input_hash: [0u8; 32],
-        a: [0u8; 32],
-        b: [0u8; 64],
-        c: [0u8; 32],
+        encoding: Encoding::Compressed,
+        a: vec![0u8; 32],
+        b: vec![0u8; 64],
+        c: vec![0u8; 32],
         commitment: None,
     };
     match verify(&garbage) {
@@ -235,12 +257,25 @@ fn parse_request(value: &Value) -> Result<VerifyRequest> {
         .get("outputs")
         .and_then(Value::as_u64)
         .context("shape.outputs")? as usize;
+    let encoding = match value
+        .get("encoding")
+        .and_then(Value::as_str)
+        .unwrap_or("compressed")
+    {
+        "compressed" => Encoding::Compressed,
+        "uncompressed" => Encoding::Uncompressed,
+        other => bail!("unknown encoding {other:?}"),
+    };
+    let (a_len, b_len, c_len, com_len) = match encoding {
+        Encoding::Compressed => (32, 64, 32, 32),
+        Encoding::Uncompressed => (64, 128, 64, 64),
+    };
     let proof = value.get("proof").context("proof")?;
     let commitment = match (
         proof.get("commitment").and_then(Value::as_str),
         proof.get("commitmentPok").and_then(Value::as_str),
     ) {
-        (Some(c), Some(pok)) => Some((hex_fixed(c)?, hex_fixed(pok)?)),
+        (Some(c), Some(pok)) => Some((hex_bytes(c, com_len)?, hex_bytes(pok, com_len)?)),
         (None, None) => None,
         _ => bail!("commitment and commitmentPok must both be present or both absent"),
     };
@@ -255,11 +290,73 @@ fn parse_request(value: &Value) -> Result<VerifyRequest> {
                 .and_then(Value::as_str)
                 .context("publicInputHashBytes")?,
         )?,
-        a: hex_fixed(proof.get("a").and_then(Value::as_str).context("proof.a")?)?,
-        b: hex_fixed(proof.get("b").and_then(Value::as_str).context("proof.b")?)?,
-        c: hex_fixed(proof.get("c").and_then(Value::as_str).context("proof.c")?)?,
+        encoding,
+        a: hex_bytes(proof.get("a").and_then(Value::as_str).context("proof.a")?, a_len)?,
+        b: hex_bytes(proof.get("b").and_then(Value::as_str).context("proof.b")?, b_len)?,
+        c: hex_bytes(proof.get("c").and_then(Value::as_str).context("proof.c")?, c_len)?,
         commitment,
     })
+}
+
+fn compress_request(value: &Value) -> Result<Value, FailCode> {
+    let proof = value.get("proof").ok_or(FailCode::Encoding)?;
+    let a = hex_bytes(
+        proof
+            .get("a")
+            .and_then(Value::as_str)
+            .ok_or(FailCode::Encoding)?,
+        64,
+    )
+    .map_err(|_| FailCode::Encoding)?;
+    let b = hex_bytes(
+        proof
+            .get("b")
+            .and_then(Value::as_str)
+            .ok_or(FailCode::Encoding)?,
+        128,
+    )
+    .map_err(|_| FailCode::Encoding)?;
+    let c = hex_bytes(
+        proof
+            .get("c")
+            .and_then(Value::as_str)
+            .ok_or(FailCode::Encoding)?,
+        64,
+    )
+    .map_err(|_| FailCode::Encoding)?;
+    let a: [u8; 64] = a.try_into().map_err(|_| FailCode::Encoding)?;
+    let b: [u8; 128] = b.try_into().map_err(|_| FailCode::Encoding)?;
+    let c: [u8; 64] = c.try_into().map_err(|_| FailCode::Encoding)?;
+    let a = alt_bn128_g1_compress_be(&a).map_err(|_| FailCode::Encoding)?;
+    let b = alt_bn128_g2_compress_be(&b).map_err(|_| FailCode::Encoding)?;
+    let c = alt_bn128_g1_compress_be(&c).map_err(|_| FailCode::Encoding)?;
+    let mut out = json!({
+        "ok": true,
+        "proof": {
+            "a": hex_encode(&a),
+            "b": hex_encode(&b),
+            "c": hex_encode(&c),
+        }
+    });
+    match (
+        proof.get("commitment").and_then(Value::as_str),
+        proof.get("commitmentPok").and_then(Value::as_str),
+    ) {
+        (Some(commitment), Some(pok)) => {
+            let commitment = hex_bytes(commitment, 64).map_err(|_| FailCode::Encoding)?;
+            let pok = hex_bytes(pok, 64).map_err(|_| FailCode::Encoding)?;
+            let commitment: [u8; 64] = commitment.try_into().map_err(|_| FailCode::Encoding)?;
+            let pok: [u8; 64] = pok.try_into().map_err(|_| FailCode::Encoding)?;
+            let commitment =
+                alt_bn128_g1_compress_be(&commitment).map_err(|_| FailCode::Encoding)?;
+            let pok = alt_bn128_g1_compress_be(&pok).map_err(|_| FailCode::Encoding)?;
+            out["proof"]["commitment"] = json!(hex_encode(&commitment));
+            out["proof"]["commitmentPok"] = json!(hex_encode(&pok));
+        }
+        (None, None) => {}
+        _ => return Err(FailCode::RailMismatch),
+    }
+    Ok(out)
 }
 
 fn verify(request: &VerifyRequest) -> Result<(), FailCode> {
@@ -271,7 +368,6 @@ fn verify(request: &VerifyRequest) -> Result<(), FailCode> {
     )?;
     let vk_committed = vk.vk_commitment.is_some();
     let proof_committed = request.commitment.is_some();
-    // Zone-authority is always vanilla; merge families are always committed.
     let expected_committed = match request.family {
         Family::ZoneAuthority => false,
         Family::Merge | Family::MergeZone => true,
@@ -281,15 +377,57 @@ fn verify(request: &VerifyRequest) -> Result<(), FailCode> {
         return Err(FailCode::RailMismatch);
     }
 
-    let proof_a = decompress_g1(&request.a).map_err(|_| FailCode::Encoding)?;
-    let proof_b = decompress_g2(&request.b).map_err(|_| FailCode::Encoding)?;
-    let proof_c = decompress_g1(&request.c).map_err(|_| FailCode::Encoding)?;
+    let (proof_a, proof_b, proof_c, commitment) = match request.encoding {
+        Encoding::Compressed => {
+            let a: [u8; 32] = request.a.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+            let b: [u8; 64] = request.b.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+            let c: [u8; 32] = request.c.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+            let proof_a = decompress_g1(&a).map_err(|_| FailCode::Encoding)?;
+            let proof_b = decompress_g2(&b).map_err(|_| FailCode::Encoding)?;
+            let proof_c = decompress_g1(&c).map_err(|_| FailCode::Encoding)?;
+            let commitment = match &request.commitment {
+                Some((commitment, pok)) => {
+                    let commitment: [u8; 32] =
+                        commitment.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+                    let pok: [u8; 32] = pok.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+                    Some((
+                        decompress_g1(&commitment).map_err(|_| FailCode::Encoding)?,
+                        decompress_g1(&pok).map_err(|_| FailCode::Encoding)?,
+                    ))
+                }
+                None => None,
+            };
+            (proof_a, proof_b, proof_c, commitment)
+        }
+        Encoding::Uncompressed => {
+            let proof_a: [u8; 64] =
+                request.a.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+            let proof_b: [u8; 128] =
+                request.b.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+            let proof_c: [u8; 64] =
+                request.c.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+            let commitment = match &request.commitment {
+                Some((commitment, pok)) => Some((
+                    {
+                        let value: [u8; 64] =
+                            commitment.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+                        value
+                    },
+                    {
+                        let value: [u8; 64] =
+                            pok.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+                        value
+                    },
+                )),
+                None => None,
+            };
+            (proof_a, proof_b, proof_c, commitment)
+        }
+    };
     let public_inputs = [request.public_input_hash];
 
-    match request.commitment {
+    match commitment {
         Some((commitment, commitment_pok)) => {
-            let commitment = decompress_g1(&commitment).map_err(|_| FailCode::Encoding)?;
-            let commitment_pok = decompress_g1(&commitment_pok).map_err(|_| FailCode::Encoding)?;
             let mut verifier = Groth16Verifier::new_with_commitment(
                 &proof_a,
                 &proof_b,
@@ -394,17 +532,29 @@ fn select_vk(
 }
 
 fn hex_fixed<const N: usize>(value: &str) -> Result<[u8; N]> {
+    let bytes = hex_bytes(value, N)?;
+    bytes.try_into().map_err(|_| anyhow::anyhow!("hex length"))
+}
+
+fn hex_bytes(value: &str, expected: usize) -> Result<Vec<u8>> {
     let digits = value.strip_prefix("0x").unwrap_or(value);
-    if digits.len() != N * 2 {
-        bail!("expected {} hex bytes, got {}", N, digits.len() / 2);
+    if digits.len() != expected * 2 {
+        bail!("expected {expected} hex bytes, got {}", digits.len() / 2);
     }
-    let mut out = [0u8; N];
+    let mut out = vec![0u8; expected];
     for (index, chunk) in digits.as_bytes().chunks(2).enumerate() {
         let hi = hex_nibble(chunk[0])?;
         let lo = hex_nibble(chunk[1])?;
         out[index] = (hi << 4) | lo;
     }
     Ok(out)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn hex_nibble(byte: u8) -> Result<u8> {
