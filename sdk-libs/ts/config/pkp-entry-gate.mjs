@@ -128,7 +128,11 @@ if (skipCi) {
   }
 }
 
-const ready = criteria.every((criterion) => criterion.pass);
+// A skipped criterion is unevaluated, not failed, so it cannot report `pass` and
+// must not be counted against readiness either. Counting it made `--skip-ci`
+// unable to report ready under any circumstances, which is the only thing the
+// flag exists to allow.
+const ready = criteria.every((criterion) => criterion.skipped || criterion.pass);
 
 if (json) {
   console.log(JSON.stringify({ ready, rows: rows.length, criteria }, null, 2));
