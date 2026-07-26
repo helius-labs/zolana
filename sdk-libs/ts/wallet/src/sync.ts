@@ -8,7 +8,7 @@ import {
 } from "@zolana/client";
 import { SHIELDED_POOL_PROGRAM_ID, decodeSplAssetRegistry } from "@zolana/interface";
 import type { Address, Bytes32, RequestContext } from "@zolana/interface";
-import type { ViewingKey } from "@zolana/keypair";
+import type { ViewingKeyLike } from "@zolana/keypair";
 import {
   EncryptedScheme,
   TransactionError,
@@ -93,7 +93,7 @@ function sameIdentity(material: WalletSyncMaterial, wallet: Wallet): boolean {
   );
 }
 
-function viewingKeyCounters(wallet: Wallet, key: ViewingKey): ViewingKeyEntry | undefined {
+function viewingKeyCounters(wallet: Wallet, key: ViewingKeyLike): ViewingKeyEntry | undefined {
   const publicKey = bytesKey(key.publicKey().toBytes());
   return wallet.viewingKeyHistory.find(
     (entry) => bytesKey(entry.viewingPublicKey.toBytes()) === publicKey,
