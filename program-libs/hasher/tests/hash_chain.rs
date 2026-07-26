@@ -1,7 +1,10 @@
 #![cfg(feature = "poseidon")]
 
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_two_inputs_hash_chain},
+    hash_chain::{
+        create_hash_chain_from_slice, create_hash_chain_from_slice_ref,
+        create_two_inputs_hash_chain,
+    },
     Hasher, HasherError, Poseidon,
 };
 
@@ -117,6 +120,17 @@ fn test_create_hash_chain_from_slice() {
             matches!(result, Err(HasherError::Poseidon(error)) if error  == PoseidonError::InputLargerThanModulus),
         );
     }
+}
+
+#[test]
+fn test_create_hash_chain_from_borrowed_slice() {
+    let inputs = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    let borrowed = [&inputs[0], &inputs[1], &inputs[2]];
+
+    assert_eq!(
+        create_hash_chain_from_slice_ref(&borrowed).unwrap(),
+        create_hash_chain_from_slice(&inputs).unwrap()
+    );
 }
 
 /// Tests for `create_two_inputs_hash_chain` function:

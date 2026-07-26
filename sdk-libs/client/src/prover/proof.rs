@@ -75,10 +75,10 @@ impl TryFrom<Proof> for ProofCompressed {
 }
 
 impl ProofCompressed {
-    /// Build the wire-format Ed25519-owner transact proof.
+    /// Build the wire-format transact proof.
     pub fn to_transact_proof(self) -> TransactProof {
         debug_assert!(self.commitment.is_none());
-        TransactProof::Eddsa {
+        TransactProof {
             a: self.a,
             b: self.b,
             c: self.c,

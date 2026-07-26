@@ -232,7 +232,6 @@ fn shield_then_withdraw_sol() {
         &payer_pubkey_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
-        &zero,
     );
 
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
@@ -454,7 +453,6 @@ fn shield_transfer_then_withdraw_sol() {
         &payer_pubkey_hash,
         &[payer_owner_pk_hash, payer_owner_pk_hash],
         &transfer_owner_pk_hashes,
-        &zero,
     );
     let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![payer_spend_input, transfer_dummy_input],
@@ -621,7 +619,6 @@ fn shield_transfer_then_withdraw_sol() {
         &recipient_pubkey_hash,
         &[recipient_owner_pk_hash, recipient_owner_pk_hash],
         &withdraw_owner_pk_hashes,
-        &zero,
     );
     let withdraw_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![recipient_spend_input, withdraw_dummy_input],

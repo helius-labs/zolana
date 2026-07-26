@@ -69,8 +69,8 @@ pub enum ShieldedPoolError {
     // 7020 retired: was `InvalidMergeOutputScheme` (merge output ciphertext had
     // to be verifiably encrypted); merge outputs are now deterministically
     // derived, so there is no ciphertext scheme to check.
-    #[error("transact proof variant does not match the instruction inputs")]
-    MismatchedTransactProofVariant = 7021,
+    // 7021 retired: was `MismatchedTransactProofVariant`; transact proofs no
+    // longer have rail-specific variants.
     #[error("zone_authority_transact is disabled for this zone")]
     ZoneAuthorityTransactDisabled = 7022,
     #[error("output owner tag references the p256 signing key but p256_signing_pk_x is absent")]
@@ -113,6 +113,8 @@ pub enum ShieldedPoolError {
     InvalidSplTokenMint = 7042,
     #[error("Token-2022 mint extension is not supported")]
     UnsupportedToken2022Extension = 7043,
+    #[error("nullifier tree is too full to process a merge")]
+    NullifierTreeTooFullForMerge = 7044,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -171,7 +173,6 @@ mod tests {
             (MergeDisabled as u32, 7017),
             (InvalidUserRecord as u32, 7018),
             (InvalidMergeShape as u32, 7019),
-            (MismatchedTransactProofVariant as u32, 7021),
             (ZoneAuthorityTransactDisabled as u32, 7022),
             (MissingP256SigningKey as u32, 7024),
             (OwnerTagAccountMissing as u32, 7025),
@@ -193,6 +194,7 @@ mod tests {
             (UnsupportedSplTokenProgram as u32, 7041),
             (InvalidSplTokenMint as u32, 7042),
             (UnsupportedToken2022Extension as u32, 7043),
+            (NullifierTreeTooFullForMerge as u32, 7044),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

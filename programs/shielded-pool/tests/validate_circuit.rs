@@ -26,7 +26,7 @@ fn validate(
         p256_signing_pk_x,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        proof: TransactProof::zeroed_eddsa(),
+        proof: TransactProof::zeroed(),
         inputs: (0..actual_inputs)
             .map(|_| InputUtxo {
                 nullifier_hash: [0u8; 32],

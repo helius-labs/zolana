@@ -419,7 +419,7 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
         let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
         zolana_client::assemble(proof_inputs, &proofs, &[])
             .unwrap()
-            .with_proof(TransactProof::zeroed_eddsa())
+            .with_proof(TransactProof::zeroed())
     };
 
     let change_only = build(false);
@@ -484,7 +484,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
 
     let assembled = zolana_client::assemble(proof_inputs, &proofs, &[]).unwrap();
-    let ix = assembled.with_proof(TransactProof::zeroed_eddsa());
+    let ix = assembled.with_proof(TransactProof::zeroed());
 
     // The single real input is padded with one mirrored dummy to the (2,3) shape.
     assert_eq!(ix.inputs.len(), 2);

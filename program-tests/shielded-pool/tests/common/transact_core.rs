@@ -49,9 +49,8 @@ pub fn pack_proof(proof: &Proof) -> Result<TransactProof> {
 }
 
 /// Mirror of the confidential `TransactProof::public_input_hash` on the eddsa
-/// rail. The 15-element anonymous chain is followed by the two confidential
-/// elements: `[15] HashChain(output_owner_pk_hashes)` and `[16]
-/// p256_signing_pk_field` (zero on the eddsa rail). Mirrors the client
+/// rail. The common chain is followed by
+/// `HashChain(output_owner_pk_hashes)`. Mirrors the client
 /// `PublicInputs::hash()` exactly. Public movement slots interleave as
 /// `(asset, amount)` and idle slots are `(0, 0)`.
 #[allow(clippy::too_many_arguments)]
@@ -67,7 +66,6 @@ pub fn public_input_hash(
     payer_pubkey_hash: &[u8; 32],
     input_owner_pk_hashes: &[[u8; 32]],
     output_owner_pk_hashes: &[[u8; 32]],
-    p256_signing_pk_field: &[u8; 32],
 ) -> [u8; 32] {
     let zero = [0u8; 32];
     let one = fe(1);
@@ -90,7 +88,6 @@ pub fn public_input_hash(
         hash_bytes(&zero).expect("p256 message field"),
         create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
         create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
-        *p256_signing_pk_field,
     ]);
     create_hash_chain_from_slice(&chain).expect("public input hash")
 }
@@ -217,7 +214,7 @@ pub fn new_transact_ix_data(
         N_PUBLIC_SLOTS as u8,
     );
     TransactIxData {
-        proof: TransactProof::zeroed_eddsa(),
+        proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
         circuit,

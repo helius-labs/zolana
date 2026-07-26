@@ -14,7 +14,7 @@ use zolana_interface::{
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
-use zolana_tree::{TreeAccount, TreeError};
+use zolana_tree::TreeAccount;
 
 use super::{
     account::{load_user_record, MergeTransactAccounts},
@@ -23,7 +23,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
-    shared::{check_not_expired, collect_forester_fee},
+    shared::{bool_field, check_not_expired, collect_forester_fee, tree_error},
 };
 
 #[inline(never)]
@@ -34,7 +34,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
 
-    let merge_accounts = MergeTransactAccounts::validate_and_parse(&crate::ID, accounts)?;
+    let merge_accounts = MergeTransactAccounts::validate_and_parse(accounts)?;
 
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
 
@@ -104,9 +104,7 @@ pub(crate) fn process_merge_core(
         let allow_dummy_inputs = tree.allow_dummy_inputs().map_err(tree_error)?;
         // We insert the merge view tag salt into the nullifier tree. It is essentially a dummy input.
         if !allow_dummy_inputs {
-            unimplemented!(
-                "TODO: throw meaningful error that merge does not work once nullifier tree is too full."
-            );
+            return Err(ShieldedPoolError::NullifierTreeTooFullForMerge.into());
         }
         let mut derived = MergeProofInputs {
             utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
@@ -199,19 +197,4 @@ fn apply_output_tree(
         output_leaf_index,
         output_tree,
     })
-}
-
-fn bool_field(value: bool) -> [u8; 32] {
-    let mut field = [0u8; 32];
-    field[31] = u8::from(value);
-    field
-}
-
-fn tree_error(e: TreeError) -> ProgramError {
-    match e {
-        TreeError::Paused => ShieldedPoolError::TreePaused.into(),
-        TreeError::InvalidRootIndex => ShieldedPoolError::StaleNullifierRoot.into(),
-        TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed.into(),
-        _ => ShieldedPoolError::InvalidTreeAccounts.into(),
-    }
 }

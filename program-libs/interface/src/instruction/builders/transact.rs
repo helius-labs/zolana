@@ -147,7 +147,7 @@ mod tests {
 
     fn empty_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
         TransactIxData {
-            proof: TransactProof::zeroed_eddsa(),
+            proof: TransactProof::zeroed(),
             expiry_unix_ts: u64::MAX,
             private_tx_hash: [0u8; 32],
             circuit: CircuitId::ConfidentialEddsa(0, 0, 3),

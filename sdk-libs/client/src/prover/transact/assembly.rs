@@ -256,10 +256,9 @@ pub(crate) struct PublicInputs<'a> {
     pub allow_dummy_inputs: &'a [u8; 32],
     pub input_owner_pk_hashes: &'a [[u8; 32]],
     /// Confidential variant only: appended after the anonymous chain as
-    /// `HashChain(output_owner_pk_hashes)` then `p256_signing_pk_field`. Mirrors
+    /// `HashChain(output_owner_pk_hashes)`. Mirrors
     /// `prover/server/prover-test/spp/protocol/public_inputs.go` (PublicInputHash).
     pub output_owner_pk_hashes: &'a [[u8; 32]],
-    pub p256_signing_pk_field: &'a [u8; 32],
 }
 
 impl PublicInputs<'_> {
@@ -284,7 +283,6 @@ impl PublicInputs<'_> {
             create_hash_chain_from_slice(self.input_owner_pk_hashes)?,
             // Confidential appendix (the client always uses the confidential variant).
             create_hash_chain_from_slice(self.output_owner_pk_hashes)?,
-            *self.p256_signing_pk_field,
         ]);
         Ok(create_hash_chain_from_slice(&elements)?)
     }

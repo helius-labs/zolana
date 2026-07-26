@@ -39,9 +39,6 @@ pub struct TransferProofResult {
 impl TransferProver {
     pub fn build(self) -> Result<TransferProofResult, ClientError> {
         resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
-        // The eddsa rail has no P256 owner, so the shared signing pk_field is 0 even
-        // in the confidential variant; only the output owner tags are bound.
-        let p256_signing_pk_field = [0u8; 32];
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
@@ -66,7 +63,6 @@ impl TransferProver {
             allow_dummy_inputs: &super::assembly::bool_field(self.allow_dummy_inputs),
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
             output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
-            p256_signing_pk_field: &p256_signing_pk_field,
         }
         .hash()?;
 

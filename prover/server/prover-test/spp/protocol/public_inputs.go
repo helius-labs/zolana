@@ -50,11 +50,9 @@ type PublicInputs struct {
 	AllowDummyInputs   *big.Int
 	InputOwnerPkHashes []*big.Int
 
-	// Confidential appends the output owner tag chain and the shared P256 signing
-	// key's pk_field to the preimage (see spec circuit-variants).
+	// Confidential appends the output owner tag chain to the preimage.
 	Confidential        bool
 	OutputOwnerPkHashes []*big.Int
-	P256SigningPkField  *big.Int
 
 	// ZoneAuthority omits the input owner pk_field chain from the preimage: the
 	// zone-authority variant keeps input owners private (anonymous) since the zone
@@ -113,7 +111,7 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		if err != nil {
 			return nil, fmt.Errorf("spp: public input hash output owner chain: %w", err)
 		}
-		fields = append(fields, outputOwnerChain, inputs.P256SigningPkField)
+		fields = append(fields, outputOwnerChain)
 	}
 	return HashChain(fields)
 }

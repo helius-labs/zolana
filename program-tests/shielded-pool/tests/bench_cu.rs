@@ -430,7 +430,6 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
         &payer_pubkey_hash,
         &[owner_hash, owner_hash],
         &owner_pk_hashes,
-        &zero,
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![dummy_input_0, dummy_input_1],
@@ -580,7 +579,6 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         &payer_pubkey_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
-        &zero,
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![payer_spend_input, dummy_spend_input],
@@ -752,7 +750,6 @@ fn bench_withdrawal_spl(
         &payer_pubkey_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
-        &zero,
     );
     let prover_inputs = build_transfer_prover_inputs_spl(
         TransferProverInputsArgs {

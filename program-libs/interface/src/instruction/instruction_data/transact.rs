@@ -7,21 +7,17 @@ use crate::{error::ShieldedPoolError, MAX_INTERFACE_TRANSFERS};
 
 /// The compressed Groth16 proof carried by a `transact` instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-#[wincode(tag_encoding = "u8")]
-pub enum TransactProof {
-    /// Ed25519-owner rail: vanilla Groth16, no BSB22 commitment (128 bytes).
-    Eddsa {
-        a: [u8; 32],
-        b: [u8; 64],
-        c: [u8; 32],
-    },
+pub struct TransactProof {
+    pub a: [u8; 32],
+    pub b: [u8; 64],
+    pub c: [u8; 32],
 }
 
 impl TransactProof {
-    /// A zeroed eddsa-rail proof, used as a placeholder before the real proof is
-    /// attached and as a dummy in tests.
-    pub const fn zeroed_eddsa() -> Self {
-        TransactProof::Eddsa {
+    /// A zeroed proof, used as a placeholder before the real proof is attached
+    /// and as a dummy in tests.
+    pub const fn zeroed() -> Self {
+        Self {
             a: [0u8; 32],
             b: [0u8; 64],
             c: [0u8; 32],
@@ -457,8 +453,8 @@ mod tests {
         assert!(wincode::deserialize_exact::<CircuitId>(&unknown).is_err());
     }
 
-    fn eddsa_proof() -> TransactProof {
-        TransactProof::Eddsa {
+    fn proof() -> TransactProof {
+        TransactProof {
             a: [1u8; 32],
             b: [2u8; 64],
             c: [3u8; 32],
@@ -467,17 +463,16 @@ mod tests {
 
     #[test]
     fn transact_proof_round_trips() {
-        let proof = eddsa_proof();
+        let proof = proof();
         let bytes = wincode::serialize(&proof).unwrap();
         let decoded: TransactProof = wincode::deserialize_exact(&bytes).unwrap();
         assert_eq!(decoded, proof);
     }
 
     #[test]
-    fn eddsa_proof_has_expected_wire_size() {
-        let eddsa = wincode::serialize(&eddsa_proof()).unwrap();
-        // 1-byte tag + a(32) + b(64) + c(32).
-        assert_eq!(eddsa.len(), 1 + 128);
+    fn proof_has_expected_wire_size() {
+        let proof = wincode::serialize(&proof()).unwrap();
+        assert_eq!(proof.len(), 128);
     }
 
     fn mixed_outputs() -> Vec<TransactOutput> {
@@ -561,7 +556,7 @@ mod tests {
 
     #[test]
     fn ix_data_round_trips_owned_and_ref() {
-        let owned = ix_data(eddsa_proof());
+        let owned = ix_data(proof());
         let bytes = owned.serialize().unwrap();
         assert_eq!(TransactIxData::deserialize(&bytes).unwrap(), owned);
         let view = TransactIxDataRef::from_bytes(&bytes).unwrap();
@@ -573,7 +568,7 @@ mod tests {
     /// owned-reserialize CPI path.
     #[test]
     fn owned_serialize_matches_ref_parse() {
-        let owned = ix_data(eddsa_proof());
+        let owned = ix_data(proof());
         let bytes = owned.serialize().unwrap();
         let view = TransactIxDataRef::from_bytes(&bytes).unwrap();
         assert_ref_matches_owned(&view, &owned);
@@ -638,7 +633,7 @@ mod tests {
 
     #[test]
     fn interface_transfer_count_rejects_256_during_serialization_and_hashing() {
-        let mut data = ix_data(eddsa_proof());
+        let mut data = ix_data(proof());
         data.interface_transfers =
             vec![InterfaceTransfer::SolDeposit { amount: 1 }; MAX_INTERFACE_TRANSFERS + 1];
         assert!(data.serialize().is_err());

@@ -1,11 +1,10 @@
-use bytemuck::from_bytes_mut;
 use pinocchio::{account::RefMut, error::ProgramError, AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{error::ShieldedPoolError, state::SplAssetCounter};
 
 use crate::instructions::{
     protocol_config::loader::load_protocol_config,
-    shared::{verify_pda, CreatePdaAccount},
+    shared::{load_config_mut, verify_pda, CreatePdaAccount},
 };
 
 /// Create the singleton SPL asset counter PDA. The counter is a prerequisite of
@@ -62,14 +61,8 @@ pub fn process_create_asset_counter(accounts: &mut [AccountView], data: &[u8]) -
 pub fn load_spl_asset_counter_mut<'a>(
     account: &'a mut AccountView,
 ) -> Result<RefMut<'a, SplAssetCounter>, ProgramError> {
-    if !account.owned_by(&crate::ID) {
-        return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
-    }
-    let data = account
-        .try_borrow_mut()
-        .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
-    if data.len() != SplAssetCounter::SIZE {
-        return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
-    }
-    Ok(RefMut::map(data, |d| from_bytes_mut::<SplAssetCounter>(d)))
+    // A freshly created counter is zeroed and has no discriminator until
+    // `init`; the shared loader still enforces writability, ownership, and size.
+    let invalid = ShieldedPoolError::InvalidSplAssetRegistry;
+    load_config_mut(account, invalid, |_| true)
 }

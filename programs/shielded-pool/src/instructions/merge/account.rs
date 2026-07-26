@@ -16,10 +16,7 @@ pub struct MergeTransactAccounts<'a> {
 }
 
 impl<'a> MergeTransactAccounts<'a> {
-    pub fn validate_and_parse(
-        _program_id: &Address,
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    pub fn validate_and_parse(accounts: &'a mut [AccountView]) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
@@ -108,7 +105,7 @@ mod tests {
             get_account_view([5; 32], [0; 32], false, false, true, vec![]),
         ];
 
-        let error = match MergeTransactAccounts::validate_and_parse(&crate::ID, &mut accounts) {
+        let error = match MergeTransactAccounts::validate_and_parse(&mut accounts) {
             Ok(_) => panic!("invalid System Program must fail"),
             Err(error) => error,
         };

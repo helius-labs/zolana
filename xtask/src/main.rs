@@ -531,13 +531,8 @@ fn tx_size(args: Vec<String>) {
         bincode::serialize(&tx).unwrap().len()
     };
 
-    // TransactIxData.proof is a wincode enum: a 1-byte rail tag plus the
-    // compressed Groth16 points. The EdDSA (Solana) rail is vanilla Groth16
-    // (128 B, no commitment); the P256 rail includes the 64-byte BSB22
-    // commitment and proof of knowledge.
-    const RAIL_TAG_LEN: usize = 1;
-    const EDDSA_PROOF_LEN: usize = 128;
-    const EDDSA_PROOF_SER_LEN: usize = RAIL_TAG_LEN + EDDSA_PROOF_LEN;
+    // TransactIxData.proof carries the compressed Groth16 points.
+    const TRANSACT_PROOF_LEN: usize = 128;
     // Legacy flat proof (pre-enum, always 192 B, no tag) for the baseline table.
     const LEGACY_PROOF_LEN: usize = 192;
 
@@ -559,7 +554,7 @@ fn tx_size(args: Vec<String>) {
             outputs_spec,
         );
 
-        let adj = serialized_proof_len as isize - EDDSA_PROOF_SER_LEN as isize;
+        let adj = serialized_proof_len as isize - TRANSACT_PROOF_LEN as isize;
         let adjust = |v: usize| (v as isize + adj) as usize;
 
         let ix_len = adjust(make_ix_bytes(&transfer_data).len());
@@ -628,13 +623,8 @@ fn tx_size(args: Vec<String>) {
             current_sender_data_len(r),
             current_recipient_data_len,
         );
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(
-            &spec,
-            n,
-            None,
-            TransactProof::zeroed_eddsa(),
-            LEGACY_PROOF_LEN,
-        );
+        let (ix, tl, tv, sl, sv) =
+            make_tx_sizes(&spec, n, None, TransactProof::zeroed(), LEGACY_PROOF_LEN);
         let fmt = |v: usize, show: bool| {
             if show {
                 v.to_string()
@@ -680,13 +670,8 @@ fn tx_size(args: Vec<String>) {
             OPT_SENDER_DATA_LEN,
             OPT_RECIPIENT_DATA_LEN,
         );
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(
-            &spec,
-            n,
-            None,
-            TransactProof::zeroed_eddsa(),
-            EDDSA_PROOF_SER_LEN,
-        );
+        let (ix, tl, tv, sl, sv) =
+            make_tx_sizes(&spec, n, None, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
         let fmt = |v: usize, show: bool| {
             if show {
                 v.to_string()
@@ -731,13 +716,8 @@ fn tx_size(args: Vec<String>) {
     ];
     for &(label, tag, tag_bytes) in &sender_tag_kinds {
         let spec = transfer_layout(3, tag, OPT_SENDER_DATA_LEN, OPT_RECIPIENT_DATA_LEN);
-        let (ix, tl, tv, _sl, _sv) = make_tx_sizes(
-            &spec,
-            3,
-            None,
-            TransactProof::zeroed_eddsa(),
-            EDDSA_PROOF_SER_LEN,
-        );
+        let (ix, tl, tv, _sl, _sv) =
+            make_tx_sizes(&spec, 3, None, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
         println!(
             "| {:<16} | {:>13} | {:>11} | {:>16} | {:>13} |",
             label, tag_bytes, ix, tl, tv,
@@ -764,13 +744,8 @@ fn tx_size(args: Vec<String>) {
     );
     let (n, m) = (1usize, 8usize);
     let spec = split_layout(m, OPT_SENDER_DATA_LEN);
-    let (ix, tl, tv, sl, sv) = make_tx_sizes(
-        &spec,
-        n,
-        None,
-        TransactProof::zeroed_eddsa(),
-        EDDSA_PROOF_SER_LEN,
-    );
+    let (ix, tl, tv, sl, sv) =
+        make_tx_sizes(&spec, n, None, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
     println!(
         "| {:<14} | {} | {} | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
         format!("{n} in {m} out"),
@@ -809,7 +784,7 @@ fn tx_size(args: Vec<String>) {
             interface_transfers.clone(),
             3,
             None,
-            TransactProof::zeroed_eddsa(),
+            TransactProof::zeroed(),
             &spec,
         );
         let eddsa_ix = Instruction {

@@ -82,7 +82,7 @@ mod tests {
 
     fn empty_data() -> TransactIxData {
         TransactIxData {
-            proof: TransactProof::zeroed_eddsa(),
+            proof: TransactProof::zeroed(),
             expiry_unix_ts: u64::MAX,
             private_tx_hash: [0u8; 32],
             circuit: CircuitId::ZoneAuthority(0, 0, 3),

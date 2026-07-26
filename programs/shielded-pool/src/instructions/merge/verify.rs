@@ -1,4 +1,5 @@
 use pinocchio::{error::ProgramError, ProgramResult};
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{MergeTransactIxDataRef, MERGE_INPUT_COUNT},
@@ -6,8 +7,6 @@ use zolana_interface::{
 };
 
 use crate::instructions::verifier;
-
-const PROOF_ERR: ShieldedPoolError = ShieldedPoolError::TransactProofVerificationFailed;
 
 /// The owner-binding tail of the merge public-input hash, which differs by
 /// variant. Modeling it as an enum keeps the two shapes mutually exclusive: the
@@ -51,15 +50,12 @@ impl<'a> MergeProof<'a> {
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
         let public_input_hash = self.public_input_hash()?;
-        // The merge circuit carries no P256 gadget, so the proof is always the
-        // vanilla Groth16 triple ([`MergeProofRef`], no BSB22 commitment).
         let p = &self.ix.proof;
         let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
         let proof = verifier::CompressedGroth16Proof {
             a: p.a,
             b: p.b,
             c: p.c,
-            commitment: None,
         };
         // The policy-zone merge (`merge_zone`) commits `zone_program_id`, so it uses
         // its own verifying key; the default-zone merge uses `merge_8_1`.
@@ -67,7 +63,13 @@ impl<'a> MergeProof<'a> {
             MergeOwnerBinding::Registry { .. } => &merge_8_1::VERIFYINGKEY,
             MergeOwnerBinding::Zone { .. } => &merge_zone_8_1::VERIFYINGKEY,
         };
-        verifier::verify_groth16(proof, public_input_hash, vk, encoding_err, PROOF_ERR)
+        verifier::verify_groth16(
+            proof,
+            public_input_hash,
+            vk,
+            encoding_err,
+            ShieldedPoolError::TransactProofVerificationFailed,
+        )
     }
 
     /// The Poseidon hash chain the circuit folds into its single public input
@@ -80,9 +82,10 @@ impl<'a> MergeProof<'a> {
     /// registry to bind it against) and appends the output `zone_data_hash` and
     /// `zone_program_id`.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
-        let nullifiers = hash_chain(&self.ix.nullifiers)?;
-        let utxo_roots = hash_chain(&self.derived.utxo_roots)?;
-        let nullifier_tree_roots = hash_chain(&self.derived.nullifier_tree_roots)?;
+        let nullifiers = create_hash_chain_from_slice(&self.ix.nullifiers)?;
+        let utxo_roots = create_hash_chain_from_slice(&self.derived.utxo_roots)?;
+        let nullifier_tree_roots =
+            create_hash_chain_from_slice(&self.derived.nullifier_tree_roots)?;
 
         let prefix = [
             nullifiers,
@@ -93,37 +96,25 @@ impl<'a> MergeProof<'a> {
             self.derived.external_data_hash,
             self.derived.allow_dummy_inputs,
         ];
+        let prefix_hash = create_hash_chain_from_slice(&prefix)?;
+
         match &self.derived.owner_binding {
             MergeOwnerBinding::Zone {
                 zone_program_id,
                 output_zone_data_hash,
-            } => hash_chain(&[
-                prefix[0],
-                prefix[1],
-                prefix[2],
-                prefix[3],
-                prefix[4],
-                prefix[5],
-                prefix[6],
+            } => create_hash_chain_from_slice(&[
+                prefix_hash,
                 *self.ix.merge_view_tag,
                 *output_zone_data_hash,
                 *zone_program_id,
-            ]),
-            MergeOwnerBinding::Registry { signing_pk_field } => hash_chain(&[
-                prefix[0],
-                prefix[1],
-                prefix[2],
-                prefix[3],
-                prefix[4],
-                prefix[5],
-                prefix[6],
+            ])
+            .map_err(Into::into),
+            MergeOwnerBinding::Registry { signing_pk_field } => create_hash_chain_from_slice(&[
+                prefix_hash,
                 *signing_pk_field,
                 *self.ix.merge_view_tag,
-            ]),
+            ])
+            .map_err(Into::into),
         }
     }
-}
-
-fn hash_chain(items: &[[u8; 32]]) -> Result<[u8; 32], ProgramError> {
-    verifier::hash_chain(items, PROOF_ERR)
 }

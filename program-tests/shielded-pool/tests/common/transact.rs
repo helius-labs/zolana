@@ -85,7 +85,6 @@ pub fn public_input_hash_spl(
     payer_pubkey_hash: &[u8; 32],
     input_owner_pk_hashes: &[[u8; 32]],
     output_owner_pk_hashes: &[[u8; 32]],
-    p256_signing_pk_field: &[u8; 32],
 ) -> [u8; 32] {
     let (assets, amounts) = spl_public_slots(*spl_amount, mint).expect("public SPL slots");
     public_input_hash(
@@ -100,7 +99,6 @@ pub fn public_input_hash_spl(
         payer_pubkey_hash,
         input_owner_pk_hashes,
         output_owner_pk_hashes,
-        p256_signing_pk_field,
     )
 }
 

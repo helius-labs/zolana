@@ -293,7 +293,6 @@ fn build_valid_transact_ix(env: &mut TransactEnv) -> TransactIxData {
         &payer_pubkey_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
-        &zero,
     );
 
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {

@@ -367,7 +367,6 @@ fn prove_spend(
         &payer_pubkey_hash,
         &[note.owner_pk_hash, note.owner_pk_hash],
         &output_owner_pk_hashes,
-        &[0u8; 32],
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![note.input, note.dummy_input],

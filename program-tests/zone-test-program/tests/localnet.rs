@@ -34,8 +34,7 @@ pub(crate) fn pack_proof(proof: &Proof) -> Result<MergeProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_merge_proof()?)
 }
 
-/// Build the `transact` proof enum: the eddsa rail omits the BSB22 commitment, the
-/// P256 rail keeps it.
+/// Build the compressed proof carried by a `transact` instruction.
 pub(crate) fn transact_proof(proof: &Proof) -> Result<TransactProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
 }

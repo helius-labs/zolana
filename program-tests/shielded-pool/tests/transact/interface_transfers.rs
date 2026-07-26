@@ -46,7 +46,7 @@ fn output(view_tag: [u8; 32]) -> TransactOutput {
 
 fn ix_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
-        proof: TransactProof::zeroed_eddsa(),
+        proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
         circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),

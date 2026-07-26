@@ -523,7 +523,7 @@ impl ZoneLifecycleWorld {
     /// Attempt a zone transfer whose proof bytes are zeroed; SPP's shared transact
     /// proof verifier must reject it. Builds the same instruction the happy path
     /// does (real inputs, padded dummies, decryptable outputs) but replaces the
-    /// proof with `TransactProof::zeroed_eddsa`, so only proof verification fails.
+    /// proof with `TransactProof::zeroed`, so only proof verification fails.
     /// Borrows (does not consume) the inputs: a rejected transfer spends nothing.
     pub(crate) fn zone_transfer_bad_proof(
         &mut self,
@@ -594,7 +594,7 @@ impl ZoneLifecycleWorld {
             result.private_tx_hash,
             &result.input_root_indices,
             Variant::Eddsa,
-            TransactProof::zeroed_eddsa(),
+            TransactProof::zeroed(),
             None,
         )?;
 

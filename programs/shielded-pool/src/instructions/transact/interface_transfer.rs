@@ -22,6 +22,9 @@ pub(crate) fn process_interface_transfers(
     proof_inputs: &mut TransactProofInputs,
     num_public_asset_slots: usize,
 ) -> Result<(), ProgramError> {
+    // `TransactAccounts::from_iter` builds one matching settlement per transfer.
+    // Validate the length once at the first consumer; the match below validates
+    // each pair's variant, establishing the invariant used by resolve/settle.
     if interface_transfers.len() != settlements.len() {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
@@ -77,23 +80,11 @@ pub(crate) fn settle_interface_transfers(
     interface_transfers: &[InterfaceTransfer],
     settlements: &[Settlement<'_>],
 ) -> ProgramResult {
-    if interface_transfers.len() != settlements.len() {
-        return Err(ShieldedPoolError::InvalidTransactShape.into());
-    }
-
     for (transfer, settlement) in interface_transfers.iter().zip(settlements.iter()) {
-        match (transfer, settlement) {
-            (
-                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. },
-                Settlement::Sol(sol),
-            ) => settle_sol(sol, transfer.amount(), transfer.is_deposit())?,
-            (InterfaceTransfer::SplDeposit { .. }, Settlement::SplDeposit(spl)) => {
-                settle_spl_deposit(spl, transfer.amount())?
-            }
-            (InterfaceTransfer::SplWithdrawal { .. }, Settlement::SplWithdrawal(spl)) => {
-                settle_spl_withdrawal(spl, transfer.amount())?
-            }
-            _ => return Err(ShieldedPoolError::InvalidSettlementAccounts.into()),
+        match settlement {
+            Settlement::Sol(sol) => settle_sol(sol, transfer.amount(), transfer.is_deposit())?,
+            Settlement::SplDeposit(spl) => settle_spl_deposit(spl, transfer.amount())?,
+            Settlement::SplWithdrawal(spl) => settle_spl_withdrawal(spl, transfer.amount())?,
         }
     }
 
@@ -120,42 +111,33 @@ fn signed_amount(transfer: InterfaceTransfer) -> i128 {
 pub(crate) fn resolve_interface_transfers(
     ix: &TransactIxDataRef<'_>,
     settlements: &[Settlement<'_>],
-) -> Result<Vec<ResolvedInterfaceTransfer>, ProgramError> {
-    if ix.interface_transfers.len() != settlements.len() {
-        return Err(ShieldedPoolError::InvalidTransactShape.into());
-    }
+) -> Vec<ResolvedInterfaceTransfer> {
     let mut resolved = Vec::with_capacity(ix.interface_transfers.len());
     for (transfer, settlement) in ix.interface_transfers.iter().zip(settlements.iter()) {
-        let resolved_transfer = match (transfer, settlement) {
-            (InterfaceTransfer::SolDeposit { amount }, Settlement::Sol(sol)) => {
+        let amount = transfer.amount();
+        let resolved_transfer = match settlement {
+            Settlement::Sol(sol) if transfer.is_deposit() => {
                 ResolvedInterfaceTransfer::SolDeposit {
-                    amount: *amount,
+                    amount,
                     recipient: sol.recipient.address().to_bytes(),
                 }
             }
-            (InterfaceTransfer::SolWithdrawal { amount }, Settlement::Sol(sol)) => {
-                ResolvedInterfaceTransfer::SolWithdrawal {
-                    amount: *amount,
-                    recipient: sol.recipient.address().to_bytes(),
-                }
-            }
-            (InterfaceTransfer::SplDeposit { amount, .. }, Settlement::SplDeposit(spl)) => {
-                ResolvedInterfaceTransfer::SplDeposit {
-                    amount: *amount,
-                    user_token_account: spl.user_token_account.address().to_bytes(),
-                    vault: spl.vault.address().to_bytes(),
-                }
-            }
-            (InterfaceTransfer::SplWithdrawal { amount, .. }, Settlement::SplWithdrawal(spl)) => {
-                ResolvedInterfaceTransfer::SplWithdrawal {
-                    amount: *amount,
-                    user_token_account: spl.user_token_account.address().to_bytes(),
-                    vault: spl.vault.address().to_bytes(),
-                }
-            }
-            _ => return Err(ShieldedPoolError::InvalidSettlementAccounts.into()),
+            Settlement::Sol(sol) => ResolvedInterfaceTransfer::SolWithdrawal {
+                amount,
+                recipient: sol.recipient.address().to_bytes(),
+            },
+            Settlement::SplDeposit(spl) => ResolvedInterfaceTransfer::SplDeposit {
+                amount,
+                user_token_account: spl.user_token_account.address().to_bytes(),
+                vault: spl.vault.address().to_bytes(),
+            },
+            Settlement::SplWithdrawal(spl) => ResolvedInterfaceTransfer::SplWithdrawal {
+                amount,
+                user_token_account: spl.user_token_account.address().to_bytes(),
+                vault: spl.vault.address().to_bytes(),
+            },
         };
         resolved.push(resolved_transfer);
     }
-    Ok(resolved)
+    resolved
 }

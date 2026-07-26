@@ -416,7 +416,7 @@ impl ZoneLifecycleWorld {
         // single byte can instead yield `InvalidTransactProofEncoding` depending on
         // the random proof bytes.
         let mut ix_data = self.build_zone_authority_transfer(name, name, asset)?;
-        ix_data.proof = TransactProof::zeroed_eddsa();
+        ix_data.proof = TransactProof::zeroed();
 
         let payer = self.payer.insecure_clone();
         let transfer_ix = ZoneAuthorityTransact {

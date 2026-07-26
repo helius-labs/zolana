@@ -1,8 +1,7 @@
 //! High-level builder for the eddsa-rail zone-transfer proof. This is the
 //! ed25519-only (Solana) rail bound to a zone program: a faithful clone of the
 //! confidential eddsa [`TransferProver`](super::eddsa::TransferProver) that drops
-//! the confidential appendix (output owner chain + `p256_signing_pk_field`) and
-//! binds the zone program like
+//! the confidential output-owner appendix and binds the zone program like
 //! [`ZoneAuthorityProver`](crate::prover::zone_authority::ZoneAuthorityProver).
 //!
 //! Unlike the zone-authority variant, owners are NOT anonymous here: the input
@@ -11,7 +10,7 @@
 //! ZoneAuthority=false` case in
 //! `prover/server/prover-test/spp/protocol/public_inputs.go`: the 12-element base
 //! chain, then a tail of the P256 message and `input_owner_pk_hashes`, EXCLUDING
-//! the output-owner chain and `p256_signing_pk_field`.
+//! the output-owner chain.
 
 use num_bigint::BigUint;
 use solana_address::Address;
@@ -81,8 +80,8 @@ impl ZoneTransferProver {
         // ZoneAuthority=false in public_inputs.go): the 12-element base, then the
         // tail of the P256 message and create_hash_chain_from_slice(
         // input_owner_pk_hashes), with NO confidential appendix (no output-owner
-        // chain, no p256_signing_pk_field). hash_bytes(&[0;32]) == Poseidon(0, 0),
-        // matching the circuit's zeroed P256 message on the eddsa rail.
+        // chain). hash_bytes(&[0;32]) == Poseidon(0, 0), matching the circuit's
+        // zeroed P256 message on the eddsa rail.
         let slots = self.public_movements.interleaved();
         let mut elements = Vec::with_capacity(10 + slots.len());
         elements.extend([

@@ -23,12 +23,12 @@ use super::{
     interface_transfer::{
         process_interface_transfers, resolve_interface_transfers, settle_interface_transfers,
     },
-    tree::{apply_input_tree, apply_output_tree, tree_error},
+    tree::{apply_input_tree, apply_output_tree},
 };
 use crate::instructions::{
     event::emit_general_event,
     hash::solana_pk_hash,
-    shared::{check_not_expired, collect_forester_fee},
+    shared::{check_not_expired, collect_forester_fee, tree_error},
     transact::verify::{TransactProof, TransactProofInputs},
 };
 
@@ -72,7 +72,7 @@ pub fn process_transact_ix(
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
     let resolved_interface_transfers =
-        resolve_interface_transfers(&ix, &transact_accounts.settlements)?;
+        resolve_interface_transfers(&ix, &transact_accounts.settlements);
 
     let (inputs, zkp_batch_size) = {
         let input_tree_address = transact_accounts.input_tree.address().to_bytes();

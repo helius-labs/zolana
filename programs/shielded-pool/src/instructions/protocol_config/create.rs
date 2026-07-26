@@ -1,12 +1,11 @@
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-use zolana_account_checks::{checks::check_data_is_zeroed, AccountIterator};
+use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::CreateProtocolConfigData,
-    state::{discriminator::PROTOCOL_CONFIG, ProtocolConfig},
+    error::ShieldedPoolError, instruction::CreateProtocolConfigData, state::ProtocolConfig,
     SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 
+use super::init::ProtocolConfigInitParams;
 use crate::instructions::shared::{verify_pda, CreatePdaAccount};
 
 pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
@@ -41,12 +40,7 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
     .execute()
     .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;
 
-    let mut account_data = protocol_config.try_borrow_mut()?;
-    check_data_is_zeroed::<1>(&account_data)?;
-    let config: &mut ProtocolConfig = bytemuck::try_from_bytes_mut(&mut account_data[..])
-        .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;
-    *config = ProtocolConfig {
-        discriminator: PROTOCOL_CONFIG,
+    ProtocolConfigInitParams {
         protocol_authority: data.protocol_authority,
         tree_creation_authority: data.tree_creation_authority,
         tree_creation_is_permissionless: data.tree_creation_is_permissionless,
@@ -54,6 +48,6 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
         zone_creation_authority: data.zone_creation_authority,
         zone_creation_is_permissionless: data.zone_creation_is_permissionless,
         spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless,
-    };
-    Ok(())
+    }
+    .init(protocol_config)
 }

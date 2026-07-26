@@ -1,4 +1,6 @@
+use bytemuck::{from_bytes, from_bytes_mut, Pod};
 use pinocchio::{
+    account::{Ref, RefMut},
     cpi::{Seed, Signer},
     error::ProgramError,
     sysvars::{clock::Clock, rent::Rent, Sysvar},
@@ -9,6 +11,62 @@ use zolana_interface::{
     error::ShieldedPoolError,
     state::{forester_fee_per_queue_element, FORESTER_REIMBURSEMENT_LAMPORTS},
 };
+use zolana_tree::TreeError;
+
+pub(crate) fn bool_field(value: bool) -> [u8; 32] {
+    let mut field = [0u8; 32];
+    field[31] = u8::from(value);
+    field
+}
+
+pub(crate) fn tree_error(error: TreeError) -> ProgramError {
+    match error {
+        TreeError::Paused => ShieldedPoolError::TreePaused.into(),
+        TreeError::InvalidRootIndex => ShieldedPoolError::StaleNullifierRoot.into(),
+        TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed.into(),
+        _ => ShieldedPoolError::InvalidTreeAccounts.into(),
+    }
+}
+
+#[inline(always)]
+fn validate_config<T: Pod>(
+    data: &[u8],
+    invalid_error: ShieldedPoolError,
+    has_valid_discriminator: impl FnOnce(&T) -> bool,
+) -> ProgramResult {
+    let config = bytemuck::try_from_bytes::<T>(data).map_err(|_| invalid_error)?;
+    has_valid_discriminator(config)
+        .then_some(())
+        .ok_or_else(|| invalid_error.into())
+}
+
+#[inline(always)]
+pub(crate) fn load_config<T: Pod>(
+    account: &AccountView,
+    invalid_error: ShieldedPoolError,
+    has_valid_discriminator: impl FnOnce(&T) -> bool,
+) -> Result<Ref<'_, T>, ProgramError> {
+    if !account.owned_by(&crate::ID) {
+        return Err(invalid_error.into());
+    }
+    let data = account.try_borrow().map_err(|_| invalid_error)?;
+    validate_config(&data, invalid_error, has_valid_discriminator)?;
+    Ok(Ref::map(data, |data| from_bytes::<T>(data)))
+}
+
+#[inline(always)]
+pub(crate) fn load_config_mut<T: Pod>(
+    account: &mut AccountView,
+    invalid_error: ShieldedPoolError,
+    has_valid_discriminator: impl FnOnce(&T) -> bool,
+) -> Result<RefMut<'_, T>, ProgramError> {
+    if !account.is_writable() || !account.owned_by(&crate::ID) {
+        return Err(invalid_error.into());
+    }
+    let data = account.try_borrow_mut().map_err(|_| invalid_error)?;
+    validate_config(&data, invalid_error, has_valid_discriminator)?;
+    Ok(RefMut::map(data, |data| from_bytes_mut::<T>(data)))
+}
 
 /// Collect one tree's per-element forester fee with one System Program CPI.
 ///

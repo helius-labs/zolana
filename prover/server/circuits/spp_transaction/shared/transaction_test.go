@@ -453,7 +453,6 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, con
 	}
 	if confidential {
 		publicInputs.OutputOwnerPkHashes = spptest.ToBigInts(assignment.OutputOwnerPkHashes())
-		publicInputs.P256SigningPkField = big.NewInt(0)
 	}
 	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
 	assignment.PublicInputHash = spptest.MustHash(t, publicInputHashValue, err)

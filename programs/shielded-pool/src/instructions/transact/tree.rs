@@ -4,9 +4,10 @@ use zolana_interface::{
     error::ShieldedPoolError, event::Input,
     instruction::instruction_data::transact::TransactIxDataRef,
 };
-use zolana_tree::{TreeAccount, TreeError};
+use zolana_tree::TreeAccount;
 
 use super::{event::TreeWrite, verify::TransactProofInputs};
+use crate::instructions::shared::{bool_field, tree_error};
 
 #[profile]
 pub(crate) fn apply_input_tree(
@@ -59,19 +60,4 @@ pub(crate) fn apply_output_tree(
         first_output_leaf_index,
         output_tree: output_tree_address,
     })
-}
-
-fn bool_field(value: bool) -> [u8; 32] {
-    let mut field = [0u8; 32];
-    field[31] = u8::from(value);
-    field
-}
-
-pub(crate) fn tree_error(e: TreeError) -> ProgramError {
-    match e {
-        TreeError::Paused => ShieldedPoolError::TreePaused.into(),
-        TreeError::InvalidRootIndex => ShieldedPoolError::StaleNullifierRoot.into(),
-        TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed.into(),
-        _ => ShieldedPoolError::InvalidTreeAccounts.into(),
-    }
 }

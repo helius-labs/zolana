@@ -307,7 +307,7 @@ pub fn assemble_with_dummy_policy(
     }
 
     let ix = TransactIxData {
-        proof: TransactProof::zeroed_eddsa(),
+        proof: TransactProof::zeroed(),
         expiry_unix_ts,
         private_tx_hash: private_tx,
         circuit: circuit_id,

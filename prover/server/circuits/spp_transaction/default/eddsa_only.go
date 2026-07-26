@@ -82,7 +82,6 @@ func (c *DefaultZoneEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 			gadget.PoseidonHash(api, []frontend.Variable{0, 0}),
 			gadget.HashChain(api, c.Public.InputOwnerPkHashes),
 			gadget.HashChain(api, c.Public.OutputOwnerPkHashes),
-			frontend.Variable(0),
 		},
 	}
 }
