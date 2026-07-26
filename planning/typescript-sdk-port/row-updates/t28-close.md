@@ -22,27 +22,32 @@ carries the reasoning. The short form:
   either: such a UTXO cannot settle on chain, so a guard would tighten a
   constructor past Rust for a case no caller reaches.
 
-## What changed
+## What changed, and who changed it
 
-Both languages moved. Neither normalized before, so this is not TypeScript
-catching up to Rust; the two were in agreement and the agreement was the defect.
+Both languages needed it. Neither normalized before, so this was not TypeScript
+catching up to Rust; the two agreed, and the agreement was the defect.
 
-Rust, `sdk-libs/transaction/src/`:
+**Rust had already moved when this branch reached it.** `994574a0`, on
+`port/rulings-impl`, landed `normalized_zone_data_hash` in
+`sdk-libs/transaction/src/utxo.rs` and applied it at
+`SppProofInputUtxo::with_zone_data_hash`, `SppProofOutputUtxo::with_zone_data`,
+and `SppProofOutputUtxo::with_zone_data_hash`, under the interim authorization
+that released the data-hash half before the owner confirmed the split. That
+commit's handoff note names the three TypeScript sites, and they are the three
+this branch changed. This branch had written the same Rust change independently
+and dropped it in the merge: their implementation and their tests stand, and one
+sentence was added to the helper's doc comment recording that the address is
+excluded on purpose. `MergeZone::new` needs no change either way, because its
+`Some` arm routes through `with_zone_data_hash`.
 
-- `utxo.rs` gains `normalize_zone_data_hash`, beside the existing zone helpers.
-- `instructions/types.rs`, `SppProofInputUtxo::with_zone_data_hash` applies it.
-- `instructions/transact/types.rs`, `SppProofOutputUtxo::with_zone_data` and
-  `with_zone_data_hash` apply it.
-- `MergeZone::new` needed no change: its `Some` arm routes through
-  `with_zone_data_hash`, so an explicit zero now lands where the `None` arm
-  already did.
-
-TypeScript, `sdk-libs/ts/transaction/src/utxo.ts`:
+**TypeScript is this branch's**, in `sdk-libs/ts/transaction/src/utxo.ts`:
 
 - `normalizeZoneDataHash`, the mirror of the Rust helper.
-- The `ProofInputUtxo` constructor applies it before the canonicity check.
-- `createProofOutput` applies it once and both `withZoneData` and
-  `withZoneDataHash` inherit it, since they re-enter the factory.
+- The `ProofInputUtxo` constructor applies it before the canonicity check. A
+  zeroed `Uint8Array` is truthy, so the old `if (input.zoneDataHash)` took the
+  present branch.
+- `createProofOutput` applies it once, and `withZoneData` and `withZoneDataHash`
+  inherit it because they re-enter the factory.
 
 ## Two things deliberately left where they were
 
@@ -60,23 +65,33 @@ for it to catch.
 
 ## What pins it
 
-One test per construction site, each asserting both halves of the split so the
-address clause is enforced by the suite rather than by memory:
+The data-hash half already had tests, from `994574a0`:
+`an_explicit_zero_zone_data_hash_is_stored_as_absence` and
+`a_non_zero_zone_data_hash_is_kept`, one pair in
+`sdk-libs/transaction/src/instructions/types.rs` and one in
+`.../instructions/transact/types.rs`. What was missing is the other half of the
+split, so nothing in the suite objected if a later worker extended the
+normalization to the zone address. This branch adds:
 
-- `an_explicit_zero_normalizes_at_the_zone_data_hash_and_not_at_the_zone_address`
-  in `sdk-libs/transaction/src/instructions/types.rs` (input builder) and in
-  `.../instructions/transact/types.rs` (both output builders).
+- `the_zero_zone_address_stays_bound_rather_than_normalizing`, beside each pair,
+  asserting that the zero zone address still resolves to `pk_field(0)` and that
+  the resulting commitment differs from the unbound one.
+- `the_zone_data_builder_normalizes_the_explicit_zero_too`, because the existing
+  output test exercised `with_zone_data_hash` and left `with_zone_data`
+  uncovered.
 - `normalizes an explicit zero at the zone data hash and not at the zone address`
-  in `sdk-libs/ts/transaction/test/core.test.ts`.
+  in `sdk-libs/ts/transaction/test/core.test.ts`, which asserts both halves in
+  one case, TypeScript having had neither.
 
 Watched failing under two control edits rather than merely passing. Dropping the
-normalization fails the first half of all three; normalizing the zone address,
-in Rust at `program_id_field` and in TypeScript at `commitmentFields`, fails the
-second half of all three.
+normalization fails the data-hash assertions; normalizing the zone address, in
+Rust at `program_id_field` and in TypeScript at `commitmentFields`, fails the
+address assertions.
 
 Suites run green afterwards: `cargo test -p zolana-transaction -p zolana-wallet`,
+`cargo check --workspace --all-targets`,
 `cargo clippy -p zolana-transaction --all-targets`, and the TypeScript unit run
-at 1942 passing after `npm run build`.
+at 1943 passing after `npm run build`.
 
 ## What the row should now say
 

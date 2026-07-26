@@ -1176,7 +1176,7 @@ against the tables in [`versioned-transactions.md`](versioned-transactions.md).
 | Ruling | Normalize the zone data hash. Leave the zone address exactly as it behaves today: no normalization, no refusal, no warning. |
 | Ruled by | Protocol owner, 2026-07-26 |
 | Date | 2026-07-26 |
-| Follow-up artifacts | Landed in both languages. Rust: `normalize_zone_data_hash` in `sdk-libs/transaction/src/utxo.rs`, applied by `SppProofInputUtxo::with_zone_data_hash` and by `SppProofOutputUtxo::with_zone_data` / `with_zone_data_hash`. TypeScript: `normalizeZoneDataHash` in `sdk-libs/ts/transaction/src/utxo.ts`, applied by the `ProofInputUtxo` constructor and `createProofOutput`. Row T28. |
+| Follow-up artifacts | Landed in both languages. Rust in `994574a0`: `normalized_zone_data_hash` in `sdk-libs/transaction/src/utxo.rs`, applied by `SppProofInputUtxo::with_zone_data_hash` and by `SppProofOutputUtxo::with_zone_data` / `with_zone_data_hash`. TypeScript on `port/t28-close`: `normalizeZoneDataHash` in `sdk-libs/ts/transaction/src/utxo.ts`, applied by the `ProofInputUtxo` constructor and `createProofOutput`. Row T28. |
 
 This went against [`row-updates/t28-zone-binding.md`](row-updates/t28-zone-binding.md)
 in shape for one of the two clauses it covers, and the register should be read
@@ -1227,7 +1227,9 @@ requirement above.
 Both languages needed the change; neither normalized before, so this is not a
 case of TypeScript catching up to Rust. The normalizer sits beside the existing
 zone helpers in each language and is applied at the builders that turn a
-caller-supplied hash into the stored `Option`.
+caller-supplied hash into the stored `Option`. Rust moved first, in `994574a0`,
+under the interim authorization that allowed the data-hash half before the split
+was confirmed.
 
 Deliberately out of scope: `ExternalData::with_zone_hashes` and its TypeScript
 counterpart. That `Option` is presence-tagged in the instruction bytes, so
@@ -1239,15 +1241,18 @@ assigned directly is still rejected, which is the counterargument this ruling
 declined to follow; what changes is that the builder no longer produces such a
 value in the first place.
 
-The split is pinned by
-`an_explicit_zero_normalizes_at_the_zone_data_hash_and_not_at_the_zone_address`
-in `sdk-libs/transaction/src/instructions/types.rs` and
-`.../instructions/transact/types.rs`, and by
-`normalizes an explicit zero at the zone data hash and not at the zone address`
-in `sdk-libs/ts/transaction/test/core.test.ts`. Each asserts both halves, so
+The split is pinned by tests on both halves rather than by this record. The data
+hash half is `an_explicit_zero_zone_data_hash_is_stored_as_absence` and
+`a_non_zero_zone_data_hash_is_kept`, one pair each in
+`sdk-libs/transaction/src/instructions/types.rs` and
+`.../instructions/transact/types.rs`. The address half is
+`the_zero_zone_address_stays_bound_rather_than_normalizing`, beside each pair, so
 extending normalization to the address fails the suite rather than passing
-quietly. All three were watched failing under two control edits, one dropping the
-data-hash normalization and one adding the address normalization.
+quietly. TypeScript asserts both halves in one case,
+`normalizes an explicit zero at the zone data hash and not at the zone address`
+in `sdk-libs/ts/transaction/test/core.test.ts`. Watched failing under two control
+edits rather than merely passing: one dropping the data-hash normalization, one
+normalizing the zone address in `program_id_field` and `commitmentFields`.
 
 The counterargument, recorded because it was close. The SDKs already refuse an
 explicit zero rather than normalize it in the canonical-dummy check
