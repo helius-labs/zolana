@@ -59,6 +59,13 @@ This worker did not re-run the live stack (offset 800). Closure rests on the
 suite, scripts, and workflow being present and wired at HEAD, matching the
 report's described contract.
 
+**Cited evidence that did not test what it claimed:** `check-scope.mjs`
+documented `check:e2e` as only actions + instructions while `package.json`
+already ran `test:e2e:photon`. The script never compared `contains` to the
+sub-script body, so the drift was silent. Fixed here: `contains` now lists
+photon, and each documented token must appear in the matching `package.json`
+script.
+
 ## Gate — fixture provenance + rejection/tamper
 
 ### Provenance (holds)
