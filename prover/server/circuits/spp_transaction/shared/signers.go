@@ -41,7 +41,7 @@ func EddsaOnlySigners(api frontend.API, inputs []Input, ownerPkHashes []frontend
 	for i, in := range inputs {
 		carriesContent := in.isUtxoOrAddress(api)
 		pkHash := ownerPkHashes[i]
-		assertWhen(api, carriesContent, api.Sub(1, api.IsZero(pkHash)))
+		AssertWhen(api, carriesContent, api.Sub(1, api.IsZero(pkHash)))
 		signers[i] = api.Mul(carriesContent, pkHash)
 	}
 	return signers

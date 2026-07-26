@@ -95,7 +95,7 @@ func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
 		{"output", len(t.Outputs), t.Shape.NOutputs},
 	}
 	for _, check := range append(checks, extra...) {
-		if err := validateLength(check.Name, check.Got, check.Want); err != nil {
+		if err := ValidateLength(check.Name, check.Got, check.Want); err != nil {
 			return err
 		}
 	}
@@ -103,10 +103,10 @@ func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
 }
 
 func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned []frontend.Variable) error {
-	if err := validateLength("signer", len(signers), t.Shape.NInputs); err != nil {
+	if err := ValidateLength("signer", len(signers), t.Shape.NInputs); err != nil {
 		return err
 	}
-	if err := validateLength("output signed", len(outputSigned), t.Shape.NOutputs); err != nil {
+	if err := ValidateLength("output signed", len(outputSigned), t.Shape.NOutputs); err != nil {
 		return err
 	}
 	api.AssertIsBoolean(t.AllowDummyInputs)
@@ -204,9 +204,9 @@ func publicSlots(assets, amounts [NPublicSlots]frontend.Variable) []frontend.Var
 	return slots
 }
 
-// validateLength checks one witness slice against the length the compiled
+// ValidateLength checks one witness slice against the length the compiled
 // skeleton was sized with.
-func validateLength(name string, got, want int) error {
+func ValidateLength(name string, got, want int) error {
 	if got != want {
 		return fmt.Errorf("spp: %s count mismatch: got %d want %d", name, got, want)
 	}
@@ -238,8 +238,8 @@ func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
 	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: cond, V: v})
 }
 
-// assertWhen constrains check == 1 only when cond == 1. Check functions return
+// AssertWhen constrains check == 1 only when cond == 1. Check functions return
 // an ungated satisfied bit; the kind gate is applied only at the call site.
-func assertWhen(api frontend.API, cond, check frontend.Variable) {
+func AssertWhen(api frontend.API, cond, check frontend.Variable) {
 	assertZeroWhen(api, cond, api.Sub(1, check))
 }

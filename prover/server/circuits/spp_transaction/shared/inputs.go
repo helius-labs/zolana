@@ -90,7 +90,7 @@ func constrainInput(api frontend.API, in Input, signals inputSignals) (frontend.
 		NullifierPk:  nullifierPk,
 	})
 	ownerBinds := api.IsZero(api.Sub(ownerHash, in.Utxo.Owner))
-	assertWhen(api, in.isUtxoOrAddress(api), ownerBinds)
+	AssertWhen(api, in.isUtxoOrAddress(api), ownerBinds)
 
 	isUtxo := in.isUtxo(api)
 	isAddress := in.isAddress(api)
@@ -104,10 +104,10 @@ func constrainInput(api frontend.API, in Input, signals inputSignals) (frontend.
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 	in.checkNonInclusion(api, utxoHash, signals)
 
-	assertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
-	assertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
+	AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
+	AssertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
 	assertZeroWhen(api, in.isDummy(api), in.NullifierSecret)
-	assertWhen(api, isAddress, in.checkAddress(api))
+	AssertWhen(api, isAddress, in.checkAddress(api))
 
 	inputHash := api.Select(isUtxo, utxoHash, frontend.Variable(0))
 	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))

@@ -1,13 +1,10 @@
 package defaultzone
 
 import (
-	"fmt"
-
 	"zolana/prover/circuits/gadget"
 	"zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark/frontend"
-	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
 // Owner-tag bindings are default-zone only: the default zone is the
@@ -25,15 +22,15 @@ func AssertOutputOwnerTags(
 	ownerPkHashes []frontend.Variable,
 	nullifierPks []frontend.Variable,
 ) error {
-	if err := checkLength("output owner pk hash", len(ownerPkHashes), len(outputs)); err != nil {
+	if err := shared.ValidateLength("output owner pk hash", len(ownerPkHashes), len(outputs)); err != nil {
 		return err
 	}
-	if err := checkLength("output nullifier pk", len(nullifierPks), len(outputs)); err != nil {
+	if err := shared.ValidateLength("output nullifier pk", len(nullifierPks), len(outputs)); err != nil {
 		return err
 	}
 	for i, utxo := range outputs {
 		ownerHash := gadget.PoseidonHash(api, []frontend.Variable{ownerPkHashes[i], nullifierPks[i]})
-		assertWhen(api, isUtxo(api, utxo), api.IsZero(api.Sub(ownerHash, utxo.Owner)))
+		shared.AssertWhen(api, isUtxo(api, utxo), api.IsZero(api.Sub(ownerHash, utxo.Owner)))
 	}
 	return nil
 }
@@ -56,21 +53,21 @@ func AssertDummyTags(
 	payerPkHash frontend.Variable,
 ) error {
 	if inputOwnerPkHashes != nil {
-		if err := checkLength("input owner pk hash", len(inputOwnerPkHashes), len(inputs)); err != nil {
+		if err := shared.ValidateLength("input owner pk hash", len(inputOwnerPkHashes), len(inputs)); err != nil {
 			return err
 		}
 		for i, in := range inputs {
 			participant := containsOrPayer(api, signers, inputOwnerPkHashes[i], payerPkHash)
-			assertWhen(api, isDummy(api, in.Utxo), participant)
+			shared.AssertWhen(api, isDummy(api, in.Utxo), participant)
 		}
 	}
 	if outputOwnerPkHashes != nil {
-		if err := checkLength("output owner pk hash", len(outputOwnerPkHashes), len(outputs)); err != nil {
+		if err := shared.ValidateLength("output owner pk hash", len(outputOwnerPkHashes), len(outputs)); err != nil {
 			return err
 		}
 		for i, utxo := range outputs {
 			participant := containsOrPayer(api, signers, outputOwnerPkHashes[i], payerPkHash)
-			assertWhen(api, isDummy(api, utxo), participant)
+			shared.AssertWhen(api, isDummy(api, utxo), participant)
 		}
 	}
 	return nil
@@ -97,16 +94,4 @@ func isUtxo(api frontend.API, utxo shared.UtxoCircuitFields) frontend.Variable {
 
 func isDummy(api frontend.API, utxo shared.UtxoCircuitFields) frontend.Variable {
 	return api.IsZero(api.Sub(utxo.Domain, shared.DummyDomain))
-}
-
-// assertWhen constrains check == 1 only when cond == 1.
-func assertWhen(api frontend.API, cond, check frontend.Variable) {
-	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: cond, V: api.Sub(1, check)})
-}
-
-func checkLength(name string, got, want int) error {
-	if got != want {
-		return fmt.Errorf("spp: %s count mismatch: got %d want %d", name, got, want)
-	}
-	return nil
 }

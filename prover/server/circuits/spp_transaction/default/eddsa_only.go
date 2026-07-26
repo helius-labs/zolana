@@ -112,6 +112,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	signers := shared.EddsaOnlySigners(api, tx.Inputs, c.Public.InputOwnerPkHashes)
 	// If an output UTXO holds data the input must have signed a transaction.
 	outputPubkeyIsSigner := signers.ContainsEach(api, c.Public.OutputOwnerPkHashes)
+	// Every dummy tag must be the tag of a signer.
 	if err := AssertDummyTags(
 		api,
 		tx.Inputs,
