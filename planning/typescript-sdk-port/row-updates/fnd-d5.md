@@ -37,11 +37,11 @@ Addresses F137's gap: both languages now finalize with `padCount > 0` and assert
 
 ### Residual 1 — off-curve G2 at compress
 
-**Disposition: keep TypeScript strict; deliberate TypeScript-only fail-fast.**
+**Disposition: closed. There was no policy difference — only a TypeScript byte-order bug.**
 
-Solana's `alt_bn128_g2_compress_be` skips the G2 curve equation (SIMD-0129: compression is meant to pair with `sol_alt_bn128_group_op`, which validates). TypeScript calls `assertValidity()` and refuses the same bytes. Fixture id `off-curve-g2-compress-divergence` pins both outcomes with `disposition: "typescript-fail-fast"`.
+Root cause (see [`g2.md`](g2.md)): gnark writes each Fq2 as `c1 || c0`. TypeScript read `c0` first, handed noble a different point that was genuinely off-curve, and `assertValidity` correctly refused it. Live prover B points were never an accepted TypeScript fail-fast; they failed because parsing was wrong.
 
-This is not the dummy-ciphertext class: an off-curve G2 leaks nothing, and an assembled proof fails on-chain pairing. Rust cannot cheaply mirror the check without abandoning the syscall that is the point of the host path. No owner ruling needed unless the team wants Rust to add an optional pre-check.
+End state matches commit `7c976046` and the Solana syscall: compression keeps the field-range check only; curve validity is deferred to on-chain verify. Fixture id `off-curve-g2-compress-shared-accept`, disposition `match-syscall-range-check`. Do not describe this as an accepted divergence.
 
 ### Residual 2 — unknown proof-response fields
 
@@ -53,7 +53,7 @@ Serde ignores unknown keys on `GnarkProofJson`; TypeScript reads named fields on
 
 **Disposition: keep skipped; impossibility/intractability for prover-relevant points.**
 
-Algebraic construction (solve `(x³ + b).c1 = 0` for `x ∈ Fp2`, then `y0 = ±sqrt((x³ + b).c0)`) finds on-curve points with `y.c1 == 0` at `x1 = 2`. Every such point fails the r-torsion check (`is_in_correct_subgroup_assuming_on_curve == false`); TypeScript `assertValidity` rejects with `bad point: not in prime-order subgroup`. Expected `|G2 ∩ locus|` is O(1) inside a ~2^254 group, so there is no short construction of a prime-order witness. Scalar search was the wrong tool; the skip is now backed by locus evidence rather than a failed search. Fixture row keeps `unavailable: true` with that reason and evidence block. Generator: `cargo run -p xtask --bin proof-response-parity` (optional `--probe-y1-zero`).
+Algebraic construction (solve `(x³ + b).c1 = 0` for `x ∈ Fp2`, then `y0 = ±sqrt((x³ + b).c0)`) finds on-curve points with `y.c1 == 0` at `x1 = 2`. Every such point fails the r-torsion check (`is_in_correct_subgroup_assuming_on_curve == false`). Expected `|G2 ∩ locus|` is O(1) inside a ~2^254 group, so there is no short construction of a prime-order witness. Scalar search was the wrong tool; the skip is now backed by locus evidence rather than a failed search. Fixture row keeps `unavailable: true` with that reason and evidence block. Generator: `cargo run -p xtask --bin proof-response-parity` (optional `--probe-y1-zero`).
 
 ## Owner rulings
 

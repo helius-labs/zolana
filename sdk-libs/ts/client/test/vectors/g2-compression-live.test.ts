@@ -1,20 +1,16 @@
 /// <reference types="node" />
 
 /**
- * PKP-08 / P5 characterisation: which live prover G2 B points take the Rust
- * `alt_bn128_g2_compress_be` fallback, and why TypeScript noble rejects them.
- *
- * Does not change production compression behaviour.
+ * PKP-08 / P5: live prover G2 B points compress in pure TypeScript and match
+ * Rust `alt_bn128_g2_compress_be` (gnark c1-first Fq2 layout).
  */
 
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { bn254 } from "@noble/curves/bn254.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { bytesToBigInt } from "../../src/internal.js";
 import { ProverClient } from "../../src/prover/client.js";
 import { compressProof } from "../../src/prover/proof.js";
 import type { Proof } from "../../src/prover/types.js";
@@ -29,14 +25,12 @@ interface Sample {
   readonly index: number;
   readonly tsCompress: boolean;
   readonly rustCompress: boolean;
-  readonly nobleAssert: "ok" | "throw";
-  readonly nobleMessage?: string;
-  readonly onCurveFp2: boolean;
+  readonly matchesRust: boolean;
   readonly bHex: string;
 }
 
 describe.skipIf(!LIVE)("P5 live G2 compression characterisation", () => {
-  let owned: OwnedProver;
+  let owned: OwnedProver | undefined;
   let client: ProverClient;
 
   beforeAll(async () => {
@@ -45,11 +39,11 @@ describe.skipIf(!LIVE)("P5 live G2 compression characterisation", () => {
   }, 180_000);
 
   afterAll(async () => {
-    await owned.stop();
+    await owned?.stop();
   });
 
   it(
-    "samples confidential eddsa 1x1 proofs and classifies B-point compression",
+    "compresses confidential eddsa 1x1 proofs in pure TypeScript matching Solana",
     async () => {
       const samples: Sample[] = [];
       for (let index = 0; index < SAMPLES; index++) {
@@ -59,23 +53,22 @@ describe.skipIf(!LIVE)("P5 live G2 compression characterisation", () => {
       }
 
       const tsOk = samples.filter((sample) => sample.tsCompress).length;
-      const rustOnly = samples.filter((sample) => !sample.tsCompress && sample.rustCompress).length;
-      const bothFail = samples.filter((sample) => !sample.tsCompress && !sample.rustCompress).length;
+      const rustOk = samples.filter((sample) => sample.rustCompress).length;
+      const matched = samples.filter((sample) => sample.matchesRust).length;
       const report = {
         samples: SAMPLES,
         tsCompressOk: tsOk,
-        rustFallbackNeeded: rustOnly,
-        bothFail,
-        nobleThrow: samples.filter((sample) => sample.nobleAssert === "throw").length,
-        onCurveFp2: samples.filter((sample) => sample.onCurveFp2).length,
-        firstReject: samples.find((sample) => !sample.tsCompress),
+        rustCompressOk: rustOk,
+        matchesRust: matched,
+        rustFallbackNeeded: samples.filter((sample) => !sample.tsCompress && sample.rustCompress)
+          .length,
+        bothFail: samples.filter((sample) => !sample.tsCompress && !sample.rustCompress).length,
+        firstReject: samples.find((sample) => !sample.tsCompress || !sample.matchesRust),
         all: samples.map((sample) => ({
           index: sample.index,
           tsCompress: sample.tsCompress,
           rustCompress: sample.rustCompress,
-          nobleAssert: sample.nobleAssert,
-          nobleMessage: sample.nobleMessage,
-          onCurveFp2: sample.onCurveFp2,
+          matchesRust: sample.matchesRust,
         })),
       };
       const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
@@ -84,65 +77,46 @@ describe.skipIf(!LIVE)("P5 live G2 compression characterisation", () => {
         "planning/typescript-sdk-port/row-updates/g2-compression-live.json",
       );
       writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
-      // Surface the rates in the assertion message so CI logs keep them.
-      expect(
-        { tsCompressOk: tsOk, rustFallbackNeeded: rustOnly, bothFail, samples: SAMPLES },
-        JSON.stringify(report.all.slice(0, 3)),
-      ).toMatchObject({ samples: SAMPLES });
-      expect(rustOnly + tsOk + bothFail).toBe(SAMPLES);
+      expect(report, JSON.stringify(report.all.slice(0, 3))).toMatchObject({
+        samples: SAMPLES,
+        tsCompressOk: SAMPLES,
+        rustCompressOk: SAMPLES,
+        matchesRust: SAMPLES,
+        rustFallbackNeeded: 0,
+        bothFail: 0,
+      });
     },
     900_000,
   );
 });
 
 function classify(index: number, proof: Proof): Sample {
-  const b = proof.b;
-  const values = [0, 32, 64, 96].map((offset) => bytesToBigInt(b.subarray(offset, offset + 32)));
-  const [x0, x1, y0, y1] = values;
-  let nobleAssert: "ok" | "throw" = "ok";
-  let nobleMessage: string | undefined;
-  let onCurveFp2 = false;
-  try {
-    const point = bn254.G2.Point.fromAffine({
-      x: { c0: x0!, c1: x1! },
-      y: { c0: y0!, c1: y1! },
-    });
-    onCurveFp2 = true;
-    try {
-      point.assertValidity();
-    } catch (error) {
-      nobleAssert = "throw";
-      nobleMessage = error instanceof Error ? error.message : String(error);
-    }
-  } catch (error) {
-    onCurveFp2 = false;
-    nobleAssert = "throw";
-    nobleMessage = error instanceof Error ? error.message : String(error);
-  }
-
   let tsCompress = false;
+  let compressedB: Uint8Array | undefined;
   try {
-    compressProof(proof);
+    compressedB = compressProof(proof).b;
     tsCompress = true;
   } catch {
-    tsCompress = false;
+    compressedB = undefined;
   }
 
   let rustCompress = false;
+  let matchesRust = false;
   try {
-    rustCompressProof(proofWire(proof));
+    const rust = rustCompressProof(proofWire(proof));
     rustCompress = true;
+    if (compressedB !== undefined) {
+      matchesRust = Buffer.from(compressedB).toString("hex") === rust.b;
+    }
   } catch {
-    rustCompress = false;
+    // leave rustCompress / matchesRust false
   }
 
   return {
     index,
     tsCompress,
     rustCompress,
-    nobleAssert,
-    ...(nobleMessage === undefined ? {} : { nobleMessage }),
-    onCurveFp2,
-    bHex: Buffer.from(b).toString("hex"),
+    matchesRust,
+    bHex: Buffer.from(proof.b).toString("hex"),
   };
 }

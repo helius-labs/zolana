@@ -114,8 +114,7 @@ export function proofWire(
   };
 }
 
-/// Compress through the same `solana_bn254` path Rust uses when TypeScript's
-/// noble-based G2 validity check rejects a point the program accepts.
+/// Compress through `solana_bn254::alt_bn128_*_compress_be` (parity oracle).
 export function rustCompressProof(proof: VerifyProof): VerifyProof {
   const result = spawnSync(
     "rustup",

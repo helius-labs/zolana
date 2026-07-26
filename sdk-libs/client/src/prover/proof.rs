@@ -194,7 +194,8 @@ pub(crate) fn proof_from_gnark_json(json_str: &str, committed: bool) -> Option<P
     let a = negate_g1_be(&g1_from_hex_pair(&json.ar)?);
     let c = g1_from_hex_pair(&json.krs)?;
 
-    // proof_b is a G2 point: bs[0] = (x.a0, x.a1), bs[1] = (y.a0, y.a1).
+    // proof_b is G2 in gnark WriteRawTo / EIP-197 order: bs[0] = (x.a1, x.a0),
+    // bs[1] = (y.a1, y.a0). Packed bytes are what `alt_bn128_g2_compress_be` expects.
     let [bx, by] = json.bs.as_slice() else {
         return None;
     };

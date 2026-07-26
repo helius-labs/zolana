@@ -718,11 +718,12 @@ fn gnark_proof(commitment: bool) -> Value {
     let g1 = G1Affine::generator();
     let g2 = G2Affine::generator();
     let pair = |x: &ark_bn254::Fq, y: &ark_bn254::Fq| vec![field_hex(x), field_hex(y)];
+    // Prover WriteRawTo / EIP-197: each Fp2 is (A1, A0), not ark (c0, c1).
     json!({
         "ar": pair(&g1.x, &g1.y),
         "bs": [
-            pair(&g2.x.c0, &g2.x.c1),
-            pair(&g2.y.c0, &g2.y.c1)
+            pair(&g2.x.c1, &g2.x.c0),
+            pair(&g2.y.c1, &g2.y.c0)
         ],
         "krs": pair(&g1.x, &g1.y),
         "proof_commitment": if commitment { pair(&g1.x, &g1.y) } else { Vec::<String>::new() },

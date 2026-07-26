@@ -71,16 +71,16 @@ Status vocabulary used below:
 | --- | --- | --- | --- |
 | **P1** Public-input assembly | Named intermediate chains and final `publicInputHash` for confidential (the ten supported shapes, both rails, mixed owners), zone, zone-authority, and merge (default and zone tails) | Test: `sdk-libs/ts/client/test/vectors/public-input-assembly.test.ts`. Vector: `sdk-libs/ts/vectors/public-input-assembly-v1.json`. Generator: `xtask` bin `public-input-assembly`. Related: zone/merge oracles | **Certifies** assembly parity only. Does not ask a prover or run the program verifier. Report: [`row-updates/pkp-p1.md`](row-updates/pkp-p1.md). |
 | **P2** Prover request parity | Exact request JSON bodies, key encounter order, encoding, rejection of unknown/malformed leaves; protocol revision hash of Rust `json.rs` | Test: `sdk-libs/ts/client/test/vectors/prover-request-parity.test.ts`. Fixture: `sdk-libs/ts/fixtures/client/prover-request-parity-v1.json`. Generator: `xtask` bin `prover-request` | **Certifies with exceptions.** Seven TypeScript-reachable shapes match Rust. **`address-append` has no TypeScript path** (`typescriptPaths["address-append"] = false`). Report: [`row-updates/pkp-p2.md`](row-updates/pkp-p2.md). **Gate finding on this revision:** the P2 test imports `fixtures/client/public-input-assembly-v1.json`, but that file lives at `vectors/public-input-assembly-v1.json`; `npm run test:unit` fails to collect the P2 file until that path is corrected (owned by suite maintainers, not fixed in this packet). |
-| **P3** Proof response parsing and compression | Gnark parse, A negation, G1/G2 compression, rail commitment presence, rejection matrix | Tests: `proof-response-parity.test.ts`, `proof-compression.test.ts`, `proof-canonical-oracle.test.ts`. Vector: `sdk-libs/ts/vectors/proof-response-parity-v1.json`. Generator: `xtask` bin `proof-response-parity` | **Does not certify.** Shared accept/reject surface is pinned, but the suite records a real Rust/TypeScript divergence on off-curve G2 at compress (`disposition: "typescript-fail-fast"`), shared acceptance of unknown response fields, and an unavailable `y1 == 0` G2 parity branch. A release claim of "P3 certified" would be false. Report: [`row-updates/pkp-p3.md`](row-updates/pkp-p3.md), dispositions in [`row-updates/fnd-d5.md`](row-updates/fnd-d5.md). |
-| **P4** Cryptographic verification | TypeScript witness to pinned local prover to parse/compress to Rust `groth16-solana` oracle with embedded release verifying keys; rejection mutations | Test: `sdk-libs/ts/client/test/vectors/cryptographic-verification.test.ts`. Scripts: `npm run test:p4` / `test:p4:live` / `test:p4:full` in `@zolana/client`. Oracle: `xtask` bin `groth16-verify` | **Certifies with exceptions** for the fast live gate (Ed25519 1x1 and 2x3, P256 2x3, zone 1x1, zone-authority 1x1, merge 8x1). Does **not** certify instruction execution against the shielded-pool program (that is P5 / HOLE-P5). Full shape matrix behind `ZOLANA_TEST_P4_FULL=1` was not run in the suite report. TypeScript G2 compression may fall back to the Rust oracle compress op. Report: [`row-updates/pkp-p4.md`](row-updates/pkp-p4.md). |
+| **P3** Proof response parsing and compression | Gnark parse, A negation, G1/G2 compression, rail commitment presence, rejection matrix | Tests: `proof-response-parity.test.ts`, `proof-compression.test.ts`, `proof-canonical-oracle.test.ts`, `g2-eip197-limbs.test.ts`. Vectors: `proof-response-parity-v1.json`, `g2-eip197-live-v1.json`. Generator: `xtask` bin `proof-response-parity` | **Certifies with exceptions.** G2 compress matches the Solana syscall after the gnark `c1`-first limb fix ([`g2.md`](row-updates/g2.md)); off-curve G2 is a shared accept under the same range check, not a language divergence. Remaining exceptions: shared acceptance of unknown response fields; unavailable `y1 == 0` G2 parity branch. Report: [`row-updates/pkp-p3.md`](row-updates/pkp-p3.md), [`row-updates/g2.md`](row-updates/g2.md), [`row-updates/fnd-d5.md`](row-updates/fnd-d5.md). |
+| **P4** Cryptographic verification | TypeScript witness to pinned local prover to parse/compress to Rust `groth16-solana` oracle with embedded release verifying keys; rejection mutations | Test: `sdk-libs/ts/client/test/vectors/cryptographic-verification.test.ts`. Scripts: `npm run test:p4` / `test:p4:live` / `test:p4:full` in `@zolana/client`. Oracle: `xtask` bin `groth16-verify` | **Certifies with exceptions** for the fast live gate (Ed25519 1x1 and 2x3, P256 2x3, zone 1x1, zone-authority 1x1, merge 8x1). Does **not** certify instruction execution against the shielded-pool program (that is P5 / HOLE-P5). Full shape matrix behind `ZOLANA_TEST_P4_FULL=1` was not run in the suite report. TypeScript G2 compression no longer needs the Rust oracle for live points ([`g2.md`](row-updates/g2.md)); the oracle fallback remains as a regression path. Report: [`row-updates/pkp-p4.md`](row-updates/pkp-p4.md). |
 | **P5** End-to-end proof flows | TypeScript wallet intent through authority, witness assembly, pinned prover, parse/compress, instruction submit, local validator, shielded-pool state transition, indexer observation, and wallet sync, with no stubs | Required by [`proof-and-key-parity.md`](proof-and-key-parity.md#p5-end-to-end-proof-flows); e2e harness under `sdk-libs/ts/e2e/` | **Does not certify.** **HOLE-P5:** closing report and program-execution evidence are owed by `port/pkp-p5`. Existing e2e action/instruction suites are not a substitute for the P5 family matrix. |
 
 ### Matrix summary for citation
 
 Do **not** cite "the fifteen suites are certified." On this revision:
 
-- Suites that certify (possibly with named exceptions): K1-K10, P1, P2, P4.
-- Suites that **do not** certify: **P3** (recorded divergence), **P5** (not landed).
+- Suites that certify (possibly with named exceptions): K1-K10, P1, P2, P3, P4.
+- Suites that **do not** certify: **P5** (not landed).
 
 ---
 
@@ -187,11 +187,11 @@ read. Sources are cited so the claim can be re-derived.
 
 ### Cryptographic residuals
 
-1. **Off-curve G2 at compress (TypeScript refuse / Rust accept)**  
-   - **What:** TypeScript `assertValidity()` rejects off-curve G2 during compression; Solana `alt_bn128_g2_compress_be` accepts those bytes (SIMD-0129). Fixture id `off-curve-g2-compress-divergence`, disposition `typescript-fail-fast`. P4 may fall back to the Rust oracle `compress` op for some live points.  
-   - **Why accepted:** Deliberate TypeScript refusal before compression; off-curve G2 leaks nothing and fails the pairing check in the program; Rust stays on the host syscall.  
-   - **Affects:** TypeScript proof-compress callers; any claim that compression is byte-identical to the host path; P3 certification (this is why P3 does not certify).  
-   - **Source:** [`row-updates/fnd-d5.md`](row-updates/fnd-d5.md), [`row-updates/pkp-p3.md`](row-updates/pkp-p3.md), [`row-updates/pkp-p4.md`](row-updates/pkp-p4.md).
+1. **Off-curve G2 at compress — closed (was misrecorded as a divergence)**  
+   - **What was wrong:** TypeScript read gnark Fq2 limbs `c0`-first while gnark writes `c1`-first, so noble's curve check ran on a different off-curve point. That was framed as a deliberate fail-fast versus Solana `Validate::No`; it was a parsing bug.  
+   - **End state:** Compression keeps only the field-range check `alt_bn128_g2_compress_be` performs; curve validity is deferred to on-chain verify. Fixture id `off-curve-g2-compress-shared-accept`, disposition `match-syscall-range-check`. Live prover B points compress in pure TypeScript.  
+   - **Affects:** None as residual risk; kept here so release readers do not revive the old framing.  
+   - **Source:** [`row-updates/g2.md`](row-updates/g2.md), [`row-updates/fnd-d5.md`](row-updates/fnd-d5.md), [`row-updates/pkp-p3.md`](row-updates/pkp-p3.md).
 
 2. **Unknown prover response fields accepted in both languages**  
    - **What:** Serde ignores unknown keys on `GnarkProofJson`; TypeScript reads named fields only. Both accept `unexpected_field`. Fixture id `unknown-response-field`, disposition `accept-forward-compat`.  
@@ -201,7 +201,7 @@ read. Sources are cited so the claim can be re-derived.
 
 3. **G2 `y1 == 0 && isLargest(y0)` parity branch skipped**  
    - **What:** No short prime-order witness on the algebraic locus; fixture row stays `unavailable`.  
-   - **Why accepted:** Locus evidence shows on-curve points with `y.c1 == 0` fail the r-torsion check TypeScript enforces; skip is not a failed search.  
+   - **Why accepted:** Locus evidence shows on-curve points with `y.c1 == 0` fail the r-torsion check; skip is not a failed search.  
    - **Affects:** Completeness of P3 compression coverage.  
    - **Source:** [`row-updates/fnd-d5.md`](row-updates/fnd-d5.md), [`row-updates/pkp-p3.md`](row-updates/pkp-p3.md).
 
@@ -468,7 +468,7 @@ Allowed on this revision, if the command ledger is green after HOLE-\* merges:
 Not allowed:
 
 - "Complete proof and key-handling parity."
-- "P3 certified" (real off-curve G2 divergence).
+- "P3 certified" without naming the remaining synthetic off-curve / unknown-field / y1==0 exceptions (see P3 row; live G2 limb bug is closed in [`g2.md`](row-updates/g2.md)).
 - "P5 certified" / "TypeScript prove-submit-verify on a local validator certified" until HOLE-P5 closes.
 - "CI gates green" while the static gate and the P2 import path remain red.
 

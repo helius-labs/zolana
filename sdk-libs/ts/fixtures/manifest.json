@@ -32,15 +32,15 @@
     },
     {
       "path": "client/proof-validity-v1.json",
-      "sha256": "f02f21eabe246ab6db9d4b9123835abb3fc939d4b731efa46983a4bf316f273b"
+      "sha256": "b2bc21a6ba6ef64ca09c92aab085cd96e02229e288ac3843d2a25ea78ce14b33"
     },
     {
       "path": "client/prover-shapes-v1.json",
-      "sha256": "8324d749694b00c3eaaf7b1a9b0ec61b05df8ec9665d67a7b8d8ca67cb82c0c2"
+      "sha256": "71093c067958a2d703a7f0e59170ab6ef68e90db588ffd2700ac79fd40bc76dd"
     },
     {
       "path": "client/rpc-indexer-v1.json",
-      "sha256": "a9742ce3fc7437cdd6cee875b263bad374fe0cdd01ed318bab63f79089c81d1f"
+      "sha256": "b52863fdb5d192751a70825b554a4e8a74b09e76b08d7b183670ab0ad0387edd"
     },
     {
       "path": "indexer-api/schema-v1.json",
@@ -216,11 +216,11 @@
     },
     {
       "path": "workflows/action-merge-v1.json",
-      "sha256": "26baf462a04816ce65d42528574f44ad10101c7f69bda3a9cfe6ef3ee1db2509"
+      "sha256": "2ce84c9d2bf4aee4e6c371d70cec2abf9885427474f8ab57b34c69cdeaa6af3e"
     },
     {
       "path": "workflows/action-split-v1.json",
-      "sha256": "45ac2f0c527b7ec1a504c74ac22084372269b9af30fd2993ede1696603156144"
+      "sha256": "b490781aeb2f8d94dbff118e41015a001484331e336552754b36cb54188c3d4c"
     },
     {
       "path": "workflows/deposit-v1.json",
@@ -228,15 +228,15 @@
     },
     {
       "path": "workflows/instruction-transfer-v1.json",
-      "sha256": "91bc9ef6a17caf061a1c903930869ad236f1d523e1bc49669cce0b3e3c38c763"
+      "sha256": "f738e5ebb1532291c7f89e6a589e0bd52276890d7be05676d8507c4a4e1d6fb6"
     },
     {
       "path": "workflows/instruction-withdraw-sol-v1.json",
-      "sha256": "16878f1d511e9f6c9ea6a89790bada865f41e872d1b94b249075d219055d2556"
+      "sha256": "3ba5a521df47438897c32f4906233a5da694674dbbd67483790c2a0f4d730dfa"
     },
     {
       "path": "workflows/instruction-withdraw-spl-v1.json",
-      "sha256": "72710dd2a796696799447d44848174e67d964cb4554d1953dab95f1160a35c27"
+      "sha256": "ef317172358f21df13bac0f1ad810b9539e1eb258fc2e83911fdb8ff3fa5297f"
     }
   ],
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",

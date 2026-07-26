@@ -389,10 +389,10 @@ fn reject_cases(valid: &[Value]) -> Result<Vec<Value>> {
 
     rejects.push(reject_compress_off_curve_g1(vanilla)?);
     // Out-of-field G2 limbs are refused by both compressors. Off-curve G2 is
-    // not: Solana's `alt_bn128_g2_compress_be` skips the curve check, while
-    // TypeScript asserts validity. That pair is recorded separately.
+    // Out-of-field G2 is refused by both. Off-curve G2 is accepted by both:
+    // compression keeps only the syscall's field-range check.
     rejects.push(reject_compress_g2_out_of_field(vanilla)?);
-    rejects.push(g2_off_curve_divergence(vanilla)?);
+    rejects.push(g2_off_curve_shared_accept(vanilla)?);
 
     Ok(rejects)
 }
@@ -514,7 +514,7 @@ fn reject_compress_g2_out_of_field(vanilla: &Value) -> Result<Value> {
     }))
 }
 
-fn g2_off_curve_divergence(vanilla: &Value) -> Result<Value> {
+fn g2_off_curve_shared_accept(vanilla: &Value) -> Result<Value> {
     let a = hex_to_array::<64>(vanilla["uncompressed"]["aBytes"].as_str().context("a")?);
     let c = hex_to_array::<64>(vanilla["uncompressed"]["cBytes"].as_str().context("c")?);
     let mut b = [0u8; 128];
@@ -528,7 +528,7 @@ fn g2_off_curve_divergence(vanilla: &Value) -> Result<Value> {
     let compressed = ProofCompressed::try_from(proof)
         .map_err(|error| anyhow::anyhow!("Rust unexpectedly refused off-curve G2: {error}"))?;
     Ok(json!({
-        "id": "off-curve-g2-compress-divergence",
+        "id": "off-curve-g2-compress-shared-accept",
         "clause": "offCurveG1OrG2",
         "mutation": "replace uncompressed B from vanilla-generator with a nonzero off-curve G2 encoding",
         "uncompressed": {
@@ -537,14 +537,13 @@ fn g2_off_curve_divergence(vanilla: &Value) -> Result<Value> {
             "cBytes": vanilla["uncompressed"]["cBytes"].clone(),
             "commitment": null
         },
-        "divergence": true,
+        "accepted": true,
         "acceptedByRust": true,
-        "acceptedByTypescript": false,
+        "acceptedByTypescript": true,
         "stage": "compress",
-        "rustCompressedBBytes": hex(&compressed.b),
-        "typescriptCategory": "CLIENT_PROOF_POINT",
-        "disposition": "typescript-fail-fast",
-        "note": "Solana alt_bn128_g2_compress_be skips the G2 curve check by design (SIMD-0129); TypeScript assertValidity refuses the same bytes. Deliberate TypeScript-only fail-fast: off-curve G2 leaks nothing and the proof fails on-chain pairing anyway; Rust cannot cheaply mirror the check without abandoning the syscall."
+        "compressedBBytes": hex(&compressed.b),
+        "disposition": "match-syscall-range-check",
+        "note": "Closed defect: TypeScript used to feed gnark's c1-first Fq2 limbs to noble as c0-first and assertValidity-reject. Compression now keeps only the field-range check that alt_bn128_g2_compress_be performs (SIMD-0129); curve validity is deferred to on-chain verify. Both languages accept this encoding."
     }))
 }
 
@@ -566,11 +565,13 @@ fn gnark_from_points(
     c: &G1Affine,
     commitment: Option<(&G1Affine, &G1Affine)>,
 ) -> Value {
+    // Match the prover's `WriteRawTo` JSON: each Fp2 is (A1, A0) = EIP-197 limb order,
+    // not ark's (c0, c1) declaration order.
     let mut body = json!({
         "ar": g1_pair(a),
         "bs": [
-            fq2_pair(&b.x.c0, &b.x.c1),
-            fq2_pair(&b.y.c0, &b.y.c1)
+            fq2_pair(&b.x.c1, &b.x.c0),
+            fq2_pair(&b.y.c1, &b.y.c0)
         ],
         "krs": g1_pair(c),
     });
