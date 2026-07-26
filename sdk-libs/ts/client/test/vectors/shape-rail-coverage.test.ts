@@ -13,7 +13,7 @@ import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/k
 import {
   PreparedMerge,
   PreparedMergeZone,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   Utxo,
   deriveBlinding,
@@ -98,7 +98,7 @@ function payerHash(): Bytes32 {
 }
 
 function privateMessage(
-  inputs: readonly ProofInputUtxo[],
+  inputs: readonly SppProofInputUtxo[],
   outputs: readonly ProofOutputUtxo[],
   externalDataHash: Bytes32,
 ): Bytes32 {
@@ -121,9 +121,9 @@ function buildZoneInputs(
 ): Readonly<{ proofInputs: SppProofInputs; spendProofs: readonly SpendProof[] }> {
   const { keypair: owner, signing } = zoneKeypair(p256);
   const real = shape.inputs >= 2 ? 2 : 1;
-  const inputs: ProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) =>
+  const inputs: SppProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) =>
     index < real
-      ? new ProofInputUtxo({
+      ? new SppProofInputUtxo({
           utxo: new Utxo({
             owner: owner.signingPublicKey(),
             asset: SOL_MINT,
@@ -133,7 +133,7 @@ function buildZoneInputs(
           }),
           nullifierKey: NullifierKey.fromSigningKey(signing),
         })
-      : ProofInputUtxo.dummy(deriveBlinding(seed(), index)),
+      : SppProofInputUtxo.dummy(deriveBlinding(seed(), index)),
   );
   const outputs = Array.from({ length: shape.outputs }, (_, index) =>
     createProofOutput({
@@ -297,7 +297,7 @@ describe("merge rails build the fixed 8x1 prover request", () => {
     const blinding = bytes(mergeOracle.inputs.blindingSeedBytes) as Bytes31;
     const real = mergeOracle.inputs.realInputAmounts.map(
       (amount: string, index: number) =>
-        new ProofInputUtxo({
+        new SppProofInputUtxo({
           utxo: new Utxo({
             owner: keypair.signingPublicKey(),
             asset: SOL_MINT,
@@ -309,7 +309,7 @@ describe("merge rails build the fixed 8x1 prover request", () => {
     );
     const zoneReal = real.map(
       (input) =>
-        new ProofInputUtxo({
+        new SppProofInputUtxo({
           utxo: new Utxo({
             owner: input.utxo.owner,
             asset: input.utxo.asset,
@@ -321,7 +321,7 @@ describe("merge rails build the fixed 8x1 prover request", () => {
         }),
     );
     const dummies = Array.from({ length: 8 - real.length }, (_, index) =>
-      ProofInputUtxo.dummy(deriveBlinding(blinding, index + real.length)),
+      SppProofInputUtxo.dummy(deriveBlinding(blinding, index + real.length)),
     );
     const prepared = new PreparedMerge({
       inputs: [...real, ...dummies],
@@ -351,7 +351,7 @@ describe("merge rails build the fixed 8x1 prover request", () => {
       txViewingSecret: bytes(mergeOracle.inputs.txViewingSecretBytes) as Bytes32,
       zoneProgramId: zoneProgram,
     });
-    function proofsFor(inputs: readonly ProofInputUtxo[]): readonly SpendProof[] {
+    function proofsFor(inputs: readonly SppProofInputUtxo[]): readonly SpendProof[] {
       return inputs.map((input, index) => ({
         state: {
           leaf: input.hash(),

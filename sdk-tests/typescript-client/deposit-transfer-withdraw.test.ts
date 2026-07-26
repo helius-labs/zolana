@@ -6,7 +6,7 @@ import { randomBlinding, type ShieldedKeypair } from "@zolana/keypair";
 import {
   AssetRegistry,
   ConfidentialTransfer,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   Wallet,
   decryptTransactions,
@@ -24,12 +24,12 @@ const WITHDRAW_AMOUNT = 300_000_000n;
 // a missed or under-sized withdrawal still fails the lower-bound check.
 const WITHDRAW_FEE_ALLOWANCE = 1_000_000n;
 
-function inputUtxo(wallet: Wallet, keypair: ShieldedKeypair): ProofInputUtxo {
+function inputUtxo(wallet: Wallet, keypair: ShieldedKeypair): SppProofInputUtxo {
   const utxo = wallet.balance(SOL_MINT).utxos[0];
   if (utxo === undefined) {
     throw new Error("expected at least one spendable SOL UTXO");
   }
-  return ProofInputUtxo.fromKeypair(utxo, keypair);
+  return SppProofInputUtxo.fromKeypair(utxo, keypair);
 }
 
 describe("example: deposit, transfer, withdraw", () => {

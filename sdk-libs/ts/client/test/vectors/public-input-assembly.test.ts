@@ -13,7 +13,7 @@ import { mergePublicContribution } from "@zolana/keypair/merge";
 import {
   PreparedMerge,
   PreparedMergeZone,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
   Utxo,
@@ -355,7 +355,7 @@ describe("P1 zone public-input assembly", () => {
   }
 
   function privateMessage(
-    inputs: readonly ProofInputUtxo[],
+    inputs: readonly SppProofInputUtxo[],
     outputs: readonly ProofOutputUtxo[],
     externalDataHash: Bytes32,
   ): Bytes32 {
@@ -379,10 +379,10 @@ describe("P1 zone public-input assembly", () => {
   ): Readonly<{ proofInputs: SppProofInputs; spendProofs: readonly SpendProof[] }> {
     const defaultOwner = zoneKeypair(p256);
     const real = shape.inputs >= 2 ? 2 : 1;
-    const inputs: ProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) => {
-      if (index >= real) return ProofInputUtxo.dummy(deriveBlinding(zoneSeed(), index));
+    const inputs: SppProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) => {
+      if (index >= real) return SppProofInputUtxo.dummy(deriveBlinding(zoneSeed(), index));
       const owner = owners?.[index] ?? defaultOwner;
-      return new ProofInputUtxo({
+      return new SppProofInputUtxo({
         utxo: new Utxo({
           owner: owner.keypair.signingPublicKey(),
           asset: SOL_MINT,
@@ -599,7 +599,7 @@ describe("P1 merge owner-binding tails", () => {
   function slots(owner: ShieldedKeypair, nullifierKey: NullifierKey, zone?: Address) {
     const real = mergeInputs.realInputAmounts.map(
       (amount, index) =>
-        new ProofInputUtxo({
+        new SppProofInputUtxo({
           utxo: new Utxo({
             owner: owner.signingPublicKey(),
             asset: SOL_MINT,
@@ -611,12 +611,12 @@ describe("P1 merge owner-binding tails", () => {
         }),
     );
     const dummies = Array.from({ length: MERGE_INPUTS - real.length }, (_, index) =>
-      ProofInputUtxo.dummy(deriveBlinding(seed(), real.length + index)),
+      SppProofInputUtxo.dummy(deriveBlinding(seed(), real.length + index)),
     );
     return [...real, ...dummies];
   }
 
-  function spendProof(input: ProofInputUtxo, index: number): SpendProof {
+  function spendProof(input: SppProofInputUtxo, index: number): SpendProof {
     const stateRoot = new Uint8Array(32);
     stateRoot[31] = 20 + index;
     const nullifierRoot = new Uint8Array(32);

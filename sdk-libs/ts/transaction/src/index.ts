@@ -53,7 +53,7 @@ export type {
   Shape,
   WithdrawalTarget,
 } from "./instructions/index.js";
-export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash } from "./utxo.js";
+export { SppProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash } from "./utxo.js";
 export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
 export {
   AssetRegistry,

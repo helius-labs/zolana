@@ -3,7 +3,7 @@ import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/k
 import {
   PreparedMerge,
   PreparedMergeZone,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   Utxo,
   deriveBlinding,
@@ -56,10 +56,10 @@ function inputs(
   owner: ShieldedKeypair,
   nullifierKey: NullifierKey,
   zoneProgramId?: Address,
-): readonly ProofInputUtxo[] {
+): readonly SppProofInputUtxo[] {
   const real = oracle.inputs.realInputAmounts.map(
     (amount, index) =>
-      new ProofInputUtxo({
+      new SppProofInputUtxo({
         utxo: new Utxo({
           owner: owner.signingPublicKey(),
           asset: SOL_MINT,
@@ -71,14 +71,14 @@ function inputs(
       }),
   );
   const dummies = Array.from({ length: MERGE_INPUTS - real.length }, (_, index) =>
-    ProofInputUtxo.dummy(deriveBlinding(seed(), real.length + index)),
+    SppProofInputUtxo.dummy(deriveBlinding(seed(), real.length + index)),
   );
   return [...real, ...dummies];
 }
 
 /// Mirrors `spend_proofs` in the Rust generator: one tree for both proofs,
 /// per-slot roots and root indexes, all-zero path elements.
-function spendProof(input: ProofInputUtxo, index: number): SpendProof {
+function spendProof(input: SppProofInputUtxo, index: number): SpendProof {
   const stateRoot = new Uint8Array(32);
   stateRoot[31] = 20 + index;
   const nullifierRoot = new Uint8Array(32);
@@ -218,7 +218,7 @@ describe("merge assembly against the Rust oracle", () => {
     const slots = inputs(owner, nullifierKey).map((input) =>
       input.isDummy()
         ? input
-        : new ProofInputUtxo({
+        : new SppProofInputUtxo({
             utxo: input.utxo,
             nullifierKey: input.nullifierKey,
             dataHash,
@@ -228,7 +228,7 @@ describe("merge assembly against the Rust oracle", () => {
     const normalized = slots.map((input) =>
       input.isDummy()
         ? input
-        : new ProofInputUtxo({ utxo: input.utxo, nullifierKey: input.nullifierKey }),
+        : new SppProofInputUtxo({ utxo: input.utxo, nullifierKey: input.nullifierKey }),
     );
     const prepared = new PreparedMerge({
       inputs: [...slots],

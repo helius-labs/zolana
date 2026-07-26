@@ -202,7 +202,7 @@ function fixtureSigner(seed: string): TransactionSigner {
 }
 
 function spendProof(
-  input: import("@zolana/transaction").ProofInputUtxo,
+  input: import("@zolana/transaction").SppProofInputUtxo,
   index: number,
 ): SpendProof {
   return {

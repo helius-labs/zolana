@@ -1,6 +1,6 @@
 import type { Bytes32, TransactInstructionData, TransactProof } from "@zolana/interface";
 import type { P256PublicKey, ShieldedPublicKey } from "@zolana/keypair";
-import { ProofInputUtxo, SppProofInputs, type ProofOutputUtxo } from "@zolana/transaction";
+import { SppProofInputUtxo, SppProofInputs, type ProofOutputUtxo } from "@zolana/transaction";
 
 import { ClientError, fromClientCause } from "../error.js";
 import {
@@ -282,7 +282,7 @@ export interface AssembledSlots {
 export function assembleSlots(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
-  ownerField: (input: ProofInputUtxo, index: number) => bigint,
+  ownerField: (input: SppProofInputUtxo, index: number) => bigint,
 ): AssembledSlots {
   const transferInputs: TransferInput[] = [];
   const inputHashes: bigint[] = [];
@@ -347,7 +347,7 @@ export function assembleSlots(
 }
 
 export function createRealInput(
-  input: ProofInputUtxo,
+  input: SppProofInputUtxo,
   proof: SpendProof,
   ownerPublicKeyHash: bigint,
 ): TransferInput {
@@ -375,7 +375,7 @@ export function createRealInput(
 }
 
 export function createDummyTransferInput(
-  input: ProofInputUtxo,
+  input: SppProofInputUtxo,
   utxoRoot: bigint,
   nullifierRoot: bigint,
   owner: bigint,
@@ -409,7 +409,7 @@ export function createOutput(output: ProofOutputUtxo): TransferOutput {
       )
     : hashField(output.ownerTag ?? new Uint8Array(32));
   const value = Object.freeze({
-    utxo: output as unknown as ProofInputUtxo,
+    utxo: output as unknown as SppProofInputUtxo,
     isDummy: asField(output.isDummy() ? 1n : 0n),
     hash: asField(bytesField(output.hash(), "output hash")),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
@@ -423,7 +423,7 @@ export function createOutput(output: ProofOutputUtxo): TransferOutput {
   return value;
 }
 
-function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
+function inputCircuitUtxo(input: SppProofInputUtxo, dummy = false): CircuitUtxo {
   const owner = dummy
     ? 0n
     : poseidon([
@@ -463,7 +463,7 @@ function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
   });
 }
 
-export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, index: number): void {
+export function validateSpendProof(input: SppProofInputUtxo, proof: SpendProof, index: number): void {
   if (!equal(input.hash(), proof.state.leaf)) {
     throw new ClientError("CLIENT_STATE_PROOF_LEAF_MISMATCH", { details: { index } });
   }
@@ -497,7 +497,7 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
 /// each P256 input's owner tag against this one value. A signature made with any
 /// other key can only produce a proof that fails to verify, so reject it here.
 export function checkedP256Owner(
-  realInputs: readonly ProofInputUtxo[],
+  realInputs: readonly SppProofInputUtxo[],
   signingKey: P256PublicKey,
 ): ShieldedPublicKey {
   const owner = realInputs.find((input) => input.utxo.owner.signatureType() === "p256")?.utxo.owner;

@@ -7,7 +7,7 @@
       "@zolana/transaction|root|class|Data",
       "@zolana/transaction|root|type|Blinding",
       "@zolana/transaction|root|class|Utxo",
-      "@zolana/transaction|root|class|ProofInputUtxo",
+      "@zolana/transaction|root|class|SppProofInputUtxo",
       "@zolana/transaction|root|function|deriveBlinding",
       "@zolana/transaction|root|function|ownerUtxoHash",
       "@zolana/transaction|root|const|SOL_ASSET_ID",

@@ -389,10 +389,6 @@
         "kind": "type"
       },
       {
-        "name": "ProofInputUtxo",
-        "kind": "value"
-      },
-      {
         "name": "PROVE_PATH",
         "kind": "value"
       },
@@ -430,6 +426,10 @@
       },
       {
         "name": "SPP_SUPPORTED_SHAPES",
+        "kind": "value"
+      },
+      {
+        "name": "SppProofInputUtxo",
         "kind": "value"
       },
       {

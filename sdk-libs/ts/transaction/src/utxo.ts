@@ -212,7 +212,7 @@ export class Utxo {
   }
 }
 
-export class ProofInputUtxo {
+export class SppProofInputUtxo {
   readonly utxo: Utxo;
   readonly nullifierKey: NullifierKey;
   readonly dataHash?: Bytes32;
@@ -260,19 +260,19 @@ export class ProofInputUtxo {
    * A note carrying program data needs its hashes attached, which the
    * constructor takes directly.
    */
-  static fromKeypair(utxo: Utxo, keypair: ShieldedKeypair): ProofInputUtxo {
+  static fromKeypair(utxo: Utxo, keypair: ShieldedKeypair): SppProofInputUtxo {
     const nullifierKey = keypair.nullifierKey();
     try {
-      return new ProofInputUtxo({ utxo, nullifierKey });
+      return new SppProofInputUtxo({ utxo, nullifierKey });
     } finally {
       nullifierKey.destroy();
     }
   }
 
-  static dummy(blinding = random31()): ProofInputUtxo {
+  static dummy(blinding = random31()): SppProofInputUtxo {
     const nullifierKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
     try {
-      return new ProofInputUtxo({
+      return new SppProofInputUtxo({
         utxo: new Utxo({
           owner: ShieldedPublicKey.zeroed(),
           asset: "11111111111111111111111111111111" as Address,
@@ -341,7 +341,7 @@ function committedHash(hash?: Bytes32): Bytes32 {
   return hash ?? ZERO_32;
 }
 
-function noncanonicalDummyField(input: ProofInputUtxo): string | undefined {
+function noncanonicalDummyField(input: SppProofInputUtxo): string | undefined {
   if (input.utxo.asset !== DUMMY_ASSET) return "asset";
   if (input.utxo.amount !== 0n) return "amount";
   if (!input.utxo.data.isEmpty()) return "data";

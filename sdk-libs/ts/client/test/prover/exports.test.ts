@@ -11,7 +11,7 @@ import * as prover from "../../src/prover/index.js";
 const EXPORTS = [
   "DEFAULT_ASYNC_POLL_CONFIG",
   "PROVE_PATH",
-  "ProofInputUtxo",
+  "SppProofInputUtxo",
   "ProverClient",
   "SERVER_ADDRESS",
   "SPP_SUPPORTED_SHAPES",

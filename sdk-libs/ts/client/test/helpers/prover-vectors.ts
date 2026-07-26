@@ -8,7 +8,7 @@ import {
 } from "@zolana/keypair";
 import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "@zolana/interface";
 import {
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
   Utxo,
@@ -77,7 +77,7 @@ function payerHash(): Bytes32 {
 }
 
 function privateMessage(
-  inputs: readonly ProofInputUtxo[],
+  inputs: readonly SppProofInputUtxo[],
   outputs: readonly ProofOutputUtxo[],
   externalDataHash: Bytes32,
 ): Bytes32 {
@@ -109,8 +109,8 @@ export function buildProofInputs(
     ViewingKey.fromSeed(bytes(fixture.inputs.viewingSeedBytes) as Bytes32, isP256 ? 1 : 0),
   );
   const blindingSeed = bytes(fixture.inputs.blindingSeedBytes) as Bytes31;
-  const inputs: ProofInputUtxo[] = [
-    new ProofInputUtxo({
+  const inputs: SppProofInputUtxo[] = [
+    new SppProofInputUtxo({
       utxo: new Utxo({
         owner: keypair.signingPublicKey(),
         asset: SOL_MINT,
@@ -121,7 +121,7 @@ export function buildProofInputs(
     }),
   ];
   for (let position = 1; position < shape.inputs; position++) {
-    inputs.push(ProofInputUtxo.dummy(deriveBlinding(blindingSeed, position)));
+    inputs.push(SppProofInputUtxo.dummy(deriveBlinding(blindingSeed, position)));
   }
   const outputs = Array.from({ length: shape.outputs }, (_, index) =>
     index === 0
@@ -305,9 +305,9 @@ export function buildEdgeCase(
   const splMint = encodeBase58(bytes(oracle.inputs.splMintBytes)) as Address;
   const asset = shape.splWithdrawal ? splMint : SOL_MINT;
   const inputs = shape.inputs.map((slot) => {
-    if ("dummy" in slot) return ProofInputUtxo.dummy(deriveBlinding(blindingSeed, slot.dummy));
+    if ("dummy" in slot) return SppProofInputUtxo.dummy(deriveBlinding(blindingSeed, slot.dummy));
     const signing = edgeCaseSigningKey(oracle, slot.rail);
-    return new ProofInputUtxo({
+    return new SppProofInputUtxo({
       utxo: new Utxo({
         owner: signing.publicKey(),
         asset,

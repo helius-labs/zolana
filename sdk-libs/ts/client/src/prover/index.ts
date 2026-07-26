@@ -56,5 +56,5 @@ export {
   SPP_SUPPORTED_SHAPES,
   canonicalShape,
   resolveShape,
-  ProofInputUtxo,
+  SppProofInputUtxo,
 } from "@zolana/transaction";

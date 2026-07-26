@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   AssetRegistry,
   Data,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   TRANSACTION_ERROR_CODES,
   TransactionError,
@@ -62,7 +62,7 @@ function zeroOwnerUtxo(overrides: Partial<ConstructorParameters<typeof Utxo>[0]>
 // The same seven cases the Rust `check_canonical_dummy` table rejects.
 function noncanonicalDummies(): readonly (readonly [
   string,
-  ConstructorParameters<typeof ProofInputUtxo>[0],
+  ConstructorParameters<typeof SppProofInputUtxo>[0],
 ])[] {
   return [
     [
@@ -188,17 +188,17 @@ describe("transaction core", () => {
     expect(base.hash(scalar(8), dataHash, zoneHash)).not.toEqual(hash);
     expect(base.nullifier(hash, nullifier)).not.toEqual(base.nullifier(scalar(9), nullifier));
 
-    const proof = new ProofInputUtxo({
+    const proof = new SppProofInputUtxo({
       utxo: base,
       nullifierKey: nullifier,
       dataHash,
       zoneDataHash: zoneHash,
     });
     expect(proof.hash()).toEqual(base.hash(nullifier.publicKey(), dataHash, zoneHash));
-    expect(ProofInputUtxo.dummy().isDummy()).toBe(true);
+    expect(SppProofInputUtxo.dummy().isDummy()).toBe(true);
     expect(
       () =>
-        new ProofInputUtxo({
+        new SppProofInputUtxo({
           utxo: new Utxo({
             owner: ShieldedPublicKey.zeroed(),
             asset: "SysvarRent111111111111111111111111111111111" as Address,
@@ -216,7 +216,7 @@ describe("transaction core", () => {
   });
 
   it("accepts and hashes a canonical dummy exactly as Rust does", () => {
-    const dummy = ProofInputUtxo.dummy(new Uint8Array(31).fill(7) as Bytes31);
+    const dummy = SppProofInputUtxo.dummy(new Uint8Array(31).fill(7) as Bytes31);
 
     expect(dummy.isDummy()).toBe(true);
     expect(hex(dummy.hash())).toBe(DUMMY_ORACLE_HASH);
@@ -225,7 +225,7 @@ describe("transaction core", () => {
 
   it("rejects every field a zero-owner input must leave zero", () => {
     for (const [field, input] of noncanonicalDummies()) {
-      expect(() => new ProofInputUtxo(input)).toThrow(
+      expect(() => new SppProofInputUtxo(input)).toThrow(
         expect.objectContaining({
           code: "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
           details: { field },
@@ -238,8 +238,8 @@ describe("transaction core", () => {
   // field, so the dummy rule has to agree with it. `dataHash` reaches the
   // constructor unnormalized, which is how the two spellings stay reachable.
   it("accepts a dummy carrying an explicit zero hash, as Rust does", () => {
-    const canonical = ProofInputUtxo.dummy(DUMMY_BLINDING);
-    const explicit = new ProofInputUtxo({
+    const canonical = SppProofInputUtxo.dummy(DUMMY_BLINDING);
+    const explicit = new SppProofInputUtxo({
       utxo: zeroOwnerUtxo(),
       nullifierKey: ZERO_NULLIFIER_KEY(),
       dataHash: ZERO_HASH(),
@@ -257,7 +257,7 @@ describe("transaction core", () => {
   it("rejects a dummy bound to the zero zone address", () => {
     expect(
       () =>
-        new ProofInputUtxo({
+        new SppProofInputUtxo({
           utxo: zeroOwnerUtxo({ zoneProgramId: ZERO_ADDRESS }),
           nullifierKey: ZERO_NULLIFIER_KEY(),
         }),
@@ -284,9 +284,9 @@ describe("transaction core", () => {
       amount: 42n,
       blinding,
     });
-    const unboundInput = new ProofInputUtxo({ utxo, nullifierKey: nullifier });
+    const unboundInput = new SppProofInputUtxo({ utxo, nullifierKey: nullifier });
 
-    const normalizedInput = new ProofInputUtxo({
+    const normalizedInput = new SppProofInputUtxo({
       utxo,
       nullifierKey: nullifier,
       zoneDataHash: ZERO_HASH(),
@@ -294,7 +294,7 @@ describe("transaction core", () => {
     expect(normalizedInput.zoneDataHash).toBeUndefined();
     expect(normalizedInput.hash()).toEqual(unboundInput.hash());
 
-    const zeroZoneInput = new ProofInputUtxo({
+    const zeroZoneInput = new SppProofInputUtxo({
       utxo: new Utxo({
         owner: keypair.signingPublicKey(),
         asset: SOL_MINT,
@@ -334,7 +334,7 @@ describe("transaction core", () => {
       zoneProgramId: ZONE,
     });
 
-    const zoneBound = new ProofInputUtxo({
+    const zoneBound = new SppProofInputUtxo({
       utxo,
       nullifierKey: nullifier,
       zoneDataHash: aboveModulus,
@@ -345,7 +345,7 @@ describe("transaction core", () => {
     );
 
     expect(() =>
-      new ProofInputUtxo({
+      new SppProofInputUtxo({
         utxo,
         nullifierKey: nullifier,
         dataHash: aboveModulus,

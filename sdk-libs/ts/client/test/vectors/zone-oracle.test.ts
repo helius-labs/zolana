@@ -8,7 +8,7 @@ import {
   ViewingKey,
 } from "@zolana/keypair";
 import {
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
   Utxo,
@@ -80,7 +80,7 @@ function payerHash(): Bytes32 {
 }
 
 function privateMessage(
-  inputs: readonly ProofInputUtxo[],
+  inputs: readonly SppProofInputUtxo[],
   outputs: readonly ProofOutputUtxo[],
   externalDataHash: Bytes32,
 ): Bytes32 {
@@ -107,9 +107,9 @@ function buildInputs(
 ): Readonly<{ proofInputs: SppProofInputs; spendProofs: readonly SpendProof[] }> {
   const { keypair: owner, signing } = keypair(p256);
   const real = shape.inputs >= 2 ? 2 : 1;
-  const inputs: ProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) =>
+  const inputs: SppProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) =>
     index < real
-      ? new ProofInputUtxo({
+      ? new SppProofInputUtxo({
           utxo: new Utxo({
             owner: owner.signingPublicKey(),
             asset: SOL_MINT,
@@ -119,7 +119,7 @@ function buildInputs(
           }),
           nullifierKey: NullifierKey.fromSigningKey(signing),
         })
-      : ProofInputUtxo.dummy(deriveBlinding(seed(), index)),
+      : SppProofInputUtxo.dummy(deriveBlinding(seed(), index)),
   );
   const outputs = Array.from({ length: shape.outputs }, (_, index) =>
     createProofOutput({

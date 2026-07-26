@@ -41,5 +41,5 @@ export type {
   Shape,
   WithdrawalTarget,
 } from "./transact.js";
-export { ProofInputUtxo, createProofOutput } from "../utxo.js";
+export { SppProofInputUtxo, createProofOutput } from "../utxo.js";
 export type { ProofOutputInit, ProofOutputUtxo } from "../utxo.js";

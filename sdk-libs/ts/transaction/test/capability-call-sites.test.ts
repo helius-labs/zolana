@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   AssetRegistry,
   ConfidentialTransfer,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   Utxo,
   deriveBlinding,
@@ -39,9 +39,9 @@ function keypair(): ShieldedKeypair {
   );
 }
 
-function spend(owner: ShieldedKeypair, index: number, zoneProgramId?: Address): ProofInputUtxo {
+function spend(owner: ShieldedKeypair, index: number, zoneProgramId?: Address): SppProofInputUtxo {
   const signing = SigningKey.fromBytes(new Uint8Array(32).fill(3) as Bytes32);
-  return new ProofInputUtxo({
+  return new SppProofInputUtxo({
     utxo: new Utxo({
       owner: owner.signingPublicKey(),
       asset: SOL_MINT,

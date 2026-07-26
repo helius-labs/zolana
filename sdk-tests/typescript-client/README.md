@@ -51,7 +51,7 @@ building stays aligned either way.
 | `Deposit { .. }.instruction()` | `depositInstruction({ tree, depositor, data })` |
 | `Transact { .. }.instruction()` | `transactInstruction({ payer, tree, withdrawal, data })` |
 | `TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })` | `{ kind: "sol", recipient }` |
-| `SppProofInputUtxo::new(utxo, &kp)` | `ProofInputUtxo.fromKeypair(utxo, keypair)` |
+| `SppProofInputUtxo::new(utxo, &kp)` | `SppProofInputUtxo.fromKeypair(utxo, keypair)` |
 | `ConfidentialTransfer::new / send / withdraw / sign` | same names, same order, `sign` also synchronous |
 | `client.prove_transact(inputs, config)` | `client.proveTransact(inputs, config)` |
 | `client.create_and_send_transaction(ixs, payer, signers)` | `client.createAndSendTransaction({ instructions, feePayer, signers })` |

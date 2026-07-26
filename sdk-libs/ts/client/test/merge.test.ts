@@ -11,7 +11,7 @@ import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/k
 import {
   PreparedMerge,
   PreparedMergeZone,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   Utxo,
   deriveBlinding,
@@ -77,7 +77,7 @@ function source(): Readonly<{
   const seed = fixtureBytes(mergeFixture.inputs.blindingSeedBytes) as Bytes31;
   const real = mergeFixture.inputs.realInputAmounts.map(
     (amount, index) =>
-      new ProofInputUtxo({
+      new SppProofInputUtxo({
         utxo: new Utxo({
           owner: keypair.signingPublicKey(),
           asset: SOL_MINT,
@@ -91,7 +91,7 @@ function source(): Readonly<{
     inputs: [
       ...real,
       ...Array.from({ length: 6 }, (_, index) =>
-        ProofInputUtxo.dummy(deriveBlinding(seed, index + 2)),
+        SppProofInputUtxo.dummy(deriveBlinding(seed, index + 2)),
       ),
     ],
     output: createProofOutput({
@@ -128,7 +128,7 @@ function zoneSource(): ReturnType<typeof source> & Readonly<{ prepared: Prepared
     .filter((input) => !input.isDummy())
     .map(
       (input) =>
-        new ProofInputUtxo({
+        new SppProofInputUtxo({
           utxo: new Utxo({
             owner: input.utxo.owner,
             asset: input.utxo.asset,
@@ -161,7 +161,7 @@ function zoneSource(): ReturnType<typeof source> & Readonly<{ prepared: Prepared
   };
 }
 
-function spendProof(input: ProofInputUtxo, index: number): SpendProof {
+function spendProof(input: SppProofInputUtxo, index: number): SpendProof {
   const stateRoot = new Uint8Array(32);
   stateRoot[31] = 20 + index;
   const nullifierRoot = new Uint8Array(32);

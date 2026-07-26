@@ -10,7 +10,7 @@ import {
 import {
   PreparedMerge,
   PreparedMergeZone,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
   Utxo,
@@ -52,7 +52,7 @@ function payerHash(): Bytes32 {
 }
 
 function privateMessage(
-  inputs: readonly ProofInputUtxo[],
+  inputs: readonly SppProofInputUtxo[],
   outputs: readonly ReturnType<typeof createProofOutput>[],
   externalDataHash: Bytes32,
 ): Bytes32 {
@@ -89,7 +89,7 @@ function keypair(rail: "eddsa" | "p256"): Readonly<{
 
 function indexRealInputs(
   indexer: ProveIndexer,
-  inputs: readonly ProofInputUtxo[],
+  inputs: readonly SppProofInputUtxo[],
 ): readonly SpendProof[] {
   const proofs: SpendProof[] = [];
   for (const input of inputs) {
@@ -110,8 +110,8 @@ export function buildConfidentialWitness(
 ): ReturnType<typeof assemble> {
   const { keypair: owner, signing } = keypair(rail);
   const blindingSeed = bytes(fixture.inputs.blindingSeedBytes) as Bytes31;
-  const inputs: ProofInputUtxo[] = [
-    new ProofInputUtxo({
+  const inputs: SppProofInputUtxo[] = [
+    new SppProofInputUtxo({
       utxo: new Utxo({
         owner: owner.signingPublicKey(),
         asset: SOL_MINT,
@@ -122,7 +122,7 @@ export function buildConfidentialWitness(
     }),
   ];
   for (let position = 1; position < shape.inputs; position++) {
-    inputs.push(ProofInputUtxo.dummy(deriveBlinding(blindingSeed, position)));
+    inputs.push(SppProofInputUtxo.dummy(deriveBlinding(blindingSeed, position)));
   }
   const outputs = Array.from({ length: shape.outputs }, (_, index) =>
     index === 0
@@ -210,9 +210,9 @@ function buildZoneInputs(
   // Match `sdk-libs/client/tests/zone_transfer/steps.rs`: real inputs carry the
   // zone; dummy inputs do not. Real outputs use an owner address; padding
   // outputs are zero-amount with no zone binding.
-  const inputs: ProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) =>
+  const inputs: SppProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) =>
     index < real
-      ? new ProofInputUtxo({
+      ? new SppProofInputUtxo({
           utxo: new Utxo({
             owner: owner.signingPublicKey(),
             asset: SOL_MINT,
@@ -222,7 +222,7 @@ function buildZoneInputs(
           }),
           nullifierKey: NullifierKey.fromSigningKey(signing),
         })
-      : ProofInputUtxo.dummy(deriveBlinding(seed, index)),
+      : SppProofInputUtxo.dummy(deriveBlinding(seed, index)),
   );
   const outputs = Array.from({ length: shape.outputs }, (_, index) =>
     index === 0
@@ -297,7 +297,7 @@ export function buildZoneAuthorityProofInputs(shape: Readonly<{ inputs: number; 
 function mergeSlots(zoneProgramId?: Address): {
   owner: ShieldedKeypair;
   nullifierKey: NullifierKey;
-  slots: ProofInputUtxo[];
+  slots: SppProofInputUtxo[];
   tree: Address;
 } {
   const tree = mergeOracle.inputs.tree as Address;
@@ -311,7 +311,7 @@ function mergeSlots(zoneProgramId?: Address): {
   const seed = bytes(mergeOracle.inputs.blindingSeedBytes) as Bytes31;
   const slots = mergeOracle.inputs.realInputAmounts.map(
     (amount, index) =>
-      new ProofInputUtxo({
+      new SppProofInputUtxo({
         utxo: new Utxo({
           owner: owner.signingPublicKey(),
           asset: SOL_MINT,
@@ -323,7 +323,7 @@ function mergeSlots(zoneProgramId?: Address): {
       }),
   );
   while (slots.length < 8) {
-    slots.push(ProofInputUtxo.dummy(deriveBlinding(seed, slots.length)));
+    slots.push(SppProofInputUtxo.dummy(deriveBlinding(seed, slots.length)));
   }
   return { owner, nullifierKey, slots, tree };
 }

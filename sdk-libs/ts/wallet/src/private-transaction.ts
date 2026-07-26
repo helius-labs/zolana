@@ -9,7 +9,7 @@ import type {
 import type { ShieldedAddress } from "@zolana/keypair";
 import {
   ConfidentialTransfer,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   type Data,
   type SppProofInputs,
   type Utxo,
@@ -112,7 +112,7 @@ async function prepareShielded(
   ]);
   const inputs = unsignedInputs.map(
     ({ entry }) =>
-      new ProofInputUtxo({
+      new SppProofInputUtxo({
         utxo: entry.utxo,
         nullifierKey,
         ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),

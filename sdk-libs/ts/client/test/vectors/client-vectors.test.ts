@@ -1,5 +1,5 @@
 import type { Bytes31 } from "@zolana/interface";
-import { ProofInputUtxo } from "@zolana/transaction";
+import { SppProofInputUtxo } from "@zolana/transaction";
 import { describe, expect, it } from "vitest";
 
 import proofInputFixture from "../../../fixtures/client/proof-input-v1.json" with { type: "json" };
@@ -18,7 +18,7 @@ function hex(value: Uint8Array): string {
 
 describe("manifest-pinned P00 client vectors", () => {
   it("reproduces the frozen dummy-input nullifier", () => {
-    const dummy = ProofInputUtxo.dummy(
+    const dummy = SppProofInputUtxo.dummy(
       bytes(proofInputFixture.inputs.dummyBlindingBytes) as Bytes31,
     );
 

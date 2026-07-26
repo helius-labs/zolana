@@ -1,5 +1,5 @@
 import type { Bytes31 } from "@zolana/interface";
-import { ProofInputUtxo } from "@zolana/transaction";
+import { SppProofInputUtxo } from "@zolana/transaction";
 import { describe, expect, it } from "vitest";
 
 import fixture from "../../../fixtures/api/prover-request-v1.json" with { type: "json" };
@@ -15,7 +15,7 @@ function field(value: bigint): Field {
 
 describe("frozen prover request JSON", () => {
   it("serializes every field of the deterministic dummy witness", () => {
-    const dummy = ProofInputUtxo.dummy(bytes(fixture.inputs.dummyBlinding) as Bytes31);
+    const dummy = SppProofInputUtxo.dummy(bytes(fixture.inputs.dummyBlinding) as Bytes31);
     const input: TransferInput = createDummyTransferInput(
       dummy,
       BigInt(fixture.expected.request.inputs[0]?.utxoTreeRoot ?? "0"),

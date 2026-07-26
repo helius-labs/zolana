@@ -5,7 +5,7 @@ import type {
   TransactInstructionData,
   TransactProof,
 } from "@zolana/interface";
-import type { ProofInputUtxo } from "@zolana/transaction";
+import type { SppProofInputUtxo } from "@zolana/transaction";
 
 import type { SpendProof } from "../rpc.js";
 
@@ -13,7 +13,7 @@ export type Shape = Readonly<{ inputs: number; outputs: number }>;
 export type Field = bigint & { readonly __bn254Field: unique symbol };
 
 export interface TransferInput {
-  readonly utxo: ProofInputUtxo;
+  readonly utxo: SppProofInputUtxo;
   readonly isDummy: Field;
   readonly statePathElements: readonly Field[];
   readonly statePathIndex: Field;
@@ -29,7 +29,7 @@ export interface TransferInput {
 }
 
 export interface TransferOutput {
-  readonly utxo: ProofInputUtxo;
+  readonly utxo: SppProofInputUtxo;
   readonly isDummy: Field;
   readonly hash: Field;
   readonly ownerPublicKeyHash: Field;

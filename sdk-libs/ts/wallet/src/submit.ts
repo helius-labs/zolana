@@ -18,7 +18,7 @@ import type {
   ShieldedPublicKey,
 } from "@zolana/keypair";
 import {
-  ProofInputUtxo,
+  SppProofInputUtxo,
   type PreparedMerge,
   type Wallet,
   type WalletUtxo,
@@ -137,7 +137,7 @@ export function createMerge(params: MergeParams): CreatedMerge {
   const nullifierKey = params.keypair.nullifierKey();
   const inputs = selected.map(
     (entry) =>
-      new ProofInputUtxo({
+      new SppProofInputUtxo({
         utxo: entry.utxo,
         nullifierKey,
         ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),

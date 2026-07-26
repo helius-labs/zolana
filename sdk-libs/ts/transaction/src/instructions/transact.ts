@@ -39,7 +39,7 @@ import {
 } from "../internal.js";
 import { EncryptedScheme, encodeOutputData, encryptConfidential } from "../serialization/codecs.js";
 import {
-  ProofInputUtxo,
+  SppProofInputUtxo,
   Utxo,
   createProofOutput,
   deriveBlinding,
@@ -502,7 +502,7 @@ export function createEncryptedTransaction(
 
 export class SppProofInputs {
   readonly payerPublicKeyHash: Bytes32;
-  readonly inputUtxos: readonly ProofInputUtxo[];
+  readonly inputUtxos: readonly SppProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
   readonly externalData: ExternalData;
   #p256Signature?: P256Signature;
@@ -510,7 +510,7 @@ export class SppProofInputs {
   constructor(
     input: Readonly<{
       payerPublicKeyHash: Bytes32;
-      inputUtxos: readonly ProofInputUtxo[];
+      inputUtxos: readonly SppProofInputUtxo[];
       outputs: readonly ProofOutputUtxo[];
       externalData: ExternalData;
     }>,
@@ -571,7 +571,7 @@ export class SppProofInputs {
   /**
    * The real inputs' commitments and nullifiers, indexed over the real inputs
    * alone so a padded slot does not shift the index a Merkle proof is fetched
-   * against. A dummy cannot reach this point non-canonical: `ProofInputUtxo`
+   * against. A dummy cannot reach this point non-canonical: `SppProofInputUtxo`
    * copies its fields and refuses one at construction, where Rust's public
    * struct has to re-check each slot here.
    */
@@ -640,7 +640,7 @@ export type WithdrawalTarget =
 
 export interface PreparedTransfer {
   readonly owner: ShieldedAddress;
-  readonly inputs: readonly ProofInputUtxo[];
+  readonly inputs: readonly SppProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
   readonly firstNullifier: Bytes32;
   readonly shape: Shape;
@@ -669,7 +669,7 @@ const ZERO_ADDRESS = "11111111111111111111111111111111" as Address;
 
 export class ConfidentialTransfer {
   readonly #owner: ShieldedAddress;
-  readonly #inputs: readonly ProofInputUtxo[];
+  readonly #inputs: readonly SppProofInputUtxo[];
   readonly #payerPublicKeyHash: Bytes32;
   readonly #recipients: Recipient[] = [];
   readonly #blindingSeed = random31();
@@ -678,7 +678,7 @@ export class ConfidentialTransfer {
 
   // Rust `ConfidentialTransfer::new` stores the fields and returns; empty,
   // dummy, and foreign-owned inputs are refused later or not at all.
-  constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], payer: Address) {
+  constructor(owner: ShieldedAddress, inputs: readonly SppProofInputUtxo[], payer: Address) {
     this.#owner = owner;
     this.#inputs = [...inputs];
     this.#payerPublicKeyHash = sha256Be(decodeAddress(payer));
@@ -879,7 +879,7 @@ function finalizeTransfer(
     ),
   ];
   const inputUtxos = [...prepared.inputs];
-  while (inputUtxos.length < prepared.shape.inputs) inputUtxos.push(ProofInputUtxo.dummy());
+  while (inputUtxos.length < prepared.shape.inputs) inputUtxos.push(SppProofInputUtxo.dummy());
 
   // Length-matched random ciphertext for every position without a real encoding:
   // padded slots and zero-value change slots.

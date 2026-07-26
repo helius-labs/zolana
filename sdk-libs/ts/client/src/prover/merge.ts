@@ -12,7 +12,7 @@ import {
   MERGE_INPUTS,
   PreparedMerge,
   PreparedMergeZone,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   TransactionError,
 } from "@zolana/transaction";
 import { EncryptedScheme, encodeMerge, encodeOutputData } from "@zolana/transaction/serialization";
@@ -188,9 +188,9 @@ export function assembleMergeZoneWithProofs(
  * hand-built `PreparedMerge` can still carry them; leaving them would diverge
  * the circuit witness and public inputs from Rust.
  */
-function plainMergeSpend(input: ProofInputUtxo): ProofInputUtxo {
+function plainMergeSpend(input: SppProofInputUtxo): SppProofInputUtxo {
   if (input.dataHash === undefined && input.zoneDataHash === undefined) return input;
-  return new ProofInputUtxo({
+  return new SppProofInputUtxo({
     utxo: input.utxo,
     nullifierKey: input.nullifierKey,
   });

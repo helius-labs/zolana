@@ -12,7 +12,7 @@ import { TransactionError } from "../error.js";
 import { checked, decodeAddress, equal, random31, sha256Be } from "../internal.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import {
-  ProofInputUtxo,
+  SppProofInputUtxo,
   createProofOutput,
   deriveBlinding,
   type ProofOutputUtxo,
@@ -42,7 +42,7 @@ function checkedU64(value: bigint, field: string): bigint {
 }
 
 export class PreparedMerge {
-  readonly inputs: readonly ProofInputUtxo[];
+  readonly inputs: readonly SppProofInputUtxo[];
   readonly output: ProofOutputUtxo;
   readonly expiryUnixTs: bigint;
   readonly signingPublicKey: ShieldedPublicKey;
@@ -51,7 +51,7 @@ export class PreparedMerge {
 
   constructor(
     input: Readonly<{
-      inputs: readonly ProofInputUtxo[];
+      inputs: readonly SppProofInputUtxo[];
       output: ProofOutputUtxo;
       expiryUnixTs: bigint;
       signingPublicKey: ShieldedPublicKey;
@@ -95,7 +95,7 @@ export class PreparedMerge {
 }
 
 /** An input carrying program or zone data, which the plain merge rail never consolidates. */
-function hasData(input: ProofInputUtxo): boolean {
+function hasData(input: SppProofInputUtxo): boolean {
   return (
     input.dataHash !== undefined || input.zoneDataHash !== undefined || !input.utxo.data.isEmpty()
   );
@@ -106,7 +106,7 @@ function hasData(input: ProofInputUtxo): boolean {
  * data's transition before the merge, so `zoneDataHash` stays consumable there
  * while `utxoData` never is.
  */
-function hasUtxoData(input: ProofInputUtxo): boolean {
+function hasUtxoData(input: SppProofInputUtxo): boolean {
   return input.dataHash !== undefined || input.utxo.data.utxoData() !== undefined;
 }
 
@@ -116,8 +116,8 @@ function hasUtxoData(input: ProofInputUtxo): boolean {
  * not the only way in.
  */
 function realInputContexts(
-  inputs: readonly ProofInputUtxo[],
-  disqualifying: (input: ProofInputUtxo) => boolean,
+  inputs: readonly SppProofInputUtxo[],
+  disqualifying: (input: SppProofInputUtxo) => boolean,
 ): readonly InputUtxoContext[] {
   return inputs
     .filter((input) => !input.isDummy())
@@ -136,7 +136,7 @@ function realInputContexts(
 export class Merge {
   #prepared: PreparedMerge;
 
-  constructor(keypair: ShieldedKeypair, inputs: readonly ProofInputUtxo[]) {
+  constructor(keypair: ShieldedKeypair, inputs: readonly SppProofInputUtxo[]) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
     if (inputs.length > MERGE_INPUTS) {
       throw new TransactionError("TRANSACTION_TOO_MANY_INPUTS", {
@@ -175,7 +175,7 @@ export class Merge {
       }
     });
     const padded = [...inputs];
-    while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy());
+    while (padded.length < MERGE_INPUTS) padded.push(SppProofInputUtxo.dummy());
     const secret = new Uint8Array(32);
     secret.set(random31(), 1);
     this.#prepared = new PreparedMerge({
@@ -231,7 +231,7 @@ export class MergeZone {
 
   constructor(
     keypair: ShieldedKeypair,
-    inputs: readonly ProofInputUtxo[],
+    inputs: readonly SppProofInputUtxo[],
     zoneProgramId: Address,
     outputZoneDataHash?: Bytes32,
   ) {
@@ -272,7 +272,7 @@ export class MergeZone {
       }
     });
     const padded = [...inputs];
-    while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy());
+    while (padded.length < MERGE_INPUTS) padded.push(SppProofInputUtxo.dummy());
     const secret = new Uint8Array(32);
     secret.set(random31(), 1);
     this.#prepared = new PreparedMergeZone({
@@ -311,7 +311,7 @@ export class MergeZone {
 }
 
 export function validateMergeZoneInputs(
-  inputs: readonly ProofInputUtxo[],
+  inputs: readonly SppProofInputUtxo[],
   zoneProgramId: Address,
 ): void {
   inputs.forEach((input, index) => {
@@ -323,7 +323,7 @@ export function validateMergeZoneInputs(
 
 export class ConfidentialSplit {
   readonly #owner: ShieldedAddress;
-  readonly #input: ProofInputUtxo;
+  readonly #input: SppProofInputUtxo;
   readonly #asset: Address;
   readonly #numOutputs: number;
   readonly #perOutputAmount: bigint;
@@ -333,7 +333,7 @@ export class ConfidentialSplit {
   constructor(
     input: Readonly<{
       owner: ShieldedAddress;
-      input: ProofInputUtxo;
+      input: SppProofInputUtxo;
       asset: Address;
       numOutputs: number;
       perOutputAmount: bigint;
@@ -439,7 +439,7 @@ export class ConfidentialSplit {
 
 export class PreparedSplit {
   readonly owner: ShieldedAddress;
-  readonly input: ProofInputUtxo;
+  readonly input: SppProofInputUtxo;
   readonly asset: Address;
   readonly outputs: readonly ProofOutputUtxo[];
   readonly firstNullifier: Bytes32;
@@ -451,7 +451,7 @@ export class PreparedSplit {
   constructor(
     input: Readonly<{
       owner: ShieldedAddress;
-      input: ProofInputUtxo;
+      input: SppProofInputUtxo;
       outputs: readonly ProofOutputUtxo[];
       numOutputs: number;
       perOutputAmount: bigint;
@@ -556,7 +556,7 @@ export class PreparedSplit {
 const UNPINNED_ZONE = "11111111111111111111111111111111" as Address;
 
 export interface PreparedZoneAuthority {
-  readonly inputs: readonly ProofInputUtxo[];
+  readonly inputs: readonly SppProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
   readonly publicAmounts: PublicAmounts;
   /**
@@ -573,7 +573,7 @@ export interface PreparedZoneAuthority {
 
 export function prepareZoneAuthority(
   input: Readonly<{
-    inputs: readonly ProofInputUtxo[];
+    inputs: readonly SppProofInputUtxo[];
     outputs: readonly ProofOutputUtxo[];
     externalData: ExternalData;
     zoneProgramId: Address;
