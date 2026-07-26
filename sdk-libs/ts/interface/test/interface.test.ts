@@ -40,7 +40,6 @@ import {
 import {
   addressTreeParamsCodec,
   batchUpdateNullifierTreeDataCodec,
-  createTreeDataCodec,
   createZoneConfigDataCodec,
   depositInstructionDataCodec,
   mergeTransactInstructionDataCodec,
@@ -184,7 +183,6 @@ describe("canonical values and PDAs", () => {
     }).toEqual(CURRENT_RUST_INTERFACE_FIXTURE.tree);
     expect(FIRST_ASSET_ID).toBe(2n);
     expect(addressTreeParams()).toEqual({
-      index: 0n,
       inputQueueBatchSize: 30_000n,
       inputQueueZkpBatchSize: 250n,
       rootHistoryCapacity: 120,
@@ -229,7 +227,7 @@ describe("canonical values and PDAs", () => {
 describe("program errors and shapes", () => {
   it("pins the complete program-error map and preserves unknown codes", () => {
     expect(Object.values(ShieldedPoolError)).toEqual(
-      Array.from({ length: 26 }, (_, index) => 7000 + index),
+      Array.from({ length: 29 }, (_, index) => 7000 + index),
     );
     expect(decodeShieldedPoolError(7023)).toEqual({
       kind: "known",
@@ -380,8 +378,6 @@ describe("instruction data codecs", () => {
       expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }),
     );
 
-    const createTree = { owner: ZERO };
-    expect(createTreeDataCodec.decode(createTreeDataCodec.encode(createTree))).toEqual(createTree);
     const params = CURRENT_RUST_INTERFACE_FIXTURE.customTreeParams;
     expect(addressTreeParamsCodec.decode(addressTreeParamsCodec.encode(params))).toEqual(params);
 
@@ -637,7 +633,6 @@ describe("instruction builders", () => {
         createTreeInstruction({
           authority: ZERO,
           tree: DEFAULT_TREE_ADDRESS,
-          owner: ZERO,
         }),
         5,
       ],
@@ -645,7 +640,6 @@ describe("instruction builders", () => {
         createTreeInstruction({
           authority: ZERO,
           tree: DEFAULT_TREE_ADDRESS,
-          owner: ZERO,
           nullifierTreeParams: CURRENT_RUST_INTERFACE_FIXTURE.customTreeParams,
         }),
         5,
@@ -811,7 +805,7 @@ describe("instruction builders", () => {
         },
         data: splData,
       }).accounts,
-    ).toHaveLength(8);
+    ).toHaveLength(9);
 
     const zoneInput = {
       payer: ZERO,
@@ -867,6 +861,7 @@ describe("instruction builders", () => {
         account(tree, false, true),
         account(payer, true, true),
         account(ZERO, false, false),
+        account(ZERO, false, false),
         account(SHIELDED_POOL_PROGRAM_ID, false, false),
       ],
       data: Uint8Array.from([
@@ -902,6 +897,7 @@ describe("instruction builders", () => {
         account(tree, false, true),
         account(zoneAuthority, false, false),
         account(payer, true, true),
+        account(ZERO, false, false),
         account(SHIELDED_POOL_PROGRAM_ID, false, false),
       ],
       data: payload,
@@ -913,6 +909,7 @@ describe("instruction builders", () => {
         account(tree, false, true),
         account(zoneAuthority, true, false),
         account(payer, true, true),
+        account(ZERO, false, false),
         account(SHIELDED_POOL_PROGRAM_ID, false, false),
       ],
     });
@@ -1061,6 +1058,7 @@ describe("instruction builders", () => {
         account(payer, false, true),
         account(tree, false, true),
         account(SPL_TOKEN_PROGRAM_ID, false, false),
+        account(ZERO, false, false),
         account(SHIELDED_POOL_PROGRAM_ID, false, false),
       ]);
       expect(cpi.accounts[2]).toEqual(account(zoneAuthority, true, false));

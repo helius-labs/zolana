@@ -362,6 +362,6 @@
   "rustPath": "sdk-libs/client/src/error.rs; sdk-libs/keypair/src/error.rs; sdk-libs/transaction/src/error.rs; program-libs/hasher/src/errors.rs",
   "rustSymbol": "ClientError; KeypairError; TransactionError; HasherError",
   "schema": "zolana-ts-fixtures-v1",
-  "sourceRevision": "46926c9a17318784c95b3fa43f43036a6476d0e9",
+  "sourceRevision": "364ca8c547c239c9b0ba78a54dcd0f4fbfd929df",
   "version": "1"
 }

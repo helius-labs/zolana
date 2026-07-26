@@ -1,6 +1,8 @@
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::instruction::instruction_data::transact::TransactIxDataRef;
+use zolana_interface::{
+    error::ShieldedPoolError, instruction::instruction_data::transact::TransactIxDataRef,
+};
 
 use crate::instructions::settlement::{
     validate_cpi_authority, validate_sol_interface, validate_spl_settlement, Settlement,
@@ -75,6 +77,10 @@ impl<'a> TransactAccounts<'a> {
         } else {
             None
         };
+        let system_program = iter.next_account("system_program")?;
+        if !pinocchio_system::check_id(system_program.address()) {
+            return Err(ShieldedPoolError::InvalidSystemProgram.into());
+        }
 
         Ok(Self {
             payer,

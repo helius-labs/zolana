@@ -226,7 +226,6 @@ pub fn setup() -> Result<TestEnv> {
     let create_tree_ix = CreateTree {
         authority: accounts.tree_vault,
         tree: tree.pubkey(),
-        owner: accounts.tree_vault,
     }
     .instruction();
     let create_tree_sync = smart_account::execute_sync_ix(

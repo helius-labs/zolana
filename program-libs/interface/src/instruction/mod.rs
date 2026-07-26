@@ -7,12 +7,11 @@ use borsh::BorshSerialize;
 pub use builders::*;
 pub use instruction_data::{
     fetch_tag, BatchUpdateNullifierTreeData, CompressedProof, CreateProtocolConfigData,
-    CreateTreeData, CreateZoneConfigData, DepositIxData, InputUtxo, MergeExternalDataHash,
-    MergeTransactIxData, MergeTransactIxDataRef, MergeZoneIxData, MergeZoneIxDataRef, MessageData,
-    OutputDataRef, OutputUtxo, OwnerTag, P256Proof, P256ProofRef, PauseTreeData, ResolvedOutput,
-    TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
-    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData, UtxoData,
-    ZoneDepositIxData,
+    CreateZoneConfigData, DepositIxData, InputUtxo, MergeExternalDataHash, MergeTransactIxData,
+    MergeTransactIxDataRef, MergeZoneIxData, MergeZoneIxDataRef, MessageData, OutputDataRef,
+    OutputUtxo, OwnerTag, P256Proof, P256ProofRef, PauseTreeData, ResolvedOutput, TransactIxData,
+    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof, UpdateProtocolConfigData,
+    UpdateZoneConfigData, UpdateZoneConfigOwnerData, UtxoData, ZoneDepositIxData,
 };
 pub use zolana_event::{tag, tag::InstructionTag};
 

@@ -34,6 +34,9 @@ zolana-interface = { workspace = true, features = ["borsh"] }
 zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
 
+[dev-dependencies]
+zolana-account-checks = { workspace = true, features = ["test-only"] }
+
 [lints.rust.unexpected_cfgs]
 level = "allow"
 check-cfg = [

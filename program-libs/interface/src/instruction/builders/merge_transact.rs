@@ -31,6 +31,7 @@ impl MergeTransact {
             AccountMeta::new(self.tree, false),
             AccountMeta::new(self.payer, true),
             AccountMeta::new_readonly(self.user_record, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ];
 

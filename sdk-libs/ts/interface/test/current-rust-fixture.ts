@@ -177,7 +177,7 @@ export const CURRENT_RUST_INTERFACE_FIXTURE = Object.freeze({
     splAssetCounter: 6,
   }),
   tree: Object.freeze({
-    accountSize: 1_186_136,
+    accountSize: 1_185_664,
     stateRootOffset: 16,
     stateHeight: 32,
     addressTreeHeight: 40,
@@ -185,16 +185,12 @@ export const CURRENT_RUST_INTERFACE_FIXTURE = Object.freeze({
     inputQueueZkpBatchSize: 250n,
     rootHistoryCapacity: 120,
   }),
+  // Off the canonical parameters in every field, so an encoder that ignored an
+  // argument and wrote the defaults would not round-trip.
   customTreeParams: Object.freeze({
-    index: 0n,
-    programOwner: "11111111111111111111111111111111" as Address,
-    forester: "11111111111111111111111111111111" as Address,
-    inputQueueBatchSize: 30_000n,
-    inputQueueZkpBatchSize: 250n,
-    rootHistoryCapacity: 120,
-    networkFee: 1n,
-    rolloverThreshold: 2n,
-    closeThreshold: 3n,
-    height: 40,
+    inputQueueBatchSize: 15_000n,
+    inputQueueZkpBatchSize: 125n,
+    rootHistoryCapacity: 60,
+    height: 26,
   } satisfies AddressTreeParams),
 });

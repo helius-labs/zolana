@@ -12,6 +12,7 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
+use zolana_batched_merkle_tree::merkle_tree_metadata::TreeType;
 use zolana_batched_merkle_tree::{
     constants::NULLIFIER_TREE_INIT_ROOT_40,
     merkle_tree::{
@@ -23,7 +24,6 @@ use zolana_batched_merkle_tree::{
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_merkle_tree_metadata::{merkle_tree::MerkleTreeMetadata, TreeType};
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
 
 const HEIGHT: u8 = 26;
@@ -155,7 +155,6 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     AddressTree::init(
         &mut account_data,
         &pubkey,
-        MerkleTreeMetadata::default(),
         ADDRESS_ROOT_HISTORY_CAPACITY,
         ADDRESS_BATCH_SIZE,
         ADDRESS_ZKP_BATCH_SIZE,
@@ -169,12 +168,10 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     let mut queued: Vec<[u8; 32]> = Vec::with_capacity(total);
     {
         let mut account = AddressTree::address_from_bytes(&mut account_data, &pubkey).unwrap();
-        for i in 0..total {
+        for _ in 0..total {
             let mut value: [u8; 32] = rng.gen();
             value[0] = 0;
-            account
-                .insert_address_into_queue(&value, &(i as u64 + 1))
-                .unwrap();
+            account.insert_address_into_queue(&value).unwrap();
             queued.push(value);
         }
     }
@@ -244,10 +241,10 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
             ADDRESS_BLOOM,
             ADDRESS_ZKP,
         > = wincode::deserialize_mut(&mut account_data).unwrap();
-        let update_vec = layout.cached_tree_updates.get_mut(0).unwrap();
+        let updates = layout.cached_tree_updates.get_mut(0).unwrap();
         for i in 1..num_batches {
             let cached_update = *cached_updates.get(i).unwrap();
-            *update_vec.data.get_mut(i).unwrap() = cached_update;
+            *updates.get_mut(i).unwrap() = cached_update;
         }
     }
 
@@ -333,7 +330,6 @@ fn inited_tree_bytes(tree_pubkey: Pubkey) -> Vec<u8> {
             &mut data,
             DISCRIMINATOR,
             HEIGHT,
-            [1u8; 32],
             tree_pubkey.to_bytes(),
             params,
         )

@@ -36,6 +36,9 @@ export const ShieldedPoolError = Object.freeze({
   BothPublicAmountsSet: 7023,
   MissingP256SigningKey: 7024,
   OwnerTagAccountMissing: 7025,
+  InvalidForesterFee: 7026,
+  InsufficientForesterFeeBalance: 7027,
+  InvalidSystemProgram: 7028,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

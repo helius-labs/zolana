@@ -1,7 +1,7 @@
 use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
 use zolana_tree::{smt::ROOT_HISTORY_CAPACITY, TreeAccount};
 
-const HEIGHT: u8 = 26;
+const HEIGHT: u8 = 32;
 const DISCRIMINATOR: u8 = 7;
 
 fn leaf(i: u8) -> [u8; 32] {
@@ -15,12 +15,11 @@ fn init_then_reload() {
     let params = InitAddressTreeAccountsInstructionData::default();
     let mut bytes = vec![0u8; TreeAccount::account_size()];
 
-    let owner = [1u8; 32];
     let pubkey = [2u8; 32];
 
     let appended_root = {
         let mut tree =
-            TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, owner, pubkey, params).unwrap();
+            TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
 
         assert_eq!(tree.discriminator(), DISCRIMINATOR);
         assert_eq!(tree.utxo_tree().height(), HEIGHT as usize);
@@ -56,13 +55,11 @@ fn init_then_reload() {
 #[test]
 fn append_batch_matches_sequential() {
     let params = InitAddressTreeAccountsInstructionData::default();
-    let owner = [1u8; 32];
     let pubkey = [2u8; 32];
     let count = 10u8;
 
     let mut seq_bytes = vec![0u8; TreeAccount::account_size()];
-    let mut seq =
-        TreeAccount::init(&mut seq_bytes, DISCRIMINATOR, HEIGHT, owner, pubkey, params).unwrap();
+    let mut seq = TreeAccount::init(&mut seq_bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
     for i in 0..count {
         seq.utxo_tree().append(leaf(i + 1));
     }
@@ -71,15 +68,8 @@ fn append_batch_matches_sequential() {
     let seq_cursor = seq.utxo_tree().current_root_index();
 
     let mut batch_bytes = vec![0u8; TreeAccount::account_size()];
-    let mut batch = TreeAccount::init(
-        &mut batch_bytes,
-        DISCRIMINATOR,
-        HEIGHT,
-        owner,
-        pubkey,
-        params,
-    )
-    .unwrap();
+    let mut batch =
+        TreeAccount::init(&mut batch_bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
     let leaves: Vec<[u8; 32]> = (0..count).map(|i| leaf(i + 1)).collect();
     batch.utxo_tree().append_batch(leaves.iter());
 
@@ -96,15 +86,7 @@ fn append_batch_matches_sequential() {
 fn root_history_wraps_around() {
     let params = InitAddressTreeAccountsInstructionData::default();
     let mut bytes = vec![0u8; TreeAccount::account_size()];
-    let mut tree = TreeAccount::init(
-        &mut bytes,
-        DISCRIMINATOR,
-        HEIGHT,
-        [1u8; 32],
-        [2u8; 32],
-        params,
-    )
-    .unwrap();
+    let mut tree = TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, [2u8; 32], params).unwrap();
 
     // Append past capacity so the ring buffer wraps. Cursor starts at 0 (the
     // empty root), so after N appends it sits at N % capacity.

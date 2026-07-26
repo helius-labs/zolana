@@ -48,7 +48,6 @@ export function createTreeInstructions(
     createTreeInstruction({
       authority: input.authority,
       tree: input.tree,
-      owner: input.authority,
     }),
   ]);
 }

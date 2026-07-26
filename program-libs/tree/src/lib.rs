@@ -82,7 +82,7 @@ unsafe impl<
     }
 }
 
-type PoolTreeLayout = TreeAccountLayout<
+type SppTreeLayout = TreeAccountLayout<
     POOL_UTXO_HEIGHT,
     NULLIFIER_RH,
     NULLIFIER_NUM_ITERS,
@@ -92,28 +92,27 @@ type PoolTreeLayout = TreeAccountLayout<
 
 pub struct TreeAccount<'a> {
     pubkey: [u8; 32],
-    layout: &'a mut PoolTreeLayout,
+    layout: &'a mut SppTreeLayout,
 }
 
 impl<'a> TreeAccount<'a> {
     /// Total account byte length. The account allocator must use this so `init`
     /// does not run out of buffer.
     pub fn account_size() -> usize {
-        size_of::<PoolTreeLayout>()
+        size_of::<SppTreeLayout>()
     }
 
     /// Byte offset of the state (utxo) tree's current root within the account.
     /// The utxo tree starts right after the account header and stores its root
     /// at [`smt::ROOT_OFFSET`].
     pub const fn state_root_offset() -> usize {
-        core::mem::offset_of!(PoolTreeLayout, utxo) + smt::ROOT_OFFSET
+        core::mem::offset_of!(SppTreeLayout, utxo) + smt::ROOT_OFFSET
     }
 
     pub fn init(
         bytes: &'a mut [u8],
         discriminator: u8,
         utxo_tree_height: u8,
-        owner: [u8; 32],
         pubkey: [u8; 32],
         nullifier_params: InitAddressTreeAccountsInstructionData,
     ) -> Result<Self, TreeError> {
@@ -127,11 +126,11 @@ impl<'a> TreeAccount<'a> {
         {
             return Err(TreeError::AddressInit);
         }
-        if bytes.len() != size_of::<PoolTreeLayout>() {
+        if bytes.len() != size_of::<SppTreeLayout>() {
             return Err(TreeError::BufferTooSmall);
         }
 
-        let layout: &'a mut PoolTreeLayout =
+        let layout: &'a mut SppTreeLayout =
             wincode::deserialize_mut(bytes).map_err(|_| TreeError::Deserialize)?;
         if layout.state != UNINITIALIZED {
             return Err(TreeError::AlreadyInitialized);
@@ -146,20 +145,14 @@ impl<'a> TreeAccount<'a> {
             NULLIFIER_NUM_ITERS,
             NULLIFIER_BLOOM,
             NULLIFIER_ZKP,
-        >(
-            owner.into(),
-            nullifier_params,
-            &mut layout.nullifier,
-            0,
-            pubkey.into(),
-        )
+        >(nullifier_params, &mut layout.nullifier, pubkey.into())
         .map_err(|_| TreeError::AddressInit)?;
 
         Ok(Self { pubkey, layout })
     }
 
     pub fn from_bytes(bytes: &'a mut [u8], pubkey: [u8; 32]) -> Result<Self, TreeError> {
-        let layout: &'a mut PoolTreeLayout =
+        let layout: &'a mut SppTreeLayout =
             wincode::deserialize_mut(bytes).map_err(|_| TreeError::Deserialize)?;
         if layout.utxo.subtrees_len as usize != POOL_UTXO_HEIGHT
             || layout.utxo.root_history_capacity as usize != smt::ROOT_HISTORY_CAPACITY
@@ -283,15 +276,15 @@ mod layout_equivalence {
             + size_of::<
                 NullifierLayout<NULLIFIER_RH, NULLIFIER_NUM_ITERS, NULLIFIER_BLOOM, NULLIFIER_ZKP>,
             >();
-        assert_eq!(size_of::<PoolTreeLayout>(), old_account_size);
+        assert_eq!(size_of::<SppTreeLayout>(), old_account_size);
 
         let old_nullifier_offset = HEADER_LEN + old_utxo_size(POOL_UTXO_HEIGHT);
         assert_eq!(
-            core::mem::offset_of!(PoolTreeLayout, nullifier),
+            core::mem::offset_of!(SppTreeLayout, nullifier),
             old_nullifier_offset
         );
 
-        assert_eq!(core::mem::offset_of!(PoolTreeLayout, utxo), HEADER_LEN);
+        assert_eq!(core::mem::offset_of!(SppTreeLayout, utxo), HEADER_LEN);
         assert_eq!(
             size_of::<UtxoTreeLayout<POOL_UTXO_HEIGHT>>(),
             UtxoTreeLayout::<POOL_UTXO_HEIGHT>::serialized_size(POOL_UTXO_HEIGHT)
@@ -300,16 +293,16 @@ mod layout_equivalence {
 
     #[test]
     fn deserialize_mut_round_trip() {
-        let mut bytes = vec![0u8; size_of::<PoolTreeLayout>()];
+        let mut bytes = vec![0u8; size_of::<SppTreeLayout>()];
         {
-            let layout: &mut PoolTreeLayout = wincode::deserialize_mut(&mut bytes).expect("cast");
+            let layout: &mut SppTreeLayout = wincode::deserialize_mut(&mut bytes).expect("cast");
             layout.utxo.init(POOL_UTXO_HEIGHT).unwrap();
             let mut leaf = [0u8; 32];
             leaf[31] = 9;
             layout.utxo.append(leaf);
             layout.nullifier.root_history.data[3] = [7u8; 32];
         }
-        let reloaded: &mut PoolTreeLayout = wincode::deserialize_mut(&mut bytes).expect("reload");
+        let reloaded: &mut SppTreeLayout = wincode::deserialize_mut(&mut bytes).expect("reload");
         assert_eq!(reloaded.utxo.next_index(), 1);
         assert_eq!(reloaded.nullifier.root_history.data[3], [7u8; 32]);
     }

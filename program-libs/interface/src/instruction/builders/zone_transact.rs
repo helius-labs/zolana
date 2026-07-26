@@ -56,8 +56,6 @@ impl ZoneTransact {
             Some(TransactWithdrawal::Sol(sol)) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
                 accounts.push(AccountMeta::new(sol.recipient, false));
-                // System program for the `settle_sol` Transfer CPI.
-                accounts.push(AccountMeta::new_readonly(Pubkey::default(), false));
             }
             Some(TransactWithdrawal::Spl(spl)) => {
                 if let Some(cpi_authority) = spl.cpi_authority {
@@ -70,6 +68,7 @@ impl ZoneTransact {
             }
             None => {}
         }
+        accounts.push(AccountMeta::new_readonly(Pubkey::default(), false));
         // Program account, loadable for the `emit_event` self-CPI.
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
@@ -105,9 +104,9 @@ mod tests {
         }
     }
 
-    /// A pure shielded `zone_transact` lays out exactly `payer`, `tree`, the
-    /// `ZoneConfig` (canonical `zone_auth` PDA), and the program account, and tags
-    /// the instruction data with `ZONE_TRANSACT`.
+    /// A pure shielded `zone_transact` lays out `payer`, `tree`, the
+    /// `ZoneConfig` (canonical `zone_auth` PDA), the System Program, and the
+    /// program account, and tags the instruction data with `ZONE_TRANSACT`.
     #[test]
     fn instruction_account_order_and_zone_config() {
         let zone_program_id = Pubkey::new_unique();
@@ -127,7 +126,13 @@ mod tests {
         let keys: Vec<_> = ix.accounts.iter().map(|m| m.pubkey).collect();
         assert_eq!(
             keys,
-            vec![builder.payer, builder.tree, zone_config, PROGRAM_ID_PUBKEY]
+            vec![
+                builder.payer,
+                builder.tree,
+                zone_config,
+                Pubkey::default(),
+                PROGRAM_ID_PUBKEY
+            ]
         );
         // `.instruction()` targets the zone program, so the `zone_auth` PDA is not
         // a transaction-level signer.

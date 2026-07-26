@@ -54,7 +54,6 @@ import {
 import {
   addressTreeParamsCodec,
   batchUpdateNullifierTreeDataCodec,
-  createTreeDataCodec,
   createZoneConfigDataCodec,
   updateZoneConfigDataCodec,
   updateZoneConfigOwnerDataCodec,
@@ -284,7 +283,6 @@ describe("state", () => {
 
   it("matches the canonical Rust nullifier tree parameters", () => {
     expect(addressTreeParams()).toEqual({
-      index: 0n,
       inputQueueBatchSize: BigInt(oracle.state.tree.inputQueueBatchSize),
       inputQueueZkpBatchSize: BigInt(oracle.state.tree.inputQueueZkpBatchSize),
       rootHistoryCapacity: oracle.state.tree.rootHistoryCapacity,
@@ -507,19 +505,12 @@ describe("instruction data codecs", () => {
       ),
     ).toBe(hex(batch));
 
-    const createTree = payload("createTree");
-    expect(hex(createTreeDataCodec.encode(createTreeDataCodec.decode(createTree)))).toBe(
-      hex(createTree),
-    );
-
-    // Rust appends the nullifier parameters bare, with no Option tag: the
-    // program tells the two forms apart by instruction-data length alone.
-    const custom = payload("createTreeWithNullifierParams");
-    expect(custom.length).toBe(32 + 37);
-    expect(
-      hex(createTreeDataCodec.encode(createTreeDataCodec.decode(custom.subarray(0, 32)))),
-    ).toBe(hex(custom.subarray(0, 32)));
-    const params = custom.subarray(32);
+    // `create_tree` carries no data of its own; the tag alone is the default
+    // form. Rust appends the nullifier parameters bare, with no Option tag, so
+    // the program tells the two forms apart by instruction-data length alone.
+    expect(payload("createTree").length).toBe(0);
+    const params = payload("createTreeWithNullifierParams");
+    expect(params.length).toBe(24);
     expect(hex(addressTreeParamsCodec.encode(addressTreeParamsCodec.decode(params)))).toBe(
       hex(params),
     );
@@ -575,15 +566,11 @@ describe("builders", () => {
   });
 
   it("matches create-tree with default and custom nullifier parameters", () => {
-    expectInstruction(
-      createTreeInstruction({ authority: owner, tree, owner: account(36) }),
-      builders.createTree,
-    );
+    expectInstruction(createTreeInstruction({ authority: owner, tree }), builders.createTree);
     expectInstruction(
       createTreeInstruction({
         authority: owner,
         tree,
-        owner: account(36),
         nullifierTreeParams: addressTreeParams(),
       }),
       builders.createTreeWithNullifierParams,
@@ -907,7 +894,6 @@ describe("re-export ledgers", () => {
       oracle.ledgers.instructionData,
       {
         BatchUpdateNullifierTreeData: "batchUpdateNullifierTreeDataCodec",
-        CreateTreeData: "createTreeDataCodec",
         CreateZoneConfigData: "createZoneConfigDataCodec",
         DepositIxData: "depositInstructionDataCodec",
         MergeTransactIxData: "mergeTransactInstructionDataCodec",
@@ -959,12 +945,14 @@ describe("re-export ledgers", () => {
         ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE: "ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE",
         ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: "ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE",
         ADDRESS_TREE_ROOT_HISTORY_CAPACITY: "ADDRESS_TREE_ROOT_HISTORY_CAPACITY",
+        FORESTER_REIMBURSEMENT_LAMPORTS: "FORESTER_REIMBURSEMENT_LAMPORTS",
         STATE_HEIGHT: "STATE_HEIGHT",
         ProtocolConfig: "decodeProtocolConfig",
         SplAssetCounter: "decodeSplAssetCounter",
         SplAssetRegistry: "decodeSplAssetRegistry",
         ZoneConfig: "decodeZoneConfig",
         address_tree_params: "addressTreeParams",
+        forester_fee_per_queue_element: "foresterFeePerQueueElement",
         state_root_offset: "STATE_ROOT_OFFSET",
         tree_account_size: "TREE_ACCOUNT_SIZE",
       },

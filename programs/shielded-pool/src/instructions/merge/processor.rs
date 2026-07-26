@@ -22,7 +22,10 @@ use super::{
     event::{build_merge_event, MergeTreeWrite},
     verify::{pk_field, MergeOwnerBinding, MergeProof, MergeProofInputs},
 };
-use crate::instructions::{event::emit_general_event, shared::check_not_expired};
+use crate::instructions::{
+    event::emit_general_event,
+    shared::{check_not_expired, collect_forester_fee},
+};
 
 #[inline(never)]
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
@@ -75,10 +78,10 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 
     process_merge_core(
         merge_accounts.tree,
+        merge_accounts.payer,
         &ix,
         derived,
         output_view_tag,
-        clock.slot,
         None,
     )
 }
@@ -91,32 +94,33 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 #[inline(never)]
 pub(crate) fn process_merge_core(
     tree_account: &mut AccountView,
+    payer: &AccountView,
     ix: &MergeTransactIxDataRef<'_>,
     mut derived: MergeProofInputs,
     output_view_tag: [u8; 32],
-    current_slot: u64,
     single_use_tag: Option<[u8; 32]>,
 ) -> ProgramResult {
-    let tree_write = {
+    let (tree_write, zkp_batch_size) = {
         let output_tree = tree_account.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
-            tree_account,
+            &mut *tree_account,
             &crate::ID,
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
-        apply_tree(
-            &mut tree,
-            ix,
-            current_slot,
-            output_tree,
-            &mut derived,
-            single_use_tag,
-        )?
+        let tree_write = apply_tree(&mut tree, ix, output_tree, &mut derived, single_use_tag)?;
+        let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
+        (tree_write, zkp_batch_size)
     };
 
     let event = build_merge_event(ix, tree_write, output_view_tag);
     MergeProof::new(ix, derived).verify()?;
+    collect_forester_fee(
+        payer,
+        tree_account,
+        MERGE_INPUT_COUNT as u64 + u64::from(single_use_tag.is_some()),
+        zkp_batch_size,
+    )?;
     emit_general_event(EventKind::Merge, event)
 }
 
@@ -124,7 +128,6 @@ pub(crate) fn process_merge_core(
 fn apply_tree(
     tree: &mut TreeAccount<'_>,
     ix: &MergeTransactIxDataRef<'_>,
-    current_slot: u64,
     output_tree: [u8; 32],
     derived: &mut MergeProofInputs,
     single_use_tag: Option<[u8; 32]>,
@@ -144,7 +147,7 @@ fn apply_tree(
             .get_nullifier_tree_root(nullifier_root_index)
             .map_err(tree_error)?;
         tree.nullifer_tree()
-            .insert_address_into_queue(nullifier, &current_slot)
+            .insert_address_into_queue(nullifier)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
             tree: output_tree,
@@ -157,7 +160,7 @@ fn apply_tree(
     // into the nullifier queue so a duplicate tag is rejected (replay protection).
     if let Some(tag) = single_use_tag {
         tree.nullifer_tree()
-            .insert_address_into_queue(&tag, &current_slot)
+            .insert_address_into_queue(&tag)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
     }
 

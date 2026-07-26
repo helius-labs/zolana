@@ -40,8 +40,13 @@ impl NullifierTestForester {
         pool_tree: Pubkey,
         queued_nullifiers: &[[u8; 32]],
     ) -> Result<Signature> {
-        let (batch_update, batch_len) =
-            self.build_instruction(rpc, authority.vault, pool_tree, queued_nullifiers)?;
+        let (batch_update, batch_len) = self.build_instruction(
+            rpc,
+            authority.vault,
+            authority.signer.pubkey(),
+            pool_tree,
+            queued_nullifiers,
+        )?;
         let execute = execute_sync_ix(
             &authority.settings,
             authority.account_index,
@@ -61,6 +66,7 @@ impl NullifierTestForester {
         &self,
         rpc: &SolanaRpc,
         authority: Pubkey,
+        reimbursement_recipient: Pubkey,
         pool_tree: Pubkey,
         queued_nullifiers: &[[u8; 32]],
     ) -> Result<(solana_instruction::Instruction, usize)> {
@@ -96,6 +102,7 @@ impl NullifierTestForester {
             BatchUpdateNullifierTree {
                 authority,
                 tree: pool_tree,
+                reimbursement_recipient,
                 new_root: batch_update.new_root,
                 old_root: batch_update.old_root,
                 zkp_batch_index: batch_update.zkp_batch_index,

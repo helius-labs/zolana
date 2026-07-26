@@ -54,6 +54,7 @@ pub fn build_forester_execute_ix(
     let inner = BatchUpdateNullifierTree {
         authority: vault,
         tree: pool_tree,
+        reimbursement_recipient: *member,
         new_root: batch_update.new_root,
         old_root: batch_update.old_root,
         zkp_batch_index: batch_update.zkp_batch_index,
@@ -116,11 +117,13 @@ mod tests {
     fn inner_instruction_targets_spp_with_vault_authority() {
         let settings = Pubkey::new_unique();
         let tree = Pubkey::new_unique();
+        let member = Pubkey::new_unique();
         let (vault, _) = smart_account_pda(&settings, 0);
 
         let ix = BatchUpdateNullifierTree {
             authority: vault,
             tree,
+            reimbursement_recipient: member,
             new_root: [1u8; 32],
             old_root: [5u8; 32],
             zkp_batch_index: 0,
@@ -147,6 +150,7 @@ mod tests {
                 AccountMeta::new_readonly(vault, true),
                 AccountMeta::new_readonly(pda::protocol_config(), false),
                 AccountMeta::new(tree, false),
+                AccountMeta::new(member, false),
                 AccountMeta::new_readonly(program_id, false),
             ],
             data: encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &data),

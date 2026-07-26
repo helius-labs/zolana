@@ -27,7 +27,7 @@ use crate::instructions::{
     event::emit_general_event,
     hash::solana_pk_hash,
     settlement::{settle_sol, settle_spl, Settlement},
-    shared::check_not_expired,
+    shared::{check_not_expired, collect_forester_fee},
     transact::verify::{TransactProof, TransactProofInputs},
     verifier,
 };
@@ -49,7 +49,6 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
         &ix,
         &mut proof_inputs,
         transact_accounts,
-        clock.slot,
         TRANSACT,
         &resolved_outputs,
     )
@@ -117,7 +116,6 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
     ix: &TransactIxDataRef<'_>,
     proof_inputs: &mut TransactProofInputs,
     transact_accounts: TransactAccounts<'_>,
-    current_slot: u64,
     discriminator: u8,
     resolved_outputs: &[ResolvedOutput],
 ) -> ProgramResult {
@@ -127,17 +125,18 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
         return Err(ShieldedPoolError::BothPublicAmountsSet.into());
     }
 
-    let tree_write = {
+    let (tree_write, zkp_batch_size) = {
         let output_tree = transact_accounts.tree.address().to_bytes();
         // Note currently only one tree is supported for the entire protocol
         let mut tree = TreeAccount::from_account_view_mut(
-            transact_accounts.tree,
+            &mut *transact_accounts.tree,
             &crate::ID,
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
-
-        apply_tree(&mut tree, ix, current_slot, output_tree, proof_inputs)?
+        let tree_write = apply_tree(&mut tree, ix, output_tree, proof_inputs)?;
+        let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
+        (tree_write, zkp_batch_size)
     };
 
     let (user_sol_account, user_spl_token_account, spl_token_interface) =
@@ -174,6 +173,12 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
         Some(Settlement::Spl(spl)) => settle_spl(spl, public_amount(ix.public_spl_amount)?)?,
         None => {}
     }
+    collect_forester_fee(
+        transact_accounts.payer,
+        transact_accounts.tree,
+        ix.inputs.len() as u64,
+        zkp_batch_size,
+    )?;
     emit_general_event(EventKind::Transact, event)
 }
 
@@ -202,7 +207,6 @@ fn settlement_accounts(accounts: &TransactAccounts) -> ([u8; 32], [u8; 32], [u8;
 fn apply_tree(
     tree: &mut TreeAccount<'_>,
     ix: &TransactIxDataRef<'_>,
-    current_slot: u64,
     output_tree: [u8; 32],
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<TreeWrite, ProgramError> {
@@ -217,7 +221,7 @@ fn apply_tree(
             .get_nullifier_tree_root(input.nullifier_tree_root_index)
             .map_err(tree_error)?;
         tree.nullifer_tree()
-            .insert_address_into_queue(&input.nullifier_hash, &current_slot)
+            .insert_address_into_queue(&input.nullifier_hash)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
             tree: output_tree,

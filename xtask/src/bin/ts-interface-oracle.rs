@@ -131,6 +131,12 @@ fn errors() -> Value {
         ("BothPublicAmountsSet", BothPublicAmountsSet),
         ("MissingP256SigningKey", MissingP256SigningKey),
         ("OwnerTagAccountMissing", OwnerTagAccountMissing),
+        ("InvalidForesterFee", InvalidForesterFee),
+        (
+            "InsufficientForesterFeeBalance",
+            InsufficientForesterFeeBalance,
+        ),
+        ("InvalidSystemProgram", InvalidSystemProgram),
     ];
     let mut map = Map::new();
     for (name, error) in table {
@@ -580,7 +586,6 @@ fn builders() -> Value {
     let create_tree = CreateTree {
         authority: owner(),
         tree: account(20),
-        owner: account(36),
     };
     map.insert(
         "createTree".into(),
@@ -598,6 +603,7 @@ fn builders() -> Value {
             &BatchUpdateNullifierTree {
                 authority: owner(),
                 tree: account(20),
+                reimbursement_recipient: account(40),
                 new_root: filler::<32>(42),
                 old_root: filler::<32>(43),
                 zkp_batch_index: 517,

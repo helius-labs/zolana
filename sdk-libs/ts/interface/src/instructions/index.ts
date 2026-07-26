@@ -28,7 +28,6 @@ import {
 } from "../pda/index.js";
 import {
   addressTreeParamsCodec,
-  createTreeDataCodec,
   createZoneConfigDataCodec,
   depositInstructionDataCodec,
   mergeTransactInstructionDataCodec,
@@ -130,18 +129,13 @@ export function createTreeInstruction(
   input: Readonly<{
     authority: Address;
     tree: Address;
-    owner: Address;
     nullifierTreeParams?: AddressTreeParams;
   }>,
 ): Instruction {
-  const owner = createTreeDataCodec.encode({ owner: input.owner });
-  const params =
+  const payload =
     input.nullifierTreeParams === undefined
       ? undefined
       : addressTreeParamsCodec.encode(input.nullifierTreeParams);
-  const payload = new Uint8Array(owner.length + (params?.length ?? 0));
-  payload.set(owner);
-  if (params !== undefined) payload.set(params, owner.length);
   return instruction(tagged(InstructionTag.createTree, payload), [
     meta(input.authority, true, false),
     meta(protocolConfigAddress(), false, false),
@@ -194,11 +188,7 @@ export function depositInstruction(
 function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
   if (withdrawal === undefined) return [];
   if (withdrawal.kind === "sol") {
-    return [
-      meta(SOL_INTERFACE, false, true),
-      meta(withdrawal.recipient, false, true),
-      meta(SYSTEM_PROGRAM, false, false),
-    ];
+    return [meta(SOL_INTERFACE, false, true), meta(withdrawal.recipient, false, true)];
   }
   const accounts: Meta[] = [];
   if (withdrawal.cpiAuthority !== undefined) {
@@ -225,6 +215,9 @@ function transactAccounts(
     accounts.push(meta(zoneAuthority.address, zoneAuthority.signer, false));
   }
   accounts.push(...settlementAccounts(withdrawal));
+  // System program for the forester-fee collection CPI and, on the native SOL
+  // rail, public settlement.
+  accounts.push(meta(SYSTEM_PROGRAM, false, false));
   accounts.push(meta(SHIELDED_POOL_PROGRAM_ID, false, false));
   return accounts;
 }
@@ -467,10 +460,11 @@ export function mergeTransactInstruction(
   return instruction(
     tagged(InstructionTag.mergeTransact, mergeTransactInstructionDataCodec.encode(input.data)),
     [
-    meta(input.tree, false, true),
-    meta(input.payer, true, true),
-    meta(input.userRecord, false, false),
-    meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+      meta(input.tree, false, true),
+      meta(input.payer, true, true),
+      meta(input.userRecord, false, false),
+      meta(SYSTEM_PROGRAM, false, false),
+      meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     ],
   );
 }
@@ -498,6 +492,7 @@ export function mergeZoneInstruction(
       meta(input.tree, false, true),
       meta(authority, input.cpi === true, false),
       meta(input.payer, true, true),
+      meta(SYSTEM_PROGRAM, false, false),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     ],
     input.cpi === true ? SHIELDED_POOL_PROGRAM_ID : input.zoneProgramId,
