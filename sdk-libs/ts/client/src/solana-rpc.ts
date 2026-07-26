@@ -357,7 +357,13 @@ export class SolanaRpc implements Rpc {
   /// Requests lamports from the validator faucet and waits for confirmation.
   async airdrop(address: Address, lamports: bigint, context?: RequestContext): Promise<Signature> {
     addressBytes(address);
-    if (lamports < 0n || lamports > 0xffff_ffff_ffff_ffffn) {
+    // JSON-RPC carries the amount as a Number; refuse values that cannot
+    // round-trip through Number without changing magnitude.
+    if (
+      lamports < 0n ||
+      lamports > 0xffff_ffff_ffff_ffffn ||
+      lamports > BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
       throw new ClientError("CLIENT_INVALID_INTEGER", {
         details: { field: "lamports", value: lamports.toString() },
       });

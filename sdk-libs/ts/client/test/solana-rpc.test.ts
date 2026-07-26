@@ -321,6 +321,14 @@ describe("SolanaRpc", () => {
     });
 
     await expect(rpc.airdrop(ZERO_ADDRESS, 5n)).resolves.toBe(ZERO_SIGNATURE);
+    await expect(rpc.airdrop(ZERO_ADDRESS, BigInt(Number.MAX_SAFE_INTEGER))).resolves.toBe(
+      ZERO_SIGNATURE,
+    );
+    await expectCode(
+      rpc.airdrop(ZERO_ADDRESS, BigInt(Number.MAX_SAFE_INTEGER) + 1n),
+      "CLIENT_INVALID_INTEGER",
+    );
+    await expectCode(rpc.airdrop(ZERO_ADDRESS, 0xffff_ffff_ffff_ffffn), "CLIENT_INVALID_INTEGER");
     const failure = await expectCode(rpc.assertExecutable(ZERO_ADDRESS), "CLIENT_RPC");
     expect(failure.details).toEqual({
       method: "assertExecutable",
