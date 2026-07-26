@@ -1,5 +1,6 @@
 // Regenerate every Rust-side TypeScript fixture and fail when a committed file
 // has drifted. Each generator lives in `xtask/src/bin/` and supports `--check`.
+// After generators, revision-compatibility and verifying-key provenance run.
 //
 //   node sdk-libs/ts/config/fixtures-check.mjs
 
@@ -8,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 // Order matches the binary names under xtask/src/bin/, minus the non-fixture
 // `xtask` dispatch binary. A generator added there without a row here leaves
@@ -40,4 +42,14 @@ for (const bin of generators) {
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+console.log("checking fixture provenance");
+const provenance = spawnSync(process.execPath, [path.join(here, "fixtures-provenance.mjs")], {
+  cwd: root,
+  stdio: "inherit",
+});
+if (provenance.error) throw provenance.error;
+if (provenance.status !== 0) {
+  process.exit(provenance.status ?? 1);
 }

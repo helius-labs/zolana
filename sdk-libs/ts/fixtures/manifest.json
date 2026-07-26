@@ -24,15 +24,15 @@
     },
     {
       "path": "client/proof-input-v1.json",
-      "sha256": "622d0cf1efabb5438ba9d328ff72142505cb7eaa9f139797448d31c45cff6b6e"
+      "sha256": "c5380ddd05b399a2c72e12f989fe90f72b1167d928ec4db38ce076632ed8b5e0"
     },
     {
       "path": "client/proof-result-compression-v1.json",
-      "sha256": "bd915d22d99421564567a87dc09c62ce176749ef4edcb12cf2969b0e0f68ec6d"
+      "sha256": "d3a96f04f157efe65162907ac4cce07199e55d28529823f2a48d1c2cdc22baa0"
     },
     {
       "path": "client/proof-validity-v1.json",
-      "sha256": "f02f21eabe246ab6db9d4b9123835abb3fc939d4b731efa46983a4bf316f273b"
+      "sha256": "9a640d5a2a526f165bf331ee749741538781a95bf9b833dcb188da7c3ee93c2e"
     },
     {
       "path": "client/prover-shapes-v1.json",
@@ -246,6 +246,54 @@
   "provingKeyRelease": {
     "lockPath": "prover/server/prover/provingkeys/proving-keys.lock",
     "lockSha256": "c0f617b3b3c24b48e2aa4f16912fe255216568268f582f075283dbd637036e07"
+  },
+  "revisionCompatibility": {
+    "baseline": {
+      "compatibility": "Provenance stamp for baseline-family fixtures regenerated from working-tree sources. May diverge from frozenCommit (Q6): stamps do not gate regeneration. Independent of client and merkleTree.",
+      "regenerationTrigger": "Regenerate when sdk-libs or program-libs sources that feed baseline fixtures change the produced bytes."
+    },
+    "client": {
+      "compatibility": "Live stamp for client/errors-v1.json, client/lib.json, and client/rpc-indexer-v1.json. Each fixture sourceRevision must equal this pin. May diverge from baseline and frozenCommit.",
+      "regenerationTrigger": "Advances only when a current-client fixture body changes; unrelated tip moves under sdk-libs/client/src do not invalidate or rewrite the stamp."
+    },
+    "frozenCommit": {
+      "compatibility": "Historical inventory, spec, and proving-key pin. Must equal historicalBaselineCommit and photonSchemaRevision. api/transport-v1.json sourceRevision must equal this pin.",
+      "mustAgreeWith": [
+        "historicalBaselineCommit",
+        "photonSchemaRevision"
+      ],
+      "regenerationTrigger": "Change only when deliberately re-pinning the historical evidence set."
+    },
+    "historicalBaselineCommit": {
+      "compatibility": "Historical baseline alias. Must equal frozenCommit.",
+      "mustAgreeWith": [
+        "frozenCommit"
+      ],
+      "regenerationTrigger": "Same as frozenCommit."
+    },
+    "interface": {
+      "compatibility": "Provenance stamp for interface-family fixtures. Independent of client and merkleTree; may match baseline when both families last regenerated together.",
+      "regenerationTrigger": "Regenerate when program-libs/interface or related sources change interface fixture bytes."
+    },
+    "merkleTree": {
+      "compatibility": "Stamp for merkle-tree/paths-v1.json. That fixture's sourceRevision must equal this pin. Independent of baseline, client, and frozenCommit.",
+      "regenerationTrigger": "Regenerate when sdk-libs/merkle-tree or hasher sources change path fixture bytes."
+    },
+    "photonSchemaRevision": {
+      "compatibility": "Photon schema identity for indexer transport fixtures. Must equal frozenCommit while the schema is frozen to that revision.",
+      "mustAgreeWith": [
+        "frozenCommit"
+      ],
+      "regenerationTrigger": "Change when the Photon schema the fixtures encode moves off the historical pin."
+    },
+    "provingKeyRelease": {
+      "compatibility": "lockPath plus lockSha256 of proving-keys.lock at frozenCommit. Proof fixtures that assume a different proving-key release are incompatible with this pin.",
+      "regenerationTrigger": "Update when the proving-keys.lock blob at frozenCommit changes (key rotation recorded on that historical pin)."
+    },
+    "specSha256": {
+      "compatibility": "SHA-256 of docs/spec.md at frozenCommit. A fixture claim that assumes a different spec digest is incompatible with this pin.",
+      "regenerationTrigger": "Recompute when frozenCommit moves to a commit whose docs/spec.md differs."
+    }
   },
   "rust": {
     "packages": [

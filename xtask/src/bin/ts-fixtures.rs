@@ -840,7 +840,40 @@ fn production_fixtures(root: &Path) -> Result<(Vec<(&'static str, Value)>, Strin
     fixtures.extend(instruction_workflow_fixtures(&client_vectors)?);
     fixtures.extend(wallet_fixtures(&wallet_vectors)?);
     fixtures.extend(workflow_fixtures(&wallet_vectors)?);
+    for (path, fixture) in &mut fixtures {
+        attach_proof_verifying_keys(root, path, fixture)?;
+    }
     Ok((fixtures, client_revision))
+}
+
+/// Proof fixtures record the verifying-key modules the release verifier loads
+/// for the rail each fixture exercises. SHA-256 is over the committed
+/// `program-libs/interface/src/verifying_keys/<module>.rs` source.
+fn attach_proof_verifying_keys(root: &Path, path: &str, fixture: &mut Value) -> Result<()> {
+    let modules: &[(&str, &str)] = match path {
+        "client/proof-validity-v1.json" => &[
+            ("eddsa", "transfer_confidential_1_1"),
+            ("p256", "transfer_p256_confidential_1_1"),
+        ],
+        "client/proof-result-compression-v1.json" => &[("p256", "transfer_p256_confidential_1_1")],
+        "client/proof-input-v1.json" => &[("eddsa", "transfer_confidential_1_1")],
+        _ => return Ok(()),
+    };
+    let mut keys = Vec::with_capacity(modules.len());
+    for (rail, module) in modules {
+        let bytes = fs::read(
+            root.join("program-libs/interface/src/verifying_keys")
+                .join(format!("{module}.rs")),
+        )
+        .with_context(|| format!("read verifying key module {module}"))?;
+        keys.push(json!({
+            "module": module,
+            "rail": rail,
+            "sha256": sha256(&bytes),
+        }));
+    }
+    fixture["verifyingKeys"] = Value::Array(keys);
+    Ok(())
 }
 
 fn instruction_json(instruction: &solana_instruction::Instruction) -> Value {
@@ -2496,6 +2529,50 @@ fn write_inventory_report(path: &Path, rows: &[InventoryRow]) -> Result<()> {
     )
 }
 
+fn revision_compatibility() -> Value {
+    json!({
+        "baseline": {
+            "compatibility": "Provenance stamp for baseline-family fixtures regenerated from working-tree sources. May diverge from frozenCommit (Q6): stamps do not gate regeneration. Independent of client and merkleTree.",
+            "regenerationTrigger": "Regenerate when sdk-libs or program-libs sources that feed baseline fixtures change the produced bytes."
+        },
+        "client": {
+            "compatibility": "Live stamp for client/errors-v1.json, client/lib.json, and client/rpc-indexer-v1.json. Each fixture sourceRevision must equal this pin. May diverge from baseline and frozenCommit.",
+            "regenerationTrigger": "Advances only when a current-client fixture body changes; unrelated tip moves under sdk-libs/client/src do not invalidate or rewrite the stamp."
+        },
+        "interface": {
+            "compatibility": "Provenance stamp for interface-family fixtures. Independent of client and merkleTree; may match baseline when both families last regenerated together.",
+            "regenerationTrigger": "Regenerate when program-libs/interface or related sources change interface fixture bytes."
+        },
+        "merkleTree": {
+            "compatibility": "Stamp for merkle-tree/paths-v1.json. That fixture's sourceRevision must equal this pin. Independent of baseline, client, and frozenCommit.",
+            "regenerationTrigger": "Regenerate when sdk-libs/merkle-tree or hasher sources change path fixture bytes."
+        },
+        "frozenCommit": {
+            "compatibility": "Historical inventory, spec, and proving-key pin. Must equal historicalBaselineCommit and photonSchemaRevision. api/transport-v1.json sourceRevision must equal this pin.",
+            "mustAgreeWith": ["historicalBaselineCommit", "photonSchemaRevision"],
+            "regenerationTrigger": "Change only when deliberately re-pinning the historical evidence set."
+        },
+        "historicalBaselineCommit": {
+            "compatibility": "Historical baseline alias. Must equal frozenCommit.",
+            "mustAgreeWith": ["frozenCommit"],
+            "regenerationTrigger": "Same as frozenCommit."
+        },
+        "photonSchemaRevision": {
+            "compatibility": "Photon schema identity for indexer transport fixtures. Must equal frozenCommit while the schema is frozen to that revision.",
+            "mustAgreeWith": ["frozenCommit"],
+            "regenerationTrigger": "Change when the Photon schema the fixtures encode moves off the historical pin."
+        },
+        "specSha256": {
+            "compatibility": "SHA-256 of docs/spec.md at frozenCommit. A fixture claim that assumes a different spec digest is incompatible with this pin.",
+            "regenerationTrigger": "Recompute when frozenCommit moves to a commit whose docs/spec.md differs."
+        },
+        "provingKeyRelease": {
+            "compatibility": "lockPath plus lockSha256 of proving-keys.lock at frozenCommit. Proof fixtures that assume a different proving-key release are incompatible with this pin.",
+            "regenerationTrigger": "Update when the proving-keys.lock blob at frozenCommit changes (key rotation recorded on that historical pin)."
+        }
+    })
+}
+
 fn write_manifest(root: &Path, fixtures: &Path, client_revision: &str) -> Result<()> {
     let spec = git_blob(root, &format!("{HISTORICAL_BASELINE_SHA}:docs/spec.md"))?;
     let lock_path = "prover/server/prover/provingkeys/proving-keys.lock";
@@ -2522,6 +2599,7 @@ fn write_manifest(root: &Path, fixtures: &Path, client_revision: &str) -> Result
                 "lockPath":lock_path,
                 "lockSha256":sha256(&proving_lock)
             },
+            "revisionCompatibility": revision_compatibility(),
             "rust":{
                 "packages":[
                     {"features":["default","solana-rpc"],"name":"zolana-client"},
@@ -2874,12 +2952,35 @@ fn verify_manifest(fixtures: &Path, client_revision: &str) -> Result<()> {
         {
             bail!("{relative} has invalid fixture provenance");
         }
+        if matches!(
+            relative,
+            "client/proof-validity-v1.json"
+                | "client/proof-result-compression-v1.json"
+                | "client/proof-input-v1.json"
+        ) {
+            let keys = fixture["verifyingKeys"].as_array().ok_or_else(|| {
+                anyhow::anyhow!("{relative} lacks verifyingKeys for proof provenance")
+            })?;
+            if keys.is_empty() {
+                bail!("{relative} verifyingKeys is empty");
+            }
+            for key in keys {
+                if key["module"].as_str().is_none_or(|m| m.is_empty())
+                    || key["sha256"].as_str().is_none_or(|s| s.len() != 64)
+                {
+                    bail!("{relative} verifyingKeys entry lacks module or sha256");
+                }
+            }
+        }
         let id = fixture["id"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("{relative} fixture id is not a string"))?;
         if id.is_empty() || !ids.insert(id.to_string()) {
             bail!("{relative} has an empty or duplicate fixture id");
         }
+    }
+    if manifest.get("revisionCompatibility").is_none() {
+        bail!("manifest lacks revisionCompatibility");
     }
     Ok(())
 }
