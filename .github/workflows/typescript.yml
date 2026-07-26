@@ -118,6 +118,10 @@ jobs:
       - run: npm ci
       - run: npm run check:packaging
 
+  # Every committed JSON fixture under sdk-libs/ts is produced by an xtask
+  # generator with a `--check` mode. This job is the only place CI regenerates
+  # those files against HEAD, so a Rust-side change that invalidates a fixture
+  # fails here rather than leaving TypeScript tests green on stale data.
   fixtures:
     name: typescript / fixtures
     runs-on: ubuntu-latest
@@ -126,7 +130,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          # The generator reads the frozen baseline blobs out of git history.
+          # ts-fixtures reads frozen baseline blobs out of git history.
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
